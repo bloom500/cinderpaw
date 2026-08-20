@@ -12,7 +12,7 @@ export function WelcomeStep() {
         <div className="text-5xl leading-none" aria-hidden="true">👋</div>
         <h1 className="text-2xl font-bold text-text-primary tracking-tight">Meet Agents</h1>
         <p className="text-sm text-text-muted leading-relaxed">
-          Little AI helpers you set up once and run anytime —<br />
+          Little AI helpers you set up once and run anytime,<br />
           on your device, <span className="text-text-secondary">privately</span>. 🔒
         </p>
       </div>

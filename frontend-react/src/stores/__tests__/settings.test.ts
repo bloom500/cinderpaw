@@ -36,6 +36,8 @@ const sample = {
   desktop_control_yolo: false,
   token_budget_conversation: null,
   rsi_max_cost_usd: 0,
+  rsi_allow_cloud_dreams: false,
+  active_route: null,
 };
 
 const reset = () =>

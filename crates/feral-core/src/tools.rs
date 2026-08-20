@@ -44,8 +44,27 @@ impl ToolType {
         }
     }
 
-    #[allow(clippy::wrong_self_convention)] // reads `&self`; renaming would ripple to all callers
-    pub fn to_openai_definition(&self) -> serde_json::Value {
+    /// Every tool there is. Used by anything that has to advertise the whole set
+    /// rather than answer about one — a vendor's tool list, a UI, a test that
+    /// must fail when a tool is added and forgotten.
+    pub const ALL: &'static [ToolType] = &[
+        Self::WebSearch,
+        Self::FileRead,
+        Self::FileWrite,
+        Self::CodeExecute,
+        Self::HttpRequest,
+    ];
+
+    /// The JSON Schema for this tool's arguments, in one place.
+    ///
+    /// Every vendor wants the same schema in a different envelope: OpenAI nests
+    /// it under `function.parameters`, Anthropic calls it `input_schema`, Gemini
+    /// takes it bare. What none of them change is the schema itself, so it is
+    /// written once here and wrapped below. It used to be copied per renderer,
+    /// which meant a tool gaining an argument had to be edited in as many places
+    /// as there were providers, and a missed one does not fail — it silently
+    /// tells that provider the argument does not exist.
+    pub fn parameters(&self) -> serde_json::Value {
         let (properties, required) = match self {
             Self::WebSearch => (
                 serde_json::json!({ "query": { "type": "string", "description": "The search query" } }),
@@ -79,15 +98,20 @@ impl ToolType {
             ),
         };
         serde_json::json!({
+            "type": "object",
+            "properties": properties,
+            "required": required
+        })
+    }
+
+    #[allow(clippy::wrong_self_convention)] // reads `&self`; renaming would ripple to all callers
+    pub fn to_openai_definition(&self) -> serde_json::Value {
+        serde_json::json!({
             "type": "function",
             "function": {
                 "name": self.name(),
                 "description": self.description(),
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required
-                }
+                "parameters": self.parameters()
             }
         })
     }
@@ -98,47 +122,24 @@ impl ToolType {
     /// `input_schema`. Same field semantics, different shape.
     #[allow(clippy::wrong_self_convention)] // reads `&self`; mirrors to_openai_definition
     pub fn to_anthropic_definition(&self) -> serde_json::Value {
-        let (properties, required) = match self {
-            Self::WebSearch => (
-                serde_json::json!({ "query": { "type": "string", "description": "The search query" } }),
-                serde_json::json!(["query"]),
-            ),
-            Self::FileRead => (
-                serde_json::json!({ "path": { "type": "string", "description": "Absolute or relative file path" } }),
-                serde_json::json!(["path"]),
-            ),
-            Self::FileWrite => (
-                serde_json::json!({
-                    "path":    { "type": "string", "description": "File path to write" },
-                    "content": { "type": "string", "description": "Text content to write" }
-                }),
-                serde_json::json!(["path", "content"]),
-            ),
-            Self::CodeExecute => (
-                serde_json::json!({
-                    "lang": { "type": "string", "enum": ["python"], "description": "Language (only python supported)" },
-                    "code": { "type": "string", "description": "Code to execute" }
-                }),
-                serde_json::json!(["lang", "code"]),
-            ),
-            Self::HttpRequest => (
-                serde_json::json!({
-                    "method": { "type": "string", "enum": ["GET", "POST"], "description": "HTTP method" },
-                    "url":    { "type": "string", "description": "Full URL" },
-                    "body":   { "type": "string", "description": "Request body for POST" }
-                }),
-                serde_json::json!(["method", "url"]),
-            ),
-        };
         serde_json::json!({
             "name": self.name(),
             "description": self.description(),
-            "input_schema": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            }
+            "input_schema": self.parameters()
         })
+    }
+
+    /// Gemini's shape: name, description, and the schema bare under
+    /// `parameters`. Typed rather than JSON because the Live setup message is
+    /// typed, and this is the one renderer whose output goes into a struct.
+    #[allow(clippy::wrong_self_convention)] // mirrors the two above
+    pub fn to_gemini_declaration(&self) -> crate::live::FunctionDeclaration {
+        crate::live::FunctionDeclaration {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters(),
+            behavior: None,
+        }
     }
 }
 
@@ -447,12 +448,26 @@ async fn code_execute(args: Value) -> Result<String> {
 // resolved IP (anti-DNS-rebinding), including IPv4-mapped IPv6 (::ffff:127.0.0.1).
 
 fn is_blocked_v4(a: std::net::Ipv4Addr) -> bool {
+    let o = a.octets();
     a.is_loopback()        // 127.0.0.0/8
         || a.is_private()  // 10/8, 172.16/12, 192.168/16
         || a.is_link_local() // 169.254/16
         || a.is_unspecified() // 0.0.0.0
         || a.is_broadcast()
-        || a.octets()[0] == 0 // "this" network
+        || o[0] == 0 // "this" network
+        // 100.64.0.0/10 — carrier-grade NAT. `is_private` does not cover it,
+        // and it is exactly where an ISP's and a corporate LAN's internal
+        // machines live, so a domain resolving here was a way through the SSRF
+        // guard to somewhere that felt "public" only on paper.
+        || (o[0] == 100 && (64..=127).contains(&o[1]))
+        // Documentation/test ranges: never a legitimate destination.
+        || (o[0] == 192 && o[1] == 0 && o[2] == 2)
+        || (o[0] == 198 && o[1] == 51 && o[2] == 100)
+        || (o[0] == 203 && o[1] == 0 && o[2] == 113)
+        // 198.18.0.0/15 — benchmarking range.
+        || (o[0] == 198 && (o[1] == 18 || o[1] == 19))
+        // 240.0.0.0/4 — reserved.
+        || o[0] >= 240
 }
 
 fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
@@ -478,6 +493,20 @@ fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
 
 /// Validate a single URL hop: scheme, host-string SSRF guard, and resolved-IP
 /// SSRF guard. Returns the parsed URL so the caller can follow redirects.
+/// `assert_public_url` off the async worker.
+///
+/// It resolves DNS with the blocking `to_socket_addrs`, and it is called from
+/// an async tool handler — so a slow or dead resolver parks a whole tokio
+/// worker thread for the length of the lookup, and every unrelated request
+/// that happens to sit on that worker times out with it. The check itself is
+/// right; only the thread it ran on was wrong.
+async fn assert_public_url_async(raw: &str) -> Result<reqwest::Url> {
+    let raw = raw.to_string();
+    tokio::task::spawn_blocking(move || assert_public_url(&raw))
+        .await
+        .map_err(|e| anyhow!("url validation task failed: {e}"))?
+}
+
 fn assert_public_url(raw: &str) -> Result<reqwest::Url> {
     use std::net::ToSocketAddrs;
     let parsed = reqwest::Url::parse(raw).map_err(|e| anyhow!("malformed URL: {e}"))?;
@@ -539,7 +568,7 @@ async fn http_request(args: Value) -> Result<String> {
         .build()?;
 
     const MAX_REDIRECTS: usize = 5;
-    let mut current = assert_public_url(url)?;
+    let mut current = assert_public_url_async(url).await?;
     let mut cur_method = method;
     let mut cur_body = body;
 
@@ -568,7 +597,7 @@ async fn http_request(args: Value) -> Result<String> {
                         cur_method = "GET".into();
                         cur_body = String::new();
                     }
-                    current = assert_public_url(next.as_str())?;
+                    current = assert_public_url_async(next.as_str()).await?;
                     hop += 1;
                     continue;
                 }
@@ -768,5 +797,22 @@ mod security_tests {
         assert!(confine_path("/etc/passwd", true).is_err());
 
         std::env::remove_var("FERAL_AGENT_WORKSPACE");
+    }
+}
+
+#[cfg(test)]
+mod live_search_probe {
+    use super::*;
+
+    /// Does the Rust-side `web_search` actually return anything?
+    ///
+    /// The Live call reaches THIS implementation, not the sidecar's — so the
+    /// DuckDuckGo fix that made search work for the agent never applied here.
+    /// Ignored by default: it goes to the network.
+    #[tokio::test]
+    #[ignore = "hits public search instances"]
+    async fn probe_web_search() {
+        let out = execute(ToolType::WebSearch, serde_json::json!({"query": "ce este Feral AI"})).await;
+        println!("ok={} output={}", out.ok, &out.output[..out.output.len().min(600)]);
     }
 }

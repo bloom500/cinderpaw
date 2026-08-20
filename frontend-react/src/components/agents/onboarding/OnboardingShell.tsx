@@ -53,7 +53,7 @@ export function OnboardingShell({
             type="button"
             onClick={onContinue}
             disabled={continueDisabled || continueBusy}
-            className="w-full py-2.5 rounded-xl bg-brand text-white text-sm font-semibold hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full py-2.5 rounded-xl bg-brand text-on-brand text-sm font-semibold hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {continueBusy ? 'Saving…' : continueLabel}
           </button>

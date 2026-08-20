@@ -131,6 +131,32 @@ impl SandboxBounds {
                 BOUNDS_FILE_VERSION
             );
         }
+
+        // Verifying the chain proves the LOG was not edited. It says nothing
+        // about the file the log describes — so hand-editing
+        // `sandbox_bounds.json` to `max_total_cost_usd: 999999` passed every
+        // check and the session then span without a spending ceiling, with the
+        // audit trail reading perfectly intact beside it.
+        //
+        // Every field the chain has ever recorded must still match what the
+        // chain last said it was. Fields never audited (still at their default)
+        // have nothing to compare against and are left alone.
+        let recorded = audit.last_values().context("reading bounds audit values")?;
+        if !recorded.is_empty() {
+            let current = serde_json::to_value(&parsed)?;
+            for (field, expected) in &recorded {
+                let Some(actual) = current.get(field) else { continue };
+                if actual.to_string() != *expected {
+                    anyhow::bail!(
+                        "{} disagrees with the audit chain on '{}': the file says {}, the last                          audited value was {}. The bounds file has been changed outside Feral —                          restore it, or re-apply the change through Feral so it is recorded.",
+                        bounds_path.display(),
+                        field,
+                        actual,
+                        expected
+                    );
+                }
+            }
+        }
         Ok(parsed)
     }
 
@@ -166,56 +192,32 @@ impl SandboxBounds {
 
         let new_v = serde_json::to_value(self)?;
 
-        // List of fields we record. Each entry: (field_name, value_fn).
-        // value_fn returns the JSON-serialisable value at that field.
-        let field_writers: [(&str, serde_json::Value); 7] = [
-            ("scorer", new_v.get("scorer").cloned().unwrap_or(serde_json::Value::Null)),
-            (
-                "max_total_cost_usd",
-                new_v.get("max_total_cost_usd").cloned().unwrap_or(serde_json::Value::Null),
-            ),
-            (
-                "cost_warning_ratio",
-                new_v.get("cost_warning_ratio").cloned().unwrap_or(serde_json::Value::Null),
-            ),
-            (
-                "max_per_iteration_cost_usd",
-                new_v
-                    .get("max_per_iteration_cost_usd")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null),
-            ),
-            (
-                "goodhart_tier1_threshold",
-                new_v
-                    .get("goodhart_tier1_threshold")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null),
-            ),
-            (
-                "goodhart_tier2_threshold",
-                new_v
-                    .get("goodhart_tier2_threshold")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null),
-            ),
-            (
-                "goodhart_consecutive_required",
-                new_v
-                    .get("goodhart_consecutive_required")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null),
-            ),
-        ];
+        // Every field in the serialised object, discovered rather than listed.
+        //
+        // This used to be a hand-written array of seven names. `SandboxBounds`
+        // has eight fields, and the day someone adds a ninth — a new cost cap, a
+        // new Goodhart knob — it is exempt from the audit log by omission, with
+        // nothing failing to point it out. An audit that silently skips the
+        // newest limit is worse than no audit, because it still reads complete.
+        let field_writers: Vec<(String, serde_json::Value)> = new_v
+            .as_object()
+            .map(|obj| {
+                obj.iter()
+                    // `version` is schema bookkeeping, not a user-facing bound.
+                    .filter(|(k, _)| k.as_str() != "version")
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         // Collect the field-level diffs BEFORE writing the file, so a
         // failed file write doesn't leave us having to roll back audit
         // rows that were committed under an outdated assumption.
-        let mut pending: Vec<(&str, Option<String>, String)> = Vec::new();
+        let mut pending: Vec<(String, Option<String>, String)> = Vec::new();
         for (field, new_field_value) in &field_writers {
             let old_field_value = old_v
                 .as_ref()
-                .and_then(|v| v.get(field).cloned())
+                .and_then(|v| v.get(field.as_str()).cloned())
                 .unwrap_or(serde_json::Value::Null);
 
             if old_field_value != *new_field_value {
@@ -224,7 +226,7 @@ impl SandboxBounds {
                 } else {
                     Some(old_field_value.to_string())
                 };
-                pending.push((field, old_str, new_field_value.to_string()));
+                pending.push((field.clone(), old_str, new_field_value.to_string()));
             }
         }
 
@@ -306,6 +308,18 @@ impl SandboxBounds {
             paths::rsi_eval_dir(1),
             paths::rsi_eval_dir(2),
         ];
+
+        // Everything under the RSI root is protected, whether or not the
+        // specific subdirectory has been created yet. The loop below skips
+        // bases that do not exist — which is right for a containment check, but
+        // it meant the FIRST write into `eval/tier1/` (before that directory
+        // existed) was not recognised as protected and went through without the
+        // policy applying. The one write that creates a protected area is
+        // exactly the one that should not be exempt from protecting it.
+        let rsi_root = paths::rsi_dir();
+        if rsi_root.exists() && super::paths::is_under(&rsi_root, abs_path)? {
+            return Ok(true);
+        }
 
         for base in &protected_full {
             if !base.exists() {

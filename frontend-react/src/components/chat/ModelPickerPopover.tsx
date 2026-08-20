@@ -12,6 +12,7 @@ import { useModel } from '@/stores/model';
 import { useUI } from '@/stores/ui';
 import { useFeralStore } from '@/stores/feral';
 import { useNotifications } from '@/stores/notifications';
+import { useT } from '@/lib/i18n';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { BackendBadge } from '@/components/BackendBadge';
 
@@ -48,13 +49,49 @@ export function ModelPickerPopover() {
   const [cloudProviders, setCloudProviders] = useState<ByokProvider[]>([]);
   const [open, setOpen] = useState(false);
 
+  /**
+   * Every provider that HAS a key, enabled or not.
+   *
+   * Filtering on `enabled` too made a real trap: the enable switch in Settings →
+   * Cloud Keys starts off for a new provider, so pasting a key, setting a model
+   * and pressing Save stored everything correctly, said "✓ Saved", and left the
+   * provider invisible here with nothing explaining why. A provider with a key is
+   * now always listed — disabled ones are shown as such, and can be switched on
+   * from the row itself.
+   */
+  const refreshCloud = () =>
+    tauri.raw
+      .getByokSettings()
+      .then((providers) => setCloudProviders(providers.filter((p) => p.has_api_key)))
+      .catch(() => {});
+
   useEffect(() => {
     if (!open) return;
     void tauri.models.list().then(setLocalModels).catch(() => {});
-    void tauri.raw.getByokSettings()
-      .then((providers) => setCloudProviders(providers.filter((p) => p.enabled && p.has_api_key)))
-      .catch(() => {});
+    void refreshCloud();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshCloud is stable enough; open is the trigger
   }, [open]);
+
+  /**
+   * Turn a provider on AND select it — one click, because that is what clicking it
+   * meant.
+   *
+   * Enabling alone left the row looking freshly normal and still unselected, so the
+   * user had to click the same row twice with no indication that the first click
+   * had done half the job. An empty key means "leave the stored one untouched" all
+   * the way down to the keychain, so nothing is overwritten.
+   */
+  const enableProvider = async (p: ByokProvider) => {
+    await tauri.raw.saveByokProvider(p.id, true, '');
+    await refreshCloud();
+    const modelId = p.default_model ?? '';
+    // No default model to route to: the row now renders the "set one in Settings"
+    // hint, so leave the menu open on it rather than closing on a no-op.
+    if (!modelId) return;
+    if (isAgentMode) await selectCloudAgent(p.id, modelId);
+    else setCloudModel({ providerId: p.id, providerName: p.name, modelId });
+    setOpen(false);
+  };
 
   // In agent mode, selecting a local model must LOAD it into Feral's engine
   // (so /v1/chat/completions has it resident) then point the sidecar at it.
@@ -76,6 +113,8 @@ export function ModelPickerPopover() {
     }
   };
 
+  const t = useT();
+
   // Agent-mode cloud switches go through the sidecar and can fail (sidecar
   // offline, provider disabled, missing key…). A discarded promise meant the
   // user clicked a model and nothing visibly happened — surface the error.
@@ -89,36 +128,50 @@ export function ModelPickerPopover() {
     }
   };
 
+  const hasLocal = localModels.length > 0;
+  const hasCloud = cloudProviders.length > 0;
+
+  /**
+   * What the trigger says when no model is explicitly pinned.
+   *
+   * It used to say "No model selected", which was wrong twice over: it read
+   * as an error the user had to go fix, and it stopped being true the moment
+   * Brain Stack started choosing a model per turn on its own. Picking a model
+   * by hand is now an override, not a prerequisite — so with models around,
+   * the honest label is that the choice is automatic. With nothing installed
+   * at all it becomes an invitation rather than a verdict.
+   */
+  const unpinnedLabel = hasLocal || hasCloud ? t('model.automatic') : t('model.add');
+
   let label: string;
   if (isAgentMode) {
     label = feralSwitching
       ? 'Switching…'
       : isLoading
         ? `Loading ${progress?.percentage.toFixed(0) ?? 0}%`
-        : feralConfig?.display_name ?? loaded?.name ?? 'No model selected';
+        : feralConfig?.display_name ?? loaded?.name ?? unpinnedLabel;
   } else if (isLoading) {
     label = `Loading ${progress?.percentage.toFixed(0) ?? 0}%`;
   } else if (cloudModel) {
     label = `${cloudModel.modelId} · ${cloudModel.providerName}`;
   } else {
-    label = loaded?.name ?? 'No model selected';
+    label = loaded?.name ?? unpinnedLabel;
   }
-
-  const hasLocal = localModels.length > 0;
-  const hasCloud = cloudProviders.length > 0;
 
   return (
     <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2 h-full px-4 text-sm font-medium text-text-primary hover:text-text-primary/70 transition-colors outline-none">
-          <span className="truncate max-w-[200px]">{label}</span>
+        <button className="flex items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-muted hover:text-text-secondary transition-colors outline-none">
+          <span className="truncate max-w-[150px]">{label}</span>
           {/* Only meaningful for a local model — BackendBadge renders nothing
               when none is loaded, so a cloud route stays clean. */}
           {!cloudModel && !isLoading && <BackendBadge />}
           <ChevronDown size={12} className="shrink-0 opacity-50" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      {/* Upward: the composer sits at the bottom of the screen, and a menu
+          that opens downward from it opens off-screen. */}
+      <DropdownMenuContent side="top" align="start" className="w-72">
         {hasLocal && (
           <>
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
@@ -148,6 +201,31 @@ export function ModelPickerPopover() {
             </DropdownMenuLabel>
             {cloudProviders.map((p) => {
               const modelId = p.default_model ?? '';
+              // A key is stored but the provider is switched off. Selecting it
+              // would silently do nothing, so the row turns it on instead — one
+              // click, in the place the user is already looking.
+              if (!p.enabled) {
+                return (
+                  <DropdownMenuItem
+                    key={p.id}
+                    onSelect={(e) => {
+                      e.preventDefault(); // keep the menu open so the row updates in place
+                      void enableProvider(p);
+                    }}
+                    className="flex flex-col items-start gap-0.5"
+                  >
+                    <span className="flex items-center gap-1.5 text-text-secondary">
+                      {p.name}
+                      <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-micro text-amber-400">
+                        off
+                      </span>
+                    </span>
+                    <span className="text-xs text-text-muted">
+                      Key saved · click to turn this provider on
+                    </span>
+                  </DropdownMenuItem>
+                );
+              }
               return (
                 <DropdownMenuItem
                   key={p.id}
@@ -173,7 +251,7 @@ export function ModelPickerPopover() {
         )}
         {!hasLocal && !hasCloud && (
           <DropdownMenuItem disabled>
-            No models found — download one or add a cloud key
+            No models found. Download one or add a cloud key
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

@@ -206,6 +206,35 @@ export class Subagent {
       this.#hooks,
     );
 
+    // Cancellation. `AgentLoop.stop()` is the path a user's Stop already takes
+    // — it latches `ctx.stopped`, aborts the router and aborts the in-flight
+    // tool — so routing the caller's signal into it reuses a hardened path
+    // instead of adding a second, less-tested one.
+    //
+    // A signal that has ALREADY fired is checked before the first model call:
+    // spawning a child for a turn the user just stopped would spend money on
+    // an answer nobody is waiting for.
+    if (config.signal?.aborted) {
+      return this.#wrap(
+        {
+          status: "cancelled",
+          answer: "Cancelled before the subagent started.",
+          toolCalls: 0,
+          tokensUsed: 0,
+          durationMs: Date.now() - startedAt,
+          subagentId,
+        },
+        config.parentSessionId,
+        subagentId,
+      );
+    }
+    let cancelled = false;
+    const onAbort = () => {
+      cancelled = true;
+      childAgent.stop(childSessionId);
+    };
+    config.signal?.addEventListener("abort", onAbort, { once: true });
+
     let errorMessage: string | null = null;
     try {
       const rawAnswer = await childAgent.handle(
@@ -236,8 +265,12 @@ export class Subagent {
       // it's a completion. The "I reached the maximum number of
       // reasoning steps" text in `rawAnswer` also counts as a
       // failure — the subagent ran out of iterations.
+      // A stopped run reports `cancelled` even though the loop returned a
+      // string: it stopped because it was told to, and calling that `failed`
+      // would send delegate_task's retry after work the user just abandoned.
       let status: SubagentResult["status"] = "completed";
-      if (errorMessage) status = "failed";
+      if (cancelled) status = "cancelled";
+      else if (errorMessage) status = "failed";
       else if (
         /reached the maximum number of reasoning steps/i.test(rawAnswer) ||
         /completed \d+ actions but haven't been able to produce a final answer/i.test(rawAnswer)
@@ -259,8 +292,10 @@ export class Subagent {
     } catch (err) {
       return this.#wrap(
         {
-          status: "failed",
-          answer: `Subagent failed: ${String(err).slice(0, 500)}`,
+          status: cancelled ? "cancelled" : "failed",
+          answer: cancelled
+            ? "Cancelled while the subagent was running."
+            : `Subagent failed: ${String(err).slice(0, 500)}`,
           toolCalls: toolCallCount,
           tokensUsed,
           durationMs: Date.now() - startedAt,
@@ -269,6 +304,10 @@ export class Subagent {
         config.parentSessionId,
         subagentId,
       );
+    } finally {
+      // A parent signal outlives one child (a whole turn's worth of them), so
+      // an un-removed listener is a leak that grows with every worker spawned.
+      config.signal?.removeEventListener("abort", onAbort);
     }
   }
 

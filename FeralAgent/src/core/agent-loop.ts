@@ -72,6 +72,9 @@ import {
 } from "./feral-prompt.ts";
 import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
 import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
+import { NOTEBOOK_TOOL_NAME } from "../tools/builtin/notebook.ts";
+import { buildNotebookSection, WORKER_BRIEF } from "../rlm/prompt.ts";
+import { toIdentifier } from "../rlm/repl.ts";
 import { isConnectorTool, isCoreTool } from "../tools/tiers.ts";
 // Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
 import {
@@ -340,7 +343,10 @@ export class AgentLoop {
    * {primary, fallback} targets. When null, today's path is preserved
    * (router.complete() with #primary/#fallback) — no behavior change.
    */
-  readonly #brain: BrainStack | null;
+  /** Not readonly: `setBrain` swaps it when the host switches models — a
+   *  brain left pointing at the previous provider routes turns to an endpoint
+   *  the router no longer trusts. */
+  #brain: BrainStack | null;
   readonly #config: AgentLoopConfig;
   /** Owner system prompt. Rebuilt by `#syncTools()` when the registry changes. */
   #systemPrompt!: string;
@@ -619,6 +625,19 @@ export class AgentLoop {
   }
 
   /**
+   * Swap the Brain Stack after the host switches models.
+   *
+   * The registry the brain routes over is derived from the router's targets at
+   * boot. When `set_model` repoints the router, a brain still holding the old
+   * targets routes to a provider the user has left — which the router's trust
+   * check then refuses, ending every turn until restart. The brain has to
+   * follow the router.
+   */
+  setBrain(brain: BrainStack | null): void {
+    this.#brain = brain;
+  }
+
+  /**
    * Register (or replace) a constrained operating profile. The tool defs are
    * compiled once here by filtering the registry to `allowedTools`, so per-turn
    * cost is a single map lookup. Sessions are bound to a profile via
@@ -662,9 +681,28 @@ export class AgentLoop {
    * system prompt, and unlike a profile it leaves the owner's full prompt and
    * toolset intact.
    */
-  setSessionSurface(sessionId: string, brief: string): void {
+  setSessionSurface(sessionId: string, brief: string, opts?: { spoken?: boolean }): void {
     this.#memoryFor(sessionId).setSurfaceBrief(brief);
+    // `spoken` is not a synonym for "has a brief": it says the answer is going to
+    // be HEARD, which changes which drawers make sense at all. See `#spokenSurface`.
+    if (opts?.spoken) this.#spokenSurface.add(sessionId);
+    else this.#spokenSurface.delete(sessionId);
   }
+
+  /**
+   * Sessions whose answers are spoken out loud.
+   *
+   * The notebook drawer is skipped for these. Rendering it in full every turn is
+   * right for a long autonomous run — the notes are why the agent does not redo
+   * work it already did — but in a spoken conversation it hijacked the reply: it is
+   * the most concrete block in the prompt, so "hello" came back as a status report
+   * about whatever the notes were about, and a user asked twice why he was being
+   * told how many files were in an inventory he never mentioned.
+   *
+   * The notes stay reachable: `recall` fetches them on demand, so asking "what did
+   * you note?" still works. What stops is volunteering them unprompted.
+   */
+  readonly #spokenSurface = new Set<string>();
 
   /** Clear a session's profile binding (reverts to the owner profile). */
   clearSessionProfile(sessionId: string): void {
@@ -713,10 +751,18 @@ export class AgentLoop {
     // the expensive direction is worse than no instrument.
     const schema = countTokens(JSON.stringify(advertised));
     const prompt = countTokens(stripToolsFromSystemPrompt(this.#systemPrompt));
+    // The notebook doctrine is added per session, so it is NOT in
+    // `#systemPrompt` and this line under-reported the bill the moment the
+    // notebook shipped — understating it by ~1,100 tokens on every completion.
+    // Wrong in the cheap direction is the worse failure: an instrument that
+    // never alarms is one nobody checks. Measured at depth 0, which is the
+    // expensive case (the recursion clause is roughly half of it).
+    const doctrine = countTokens(buildNotebookAddendum(this.#registry, ""));
     log(
       `tools: ${advertised.length} of ${this.#openAITools.length} advertised by default — ` +
-        `${schema} tokens of schema + ${prompt} tokens of system prompt = ` +
-        `${schema + prompt} re-sent on every completion`,
+        `${schema} tokens of schema + ${prompt} tokens of system prompt` +
+        (doctrine > 0 ? ` + ${doctrine} tokens of notebook doctrine` : "") +
+        ` = ${schema + prompt + doctrine} re-sent on every completion`,
     );
   }
 
@@ -843,6 +889,63 @@ export class AgentLoop {
    *
    * Safe to call when no generation is in flight (no-op).
    */
+  /**
+   * File an exchange that happened somewhere else, without answering it.
+   *
+   * A speech-to-speech call is conducted by Gemini, not by this loop: by the
+   * time it ends, the user has been heard and answered, and both halves exist
+   * only as the transcripts the far end produced. Sending them through
+   * `handleTurn` would make the agent reply to a question already answered —
+   * so the memory writes are separated from the thinking, and this does only
+   * the writes.
+   *
+   * It is the difference between a call that leaves a trace and one that never
+   * happened. Ten minutes of conversation, closed, and nothing in the session:
+   * the next call opens knowing nothing, and `recall` cannot find a word of it.
+   *
+   * Takes the session lock like a real turn, because the same session can be
+   * typed in while a call runs, and interleaving two writers into one
+   * WorkingMemory reorders the conversation.
+   */
+  async recordTurn(sessionId: string, userText: string, assistantText: string): Promise<void> {
+    const user = userText.trim();
+    const assistant = assistantText.trim();
+    // Nothing to file is not an error: a call can end after a greeting with no
+    // transcript worth keeping, and an empty pair would be a turn that reads as
+    // the agent having said nothing when asked nothing.
+    if (!user && !assistant) return;
+
+    const prev = this.#sessionLocks.get(sessionId) ?? Promise.resolve();
+    let release!: () => void;
+    this.#sessionLocks.set(sessionId, new Promise<void>((resolve) => { release = resolve; }));
+    try {
+      await prev.catch(() => undefined);
+      const memory = this.#memoryFor(sessionId);
+      if (user) {
+        memory.addUser(user);
+        // The same two side effects a lived turn has: the resume row, so
+        // "what was I doing" knows about the call, and the episodic write that
+        // `recall` and the fractal tree read from. Skipping either would leave
+        // the turn visible on screen and invisible to memory, which is the
+        // worse half of not recording it at all.
+        if (isReplayableSession(sessionId) && !this.#profileFor(sessionId)) {
+          this.#onUserTurn?.(sessionId, user);
+        }
+        const ts = Date.now();
+        const leaf = this.#episodic.record(sessionId, "user", user);
+        if (leaf !== null) this.#recall?.noteWrite?.({ id: leaf, sessionId, ts });
+      }
+      if (assistant) {
+        memory.addAssistant(assistant);
+        const ts = Date.now();
+        const leaf = this.#episodic.record(sessionId, "assistant", assistant);
+        if (leaf !== null) this.#recall?.noteWrite?.({ id: leaf, sessionId, ts });
+      }
+    } finally {
+      release();
+    }
+  }
+
   stop(sessionId: string): void {
     // Latch the stop on the session context FIRST. Aborting is edge-triggered:
     // the router deletes a session's controller once its call settles, so
@@ -1029,7 +1132,10 @@ export class AgentLoop {
     // surface in another's session.
     if (this.#notebook) {
       try {
-        memory.setNotebook(this.#notebook.notes(memoryScope(sessionId)));
+        // Spoken turns get no notebook drawer — see `#spokenSurface` for why.
+        memory.setNotebook(
+          this.#spokenSurface.has(sessionId) ? [] : this.#notebook.notes(memoryScope(sessionId)),
+        );
       } catch {
         // A memory-store failure must never cost the user their turn.
       }
@@ -1064,9 +1170,12 @@ export class AgentLoop {
     // S5: Brain Stack routing — compute ONCE per user turn (NOT per tool
     // iteration). The chosen {primary, fallback} pair is used for every
     // router call inside the loop in #run (main completion + budget-
-    // recovery retry). A BrainError here falls back to the default path
-    // silently — a misconfigured Brain must not break a turn.
-    const routeTargets = this.#brain ? this.#routeForTurn(userText, images) : null;
+    // recovery retry). A BrainError here falls back to the default path —
+    // a misconfigured Brain must not break a turn — but the fallback is
+    // announced via `model_routed`, never silent.
+    const routeTargets = this.#brain
+      ? this.#routeForTurn(userText, images, ctx, sessionId, traceId)
+      : null;
 
     try {
       // Self-terminating loop: no limit computation needed. #run() returns
@@ -1397,7 +1506,19 @@ export class AgentLoop {
       const hold = createStreamHoldback((content) =>
         ctx.emit({ type: "chunk", id: messageId, content, traceId }),
       );
+      // Where the time actually goes, because "it feels slow" has no answer and
+      // is the third time this year the same question has been re-derived by
+      // hand. Three numbers separate the three causes that look identical from
+      // the outside: a long WAIT then a fast stream is the provider queueing,
+      // a short wait then a slow stream is us (or the route), and a long wait
+      // with thinking output is the model reasoning. Guessing between them from
+      // a stopwatch is how an afternoon disappears.
+      const sentAt = Date.now();
+      let firstTokenAt = 0;
+      let streamedChunks = 0;
       const onToken = (token: string) => {
+        if (firstTokenAt === 0) firstTokenAt = Date.now();
+        streamedChunks++;
         streamedSoFar += token;
         hold.push(token);
       };
@@ -1415,6 +1536,40 @@ export class AgentLoop {
       // consumption (the latest call's prompt = full context fed to the model,
       // plus this turn's completion) instead of a rough message estimate.
       ctx.emit({ type: "usage", id: messageId, sessionId, promptTokens, completionTokens, traceId });
+      {
+        const now = Date.now();
+        // A non-streaming provider never calls onToken, so the wait IS the whole
+        // turn — say "n/a" rather than printing 0 and implying it was instant.
+        const ttft = firstTokenAt > 0 ? `${((firstTokenAt - sentAt) / 1000).toFixed(1)}s` : "n/a";
+        const total = (now - sentAt) / 1000;
+        // Rate from the provider's OWN completion count, not from how many
+        // times onToken fired. The first reading said "6.0 tok/s" for 233
+        // tokens in 1.7s — off by more than twenty times, because a provider
+        // streams CHUNKS and a chunk is many tokens. An instrument that
+        // understates throughput by 20× points the investigation straight at
+        // the wrong half of the turn, which is the one thing it exists to
+        // prevent. Chunks are still reported, because a low chunk count with a
+        // high token count means the "stream" arrived in two lumps — which
+        // feels like a stall no matter how good the tokens-per-second is.
+        const streamSecs = firstTokenAt > 0 ? (now - firstTokenAt) / 1000 : 0;
+        const rate = streamSecs > 0 && completionTokens
+          ? `${(completionTokens / streamSecs).toFixed(0)} tok/s`
+          : "n/a";
+        // Thinking is measured because it is the cheapest way to rule the model
+        // OUT: `think=0` on a slow turn means nothing was reasoned, so the time
+        // was spent somewhere that is not the model's head.
+        const think = completion.length - stripThinking(completion).length;
+        // Not every provider returns usage. Printing "undefined prompt" in an
+        // instrument built to answer "where does the time go" just adds a
+        // second question — say the counts are missing, or leave them out.
+        const usage = promptTokens || completionTokens
+          ? `, ${promptTokens ?? "?"} prompt + ${completionTokens ?? "?"} completion`
+          : "";
+        log(
+          `turn: wait ${ttft} → first token, ${total.toFixed(1)}s total, ` +
+            `${rate} over ${streamedChunks} chunk(s)${usage}, think=${think}`,
+        );
+      }
       // The live registry is the allowlist for the vendored repair pass: a
       // shape we do not natively parse may only become a call if it names a
       // tool that actually exists. Read fresh each turn — load_tool can add
@@ -2085,9 +2240,40 @@ export class AgentLoop {
    * (cloud is reachable when primary OR fallback is on a non-loopback
    * host — see `InferenceRouter.cloudReachable`).
    */
+  /**
+   * Roughly how big this turn's prompt will be, so routing can rule out a
+   * model that cannot hold it.
+   *
+   * An estimate on purpose. The real prompt is assembled inside `#run`, after
+   * the model has already been chosen — waiting for the exact number would
+   * mean choosing first and measuring afterwards, which is the order that
+   * produced the failure this guards against. The three parts that dominate
+   * are known here: the system prompt, the advertised tool schemas, and the
+   * conversation so far.
+   *
+   * Erring high is the safe direction: it moves a borderline turn to a bigger
+   * model, and the cost of that is money. The cost of erring low is a reply
+   * made of repeated bytes.
+   */
+  #estimateTurnTokens(userText: string, sessionId: string): number {
+    let total = countTokens(this.#systemPrompt) + countTokens(userText);
+    // The tool schemas, measured the same way the cost log measures them.
+    total += countTokens(
+      JSON.stringify(this.#openAITools.filter((t) => isCoreTool(t.function.name))),
+    );
+    const memory = this.#sessions.get(sessionId)?.memory;
+    if (memory !== undefined) {
+      for (const turn of memory.turns) total += countTokens(turn.content ?? "");
+    }
+    return total;
+  }
+
   #routeForTurn(
     userText: string,
     images: string[] | undefined,
+    ctx: SessionRunContext,
+    sessionId: string,
+    traceId: string,
   ): { primary: ModelTarget; fallback?: ModelTarget } | null {
     if (!this.#brain) return null;
     try {
@@ -2097,15 +2283,40 @@ export class AgentLoop {
         text: userText,
         hasImages: images !== undefined && images.length > 0,
         offline,
+        promptTokens: this.#estimateTurnTokens(userText, sessionId),
+      });
+      ctx.emit({
+        type: "model_routed",
+        sessionId,
+        provider: result.primary.provider,
+        model: result.primary.model,
+        reason: result.fallback ? "brain" : "only_candidate",
+        category: result.classification.category,
+        traceId,
       });
       return { primary: result.primary, fallback: result.fallback };
     } catch (err) {
-      // BrainError (no candidates) or any other routing failure: log
-      // and fall through to the default path. The router will surface
-      // its own InferenceError if no model is actually configured.
-      console.warn(
-        `[brain] route failed, falling back to router defaults: ${String(err)}`,
-      );
+      // BrainError (no candidates) or any other routing failure: fall
+      // through to the default path. The router will surface its own
+      // InferenceError if no model is actually configured.
+      //
+      // The fallback is ANNOUNCED, not silent. This used to be a bare
+      // console.warn: the turn was answered by a different model than the
+      // one routing chose, and the only explanation lived in a log file
+      // the user does not have open. A fallback is allowed; a hidden one
+      // is not.
+      const detail = String(err);
+      console.warn(`[brain] route failed, falling back to router defaults: ${detail}`);
+      const current = this.#router.currentModel;
+      ctx.emit({
+        type: "model_routed",
+        sessionId,
+        provider: current.provider,
+        model: current.model,
+        reason: "fallback",
+        detail,
+        traceId,
+      });
       return null;
     }
   }
@@ -2242,9 +2453,18 @@ export class AgentLoop {
       // at session creation, so a mid-session ratchet can't churn the
       // cache-friendly static prefix of an active conversation.
       const championStyle = this.#championParams.systemPromptAddendum;
-      const ownerPrompt = championStyle
-        ? `${this.#systemPrompt}\n\n${championStyle}`
-        : this.#systemPrompt;
+      // The notebook doctrine rides here rather than inside buildSystemPrompt
+      // because it is session-scoped (see buildNotebookAddendum). Resolved once
+      // at session creation like everything else in this prefix, so the
+      // cache-friendly static head stays static.
+      const ownerPrompt = [
+        this.#systemPrompt,
+        championStyle,
+        buildWorkerAddendum(sessionId),
+        buildNotebookAddendum(this.#registry, sessionId),
+      ]
+        .filter((s): s is string => !!s)
+        .join("\n\n");
       const memory = new WorkingMemory(profile?.systemPrompt ?? ownerPrompt);
       // Re-hydrate the transcript from episodic memory. Without this a
       // session that was evicted (idle/LRU) or lost to a restart came back
@@ -2442,6 +2662,58 @@ export function buildSystemPrompt(
     "- Never output raw JSON outside a tool block as your final answer.",
     "- Respond in the same language the user writes in.",
   ].filter((s) => s.length > 0).join("\n");
+}
+
+/**
+ * The notebook doctrine, for a session that actually has a notebook.
+ *
+ * Separate from `buildSystemPrompt` for one reason: the doctrine's recursion
+ * clause is only true at depth 0, and depth is a property of the SESSION, not
+ * of the loop. A subagent's session id is `subagent:<parent>:<child>` and its
+ * notebook binds no `rlm` (notebook.ts applies the same rule), so promising a
+ * worker it can spawn workers would send it after a function that is not there.
+ *
+ * Returns "" when the notebook is not registered — which is the default, since
+ * the tool only exists under FERAL_ENABLE_NOTEBOOK. Nobody who has not turned
+ * the notebook on pays a token for this.
+ */
+/** A subagent's session, by the id `Subagent.run` mints for it. */
+export const isWorkerSession = (sessionId: string): boolean => sessionId.startsWith("subagent:");
+
+/**
+ * Tell a spawned worker that it is one.
+ *
+ * A subagent runs its own AgentLoop with `soul = null`, so it gets the default
+ * identity — "You are Feral, a proactive and helpful AI assistant running
+ * locally on the user's device" — and nothing else. It therefore answers as if
+ * a person were reading, mid-conversation, and may ask a follow-up question
+ * that reaches nobody: the parent gets the question as the answer.
+ *
+ * The text is upstream's `buildChildAgentDoctrine`, which was ported months ago
+ * and, like the notebook doctrine beside it, was never wired to anything. It
+ * applies to every subagent, not only to a worker `rlm()` spawned, because
+ * `delegate_task` builds the child exactly the same way.
+ */
+export function buildWorkerAddendum(sessionId: string): string {
+  return isWorkerSession(sessionId) ? `## You are a worker\n${WORKER_BRIEF}` : "";
+}
+
+export function buildNotebookAddendum(registry: ToolRegistry, sessionId: string): string {
+  // Same degradation as buildCapabilityIndex: several callers pass a fake with
+  // only `describe()`, and an optional section must not take the prompt down.
+  if (typeof registry?.list !== "function") return "";
+  const names = registry.list().map((t) => t.manifest.name);
+  if (!names.includes(NOTEBOOK_TOOL_NAME)) return "";
+
+  const isWorker = isWorkerSession(sessionId);
+  return buildNotebookSection({
+    // What the notebook actually injects: one identifier per tool, itself
+    // excluded (repl.ts `exclude`), so the list the model reads is the list of
+    // functions that exist.
+    toolIdentifiers: names.filter((n) => n !== NOTEBOOK_TOOL_NAME).map(toIdentifier),
+    depth: isWorker ? 1 : 0,
+    allowRecursion: !isWorker,
+  });
 }
 
 /**
@@ -2866,7 +3138,12 @@ export function parseInvokeXml(input: string): ParsedToolCall[] {
   // intent and far enough to miss a matcher anchored on a bare tag. Thirty-one
   // good calls in our syntax, then one in this one, delivered to the person as
   // raw markup.
-  const invokeRe = /<(?:[A-Za-z_][\w.-]*:)?invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)(?:<\/(?:[A-Za-z_][\w.-]*:)?invoke>|$)/g;
+  // The final alternative used to be just `$`, so an invoke the model never
+  // closed swallowed everything to the end of the message — including any
+  // LATER `<invoke>`, which was then never seen at all: a turn that asked for
+  // three tools ran one. Stopping at the next opener keeps the tolerance for a
+  // missing closer without letting one call eat its siblings.
+  const invokeRe = /<(?:[A-Za-z_][\w.-]*:)?invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)(?:<\/(?:[A-Za-z_][\w.-]*:)?invoke>|(?=<(?:[A-Za-z_][\w.-]*:)?invoke\s)|$)/g;
   let m: RegExpExecArray | null;
   while ((m = invokeRe.exec(input)) !== null) {
     const name = m[1];

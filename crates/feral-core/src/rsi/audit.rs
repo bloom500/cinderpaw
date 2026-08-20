@@ -107,6 +107,19 @@ impl SandboxBoundsAudit {
         new_value: &str,
         reason: &str,
     ) -> Result<String> {
+        // Reading the head and appending must be ONE operation. Without this,
+        // two tasks — and the dream cycle really does update bounds from more
+        // than one — each read the same head, each computed a hash from it, and
+        // the second row's `prev_hash` pointed at a row that was no longer the
+        // one before it. `verify()` then reported the chain broken, which is
+        // the one thing this file exists to be able to deny.
+        //
+        // ponytail: one global lock, not one per path. Bounds updates are rare
+        // enough that contention is not a concern; make it a per-path map if
+        // that ever stops being true.
+        static APPEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = APPEND_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
         let prev_hash = self.last_hash()?;
         let row = BoundsAuditRow {
             timestamp: Utc::now().to_rfc3339(),
@@ -199,7 +212,12 @@ impl SandboxBoundsAudit {
             let mut expected_row = row.clone();
             expected_row.entry_hash = String::new();
             let expected = hash_row(&prev, &expected_row);
-            if expected != row.entry_hash {
+            // A row written before the canonicalisation changed hashes under
+            // the old scheme. Accept either, so an upgrade does not turn every
+            // existing log into a tampering report.
+            if expected != row.entry_hash
+                && hash_row_legacy(&prev, &expected_row) != row.entry_hash
+            {
                 return Ok(AuditVerifyResult::Broken {
                     line: idx + 1,
                     reason: "entry_hash mismatch (row content altered)".to_string(),
@@ -211,6 +229,33 @@ impl SandboxBoundsAudit {
         Ok(AuditVerifyResult::Ok { entries: count })
     }
 
+    /// The last recorded value of every field the chain has ever touched.
+    ///
+    /// Used by `SandboxBounds::load_from` to check that the bounds FILE still
+    /// says what the audit says it should. Verifying the chain proves the log
+    /// was not edited; it proves nothing about the file the log is describing,
+    /// and those are two different documents.
+    pub fn last_values(&self) -> Result<std::collections::HashMap<String, String>> {
+        let mut out = std::collections::HashMap::new();
+        let f = match File::open(&self.path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+            Err(e) => return Err(anyhow!(e)),
+        };
+        for line in BufReader::new(f).lines() {
+            let line = line?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let Ok(row) = serde_json::from_str::<BoundsAuditRow>(trimmed) else {
+                continue;
+            };
+            out.insert(row.field, row.new_value);
+        }
+        Ok(out)
+    }
+
     /// Path to the log file (mostly for diagnostics + the boot
     /// surface).
     pub fn path(&self) -> &Path {
@@ -218,11 +263,10 @@ impl SandboxBoundsAudit {
     }
 }
 
-/// SHA-256 of `prevHash || 0x02 || canonical(row)`. The 0x02 byte is
-/// the canonical "chain marker" — same value the sidecar uses in
-/// `audit-log.ts`. Picking the same byte keeps the two chains
-/// inspectable with the same toolchain if a future audit ever needs
-/// to walk both.
+/// SHA-256 of `prevHash || 0x02 || canonical(row)`. The 0x02 marker AND the
+/// canonicalisation now match `audit-log.ts`, so the two chains really can be
+/// walked by one tool. Until the separator was fixed below, only the marker
+/// matched and the claim in this comment was false.
 fn hash_row(prev_hash: &str, row: &BoundsAuditRow) -> String {
     let mut hasher = Sha256::new();
     hasher.update(prev_hash.as_bytes());
@@ -233,7 +277,38 @@ fn hash_row(prev_hash: &str, row: &BoundsAuditRow) -> String {
 
 /// Deterministic serialisation of the row's content. Field order is
 /// fixed so the hash is stable across runs and across OS line endings.
+///
+/// Separated by `U+0001`, with `U+0000null` for an absent value — the same
+/// scheme `FeralAgent/src/egress/audit-log.ts` uses, so the two chains really
+/// are walkable by one tool. They were not before: this joined on `|`, which
+/// occurs in ordinary text, so `field="a|b", reason="c"` and `field="a",
+/// reason="b|c"` produced the SAME canonical string and therefore the same
+/// hash. A rearrangement between two fields was invisible to `verify()` —
+/// exactly the tampering the chain is supposed to catch.
 fn canonicalise(row: &BoundsAuditRow) -> String {
+    let f = |v: Option<&str>| -> String {
+        match v {
+            Some(v) => v.to_string(),
+            None => "\u{0}null".to_string(),
+        }
+    };
+    [
+        f(Some(&row.timestamp)),
+        f(Some(&row.field)),
+        f(row.old_value.as_deref()),
+        f(Some(&row.new_value)),
+        f(Some(&row.reason)),
+    ]
+    .join("\u{1}")
+}
+
+/// The pre-2026-08 canonicalisation, kept ONLY so rows written before the
+/// separator changed still verify.
+///
+/// Dropping it would have made every existing audit log read as tampered at
+/// the first boot after the upgrade — a false accusation is worse than the
+/// ambiguity it replaced, and the user has no way to tell the two apart.
+fn canonicalise_legacy(row: &BoundsAuditRow) -> String {
     format!(
         "{}|{}|{}|{}|{}",
         row.timestamp,
@@ -242,6 +317,14 @@ fn canonicalise(row: &BoundsAuditRow) -> String {
         row.new_value,
         row.reason
     )
+}
+
+fn hash_row_legacy(prev_hash: &str, row: &BoundsAuditRow) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(prev_hash.as_bytes());
+    hasher.update([0x02]);
+    hasher.update(canonicalise_legacy(row).as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 /// Convenience for callers: confirm a verify result is `Ok`. Returns

@@ -211,8 +211,20 @@ impl ByokSettings {
             .collect()
     }
 
-    /// Update config for a specific provider
-    pub fn update_provider(&mut self, id: &str, config: ProviderConfig) {
+    /// Update config for a specific provider.
+    ///
+    /// Text fields are trimmed on the way in. A base URL is nearly always
+    /// pasted, and a paste carries whatever came with it — a Gemini endpoint
+    /// arrived here once as `" https://…/v1beta/openai"`, which worked only
+    /// because the process that happened to send the request tolerated the
+    /// space. Whether a provider works should not depend on that.
+    ///
+    /// A field trimmed to nothing becomes `None`, not `Some("")`: an empty box
+    /// is the user saying "use the normal one", and storing the empty string
+    /// makes every later reader build a request against nothing.
+    pub fn update_provider(&mut self, id: &str, mut config: ProviderConfig) {
+        config.base_url = config.base_url.and_then(clean);
+        config.default_model = config.default_model.and_then(clean);
         self.providers.insert(id.to_string(), config);
     }
 
@@ -220,6 +232,12 @@ impl ByokSettings {
     pub fn get_provider(&self, id: &str) -> Option<&ProviderConfig> {
         self.providers.get(id)
     }
+}
+
+/// Trim a user-entered field; `None` when nothing is left.
+fn clean(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// Provider info for the frontend
@@ -669,22 +687,6 @@ fn url_join(base: &str, path: &str) -> String {
 /// to Feral so it never collides with other apps' credentials.
 const KEYCHAIN_SERVICE: &str = "ai.bloom.feral.byok";
 
-/// Create a keyring entry for the given provider id.
-fn key_entry(provider_id: &str) -> Result<keyring::Entry, keyring::Error> {
-    keyring::Entry::new(KEYCHAIN_SERVICE, provider_id)
-}
-
-/// True when `err` is the kind of keychain failure that justifies the
-/// file-backed fallback (Linux headless / no D-Bus session / libsecret
-/// missing). Other errors — `NoEntry`, `Invalid`, `TooLong` — should
-/// bubble up: they're a real problem the caller needs to see.
-fn is_keychain_unavailable(err: &keyring::Error) -> bool {
-    matches!(
-        err,
-        keyring::Error::NoStorageAccess(_) | keyring::Error::PlatformFailure(_)
-    )
-}
-
 /// Human label for a keychain-probe error, so callers (e.g. `feral doctor`)
 /// can report the kind without depending on the `keyring` crate themselves.
 pub fn keychain_error_kind(err: &keyring::Error) -> &'static str {
@@ -749,56 +751,9 @@ pub fn file_fallback_used() -> bool {
 /// so the keychain stays canonical: a key that's migrated off the file
 /// store should not re-appear there on the next boot.
 pub fn byok_set(provider_id: &str, key: &str) -> anyhow::Result<()> {
-    match key_entry(provider_id) {
-        Ok(entry) => match entry.set_password(key) {
-            Ok(()) => {
-                #[cfg(target_os = "linux")]
-                {
-                    if let Err(e) = crate::byok_file_store::file_clear(provider_id) {
-                        tracing::warn!(
-                            provider = %provider_id,
-                            ?e,
-                            "byok: keychain write OK but file-store cleanup failed; \
-                             stale entry may persist on disk"
-                        );
-                    }
-                }
-                Ok(())
-            }
-            Err(e) if is_keychain_unavailable(&e) => {
-                tracing::warn!(
-                    provider = %provider_id,
-                    "byok: OS keychain unavailable ({e}); falling back to encrypted \
-                     file store at ~/.feral/byok.keys — headless mode"
-                );
-                #[cfg(target_os = "linux")]
-                {
-                    crate::byok_file_store::file_set(provider_id, key)
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    Err(anyhow::anyhow!("keychain unavailable and file-store fallback is Linux-only"))
-                }
-            }
-            Err(e) => Err(e.into()),
-        },
-        Err(e) if is_keychain_unavailable(&e) => {
-            tracing::warn!(
-                provider = %provider_id,
-                "byok: OS keychain unavailable ({e}); falling back to encrypted \
-                 file store at ~/.feral/byok.keys — headless mode"
-            );
-            #[cfg(target_os = "linux")]
-            {
-                crate::byok_file_store::file_set(provider_id, key)
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                Err(anyhow::anyhow!("keychain unavailable and file-store fallback is Linux-only"))
-            }
-        }
-        Err(e) => Err(e.into()),
-    }
+    // File key stays un-namespaced (bare provider id) for back-compat with
+    // ~/.feral/byok.keys — existing installs must keep reading their keys.
+    crate::secret_store::set_with_file_key(KEYCHAIN_SERVICE, provider_id, provider_id, key)
 }
 
 /// Read a provider's API key. Keychain first; on the same
@@ -806,63 +761,14 @@ pub fn byok_set(provider_id: &str, key: &str) -> anyhow::Result<()> {
 /// Other errors collapse to `None` (matching the old behaviour) — the
 /// caller treats absent key the same as unreadable key.
 pub fn byok_get(provider_id: &str) -> Option<String> {
-    match key_entry(provider_id) {
-        Ok(entry) => match entry.get_password() {
-            Ok(k) => Some(k),
-            Err(keyring::Error::NoEntry) => None,
-            Err(e) if is_keychain_unavailable(&e) => {
-                #[cfg(target_os = "linux")]
-                {
-                    crate::byok_file_store::file_get(provider_id)
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    None
-                }
-            }
-            Err(_) => None,
-        },
-        Err(e) if is_keychain_unavailable(&e) => {
-            #[cfg(target_os = "linux")]
-            {
-                crate::byok_file_store::file_get(provider_id)
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                None
-            }
-        }
-        Err(_) => None,
-    }
+    crate::secret_store::get_with_file_key(KEYCHAIN_SERVICE, provider_id, provider_id)
 }
 
 /// Remove a provider's API key from BOTH stores. The keychain and the
 /// file fallback are siblings, not primary/replica: clearing must clear
 /// both so a later write can't resurrect a key from the other side.
 fn clear_key(provider_id: &str) -> anyhow::Result<()> {
-    // Try the keychain; missing-entry is success, any other failure bubbles.
-    let keychain_result: anyhow::Result<()> = match key_entry(provider_id) {
-        Ok(entry) => match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.into()),
-        },
-        Err(e) if is_keychain_unavailable(&e) => Ok(()),
-        Err(e) => Err(e.into()),
-    };
-    #[cfg(target_os = "linux")]
-    {
-        // Best-effort: a missing file entry is fine, an I/O error logs
-        // but doesn't override the keychain result (which is the source
-        // of truth on non-headless systems).
-        if let Err(e) = crate::byok_file_store::file_clear(provider_id) {
-            tracing::warn!(
-                provider = %provider_id,
-                ?e,
-                "byok: file-store clear failed; keychain result still returned"
-            );
-        }
-    }
-    keychain_result
+    crate::secret_store::clear_with_file_key(KEYCHAIN_SERVICE, provider_id, provider_id)
 }
 
 /// Load BYOK settings: non-secret metadata from `byok.json`, API keys from the
@@ -870,10 +776,8 @@ fn clear_key(provider_id: &str) -> anyhow::Result<()> {
 /// the keychain, then deletes the legacy file.
 pub fn load(_settings: &crate::settings::Settings) -> ByokSettings {
     let path = crate::paths::feral_dir().join("byok.json");
-    let mut s = match std::fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice::<ByokSettings>(&bytes).unwrap_or_default(),
-        Err(_) => ByokSettings::default(),
-    };
+    let mut s: ByokSettings =
+        crate::atomic_file::read_json_or_report(&path, "your provider settings");
 
     let mut migrated_any = false;
     for (id, cfg) in s.providers.iter_mut() {
@@ -977,7 +881,7 @@ fn load_metadata() -> ByokSettings {
 /// Write only the non-secret metadata to disk (api_key is skip_serializing).
 fn write_metadata(settings: &ByokSettings) -> anyhow::Result<()> {
     let path = crate::paths::feral_dir().join("byok.json");
-    std::fs::write(path, serde_json::to_vec_pretty(settings)?)?;
+    crate::atomic_file::write_secret_atomic(&path, &serde_json::to_vec_pretty(settings)?)?;
     Ok(())
 }
 

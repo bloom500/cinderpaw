@@ -41,6 +41,85 @@ export function finalTokenStats(
   };
 }
 
+/** How a spoken answer is shaped, whatever tools the turn has. */
+const VOICE_SHAPE = [
+  '- Two or three sentences. If the full answer is longer, say the short version and offer the rest.',
+  '- Plain spoken language. No markdown, no headings, no bullet lists, no code blocks, no emoji.',
+  '- No preamble and no summary of what you are about to say. Just say it.',
+  '- If you need to show something long (code, a table, a list), say so briefly and write it in the chat instead.',
+].join('\n');
+
+/**
+ * The brief for a call that CAN act: search, read, run things.
+ *
+ * The point is that being brief is a property of the words, not of the work — a
+ * spoken answer that skipped the lookup is just a faster wrong answer.
+ */
+const VOICE_WITH_TOOLS = [
+  'This turn is a VOICE CALL: your answer will be read out loud by a speech engine,',
+  'and the person is listening, not reading.',
+  '',
+  'This changes how you SPEAK, not what you DO. Search, read files, run commands, use',
+  'every tool exactly as you would in a typed conversation, and do the work before',
+  'answering. Being brief is about the words, never about doing less.',
+  '',
+  VOICE_SHAPE,
+].join('\n');
+
+/**
+ * The brief for a call that has NO tools, and the reason this pair exists.
+ *
+ * A voice call in chat mode with no tools enabled was still told to "search,
+ * read files, run commands". It has none, so the only thing it can do is SAY it
+ * searched — and the tool panel stays empty because nothing ran. From the
+ * listener's side that is indistinguishable from broken telemetry, and it is
+ * worse than a missing feature: it is the agent claiming work it did not do.
+ */
+const VOICE_WITHOUT_TOOLS = [
+  'This turn is a VOICE CALL: your answer will be read out loud by a speech engine,',
+  'and the person is listening, not reading.',
+  '',
+  'You have NO tools this turn: you cannot search the web, read files or run',
+  'anything. Answer from what you already know. If the answer needs a lookup you',
+  'cannot do, say so plainly in one sentence. Never describe searching, checking',
+  'or looking something up, because none of that is happening.',
+  '',
+  VOICE_SHAPE,
+].join('\n');
+
+/**
+ * What a good answer is when it will be spoken out loud.
+ *
+ * Mirrors the sidecar's brief in `FeralAgent/src/dispatch.ts` — the agent path
+ * receives it as a surface drawer, the plain chat path as a system-prompt suffix.
+ * Kept as two copies rather than one shared file because the two live on
+ * opposite sides of a process boundary; if they drift, the symptom is a spoken
+ * answer that reads like a document, which is exactly what this fixes.
+ */
+export function voiceSurfaceBrief(hasTools: boolean): string {
+  return hasTools ? VOICE_WITH_TOOLS : VOICE_WITHOUT_TOOLS;
+}
+
+/**
+ * A filename or path, made safe to put inside a marker in the prompt.
+ *
+ * These were interpolated raw, so a file whose NAME contains a closing marker
+ * and a newline could end the block the model is reading and start giving it
+ * instructions instead. The person who dropped the file is not necessarily the
+ * person who named it — it may have arrived by email, download or connector.
+ *
+ * Control characters go, the marker brackets go, and the length is capped.
+ * What is left still reads as the filename to a person.
+ */
+function safeMarkerText(raw: string): string {
+  const cleaned = raw
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1F\x7F]+/g, ' ')
+    .replace(/[[\]]/g, '')
+    .trim();
+  return cleaned.length > 200 ? `${cleaned.slice(0, 200)}…` : cleaned || 'unnamed';
+}
+
 export function buildUserContent(text: string, files: AttachedFile[]): string {
   const textFiles = files.filter((f) => f.content !== null);
   const imageFiles = files.filter((f) => f.kind === 'image' && f.dataUrl);
@@ -54,14 +133,17 @@ export function buildUserContent(text: string, files: AttachedFile[]): string {
     // back out for display (showing a "Feral.pdf" chip instead of the whole
     // file) — see parseUserAttachments(). It also gives the model a clear file
     // boundary. Keep the marker format in sync with that parser.
-    ...textFiles.map((f) => `[File: ${f.name}]\n${f.content}\n[/File: ${f.name}]`),
+    ...textFiles.map((f) => {
+      const name = safeMarkerText(f.name);
+      return `[File: ${name}]\n${f.content}\n[/File: ${name}]`;
+    }),
     // Text-only models can't see pixels — note the attachment so the model
     // can at least acknowledge it instead of silently ignoring the upload.
-    ...imageFiles.map((f) => `[Image attached: ${f.name}]`),
+    ...imageFiles.map((f) => `[Image attached: ${safeMarkerText(f.name)}]`),
     ...binaryFiles.map((f) =>
       f.path.startsWith('clipboard://')
-        ? `[File attached: ${f.name} — binary, no extractable text]`
-        : `[File attached: ${f.name} — binary file at path: ${f.path}. If you have file tools, you can read it from that path.]`,
+        ? `[File attached: ${safeMarkerText(f.name)} (binary, no extractable text)]`
+        : `[File attached: ${safeMarkerText(f.name)} (binary file at path: ${safeMarkerText(f.path)}). If you have file tools, you can read it from that path.]`,
     ),
   ];
   return `${blocks.join('\n\n')}\n\n${text}`;
@@ -74,7 +156,12 @@ export function useSendMessage() {
     async (
       text: string,
       files: AttachedFile[] = [],
-      opts?: { voice?: ChatMessage['voice']; existingUserId?: string },
+      opts?: {
+        voice?: ChatMessage['voice'];
+        existingUserId?: string;
+        /** `'voice'` when this answer will be spoken aloud. */
+        surface?: 'voice' | 'text';
+      },
     ) => {
       const chat = useChat.getState();
       const { reasoningMode, enabledTools } = useUI.getState();
@@ -157,6 +244,18 @@ export function useSendMessage() {
         systemPromptOverride: effectiveSystemPrompt,
       });
 
+      // A spoken answer needs a different shape than a written one. The agent path
+      // gets this as a surface brief from the sidecar; the plain chat path has no
+      // sidecar, so it goes into the system prompt here — same words, same reason.
+      if (opts?.surface === 'voice') {
+        // WHICH brief depends on whether this turn actually has tools. Telling a
+        // toolless call to "search the web" is how the agent ends up narrating
+        // work it never did, while the tool panel stays correctly empty.
+        params.system_prompt = [params.system_prompt, voiceSurfaceBrief(effectiveEnabledTools.length > 0)]
+          .filter(Boolean)
+          .join('\n\n');
+      }
+
       // Memory recall (chat mode only — agents carry their own prompt):
       // append what past conversations taught us about the user, so a fresh
       // chat doesn't open completely cold.
@@ -228,6 +327,7 @@ export function useSendMessage() {
           // the scratchpad here) — but it re-saves the WHOLE conversation, so
           // omitting the field would wipe the stats off every earlier agent turn.
           scratch: m.scratch,
+          created_at: m.createdAt,
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);
@@ -291,6 +391,11 @@ export function useSendMessage() {
           cancelFlush();
           if (isActive()) useChat.getState().setStreamStatus('error', err);
           useConversations.getState().unmarkStreaming(sessionId);
+          // Save what did arrive. `onStopped` persists and `useFeral`'s error
+          // path persists; this one did not, so a turn that failed halfway —
+          // a dropped connection, a 500 from the provider — lost every token
+          // it had already produced the moment the conversation was reloaded.
+          void persistFinal();
         },
         onStopped: () => {
           cancelFlush();
@@ -360,7 +465,12 @@ export async function saveVoiceBlobToDisk(blob: Blob): Promise<string> {
 export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promise<string> {
   const { whisperModel, sttProvider } = useUI.getState();
   if (sttProvider === 'groq') {
-    const transcript = await tauri.voice.transcribeCloud(audioPath, 'groq');
+    // No language is ever sent. Whisper's `language` is an ORDER, not a hint:
+    // an English UI once forced `language=en` on Romanian speech and turned
+    // "Salut, Feral" into "Pozdvormiu Română!", and a stored preference is the
+    // same mistake with the user's name on it. Detection runs per request, so a
+    // wrong guess costs one turn instead of every turn after it.
+    const transcript = await tauri.voice.transcribeCloud(audioPath, 'groq', undefined);
     console.log('[voice] cloud transcript ->', JSON.stringify(transcript));
     return transcript;
   }

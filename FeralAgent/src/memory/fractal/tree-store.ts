@@ -18,7 +18,8 @@
  * the query path. Any read error (missing file, corrupt JSON) also yields
  * `null` — the caller falls back to FTS5 and/or rebuilds.
  */
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync } from "node:fs";
+import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 import type { TreeNode } from "./types.ts";
 
@@ -86,7 +87,11 @@ export function saveTree(path: string, tree: TreeNode): void {
     tree: serializeTree(tree),
   };
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(envelope));
+  // Atomic: losing this file does not just cost a load — `loadTree` returning
+  // null forces a full rebuild, which re-embeds every leaf and re-summarises
+  // every cluster through a paid model. A crash mid-write should not send the
+  // user a bill.
+  atomicWriteFileSync(path, JSON.stringify(envelope));
 }
 
 /**

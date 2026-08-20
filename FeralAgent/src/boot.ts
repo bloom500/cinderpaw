@@ -82,6 +82,8 @@ import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
 import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { createListSkillsTool } from "./tools/builtin/list-skills.ts";
+import { createCapabilityTools } from "./tools/builtin/capability.ts";
+import { createFeralAdminTools } from "./tools/builtin/feral-admin.ts";
 import { createProductInfoTool } from "./tools/builtin/product-info.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
@@ -96,6 +98,13 @@ import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
+// Imported for the side effect: each transport module registers itself with
+// the registry at load. Without the import the catalog offers a connector
+// this build cannot start — which is exactly what the registry exists to
+// make visible, but it should never happen for one we ship.
+import "./transports/matrix.ts";
+import "./transports/mattermost.ts";
+import "./transports/twitch.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
@@ -105,7 +114,7 @@ import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
 import { DEFAULT_SYSTEM_PROMPT, RsiSidecar } from "./rsi/sidecar.ts";
 import { PROMPT_STYLE_POOL } from "./rsi/l1-config/prompt-pool.ts";
 import { hitsToItems, itemsToHits, liveModuleRegistry, liveSeamAdapter, onModuleQuarantine } from "./rsi/l4-modules/seam-runtime.ts";
-import { shouldAutostartPassive } from "./rsi/l1-config/passive-supervisor.ts";
+import { shouldAutostartPassive, isPlaceholderModel } from "./rsi/l1-config/passive-supervisor.ts";
 import { createDreamCycle } from "./rsi/l1-config/dream-cycle.ts";
 import { defaultJournalPath } from "./rsi/infra/journal.ts";
 import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
@@ -124,6 +133,7 @@ import { loadUserConfig } from "./core/user-loader.ts";
 import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
+import { RequestBridge } from "./core/request-bridge.ts";
 import { createControlAppTool } from "./tools/builtin/control-app.ts";
 import { LeadDesk } from "./core/lead-desk.ts";
 import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
@@ -132,7 +142,11 @@ import { createScheduleMeetingTool } from "./tools/builtin/schedule-meeting.ts";
 import type { InferenceConfig, ModelTarget, Transport } from "./types.ts";
 import { CircuitBreaker } from "./egress/circuit-breaker.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
-import { loadBrainConfig } from "./brain/brain-config.ts";
+import {
+  brainConfigFileExists,
+  deriveDefaultConfig,
+  loadBrainConfig,
+} from "./brain/brain-config.ts";
 
 interface AppConfig {
   transport: "tauri";
@@ -157,6 +171,12 @@ const FERAL_HOME = feralHome();
  * module graph. Re-exported here because this was their public home.
  */
 import { log, VERSION } from "./runtime-meta.ts";
+/**
+ * The one line the host waits for. Mirrored by `READY_MARKER` in
+ * `crates/feral-core/src/feral_agent.rs`, which matches it exactly — the two
+ * halves of one protocol, in two languages, and a test on each side.
+ */
+const READY_MARKER = "::feral-agent-ready::";
 export { VERSION, log } from "./runtime-meta.ts";
 
 /** When this sidecar process started, for uptime reports. */
@@ -262,6 +282,9 @@ function loadConfig(): AppConfig {
         // 11435). Override with FERAL_PROVIDER/FERAL_BASE_URL to target external
         // Ollama (11434) or any other OpenAI-compatible server.
         provider: env.FERAL_PROVIDER ?? "openai_compatible",
+        // The id is still substituted so every downstream config field has a
+        // shape, but the readiness line below no longer presents it as a model
+        // that exists — see `isPlaceholderModel`.
         model: env.FERAL_MODEL ?? "qwen2.5:7b",
         baseUrl: env.FERAL_BASE_URL ?? "http://127.0.0.1:11435",
         // Optional API key for cloud providers (OpenAI-compatible
@@ -631,6 +654,23 @@ export async function boot(transportOverride?: Transport) {
   // FERAL_ENABLE_DESKTOP_CONTROL); the bridge itself is always created so the
   // response-routing wiring is unconditional.
   const desktopControl = new DesktopControlBridgeImpl((e) => sendHolder.current(e));
+  // Capability bridge. 60s rather than the desktop bridge's 30: an install
+  // fetches a manifest and then a file over the network, and a timeout that
+  // fires mid-download would leave the user staring at a failure for a request
+  // the host is still happily servicing.
+  const capabilityBridge = new RequestBridge(
+    (e) => sendHolder.current(e),
+    "capability",
+    60_000,
+  );
+  // 180s: applying an update downloads an installer. A timeout that fires
+  // mid-download reports failure for something the host is still doing, and
+  // the user then tries again on top of a running install.
+  const adminBridge = new RequestBridge(
+    (e) => sendHolder.current(e),
+    "admin",
+    180_000,
+  );
 
   // --- P0-4: hook registry. Shared singleton that every layer can
   // emit into and any plugin / future tool can subscribe to. The
@@ -668,7 +708,7 @@ export async function boot(transportOverride?: Transport) {
   // never lifted into the reactive tree and semantic recall silently stayed
   // FTS5-only. It now runs immediately after the invoker is wired; see below.
 
-  const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl);
+  const registry = new ToolRegistry(egress, audit, processSandbox, observations, askUser, undefined, hooks, desktopControl, capabilityBridge, adminBridge);
 
   // R5: the sidecar is the single owner of live MCP connections (see
   // sandbox/mcp-manager.ts). Boot reconcile runs in the background — a
@@ -745,6 +785,14 @@ export async function boot(transportOverride?: Transport) {
   // list_skills: the drawer index. Skills are no longer dumped into every
   // prompt; the model calls this to discover ids, then read_skill to load one.
   registry.register(createListSkillsTool(join(FERAL_HOME, "skills")));
+  // Capability acquisition. Registered unconditionally: the tools check for
+  // the host bridge themselves and report "not available on this transport"
+  // rather than vanishing, so a model that reasonably expects to be able to
+  // install something gets an answer instead of silence.
+  for (const t of createCapabilityTools()) registry.register(t);
+  // The act half of the CLI — update, switch model. Registered alongside the
+  // read-only self_* family so the agent has one obvious place to look.
+  for (const t of createFeralAdminTools()) registry.register(t);
   // product_info: bundled PRODUCT.md — the agent's factual reference about
   // Feral itself (setup, connectors, commands). Zero permissions.
   registry.register(createProductInfoTool());
@@ -865,9 +913,22 @@ export async function boot(transportOverride?: Transport) {
       // gateway restart — upstream persists its kernel namespace for the same
       // reason. Only JSON-round-trippable variables come back; see repl.ts.
       stateDir: join(feralHome(), "notebooks"),
-      runChild: (task, allowedTools, sessionId, onEvent, childId) =>
-        notebookSubagent.run({
+      // Worker telemetry out to the UI. `sendHolder` rather than the turn's
+      // emitter: by the time a child does anything, the turn that spawned it
+      // has ended — that is what `rlm()` is for.
+      onChildEvent: (e) => sendHolder.current({ type: "rlm_child", ...e }),
+      runChild: async (task, allowedTools, sessionId, onEvent, childId, signal) => {
+        // A background worker used to leave exactly two traces in the log —
+        // the two `tools: N of M` lines its AgentLoop prints on construction —
+        // and nothing at all when it finished. Diagnosing a stuck fan-out meant
+        // reading the process's open sockets to guess whether it was still
+        // alive. Two lines fix that; they cost nothing and only appear when
+        // somebody actually spawned a worker.
+        const startedAt = Date.now();
+        log(`rlm: child ${childId} started — ${task.slice(0, 80).replace(/\s+/g, " ")}`);
+        const r = await notebookSubagent.run({
           task,
+          signal,
           // The registry's id becomes the subagent id, so the child's session
           // carries it and notify_parent can route back to this entry.
           subagentId: childId,
@@ -885,7 +946,13 @@ export async function boot(transportOverride?: Transport) {
             const ev = e as { type?: string; tool?: string; message?: string };
             onEvent(ev.type ?? "event", ev.tool ?? ev.message ?? "");
           },
-        }),
+        });
+        log(
+          `rlm: child ${childId} ${r.status} in ${Math.round((Date.now() - startedAt) / 1000)}s ` +
+            `(${r.toolCalls} tool call(s))`,
+        );
+        return r;
+      },
     }));
     log("notebook: enabled (FERAL_ENABLE_NOTEBOOK=true), rlm() wired");
   }
@@ -957,13 +1024,38 @@ export async function boot(transportOverride?: Transport) {
   extractor.setGraph(memoryGraph);
 
   // --- Layer 1: Agent core ---
-  // S5: Brain Stack wiring. Opt-in — loadBrainConfig() returns null when
-  // brain.json is absent (and FERAL_BRAIN is unset), so production runs
-  // with no brain.json see no behavior change. Each BrainStack owns its
-  // own CircuitBreaker instance — tool-health and model-health live in
-  // separate namespaces until S6 generalises the breaker key.
-  const brainCfg = loadBrainConfig();
-  const brain = brainCfg ? new BrainStack(brainCfg, new CircuitBreaker()) : null;
+  // Brain Stack wiring. A hand-written brain.json still wins — including
+  // `enabled: false`, which stays the documented way to keep routing off.
+  // When there is no file we DERIVE a config from the targets the router
+  // is already configured with, so a fresh machine routes too.
+  //
+  // Until Phase 1 this line was `brainCfg ? … : null` with nothing in the
+  // product ever writing brain.json, so every shipped copy of Feral ran
+  // with model routing absent rather than degraded — and the only trace
+  // was a comment in this file (see
+  // docs/ui/2026-08-19-brain-current-state.md §3).
+  //
+  // Each BrainStack owns its own CircuitBreaker instance — tool-health and
+  // model-health live in separate namespaces until S6 generalises the key.
+  // `loadBrainConfig()` returns null for BOTH "no file" and "file says
+  // enabled: false". Only the first may fall through to derivation — the
+  // second is a decision the user made and we do not overrule it.
+  const brainCfg =
+    loadBrainConfig() ??
+    (brainConfigFileExists()
+      ? null
+      : deriveDefaultConfig([
+          config.inference.primary,
+          config.inference.fallback,
+        ]));
+  // Whether the config came from us or from the user. A model switch may
+  // rebuild a DERIVED brain (see rebuildDerivedBrain); a hand-written
+  // brain.json is a deliberate choice of models and is never overwritten.
+  const brainDerived = brainCfg !== null && !brainConfigFileExists();
+  // One breaker for the brain's lifetime, so a model switch does not also
+  // reset what we have learned about which endpoints are unwell.
+  const brainBreaker = new CircuitBreaker();
+  const brain = brainCfg ? new BrainStack(brainCfg, brainBreaker, log) : null;
   const agent = new AgentLoop(
     router, registry, episodic,
     { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
@@ -1970,13 +2062,15 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
-    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path
     // running without a stall guard or a completion check.
     runHooks,
     moduleEvalBusy, loraTrainBusy,
+    // set_model needs both to keep a derived brain pointed where the router is.
+    brainDerived, brainBreaker,
   };
   transport.onMessage((msg) => {
     void dispatchMessage(ctx, msg);
@@ -1992,10 +2086,36 @@ export async function boot(transportOverride?: Transport) {
     // `start()`, which is the earliest point the transport itself considers
     // safe to receive/emit — writing any earlier risks racing its own setup.
     if (!transportOverride) {
-      console.log(JSON.stringify({ type: "hello", protocol: SIDECAR_PROTOCOL }));
+      // The persona rides along because a voice call has no other way to get
+      // it. In a speech-to-speech call the conversational brain is Gemini, not
+      // this agent loop, so SOUL.md — which every text turn is built on — never
+      // reached the caller at all: the call was briefed with identity, tool
+      // rules and a list of formatting prohibitions, and nothing about who it
+      // is. It answered like a polite appliance, correctly, exactly as briefed.
+      //
+      // Sent on `hello` rather than fetched on demand: the host already reads
+      // this line, it is the one message guaranteed to arrive before any call
+      // can start, and a request/response round trip for a value that changes
+      // only on hot-reload would be more moving parts for the same string.
+      console.log(JSON.stringify({
+        type: "hello",
+        protocol: SIDECAR_PROTOCOL,
+        // `persona`, not `content`: WHO without the working manual. See SoulDoc.
+        persona: soul.persona,
+      }));
     }
+    // Say which of the two states this is. A fresh install has no model, and
+    // announcing "ready, model=qwen2.5:7b" for one is how a first run becomes a
+    // dead end: the app looks up, names a model, and refuses the first message
+    // with "no model loaded". The user is not told what to do because nothing
+    // ever admitted there was a problem.
+    const noModel = isPlaceholderModel(process.env.FERAL_MODEL);
     log(
-      `ready — transport=${config.transport} model=${config.inference.primary.model} ` +
+      `ready — transport=${config.transport} ` +
+        (noModel
+          ? "NO MODEL CONFIGURED — chat will fail until one is chosen " +
+            "(Models page, or set a cloud key in Settings) "
+          : `model=${config.inference.primary.model} `) +
         `workspace=${config.workspaceRoots.join(", ")}`,
     );
     // X1 fix: inner-thoughts is opt-in via FERAL_PROACTIVE_ENABLED.
@@ -2013,6 +2133,23 @@ export async function boot(transportOverride?: Transport) {
     // deliver through the transport.
     cronScheduler.start();
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
+
+    // The one line the host waits for.
+    //
+    // Until now there was no ready protocol at all: the host matched the
+    // substring "ready" against every stderr line the sidecar ever printed.
+    // `dream: model-ready probe failed` contains it. So does `already has a
+    // run in flight`. So does the word "not ready". Any of them flipped the
+    // app to "the agent is up" whether it was or not — and if no such line
+    // happened to be printed, the startup banner never went away at all.
+    //
+    // An exact marker, printed once, at the point where the transport is up
+    // and the tools are live. Match it exactly on the other side.
+    //
+    // Deliberately not shaped like an environment variable: the env-var
+    // documentation check scans the source for that shape and would demand
+    // this be documented as a setting, which it is not.
+    log(READY_MARKER);
     // Start any enabled inbound connectors (Discord, …) now that the agent and
     // its tools are live. Best-effort: failures log to stderr, never crash.
     //
@@ -2053,7 +2190,7 @@ export async function boot(transportOverride?: Transport) {
   });
 
   // Persist final audit state on unexpected termination.
-  const shutdown = () => {
+  const shutdown = async () => {
     // Break the Dream Cycle trigger loop so we don't launch an episode
     // into a closing process.
     dream?.shutdown();
@@ -2061,7 +2198,9 @@ export async function boot(transportOverride?: Transport) {
     // started (i.e. the proactive subsystem is on).
     innerThoughts?.stop();
     heartbeat.stop();
-    cronScheduler.stop();
+    // Awaited: a cron job in flight must finish (or be given 5s to) before the
+    // database closes underneath it.
+    await cronScheduler.stop();
     void connectors.stopAll();
     graphCleaner.stop();
     try {
@@ -2076,6 +2215,8 @@ export async function boot(transportOverride?: Transport) {
     }
     try {
       desktopControl.cancelAll("shutdown");
+      capabilityBridge.cancelAll("shutdown");
+      adminBridge.cancelAll("shutdown");
     } catch {
       // ignore — bridge may already be empty
     }
@@ -2085,8 +2226,8 @@ export async function boot(transportOverride?: Transport) {
       process.exit(0);
     }
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
 
   transport.start();
 

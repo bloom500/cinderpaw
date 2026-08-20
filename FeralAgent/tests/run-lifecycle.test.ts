@@ -334,7 +334,14 @@ describe("a chat task that declares what done means", () => {
       undefined,
       { hooks, surface: "discord", target: "c1" },
     );
-    expect(seen[0]).toEqual({ kind: "file_exists", path: "out/REPORT.md" });
+    // `origin: "message"` records that this came out of chat text rather than
+    // from the job itself — which is what makes `done_when: run <command>` from
+    // an untrusted message refusable while the same check set on a job runs.
+    expect(seen[0]).toEqual({
+      kind: "file_exists",
+      path: "out/REPORT.md",
+      origin: "message",
+    });
   });
 
   test("a failed check reaches the PERSON, appended to the agent's own answer", async () => {

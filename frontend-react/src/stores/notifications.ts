@@ -27,7 +27,21 @@ interface NotificationStore {
   dismiss(id: string): void;
 }
 
-const AUTO_DISMISS_MS = 8_000;
+/**
+ * How long any toast stays, including errors.
+ *
+ * Errors used to stay until dismissed, on the theory that a failure is too
+ * important to let slip past. In practice that made them furniture: a
+ * "feral-agent is not running" from one bad moment sat on the screen through
+ * everything that came after, including the part where it started working
+ * again. A notice that outlives the condition it reports stops being read.
+ *
+ * Nothing is lost by clearing it: an error that matters is also shown where it
+ * happened — the call screen has its own notice line, the chat keeps the failed
+ * turn, and the terminal keeps the log. The toast is the announcement, not the
+ * record.
+ */
+const AUTO_DISMISS_MS = 5_000;
 const MAX_VISIBLE = 4;
 
 export const useNotifications = create<NotificationStore>((set, get) => ({
@@ -42,10 +56,8 @@ export const useNotifications = create<NotificationStore>((set, get) => ({
       createdAt: Date.now(),
     };
     set((s) => ({ toasts: [...s.toasts, toast].slice(-MAX_VISIBLE) }));
-    // Errors stay until dismissed; info/success auto-clear.
-    if (kind !== 'error') {
-      setTimeout(() => get().dismiss(toast.id), AUTO_DISMISS_MS);
-    }
+    // Every kind clears itself, errors included — see AUTO_DISMISS_MS.
+    setTimeout(() => get().dismiss(toast.id), AUTO_DISMISS_MS);
   },
 
   dismiss(id) {

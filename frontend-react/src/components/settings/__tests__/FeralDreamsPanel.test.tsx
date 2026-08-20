@@ -4,6 +4,7 @@ import { FeralDreamsPanel } from '@/components/settings/FeralDreamsPanel';
 import { tauri, type DreamTelemetrySummary } from '@/lib/tauri';
 import { events, type CodePatchesLine, type LoraReviewsLine } from '@/lib/tauri/events';
 import { useDream } from '@/stores/dream';
+import { useSettings } from '@/stores/settings';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -39,6 +40,58 @@ const SUMMARY: DreamTelemetrySummary = {
     { startedAt: 3000, endedAt: 4000, trigger: 'error', iterations: 2, tokens: 50, ratchets: 0, stopReason: 'BudgetExhausted' },
   ],
 };
+
+/** Minimal Settings row — only the fields the panel reads matter. */
+function withSettings(route: string | null, allowCloudDreams: boolean) {
+  useSettings.setState({
+    settings: {
+      models_dir: '', default_gpu_layers: -1, api_server_enabled: false, api_port: 11435,
+      version: 'test', desktop_control_enabled: false, desktop_control_yolo: false,
+      token_budget_conversation: null, rsi_max_cost_usd: 5,
+      rsi_allow_cloud_dreams: allowCloudDreams, active_route: route,
+    },
+  });
+}
+
+describe('FeralDreamsPanel — the cloud gate is on screen, not in a log', () => {
+  // The bug: on a cloud model the sidecar refuses to arm the dream scheduler
+  // and says so only in its log. The user sees an empty panel and a "Dream
+  // now" button that silently does nothing, forever.
+  it('says why Feral is not dreaming on a cloud model, and offers the switch', async () => {
+    stubListener();
+    withSettings('openrouter:some/model', false);
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue({ ...SUMMARY, episodes: 0, ratchets: 0, last: [] });
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    const set = vi.spyOn(tauri.settings, 'setRsiAllowCloudDreams').mockResolvedValue();
+
+    render(<FeralDreamsPanel />);
+
+    expect(await screen.findByText(/isn't dreaming/i)).toBeInTheDocument();
+    expect(screen.getByText(/\$5 of spend/)).toBeInTheDocument();
+    // The one button that would look like it works, and would not.
+    expect(screen.getByRole('button', { name: /Dream now/i })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Let Feral dream/i }));
+    await waitFor(() => expect(set).toHaveBeenCalledWith(true));
+  });
+
+  it('stays quiet on a local model and once the user has opted in', async () => {
+    stubListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue({ ...SUMMARY, episodes: 0, ratchets: 0, last: [] });
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+
+    withSettings('local:qwen.gguf', false);
+    const local = render(<FeralDreamsPanel />);
+    expect(await local.findByText(/No dreams yet/)).toBeInTheDocument();
+    expect(local.queryByText(/isn't dreaming/i)).toBeNull();
+    local.unmount();
+
+    withSettings('openrouter:some/model', true);
+    const optedIn = render(<FeralDreamsPanel />);
+    expect(await optedIn.findByText(/No dreams yet/)).toBeInTheDocument();
+    expect(optedIn.queryByText(/isn't dreaming/i)).toBeNull();
+  });
+});
 
 describe('FeralDreamsPanel', () => {
   it('renders lifetime totals and the last dream summary', async () => {

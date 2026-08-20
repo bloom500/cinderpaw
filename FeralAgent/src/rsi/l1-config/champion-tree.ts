@@ -26,7 +26,8 @@
  * Pure + deterministic (no clock, no fs beyond the explicit read/write
  * helpers), matching the rest of the rsi/ module discipline.
  */
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync } from "node:fs";
+import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname, join } from "node:path";
 import { feralHome } from "../../config.ts";
 import type { ChampionRecord } from "./champion.ts";
@@ -151,7 +152,7 @@ export function defaultChampionTreePath(): string {
  *  (the caller wraps it — a persistence failure must not abort the engine). */
 export function writeChampionTree(path: string, tree: SpeciesChampions): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(tree.toState(), null, 2), "utf8");
+  atomicWriteFileSync(path, JSON.stringify(tree.toState(), null, 2));
 }
 
 /** Load the tree. Missing / corrupt file → an empty tree (never throws — a bad

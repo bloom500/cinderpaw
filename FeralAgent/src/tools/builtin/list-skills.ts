@@ -40,9 +40,11 @@ export function createListSkillsTool(skillsDir: string): Tool {
   const manifest: ToolManifest = {
     name: "list_skills",
     description:
-      "Discover locally-installed skills. Returns a compact 'id — name: description' " +
-      "list you can filter with an optional query. Call this to find a skill, then " +
-      "call read_skill with the id to load its full instructions before applying it.",
+      "Discover skills. Returns a compact 'id — name: description' list you can " +
+      "filter with an optional query. `source` chooses where to look: what is " +
+      "already installed, what is available to install from Feral's catalogue, " +
+      "or both. When you need an ability you do not have, search 'available' " +
+      "and then use inspect_capability / install_capability.",
     permissions: ["fs:read"],
     networkAccess: false,
     allowedPaths: [skillsDir],
@@ -58,10 +60,74 @@ export function createListSkillsTool(skillsDir: string): Tool {
           "substring (case-insensitive) are returned. Omit to list everything.",
         required: false,
       },
+      source: {
+        type: "string",
+        description:
+          "Where to look: 'installed' (default), 'available' (Feral's catalogue " +
+          "of things you could add), or 'both'.",
+        required: false,
+      },
     },
-    async execute(args) {
+    async execute(args, ctx) {
       const query =
         typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
+      const source =
+        args.source === "available" || args.source === "both"
+          ? (args.source as "available" | "both")
+          : "installed";
+
+      // Catalogue rows come from the host, which owns the manifests. This tool
+      // only reads the local skills directory itself; it never fetches.
+      let catalogueRows: string[] = [];
+      if (source !== "installed") {
+        const bridge = ctx?.capabilities;
+        if (!bridge) {
+          if (source === "available") {
+            return {
+              ok: false,
+              content: "The capability catalogue is not available on this transport.",
+              error: "not_available",
+            };
+          }
+        } else {
+          try {
+            const data = (await bridge.request("list", {})) as
+              | Array<{ id: string; name?: string; description?: string; install_status?: string }>
+              | null;
+            for (const entry of data ?? []) {
+              if (entry.install_status === "installed") continue;
+              const hay = `${entry.id} ${entry.name ?? ""} ${entry.description ?? ""}`.toLowerCase();
+              if (query && !hay.includes(query)) continue;
+              catalogueRows.push(
+                `- \`${entry.id}\` — ${entry.name || entry.id}: ${entry.description || "(no description)"} [not installed]`,
+              );
+            }
+          } catch (err) {
+            if (source === "available") {
+              return { ok: false, content: String(err), error: "catalogue_failed" };
+            }
+            // 'both' degrades to what is installed rather than failing the call.
+          }
+        }
+      }
+
+      if (source === "available") {
+        if (catalogueRows.length === 0) {
+          return {
+            ok: true,
+            content: query
+              ? `Nothing in the catalogue matches "${query}".`
+              : "The catalogue is empty.",
+          };
+        }
+        return {
+          ok: true,
+          content:
+            `Available to add (${catalogueRows.length}). Use inspect_capability to read one, ` +
+            `install_capability to add it:\n` + catalogueRows.join("\n"),
+          data: { count: catalogueRows.length, source: "available" },
+        };
+      }
 
       let entries: string[];
       try {

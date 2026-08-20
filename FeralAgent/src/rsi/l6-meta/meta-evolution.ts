@@ -40,7 +40,8 @@
  * when a second algorithm (CMA-ES/bandit) actually lands.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname, join } from "node:path";
 import { paths } from "../infra/instance-paths.ts";
 import {
@@ -653,12 +654,11 @@ export class MetaEvolution {
   private persist(state: MetaState): void {
     try {
       mkdirSync(dirname(this.statePath), { recursive: true });
-      // Atomic-enough: write a sibling temp file, then rename over the
-      // target. A crash mid-write leaves the old state intact instead of
-      // a truncated JSON that would trigger the corrupt-recovery path.
-      const tmp = `${this.statePath}.tmp`;
-      writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
-      renameSync(tmp, this.statePath);
+      // Atomic: write a sibling temp file, fsync, then rename over the target.
+      // A crash mid-write leaves the old state intact instead of a truncated
+      // JSON that would trigger the corrupt-recovery path. The temp name now
+      // carries the pid, so two writers cannot land on the same one.
+      atomicWriteFileSync(this.statePath, JSON.stringify(state, null, 2));
     } catch (e) {
       this.log(`meta-evolution: failed to persist state: ${String(e)}`);
     }

@@ -15,6 +15,7 @@ import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useFeralStore } from '@/stores/feral';
 import { useNotifications } from '@/stores/notifications';
+import { t } from '@/lib/i18n';
 import { autoTitle } from '@/lib/autoTitle';
 import { voiceToPersisted } from '@/lib/messageMapping';
 import { splitThinking, stripStreamingToolCalls } from '@/lib/parseThink';
@@ -84,9 +85,36 @@ export { type MascotStateSink };
  */
 const joinSegments = (a: string, b: string): string => (a && b ? a + '\n\n' + b : a + b);
 
+/**
+ * `JSON.stringify` that cannot throw.
+ *
+ * A tool result holding a cycle — a node that references its parent, a handle
+ * that references its own registry — threw here, inside a stream callback with
+ * nothing to catch it: the tool's preview vanished and the rejection went
+ * unhandled. A tool that returns an awkward shape should still show its result.
+ */
+/** One line of untrusted text, trimmed to something a toast can hold. */
+function toastText(value: unknown, max: number): string {
+  const text = typeof value === 'string' ? value : String(value ?? '');
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return `${String(value)} [could not be shown in full]`;
+  }
+}
+
 export function useFeralStream(chatSessionId: string) {
   const send = useCallback(
-    async (content: string, callbacks: StreamCallbacks, images?: string[]) => {
+    async (
+      content: string,
+      callbacks: StreamCallbacks,
+      images?: string[],
+      surface?: 'voice' | 'text',
+    ) => {
       await ensureFeralListener();
 
       // Parity with `startChatStream`: a fresh send is an implicit interrupt
@@ -107,6 +135,10 @@ export function useFeralStream(chatSessionId: string) {
           sessionId: chatSessionId,
           images: images && images.length > 0 ? images : null,
           inferParams: { temperature, max_tokens: max_tokens },
+          // Declared per message, not per session: the same conversation is
+          // spoken to and typed in alternately, and the format brief has to follow
+          // whichever is happening right now.
+          surface: surface ?? null,
         });
       } catch (err) {
         callbacks.onError(String(err));
@@ -144,7 +176,12 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
     async (
       content: string,
       images?: string[],
-      opts?: { voice?: ChatMessage['voice']; existingUserId?: string },
+      opts?: {
+        voice?: ChatMessage['voice'];
+        existingUserId?: string;
+        /** `'voice'` when this answer will be spoken aloud — see `feral_send_message`. */
+        surface?: 'voice' | 'text';
+      },
     ) => {
       const chat = useChat.getState();
 
@@ -229,6 +266,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           // the first half the line vanished on the very save meant to keep it.
           scratch:
             m.id === asstId && state.scratch.edits > 0 ? { ...state.scratch } : m.scratch,
+          created_at: m.createdAt,
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -341,7 +379,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
               typeof r?.content === 'string'
                 ? r.content
                 : result !== undefined && result !== null
-                  ? JSON.stringify(result, null, 2)
+                  ? safeStringify(result)
                   : '';
             completeLiveToolCall(sessionId, lastRunning.id, {
               ok,
@@ -424,7 +462,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
             useConversations.getState().unmarkStreaming(sessionId);
           });
         },
-      }, images);
+      }, images, opts?.surface);
     },
     [send, mascotSink],
   );
@@ -497,13 +535,35 @@ export function useFeralGlobal() {
 
         if (parsed.type === 'model_set') {
           void fetchConfig();
+        } else if (parsed.type === 'model_routed') {
+          // Only the fallback is worth interrupting for. A successful route
+          // is the normal case and must not produce a toast per turn — but
+          // a fallback changes which model answered, so it gets said out
+          // loud, with the real cause as the "why" underneath.
+          if (parsed.reason === 'fallback') {
+            useNotifications
+              .getState()
+              .push('info', t('chat.routed.fallback'), parsed.detail);
+          }
         } else if (parsed.type === 'model_error') {
           setModelError(parsed.message);
         } else if (parsed.type === 'cron_fired') {
           // X3: scheduled-job results were previously dropped on the floor.
-          useNotifications.getState().push('success', `Scheduled task: ${parsed.jobName}`, parsed.content);
+          // Capped. Both strings are model output — a cron job's answer and the
+          // job's own name — so their length is not ours to trust, and a toast
+          // rendering a few thousand lines covers the app. (They are rendered as
+          // React text, never as HTML, so this is about size, not script.)
+          useNotifications.getState().push(
+            'success',
+            `Scheduled task: ${toastText(parsed.jobName, 80)}`,
+            toastText(parsed.content, 2000),
+          );
         } else if (parsed.type === 'cron_error') {
-          useNotifications.getState().push('error', `Scheduled task failed: ${parsed.jobName}`, parsed.message);
+          useNotifications.getState().push(
+            'error',
+            `Scheduled task failed: ${toastText(parsed.jobName, 80)}`,
+            toastText(parsed.message, 2000),
+          );
         }
       });
 

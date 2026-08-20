@@ -128,7 +128,25 @@ export const runContract: RunContract = async (initial, deps) => {
       }
     }
 
-    const result = await handlerFor(deps, stage)(state);
+    // A handler that throws is a programming error in the leaf — but letting
+    // the throw escape breaks the one invariant this runner exists to hold:
+    // every contract ends with exactly one terminal Journal row. It ended with
+    // none, so the cycle vanished from the record it is audited by, and L6
+    // meta-evolution reasoned from a history missing its failures.
+    //
+    // The bug is still reported — as a halt naming the stage and the error —
+    // rather than being turned into a quiet rejection.
+    let result: StageResult;
+    try {
+      result = await handlerFor(deps, stage)(state);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return terminal(state, deps, stage, {
+        action: "halt",
+        reason: `leaf error in ${stage}: ${message}`,
+        stage: phase,
+      });
+    }
     state = withHistory(state, stage, result);
 
     if (!result.ok) {
@@ -181,6 +199,7 @@ function foldArtifact(
     const next = { ...state };
     if (isFitnessVector(data.fitnessVector)) next.fitnessVector = data.fitnessVector;
     if (typeof data.aggregate === "number") next.fitnessAggregate = data.aggregate;
+    if (Array.isArray(data.unmeasured)) next.fitnessUnmeasured = data.unmeasured as string[];
     return next;
   }
   if (stage === "sandbox_apply" && typeof data.rollbackTarget === "string") {
@@ -243,6 +262,9 @@ function toJournalEntry(state: ContractState): JournalEntry {
       ? {
           fitnessVector: state.fitnessVector,
           aggregate: state.fitnessAggregate ?? 0,
+          // Absent on rows written before this field existed; `[]` means
+          // everything in the vector was observed.
+          unmeasured: state.fitnessUnmeasured ?? [],
           confidence: state.confidence ? 1 - state.confidence.bootstrap.pValue : 0,
           tier0: stagePassed(state, "tests") ? "passed" : "failed",
           tier1: stagePassed(state, "regression") ? "no_regression" : "regression",

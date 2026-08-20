@@ -28,6 +28,8 @@ import { readChampion, defaultChampionPath } from "./rsi/l1-config/champion.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
 import { parseResponse } from "./core/agent-loop.ts";
+import { BrainStack } from "./brain/brain-stack.ts";
+import { rebuildDerivedBrain } from "./brain/brain-config.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -61,19 +63,61 @@ function isLoopbackUrl(url: string): boolean {
   }
 }
 
+/**
+ * What a good answer is when it will be spoken out loud.
+ *
+ * Written as a description of the surface, not as a personality override: the
+ * owner's prompt, voice and tools stay exactly as they are, and only the shape of
+ * the output changes. Every line here is a failure observed in a real call —
+ * markdown read aloud as punctuation, a 95-second monologue in reply to a
+ * greeting, and notes recited at someone who just said hello.
+ */
+const VOICE_SURFACE_BRIEF = [
+  "## This turn is a VOICE CALL",
+  "Your answer will be read out loud by a speech engine, and the person is listening, not reading.",
+  "",
+  "This changes how you SPEAK, not what you DO. Search, read files, run commands —",
+  "use every tool exactly as you would in a typed conversation, and do the work before",
+  "answering. If it will take a moment, say so in one short line first ('let me look')",
+  "and then report what you found. Being brief is about the words, never about doing less.",
+  "",
+  // Said out loud because the two voice surfaces disagreed without it: the Live
+  // engine's briefing carries this rule and the pipeline's did not. It is
+  // usually redundant — a model answers in the language of the text it is given
+  // — which is exactly why it was never missed: while the transcriber was
+  // latched to one language, the agent was replying correctly to what it saw.
+  // With detection free again, this is what keeps a switch mid-call from being
+  // answered in the previous language.
+  "- Answer in the language the person spoke to you in, whatever it is, and switch when they do.",
+  "- Two or three sentences. If the full answer is longer, say the short version and offer the rest.",
+  "- Plain spoken language. No markdown, no headings, no bullet lists, no code blocks, no emoji.",
+  "- No preamble and no summary of what you are about to say — just say it.",
+  "- Numbers, paths and identifiers: say them only when they matter, and say them the way a person would.",
+  "- If you need to show something long (code, a table, a list), say so briefly and write it in the chat instead.",
+].join("\n");
+
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     runHooks,
+    brainDerived, brainBreaker,
   } = ctx;
 
   switch (msg.type) {
       case "ping":
         transport.send({ type: "pong" });
         break;
-      case "connectors_reload":
-        void connectors.reload();
+      case "connectors_reload": {
+        // The host sends the rows WITH their secrets, read out of the vault.
+        // Reading connectors.json ourselves stopped being enough the moment
+        // the migration emptied that file of credentials: every connector on
+        // the machine would have come back up blank. The file path stays as
+        // the fallback for a host that has not been updated.
+        const rows = (msg as { connectors?: unknown }).connectors;
+        if (Array.isArray(rows)) void connectors.applyRows(rows as never);
+        else void connectors.reload();
         break;
+      }
       // Thumbs 👍/👎 on an assistant message → one audit "feedback" row, the
       // wired source of the §2.10 `acceptance` personal-fitness signal. 👍 is
       // recorded as result "success", 👎 as "error"; the rated message id
@@ -1005,6 +1049,26 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      case "capability_response": {
+        // Result of a host-side capability list/inspect/install. Settle the
+        // matching pending request so the tool's awaited Promise resolves.
+        if (msg.id) {
+          capabilityBridge.resolve(msg.id, msg.ok === true, msg.data, msg.error);
+        } else {
+          log(`capability_response: missing id — ignored`);
+        }
+        break;
+      }
+
+      case "admin_response": {
+        if (msg.id) {
+          adminBridge.resolve(msg.id, msg.ok === true, msg.data, msg.error);
+        } else {
+          log(`admin_response: missing id — ignored`);
+        }
+        break;
+      }
+
       case "set_model": {
         const provider = msg.provider;
         const model = msg.model;
@@ -1028,11 +1092,32 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           // was guaranteed to 503 "no model selected" — burying the real cloud
           // error — and the Rust API's lazy-load would drag the multi-GB model
           // straight back into RSS on the first hiccup.
-          const fallback =
-            isLoopbackUrl(baseUrl) || msg.localFallbackAvailable === false
-              ? undefined
-              : localFallbackTarget;
+          // A second cloud provider, when the host found one, in preference to
+          // the local engine. It is the only fallback that exists on a machine
+          // with no GGUF resident — which is where the missing one hurt, since
+          // there a single 429 ended the turn outright.
+          const cloudFallback: ModelTarget | undefined = msg.fallback?.provider
+            ? {
+                provider: msg.fallback.provider,
+                model: msg.fallback.model,
+                baseUrl: msg.fallback.baseUrl,
+                apiKey: msg.fallback.apiKey,
+              }
+            : undefined;
+          const fallback = isLoopbackUrl(baseUrl)
+            // A local primary IS the safe target; nothing to fail over to.
+            ? undefined
+            : (cloudFallback ??
+               (msg.localFallbackAvailable === false ? undefined : localFallbackTarget));
           router.reconfigure(primary, fallback);
+          // The router now trusts only the new targets. A brain still holding
+          // the old ones would route the next turn to an endpoint the router
+          // refuses — which is how a model switch used to end every turn with
+          // "refusing to contact untrusted inference endpoint", naming the
+          // provider the user had just left. Refusing was right; routing there
+          // at all was the fault.
+          const nextBrain = rebuildDerivedBrain(brainDerived, primary, fallback);
+          if (nextBrain) agent.setBrain(new BrainStack(nextBrain, brainBreaker, log));
           // Local models forward their active context window so the agent loop
           // compacts to the real KV-cache size (Hardware can raise it well past
           // the old 8192); cloud models send none and use the cloud budget.
@@ -1064,6 +1149,18 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           log(`stop requested for all sessions`);
           agent.stopAll();
         }
+        break;
+      }
+
+      // A call that Gemini conducted, filed after the fact. No reply is
+      // generated and no event is emitted beyond the ack: the user already
+      // heard the answer, live, and the only thing missing was the record.
+      case "record_turn": {
+        await agent.recordTurn(
+          msg.sessionId ?? "default",
+          msg.content ?? "",
+          msg.assistantContent ?? "",
+        );
         break;
       }
 
@@ -1102,6 +1199,19 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // skills" menu in the system prompt; the LLM loads any skill's body
         // on demand via the `read_skill` tool. See WorkingMemory.setSkillMenu.
         const skillsContext = msg.skillsContext;
+        // A voice call is a surface, like a chat app with a narrow column — the
+        // mechanism the loop already has for "adapt the format to where this is
+        // read" (`setSessionSurface`, a per-turn drawer that leaves the owner's
+        // full prompt and toolset intact). Set per message rather than per session
+        // because the same conversation is spoken to and typed in, alternately,
+        // and the brief must follow whichever is happening now.
+        if (msg.surface === "voice") {
+          agent.setSessionSurface(sessionId, VOICE_SURFACE_BRIEF, { spoken: true });
+        } else if (msg.surface === "text") {
+          // Explicitly typed → drop the spoken brief. Only the desktop sends this
+          // field, so a connector's own brief is never touched here.
+          agent.setSessionSurface(sessionId, "");
+        }
         // Image attachments (data URLs) forwarded by the host. Passed through
         // to the agent loop so vision-capable models receive real pixels.
         const images = Array.isArray(msg.images)

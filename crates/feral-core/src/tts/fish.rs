@@ -22,11 +22,13 @@
 //! the BYOK store like every other provider credential.
 
 use anyhow::{bail, Context, Result};
-use futures::StreamExt;
 use serde::Serialize;
 use tokio::sync::mpsc::Sender;
 
-use super::{SpeechRequest, TtsProvider, SAMPLE_RATE};
+use super::{
+    http, pump, SpeechRequest, TtsProvider, Voice, LIST_TIMEOUT_SECS, SAMPLE_RATE,
+    SPEAK_TIMEOUT_SECS,
+};
 
 /// Where synthesis happens. Overridable for tests and for a self-hosted proxy.
 pub const DEFAULT_BASE_URL: &str = "https://api.fish.audio";
@@ -86,7 +88,11 @@ pub async fn synthesize(
     audio: Sender<Vec<u8>>,
 ) -> Result<usize> {
     if api_key.trim().is_empty() {
-        bail!("no Fish Audio API key configured — set one with `feral providers set-key fish`");
+        // Not `feral providers set-key fish`: that command validates the id
+        // against the LLM provider catalog, which a speech engine is correctly
+        // absent from. The key is entered on the call screen and stored in the
+        // same keychain.
+        bail!("no Fish Audio API key configured. Add one on the call screen");
     }
     if text.trim().is_empty() {
         return Ok(0);
@@ -102,15 +108,8 @@ pub async fn synthesize(
         normalize: true,
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        // Generous but finite: a long reply legitimately takes a while, a hung
-        // connection must not hold the voice loop open forever.
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .context("build reqwest client")?;
-
-    let res = client
+    super::assert_key_safe_base_url(&opts.base_url, "fish audio")?;
+    let res = http(SPEAK_TIMEOUT_SECS)?
         .post(format!("{}/v1/tts", opts.base_url.trim_end_matches('/')))
         .bearer_auth(api_key)
         .header("model", &opts.model)
@@ -125,7 +124,7 @@ pub async fn synthesize(
     if !status.is_success() {
         let detail = res.text().await.unwrap_or_default();
         let hint = match status.as_u16() {
-            401 => "the Fish Audio key was rejected — re-set it with `feral providers set-key fish`",
+            401 => "the Fish Audio key was rejected. Enter it again on the call screen",
             402 => "the Fish Audio account is out of credit",
             503 => "Fish Audio is overloaded; retry shortly",
             _ => "unexpected response from Fish Audio",
@@ -133,22 +132,7 @@ pub async fn synthesize(
         bail!("{hint} (HTTP {status}) {}", detail.chars().take(200).collect::<String>());
     }
 
-    let mut stream = res.bytes_stream();
-    let mut total = 0usize;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.context("fish audio: stream interrupted")?;
-        if chunk.is_empty() {
-            continue;
-        }
-        total += chunk.len();
-        // A closed receiver means the caller stopped caring — a barge-in, or a
-        // cancelled turn. Stop pulling the body instead of treating it as an
-        // error the user has to see.
-        if audio.send(chunk.to_vec()).await.is_err() {
-            break;
-        }
-    }
-    Ok(total)
+    pump(res, "fish audio", audio).await
 }
 
 #[cfg(test)]
@@ -185,12 +169,6 @@ impl FishTts {
     pub fn new(api_key: String) -> Self {
         Self { api_key, opts: TtsOptions::default() }
     }
-
-    /// Override model, base URL or temperature (settings, or a self-hosted proxy).
-    pub fn with_options(mut self, opts: TtsOptions) -> Self {
-        self.opts = opts;
-        self
-    }
 }
 
 #[async_trait::async_trait]
@@ -207,6 +185,62 @@ impl TtsProvider for FishTts {
     /// so voice mode has to be able to say so before it records anyone.
     fn is_local(&self) -> bool {
         false
+    }
+
+    /// `GET /model` — the account's voice models.
+    ///
+    /// Parsed out of a `Value` rather than a typed struct on purpose: this is the
+    /// one endpoint here whose shape is not documented in a form worth trusting,
+    /// and a rename of one field should cost a missing label, not an empty list
+    /// that looks like "you have no voices".
+    async fn voices(&self) -> anyhow::Result<Vec<Voice>> {
+        if self.api_key.trim().is_empty() {
+            bail!("no Fish Audio API key configured. Add one on the call screen");
+        }
+        let res = http(LIST_TIMEOUT_SECS)?
+            .get(format!("{}/model", self.opts.base_url.trim_end_matches('/')))
+            .query(&[("page_size", "100")])
+            .bearer_auth(&self.api_key)
+            .send()
+            .await
+            .context("fish audio: voice list request failed")?;
+        if !res.status().is_success() {
+            bail!("fish audio: voice list returned HTTP {}", res.status());
+        }
+
+        let body: serde_json::Value = res.json().await.context("fish audio: voice list not JSON")?;
+        let items = body
+            .get("items")
+            .or_else(|| body.get("data"))
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let voices = items
+            .iter()
+            .filter_map(|item| {
+                let id = item
+                    .get("_id")
+                    .or_else(|| item.get("id"))
+                    .and_then(|v| v.as_str())?
+                    .to_string();
+                let label = item
+                    .get("title")
+                    .or_else(|| item.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&id)
+                    .to_string();
+                let locale = item
+                    .get("languages")
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Some(Voice { id, label, locale })
+            })
+            .collect::<Vec<_>>();
+        tracing::info!(count = voices.len(), "fish audio: voices listed");
+        Ok(voices)
     }
 
     async fn speak(&self, req: &SpeechRequest, audio: Sender<Vec<u8>>) -> anyhow::Result<usize> {

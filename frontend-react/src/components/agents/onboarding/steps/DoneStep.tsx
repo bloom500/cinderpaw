@@ -82,7 +82,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
       <button
         type="button"
         onClick={onStartChatting}
-        className="w-full py-2.5 rounded-xl bg-brand text-white text-sm font-semibold hover:bg-brand/90 transition-colors"
+        className="w-full py-2.5 rounded-xl bg-brand text-on-brand text-sm font-semibold hover:bg-brand/90 transition-colors"
       >
         Start chatting →
       </button>

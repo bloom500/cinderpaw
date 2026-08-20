@@ -8,7 +8,6 @@ import { TOOL_LABELS } from '@/components/agents/agentUtils';
 import { cn } from '@/lib/utils';
 import { RsiEngineStatusPanel } from './RsiEngineStatusPanel';
 import { FeralDreamsPanel } from './FeralDreamsPanel';
-import { FractalBenchmarkPanel } from './FractalBenchmarkPanel'; // PROVISIONAL — remove after ship/hold decision
 
 export function AgentSettingsTab() {
   const navigate          = useNavigate();
@@ -56,7 +55,6 @@ export function AgentSettingsTab() {
       <RsiBudgetControl />
       <RsiEngineStatusPanel />
       <FeralDreamsPanel />
-      <FractalBenchmarkPanel />{/* PROVISIONAL — remove after ship/hold decision */}
       <DesktopControlToggle />
 
       <div className="flex items-center gap-2">
@@ -75,7 +73,7 @@ export function AgentSettingsTab() {
             useAgent.getState().clear();
             navigate('/chat');
           }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors"
         >
           <Plus size={13} />
           New agent
@@ -83,9 +81,9 @@ export function AgentSettingsTab() {
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-3">
-          <AlertCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-400">{error}</p>
+        <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
+          <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+          <p className="text-sm text-error">{error}</p>
         </div>
       )}
 
@@ -102,7 +100,7 @@ export function AgentSettingsTab() {
               useAgent.getState().clear();
               navigate('/chat');
             }}
-            className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors"
+            className="px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors"
           >
             Create agent
           </button>
@@ -128,7 +126,7 @@ export function AgentSettingsTab() {
                       {a.name}
                     </h4>
                     {isActive && (
-                      <span className="text-[10px] uppercase tracking-wider text-brand font-semibold">
+                      <span className="text-micro uppercase tracking-wider text-brand font-semibold">
                         Active
                       </span>
                     )}
@@ -143,7 +141,7 @@ export function AgentSettingsTab() {
                       {a.tools.map((t) => (
                         <span
                           key={t}
-                          className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-hover text-text-muted border border-border-subtle"
+                          className="text-micro px-1.5 py-0.5 rounded-full bg-bg-hover text-text-muted border border-border-subtle"
                         >
                           {TOOL_LABELS[t]?.label ?? t}
                         </span>
@@ -156,7 +154,7 @@ export function AgentSettingsTab() {
                     <button
                       type="button"
                       onClick={() => setCurrent(a.id!)}
-                      className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
+                      className="text-2xs text-text-muted hover:text-text-secondary transition-colors"
                     >
                       Make active
                     </button>
@@ -164,7 +162,7 @@ export function AgentSettingsTab() {
                   <button
                     type="button"
                     onClick={() => setConfirmId(a.id ?? null)}
-                    className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-red-400 transition-colors"
+                    className="inline-flex items-center gap-1 text-2xs text-text-muted hover:text-error transition-colors"
                     aria-label={`Delete ${a.name}`}
                   >
                     <Trash2 size={11} />
@@ -192,13 +190,13 @@ export function AgentSettingsTab() {
           </DialogHeader>
           <p className="text-sm text-text-secondary">
             This permanently removes the agent profile. The chat history
-            tied to it stays in your conversations — only the agent
+            tied to it stays in your conversations. Only the agent
             definition is deleted.
           </p>
           {deleteError && (
-            <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-3">
-              <AlertCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
-              <p className="text-sm text-red-400">{deleteError}</p>
+            <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
+              <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+              <p className="text-sm text-error">{deleteError}</p>
             </div>
           )}
           <DialogFooter>
@@ -255,7 +253,7 @@ function RsiBudgetControl() {
       <div className="min-w-0">
         <p className="text-sm font-medium text-text-primary">Background self-improvement budget</p>
         <p className="text-xs text-text-muted mt-0.5">
-          Feral quietly improves itself in the background. Local models are free —
+          Feral quietly improves itself in the background. Local models are free;
           this caps what it may spend on <span className="text-text-secondary">paid cloud models</span>.
           <span className="text-text-secondary"> $0 = never spend cloud money.</span>
         </p>
@@ -269,7 +267,7 @@ function RsiBudgetControl() {
             onClick={() => void setPreset(value)}
             className={cn(
               'flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50',
-              budget === value ? 'bg-brand text-white' : 'text-text-secondary hover:bg-bg-hover',
+              budget === value ? 'bg-brand text-on-brand' : 'text-text-secondary hover:bg-bg-hover',
             )}
           >
             {label}
@@ -332,7 +330,7 @@ function TokenBudgetToggle() {
           <p className="text-sm font-medium text-text-primary">Token budget</p>
           <p className="text-xs text-text-muted mt-0.5">
             Cap the number of tokens an agent can use per conversation.
-            Unlimited by default — you're responsible for your own inference costs.
+            Unlimited by default. You're responsible for your own inference costs.
           </p>
         </div>
         <button
@@ -364,7 +362,7 @@ function TokenBudgetToggle() {
                 className={cn(
                   'flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors',
                   budget === value
-                    ? 'bg-brand text-white'
+                    ? 'bg-brand text-on-brand'
                     : 'text-text-secondary hover:bg-bg-hover',
                 )}
               >
@@ -372,7 +370,7 @@ function TokenBudgetToggle() {
               </button>
             ))}
           </div>
-          <p className="text-[11px] text-text-muted">
+          <p className="text-2xs text-text-muted">
             Tokens per conversation. When reached, the agent stops and lets you decide whether to continue.
           </p>
         </div>
@@ -423,7 +421,7 @@ function DesktopControlToggle() {
   const segBtn = (active: boolean) =>
     cn(
       'flex-1 px-3 py-1.5 rounded text-xs font-medium transition-colors',
-      active ? 'bg-brand text-white' : 'text-text-secondary hover:bg-bg-hover',
+      active ? 'bg-brand text-on-brand' : 'text-text-secondary hover:bg-bg-hover',
     );
 
   return (
@@ -464,7 +462,7 @@ function DesktopControlToggle() {
               className={segBtn(!yolo)}
               aria-pressed={!yolo}
             >
-              Safe — ask before each action
+              Safe: ask before each action
             </button>
             <button
               type="button"
@@ -473,10 +471,10 @@ function DesktopControlToggle() {
               className={segBtn(yolo)}
               aria-pressed={yolo}
             >
-              YOLO — no prompts
+              YOLO: no prompts
             </button>
           </div>
-          <p className="text-[11px] text-text-muted">
+          <p className="text-2xs text-text-muted">
             {yolo
               ? 'YOLO: the agent clicks, types and sends without asking. Launching apps still confirms.'
               : 'Safe: the agent asks you before any click, type or send.'}
@@ -484,7 +482,7 @@ function DesktopControlToggle() {
         </div>
       )}
 
-      <p className="text-[11px] text-text-muted flex items-center gap-1.5">
+      <p className="text-2xs text-text-muted flex items-center gap-1.5">
         <AlertCircle size={11} className="shrink-0" />
         {busy || yoloBusy
           ? 'Restarting the agent…'

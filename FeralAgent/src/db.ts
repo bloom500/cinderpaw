@@ -201,14 +201,42 @@ export function openDatabase(path: string): FeralDb {
     }
   }
 
-  const db = new Database(path, { create: true });
+  // Everything from here to the end of migration can throw. The lock is
+  // already held and the database may already be open, and a throw used to
+  // leave BOTH behind: the lockfile on disk with nobody heartbeating it, and an
+  // open database handle. The next start then found a lock that looked live for
+  // the whole staleness window and refused to open the memory at all — a
+  // migration bug becoming "Feral has no memory today".
+  const releaseOnFailure = (db: Database | null) => {
+    try { db?.close(); } catch { /* best-effort */ }
+    if (lockFd !== null) {
+      try { closeSync(lockFd); } catch { /* best-effort */ }
+    }
+    if (lockPath) {
+      heldLocks.delete(lockPath);
+      try { unlinkSync(lockPath); } catch { /* best-effort */ }
+    }
+  };
 
-  // WAL improves concurrent read/write behavior for the proactive loop (V2)
-  // and keeps the audit writer from blocking the agent loop.
-  db.exec("PRAGMA journal_mode = WAL;");
-  db.exec("PRAGMA foreign_keys = ON;");
+  let db: Database;
+  try {
+    db = new Database(path, { create: true });
+  } catch (err) {
+    releaseOnFailure(null);
+    throw err;
+  }
 
-  migrate(db);
+  try {
+    // WAL improves concurrent read/write behavior for the proactive loop (V2)
+    // and keeps the audit writer from blocking the agent loop.
+    db.exec("PRAGMA journal_mode = WAL;");
+    db.exec("PRAGMA foreign_keys = ON;");
+
+    migrate(db);
+  } catch (err) {
+    releaseOnFailure(db);
+    throw err;
+  }
 
   // Say "still here" for as long as we hold the lock. This is the only claim of
   // liveness anyone can trust: a crashed sidecar stops touching the file, so its

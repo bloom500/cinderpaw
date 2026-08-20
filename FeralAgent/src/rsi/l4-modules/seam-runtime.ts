@@ -33,6 +33,9 @@ export function liveModuleRegistry(): ModuleRegistry {
 
 const adapters = new Map<string, SeamAdapter>();
 
+/** Which builtin each seam's adapter was constructed with — see below. */
+const boundBuiltins = new Map<string, (method: string, params: unknown) => Promise<unknown>>();
+
 /** Fired on watchdog auto-quarantine (§8.2) — B6 wires the desktop toast. */
 let quarantineHook: ((moduleId: string, reason: string) => void) | null = null;
 export function onModuleQuarantine(hook: (moduleId: string, reason: string) => void): void {
@@ -55,13 +58,24 @@ export function liveSeamAdapter(
       ...(log ? { log } : {}),
       onQuarantine: (id, reason) => quarantineHook?.(id, reason),
     });
+    boundBuiltins.set(seam, builtin);
     adapters.set(seam, a);
+  } else if (boundBuiltins.get(seam) !== builtin) {
+    // The builtin is bound once, on the first call. A later call passing a
+    // DIFFERENT fallback silently got the old one back, so a refactor that
+    // changed the builtin would have kept running the previous implementation
+    // with nothing to show for it. Say so rather than quietly disagreeing.
+    throw new Error(
+      `liveSeamAdapter(${seam}): the builtin is bound on first use and cannot be ` +
+        "replaced — call resetSeamRuntimeForTests() first, or keep one builtin per seam",
+    );
   }
   return a;
 }
 
 /** Test hook: drop the singletons so a fresh registry dir takes effect. */
 export function resetSeamRuntimeForTests(): void {
+  boundBuiltins.clear();
   for (const a of adapters.values()) a.stopHost();
   adapters.clear();
   registrySingleton = null;

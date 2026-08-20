@@ -26,7 +26,8 @@
  * This file is on BOTH patch denylists — it IS the gate.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname, join } from "node:path";
 import {
   isDiffParseError,
@@ -92,7 +93,12 @@ export class PendingPatchStore {
   #save(): void {
     mkdirSync(dirname(this.file), { recursive: true });
     const envelope: Envelope = { version: 1, patches: this.#patches };
-    writeFileSync(this.file, JSON.stringify(envelope, null, 2));
+    // Atomic: the Rust watchdog reads this same file to find the text of a
+    // patch it needs to revert. A crash mid-write leaves JSON nobody can parse,
+    // and then a patch that has already been applied to the live source tree
+    // cannot be undone — the safety net for code-RSI is gone exactly when
+    // something has gone wrong.
+    atomicWriteFileSync(this.file, JSON.stringify(envelope, null, 2));
   }
 
   /** Register a ratchet-winning candidate as pending. Idempotent per id

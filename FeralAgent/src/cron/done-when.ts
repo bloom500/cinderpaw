@@ -18,7 +18,7 @@
 
 import { spawn } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve, sep } from "node:path";
 
 /**
  * An assertion about the world after the task ran.
@@ -35,6 +35,15 @@ export interface DoneWhen {
   value?: string;
   /** Cap for `command`. Default 60s. */
   timeoutMs?: number;
+  /**
+   * Where this assertion came from.
+   *
+   * `"message"` means it was parsed out of text — a chat message, a connector
+   * DM, a page the agent fetched. `run <command>` from such a source is a
+   * request from a stranger to execute a shell command on this machine, so it
+   * is refused. `"user"` is the explicit path: the cron API and the UI.
+   */
+  origin?: "user" | "message";
 }
 
 export interface DoneCheck {
@@ -66,11 +75,24 @@ export function parseDoneWhen(raw: unknown): DoneWhen | null {
   // run forever and bury a job that is working fine.
   if ((kind === "file_exists" || kind === "file_contains") && !path) return null;
   if ((kind === "file_contains" || kind === "command") && !value) return null;
-  return { kind, path, value, timeoutMs };
+  const origin = o.origin === "message" ? "message" : "user";
+  return { kind, path, value, timeoutMs, origin };
 }
 
-function within(root: string | null, path: string): string {
-  return isAbsolute(path) ? path : resolve(root ?? process.cwd(), path);
+/**
+ * Resolve `path` for a file check, refusing anything outside the workspace.
+ *
+ * It used to accept an absolute path as-is and resolve a relative one without
+ * looking at where it landed — so `done_when: contains ../../.ssh/id_rsa "ssh-"`
+ * turned a completion check into a way to ask whether a particular string is in
+ * the user's private key, one answer per scheduled run. The check reports
+ * pass/fail, and pass/fail is enough to read a file a character at a time.
+ */
+function within(root: string | null, path: string): string | null {
+  const base = resolve(root ?? process.cwd());
+  const target = isAbsolute(path) ? resolve(path) : resolve(base, path);
+  const prefix = base.endsWith(sep) ? base : base + sep;
+  return target === base || target.startsWith(prefix) ? target : null;
 }
 
 /** Run `value` through the platform shell, returning its exit code. */
@@ -141,6 +163,13 @@ export async function verifyDoneWhen(
     switch (spec.kind) {
       case "file_exists": {
         const target = within(workspaceRoot, spec.path!);
+        if (target === null) {
+          return {
+            passed: false,
+            checked: true,
+            detail: `FAILED: ${spec.path} is outside the workspace — a done_when check may not look there`,
+          };
+        }
         const ok = await stat(target).then(() => true).catch(() => false);
         return {
           passed: ok,
@@ -150,6 +179,13 @@ export async function verifyDoneWhen(
       }
       case "file_contains": {
         const target = within(workspaceRoot, spec.path!);
+        if (target === null) {
+          return {
+            passed: false,
+            checked: true,
+            detail: `FAILED: ${spec.path} is outside the workspace — a done_when check may not look there`,
+          };
+        }
         const body = await readFile(target, "utf8").catch(() => null);
         if (body === null) {
           return { passed: false, checked: true, detail: `FAILED: ${spec.path} could not be read` };
@@ -164,6 +200,15 @@ export async function verifyDoneWhen(
         };
       }
       case "command": {
+        if (spec.origin === "message") {
+          return {
+            passed: false,
+            checked: true,
+            detail:
+              "FAILED: `done_when: run …` was read out of a message, and Feral will not run a " +
+              "shell command asked for that way. Set the check on the job itself if you meant it.",
+          };
+        }
         const cwd = workspaceRoot ?? process.cwd();
         const code = await runCommand(spec.value!, cwd, spec.timeoutMs ?? 60_000);
         return {
@@ -213,15 +258,19 @@ export function parseDoneWhenFromMessage(text: string): DoneWhen | null {
   const remainder = rest.join(" ").trim();
   switch ((verb ?? "").toLowerCase()) {
     case "exists":
-      return remainder ? { kind: "file_exists", path: remainder } : null;
+      return remainder ? { kind: "file_exists", path: remainder, origin: "message" } : null;
     case "contains": {
       // `contains <path> "<substring>"` — the quotes matter, because the
       // substring is the part most likely to have spaces in it.
       const m = /^(\S+)\s+["“](.+)["”]\s*$/.exec(remainder) ?? /^(\S+)\s+(.+)$/.exec(remainder);
-      return m ? { kind: "file_contains", path: m[1]!, value: m[2]! } : null;
+      return m
+        ? { kind: "file_contains", path: m[1]!, value: m[2]!, origin: "message" }
+        : null;
     }
     case "run":
-      return remainder ? { kind: "command", value: remainder } : null;
+      // Parsed, not silently dropped, so the check runner can explain the
+      // refusal where the user will see it rather than the line vanishing.
+      return remainder ? { kind: "command", value: remainder, origin: "message" } : null;
     default:
       // Unrecognised verb: no assertion rather than a wrong one. A check that
       // silently means something else is worse than none.

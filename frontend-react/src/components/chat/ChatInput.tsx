@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { Brain, ArrowUp, Square, Mic } from 'lucide-react';
+import { Brain, ArrowUp, Square, Mic, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -17,6 +17,9 @@ import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
 import { VoiceProviderCard } from './VoiceProviderCard';
+import { VoiceEngineCard } from './VoiceEngineCard';
+import { CallOverlay } from './CallOverlay';
+import { ModelPill } from './ModelPill';
 import { ToolsPopover } from './ToolsPopover';
 import { ContextRing } from './ContextRing';
 import { MascotPerch } from './mascot/MascotPerch';
@@ -26,6 +29,8 @@ import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI, type ReasoningMode } from '@/stores/ui';
 import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
+import { useCallSession } from '@/hooks/useCallSession';
+import { useLiveCallSession } from '@/hooks/useLiveCallSession';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
 import { ensureWhisperModel } from '@/lib/voiceModel';
@@ -41,9 +46,9 @@ const REASONING_CONFIG: Record<ReasoningMode, {
   dot: string;
   description: string;
 }> = {
-  auto: { label: 'A',   iconClass: 'text-sky-400',     badgeClass: 'bg-gray-500/20 text-gray-400',      dot: 'bg-sky-400',     description: 'Auto — detect from model name' },
-  on:   { label: 'ON',  iconClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400', dot: 'bg-emerald-400', description: 'On — always enable thinking' },
-  off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400',       dot: 'bg-rose-400',    description: 'Off — suppress thinking blocks' },
+  auto: { label: 'A',   iconClass: 'text-sky-400',     badgeClass: 'bg-gray-500/20 text-gray-400',      dot: 'bg-sky-400',     description: 'Auto: detect from model name' },
+  on:   { label: 'ON',  iconClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400', dot: 'bg-emerald-400', description: 'On: always enable thinking' },
+  off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400',       dot: 'bg-rose-400',    description: 'Off: suppress thinking blocks' },
 };
 
 export interface ChatInputHandle {
@@ -58,7 +63,16 @@ export interface ChatInputProps {
    * Used by the Agents tab to route through the Feral Agent sidecar.
    * `images` carries attachment data URLs for vision-capable models.
    */
-  sendFn?: (text: string, images?: string[], opts?: { voice?: ChatMessage['voice']; existingUserId?: string }) => Promise<void>;
+  sendFn?: (
+    text: string,
+    images?: string[],
+    opts?: {
+      voice?: ChatMessage['voice'];
+      existingUserId?: string;
+      /** `'voice'` when the answer will be spoken aloud — see `feral_send_message`. */
+      surface?: 'voice' | 'text';
+    },
+  ) => Promise<void>;
   /**
    * When true, the input is always enabled regardless of whether a local
    * model or cloud key is active. Used by the Agents tab (Feral Agent
@@ -92,6 +106,66 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // normal tap records. `heldRef` suppresses the click that follows a long press.
   const micHoldTimer = useRef<number | null>(null);
   const micHeldRef = useRef(false);
+
+  // A call turn is routed exactly like a typed or recorded one: through the
+  // Feral Agent sidecar in agent mode, the chat pipeline otherwise. Without this
+  // the call would hit the (unloaded) local model in agent mode — the same bug
+  // the voice path already had.
+  const pipelineCall = useCallSession(async (text: string) => {
+    // `surface: 'voice'` is what tells the agent this answer gets spoken. Without
+    // it a call received the desktop's full markdown answer read out loud.
+    if (sendFn) await sendFn(text, undefined, { surface: 'voice' });
+    else await send(text, [], { surface: 'voice' });
+  });
+  // Both loops are mounted, and only one is ever running: an unopened call is a
+  // handful of refs. Choosing the hook at call time instead would mean calling a
+  // hook conditionally, which React does not allow.
+  //
+  // They each own a speech player, and both players listen to the same
+  // `feral://tts-chunk` event for the same session — but a player only schedules
+  // audio between `beginSpeech` and its stop, and only the loop taking the call
+  // ever calls that. The idle one drops every chunk, which is the same guard that
+  // already keeps a straggler from an interrupted utterance out.
+  const liveCall = useLiveCallSession();
+  const callEngine = useUI((s) => s.callEngine);
+  const setCallEngine = useUI((s) => s.setCallEngine);
+  const call = callEngine === 'live' ? liveCall : pipelineCall;
+  const ttsProvider = useUI((s) => s.ttsProvider);
+  const [engineCardOpen, setEngineCardOpen] = useState(false);
+
+  /**
+   * Switch modes without dropping the overlay.
+   *
+   * The two modes are two hooks, and the overlay is driven by whichever one the
+   * store selects — so flipping the store alone would hand the screen to a loop
+   * still sitting at `idle`, and the call would simply disappear. Hanging up the
+   * outgoing one and opening the incoming one keeps the pre-call screen on
+   * screen through the change.
+   */
+  const onChangeMode = (mode: 'pipeline' | 'live') => {
+    const [outgoing, incoming] = mode === 'live' ? [pipelineCall, liveCall] : [liveCall, pipelineCall];
+    const wasOpen = outgoing.phase !== 'idle';
+    outgoing.hangUp();
+    setCallEngine(mode);
+    if (wasOpen) incoming.open();
+  };
+
+  /**
+   * Two first-use choices gate a call, and both are asked before the microphone
+   * opens rather than after: which engine transcribes you (existing card), and
+   * which one answers you (the voice card). Order matters only in that neither
+   * may be skipped — a call that cannot hear or cannot speak wastes the words
+   * someone already said.
+   */
+  const onCallClick = () => {
+    // Neither question applies to a speech-to-speech call: it has no transcriber
+    // and no synthesiser to choose. Asking anyway would gate it behind two
+    // settings it never reads.
+    if (callEngine === 'live') call.open();
+    else if (sttProvider === null) setProviderCardOpen(true);
+    else if (ttsProvider === null) setEngineCardOpen(true);
+    else call.open();
+  };
 
   // When a recording finishes, compute peaks for the preview and warm the model.
   useEffect(() => {
@@ -131,6 +205,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       micHoldTimer.current = null;
     }
   };
+  // Also on unmount. Holding the mic button and then navigating away left the
+  // 500 ms timer armed against a component that no longer exists, which React
+  // reports as a state update on an unmounted component — and the provider card
+  // it opens would have appeared over whatever the user moved on to.
+  useEffect(() => clearMicHold, []);
   const onMicClick = () => {
     if (micHeldRef.current) { micHeldRef.current = false; return; } // long-press handled it
     if (sttProvider === null) { setProviderCardOpen(true); return; } // force first-use choice
@@ -194,7 +273,52 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     agentPhase,
     isUserTyping: text.trim().length > 0,
   });
-  const disabled = alwaysEnabled ? false : (!loaded && !cloudModel);
+  /**
+   * No local model loaded and no cloud key configured.
+   *
+   * This used to disable the composer outright (and ChatPage replaced the
+   * whole screen with a "No model selected" card), so the first thing a new
+   * user typed was refused by a dead text box that told them to go
+   * configure something. The composer now stays live and `trySend` answers
+   * the message instead — see `noModelReply`.
+   */
+  const noModel = !alwaysEnabled && !loaded && !cloudModel;
+  /**
+   * Answer a message when there is no model to answer it with.
+   *
+   * This reply is written by the product, not generated — you cannot ask a
+   * model to explain that there is no model. It is deliberately phrased as
+   * Feral speaking, because from the user's side that is what happened:
+   * they asked for something and got an answer plus the two real ways
+   * forward, instead of a disabled box pointing at Settings.
+   */
+  const noModelReply = (asked: string | null) => {
+    const now = Date.now();
+    // `null` means the user's turn is already on screen (the voice path adds
+    // its bubble optimistically before transcription finishes).
+    if (asked !== null) {
+      useChat.getState().addMessage({
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: asked,
+        createdAt: now,
+      });
+    }
+    useChat.getState().addMessage({
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: t('chat.noModel.reply'),
+      createdAt: now + 1,
+      completedAt: now + 1,
+      actions: [
+        { label: t('chat.noModel.download'), route: '/models' },
+        { label: t('chat.noModel.addKey'), route: '/settings' },
+      ],
+    });
+  };
+  // Kept as a name because several controls read it; nothing sets it from
+  // model state any more. Sending is gated by `noModel` in trySend.
+  const disabled = false;
 
   const trySend = async () => {
     // Voice path: a recorded preview is pending — transcribe + send it instead
@@ -228,8 +352,19 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         // instead of adding a duplicate. Previously voice always used the chat
         // pipeline, so in agent mode it hit the (unloaded) local model → "no
         // model loaded" while the agent's own model sat idle.
-        if (sendFn) await sendFn(body, undefined, { voice, existingUserId: userId });
-        else await send(body, [], { voice, existingUserId: userId });
+        if (noModel) {
+          // The recording is transcribed and kept — whisper is local and had
+          // nothing to do with the missing chat model — but there is nobody
+          // to answer it, so the same reply the typed path gives lands here.
+          // Dropping it silently would be the worse dead end: the user speaks
+          // and nothing at all happens.
+          useChat.getState().patchMessage(userId, { voice, voicePending: false });
+          noModelReply(null);
+        } else if (sendFn) {
+          await sendFn(body, undefined, { voice, existingUserId: userId });
+        } else {
+          await send(body, [], { voice, existingUserId: userId });
+        }
       } catch (err) {
         console.error('[voice] sendVoice FAILED', err);
         // Drop the optimistic bubble — transcription failed before any reply.
@@ -246,6 +381,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       return;
     }
     if ((!text.trim() && attachedFiles.length === 0) || isStreaming || disabled) return;
+    if (noModel) {
+      noModelReply(text);
+      setText('');
+      setAttachedFiles([]);
+      return;
+    }
     const content = text;
     const files = attachedFiles;
     setText('');
@@ -284,10 +425,15 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       )}>
         <div
           className={cn(
-            'relative rounded-3xl border bg-bg-surface focus-within:border-brand transition-colors',
+            'relative rounded-2xl border bg-bg-surface focus-within:border-brand transition-colors',
             dragOver ? 'border-brand border-dashed bg-bg-hover' : 'border-border-default',
           )}
         >
+          {/* Always. The perch is not decoration: it walks the composer's edge
+              and carries the tool-call stack, so it is how a person sees WHAT
+              is running. Hiding it on Home removed a working feature to fix a
+              spacing complaint — the fix was room above the composer, which the
+              greeting now leaves. */}
           <MascotPerch baseState={mascotState} />
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
@@ -316,18 +462,23 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             placeholder={
-              alwaysEnabled
-                ? t('chat.placeholder.agent')
-                : disabled
-                  ? t('chat.placeholder.noModel')
-                  : t('chat.placeholder')
+              alwaysEnabled ? t('chat.placeholder.agent') : t('chat.placeholder')
             }
             disabled={disabled}
             rows={1}
-            className="resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-5 pt-4 scrollbar-hide"
+            // Roomier on Home, where the field IS the screen and the reference
+            // it is measured against gives the question air. In a running
+            // conversation the transcript is the subject, so it stays compact.
+            // Measured against assistant-ui rather than guessed: a comfortable
+            // single row (min-h-11) that grows, not a tall empty box with the
+            // placeholder stranded at the top of it.
+            className={cn(
+              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-4 pt-3 text-base min-h-11 scrollbar-hide',
+            )}
           />
-          <div className="flex items-center justify-between px-4 pb-3">
-            <div className="flex gap-1">
+          <div className="flex items-center justify-between px-2.5 pb-2.5 pt-1">
+            <div className="flex items-center gap-1">
+              <ModelPill />
               <FileAttachButton onFilesSelected={addFiles} />
               {!isStreaming && (
                 <button
@@ -353,7 +504,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                     <Brain size={16} />
                     <span
                       className={cn(
-                        'absolute -bottom-0.5 -right-0.5 rounded px-[3px] text-[8px] font-bold leading-[11px]',
+                        'absolute -bottom-0.5 -right-0.5 rounded px-[3px] text-micro font-bold leading-[11px]',
                         rc.badgeClass,
                       )}
                     >
@@ -389,7 +540,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   aria-label="Switch to Agent mode"
                   aria-pressed={inputMode === 'agent'}
                   className={cn(
-                    'px-2.5 text-[11px] font-medium transition-colors',
+                    'px-2.5 text-2xs font-medium transition-colors',
                     inputMode === 'agent'
                       ? 'bg-bg-hover text-text-primary'
                       : 'text-text-muted hover:text-text-secondary',
@@ -403,7 +554,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   aria-label="Switch to Chat mode"
                   aria-pressed={inputMode === 'chat'}
                   className={cn(
-                    'px-2.5 text-[11px] font-medium transition-colors',
+                    'px-2.5 text-2xs font-medium transition-colors',
                     inputMode === 'chat'
                       ? 'bg-bg-hover text-text-primary'
                       : 'text-text-muted hover:text-text-secondary',
@@ -412,6 +563,19 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   Chat
                 </button>
               </div>
+              {!isStreaming && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={onCallClick}
+                  disabled={disabled}
+                  aria-label={t('call.aria')}
+                  title={t('call.title')}
+                  className="h-7 w-7 text-text-muted hover:text-brand"
+                >
+                  <Phone size={13} />
+                </Button>
+              )}
               {isStreaming ? (
                 <Button
                   size="icon"
@@ -436,11 +600,30 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             </div>
           </div>
         </div>
-        {disabled && !isEmpty && !alwaysEnabled && (
-          <p className="text-xs text-text-muted mt-2">{t('chat.noModelHint')}</p>
-        )}
       </div>
       <VoiceProviderCard open={providerCardOpen} onOpenChange={setProviderCardOpen} />
+      {/* Picking a voice flows straight into the call it was blocking. */}
+      <VoiceEngineCard
+        open={engineCardOpen}
+        onOpenChange={setEngineCardOpen}
+        onChosen={call.open}
+      />
+      <CallOverlay
+        phase={call.phase}
+        heard={call.heard}
+        level={call.level}
+        notice={call.notice}
+        onAnswer={() => void call.begin()}
+        onHangUp={call.hangUp}
+        onInterrupt={call.interrupt}
+        // Both modes can be typed into now — the pipeline hands the text to its
+        // turn loop, the Live session sends it on its own `clientContent`
+        // channel. `call` is whichever hook is driving this overlay.
+        onSay={call.say}
+        onChangeEngine={() => setEngineCardOpen(true)}
+        onChangeStt={() => setProviderCardOpen(true)}
+        onChangeMode={onChangeMode}
+      />
     </TooltipProvider>
   );
 });

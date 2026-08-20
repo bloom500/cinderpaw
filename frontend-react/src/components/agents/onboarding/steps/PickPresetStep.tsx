@@ -30,10 +30,10 @@ export function PickPresetStep({ presets, loading, error, selected, onSelect, on
       )}
 
       {error && !loading && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 flex items-start gap-3">
-          <AlertCircle size={14} className="text-red-400 shrink-0 mt-0.5" />
+        <div className="rounded-lg border border-error/30 bg-error/5 p-4 flex items-start gap-3">
+          <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />
           <div className="space-y-2">
-            <p className="text-sm text-red-400">Couldn't load templates.</p>
+            <p className="text-sm text-error">Couldn't load templates.</p>
             <button
               type="button"
               onClick={onRetry}

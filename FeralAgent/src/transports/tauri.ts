@@ -140,6 +140,7 @@ export class TauriTransport implements Transport {
  */
 const INBOUND_TYPES = [
   "message",
+  "record_turn",
   "ping",
   "shutdown",
   "set_model",
@@ -151,6 +152,8 @@ const INBOUND_TYPES = [
   "cron_toggle",
   "cron_list",
   "desktop_control_response",
+  "capability_response",
+  "admin_response",
   "connectors_reload",
   // PROVISIONAL — temporary Settings button for the benchmark gate.
   "fractal_benchmark",

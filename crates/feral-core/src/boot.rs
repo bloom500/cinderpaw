@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use crate::api;
 use crate::feral_agent;
-use crate::host::{DesktopControlHandler, HostEvents};
+use crate::host::{AdminHandler, CapabilityHandler, DesktopControlHandler, HostEvents};
 use crate::inference::ModelManager;
 use crate::paths;
 use crate::rsi::{self, audit::SandboxBoundsAudit, sandbox_bounds::SandboxBounds};
@@ -57,6 +57,12 @@ use crate::settings::{self, Settings};
 /// `start()` function below does that.
 pub fn build_runtime() -> Arc<RuntimeState> {
     let _ = paths::ensure_dirs();
+
+    // Move any plaintext connector secrets left in `connectors.json` (pre-vault
+    // installs) into the OS keychain before anything reads that file. No user
+    // interaction; a crash mid-migration is safe to retry on the next start
+    // (see `connector_secrets::migrate_plaintext_secrets`).
+    let _ = crate::connector_secrets::migrate_plaintext_secrets_at_startup();
 
     let settings = build_settings();
     let manager = Arc::new(ModelManager::new());
@@ -90,13 +96,24 @@ pub async fn start(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
+    // `Some` on the desktop host, which owns the skill catalogue and the
+    // trust checks; `None` on the headless gateway, where a capability
+    // request is answered "not available" rather than left hanging.
+    capabilities: Option<CapabilityHandler>,
+    // The act half of what the CLI can do — update, switch model. `None` on a
+    // headless host, which has no updater and no model UI to keep in step.
+    admin: Option<AdminHandler>,
     extra_bin_dirs: Vec<PathBuf>,
+    // A listener already bound to the API port, when the host bound it itself
+    // to check that no other Feral owns this brain. Passing it through means
+    // the port is never let go between the check and the server.
+    api_listener: Option<tokio::net::TcpListener>,
 ) {
     fragile_amd_embed_guard();
     bootstrap_rsi_substrate(&runtime);
     export_settings_env(&runtime.settings);
-    spawn_api_server_if_enabled(&runtime).await;
-    feral_agent::supervise(runtime, events, desktop_control, extra_bin_dirs);
+    spawn_api_server_if_enabled(&runtime, api_listener).await;
+    feral_agent::supervise(runtime, events, desktop_control, capabilities, admin, extra_bin_dirs);
 }
 
 // ── Section helpers ───────────────────────────────────────────────────────
@@ -133,14 +150,13 @@ fn build_and_persist_api_token() -> Arc<str> {
     );
 
     let token_path = paths::feral_dir().join("api-token");
-    if let Err(e) = std::fs::write(&token_path, token.as_bytes()) {
+    // The mode is set AT CREATION, not after. Writing first and chmod'ing
+    // second leaves the file world-readable for the length of the write, and
+    // any local process that opens it in that window keeps a valid descriptor
+    // no later permission change can revoke. On a shared machine that window
+    // is the whole secret.
+    if let Err(e) = crate::atomic_file::write_secret_atomic(&token_path, token.as_bytes()) {
         tracing::warn!(?e, "failed to persist api-token (external API consumers won't have it)");
-    } else {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600));
-        }
     }
 
     token
@@ -267,6 +283,21 @@ fn export_settings_env(settings: &Settings) {
         Some(n) => std::env::set_var("FERAL_RSI_MAX_COST_USD", format!("{n}")),
         None => std::env::remove_var("FERAL_RSI_MAX_COST_USD"),
     }
+    // Cloud dreaming. Written on every export, both ways, because the toggle
+    // has to be able to turn the loop OFF again — and this function runs more
+    // than once per process, so "only set it when true" would make the first
+    // switch-on permanent for the session.
+    //
+    // An externally supplied `FERAL_RSI_ALLOW_CLOUD` still wins: that is how
+    // CI and `FERAL_RSI_ALLOW_CLOUD=true feral` have always worked, and the
+    // value is captured once, before we overwrite it with our own.
+    static EXTERNAL_ALLOW_CLOUD: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let external = EXTERNAL_ALLOW_CLOUD.get_or_init(|| std::env::var("FERAL_RSI_ALLOW_CLOUD").ok());
+    let value = match external {
+        Some(v) => v.clone(),
+        None => if settings.rsi_allow_cloud_dreams { "true" } else { "false" }.to_string(),
+    };
+    std::env::set_var("FERAL_RSI_ALLOW_CLOUD", value);
 }
 
 /// Spawn the OpenAI-compatible API server on `runtime.settings.api_port`.
@@ -277,7 +308,10 @@ fn export_settings_env(settings: &Settings) {
 /// the previous sync version panicked with "no reactor running" when
 /// invoked from Tauri 2's setup closure. The `async` signature on
 /// `start()` (above) makes this reachable.
-async fn spawn_api_server_if_enabled(runtime: &Arc<RuntimeState>) {
+async fn spawn_api_server_if_enabled(
+    runtime: &Arc<RuntimeState>,
+    listener: Option<tokio::net::TcpListener>,
+) {
     if !runtime.settings.api_server_enabled {
         return;
     }
@@ -288,7 +322,11 @@ async fn spawn_api_server_if_enabled(runtime: &Arc<RuntimeState>) {
     };
     let port = runtime.settings.api_port;
     tokio::spawn(async move {
-        if let Err(e) = api::serve(api_state, port).await {
+        let result = match listener {
+            Some(l) => api::serve_on(api_state, l).await,
+            None => api::serve(api_state, port).await,
+        };
+        if let Err(e) = result {
             tracing::error!(?e, "api server stopped");
         }
     });

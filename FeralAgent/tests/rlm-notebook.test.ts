@@ -8,8 +8,19 @@
 import { describe, expect, it } from "bun:test";
 import { Notebook, toIdentifier } from "../src/rlm/repl.ts";
 import { buildNotebookPrompt } from "../src/rlm/prompt.ts";
-import { ChildRegistry, defaultChildName, normalizeRequestedName } from "../src/rlm/children.ts";
-import { createNotifyParentTool, type ChildRegistries } from "../src/tools/builtin/notebook.ts";
+import { buildNotebookAddendum, buildWorkerAddendum } from "../src/core/agent-loop.ts";
+import { stripToolsFromSystemPrompt } from "../src/egress/inference-providers.ts";
+import {
+  ChildRegistry,
+  defaultChildName,
+  normalizeRequestedName,
+  type RunChild,
+} from "../src/rlm/children.ts";
+import {
+  createNotebookTool,
+  createNotifyParentTool,
+  type ChildRegistries,
+} from "../src/tools/builtin/notebook.ts";
 import type { ToolRegistry } from "../src/tools/registry.ts";
 import type { Tool, ToolResult } from "../src/types.ts";
 
@@ -58,6 +69,49 @@ describe("notebook isolation", () => {
     const r = await nb.run(source);
     // Either the walk throws, or it lands somewhere with no host process.
     expect(r.ok === false || r.value === "undefined").toBe(true);
+  });
+
+  // A severed envelope with a live host object INSIDE it is the same escape,
+  // one property deeper. Every one of these reached the host realm: the
+  // envelope's prototype was nulled, the array or the nested object it carried
+  // was not.
+  it.each([
+    [
+      "a nested array in a tool result",
+      `(await deep_result({})).data.rows.constructor.constructor("return typeof process")()`,
+    ],
+    [
+      "a nested object in a tool result",
+      `(await deep_result({})).data.meta.constructor.constructor("return typeof process")()`,
+    ],
+  ])("cannot reach the host realm via %s", async (_label, source) => {
+    const registry = {
+      list: () => [{ manifest: { name: "deep_result" } }] as unknown as Tool[],
+      call: async (): Promise<ToolResult> => ({
+        ok: true,
+        content: "",
+        data: { rows: [1, 2, 3], meta: { nested: { deeper: true } } },
+      }),
+    } as unknown as ToolRegistry;
+    const nb = new Notebook({ registry, sessionId: "s1" });
+    const r = await nb.run(source);
+    expect(r.ok === false || r.value === "undefined").toBe(true);
+  });
+
+  it("a tool result's nested data is still readable after severing", async () => {
+    const registry = {
+      list: () => [{ manifest: { name: "deep_result" } }] as unknown as Tool[],
+      call: async (): Promise<ToolResult> => ({
+        ok: true,
+        content: "",
+        data: { rows: [1, 2, 3], meta: { nested: { deeper: true } } },
+      }),
+    } as unknown as ToolRegistry;
+    const nb = new Notebook({ registry, sessionId: "s1" });
+    // Severing must close the escape without breaking ordinary use.
+    expect((await nb.run(`(await deep_result({})).data.rows.length`)).value).toBe("3");
+    expect((await nb.run(`(await deep_result({})).data.rows[1]`)).value).toBe("2");
+    expect((await nb.run(`(await deep_result({})).data.meta.nested.deeper`)).value).toBe("true");
   });
 
   it("still exposes the context's own builtins", async () => {
@@ -136,6 +190,151 @@ describe("recursion — the R in RLM", () => {
       nb: new Notebook({ registry: fakeRegistry(), sessionId: "s1", children, ...extra }),
     };
   };
+
+  /**
+   * Cancellation. Found live: two `rlm()` workers were spawned, Stop was
+   * pressed, and nothing reached them — a child runs its own AgentLoop under
+   * its own session id, so the parent's abort had no path to it. These pin the
+   * path that now exists, because the failure is invisible: a worker nobody
+   * can stop looks exactly like a worker that already finished.
+   */
+  describe("Stop reaches the workers", () => {
+    /** A runner that never settles on its own — only cancellation ends it. */
+    const hangingRunner =
+      (seen: AbortSignal[]): RunChild =>
+      (_task, _tools, _onEvent, _id, signal) => {
+        seen.push(signal);
+        const cancelled = {
+          status: "cancelled" as const, answer: "", toolCalls: 0, durationMs: 1, subagentId: "x",
+        };
+        // Checking `aborted` first is the contract, not defensive noise: a
+        // signal that fired before the runner was reached never emits `abort`,
+        // so a listen-only implementation hangs forever. Subagent.run has the
+        // same check for the same reason.
+        if (signal.aborted) return Promise.resolve(cancelled);
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => resolve(cancelled), { once: true });
+        });
+      };
+
+    it("aborts a running child when the parent's signal fires", async () => {
+      const seen: AbortSignal[] = [];
+      const parent = new AbortController();
+      const reg = new ChildRegistry(hangingRunner(seen));
+      reg.admit("work", { signal: parent.signal });
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.aborted).toBe(false);
+      parent.abort("user stop");
+      expect(seen[0]!.aborted).toBe(true);
+      // The child settles rather than hanging forever, which is what makes the
+      // registry drainable after a stop.
+      await reg.drain();
+      expect(reg.list()[0]!.status).toBe("error");
+    });
+
+    it("hands an already-stopped parent's child a dead signal, not a live one", async () => {
+      // Spawning for a turn the user just stopped would spend money on an
+      // answer nobody is waiting for.
+      const seen: AbortSignal[] = [];
+      const parent = new AbortController();
+      parent.abort("user stop");
+      const reg = new ChildRegistry(hangingRunner(seen));
+      reg.admit("work", { signal: parent.signal });
+      expect(seen[0]!.aborted).toBe(true);
+      await reg.drain();
+    });
+
+    it("keeps siblings alive — one controller per child, not one shared", async () => {
+      const seen: AbortSignal[] = [];
+      const reg = new ChildRegistry(hangingRunner(seen));
+      const a = new AbortController();
+      reg.admit("first", { signal: a.signal });
+      reg.admit("second"); // no parent signal at all
+      a.abort();
+      expect(seen[0]!.aborted).toBe(true);
+      expect(seen[1]!.aborted).toBe(false);
+    });
+
+    it("uses THIS turn's signal, not the one the notebook was born with", async () => {
+      // The notebook is per session and outlives any one controller. Reading
+      // the constructor's signal meant every cell after the first was
+      // unstoppable — the same bug, one layer up.
+      const seen: AbortSignal[] = [];
+      const turn1 = new AbortController();
+      const turn2 = new AbortController();
+      const nb = new Notebook({
+        registry: fakeRegistry(),
+        sessionId: "s1",
+        signal: turn1.signal,
+        children: new ChildRegistry(hangingRunner(seen)),
+      });
+      nb.signal = turn2.signal;
+      await nb.run(`await rlm("later turn")`);
+      turn1.abort(); // the stale one must not reach it
+      expect(seen[0]!.aborted).toBe(false);
+      turn2.abort();
+      expect(seen[0]!.aborted).toBe(true);
+    });
+  });
+
+  /**
+   * Telemetry. A worker had no UI at all: `rlm()` returns instantly, so the
+   * turn ends and the child does everything afterwards, with nothing on screen
+   * to say it exists. The registry — not the host — emits, because it is the
+   * only place that knows both the name (which the caller may have chosen) and
+   * the status transitions; deriving either outside would drift from what
+   * `rlm.list_subagents()` reports.
+   */
+  describe("worker telemetry", () => {
+    const collect = () => {
+      const seen: Array<{ name: string; status: string; detail?: string }> = [];
+      return { seen, sink: (e: { name: string; status: string; detail?: string }) => seen.push(e) };
+    };
+
+    it("announces the worker the moment it is admitted, not when it finishes", async () => {
+      const { seen, sink } = collect();
+      const reg = new ChildRegistry(runner(), sink);
+      reg.admit("count the files");
+      // Synchronous with admit: the whole point is that the UI shows the
+      // worker during the minutes it runs, not after.
+      expect(seen[0]!.status).toBe("running");
+      expect(seen[0]!.detail).toContain("count the files");
+      await reg.drain();
+      expect(seen.at(-1)!.status).toBe("completed");
+    });
+
+    it("carries the caller's chosen name, not a derived one", async () => {
+      const { seen, sink } = collect();
+      const reg = new ChildRegistry(runner(), sink);
+      reg.admit("anything", { name: "api-reviewer" });
+      expect(seen[0]!.name).toBe("api-reviewer");
+      await reg.drain();
+    });
+
+    it("reports a stopped worker as cancelled, not as an error", async () => {
+      const { seen, sink } = collect();
+      const reg = new ChildRegistry(
+        async () => ({
+          status: "cancelled" as const, answer: "", toolCalls: 0, durationMs: 1, subagentId: "x",
+        }),
+        sink,
+      );
+      reg.admit("work");
+      await reg.drain();
+      expect(seen.at(-1)!.status).toBe("cancelled");
+    });
+
+    it("survives a telemetry sink that throws", async () => {
+      // An observer is a UI concern; it must never be able to kill a worker.
+      const reg = new ChildRegistry(runner(), () => {
+        throw new Error("render blew up");
+      });
+      expect(() => reg.admit("work")).not.toThrow();
+      await reg.drain();
+      expect(reg.list()[0]!.status).toBe("completed");
+    });
+  });
 
   it("returns a handle immediately, not the answer", async () => {
     const { nb } = nbWith();
@@ -244,6 +443,33 @@ describe("recursion — the R in RLM", () => {
     expect(r.ok === false || r.value === "undefined").toBe(true);
     await children.drain();
   });
+
+  // The handle was the only rlm surface covered. Every OTHER one returns an
+  // object holding arrays — `subagents`, `messages`, `trail` — and an array is
+  // a live host object whose `.constructor.constructor` is the host `Function`.
+  // Each of these reached the host realm before the envelope was severed all
+  // the way down.
+  it.each([
+    ["list_subagents", `(await rlm.list_subagents()).subagents.constructor.constructor("return typeof process")()`],
+    ["messages", `(await rlm.messages()).messages.constructor.constructor("return typeof process")()`],
+    ["observe.trail", `(await rlm.observe("x")).trail.constructor.constructor("return typeof process")()`],
+  ])("does not let %s leak the host realm", async (_label, source) => {
+    const { nb, children } = nbWith();
+    await nb.run(`await rlm("x", { name: "x" })`);
+    const r = await nb.run(source);
+    expect(r.ok === false || r.value === "undefined").toBe(true);
+    await children.drain();
+  });
+
+  it("observe() hands back a copy — the notebook cannot edit the registry", async () => {
+    const { nb, children } = nbWith();
+    await nb.run(`await rlm("x", { name: "x" })`);
+    // Mutating what observe returned must not change what the next call sees.
+    await nb.run(`const o = await rlm.observe("x"); o.trail.push({ at: 0, kind: "forged", detail: "" }); o.status = "completed";`);
+    const again = await nb.run(`(await rlm.observe("x")).trail.filter((t) => t.kind === "forged").length`);
+    expect(again.value).toBe("0");
+    await children.drain();
+  });
 });
 
 describe("child naming — ported from prime-agent", () => {
@@ -315,6 +541,16 @@ describe("prompt — parity with the audited source", () => {
     expect(buildNotebookPrompt(base)).toContain("Do not invent wrappers");
   });
 
+  it("sends the model to `data` when it computes, not to `content`", () => {
+    // Found live on the first real RLM run: asked for line counts, the model
+    // read `res.content` from shell_exec and counted its three-line header
+    // ($ command / cwd / [exit N]) as file content. Every file came back
+    // exactly three lines too long — wrong quietly, which is the bad kind.
+    const p = buildNotebookPrompt(base);
+    expect(p).toContain("`content` is a TRANSCRIPT");
+    expect(p).toContain("use `data`");
+  });
+
   it("lists tools deterministically", () => {
     const a = buildNotebookPrompt({ toolIdentifiers: ["b", "a"] });
     const b = buildNotebookPrompt({ toolIdentifiers: ["a", "b"] });
@@ -338,6 +574,98 @@ describe("prompt — parity with the audited source", () => {
     const off = buildNotebookPrompt({ ...base, allowRecursion: false, depth: 1 });
     expect(off).toContain("`rlm` is not available at this depth");
     expect(off).not.toContain("await rlm(");
+  });
+});
+
+/**
+ * Delivery. The doctrine above is worth nothing until it reaches a model, and
+ * for its first three weeks it reached none: `buildNotebookPrompt` was exported,
+ * tested, and called from nowhere but this file. The notebook tool shipped with
+ * it, so the model got a JavaScript interpreter and no hint that its variables
+ * survive — which is the single property the whole design exists for. These
+ * tests pin the wiring, not the wording.
+ */
+describe("the doctrine actually reaches the prompt", () => {
+  const withNotebook = (names: string[]) =>
+    ({
+      list: () => names.map((name) => ({ manifest: { name, description: `Does ${name}.` } })),
+    }) as unknown as ToolRegistry;
+
+  it("is silent when the notebook is not registered — the default", () => {
+    expect(buildNotebookAddendum(withNotebook(["read_file", "grep"]), "s1")).toBe("");
+  });
+
+  it("delivers the doctrine when the notebook IS registered", () => {
+    const p = buildNotebookAddendum(withNotebook(["read_file", "notebook"]), "s1");
+    expect(p).toContain("## The notebook");
+    expect(p).toContain("bind results to named variables");
+    expect(p).toContain("persist across cells");
+  });
+
+  it("drops upstream's identity framing, which would outrank SOUL.md", () => {
+    const p = buildNotebookAddendum(withNotebook(["notebook"]), "s1");
+    expect(p).not.toContain("solves tasks by writing code");
+    // …but keeps the stop condition, which is about REPLs, not identity.
+    expect(p).toContain("stop running cells and state your final answer");
+  });
+
+  it("lists the functions the notebook really injects, itself excluded", () => {
+    const p = buildNotebookAddendum(withNotebook(["read_file", "shell-exec", "notebook"]), "s1");
+    // `shell-exec` is not a JS identifier; the notebook binds it as shell_exec.
+    expect(p).toContain("read_file, shell_exec");
+    expect(p).not.toContain("notebook,");
+  });
+
+  it("promises recursion to a root session and withholds it from a worker", () => {
+    const root = buildNotebookAddendum(withNotebook(["notebook"]), "chat-42");
+    expect(root).toContain("await rlm(");
+    expect(root).toContain("Recursion depth: 0");
+
+    // Matches notebook.ts's own rule: a subagent's notebook binds no `rlm`, so
+    // telling it otherwise sends it after a function that does not exist.
+    const worker = buildNotebookAddendum(withNotebook(["notebook"]), "subagent:chat-42:sa-1");
+    expect(worker).toContain("`rlm` is not available at this depth");
+    expect(worker).not.toContain("await rlm(");
+    expect(worker).toContain("Recursion depth: 1");
+  });
+
+  it("tolerates a registry fake without list()", () => {
+    expect(buildNotebookAddendum({ describe: () => "" } as unknown as ToolRegistry, "s1")).toBe("");
+  });
+
+  it("tells a worker it is one, whoever spawned it", () => {
+    // Not notebook-specific: delegate_task builds its child the same way, so a
+    // plain delegation gets this too.
+    expect(buildWorkerAddendum("subagent:chat-42:sa-1")).toContain("You are a worker");
+    expect(buildWorkerAddendum("subagent:chat-42:sa-1")).toContain("read by that agent");
+    expect(buildWorkerAddendum("chat-42")).toBe("");
+  });
+
+  it("matches the name the REAL tool registers under", () => {
+    // The name is taken from the tool itself rather than typed here, so a
+    // rename breaks this test instead of silently switching the doctrine off
+    // for everyone — the gap this whole block exists to close.
+    const real = createNotebookTool({ registry: () => withNotebook([]) });
+    const p = buildNotebookAddendum(withNotebook([real.manifest.name]), "s1");
+    expect(p).toContain("## The notebook");
+  });
+
+  it("SURVIVES the native-tool prompt strip", () => {
+    // Cloud routes with native tool-calling delete the `## Available tools`
+    // block. A doctrine that lived inside it would vanish on exactly the
+    // providers the notebook is most useful on.
+    const prompt = [
+      "## Available tools",
+      "- read_file(path): reads",
+      "",
+      "## Rules",
+      "- Be concise.",
+      "",
+      buildNotebookAddendum(withNotebook(["read_file", "notebook"]), "s1"),
+    ].join("\n");
+    const stripped = stripToolsFromSystemPrompt(prompt);
+    expect(stripped).not.toContain("- read_file(path): reads");
+    expect(stripped).toContain("bind results to named variables");
   });
 });
 

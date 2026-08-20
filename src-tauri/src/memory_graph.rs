@@ -211,13 +211,22 @@ fn tmp_path(path: &std::path::Path) -> std::path::PathBuf {
     s.into()
 }
 
+/// How long a lock file may sit untouched before it is treated as a corpse.
+const LOCK_STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+
 fn with_file_lock<F, T>(path: &std::path::Path, f: F) -> Result<T, String>
 where
     F: FnOnce() -> Result<T, String>,
 {
     let lp = lock_path(path);
     let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(5);
+    // Wait at least as long as we are willing to call a lock dead. With a 5s
+    // wait against a 30s staleness rule there was a whole band — a writer
+    // holding the lock legitimately for 6 to 30 seconds, which a large embed
+    // batch or an RSI compaction really does — where the caller gave up with
+    // "lock timeout" on a perfectly healthy system, and the user saw a failure
+    // where the correct behaviour was to wait a moment longer.
+    let timeout = LOCK_STALE_AFTER + std::time::Duration::from_secs(5);
     loop {
         match std::fs::OpenOptions::new()
             .write(true)
@@ -232,7 +241,7 @@ where
                 if let Ok(meta) = std::fs::metadata(&lp) {
                     if let Ok(modified) = meta.modified() {
                         if modified.elapsed().unwrap_or(std::time::Duration::MAX)
-                            > std::time::Duration::from_secs(30)
+                            > LOCK_STALE_AFTER
                         {
                             let _ = std::fs::remove_file(&lp);
                             continue;

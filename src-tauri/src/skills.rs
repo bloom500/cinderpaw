@@ -29,6 +29,32 @@ fn validate_content_url(url: &str) -> Result<()> {
     Ok(())
 }
 
+/// The HTTP client every skill/manifest fetch uses.
+///
+/// `validate_content_url` checked only the URL we typed. With reqwest's default
+/// policy the response could redirect anywhere — a 302 off an allowed host to
+/// somewhere else entirely — and the allowlist was already satisfied by then,
+/// so the check it exists to make never ran on the URL actually fetched. The
+/// custom policy below re-runs it on every hop and stops the chain rather than
+/// following a redirect out of the allowlist.
+fn content_client() -> Result<reqwest::Client> {
+    let policy = reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= 5 {
+            return attempt.stop();
+        }
+        if validate_content_url(attempt.url().as_str()).is_ok() {
+            attempt.follow()
+        } else {
+            attempt.stop()
+        }
+    });
+    Ok(reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(15))
+        .redirect(policy)
+        .build()?)
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -83,6 +109,24 @@ pub struct SkillPreview {
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────
+
+/// Reject a fetched body that is not a SKILL.md.
+///
+/// Minimal on purpose: a frontmatter block with a description. Anything
+/// stricter starts rejecting legitimate skills over formatting.
+pub fn validate_skill_body(content: &str) -> Result<()> {
+    if content.trim().is_empty() {
+        bail!("capability body is empty");
+    }
+    if !content.trim_start().starts_with("---") {
+        bail!("capability body has no frontmatter block — this is not a SKILL.md");
+    }
+    let meta = parse_frontmatter("probe", content);
+    if meta.description.trim().is_empty() {
+        bail!("capability body has no description in its frontmatter");
+    }
+    Ok(())
+}
 
 /// Only allow safe slugs: lowercase letters, digits, hyphens, underscores.
 pub fn validate_id(id: &str) -> Result<()> {
@@ -223,10 +267,7 @@ pub fn parse_frontmatter(id: &str, content: &str) -> SkillMeta {
 /// Download the GitHub skills manifest and return SkillMeta list.
 /// Cross-references with local installed skills to set install_status.
 pub async fn github_list() -> Result<Vec<SkillMeta>> {
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?;
+    let client = content_client()?;
 
     validate_content_url(GITHUB_MANIFEST_URL)?;
 
@@ -252,7 +293,11 @@ pub async fn github_list() -> Result<Vec<SkillMeta>> {
             skill.install_status = InstallStatus::NotInstalled;
         }
         skill.source_provider = SourceProvider::GitHub;
-        skill.trust_label = TrustLabel::Community;
+        // The official Feral manifest. This used to be stamped `Community`
+        // like the community list, which erased the whole distinction the two
+        // separate URLs exist to make — and left the trust label unable to
+        // inform the install confirmation the agent now has to show.
+        skill.trust_label = TrustLabel::Verified;
     }
 
     Ok(remote)
@@ -261,10 +306,7 @@ pub async fn github_list() -> Result<Vec<SkillMeta>> {
 /// Download the community manifest and return SkillMeta list.
 /// Skills are stamped ClawHub / Community trust level; install_status cross-referenced.
 pub async fn community_list() -> Result<Vec<SkillMeta>> {
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?;
+    let client = content_client()?;
 
     validate_content_url(COMMUNITY_MANIFEST_URL)?;
 
@@ -295,14 +337,92 @@ pub async fn community_list() -> Result<Vec<SkillMeta>> {
     Ok(skills)
 }
 
+/// Find `id` in the catalogues the HOST knows about.
+///
+/// This is the Phase 2 trust boundary. The caller names a capability; what
+/// that name means — where the content lives, who published it, how far it is
+/// trusted — is resolved here, from manifests this process fetched itself.
+/// Nothing the caller sends can influence the entry that comes back.
+///
+/// The official manifest is searched first so a community entry can never
+/// shadow an official one by reusing its id.
+pub async fn resolve_catalogue_entry(id: &str) -> Result<SkillMeta> {
+    validate_id(id)?;
+
+    if let Ok(official) = github_list().await {
+        if let Some(hit) = official.into_iter().find(|m| m.id == id) {
+            return Ok(hit);
+        }
+    }
+    let community = community_list().await?;
+    community
+        .into_iter()
+        .find(|m| m.id == id)
+        .ok_or_else(|| anyhow::anyhow!("no capability named '{}' is available", id))
+}
+
+/// Fetch a catalogue entry's body without installing it.
+///
+/// The "inspect before trusting" step: it lets the agent tell the user what it
+/// is about to add to their machine, and it is the only way to read a
+/// capability that is not installed yet.
+pub async fn inspect_catalogue_entry(id: &str) -> Result<SkillPreview> {
+    let meta = resolve_catalogue_entry(id).await?;
+    let content = fetch_catalogue_content(&meta).await?;
+    Ok(SkillPreview { meta, content })
+}
+
+/// Download a catalogue entry's body, host-allowlisted.
+async fn fetch_catalogue_content(meta: &SkillMeta) -> Result<String> {
+    let url = meta
+        .content_url
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("catalogue entry '{}' has no content URL", meta.id))?;
+    validate_content_url(url)?;
+
+    let client = content_client()?;
+
+    Ok(client
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?)
+}
+
+/// Install a capability the host resolved itself.
+///
+/// The caller supplies a name and nothing else. Compare the old
+/// `install_skill(meta, content, overwrite)`, which took the file body, the
+/// metadata AND the trust label from whoever called it and checked only that
+/// the id was a safe slug — safe purely because its one caller happened to be
+/// a well-behaved UI. This entry point exists so the agent can ask for a
+/// capability without also being the thing that vouches for it.
+pub async fn install_from_catalogue(id: &str) -> Result<SkillMeta> {
+    let meta = resolve_catalogue_entry(id).await?;
+    let content = fetch_catalogue_content(&meta).await?;
+
+    // What came back must actually be a skill.
+    //
+    // There is deliberately no "the body declares a different id" check here:
+    // SKILL.md frontmatter carries no id at all — the id is the directory
+    // name, supplied externally — so such a comparison could never fail and
+    // would read as protection while providing none. What CAN arrive instead
+    // is a 404 page, an empty file, or a redirect body, and writing one of
+    // those to disk while telling the user their capability installed is the
+    // real failure this guards.
+    validate_skill_body(&content)?;
+
+    do_install(&meta, &content, true)?;
+    Ok(meta)
+}
+
 /// Fetch the raw SKILL.md from a remote URL, validate host, parse frontmatter.
 pub async fn fetch_remote_preview(url: &str) -> Result<SkillPreview> {
     validate_content_url(url)?;
 
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?;
+    let client = content_client()?;
 
     let content = client
         .get(url)
@@ -349,6 +469,24 @@ pub fn preview_local_file(path: &str) -> Result<SkillPreview> {
         bail!("resolved path is not a regular file");
     }
 
+    // Reachable from the webview (`preview_local_skill`), so it must not be an
+    // arbitrary-file-read primitive: without these two guards, pointing it at
+    // ~/.ssh/id_rsa returned the private key as "skill preview content", and
+    // pointing it at a huge file — or /dev/urandom — read until the process
+    // died. Same threat model, same guard, as the file readers in commands/files.rs.
+    crate::commands::files::deny_feral_private(&canon).map_err(|e| anyhow::anyhow!(e))?;
+    crate::commands::files::deny_sensitive_home_paths(&canon).map_err(|e| anyhow::anyhow!(e))?;
+
+    const MAX_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
+    if metadata.len() > MAX_PREVIEW_BYTES {
+        bail!(
+            "'{}' is {} bytes — too large to preview as a skill (limit {} bytes)",
+            path,
+            metadata.len(),
+            MAX_PREVIEW_BYTES
+        );
+    }
+
     let content = std::fs::read_to_string(&canon)?;
 
     // Derive provisional id from filename
@@ -375,7 +513,14 @@ pub fn skill_exists(id: &str) -> Result<bool> {
 
 /// Write SKILL.md to ~/.feral/skills/<id>/SKILL.md.
 /// Fails if the directory already exists and overwrite is false.
-pub fn do_install(meta: &SkillMeta, content: &str, overwrite: bool) -> Result<()> {
+///
+/// PRIVATE ON PURPOSE. This function trusts everything it is given — the body,
+/// the metadata and the trust label — and checks only that the id is a safe
+/// slug. It used to be a Tauri command, which meant provenance was whatever
+/// the caller claimed it was. Reach it through `install_from_catalogue`,
+/// `install_from_url` or `install_from_file`, each of which reads the content
+/// itself before calling here.
+fn do_install(meta: &SkillMeta, content: &str, overwrite: bool) -> Result<()> {
     validate_id(&meta.id)?;
     let skill_dir = skill_path(&meta.id)?;
 
@@ -411,6 +556,43 @@ pub fn do_remove(id: &str) -> Result<()> {
 }
 
 // ── Tauri Commands ─────────────────────────────────────────────────────────────
+
+/// Serve one `capability_request` from the agent sidecar.
+///
+/// The three verbs the agent gets. Note what is NOT here: no way to pass
+/// content, metadata or a trust label. `do_install` — which trusts all three —
+/// is private to this module, and every route to it fetches first.
+pub async fn handle_capability_request(
+    action: &str,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+
+    match action {
+        "list" => {
+            // Both catalogues, official first, deduplicated by id so a
+            // community entry cannot shadow an official one.
+            let mut out: Vec<SkillMeta> = github_list().await.unwrap_or_default();
+            let mut seen: std::collections::HashSet<String> =
+                out.iter().map(|m| m.id.clone()).collect();
+            for m in community_list().await.unwrap_or_default() {
+                if seen.insert(m.id.clone()) {
+                    out.push(m);
+                }
+            }
+            serde_json::to_value(out).map_err(|e| e.to_string())
+        }
+        "inspect" => {
+            let preview = inspect_catalogue_entry(name).await.map_err(|e| e.to_string())?;
+            serde_json::to_value(preview).map_err(|e| e.to_string())
+        }
+        "install" => {
+            let meta = install_from_catalogue(name).await.map_err(|e| e.to_string())?;
+            serde_json::to_value(meta).map_err(|e| e.to_string())
+        }
+        other => Err(format!("unknown capability action '{other}'")),
+    }
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -454,10 +636,40 @@ pub fn skill_exists_cmd(id: String) -> Result<bool, String> {
     skill_exists(&id).map_err(|e| e.to_string())
 }
 
+/// Install a capability by name. The host resolves everything else.
+/// This is the only install path reachable from the agent.
 #[tauri::command]
 #[specta::specta]
-pub fn install_skill(meta: SkillMeta, content: String, overwrite: bool) -> Result<(), String> {
-    do_install(&meta, &content, overwrite).map_err(|e| e.to_string())
+pub async fn install_capability(id: String) -> Result<SkillMeta, String> {
+    install_from_catalogue(&id).await.map_err(|e| e.to_string())
+}
+
+/// Read a catalogue capability without installing it.
+#[tauri::command]
+#[specta::specta]
+pub async fn inspect_capability(id: String) -> Result<SkillPreview, String> {
+    inspect_catalogue_entry(&id).await.map_err(|e| e.to_string())
+}
+
+/// Install from a URL the user pasted. Host-side fetch, host allowlist
+/// enforced — but the decision to trust this URL is the user's, which is why
+/// this is not reachable from the agent.
+#[tauri::command]
+#[specta::specta]
+pub async fn install_skill_from_url(url: String, overwrite: bool) -> Result<SkillMeta, String> {
+    let preview = fetch_remote_preview(&url).await.map_err(|e| e.to_string())?;
+    do_install(&preview.meta, &preview.content, overwrite).map_err(|e| e.to_string())?;
+    Ok(preview.meta)
+}
+
+/// Install from a file the user picked. The user's own file picker is the
+/// provenance, and that is a claim only a person can make.
+#[tauri::command]
+#[specta::specta]
+pub fn install_skill_from_file(path: String, overwrite: bool) -> Result<SkillMeta, String> {
+    let preview = preview_local_file(&path).map_err(|e| e.to_string())?;
+    do_install(&preview.meta, &preview.content, overwrite).map_err(|e| e.to_string())?;
+    Ok(preview.meta)
 }
 
 #[tauri::command]
@@ -474,6 +686,53 @@ mod tests {
     fn valid_id_accepted() {
         assert!(validate_id("systematic-debugging").is_ok());
         assert!(validate_id("my_skill_01").is_ok());
+    }
+
+    #[test]
+    fn catalogue_content_url_must_be_allowlisted() {
+        // The install path used to never call this at all: content came in as
+        // a &str from whoever called do_install, from anywhere or nowhere.
+        assert!(validate_content_url("https://raw.githubusercontent.com/x/y.md").is_ok());
+        assert!(validate_content_url("https://evil.example.com/x.md").is_err());
+        assert!(validate_content_url("http://raw.githubusercontent.com/x.md").is_err());
+        // A host that merely ends with an allowed name must not pass.
+        assert!(validate_content_url("https://notraw.githubusercontent.com.evil.com/x.md").is_err());
+    }
+
+    #[test]
+    fn a_fetched_body_that_is_not_a_skill_is_refused() {
+        // The realistic failure: the content URL 200s with a GitHub 404 page,
+        // a redirect stub, or nothing at all. Writing that to disk and
+        // reporting success is worse than failing the install.
+        assert!(validate_skill_body("").is_err());
+        assert!(validate_skill_body("   
+  ").is_err());
+        assert!(validate_skill_body("<!DOCTYPE html><h1>404</h1>").is_err());
+        assert!(validate_skill_body("# Just a heading
+no frontmatter").is_err());
+        // Frontmatter present but empty of meaning.
+        assert!(validate_skill_body("---
+name: x
+---
+body").is_err());
+        // A real skill passes.
+        assert!(
+            validate_skill_body("---
+name: Excel Reader
+description: Reads xlsx
+---
+Body")
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn install_ids_still_reject_traversal_through_the_new_entry_point() {
+        // resolve_catalogue_entry validates before any network call, so a
+        // traversal id can never reach a fetch.
+        for bad in ["../evil", "../../etc/passwd", "", "Has Spaces"] {
+            assert!(validate_id(bad).is_err(), "{bad} should be rejected");
+        }
     }
 
     #[test]

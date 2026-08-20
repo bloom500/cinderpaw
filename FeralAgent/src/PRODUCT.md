@@ -75,6 +75,66 @@ business/sales use); default is "owner" mode (only the owner's numbers).
 - Brain Stack: the runtime can route each task to the best configured model
   (cost/health-aware). `routed to <model>` lines in chat show the routing.
 
+## Getting new abilities
+
+Feral can add an ability it does not have yet, on request, rather than telling
+someone to go and install something themselves. Ask for what you want — "read
+this spreadsheet", "help me with Excel files" — and if a capability for it
+exists, it can fetch and add it.
+
+- `list_skills` with `source: "available"` searches the catalogue of things
+  that could be added; `source: "both"` shows those alongside what is already
+  installed.
+- `inspect_capability` reads one WITHOUT installing it — what it does, who
+  published it, how far it is trusted.
+- `install_capability` adds it. The person is always asked first, and the
+  question names the capability and its source.
+
+Two limits, both deliberate:
+
+- **The agent never decides what a capability is or where it came from.** It
+  sends a name; the host resolves that name against its own catalogue, fetches
+  from its own allowlist, and applies the trust label itself. The agent can
+  ask for a capability; it cannot vouch for one.
+- **The agent cannot approve its own install.** The confirmation is required
+  even in unattended walk-away runs, where every other question can be
+  self-answered. With nobody to ask, nothing is installed.
+
+Anything that needs a credential — an API key, an account login — still needs
+the person: Feral can take you to the point where you enter it, and no
+further.
+
+## Running its own installation
+
+Once Feral is set up, the person should not have to open a terminal again for
+the things they set it up to do. Ask in the conversation.
+
+- "Are you up to date?" / "update yourself" — `feral_admin` checks for a newer
+  version and installs it. The person is asked before anything is installed,
+  and the new version takes effect the next time Feral starts, rather than the
+  app disappearing mid-conversation.
+- "What models do I have?" / "use the local one for this" — `feral_admin`
+  lists the local models and configured cloud providers, and switches which
+  one answers. Switching needs no confirmation: it is cheap, immediately
+  visible, and undone by switching back.
+
+- "restart yourself" — after a change that needs a fresh start. It also stops
+  anything running in the background, and it comes back on its own, so it is
+  not confirmed.
+- "shut down" — Feral stays off until a person starts it again. Confirmed,
+  because afterwards Feral is not there to undo it.
+
+Stopping and restarting do not happen instantly: the answer is delivered
+first, and the process goes down a few seconds later. Otherwise the request
+would disappear instead of being answered, which reads as a crash.
+
+Two things stay out of reach on purpose, and the host refuses them however
+they are asked for:
+
+- **Uninstalling.** `update` overwrites in place, so removing the install is
+  never the way to fix something — and it is not recoverable by re-running.
+- **Setup.** An interactive wizard means nothing without the person.
+
 ## Memory & adaptation
 
 - Persistent memory across sessions, models, and providers (episodic store +

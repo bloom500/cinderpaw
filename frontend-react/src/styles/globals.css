@@ -1,7 +1,12 @@
 /* highlight.js themes must come before @tailwind to satisfy CSS @import order */
 @import 'highlight.js/styles/atom-one-dark.css';
-/* Inter — the app typeface, bundled locally (no CDN requests). */
-@import '@fontsource-variable/inter';
+/* Geist — the app typeface, bundled locally (no CDN requests, and none can be
+   made: the app runs under a CSP that blocks external hosts).
+   Replaces Inter. Both are workhorse UI faces; Geist is drawn with slightly
+   tighter defaults and a squarer bowl, which is the difference people read as
+   "made recently". The type scale in tailwind.config already carries the
+   negative tracking the display sizes need. */
+@import '@fontsource-variable/geist';
 
 @tailwind base;
 @tailwind components;
@@ -9,8 +14,156 @@
 
 @layer base {
   html {
-    font-family: 'Inter Variable', Inter, system-ui, sans-serif;
+    font-family: 'Geist Variable', Geist, system-ui, sans-serif;
   }
+}
+
+/*
+ * The call field's one moving part.
+ *
+ * Runs ONLY while someone is actually talking — a background that drifts all
+ * the time stops meaning anything and becomes the screensaver you learn to
+ * ignore, which is the opposite of what a call screen is for. Silence is part
+ * of the signal here.
+ *
+ * Transform only, on one small layer, so the 4-stop gradient underneath is
+ * never repainted.
+ */
+@keyframes stage-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(-4%, 3%, 0) scale(1.14); }
+}
+
+/* ── The orb ───────────────────────────────────────────────────────────────
+ *
+ * A swirl sphere: a few broad regions of colour suspended inside glass, meeting
+ * and bleeding into one another. What makes it read as a solid ball rather than
+ * as stacked circles is that no blob ever completes a lap — `alternate` on the
+ * drift means each one wanders and comes back, while a full rotation would read
+ * as a texture spinning behind a window.
+ *
+ * `translate` and `scale` only — both composited, so this costs no layout and
+ * no paint per frame. The blur is a static filter on each layer, never
+ * animated: animating a filter re-rasterises every frame, which is what turns
+ * an orb like this into a fan-spinner.
+ *
+ * Speed comes from the component (`ORB_TEMPO`), not from separate keyframes:
+ * one set of motions driven faster or slower keeps idle, listening, thinking
+ * and speaking recognisably the same object.
+ */
+@keyframes orb-drift {
+  from { transform: translate(-7%, 4%) scale(1); }
+  to   { transform: translate(8%, -6%) scale(1.12); }
+}
+/* The liquid version of the same idea, and the difference is that a blob no
+ * longer keeps its shape while it moves.
+ *
+ * Translating a soft disc gives you a disc somewhere else — the eye reads a
+ * moving OBJECT, which is why the earlier sphere looked like coloured marbles
+ * suspended in glass rather than like colour in motion. Fluid does three things
+ * at once: it drifts, it turns, and it stretches along the direction it is
+ * being pulled. The non-uniform scale is the load-bearing part; the rotation is
+ * what keeps the stretch from always lying along the same axis.
+ *
+ * Still `translate`/`rotate`/`scale` only — all composited, no layout, no
+ * repaint. Four waypoints rather than two, because two is a straight line back
+ * and forth and a straight line is the one thing liquid never does.
+ *
+ * (The keyframe itself is further down; what follows first is the live half.)
+ */
+/* The live half of the sphere.
+ *
+ * `--orb-level` is written by a frame loop in `CallOverlay`, 0..1, and it is a
+ * MEASUREMENT: the microphone while the user speaks, the reply's own loudness
+ * while the agent does. Everything below reads it, so the whole object swells
+ * and quickens with the voice instead of running at one tempo per state.
+ *
+ * Defaulted here so nothing depends on the loop having run yet — before the
+ * first call, and under reduced-motion where the loop never starts, this is a
+ * still sphere rather than a broken one. */
+.orb-shell { --orb-level: 0; }
+/* The voice reaction, at exactly the strength it shipped with: the ball follows
+ * a loud voice by 14% and the halo by 1.8 times that. Two differences from the
+ * original, both of them fixes rather than changes:
+ *
+ *  - it is driven from a CSS variable a frame loop writes, not from a React
+ *    state update per microphone reading, so the smoothing survives and the
+ *    overlay is not re-rendered sixty times a second;
+ *  - it follows the AGENT's voice too, measured off the audio being played.
+ *    Only the microphone was ever read, so through an entire answer the sphere
+ *    had nothing to react to. */
+.orb-shell .orb-body { transform: scale(calc(1 + var(--orb-level) * 0.14)); }
+.orb-shell .orb-halo { transform: scale(calc(1 + var(--orb-level) * 0.252)); }
+@keyframes orb-flow {
+  0%   { transform: translate(-8%, 5%) rotate(0deg) scale(1.04, 0.93); }
+  35%  { transform: translate(3%, -6%) rotate(38deg) scale(0.9, 1.12); }
+  70%  { transform: translate(8%, 4%) rotate(76deg) scale(1.14, 0.95); }
+  100% { transform: translate(-4%, -4%) rotate(104deg) scale(0.97, 1.06); }
+}
+/* The field's slow warp. Amplitude deliberately near the threshold of notice:
+ * the argument against a continuously moving background is that it becomes
+ * wallpaper, and that argument holds for anything you can SEE moving. This is
+ * slower than a minute per cycle and moves a few percent, so it never announces
+ * itself — it only stops the gradients reading as paint. The loud motion is
+ * still the speech-tied highlight, which is the layer that answers "is anything
+ * happening".
+ */
+@keyframes stage-flow {
+  0%   { transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.10, 1.04); }
+  33%  { transform: translate3d(4%, -3%, 0) rotate(11deg) scale(1.02, 1.16); }
+  66%  { transform: translate3d(3%, 4%, 0) rotate(-7deg) scale(1.14, 1.02); }
+  100% { transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.10, 1.04); }
+}
+/* Breathing, so the sphere is never completely still. Idle should look alive
+   but not busy; the amplitude stays small enough to read as breath.
+
+   Restored to exactly what shipped in 87f69dd after three attempts to improve
+   it made it worse in three different ways: faster read as agitation, gating it
+   on the voice made it invisible, and moving it onto the whole ball turned a
+   breath into a throb. The original is a small, continuous, slow swell of the
+   COLOUR inside the glass, and the glass around it holding still is part of why
+   it reads as breathing rather than as pulsing. */
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035); }
+}
+/* The travelling glint. A real specular highlight moves across a sphere as it
+   turns; a fixed one is the single clearest tell that the ball is a flat disc
+   with a gradient on it. */
+@keyframes orb-glint {
+  0%, 100% { transform: translate(-6%, -4%) scale(1); opacity: 0.9; }
+  50%      { transform: translate(8%, 6%) scale(1.15); opacity: 0.55; }
+}
+
+/* Tools are running.
+ *
+ * A tool call used to show up only as the fluid inside moving faster, which is
+ * invisible unless you already knew to look: the sphere is always moving, so
+ * "moving somewhat more" is not a signal. This is the one piece of the sphere
+ * that is unambiguously mechanical — a bright arc travelling the rim, once a
+ * couple of seconds, like something being scanned. It reads as work rather than
+ * as mood, which is exactly the distinction the caller needs while they wait.
+ *
+ * A steady rotation on purpose: every other motion here eases back and forth
+ * because liquid never travels in a straight line, and this one is not liquid. */
+@keyframes orb-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* The arc brightens as it comes round, so a slow sweep still has a pulse to it
+ * and the ring never sits at one flat intensity. */
+@keyframes orb-sweep-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+/* Motion is decoration here — the call's state is also carried by the status
+   line and the buttons, so removing it costs nothing and keeping it can cost a
+   user their focus or their stomach. The sphere stays lit and present, just
+   still. */
+@media (prefers-reduced-motion: reduce) {
+  .orb-motion { animation: none !important; }
 }
 
 @layer utilities {
@@ -83,12 +236,23 @@
   --border-default:  #3A342B;
   --text-primary:    #F0E6D3;
   --text-secondary:  #B8AC95;
-  --text-muted:      #8C7E6A;
-  --text-disabled:   #4A4035;
+  /* `muted` and `disabled` were tuned against flat #100E09. Over a lit scene
+     they lost the little contrast they had: #4A4035 on this ground is about
+     2:1, which is below the threshold for text of any size, and it is what the
+     rail's "Nothing yet" line was set in — a sentence written to explain an
+     empty screen, itself too faint to read. Both step up; the hierarchy between
+     the four is unchanged. */
+  --text-muted:      #9A8B75;
+  --text-disabled:   #6B6053;
   --brand:           #C4843A;
   --brand-hover:     #D4944A;
   --brand-muted:     #6B4820;
-  --error:           #C0472A;
+  /* #C0472A measured 3.84:1 against this background — below AA, and it is the
+     colour every failure message is written in. A person who cannot read the
+     error is left with a screen that simply stopped working. #D4553A is the
+     same hue at 4.74:1. */
+  --brand-foreground: #100E09;
+  --error:           #D4553A;
   --success:         #6A9E5A;
   --warning:         #D4A03A;
 
@@ -126,9 +290,14 @@
   --border-default:  #D4C4B0;
   --text-primary:    #1C1610;
   --text-secondary:  #4A3F32;
-  --text-muted:      #8C7060;
+  /* Both of these measured just under AA on #FFF5EE — 4.25:1 and 4.34:1 — and
+     both carry small text: timestamps, token counts, and every link written in
+     the brand colour. "Almost readable" at 11px is not readable. Now 5.65:1
+     and 5.08:1, same hues. */
+  --text-muted:      #7A5C4A;
   --text-disabled:   #C0B0A0;
-  --brand:           #A06828;
+  --brand:           #925E22;
+  --brand-foreground: #FFFFFF;
   --brand-hover:     #8B5820;
   --brand-muted:     #E8D4B8;
   --error:           #A03820;
@@ -156,6 +325,193 @@
   --input:                var(--border-default);
   --ring:                 var(--brand);
   --radius:               0.5rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CINEMATIC SHELL — scene + glass material tokens (2026-08-16 spec)
+ *
+ * One continuous visual environment behind every normal route. The document
+ * body owns the decorative scene (see below); pages sit on a milky glass
+ * pane over it, and the scene never remounts across route changes.
+ *
+ * Naming: `--scene-*` is the background environment (base, lights, grain,
+ * vignette); `--glass-*` is the translucent material hierarchy later page
+ * subprojects adopt instead of hard-coding rgba values. `--brand` and the
+ * shadcn `--accent` contract above are untouched.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+/* Loading hero: wordmark size for the pre-paint startup surface (slice 0).
+   index.html's inline startup <style> mirrors this value — it must be correct
+   before this stylesheet exists, so keep the two in sync. */
+:root { --watermark: clamp(120px, 22vw, 300px); }
+
+:root[data-theme="dark"] {
+  /* Opaque ground, always — nothing translucent may sit on the desktop. */
+  --scene-base:          var(--bg-primary);
+  /* The app's page surface: mostly the theme base, letting the lights and
+     grain show through. Pane, not film — text stays readable. */
+  /* 0.88 opaque was the same as no scene at all: the lights below it arrived
+     at roughly 2% and the app read as flat black. The pane is thinner now and
+     the lights are stronger, which is the whole point of having them. */
+  --scene-surface:       rgba(16, 14, 9, 0.46);
+  /* Diffuse amber key light and restrained blue-violet counterlight. */
+  --scene-key-light:     rgba(196, 132, 58, 0.50);
+  --scene-counter-light: rgba(91, 97, 182, 0.38);
+  /* A third, wider wash so the middle of the canvas is lit too. */
+  --scene-fill-light:    rgba(140, 92, 176, 0.20);
+  /* Grain and vignette strength, tuned per theme. */
+  --scene-grain-opacity: 0.05;
+  --scene-vignette:      rgba(8, 6, 4, var(--scene-vignette-strength));
+  --scene-vignette-strength: 0.5;
+  /* Glass surface levels (1 = nearest the page base). */
+  --glass-1:             rgba(28, 25, 22, 0.62);
+  --glass-2:             rgba(37, 33, 25, 0.55);
+  --glass-3:             rgba(44, 40, 32, 0.50);
+  /* Glass border, upper-edge reflection, drop shadow and amber bloom. */
+  --glass-border:        rgba(240, 230, 211, 0.10);
+  --glass-edge:          rgba(255, 250, 240, 0.14);
+  --glass-shadow:        0 18px 44px rgba(0, 0, 0, 0.38);
+  --glass-bloom:         0 0 0 1px rgba(196, 132, 58, 0.09), 0 10px 36px rgba(196, 132, 58, 0.12);
+}
+
+:root[data-theme="light"] {
+  /* Warm ivory ground, never pure white. */
+  --scene-base:          var(--bg-primary);
+  /* Light mode had been left behind twice: first at 0.88, where no scene showed
+     through at all, then at 0.70 with lights half the strength of dark's. It
+     gets the same treatment now — a thinner pane and lights strong enough to
+     see, warmed for daylight rather than recoloured. */
+  --scene-surface:       rgba(255, 245, 238, 0.55);
+  /* Amber sunlight, a cool blue-grey shadow light, and a rose fill. */
+  --scene-key-light:     rgba(232, 168, 92, 0.55);
+  --scene-counter-light: rgba(128, 142, 214, 0.40);
+  --scene-fill-light:    rgba(214, 150, 190, 0.30);
+  --scene-grain-opacity: 0.04;
+  --scene-vignette:      rgba(92, 64, 36, var(--scene-vignette-strength));
+  --scene-vignette-strength: 0.3;
+  /* Milky glass: enough opacity to keep body text readable. */
+  --glass-1:             rgba(255, 245, 238, 0.72);
+  --glass-2:             rgba(255, 250, 244, 0.60);
+  --glass-3:             rgba(255, 252, 248, 0.52);
+  --glass-border:        rgba(28, 22, 16, 0.12);
+  --glass-edge:          rgba(255, 255, 255, 0.85);
+  --glass-shadow:        0 18px 44px rgba(122, 92, 62, 0.20);
+  --glass-bloom:         0 0 0 1px rgba(160, 104, 40, 0.10), 0 10px 32px rgba(160, 104, 40, 0.12);
+}
+
+/* ── The scene ────────────────────────────────────────────────────────────
+ * Fixed pseudo-elements on the document body, beneath the React root, shared
+ * by every normal route — route changes swap only the Outlet content, so the
+ * animated layers never remount or flash.
+ *
+ * Layer order (bottom → top): opaque base → vignette → atmospheric lights →
+ * grain → React root (the app's glass pane + content) → overlays.
+ *
+ * Performance contract: only `transform`/`opacity` animate, on exactly two
+ * full-screen layers, with an opaque base below everything. No `filter` or
+ * `backdrop-filter` anywhere, no layout/paint work per frame. The grain is a
+ * small repeatable noise tile (inline SVG data URI — CSP `img-src data:`),
+ * not a full-resolution image.
+ *
+ * The voice call overlay is an opaque, full-screen, body-portalled layer
+ * (z-40) that paints over the entire scene — call visuals are untouched, and
+ * no selector below targets `.call-stage`, orb classes or voice descendants.
+ */
+body {
+  background-color: var(--scene-base);
+  background-image: radial-gradient(115% 115% at 50% 42%, transparent 58%, var(--scene-vignette) 100%);
+}
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+}
+/* Atmospheric lights: large soft amber key and blue-violet counterlight,
+   drifting slowly. Radial gradient color stops are naturally soft — no
+   blur filter needed. */
+body::before {
+  /* Generous overscan: the layer is transformed, and a light that reaches the
+     edge of the viewport must still have colour beyond it or the drift exposes
+     a hard boundary. */
+  inset: -30%;
+  background-image:
+    radial-gradient(closest-side, var(--scene-key-light), transparent 78%),
+    radial-gradient(closest-side, var(--scene-counter-light), transparent 80%),
+    radial-gradient(closest-side, var(--scene-fill-light), transparent 82%);
+  background-position: 18% 12%, 82% 88%, 62% 34%;
+  background-repeat: no-repeat;
+  /* Each light is bigger than the viewport. Two 64% blobs left most of the
+     canvas as flat base colour, which is what made this read as "a stain in
+     the corner" rather than as lighting. */
+  background-size: 125% 125%, 115% 115%, 100% 100%;
+  animation: scene-drift 34s ease-in-out infinite alternate;
+  will-change: transform;
+}
+/* Grain: a small repeatable noise tile over everything, shifting subtly so
+   the gradients never read as synthetic paint. */
+body::after {
+  inset: -30%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  opacity: var(--scene-grain-opacity);
+  animation: scene-grain-shift 6s steps(8) infinite;
+  will-change: transform;
+}
+/* A 2.5% move over 80 seconds is motion nobody will ever see: the eye reads it
+   as a still image, which is exactly what a scene meant to feel alive must not
+   be. Bigger travel, and a third of the duration. Still transform-only, still
+   one layer, so the cost per frame is unchanged. */
+@keyframes scene-drift {
+  from { transform: translate3d(-4%, -3%, 0) scale(1.06) rotate(0deg); }
+  50%  { transform: translate3d(3%, 2%, 0) scale(1.14) rotate(1.5deg); }
+  to   { transform: translate3d(5%, -2%, 0) scale(1.08) rotate(-1deg); }
+}
+@keyframes scene-grain-shift {
+  0%   { transform: translate3d(0, 0, 0); }
+  25%  { transform: translate3d(-1.1%, 0.9%, 0); }
+  50%  { transform: translate3d(0.8%, -1.2%, 0); }
+  75%  { transform: translate3d(-0.5%, -0.7%, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+/* The React root paints above the scene; the app's page surface (AppShell's
+   opaque --bg-primary in AppShell.tsx) becomes the milky glass pane so the
+   lights and grain show through instead of being buried. Unlayered, so it
+   wins over the Tailwind utility that paints the same element. */
+#root {
+  position: relative;
+  z-index: 1;
+}
+#root > div {
+  background-color: var(--scene-surface);
+}
+
+/* Reduced motion: the whole static lighting composition stays visible, only
+   the ambient drift stops. Route-level state is untouched — this matches the
+   OS preference and nothing else. */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  body::after {
+    animation: none;
+  }
+}
+
+/* No blur support: the base scene still provides hierarchy, and the glass
+   levels fall back to near-opaque materials so text never sits on a see-
+   through surface. (The scene itself uses no backdrop-filter at all.) */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-theme="dark"] {
+    --glass-1: rgba(28, 25, 22, 0.96);
+    --glass-2: rgba(37, 33, 25, 0.95);
+    --glass-3: rgba(44, 40, 32, 0.94);
+  }
+  :root[data-theme="light"] {
+    --glass-1: rgba(255, 245, 238, 0.97);
+    --glass-2: rgba(255, 250, 244, 0.96);
+    --glass-3: rgba(255, 252, 248, 0.95);
+  }
 }
 
 /*
@@ -213,7 +569,12 @@
   50%       { opacity: 0; }
 }
 
-.streaming-content > *:last-child::after {
+/* The cursor hangs off the last child. `::after` does not render on a
+   replaced/void element, so a stream whose last block is an image or an `<hr>`
+   showed no cursor at all — the answer looked finished while it was still
+   arriving. Excluding those elements moves the cursor to the block before,
+   which is visible, instead of nowhere. */
+.streaming-content > *:last-child:not(img):not(hr):not(br):not(input)::after {
   content: '▍';
   display: inline-block;
   margin-left: 1px;
@@ -244,4 +605,230 @@ body { overflow: hidden; }
 }
 @media (prefers-reduced-motion: reduce) {
   .word-fade { animation: none; }
+}
+
+/* Call-surface colours that the base palette has no entry for, per theme and in
+   this file's own convention — the store always stamps `data-theme`, so there is
+   no bare-root case to cover.
+
+   All of them exist because the call UI was built dark-first and these are the
+   places where that produced unreadable text rather than merely a different
+   look. The badges matter most: they are 10px, which is the size where WCAG
+   wants 4.5:1 and where `--warning` at #B8862A on cream delivers about 2.9:1 —
+   so light gets its own darker foreground rather than the shared token. */
+/* ── The call stage ───────────────────────────────────────────────────────
+ *
+ * The one surface in the app that does NOT follow the theme, and deliberately.
+ * A call is a full-screen immersive moment — the same thing a phone's call
+ * screen or a now-playing view is — so it carries its own light instead of
+ * inheriting the page's. That is also the whole answer to "how do we do this in
+ * light theme": we don't. Saturated orange with light text reads the same at
+ * noon and at midnight, and the alternative (a pale variant) would need every
+ * child element re-checked for contrast twice over.
+ *
+ * Scoped to `.call-stage`, so the tokens the children already use — text,
+ * borders, surfaces — resolve to stage values inside it and to theme values
+ * everywhere else. Nothing downstream had to change.
+ */
+.call-stage {
+  /* Dark ink, not light. The field started deep and the text was near-white;
+     the field then got much brighter to match the reference, and white on a
+     bright orange is about 3.5:1 — under the 4.5:1 body-text floor, and it
+     showed. A deep warm brown rather than pure black: black on orange is
+     correct and reads as a placeholder, while the brown belongs to the same
+     family as the ground it sits on and clears 7:1. */
+  --text-primary:    #3A1206;
+  --text-secondary:  rgba(58, 18, 6, 0.82);
+  --text-muted:      rgba(58, 18, 6, 0.66);
+  --border-default:  rgba(58, 18, 6, 0.34);
+  --border-subtle:   rgba(58, 18, 6, 0.18);
+  /* Panels are a DARK scrim, not white glass. White at 13% over orange is
+     orange — the first version made the hang-up and interrupt buttons
+     effectively invisible, which on a call screen is the one control that has
+     to be findable without looking for it. Darkening instead of lightening
+     also gives the light icons something to sit on. */
+  /* Light glass now that the ink is dark — a dark scrim under dark text is the
+     same mistake in reverse. These lift off the orange without going white,
+     which would strand the panels as bright patches on a bright field. */
+  --bg-elevated:     rgba(255, 238, 224, 0.30);
+  --bg-surface:      rgba(255, 238, 224, 0.22);
+  --bg-hover:        rgba(255, 238, 224, 0.46);
+  /* Red on red is nothing. The danger of the hang-up button is carried by its
+     icon and its position; its colour has to be readable first, so it goes
+     to the darkest tone available here and keeps its meaning from the shape. */
+  --error:           #5C1400;
+  /* Links and badges have to clear 4.5:1 on orange, where the theme's blues do
+     not: #8AB4F8 on #E8451F is about 2.4:1. Cream carries the same "this is a
+     link" weight at 7:1+. */
+  /* Dark for the same reason the body text is: these sit on the same bright
+     field, and the cream values that cleared 7:1 on the old deep orange now
+     clear about 2:1. */
+  --result-link:     #4A1400;
+  --badge-warn-fg:   #5C2A00;
+  --badge-warn-bg:   rgba(92, 42, 0, 0.14);
+  --badge-warn-br:   rgba(92, 42, 0, 0.34);
+  --badge-ok-fg:     #234A10;
+  --badge-ok-bg:     rgba(35, 74, 16, 0.14);
+  --badge-ok-br:     rgba(35, 74, 16, 0.34);
+}
+
+:root[data-theme="dark"] {
+  --result-link:    #8AB4F8;
+  --badge-warn-fg:  #E0A94A;
+  --badge-warn-bg:  rgba(212, 160, 58, 0.16);
+  --badge-warn-br:  rgba(212, 160, 58, 0.35);
+  --badge-ok-fg:    #7FBF6A;
+  --badge-ok-bg:    rgba(106, 158, 90, 0.16);
+  --badge-ok-br:    rgba(106, 158, 90, 0.35);
+}
+:root[data-theme="light"] {
+  --result-link:    #1A5FD0;
+  --badge-warn-fg:  #7A4E0B;
+  --badge-warn-bg:  #FBEBCF;
+  --badge-warn-br:  #E3C48A;
+  --badge-ok-fg:    #2C6234;
+  --badge-ok-bg:    #DCEEDD;
+  --badge-ok-br:    #A9CFAE;
+}
+
+/* ── Call telemetry widgets ──────────────────────────────────────────────
+   The panel that shows what Feral is doing during a voice call. Motion here
+   has one job: make work legible at a glance, from across a room. So it is
+   deliberately small — one entrance, one running state, one completion —
+   rather than a set of effects. Durations sit in the 150–300 ms band that
+   reads as responsive; anything slower on a panel that updates every few
+   seconds turns into a slideshow. */
+
+/* Widgets and their rows enter from below, the direction work arrives from. */
+@keyframes tw-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tw-rise { animation: tw-rise 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* A result row lands after the ones above it. The delay is set inline per
+   index — capped in the component, because a stagger long enough to notice on
+   row eight is a stagger that arrives after the reading eye has moved on. */
+.tw-row { animation: tw-rise 0.2s ease-out both; }
+
+/* The address bar's sweep while a search is in flight. The only infinite
+   animation here, and it is a loading indicator — which is the one thing an
+   infinite animation is for. */
+@keyframes tw-scan {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(200%); }
+}
+.tw-scan::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--brand) 22%, transparent),
+    transparent
+  );
+  animation: tw-scan 1.4s ease-in-out infinite;
+}
+
+/* The query typing itself into the search field. Real text, revealed — the
+   query is exactly what the agent sent, and progressive reveal is what makes a
+   still panel read as "happening now" rather than "happened". Width rather than
+   character count, so it works for any string without measuring it. */
+@keyframes tw-type {
+  from { max-width: 0; }
+  to   { max-width: 100%; }
+}
+.tw-type {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  animation: tw-type 0.65s steps(28, end) both;
+}
+
+/* The focus ring on the address bar, breathing while a search is in flight.
+   It is the detail that says someone is typing in this field right now. */
+@keyframes tw-focus {
+  0%, 100% { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.9); }
+  50%      { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.45); }
+}
+.tw-focus { animation: tw-focus 1.8s ease-in-out infinite; }
+
+/* Completion: the tick scales in once. Overshoot is what makes it read as
+   "landed" rather than "appeared". */
+@keyframes tw-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  60%  { transform: scale(1.12); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.tw-pop { animation: tw-pop 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+/* The terminal caret, while a command is still running. A filled block in the
+   foreground colour, which is what a console draws — a coloured bar is an
+   editor's cursor and reads as the wrong application. */
+.tw-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  vertical-align: text-bottom;
+  background: #ffffff;
+  animation: cursor-blink 1s steps(2, start) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tw-rise, .tw-row, .tw-pop, .tw-type { animation: none; }
+  .tw-scan::after, .tw-caret, .tw-focus { animation: none; }
+  .tw-scan::after { display: none; }
+  /* The ring still has to be visible, just not moving. */
+  .tw-focus { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.8); }
+  .tw-type { max-width: 100%; }
+}
+
+/* ── Text on a brand-coloured surface ──────────────────────────────────────
+   `bg-brand text-white` was written into twenty-five buttons. In light mode
+   white on the brand is fine; in dark mode the brand is a warm amber and white
+   on it measures 3.13:1 — below AA for normal text, on the PRIMARY action of
+   nearly every dialog. The same class cannot be right in both themes, so the
+   foreground becomes a token that flips with the theme: near-black on the light
+   amber (6.16:1), white on the darker one (5.46:1). */
+.text-on-brand {
+  color: var(--brand-foreground, #ffffff);
+}
+
+/* ── Keyboard focus, everywhere ────────────────────────────────────────────
+   Icon buttons across the app carry no visible focus ring: the browser default
+   is suppressed by the reset, and each component would have had to opt back in.
+   The result is that a keyboard user tabbing through the sidebar, the window
+   controls or the message actions cannot see where they are — the app is
+   navigable and invisible at the same time.
+
+   One rule, on `:focus-visible` only, so a mouse click never draws a ring while
+   a Tab press always does. Components that want a different treatment can still
+   override it locally. */
+:where(a, button, input, select, textarea, summary, [role="button"], [role="menuitem"], [role="tab"], [tabindex]):focus-visible {
+  outline: 2px solid var(--brand, #3b69ef);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ── Reduced motion, as a blanket ──────────────────────────────────────────
+   The blocks above opt specific animations out one at a time, which means every
+   animation added since — and there are many, across framer-motion and CSS —
+   ignores the preference by default. A person who set "reduce motion" because
+   movement makes them ill should not have to hope each new component remembered.
+
+   Kept as a floor rather than `animation: none`: transitions still complete
+   (state changes stay coherent), they just do not travel. Anything that must
+   move for meaning can opt back in with `.motion-safe-required`. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.motion-safe-required),
+  *:not(.motion-safe-required)::before,
+  *:not(.motion-safe-required)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

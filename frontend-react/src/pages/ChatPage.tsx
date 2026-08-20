@@ -7,9 +7,11 @@ import { useProjects } from '@/stores/projects';
 import { useUI } from '@/stores/ui';
 import { useAgent } from '@/stores/agent';
 import { ChatHeader } from '@/components/chat/ChatHeader';
+import { HomeGreeting } from '@/components/shell/HomeGreeting';
+import { HomeIntents } from '@/components/shell/HomeIntents';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
-import { NoModelEmptyState, NewChatEmptyState } from '@/components/chat/EmptyStates';
+import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
@@ -22,7 +24,6 @@ import { useFeralStore } from '@/stores/feral';
 export function ChatPage() {
   const { id } = useParams();
   const loaded      = useModel((s) => s.loaded);
-  const cloudModel  = useModel((s) => s.cloudModel);
   const messages    = useChat((s) => s.messages);
   const loadingConversation = useConversations((s) => s.loadingConversation);
 
@@ -32,9 +33,12 @@ export function ChatPage() {
   const feralSend    = useFeralSendMessage(sessionId);
   const isAgentMode  = inputMode === 'agent';
 
-  const hasModel  = !!loaded || !!cloudModel;
-  const canInput  = hasModel || isAgentMode;
-  const isEmpty   = messages.length === 0 && canInput;
+  // The composer is always live. Feral used to gate the whole screen on
+  // `hasModel`, which meant a fresh install — the one machine that has no
+  // model by definition — met a dead end instead of a product. When there
+  // is no model, ChatInput answers the first message itself and offers the
+  // two ways forward.
+  const isEmpty   = messages.length === 0;
 
   const containerRef    = useRef<HTMLDivElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
@@ -57,7 +61,13 @@ export function ChatPage() {
     if (isEmpty && !showAgentOnboarding) {
       const containerH = container.offsetHeight;
       const inputH     = wrapper.offsetHeight;
-      setTranslateY(-(containerH / 2 - inputH / 2));
+      // Never push the composer DOWN. When the window is short enough that the
+      // composer is taller than the space it sits in — a narrow window with
+      // attachments and a few lines typed — the centring maths goes positive
+      // and moves the input toward the bottom edge, half of it off screen. In
+      // that case there is nothing to centre: leave it where it is.
+      const offset = containerH / 2 - inputH / 2;
+      setTranslateY(offset > 0 ? -offset : 0);
     } else {
       setTranslateY(0);
     }
@@ -174,6 +184,12 @@ export function ChatPage() {
 
       {/* Positioning context for absolute children */}
       <div ref={containerRef} className="relative flex-1 overflow-hidden">
+        {/* The transcript scrolls under the header, and without this the top
+            line is sliced clean in half against the banner above it. A short
+            fade says "there is more up there" instead. */}
+        {messages.length > 0 && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-6 z-10 bg-gradient-to-b from-bg-primary/90 to-transparent" />
+        )}
         {loadingConversation && (
           <div className="absolute inset-x-0 top-0 h-0.5 bg-brand animate-pulse z-10" />
         )}
@@ -181,10 +197,8 @@ export function ChatPage() {
         {/* Content: messages, no-model state, or empty overlay */}
         {messages.length > 0 ? (
           <MessageList />
-        ) : !canInput ? (
-          <NoModelEmptyState />
         ) : (
-          <NewChatEmptyState isEmpty={isEmpty} onSuggestion={handleSuggestion} />
+          <NewChatEmptyState isEmpty={isEmpty} />
         )}
 
         {/* Input — always visible so the toggle is accessible even without a
@@ -195,8 +209,15 @@ export function ChatPage() {
             transform: `translateY(${translateY}px)`,
             transition: 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}
-          className="absolute inset-x-0 bottom-0 z-20 pt-8 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent"
+          // No fade behind the composer at all. It was meant to let the
+          // transcript slide out of sight, but once the theme tokens started
+          // honouring opacity it rendered as a black wash around the field —
+          // a shadow with no object casting it. The transcript's own top fade
+          // does the "there is more" job now, and the composer sits on the
+          // scene like everything else.
+          className="absolute inset-x-0 bottom-0 z-20 pt-8"
         >
+          {isEmpty && !showAgentOnboarding && <HomeGreeting />}
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
           <ChatInput
@@ -205,6 +226,12 @@ export function ChatPage() {
             sendFn={isAgentMode ? feralSend : undefined}
             alwaysEnabled={isAgentMode}
           />
+          {/* Inside the composer's wrapper, not floating near it: the wrapper
+              is what gets centred, and its measured height is what the centring
+              uses. Anything placed outside it would need the composer's height
+              guessed a second time, and would drift the first time the field
+              grew a line. */}
+          {isEmpty && !showAgentOnboarding && <HomeIntents onPick={handleSuggestion} />}
         </div>
       </div>
     </div>

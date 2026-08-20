@@ -46,7 +46,7 @@ export function recommendModel(info: SystemInfo | null): ModelRecommendation | n
       sizeClass: '7–8B',
       quant: 'Q4_K_M',
       approxFileSize: '~4.5–5.5 GB',
-      rationale: `With ${where}, a 7–8B model at Q4_K_M is the sweet spot — strong quality at a comfortable speed.`,
+      rationale: `With ${where}, a 7–8B model at Q4_K_M is the sweet spot: strong quality at a comfortable speed.`,
     };
   }
   if (budgetMb >= 4_500) {
@@ -61,6 +61,6 @@ export function recommendModel(info: SystemInfo | null): ModelRecommendation | n
     sizeClass: '1–2B',
     quant: 'Q4_K_M',
     approxFileSize: '~1 GB',
-    rationale: `With ${where}, stick to 1–2B models — or add a cloud API key (BYOK) for stronger models with zero local compute.`,
+    rationale: `With ${where}, stick to 1–2B models, or add a cloud API key (BYOK) for stronger models with zero local compute.`,
   };
 }

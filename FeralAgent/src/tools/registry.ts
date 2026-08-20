@@ -33,6 +33,8 @@ import { validateManifest } from "../egress/tool-permissions.ts";
 import type {
   AskUserBridge,
   DesktopControlBridge,
+  CapabilityBridge,
+  AdminBridge,
   ProcessSandbox,
   Tool,
   ToolCallOptions,
@@ -54,6 +56,8 @@ export class ToolRegistry {
   readonly #observations: ToolObservationLog | null;
   readonly #askUser: AskUserBridge | null;
   readonly #desktopControl: DesktopControlBridge | null;
+  readonly #capabilities: CapabilityBridge | null;
+  readonly #admin: AdminBridge | null;
   /**
    * Per-tool circuit breaker (P2-#2). Tracks consecutive failures and
    * short-circuits calls to tools that are clearly sick. Saves LLM
@@ -78,6 +82,8 @@ export class ToolRegistry {
     breaker?: CircuitBreaker,
     hooks?: import("../core/hook-registry.ts").HookRegistry,
     desktopControl?: DesktopControlBridge,
+    capabilities?: CapabilityBridge,
+    admin?: AdminBridge,
   ) {
     this.#egress = egress;
     this.#audit = audit;
@@ -87,6 +93,8 @@ export class ToolRegistry {
     this.#breaker = breaker ?? new CircuitBreaker();
     this.#hooks = hooks ?? null;
     this.#desktopControl = desktopControl ?? null;
+    this.#capabilities = capabilities ?? null;
+    this.#admin = admin ?? null;
   }
 
 
@@ -153,12 +161,31 @@ export class ToolRegistry {
     if (result.ok) return result;
     const fallbacks = tool.manifest.fallback;
     if (!fallbacks || fallbacks.length === 0) return result;
+    // The chain so far, including this tool. A fallback that leads back to
+    // something already tried is a cycle, and a cycle here is a stack overflow
+    // rather than a failed tool call.
+    const chain: readonly string[] = [...(opts.fallbackChain ?? []), name];
+    const MAX_FALLBACK_DEPTH = 4;
+    if (chain.length > MAX_FALLBACK_DEPTH) {
+      return {
+        ...result,
+        content: `${result.content} (fallback chain stopped after ${MAX_FALLBACK_DEPTH} hops: ${chain.join(" → ")})`,
+      };
+    }
     for (const fb of fallbacks) {
       const fbName = typeof fb === "string" ? fb : fb.name;
       const fbTool = this.#tools.get(fbName);
       if (!fbTool) continue;
+      if (chain.includes(fbName)) continue; // already tried in this chain
       const fbArgs = typeof fb === "object" && fb.argMap ? fb.argMap(args) : args;
-      const fbResult = await this.call(fbName, fbArgs, sessionId, opts);
+      // A fresh signal per fallback: reusing `opts` handed the fallback the
+      // abort signal that had ALREADY fired for the primary, so the retry was
+      // cancelled before it started and reported as if it had been tried.
+      const { signal: _dead, ...rest } = opts;
+      const fbResult = await this.call(fbName, fbArgs, sessionId, {
+        ...rest,
+        fallbackChain: chain,
+      });
       if (fbResult.ok) {
         return {
           ok: true,
@@ -367,6 +394,8 @@ export class ToolRegistry {
       // and refuses to run otherwise.
       askUser: this.#askUser ?? undefined,
       desktopControl: this.#desktopControl ?? undefined,
+      capabilities: this.#capabilities ?? undefined,
+      admin: this.#admin ?? undefined,
       progress: opts.onProgress
         ? (event) => {
             const full: ToolProgressEvent = {

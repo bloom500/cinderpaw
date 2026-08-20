@@ -143,7 +143,7 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
         // route behind the overlay — the provider step can leave the router
         // elsewhere (e.g. a deep-link to /models). Finish closes the wizard.
         onClick={() => { navigate('/chat'); void finish(); }}
-        className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 transition-colors"
+        className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-on-brand hover:bg-brand/90 transition-colors"
       >
         Open chat <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
       </button>
@@ -155,7 +155,7 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
       type="button"
       onClick={next}
       disabled={!canProceed}
-      className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-on-brand hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
     >
       Continue <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
     </button>
@@ -386,7 +386,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'anthropic', name: 'Anthropic (Claude)', console: 'https://console.anthropic.com/settings/keys',
     keyPlaceholder: 'sk-ant-...',
-    note: 'Paid — add ~$5 credit under Billing before the key will work.',
+    note: 'Paid. Add ~$5 credit under Billing before the key will work.',
     steps: [
       'Sign in at console.anthropic.com',
       'Settings → API keys → "Create Key"',
@@ -396,7 +396,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'google', name: 'Google Gemini', console: 'https://aistudio.google.com/apikey', free: true,
     keyPlaceholder: 'AIza...',
-    note: 'Free tier — no credit card needed.',
+    note: 'Free tier, no credit card needed.',
     steps: [
       'Sign in at aistudio.google.com with any Google account',
       'Click "Get API key" → "Create API key"',
@@ -406,7 +406,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'openrouter', name: 'OpenRouter', console: 'https://openrouter.ai/keys', free: true,
     keyPlaceholder: 'sk-or-...',
-    note: 'Free models available (look for ":free") — no credit card needed.',
+    note: 'Free models available (look for ":free"), no credit card needed.',
     steps: [
       'Sign in at openrouter.ai (Google or email)',
       'Profile menu → Keys → "Create Key"',
@@ -506,7 +506,7 @@ function DetectedSection() {
               <p className="text-sm text-text-primary truncate">{c.label}</p>
               <p className="text-xs text-text-muted truncate">
                 {outcome && !outcome.ok ? (
-                  <span className="text-red-400">{outcome.message}</span>
+                  <span className="text-error">{outcome.message}</span>
                 ) : (
                   c.detail
                 )}
@@ -514,11 +514,11 @@ function DetectedSection() {
             </div>
             {outcome?.ok ? (
               <span className="flex items-center gap-1.5 text-xs text-green-400 shrink-0">
-                <Check size={13} /> ready — I'll use it ({outcome.message})
+                <Check size={13} /> ready, I'll use it ({outcome.message})
               </span>
             ) : isTesting ? (
               <span className="flex items-center gap-1.5 text-xs text-text-muted shrink-0">
-                <Loader2 size={12} className="animate-spin" /> Testing — real completion…
+                <Loader2 size={12} className="animate-spin" /> Testing a real completion…
               </span>
             ) : (
               <button
@@ -587,7 +587,7 @@ function LocalBranch() {
 
       {done ? (
         <p className="flex items-center gap-2 text-sm text-green-400">
-          <Check size={16} /> {model.label} is ready — I'll use it automatically.
+          <Check size={16} /> {model.label} is ready, I'll use it automatically.
         </p>
       ) : isThisDownloading ? (
         <div className="space-y-1.5">
@@ -604,13 +604,13 @@ function LocalBranch() {
           type="button"
           onClick={() => void start(model.repoId, model.filename)}
           disabled={!!active}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
           <Download size={15} /> Download {model.label} ({model.approxSize})
         </button>
       )}
 
-      {error && <p className="text-xs text-red-400">Download failed: {error}</p>}
+      {error && <p className="text-xs text-error">Download failed: {error}</p>}
 
       {/*
         Audit M-R2 fix (2026-07-07): was `finish()` then `navigate()`, which
@@ -676,7 +676,7 @@ function CloudBranch() {
             )}
           >
             <span>{p.name}</span>
-            {p.free && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+            {p.free && <span className="text-micro px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
           </button>
         ))}
         {genericOnly.map((c) => (
@@ -690,7 +690,7 @@ function CloudBranch() {
             )}
           >
             <span>{c.name}</span>
-            {c.free_tier_note && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+            {c.free_tier_note && <span className="text-micro px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
           </button>
         ))}
       </div>
@@ -736,10 +736,17 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Trimmed at both call sites. Copying a key out of a browser or a password
+  // manager routinely picks up trailing whitespace, and a key stored with a
+  // newline in it goes onto the wire inside the Authorization header — which
+  // the provider answers with a 401. The user then re-pastes the same correct
+  // key, gets the same error, and nothing suggests whitespace is the problem.
   const handleTest = async () => {
+    const key = apiKey.trim();
+    if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
     setBusy(true); setMsg(null);
     try {
-      const r = await testByokProvider({ providerId: def.id, apiKey, baseUrl: null });
+      const r = await testByokProvider({ providerId: def.id, apiKey: key, baseUrl: null });
       setMsg(r.ok ? { ok: true, text: '✓ Connected' } : { ok: false, text: r.error ?? 'Connection failed' });
     } catch (e) {
       setMsg({ ok: false, text: String(e) });
@@ -747,9 +754,11 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
   };
 
   const handleSave = async () => {
+    const key = apiKey.trim();
+    if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
     setBusy(true); setMsg(null);
     try {
-      await saveByokProvider({ providerId: def.id, enabled: true, apiKey, baseUrl: null, defaultModel: null });
+      await saveByokProvider({ providerId: def.id, enabled: true, apiKey: key, baseUrl: null, defaultModel: null });
       setMsg({ ok: true, text: `✓ ${def.name} saved` });
     } catch {
       setMsg({ ok: false, text: 'Save failed' });
@@ -793,11 +802,11 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
           type="button"
           onClick={() => void handleSave()}
           disabled={busy || !apiKey}
-          className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
+          className="px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
           Save
         </button>
-        {msg && <span className={cn('text-xs', msg.ok ? 'text-green-400' : 'text-red-400')}>{msg.text}</span>}
+        {msg && <span className={cn('text-xs', msg.ok ? 'text-green-400' : 'text-error')}>{msg.text}</span>}
       </div>
     </div>
   );
@@ -869,7 +878,7 @@ function DiskEncryptionNotice() {
       accent: 'text-amber-500',
       ring: 'border-amber-500/30 bg-amber-500/5',
       title: 'Turn on disk encryption',
-      body: 'Your data lives only on this device — enable BitLocker (Windows) or FileVault (macOS) so it stays private if the device is lost or stolen.',
+      body: 'Your data lives only on this device. Enable BitLocker (Windows) or FileVault (macOS) so it stays private if the device is lost or stolen.',
     },
     unknown: {
       Icon: Shield,

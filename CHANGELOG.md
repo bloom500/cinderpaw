@@ -5,6 +5,56 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## 2026.08.15
+
+### Added
+
+- **You can call Feral and talk to it.** Press the phone button and it answers
+  out loud, in your language, interrupting and being interrupted, the way a
+  call works. While it talks it can still use everything it has: your files,
+  your memory of past conversations, the web. There is one door between the
+  voice and the agent (`ask_feral`), so the caller reaches the same assistant
+  the chat window does, with all 43 tools behind it, rather than a stripped-down
+  phone version of it. You watch the work happen: a browser, a terminal, a
+  search widget light up in the call for whatever it is actually doing, and the
+  sphere in the middle moves while a tool runs.
+- **The call keeps talking while it works.** A lookup can take a minute, and a
+  minute of silence on a phone line reads as a dead call. It now says what it is
+  doing, keeps the line warm every ten or fifteen seconds, and answers you while
+  it waits. It is also no longer allowed to *say* it is searching without
+  searching: announcing a lookup and making it are one action, because the panel
+  next to the words shows what really ran.
+- **A call survives the server's limits.** Long calls used to die at ten minutes
+  and again at twenty, both times looking like a network fault. The session now
+  reconnects and carries on, and a close that blames the audio configuration
+  drops the voice pin and retries rather than ending the call.
+- **A second cloud provider, for when the first one falls over.** The router
+  fails over to another configured cloud route before it falls back to the
+  local engine, so one provider's bad ten minutes no longer ends the work.
+
+### Fixed
+
+- **Feral improves itself again, for the first time since 10 July.** The
+  self-improvement loop had been running nightly and promoting nothing, on
+  every install, and the reason was three graders, not the models. Tier 0 is the
+  frozen sanity floor and one failure blocks all promotion: asked for the
+  formula of water the model answered `H₂O` with a real subscript and was marked
+  wrong against `h2o`; asked for JSON it wrapped the object in a code fence and
+  was marked wrong for the wrapper; and the floor also held two speed limits and
+  three token budgets, which measure the network, not the candidate. Correctness
+  still vetoes absolutely. A limit the current champion also misses no longer
+  does: that is the machine, not a regression. Measured after the fix on a
+  cloud route: champion score 24.2 → 41.0, and `main` moved for the first time
+  in five weeks.
+- **Feral tells you when it is not dreaming.** Self-improvement is off by
+  default when your model runs in the cloud, because dreaming costs money and it
+  will not spend yours while you are away. That was the right default and an
+  invisible one: the reason went to a log file, and everyone without a local
+  model, which is most people, saw an empty panel, a "Dream now" button that
+  did nothing, and no way to tell a switched-off feature from a broken one. The
+  Dreams panel now says it in words, and has the switch, with your spend cap
+  next to it.
+
 ## 2026.08.11
 
 ### Added

@@ -19,10 +19,11 @@
  * could call the notebook from inside the notebook.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { join } from "node:path";
 import { Notebook } from "../../rlm/repl.ts";
-import { ChildRegistry, type RunChild } from "../../rlm/children.ts";
+import { ChildRegistry, type ChildTelemetry, type RunChild } from "../../rlm/children.ts";
 import type { ToolRegistry } from "../../tools/registry.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
@@ -82,7 +83,14 @@ export interface NotebookToolDeps {
     sessionId: string,
     onEvent: (kind: string, detail: string) => void,
     childId: string,
+    signal: AbortSignal,
   ) => ReturnType<RunChild>;
+  /**
+   * Live worker telemetry, tagged with the session that spawned it. The host
+   * turns this into an `rlm_child` event; omit it and workers run silently as
+   * before.
+   */
+  onChildEvent?: (e: Parameters<ChildTelemetry>[0] & { sessionId: string }) => void;
   maxDepth?: number;
   /** Where per-session snapshots live. Omit to keep notebooks in memory only. */
   stateDir?: string;
@@ -117,7 +125,7 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
     const t = setTimeout(() => {
       try {
         mkdirSync(deps.stateDir!, { recursive: true });
-        writeFileSync(file(sessionId), JSON.stringify(book.snapshot()), "utf8");
+        atomicWriteFileSync(file(sessionId), JSON.stringify(book.snapshot()));
       } catch {
         // A notebook that cannot persist is still a working notebook; losing
         // state on restart is not worth failing the user's cell over.
@@ -131,8 +139,13 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
   function childrenFor(sessionId: string): ChildRegistry {
     let reg = registries.get(sessionId);
     if (!reg) {
-      reg = new ChildRegistry((task, allowedTools, onEvent, childId) =>
-        deps.runChild!(task, allowedTools, sessionId, onEvent, childId));
+      reg = new ChildRegistry(
+        (task, allowedTools, onEvent, childId, signal) =>
+          deps.runChild!(task, allowedTools, sessionId, onEvent, childId, signal),
+        // The registry is per session, so the tag is closed over here rather
+        // than threaded through every telemetry call.
+        deps.onChildEvent ? (e) => deps.onChildEvent!({ ...e, sessionId }) : undefined,
+      );
       registries.set(sessionId, reg);
     }
     return reg;
@@ -185,6 +198,12 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
         loadInto(sessionId, book);
         books.set(sessionId, book);
       }
+
+      // Point the notebook at THIS turn's abort before running. The notebook
+      // is per session and outlives any one controller, so without this a cell
+      // from turn 2 onwards ran with turn 1's dead signal and could not be
+      // stopped — nor could the workers it spawned.
+      book.signal = ctx.signal;
 
       const r = await book.run(code);
       schedulePersist(sessionId, book);

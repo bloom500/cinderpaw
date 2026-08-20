@@ -1,12 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, Info, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useResumeTask, formatRelative } from '@/components/shell/WelcomeBack';
-import { getRandomSuggestions } from '@/lib/suggestions';
-import { useT } from '@/lib/i18n';
+import { Info, X } from 'lucide-react';
 import { useUI } from '@/stores/ui';
-import { cn } from '@/lib/utils';
 
 const BYOK_DISCLAIMER_KEY = 'feral.agentByokDismissed';
 
@@ -28,7 +23,7 @@ function AgentByokNote() {
       <Info size={14} className="shrink-0 mt-0.5 text-text-muted" />
       <p className="text-xs leading-relaxed">
         Local models need significant compute. For smoother performance we
-        recommend a cloud model —{' '}
+        recommend a cloud model:{' '}
         <button
           type="button"
           onClick={() => navigate('/settings')}
@@ -50,108 +45,20 @@ function AgentByokNote() {
   );
 }
 
-const GREETING_KEYS = [
-  'empty.greeting.1',
-  'empty.greeting.2',
-  'empty.greeting.3',
-  'empty.greeting.4',
-  'empty.greeting.5',
-] as const;
-
-export function NoModelEmptyState() {
-  const navigate = useNavigate();
-  const t = useT();
-  return (
-    <div className="h-full flex flex-col items-center justify-center text-text-muted px-6">
-      <h2 className="text-xl text-text-secondary mb-2">{t('empty.noModel.title')}</h2>
-      <p className="mb-6 text-center">{t('empty.noModel.body')}</p>
-      <div className="flex gap-3">
-        <Button variant="outline" onClick={() => navigate('/models')}>
-          {t('empty.noModel.openModels')}
-        </Button>
-        <Button variant="outline" onClick={() => navigate('/settings')}>
-          {t('empty.noModel.cloudKeys')}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 interface NewChatEmptyStateProps {
   isEmpty: boolean;
-  onSuggestion: (text: string) => void;
 }
 
-export function NewChatEmptyState({ isEmpty, onSuggestion }: NewChatEmptyStateProps) {
+export function NewChatEmptyState({ isEmpty }: NewChatEmptyStateProps) {
   const isAgentMode = useUI((s) => s.inputMode) === 'agent';
-  const t = useT();
-  const resume = useResumeTask();
-  const [suggestions] = useState(() => getRandomSuggestions(3));
-  const [greetingIndex, setGreetingIndex] = useState(0);
-  const [greetingVisible, setGreetingVisible] = useState(true);
+  if (!isEmpty || !isAgentMode) return null;
 
-  useEffect(() => {
-    // Memory Resume takes the hero slot — no greeting rotation.
-    if (!isEmpty || resume) return;
-    const id = setInterval(() => {
-      setGreetingVisible(false);
-      setTimeout(() => {
-        setGreetingIndex((i) => (i + 1) % GREETING_KEYS.length);
-        setGreetingVisible(true);
-      }, 350);
-    }, 4000);
-    return () => clearInterval(id);
-  }, [isEmpty, resume]);
-
+  // The greeting moved into the composer's wrapper, where the centring already
+  // knows how tall everything is. What is left here is the one note that has
+  // to sit clear of the field.
   return (
-    <div
-      className={cn(
-        'absolute inset-0 pointer-events-none transition-opacity duration-200',
-        isEmpty ? 'opacity-100' : 'opacity-0',
-      )}
-    >
-      {/* Greeting + pills as one column, pushed above the centered input */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center pb-72">
-        {resume ? (
-          <>
-            <h1 className="text-2xl font-semibold text-text-primary select-none">
-              {t('empty.welcomeBack')} <span className="text-brand">{resume.title}</span>
-            </h1>
-            <span className="mt-1.5 flex items-center gap-1 text-xs text-text-muted select-none">
-              {resume.workspaceName && (
-                <>
-                  <FolderOpen size={11} aria-hidden />
-                  <span>in {resume.workspaceName}</span>
-                  <span aria-hidden>·</span>
-                </>
-              )}
-              <span>{formatRelative(resume.ts)}</span>
-            </span>
-          </>
-        ) : (
-          <h1
-            className="text-2xl font-semibold text-text-primary select-none transition-opacity duration-300"
-            style={{ opacity: greetingVisible ? 1 : 0 }}
-          >
-            {t(GREETING_KEYS[greetingIndex])}
-          </h1>
-        )}
-
-        <div className="mt-5 flex flex-wrap justify-center gap-2 px-6 pointer-events-auto">
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => onSuggestion(s)}
-              className="px-4 py-1.5 rounded-full border border-border-default bg-bg-surface hover:bg-bg-hover text-sm text-text-secondary transition-colors cursor-pointer"
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-
-        {isAgentMode && <AgentByokNote />}
-      </div>
+    <div className="absolute inset-x-0 bottom-4 flex justify-center pointer-events-none">
+      <AgentByokNote />
     </div>
   );
 }

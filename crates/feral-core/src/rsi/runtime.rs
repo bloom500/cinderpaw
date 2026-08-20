@@ -18,7 +18,7 @@ use super::code_patch;
 use super::goodhart::GoodhartDetector;
 use super::repo::{self, IterationMetadata};
 use super::tier0::TIER0_SPECS;
-use super::{EvalOutcome, ScoreBreakdown};
+use super::{EvalOutcome, ScoreBreakdown, ScorerWeights};
 
 use crate::runtime::RuntimeState;
 
@@ -167,14 +167,70 @@ pub fn require_string(v: Option<&serde_json::Value>, field: &str) -> Result<Stri
 pub fn do_rsi_score(state: &RuntimeState, outcomes: Vec<EvalOutcome>) -> Result<ScoreBreakdown, String> {
     ensure_initialized(state)?;
     // Use the bounds' weights if they exist, otherwise defaults.
-    let weights = state
-        .rsi_state
-        .bounds
-        .lock()
-        .as_ref()
-        .map(|b| b.scorer.weights.clone())
-        .unwrap_or_default();
-    Ok(super::scorer::score(&outcomes, &weights))
+    // Falling back to the default weights is fine — a fresh install genuinely
+    // has no tuned bounds yet. Doing it SILENTLY was not: the same outcomes
+    // scored differently depending on whether bounds happened to be loaded, and
+    // both numbers were presented as authoritative with nothing saying which
+    // formula produced them. Refusing outright would be worse still, since it
+    // would break scoring on a machine where nothing is wrong; so it says so.
+    let weights = match state.rsi_state.bounds.lock().as_ref() {
+        Some(b) => b.scorer.weights.clone(),
+        None => {
+            tracing::warn!(
+                "rsi_score: sandbox bounds are not loaded — scoring with the DEFAULT weights.                  Scores from this call are not comparable with ones taken after bounds load."
+            );
+            ScorerWeights::default()
+        }
+    };
+    let breakdown = super::scorer::score(&outcomes, &weights);
+    remember_scored(breakdown.score);
+    Ok(breakdown)
+}
+
+/// Scores this process actually computed, newest last.
+///
+/// The scorer lives in Rust so the agent cannot rewrite the formula — but the
+/// resulting NUMBER travelled back through the agent and returned as
+/// `IterationMetadata.score`, which the ratchet then compared and trusted. A
+/// candidate could therefore evaluate at 0.32, declare 0.99, and the ratchet
+/// would advance `main` onto it while reporting that it only ever advances on a
+/// strictly better score. The guarantee was on the honour system.
+///
+/// Keeping the scores we computed closes the loop for the ordinary path: a
+/// declared score must be one this process produced. It is not cryptographic —
+/// anything running inside this process could still call `do_rsi_score` with
+/// invented outcomes — but it does mean the number cannot simply be typed in.
+///
+/// ponytail: a small ring of recent values, not a genome→score map. The commit
+/// carries no reference to the scoring call that produced it, so the strongest
+/// check available here is "we computed this". Threading a scoring receipt id
+/// through the sidecar is the real fix, and needs a protocol change.
+static SCORED: std::sync::Mutex<Vec<f64>> = std::sync::Mutex::new(Vec::new());
+const SCORED_MEMORY: usize = 256;
+
+fn remember_scored(score: f64) {
+    let mut seen = SCORED.lock().unwrap_or_else(|e| e.into_inner());
+    seen.push(score);
+    let len = seen.len();
+    if len > SCORED_MEMORY {
+        seen.drain(..len - SCORED_MEMORY);
+    }
+}
+
+/// True when `score` matches something [`do_rsi_score`] computed recently.
+fn was_scored_here(score: f64) -> bool {
+    // Zero is the sentinel an errored evaluation emits without going through
+    // the scorer at all (`eval-worker.ts` scores a crashed genome 0 so the
+    // population can move on). It is also the floor, so it can never win a
+    // ratchet comparison — allowing it costs nothing.
+    if score == 0.0 {
+        return true;
+    }
+    let seen = SCORED.lock().unwrap_or_else(|e| e.into_inner());
+    // Exact f64 equality is right here: the value made the round trip through
+    // JSON, which is lossless for f64, and we want to catch a value that was
+    // edited rather than one that drifted.
+    seen.iter().any(|s| *s == score)
 }
 
 /// Body of `rsi_commit_genome` extracted so the sidecar request
@@ -220,15 +276,43 @@ pub fn commit_genome_inner(
     }
     // Candidate branch name sanity — prevents the agent from
     // poking at `refs/heads/main` directly.
-    if candidate_branch == "main" {
-        return Err("candidate_branch must not be 'main' — use rsi_ratchet_attempt".into());
+    // Case-INSENSITIVE, and trimmed. macOS APFS and Windows NTFS are both
+    // case-insensitive by default, so `refs/heads/Main` and `refs/heads/main`
+    // are the same file — and a candidate branch named "Main" therefore wrote
+    // straight onto the promoted line without ever going through the ratchet's
+    // "strictly better score" check. Trailing whitespace did the same job.
+    let branch = candidate_branch.trim();
+    if branch.eq_ignore_ascii_case("main") || branch.eq_ignore_ascii_case("master") {
+        return Err(format!(
+            "candidate_branch '{}' resolves to the promoted branch — use rsi_ratchet_attempt",
+            candidate_branch
+        ));
     }
-    if candidate_branch.is_empty() || candidate_branch.contains("..") || candidate_branch.contains('/') {
+    if branch != candidate_branch {
+        return Err(format!(
+            "invalid candidate_branch '{}' — no leading or trailing whitespace",
+            candidate_branch
+        ));
+    }
+    if branch.is_empty()
+        || branch.contains("..")
+        || branch.contains('/')
+        || branch.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
         return Err(format!(
             "invalid candidate_branch '{}' — must be a single-segment name",
             candidate_branch
         ));
     }
+    // The declared score must be one this process actually computed. See
+    // `SCORED` above for why, and for what this does and does not prove.
+    if !was_scored_here(metadata.score) {
+        return Err(format!(
+            "refusing to commit genome '{}': its declared score {} was never produced by              the scorer in this process. Score the outcomes through `rsi_score` and commit              the value it returns.",
+            genome_id, metadata.score
+        ));
+    }
+
     let parent_refs: Vec<&str> = parent_commits.iter().map(|s| s.as_str()).collect();
     repo::commit_genome(
         &genome_id,
@@ -403,6 +487,25 @@ pub async fn dispatch_rsi_request(
                 if !p.is_file() {
                     return Err(format!("rsi_set_lora: adapter file not found: {}", p.display()));
                 }
+                // The path comes over the sidecar bridge, and "the file exists"
+                // was the only check — so any file anywhere on the machine could
+                // be pushed into the running model: something in ~/Downloads, on
+                // a network share, whatever a prompt-injected instruction named.
+                //
+                // Adapters that Feral trained or fetched live under ~/.feral.
+                // Confining it there is broad enough for every real path
+                // (models dir, RSI dir) and closes the rest.
+                let root = crate::paths::feral_dir();
+                match crate::rsi::paths::is_under(&root, p) {
+                    Ok(true) => {}
+                    _ => {
+                        return Err(format!(
+                            "rsi_set_lora: refusing to load an adapter from outside {} (got {})",
+                            root.display(),
+                            p.display()
+                        ))
+                    }
+                }
             }
             let had_adapter = path.is_some();
             crate::inference::set_lora_adapter(path, scale);
@@ -504,15 +607,48 @@ pub async fn dispatch_rsi_request(
         // turn query/leaf text into vectors via the dedicated embedding model.
         // CPU-bound, so it runs on a blocking thread off the async runtime.
         "embed_text" => {
-            let texts: Vec<String> = params
+            // Bounded. Nothing limited how many texts, or how large each one
+            // was, so a single request could ask this process to hold hundreds
+            // of megabytes of input and then produce a vector for every piece
+            // of it — the sidecar is a separate process, and a loop with a bad
+            // batch size on that side takes the host down with it.
+            const MAX_EMBED_TEXTS: usize = 512;
+            const MAX_EMBED_BYTES_PER_TEXT: usize = 32 * 1024;
+            const MAX_EMBED_TOTAL_BYTES: usize = 1024 * 1024;
+
+            let arr = params
                 .get("texts")
                 .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|x| x.as_str().map(String::from))
-                        .collect()
-                })
                 .ok_or_else(|| "embed_text: missing or non-array 'texts'".to_string())?;
+            if arr.len() > MAX_EMBED_TEXTS {
+                return Err(format!(
+                    "embed_text: {} texts in one request (max {})",
+                    arr.len(),
+                    MAX_EMBED_TEXTS
+                ));
+            }
+            let mut texts: Vec<String> = Vec::with_capacity(arr.len());
+            let mut total = 0usize;
+            for value in arr {
+                let Some(text) = value.as_str() else {
+                    return Err("embed_text: every entry in 'texts' must be a string".to_string());
+                };
+                if text.len() > MAX_EMBED_BYTES_PER_TEXT {
+                    return Err(format!(
+                        "embed_text: one text is {} bytes (max {})",
+                        text.len(),
+                        MAX_EMBED_BYTES_PER_TEXT
+                    ));
+                }
+                total += text.len();
+                if total > MAX_EMBED_TOTAL_BYTES {
+                    return Err(format!(
+                        "embed_text: request exceeds {} bytes of text in total",
+                        MAX_EMBED_TOTAL_BYTES
+                    ));
+                }
+                texts.push(text.to_string());
+            }
             let vectors = tokio::task::spawn_blocking(move || crate::inference::embed_text(texts))
                 .await
                 .map_err(|e| format!("embed_text: task panicked: {e}"))?

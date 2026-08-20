@@ -182,7 +182,7 @@ describe("EscapeTimeRecorder", () => {
     expect(tracker.meanEscapeTime(regionKey(CFG_A))).toBe(0);
   });
 
-  test("a lineage cycle does not infinite-loop", () => {
+  test("a lineage cycle does not infinite-loop", async () => {
     const bus = new EventBus();
     const pop = makePop();
     const tracker = new EscapeTimeTracker();
@@ -194,7 +194,7 @@ describe("EscapeTimeRecorder", () => {
     new EscapeTimeRecorder(bus, pop, tracker);
 
     // Should not hang — the cycle is detected and broken.
-    bus.emit({
+    await bus.emit({
       type: "EvalComplete",
       genomeId: "a",
       score: 30, // chain [20, 30] → escapeTime=1
@@ -204,9 +204,16 @@ describe("EscapeTimeRecorder", () => {
       errored: false,
     });
 
-    // Either the test completes (success) or records something; both
-    // are fine. The point is the absence of a hang.
-    expect(true).toBe(true);
+    // `expect(true).toBe(true)` used to stand here. It cannot fail: if the walk
+    // hangs, the test times out (which is a real signal), but if the walk
+    // returns something WRONG the test still passes — so the assertion covered
+    // only half of what the title claims.
+    //
+    // The cycle a→b→a must be broken AND the escape time recorded from the
+    // truncated chain, not left unmeasured.
+    const mean = tracker.meanEscapeTime(regionKey(CFG_A));
+    expect(Number.isFinite(mean)).toBe(true);
+    expect(mean).toBeGreaterThan(0);
   });
 
   test("end-to-end: tracker wired via SelectionDeps.escapeTracker influences the zoom factor", async () => {

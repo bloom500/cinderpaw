@@ -28,6 +28,7 @@ const {
   healthDreams,
   healthLora,
   healthConnectors,
+  healthNotebook,
   SUBSYSTEMS,
 } = __testInternals;
 
@@ -112,8 +113,40 @@ describe("subsystem catalog", () => {
       "memory",
       "brain_stack",
       "rsi",
+      // The notebook is opt-in, which is exactly why it belongs here: a
+      // subsystem the agent cannot describe is one it will deny having.
+      "notebook",
     ]) {
       expect(SUBSYSTEMS[required]).toBeDefined();
+    }
+  });
+
+  test("healthNotebook calls a deliberately-off notebook fine, not broken", () => {
+    // `available: false` here would flip self_health's banner to "some
+    // subsystems not yet persisted" on every install that never wanted a
+    // notebook — a diagnostic that always complains stops being read.
+    const before = process.env.FERAL_ENABLE_NOTEBOOK;
+    delete process.env.FERAL_ENABLE_NOTEBOOK;
+    try {
+      const h = healthNotebook();
+      expect(h.available).toBe(true);
+      expect(h.detail).toContain("disabled");
+    } finally {
+      if (before !== undefined) process.env.FERAL_ENABLE_NOTEBOOK = before;
+    }
+  });
+
+  test("healthNotebook reports the snapshot count once enabled", () => {
+    const before = process.env.FERAL_ENABLE_NOTEBOOK;
+    process.env.FERAL_ENABLE_NOTEBOOK = "true";
+    try {
+      const h = healthNotebook();
+      expect(h.available).toBe(true);
+      expect(h.detail).toContain("enabled");
+      expect(h.detail).toMatch(/\d+ session snapshot/);
+    } finally {
+      if (before === undefined) delete process.env.FERAL_ENABLE_NOTEBOOK;
+      else process.env.FERAL_ENABLE_NOTEBOOK = before;
     }
   });
 

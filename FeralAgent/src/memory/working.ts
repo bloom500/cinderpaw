@@ -462,7 +462,17 @@ export class WorkingMemory {
     this.#notebook =
       "## Your notebook (durable — `remember` with a `note:` key to write)\n" +
       "You wrote these. They survive compaction. Trust them, keep them current, " +
-      "and rewrite an entry the moment it stops being true.\n\n" +
+      "and rewrite an entry the moment it stops being true.\n" +
+      // Without this line the drawer hijacks the conversation. It is the most
+      // concrete block in the prompt and it arrives with an instruction to act on
+      // it, so "hello" came back as a status report about whatever the notes were
+      // about — every turn, and worst on the first message of a new session where
+      // the user has given no context at all. Rendering the notebook in full is
+      // right for a long autonomous run; reciting it at someone who said hello is
+      // not the same thing.
+      "They are reference, not an agenda. Do not recite them, summarise them, or " +
+      "bring them up unless the user's message is actually about them — answer " +
+      "what was asked.\n\n" +
       notes
         .map((n) => `- **${n.key.replace(/^note:/, "")}** — ${n.value}`)
         .join("\n");

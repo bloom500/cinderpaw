@@ -16,7 +16,8 @@
  * causes re-sends that the store dedupes, never duplicates on the page.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { atomicWriteFileSync } from "../atomic-write.ts";
 import { dirname, join } from "node:path";
 import { defaultJournalDir } from "../rsi/infra/journal.ts";
 import { feralHome } from "../config.ts";
@@ -65,17 +66,31 @@ export function readCursor(path: string): ExportCursor {
 
 export function writeCursor(path: string, cursor: ExportCursor): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(cursor), "utf8");
+  // Atomic. A torn cursor file does not parse, `readCursor` falls back to zero,
+  // and the next run re-publishes the entire journal from the beginning —
+  // hundreds of POSTs carrying the publish token, against a rate-limited public
+  // endpoint, to say things the store already knows.
+  atomicWriteFileSync(path, JSON.stringify(cursor));
 }
 
 /** Journal files, oldest first. Names are `journal-YYYY-MM-DD.jsonl`, so a
  *  lexical sort is a chronological sort. */
 export function journalFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
+  // Sorted on the DATE parsed out of the name, not on the name itself, and the
+  // match is loose enough to survive a naming change. The strict pattern meant
+  // any journal file that did not look exactly like `journal-YYYY-MM-DD.jsonl`
+  // was skipped in silence — its events simply never published, with nothing
+  // anywhere reporting a gap.
   return readdirSync(dir)
-    .filter((f) => /^journal-\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
-    .sort()
-    .map((f) => join(dir, f));
+    .map((name) => {
+      const m = /(\d{4})-(\d{2})-(\d{2})/.exec(name);
+      if (!m || !name.startsWith("journal") || !name.endsWith(".jsonl")) return null;
+      return { name, key: `${m[1]}${m[2]}${m[3]}` };
+    })
+    .filter((x): x is { name: string; key: string } => x !== null)
+    .sort((a, b) => (a.key === b.key ? a.name.localeCompare(b.name) : a.key.localeCompare(b.key)))
+    .map((x) => join(dir, x.name));
 }
 
 export interface CollectResult {
@@ -194,7 +209,12 @@ export function assertTransportSafe(url: string): void {
   } catch {
     throw new Error(`FERAL_PUBLIC_JOURNAL_URL is not a valid URL: ${url}`);
   }
-  const local = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  // `[::1]` is loopback too — and `hostname` keeps the brackets, so neither
+  // literal comparison matched it. The demo over IPv6 was refused as unsafe
+  // while being the safest address there is.
+  const host = parsed.hostname.replace(/^\[|\]$/g, "");
+  const local =
+    host === "localhost" || host === "::1" || host === "127.0.0.1" || host.startsWith("127.");
   if (parsed.protocol !== "https:" && !local) {
     throw new Error("refusing to send the publish token over plain HTTP (use https, or localhost)");
   }
@@ -275,7 +295,22 @@ export async function runExport(
     throw new Error(`publish failed: HTTP ${res.status}`);
   }
 
-  writeCursor(config.cursorFile, collected.cursor);
+  // Only advance past what the server actually took. A 2xx with
+  // `{ accepted: 50 }` for a batch of 200 means 150 events were refused —
+  // schema, rate limit, whatever — and moving the cursor over them loses them
+  // for good, because nothing ever looks that far back again.
+  const accepted = typeof body.accepted === "number" ? body.accepted : null;
+  const duplicates = typeof body.duplicates === "number" ? body.duplicates : 0;
+  const handled = accepted === null ? collected.events.length : accepted + duplicates;
+  if (handled >= collected.events.length) {
+    writeCursor(config.cursorFile, collected.cursor);
+  } else {
+    process.stderr.write(
+      `[public-journal] server took ${handled} of ${collected.events.length} events — ` +
+        `leaving the cursor where it is so the rest are retried
+`,
+    );
+  }
 
   return {
     sent: collected.events.length,

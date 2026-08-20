@@ -106,6 +106,18 @@ export function hasWindowsMetachars(token: string): boolean {
   return false;
 }
 
+/**
+ * Is this config a `mcp-remote` bridge to a vendor-hosted MCP server?
+ *
+ * Those connect by opening a browser and waiting for the user to sign in, so
+ * they need a handshake budget measured in minutes rather than seconds. The
+ * config file carries no flag for it — the desktop host builds these command
+ * lines and the shape is the signal.
+ */
+export function usesRemoteBridge(server: Pick<McpServerConfig, "args">): boolean {
+  return server.args.some((a) => a === "mcp-remote" || a.startsWith("mcp-remote@"));
+}
+
 /** Build the (command, args) pair actually spawned for a server config. */
 export function spawnSpecFor(
   server: Pick<McpServerConfig, "command" | "args">,
@@ -200,7 +212,18 @@ export class McpManager {
 
     const spec = spawnSpecFor(server);
     const client = new MCPClient(
-      { command: spec.command, args: spec.args, env: server.env ?? {} },
+      {
+        command: spec.command,
+        args: spec.args,
+        env: server.env ?? {},
+        // A bridged remote server does not answer `initialize` until the user
+        // has finished signing in through the browser window it opened, so
+        // the handshake budget here is bounded by a person, not by software.
+        // The desktop host allows the same for these (BROWSER_LOGIN_TIMEOUT in
+        // src-tauri/src/mcp.rs); if the two ever disagree, the shorter one
+        // wins and the install fails mid-login for no visible reason.
+        ...(usesRemoteBridge(server) ? { initTimeoutMs: 570_000 } : {}),
+      },
       this.#audit,
     );
     try {

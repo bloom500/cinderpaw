@@ -18,8 +18,18 @@ export function AboutTab() {
       <div className="space-y-1">
         <p className="text-sm font-semibold text-text-primary">Feral {version ?? '…'}</p>
         <p className="text-xs text-text-muted">Local-first AI desktop, built with Tauri + React</p>
+        {/* The licence shown here was wrong: this repo ships under the Business
+            Source License 1.1 (see LICENSE, and `license` in Cargo.toml), not
+            MIT/Apache. A licence line is something people act on — it decides
+            whether they can use Feral at work — so it states the real terms and
+            the date they change. */}
         <p className="text-xs text-text-muted">
-          Built by <span className="font-medium text-text-secondary">Bloom Lab</span> · License: MIT + Apache 2.0
+          Built by <span className="font-medium text-text-secondary">Bloom Media</span> · Business Source License 1.1
+        </p>
+        <p className="text-xs text-text-muted">
+          Source-available: use, modify and redistribute it, including in production, as long
+          as you do not resell Feral itself as a hosted service. Each release turns
+          Apache 2.0 four years after it ships.
         </p>
       </div>
 

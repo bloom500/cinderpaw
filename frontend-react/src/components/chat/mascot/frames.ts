@@ -22,6 +22,14 @@ export const PALETTE: Record<string, string | null> = {
 // row fakes a top-lit, round body with a warm orange belly — so every one of
 // the 127 frames gets dimension from one place instead of hand-painted shadows.
 // ponytail: row ramp, not per-frame; the renderer swaps 'o' for BODY_SHADE[row].
+// The two orange tufts on row 0-1 are deliberately ambiguous: they read as ears
+// or as small horns depending on who is looking. That is the intent — the
+// creature is a little beast, not a particular animal — so please do not "fix"
+// them into one or the other on the assumption that the ambiguity is a bug.
+//
+// They are drawn with the body char, so the row-shading ramp below lights them
+// from above like the rest of the body; a hardcoded orange there would make
+// them the one flat part of the sprite.
 export const BODY_CHAR = 'o';
 function mix(a: string, b: string, t: number): string {
   const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
@@ -268,15 +276,19 @@ const SLEEP_B: Frame = [
   '....kk....kk....'
 ];
 
+// Wide round eyes and a small open mouth. The previous frame differed from
+// THINK_L by two pixels — both were "slightly asymmetric small eyes" — so the
+// mascot looked identical whether it was thinking or startled, and two states
+// that mean different things told the user the same thing.
 const SURPRISED: Frame = [
   '...o........o...',
   '..oo..kkkk..oo..',
   '..ookkkkkkkkoo..',
   '.kkkkkkkkkkkkkk.',
   '.kkooooooooookk.',
-  '.kkoowkkwkwookk.',
-  '.kkookkkwkkookk.',
-  '.kkooowrrwoookk.',
+  '.kkoowwoowwookk.',
+  '.kkoowwoowwookk.',
+  '.kkoooorrooookk.',
   'kkkooooooooookkk',
   'kkkkkooooookkkkk',
   'kkkkooooooookkkk',
@@ -2263,14 +2275,18 @@ const LOB: Frame = [
   '....kk....kk....'
 ];
 
+// One dark bar across both eyes with slate arms at the temples — that is what
+// reads as sunglasses at this size. The old frame drew two ordinary dark eye
+// blocks with grey pixels beside them, which at 16 px looks like a normal face
+// next to some noise, not like the state it is announcing.
 const COA: Frame = [
   '...o........o...',
   '..oo..kkkk..oo..',
   '..ookkkkkkkkoo..',
   '.kkkkkkkkkkkkkk.',
   '.kkooooooooookk.',
-  '.kkookkookkookk.',
-  '.kkskkookkkskkk.',
+  '.kkskkkookkkskk.',
+  '.kkooooooooookk.',
   '.kkoorrrrwoookk.',
   'kkkooooooooookkk',
   'kkkkkooooookkkkk',

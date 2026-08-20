@@ -62,10 +62,14 @@ export function queryTree(
         expanded.push({ node: child, path: [...f.path, f.node.summary] });
       }
     }
-    expanded.sort(
-      (a, b) => cosine(qVec, b.node.centroid) - cosine(qVec, a.node.centroid),
-    );
-    frontier = expanded.slice(0, opts.beam);
+    // Score once per node, then sort the scores. The comparator used to call
+    // `cosine` twice per comparison, so a 100-node frontier at 1024 dimensions
+    // spent ~1.4M multiply-adds on ONE level of the descent — repeated at every
+    // level, in the hot path of the very recall whose speed is the argument for
+    // having this tree at all.
+    const scored = expanded.map((f) => ({ f, score: cosine(qVec, f.node.centroid) }));
+    scored.sort((a, b) => b.score - a.score);
+    frontier = scored.slice(0, opts.beam).map((x) => x.f);
   }
 
   // Frontier is now all leaves (or empty for an empty root). Score, sort, top-K.

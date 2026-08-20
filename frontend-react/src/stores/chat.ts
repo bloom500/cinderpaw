@@ -64,6 +64,19 @@ export interface ChatMessage {
    * drives the "transcribing…" placeholder in between.
    */
   voicePending?: boolean;
+  /**
+   * Actions offered under a reply the PRODUCT wrote, not the model.
+   *
+   * There is one situation the model can never answer: when there is no
+   * model. Feral used to handle that by replacing the composer with a
+   * "No model selected" screen, so the first thing a new user typed was
+   * refused by a disabled text box. Now the message is accepted and this
+   * reply answers it, carrying the two ways out.
+   *
+   * Deliberately not a general button system — `route` is an in-app path
+   * and nothing else. If a second use case ever needs more, widen it then.
+   */
+  actions?: Array<{ label: string; route: string }>;
 }
 
 interface ChatStore {
@@ -141,6 +154,18 @@ interface ChatStore {
   /** #18: attach a live progress/retry note to the most recent running tool. */
   noteToolProgress: (message: string) => void;
   pushSkillsContext: (names: string[]) => void;
+  /**
+   * Create or update a background worker's bubble from an `rlm_child` event.
+   * One action rather than push/complete because the sidecar sends a stream of
+   * updates keyed by the same childId, and the first one may arrive after the
+   * turn that spawned it has already ended.
+   */
+  upsertWorker: (e: {
+    childId: string;
+    name: string;
+    status: 'running' | 'completed' | 'error' | 'cancelled';
+    detail?: string;
+  }) => void;
   clearToolCallStream: () => void;
 }
 
@@ -176,6 +201,18 @@ export type ToolCallEvent =
       startedAt: number;
       endedAt: number;
       status: 'done';
+    }
+  | {
+      /** The ChildRegistry id — stable, so repeated events update one bubble. */
+      id: string;
+      kind: 'worker';
+      /** Registry name, e.g. `subagent-count-the-files-a1b2`. */
+      name: string;
+      /** What it is doing right now, or why it ended. */
+      detail: string | null;
+      status: 'running' | 'done' | 'error' | 'cancelled';
+      startedAt: number;
+      endedAt: number | null;
     };
 
 /** Hard cap on the number of bubbles the mascot renders at once. */
@@ -183,6 +220,17 @@ export const TOOL_CALL_STREAM_MAX = 4;
 
 /** How long a finished tool bubble lingers before fading out on its own. */
 export const TOOL_CALL_LINGER_MS = 4_000;
+
+/**
+ * Linger timers for finished tool-call bubbles, so a session reset can cancel
+ * the ones whose entries are about to be discarded anyway.
+ */
+const lingerTimers = new Set<number>();
+
+function clearLingerTimers(): void {
+  for (const t of lingerTimers) window.clearTimeout(t);
+  lingerTimers.clear();
+}
 
 export const useChat = create<ChatStore>((set) => ({
   sessionId: crypto.randomUUID(),
@@ -198,7 +246,8 @@ export const useChat = create<ChatStore>((set) => ({
   lastCompletionStopped: false,
   feedback: {},
 
-  newSession: () =>
+  newSession: () => {
+    clearLingerTimers();
     set({
       sessionId: crypto.randomUUID(),
       messages: [],
@@ -212,10 +261,13 @@ export const useChat = create<ChatStore>((set) => ({
       toolCallStream: [],
       lastCompletionStopped: false,
       feedback: {},
-    }),
+    });
+  },
 
-  loadSession: (sessionId, messages, streamStatus = 'idle') =>
-    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false, feedback: {} }),
+  loadSession: (sessionId, messages, streamStatus = 'idle') => {
+    clearLingerTimers();
+    return set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false, feedback: {} });
+  },
 
   setFeedback: (messageId, value) =>
     set((s) => {
@@ -327,9 +379,16 @@ export const useChat = create<ChatStore>((set) => ({
     // Finished bubbles fade out on their own after a short linger instead of
     // piling up until the whole turn ends. AnimatePresence in ToolCallStack
     // plays the exit animation when the entry leaves the array.
-    window.setTimeout(() => {
+    //
+    // The handle is tracked so starting a new session can cancel it. Untracked,
+    // every finished tool call left a timer running for its full linger, and
+    // rapidly starting new chats piled up timers that would each wake the app
+    // to filter a list their entry had already left.
+    const timer = window.setTimeout(() => {
+      lingerTimers.delete(timer);
       set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== id) }));
     }, TOOL_CALL_LINGER_MS);
+    lingerTimers.add(timer);
   },
 
   noteToolProgress: (message) => {
@@ -368,6 +427,39 @@ export const useChat = create<ChatStore>((set) => ({
     }, TOOL_CALL_LINGER_MS);
   },
 
-  clearToolCallStream: () => set({ toolCallStream: [] }),
+  upsertWorker: ({ childId, name, status, detail }) => {
+    const done = status !== 'running';
+    set((s) => {
+      const existing = s.toolCallStream.find((e) => e.id === childId);
+      const entry: ToolCallEvent = {
+        id: childId,
+        kind: 'worker',
+        name,
+        detail: detail ?? null,
+        status: status === 'completed' ? 'done' : status,
+        startedAt: existing?.startedAt ?? Date.now(),
+        endedAt: done ? Date.now() : null,
+      };
+      const next = existing
+        ? s.toolCallStream.map((e) => (e.id === childId ? entry : e))
+        : [...s.toolCallStream, entry];
+      return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
+    });
+    // Only a settled worker fades. A running one has no known end — that is
+    // the whole difference between a worker and a tool call.
+    if (done) {
+      window.setTimeout(() => {
+        set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== childId) }));
+      }, TOOL_CALL_LINGER_MS);
+    }
+  },
+
+  // A running worker SURVIVES the clear. The stream is wiped 5s after the turn
+  // ends, and a worker outliving its turn is the normal case, not the edge —
+  // wiping it would hide exactly the work that has nothing else to show it.
+  clearToolCallStream: () =>
+    set((s) => ({
+      toolCallStream: s.toolCallStream.filter((e) => e.kind === 'worker' && e.status === 'running'),
+    })),
 
 }));

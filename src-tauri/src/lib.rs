@@ -2,6 +2,7 @@ mod agents;
 mod commands;
 mod connectors;
 mod conversations;
+mod admin_bridge;
 mod desktop_control;
 mod disk_encryption;
 mod events;
@@ -16,7 +17,7 @@ use commands::*;
 
 pub use feral_core::{
     api, byok, db_key, feral_agent, gpu_detect, inference, models, paths,
-    perf_policy, settings, sysinfo_mod, tools,
+    perf_policy, settings, sysinfo_mod, tools, tts,
 };
 #[cfg(feature = "whisper")]
 pub use feral_core::transcription;
@@ -87,6 +88,11 @@ pub struct AppState {
     /// Cached display-safe view of the model the sidecar is currently using.
     /// Updated optimistically by feral_set_model; None until first set_model call.
     pub feral_model_config: Arc<Mutex<Option<FeralModelConfigView>>>,
+    /// The speech-to-speech call in progress, if any. Holding the command
+    /// sender IS the call: dropping it closes the socket, which is what hanging
+    /// up means and why there is no separate "is a call running" flag to get out
+    /// of step with reality.
+    pub live_call: crate::commands::live::LiveCallSlot,
 }
 
 /// One stop flag per streaming session.
@@ -278,6 +284,7 @@ pub fn run() {
         stop_signals: Arc::new(StopRegistry::default()),
         system_info_cache,
         feral_model_config: Arc::new(Mutex::new(None)),
+        live_call: Arc::new(Mutex::new(None)),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -310,7 +317,21 @@ pub fn run() {
             whisper_model_present,
             transcribe_audio,
             transcribe_audio_cloud,
+            ui_log,
             download_whisper_model,
+            tts_providers,
+            tts_has_key,
+            tts_ready,
+            tts_voices,
+            tts_voice_present,
+            download_tts_voice,
+            speak_text,
+            stop_speaking,
+            start_live_call,
+            send_live_audio,
+            send_live_text,
+            live_voices,
+            end_live_call,
             load_projects,
             save_project,
             delete_project,
@@ -320,6 +341,7 @@ pub fn run() {
             set_desktop_control_yolo,
             set_token_budget_conversation,
             set_rsi_budget,
+            set_rsi_allow_cloud_dreams,
             search_hf_models,
             get_hf_model_detail,
             get_model_size_info,
@@ -344,7 +366,10 @@ pub fn run() {
             skills::preview_remote_skill,
             skills::preview_local_skill,
             skills::skill_exists_cmd,
-            skills::install_skill,
+            skills::install_capability,
+            skills::inspect_capability,
+            skills::install_skill_from_url,
+            skills::install_skill_from_file,
             skills::remove_skill,
             feral_send_message,
             feral_agent_status,
@@ -382,6 +407,10 @@ pub fn run() {
             connectors::connectors_set_enabled,
             connectors::connectors_remove,
             connectors::connectors_whatsapp_qr,
+            connectors::connector_accounts_list,
+            connectors::connector_pair_start,
+            connectors::connector_pair_poll,
+            connectors::connector_refresh_expired,
             memory_graph::get_memory_graph,
             memory_graph::add_memory_facts,
             memory_resume::get_last_task,
@@ -427,6 +456,8 @@ pub fn run() {
             crate::events::ModelLoadProgressEvent,
             crate::events::AgentStreamEvent,
             crate::events::FeralAgentOutputEvent,
+            crate::events::TtsChunkEvent,
+            crate::events::LiveStatusEvent,
         ]);
 
     // TODO: re-enable once all u64 fields have #[specta(type = Number)] annotations.
@@ -476,12 +507,53 @@ pub fn run() {
                     });
                 Some(dc)
             };
+            // Capability bridge. The sidecar sends a NAME; everything that
+            // name means — which catalogue it came from, how far it is
+            // trusted, what bytes land on disk — is decided here, on the host
+            // side of the boundary. The agent can ask for a capability; it
+            // cannot vouch for one, and it cannot hand us content to write.
+            let capabilities: Option<feral_core::host::CapabilityHandler> = {
+                let cap: feral_core::host::CapabilityHandler =
+                    Arc::new(|action, params| {
+                        Box::pin(async move {
+                            crate::skills::handle_capability_request(&action, &params).await
+                        })
+                    });
+                Some(cap)
+            };
+            // Admin bridge — update and model switching, so the person does
+            // not have to open a terminal for the things they set Feral up to
+            // handle. Captures the AppHandle because both need it: the updater
+            // plugin lives on it, and model switching goes through the same
+            // command the UI uses so the two never disagree about what is
+            // loaded.
+            let admin: Option<feral_core::host::AdminHandler> = {
+                let handle = app.handle().clone();
+                let adm: feral_core::host::AdminHandler = Arc::new(move |action, params| {
+                    let handle = handle.clone();
+                    Box::pin(async move {
+                        crate::admin_bridge::handle(handle, &action, &params).await
+                    })
+                });
+                Some(adm)
+            };
             let extra_bin_dirs: Vec<PathBuf> = vec![app.path().resource_dir().ok()]
                 .into_iter()
                 .flatten()
                 .collect();
             tauri::async_runtime::spawn(async move {
-                feral_core::boot::start(runtime, events, desktop_control, extra_bin_dirs).await;
+                feral_core::boot::start(
+                    runtime,
+                    events,
+                    desktop_control,
+                    capabilities,
+                    admin,
+                    extra_bin_dirs,
+                    // The desktop host has no single-instance probe to hand
+                    // over; the API server binds the port itself.
+                    None,
+                )
+                .await;
             });
 
             // MCP extensions: no host-side reconnect anymore (R5). The

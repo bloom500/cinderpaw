@@ -391,7 +391,17 @@ export class PopulationManager {
  * fingerprint shares a niche with nothing).
  */
 export function cosineSimilarity(a: number[], b: number[]): number {
-  const n = Math.min(a.length, b.length);
+  // Two fingerprints of different length mean one genome was evaluated on a
+  // different set of tasks — a real inconsistency. `Math.min` quietly compared
+  // the overlap instead, producing a similarity that looks plausible and is
+  // meaningless, which the extinction handler then used to decide what to cull.
+  if (a.length !== b.length) {
+    throw new Error(
+      `cosineSimilarity: fingerprint length mismatch (${a.length} vs ${b.length}) — ` +
+        "these genomes were not evaluated on the same tasks",
+    );
+  }
+  const n = a.length;
   let dot = 0;
   let normA = 0;
   let normB = 0;

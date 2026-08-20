@@ -18,10 +18,13 @@ pub(crate) fn stop_generation(state: State<AppState>, session_id: String) {
 /// Releases a session's stop flag when its generation returns — on every exit
 /// path (clean finish, error, user stop), which is why this is a guard and not
 /// a call at the end of the happy path.
-struct StopSlot {
-    registry: Arc<StopRegistry>,
-    session_id: String,
-    flag: Arc<AtomicBool>,
+/// `pub(crate)` because `speak_text` needs the same guarantee: a TTS stream has
+/// the same set of exit paths, and a leaked flag there means the next utterance
+/// starts already stopped.
+pub(crate) struct StopSlot {
+    pub(crate) registry: Arc<StopRegistry>,
+    pub(crate) session_id: String,
+    pub(crate) flag: Arc<AtomicBool>,
 }
 
 impl Drop for StopSlot {
@@ -694,6 +697,10 @@ pub(crate) async fn chat_cloud_stream(
         // Anthropic SSE uses event types per record; we track the most recent
         // `event:` line so the next `data:` line knows how to interpret itself.
         let mut current_event = String::new();
+        // Chunk boundaries land mid-character; decoding each chunk on its own
+        // turned every emoji and every diacritic unlucky enough to be split
+        // into a `�` on screen.
+        let mut decoder = feral_core::utf8_stream::Utf8Stream::new();
 
         'sse: while let Some(chunk) = byte_stream.next().await {
             if stop.load(Ordering::SeqCst) {
@@ -701,7 +708,7 @@ pub(crate) async fn chat_cloud_stream(
                 return Ok(());
             }
             let bytes = chunk.map_err(|e| { let _ = app.emit("feral://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;
-            let text = String::from_utf8_lossy(&bytes);
+            let text = decoder.push(&bytes);
 
             for ch in text.chars() {
                 if ch == '\n' {

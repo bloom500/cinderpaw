@@ -123,8 +123,16 @@ describe("FractalRecallEngine.rankedLeafIds", () => {
     // The fts-only hit id=99 is in the ranked ids AND its text is in the block.
     expect(ids).toContain(99);
     expect(result.context).toContain("fts-only-payload");
-    // recall surfaces at most MAX_CONTEXT_HITS (10); ranked ids (default limit)
-    // mirror that count.
-    expect(ids.length).toBe(result.semanticFacts);
+    // `semanticFacts` counts only the hits the TREE produced — hits with a
+    // summary path. It used to be `ranked.length`, i.e. every hit including the
+    // ones plain FTS found on its own, which flattered the very comparison the
+    // benchmark exists to settle. So the two are no longer the same number, and
+    // asserting they were equal was asserting the bug.
+    //
+    // What still holds, and is what this test is actually about: every ranked
+    // id is surfaced by recall, and the fts-only hit is among them without
+    // being counted as semantic.
+    expect(result.semanticFacts).toBeLessThan(ids.length);
+    expect(result.semanticFacts).toBe(ids.length - 1); // exactly the one fts-only hit
   });
 });

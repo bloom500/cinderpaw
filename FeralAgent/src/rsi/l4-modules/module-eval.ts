@@ -178,10 +178,14 @@ export async function runModuleEval(
 
   const incumbentMeanMs = mean(pairs.map((p) => p.incumbentLatencyMs));
   const candidateMeanMs = mean(pairs.map((p) => p.candidateLatencyMs));
+  // No incumbent baseline means there is nothing to be slower THAN. The old
+  // fallback was `candidateMeanMs > 0`, which every working module satisfies —
+  // so the first module ever built for a seam was rejected for a latency
+  // regression against a baseline that did not exist, and no seam could ever
+  // get its first promotion without someone faking a baseline by hand.
+  const haveLatencyBaseline = incumbentMeanMs > 0;
   const latencyBreached =
-    incumbentMeanMs > 0
-      ? candidateMeanMs > LATENCY_FLOOR_RATIO * incumbentMeanMs
-      : candidateMeanMs > 0;
+    haveLatencyBaseline && candidateMeanMs > LATENCY_FLOOR_RATIO * incumbentMeanMs;
 
   const samples: PairedSample[] = pairs.map((p) => ({
     candidate: p.candidateSuccess ? 1 : 0,
@@ -204,7 +208,11 @@ export async function runModuleEval(
       `${LATENCY_FLOOR_RATIO}× incumbent mean ${incumbentMeanMs.toFixed(1)}ms`;
   } else {
     accept = gate.accept;
-    reason = gate.reason;
+    // Say so when the latency check could not run, rather than letting the
+    // report read as if the candidate had been measured against something.
+    reason = haveLatencyBaseline
+      ? gate.reason
+      : `${gate.reason} (no incumbent latency baseline — speed not compared)`;
   }
 
   return {

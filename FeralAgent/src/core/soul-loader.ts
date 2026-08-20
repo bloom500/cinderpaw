@@ -40,6 +40,14 @@ export type SoulSource = "user" | "bundled";
 export interface SoulConfig {
   /** The raw SOUL.md text. Injected verbatim as the first system-prompt block. */
   content: string;
+  /**
+   * WHO the agent is — SOUL.md + IDENTITY.md — without AGENTS.md's working
+   * manual. For a surface that needs the character and not the job: a voice
+   * call is briefed with this once and has one tool, so the text agent's tool
+   * discipline is four kilobytes of instructions about work it is not doing,
+   * crowding out the part that decides how it sounds.
+   */
+  persona: string;
   /** Which file this content came from. */
   source: SoulSource;
   /** Short SHA-256 hash of the content. Use for cache-busting and audit logs. */
@@ -99,22 +107,19 @@ function profileDir(homeDir?: string): string {
  * file. Pure aside from the existsSync/readFileSync probes; any read error
  * falls back to the bundled copy so a corrupt override never bricks startup.
  */
-function loadCompanions(homeDir?: string): string {
-  const companions: Array<{ file: string; bundled: string }> = [
-    { file: "IDENTITY.md", bundled: bundledIdentity as string },
-    { file: "AGENTS.md", bundled: bundledAgents as string },
-  ];
-  const parts: string[] = [];
-  for (const { file, bundled } of companions) {
-    const userPath = join(profileDir(homeDir), file);
-    let content = bundled ?? "";
-    if (existsSync(userPath)) {
-      const userContent = safeRead(userPath);
-      if (userContent.length > 0) content = userContent;
-    }
-    if (content && content.trim().length > 0) parts.push(content.trim());
+function loadCompanion(file: string, bundled: string, homeDir?: string): string {
+  const userPath = join(profileDir(homeDir), file);
+  let content = bundled ?? "";
+  if (existsSync(userPath)) {
+    const userContent = safeRead(userPath);
+    if (userContent.length > 0) content = userContent;
   }
-  return parts.join("\n\n---\n\n");
+  return content.trim();
+}
+
+/** Join the non-empty parts with the separator the composed document uses. */
+function compose(...parts: string[]): string {
+  return parts.filter((p) => p.length > 0).join("\n\n---\n\n");
 }
 
 /**
@@ -146,10 +151,16 @@ export function loadSoul(homeDir?: string): SoulConfig {
   // Append IDENTITY.md + AGENTS.md (bundled defaults, per-file user
   // overrides). They ride inside the same SOUL block of the system prompt,
   // so the version hash and size warnings cover the composed document.
-  const companions = loadCompanions(homeDir);
-  if (companions.length > 0) {
-    content = `${content.trim()}\n\n---\n\n${companions}`;
-  }
+  const identity = loadCompanion("IDENTITY.md", bundledIdentity as string, homeDir);
+  const agents = loadCompanion("AGENTS.md", bundledAgents as string, homeDir);
+  // WHO, without HOW TO WORK. A voice call is briefed with this and nothing
+  // else, and AGENTS.md is the text agent's operating manual — finish the task,
+  // act then narrate, tool discipline — for a surface whose only tool is
+  // `ask_feral`. Four kilobytes about a job the caller is not doing, diluting
+  // the two that say who is speaking. Its own header draws the same line:
+  // "Personality lives in SOUL.md; this file is the operating manual".
+  const persona = compose(content.trim(), identity);
+  content = compose(persona, agents);
 
   const version = createHash("sha256").update(content).digest("hex").slice(0, 8);
   const approxTokens = Math.ceil(content.length / CHARS_PER_TOKEN);
@@ -157,6 +168,7 @@ export function loadSoul(homeDir?: string): SoulConfig {
 
   return {
     content,
+    persona,
     source,
     version,
     loadedAt: Date.now(),

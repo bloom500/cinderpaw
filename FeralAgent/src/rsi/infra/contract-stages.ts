@@ -58,6 +58,10 @@ export interface StageHandlerDeps {
     fitnessVector: FitnessVector;
     aggregate: number;
     samples: PairedSample[];
+    /** Components carrying the neutral placeholder instead of a measurement.
+     *  Optional so existing fakes keep compiling; absent is read as "the
+     *  handler did not say", not as "everything was measured". */
+    unmeasured?: string[];
   }>;
 
   /** safety_checks — SandboxBounds / policy gate. `ok:false` → soft reject. */
@@ -109,8 +113,12 @@ export function stageBenchmark(deps: StageHandlerDeps): StageFn {
   return async (state) => {
     const t0 = Date.now();
     try {
-      const { fitnessVector, aggregate, samples } = await deps.runBenchmark(state.candidateId);
-      return ok("benchmark", Date.now() - t0, { data: { fitnessVector, aggregate, samples } });
+      const { fitnessVector, aggregate, samples, unmeasured } = await deps.runBenchmark(
+        state.candidateId,
+      );
+      return ok("benchmark", Date.now() - t0, {
+        data: { fitnessVector, aggregate, samples, ...(unmeasured ? { unmeasured } : {}) },
+      });
     } catch (e) {
       // Infra failure (eval crashed) — hard halt, not a candidate verdict.
       return hardHalt("benchmark", `benchmark infra failure: ${String(e)}`);

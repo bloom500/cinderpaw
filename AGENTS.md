@@ -6,6 +6,21 @@
 > bug (the next agent will believe the wrong thing), so update them when
 > the underlying fact changes.
 
+## Agent rules (all models, all sessions)
+
+- Never work on `main`. One branch per task.
+- No refactoring outside the stated task. No drive-by "improvements".
+- Prefer the smallest measured fix that satisfies acceptance. Do not add abstractions,
+  redesign adjacent systems, or expand scope when a local change and focused test suffice.
+- Do NOT modify unless the task names them explicitly:
+  `useCallSession.ts`, `vad.ts`, the Rust audio pipeline, `mcp.json`.
+- Before declaring done, run `./scripts/verify.sh` — FeralAgent tests/typecheck,
+  React tests/typecheck, Rust workspace check/Tauri tests, and TUI tests/build
+  must all be green.
+- Keep diffs small. If a task needs more than 3 files, stop and ask.
+- Do not invent library APIs. If unsure, stop and report instead of guessing.
+- Conventional commits. One logical change per commit.
+
 ## How Feral works at a glance
 
 Feral = Tauri (Rust) host + Leptos/React frontend + a Bun/TypeScript
@@ -80,6 +95,13 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   split it — needs a sidecar fix (`FeralAgent/src/sandbox/inference-providers.ts`
   local path) or a host-side `delta.reasoning_content` forward. **Read
   before touching chat reasoning rendering or the local Ollama path.**
+- **`project_voice_mode_followups.md`** — open voice-mode regressions queued for
+  2026-08-17: the user's new turn can take 15–30 seconds to appear after the
+  agent finishes speaking, long prompts overwhelm the transcript beneath the
+  sphere, and claimed search/task activity has no visible tool widget or other
+  execution evidence. Includes a 2–3 hour continuous-conversation reliability
+  requirement. **Read before investigating voice transcript latency, transcript
+  presentation, or voice-mode tool activity rendering.**
 - **`project_tui_onboarding_sprint3.md`** — Sprint 3 onboarding in the
   TUI (`tui/`): `WizTestIt` step (real "Hello." round-trip before chat
   opens), "What's next" suggestions after wizard, recovery auto-retry on

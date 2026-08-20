@@ -40,10 +40,30 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls-tls"], default-features = false }
 
 # Inference — llama.cpp bindings (CPU by default; add feature "inference-vulkan" for GPU)
-llama-cpp-2 = { version = "0.1", default-features = false, optional = true }
+# `common` is not optional for us: 0.1.154 moved `LlamaSampler::grammar_lazy`
+# behind it, and lazy grammar is how tool-call output is constrained without
+# forcing every token through the grammar. It rides in the crate's `default`
+# set, which we do not take — so it has to be named.
+llama-cpp-2 = { version = "0.1", default-features = false, features = ["common"], optional = true }
 
 # Speech-to-text — whisper.cpp bindings (CPU by default; feature-gated like inference)
 whisper-rs = { version = "0.16", default-features = false, optional = true }
+
+# Text-to-speech on device — Piper voices through ONNX Runtime. Optional and
+# feature-gated for the same reason whisper is: it pulls a native runtime and
+# compiles espeak-ng from C, so a toolchain that cannot build it must still be
+# able to build Feral. `tts::catalog()` reports Piper unavailable when this is
+# off and `from_id` refuses it, so the picker can never offer an engine that
+# this build does not contain.
+piper-rs = { version = "0.2", optional = true }
+
+# Kokoro runs on the same two native pieces Piper already pulls — ONNX Runtime
+# for the model and espeak-ng for the G2P — so it is a second engine over one
+# toolchain rather than a second toolchain. Declared directly (rather than
+# leaning on piper-rs pulling them in) because `kokoro` must be buildable with
+# `piper` off; the versions are the ones already in the lockfile.
+ort = { version = "=2.0.0-rc.12", optional = true }
+espeak-rs = { version = "0.2", optional = true }
 
 # Utilities
 anyhow = "1"
@@ -81,6 +101,7 @@ getrandom = "0.2"
 # Chat attachment text extraction (PDF + OOXML/ODF containers)
 pdf-extract = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 
 # File-backed fallback for the Linux-headless keychain gap: when the OS
 # Secret Service is unreachable (NoStorageAccess / PlatformFailure — common on
@@ -112,6 +133,11 @@ inference-cuda   = ["dep:llama-cpp-2", "llama-cpp-2/cuda"]
 inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
 inference-metal  = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
 whisper = ["dep:whisper-rs"]
+# On-device TTS. Off by default so `cargo check` stays fast and a broken native
+# toolchain cannot block the whole workspace; the desktop build turns it on.
+piper = ["dep:piper-rs"]
+# The other on-device engine. Same native pieces as Piper, its own model.
+kokoro = ["dep:ort", "dep:espeak-rs"]
 
 [dev-dependencies]
 tempfile = "3"

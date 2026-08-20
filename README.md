@@ -113,33 +113,48 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
 
 ---
 
-## What's new — 2026.08.01
+## What's new
 
-*Power-user preview — we're looking for testers and contributors.
+*Power-user preview. We're looking for testers and contributors.
 [Start here](docs/CONTRIBUTING.md) if you want to help.*
 
+- 📞 **Call Feral and talk to it.** Press the phone button and it answers out
+  loud, in your language, interrupting and being interrupted the way a call
+  works. It keeps every tool it has while it talks: your files, your memory of
+  past conversations, the web. And it shows you the work as it happens: a browser,
+  a terminal, a search widget lighting up for whatever it is actually doing.
+- 🌙 **Self-improvement, unstuck.** The nightly loop had been promoting nothing
+  since 10 July on every install, because three graders marked correct answers
+  wrong (`H₂O` against `h2o`, JSON inside a code fence, and speed limits that
+  measure the network rather than the candidate). Fixed and measured: champion
+  score 24.2 → 41.0 on the first run. And when self-improvement is off because
+  your model is a paid cloud one, Feral now says so on screen instead of in a
+  log, with the switch and your spend cap next to it.
+- 🔁 **A second cloud provider to fall over to** before dropping to the local
+  engine, so one provider's bad ten minutes no longer ends the work.
+
 - 🛑 **It stops when it's provably stuck.** If a tool returns byte-identical
-  output for the same arguments twenty times, repeating it can't make progress —
+  output for the same arguments twenty times, repeating it can't make progress,
   so the turn ends and names the tool, instead of burning up to 500 iterations
   on the same call. A tool whose output keeps changing (a build still running) is
   left alone: waiting isn't looping.
 - 🔁 **Tool fallbacks actually fire.** A tool that declares a standby now falls
   back to it for the failures it was meant to cover, even when it also declares
-  retries — previously those two paths disagreed and you got the original error.
+  retries. Previously those two paths disagreed and you got the original error.
 - 🧾 **The reliability claims now have tests behind them.** Surviving a restart,
   switching provider mid-session, resuming memory and writing memory each have
-  regression tests proving the behaviour end to end — including a
+  regression tests proving the behaviour end to end, including a
   write → process restart → read round-trip. Previously several of these were
   backed by code review alone.
 
-- 🧬 **Sub-agents** — the agent can hand a slice of work to a fresh sub-agent (`delegate_task`), run several in parallel, and stream their progress back live. A depth guard keeps it from recursively spawning itself.
-- 🙋 **It asks before it guesses** — hit a real fork in the road and Feral stops to ask you (`ask_user`) instead of guessing — and the question reaches you wherever you are: the desktop app, the `feral chat` TUI, or right in your Discord/Slack/WhatsApp channel.
-- 🎓 **On-device LoRA training** — fine-tune a personal adapter on your own hardware (Unsloth, with a graceful fallback), gated behind an A/B eval so a worse adapter never ships. Needs an NVIDIA GPU to train.
-- 📦 **One-command install** — a single command detects your OS and sets everything up on Windows, macOS, and Linux (see [Quick install](#quick-install) above).
-- 💬 **Connectors, with personas** — talk to your agent from **WhatsApp** (QR pairing), **Discord**, and **Slack**; each connector can run its own persona (`--persona`), so the same Feral is a support bot in one channel and your personal agent in another.
-- 🤖 **Agent unleashed** — the sandbox is allow-by-default: open web access (SSRF-guarded, rate-limited, audited), filesystem access across your home directory (with a hard deny-wall on `~/.feral`, `~/.ssh`, and anything you list in `FERAL_FS_DENY`), and shell access out of the box. Every knob still exists if you want to lock it down.
-- 🧠 **Memory Layers + RSI** — see everything Feral remembers, grouped by recency; Feral tunes its own parameters while you're away and keeps only what measurably works.
-- 🔑 **BYOK (Bring Your Own Key)** — OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom endpoint.
+- 🧬 **Sub-agents.** The agent can hand a slice of work to a fresh sub-agent (`delegate_task`), run several in parallel, and stream their progress back live. A depth guard keeps it from recursively spawning itself.
+- 🙋 **It asks before it guesses.** Hit a real fork in the road and Feral stops to ask you (`ask_user`) instead of guessing, and the question reaches you wherever you are: the desktop app, the `feral chat` TUI, or right in your Discord/Slack/WhatsApp channel.
+- 🎓 **On-device LoRA training.** Fine-tune a personal adapter on your own hardware (Unsloth, with a graceful fallback), gated behind an A/B eval so a worse adapter never ships. Needs an NVIDIA GPU to train.
+- 📦 **One-command install.** A single command detects your OS and sets everything up on Windows, macOS, and Linux (see [Quick install](#quick-install) above).
+- 💬 **Connectors, with personas.** Talk to your agent from **WhatsApp** (QR pairing), **Discord**, and **Slack**; each connector can run its own persona (`--persona`), so the same Feral is a support bot in one channel and your personal agent in another.
+- 🤖 **Agent unleashed.** The sandbox is allow-by-default: open web access (SSRF-guarded, rate-limited, audited), filesystem access across your home directory (with a hard deny-wall on `~/.feral`, `~/.ssh`, and anything you list in `FERAL_FS_DENY`), and shell access out of the box. Every knob still exists if you want to lock it down.
+- 🧠 **Memory Layers + RSI.** See everything Feral remembers, grouped by recency; Feral tunes its own parameters while you're away and keeps only what measurably works.
+- 🔑 **BYOK (Bring Your Own Key).** OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom endpoint.
 
 Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**? Read the [updater key migration notes](docs/UPDATER_KEY_MIGRATION.md) first.
 

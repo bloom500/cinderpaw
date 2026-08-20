@@ -244,6 +244,68 @@ describe("tier0FloorBreach (INVARIANT I8)", () => {
     const errored: EvalOutcome = { taskId: "a", tier: 0, success: false, latencyMs: 1, tokens: 1, errored: true };
     expect(tier0FloorBreach([errored])).toContain("Tier 0 floor breached");
   });
+
+  /** A tier-0 outcome of a given validator kind. */
+  const kinded = (taskId: string, success: boolean, kind: string): EvalOutcome => ({
+    taskId, tier: 0, success, latencyMs: 1, tokens: 1, errored: false, kind,
+  });
+
+  test("a slow machine does not breach the floor — physics is not a regression", () => {
+    // Measured 2026-08-14 on two installs: tier0/latency_short wants a reply
+    // inside 1500 ms, the configured cloud route answers in 2051-5087 ms. Every
+    // candidate breached, nothing had been promoted since 10 July, and the
+    // champion on disk was still the seed it started from. No mutation of a
+    // genome makes a network round trip faster.
+    const candidate = [
+      kinded("tier0/latency_short", false, "latency"),
+      kinded("tier0/concise", false, "token_budget"),
+      kinded("tier0/fact_capital_france", true, "fact_lookup"),
+    ];
+    const champion = candidate.map((o) => ({ ...o })); // the champion is just as slow
+    expect(tier0FloorBreach(candidate, champion)).toBeNull();
+  });
+
+  test("but getting SLOWER than the champion still breaches", () => {
+    // The anti-gaming rule survives: this is a real regression on the same
+    // machine, not a disagreement with a number frozen for other hardware.
+    const champion = [kinded("tier0/latency_short", true, "latency")];
+    const candidate = [kinded("tier0/latency_short", false, "latency")];
+    const reason = tier0FloorBreach(candidate, champion);
+    expect(reason).toContain("Tier 0 floor breached");
+    expect(reason).toContain("1");
+  });
+
+  test("a wrong ANSWER always breaches, however fast or cheap it got", () => {
+    // The rule the floor exists for, unchanged.
+    const champion = [kinded("tier0/fact_water_formula", true, "fact_lookup")];
+    const candidate = [kinded("tier0/fact_water_formula", false, "fact_lookup")];
+    expect(tier0FloorBreach(candidate, champion)).toContain("Tier 0 floor breached");
+    // And with no champion to compare against, too.
+    expect(tier0FloorBreach(candidate)).toContain("Tier 0 floor breached");
+  });
+
+  test("an unknown validator kind is treated as capability, not excused", () => {
+    // Unknown means strict: a spec shape this file has not been taught about
+    // must not slip through the floor by being unrecognised.
+    const candidate = [kinded("tier0/something_new", false, "some_future_kind")];
+    expect(tier0FloorBreach(candidate, [])).toContain("Tier 0 floor breached");
+  });
+
+  test("an ERRORED environment task still breaches — that is not slowness", () => {
+    const errored: EvalOutcome = {
+      taskId: "tier0/latency_short", tier: 0, success: false,
+      latencyMs: 1, tokens: 1, errored: true, kind: "latency",
+    };
+    expect(tier0FloorBreach([errored], [])).toContain("Tier 0 floor breached");
+  });
+
+  test("with no champion at all, a slow first candidate is not vetoed by physics", () => {
+    const candidate = [
+      kinded("tier0/latency_short", false, "latency"),
+      kinded("tier0/fact_capital_france", true, "fact_lookup"),
+    ];
+    expect(tier0FloorBreach(candidate)).toBeNull();
+  });
 });
 
 describe("RatchetHandler + Tier 0 floor", () => {

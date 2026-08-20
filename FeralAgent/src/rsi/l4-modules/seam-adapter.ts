@@ -56,6 +56,8 @@ export class SeamAdapter {
   private host: ModuleHost | null = null;
   private hostModuleId: string | null = null;
   private spawning: Promise<SpawnResult> | null = null;
+  /** Which module `spawning` is actually starting — see `ensureHost`. */
+  private spawningModuleId: string | null = null;
   private strikes: number[] = [];
 
   constructor(opts: SeamAdapterOpts) {
@@ -100,16 +102,44 @@ export class SeamAdapter {
   private async ensureHost(moduleId: string): Promise<ModuleHost | null> {
     if (this.host && this.hostModuleId === moduleId && this.host.alive()) return this.host;
     this.stopHost(); // active changed (promotion) or host died — respawn
-    this.spawning ??= (this.o.spawn ?? spawnModuleHost)({
-      moduleDir: (this.o.moduleDirFor ?? ((id: string) => join(defaultModulesDir(), id)))(moduleId),
-      limits: this.limits,
-      log: this.log,
-    });
+
+    // `this.spawning ??= …` reused an in-flight spawn no matter WHICH module it
+    // was starting. If the registry re-pointed the seam mid-spawn — which is
+    // exactly what a promotion does — the second caller joined the first
+    // caller's spawn of the OLD module and then labelled it with the NEW id.
+    // Every later invoke went to the old module's code while the UI reported
+    // the new one as active: the promotion appeared to happen and did not.
+    if (this.spawning && this.spawningModuleId !== moduleId) {
+      // Someone else is starting a different module. Let theirs finish and be
+      // discarded by the check below rather than adopting it as ours.
+      await this.spawning.catch(() => undefined);
+      this.spawning = null;
+      this.spawningModuleId = null;
+      this.stopHost();
+    }
+    if (!this.spawning) {
+      this.spawningModuleId = moduleId;
+      this.spawning = (this.o.spawn ?? spawnModuleHost)({
+        moduleDir: (this.o.moduleDirFor ?? ((id: string) => join(defaultModulesDir(), id)))(moduleId),
+        limits: this.limits,
+        log: this.log,
+      });
+    }
+    const spawnedFor = this.spawningModuleId;
     const res = await this.spawning;
     this.spawning = null;
+    this.spawningModuleId = null;
     if (!res.ok) {
       this.log(`seam(${this.o.seam}): host spawn failed for ${moduleId} — ${res.reason}`);
       return null;
+    }
+    if (spawnedFor !== moduleId) {
+      // Belt and braces: never attach a host under a name it is not.
+      this.log(
+        `seam(${this.o.seam}): discarding host for ${spawnedFor} — ${moduleId} is now active`,
+      );
+      res.host.stop();
+      return this.ensureHost(moduleId);
     }
     this.host = res.host;
     this.hostModuleId = moduleId;

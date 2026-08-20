@@ -21,6 +21,47 @@ import type {
   ToolManifest,
 } from "../types.ts";
 
+/**
+ * Hard ceiling on a response body, in bytes.
+ *
+ * Above every tool's own truncation limit (fetch_url 32 KB, read_webpage
+ * 400 KB, http_request 256 KB) so it never changes what a well-behaved server
+ * returns, and far below what would exhaust the sidecar. It exists for the
+ * case nobody's per-tool limit covered: a server that keeps sending.
+ */
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Read a response body up to `max` bytes, then hang up.
+ *
+ * The naive `await res.text()` has already downloaded everything by the time
+ * any length check runs, so a `Content-Length` of 10 GB — or no header at all
+ * and an endless stream — is an OOM with the tool's own cap looking on. This
+ * stops pulling instead, and tells the caller it truncated in the only way the
+ * body can: the text simply ends.
+ */
+async function readBounded(res: Response, max: number): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return await res.text();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    const room = max - total;
+    if (value.length >= room) {
+      chunks.push(value.subarray(0, room));
+      total = max;
+      await reader.cancel().catch(() => {});
+      break;
+    }
+    chunks.push(value);
+    total += value.length;
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
+}
+
 export interface EgressProxyConfig {
   /**
    * Max requests allowed inside the rolling window, PER TOOL.
@@ -417,7 +458,13 @@ export class EgressProxy {
           continue;
         }
 
-        // Final (non-redirect) response.
+        // Final (non-redirect) response. The body is read ONCE, bounded.
+        // `res.text()` downloads whatever the server sends before anyone can
+        // check its length, so every caller's own truncation limit only
+        // applied after the bytes were already in memory: a hostile or broken
+        // endpoint streaming gigabytes took the sidecar down with it. Reading
+        // through the stream lets us hang up mid-transfer instead.
+        const responseBody = await readBounded(res, MAX_RESPONSE_BYTES);
         const respHeaders: Record<string, string> = {};
         res.headers.forEach((value, key) => {
           respHeaders[key] = value;
@@ -440,8 +487,8 @@ export class EgressProxy {
           status: res.status,
           ok: res.ok,
           headers: respHeaders,
-          text: () => res.text(),
-          json: () => res.json() as Promise<unknown>,
+          text: async () => responseBody,
+          json: async () => JSON.parse(responseBody) as unknown,
         };
       }
     } catch (err) {

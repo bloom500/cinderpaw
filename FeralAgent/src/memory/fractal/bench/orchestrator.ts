@@ -119,7 +119,20 @@ export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promis
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`bench timeout after ${ms}ms at ${label}`)),
+      () => {
+        // ponytail: `Promise.race` picks a winner, it does not cancel the loser.
+        // The benchmark's embed and summarise calls keep running after this
+        // rejects, which is why the sidecar stays busy for minutes after the
+        // bench "failed" — work nobody is waiting for any more. Cancelling for
+        // real needs an AbortSignal threaded through embed/infer/retrieval;
+        // until then, at least say so instead of leaving it a mystery.
+        process.stderr.write(
+          `[bench] timed out at ${label} after ${ms}ms — work already started ` +
+            `keeps running in the background until it finishes
+`,
+        );
+        reject(new Error(`bench timeout after ${ms}ms at ${label}`));
+      },
       ms,
     );
   });

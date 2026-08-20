@@ -198,6 +198,17 @@ export interface ToolContext {
    * `control_app` tool refuses to run without it.
    */
   desktopControl?: DesktopControlBridge;
+
+  /**
+   * Capability bridge — list / inspect / install skills through the host's
+   * own catalogue. Present only when the transport is the Tauri host; the
+   * capability tools refuse to run without it rather than falling back to
+   * anything, because there is no safe fallback for "install software".
+   */
+  capabilities?: CapabilityBridge;
+
+  /** Administrative commands — update, switch model. Tauri host only. */
+  admin?: AdminBridge;
 }
 
 /**
@@ -208,6 +219,33 @@ export interface ToolContext {
  * the bridge is a thin, transport-level RPC.
  */
 export interface DesktopControlBridge {
+  request(
+    action: string,
+    params: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown>;
+}
+
+/**
+ * Bridge to the host's capability catalogue. `request` emits a
+ * `capability_request` and resolves with the host's `data`, or rejects with
+ * its message. Present only on the Tauri host; the `install_capability` tool
+ * refuses to run without it.
+ */
+export interface CapabilityBridge {
+  request(
+    action: string,
+    params: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown>;
+}
+
+/**
+ * Bridge to the host's administrative commands — update, model switching.
+ * Present only on the Tauri host; the `feral_admin` tool refuses to run
+ * without it rather than pretending.
+ */
+export interface AdminBridge {
   request(
     action: string,
     params: Record<string, unknown>,
@@ -277,6 +315,15 @@ export interface ToolCallOptions {
   timeoutMs?: number;
   /** Progress events emitted by long-running tools during this call. */
   onProgress?: (event: ToolProgressEvent) => void;
+  /**
+   * Tools already tried in the current fallback chain. Internal.
+   *
+   * Falling back re-enters `registry.call`, so two tools declaring each other
+   * as a fallback recursed until the stack ran out — and every level left an
+   * AbortController and a 60-second timer behind it. Carrying the chain makes
+   * a cycle a refusal instead of a crash.
+   */
+  fallbackChain?: readonly string[];
 }
 
 /** Structured result of a tool invocation. Never throws across this boundary. */
@@ -813,6 +860,18 @@ export interface SubagentConfig {
    */
   subagentId?: string;
   /**
+   * Cancellation from the caller. Without it a subagent could not be stopped
+   * at all: the user's Stop reaches the PARENT's session controller, and a
+   * child runs its own AgentLoop under its own session id, so the abort never
+   * arrived. Harmless for `delegate_task`, which at least blocks the parent's
+   * turn while it runs — but `rlm()` children run detached in the background,
+   * so pressing Stop left two model loops spending money invisibly.
+   *
+   * Aborting stops the child the same way a user stop does (its loop's own
+   * `stop()`), rather than through a second, less-tested cancellation path.
+   */
+  signal?: AbortSignal;
+  /**
    * Observer for the child loop's events (tool_start/tool_done/error…).
    * The delegate tool forwards these as tool_progress on the PARENT's
    * stream so every surface (desktop, TUI, Discord status line) shows
@@ -823,8 +882,12 @@ export interface SubagentConfig {
 
 /** The subagent's outcome. Returned to the parent agent for context. */
 export interface SubagentResult {
-  /** Terminal status of the subagent run. */
-  status: "completed" | "failed" | "timeout" | "budget_exceeded";
+  /**
+   * Terminal status of the subagent run. `cancelled` is its own outcome and
+   * not a kind of `failed`: a caller that retries failures must NOT retry a
+   * run the user deliberately stopped (see delegate-task.ts).
+   */
+  status: "completed" | "failed" | "timeout" | "budget_exceeded" | "cancelled";
   /** The subagent's final answer, truncated to fit the parent's context. */
   answer: string;
   /** How many tool calls the subagent made (observability). */
@@ -910,7 +973,7 @@ export interface SubagentSpawnPayload {
 export interface SubagentCompletePayload {
   parentSessionId: string;
   subagentId: string;
-  status: "completed" | "failed" | "timeout" | "budget_exceeded";
+  status: "completed" | "failed" | "timeout" | "budget_exceeded" | "cancelled";
   durationMs: number;
 }
 
@@ -1064,10 +1127,15 @@ export interface SkillMeta {
 
 /** Inbound message envelope from any transport. */
 export interface InboundMessage {
-  type: "message" | "ping" | "shutdown" | "set_model" | "stop"
+  // `record_turn` files an exchange that happened elsewhere without answering
+  // it. A speech-to-speech call is conducted by Gemini, so by the time it ends
+  // the user has already been heard and answered; `message` would make the
+  // agent reply to a question that is already answered, which is why this is a
+  // type of its own rather than a flag on that one.
+  type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
-    | "desktop_control_response" | "connectors_reload"
+    | "desktop_control_response" | "capability_response" | "admin_response" | "connectors_reload"
     // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
     // benchmark gate on demand. Remove with the button after the ship/hold call.
     | "fractal_benchmark"
@@ -1153,6 +1221,14 @@ export interface InboundMessage {
   id?: string;
 
   content?: string;
+  /** `record_turn` only: what the agent said back. `content` carries what the
+   *  user said, so the pair travels in one message and cannot be split by a
+   *  crash between two. */
+  assistantContent?: string;
+  /** `set_model` only: a second configured cloud provider to fail over to. The
+   *  host picks it, because it is the side that can read the keychain. Absent
+   *  when the user has only one provider set up. */
+  fallback?: { provider: string; model: string; baseUrl: string; apiKey?: string };
   sessionId?: string;
   /** RSI start payload (type === "rsi_start"). */
   rsiGoal?: string;
@@ -1203,6 +1279,18 @@ export interface InboundMessage {
    * on demand via the `read_skill` tool. Empty/undefined → no menu rendered.
    */
   skillsContext?: SkillMeta[];
+  /**
+   * Where this turn's answer will be consumed (type === "message").
+   *
+   * `"voice"` means it is going to be spoken aloud, which changes what a good
+   * answer looks like more than any other surface does: no headings, no lists, no
+   * code blocks, and a length someone can listen to instead of skim. Without it a
+   * voice call received the desktop's full markdown answer read out loud — 1382
+   * characters, 95 seconds of speech, in reply to "what can you do?".
+   *
+   * Absent (connectors, TUI) leaves whatever brief that surface already set.
+   */
+  surface?: "voice" | "text";
   // set_model fields (all present when type === "set_model")
   provider?: string;
   model?: string;
@@ -1324,6 +1412,34 @@ export type OutboundEvent =
   | { type: "proactive"; content: string; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string; traceId?: string }
+  /**
+   * Which model this turn is being answered by, and why that one.
+   *
+   * Emitted on BOTH the success and the failure path, which is the point:
+   * automatic model selection used to fail into a `console.warn` and a
+   * silent switch to the router's defaults, so a user whose routing broke
+   * saw a different model answer with no explanation available anywhere on
+   * their screen. Same reasoning as `rate_limited` below — a change the
+   * user can feel must be a change the user can read.
+   *
+   * `reason`:
+   *   - `brain`          — Brain scored the candidates and chose this one
+   *   - `only_candidate` — exactly one usable model existed
+   *   - `fallback`       — routing failed; the router's default was used.
+   *                        `detail` carries the real cause for the UI's
+   *                        progressive-disclosure "Why?" affordance and is
+   *                        never shown in the primary line.
+   */
+  | {
+      type: "model_routed";
+      sessionId: string;
+      provider: string;
+      model: string;
+      reason: "brain" | "only_candidate" | "fallback";
+      category?: string;
+      detail?: string;
+      traceId?: string;
+    }
   | { type: "pong" }
   | { type: "error"; id?: string; message: string; traceId?: string }
   | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }
@@ -1335,6 +1451,33 @@ export type OutboundEvent =
   // it is being held back for `waitMs`. Emitted so the pause is legible: a
   // silent gap of several seconds is indistinguishable from a hung agent.
   | { type: "rate_limited"; sessionId: string; waitMs: number; limitRpm: number; baseUrl: string; traceId?: string }
+  /**
+   * A background worker spawned by the notebook's `rlm()`.
+   *
+   * Deliberately NOT `tool_start`/`tool_done`: those belong to a tool call
+   * inside a turn, and a worker is the opposite — `rlm()` returns the instant
+   * the child is admitted, so the child does all its work AFTER the turn that
+   * created it has ended. It therefore carries a sessionId and no message id,
+   * like `tool_progress`, and the UI must be able to show it while the agent
+   * is otherwise idle.
+   *
+   * Without this the only trace of a worker was two incidental log lines in
+   * the sidecar's stderr: the user saw a turn end normally while two paid
+   * model loops ran on invisibly.
+   */
+  | {
+      type: "rlm_child";
+      sessionId: string;
+      /** The ChildRegistry id — stable for the life of the worker. */
+      childId: string;
+      /** Human-readable name (`subagent-count-the-files-a1b2`). */
+      name: string;
+      status: "running" | "completed" | "error" | "cancelled";
+      /** What it is doing right now, or why it ended. */
+      detail?: string;
+      durationMs?: number;
+      traceId?: string;
+    }
   | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }
   // Heartbeat for in-flight agent inference (mirrors Rust
   // `events::StreamProgressEvent`). Emitted on a ~750 ms cadence so the
@@ -1369,6 +1512,19 @@ export type OutboundEvent =
   // matching `rsi_response` inbound line. Rust's `handle_rsi_request`
   // dispatcher writes the response back on stdin.
   | { type: "rsi_request"; id: string; method: string; params: unknown }
+  // Capability bridge request — list / inspect / install a capability.
+  // Handled in the Rust host, never in the React UI.
+  //
+  // Note what this event cannot carry: content, metadata, or a trust label.
+  // The sidecar sends a NAME. What that name means — which catalogue it came
+  // from, how far it is trusted, what bytes reach the disk — is decided on the
+  // host side. The agent may request a capability; it may not vouch for one,
+  // and it may not authorize its own install.
+  | { type: "capability_request"; id: string; sessionId: string; action: string; params: Record<string, unknown> }
+  // Admin bridge request — the commands a person would otherwise open a
+  // terminal for: update, switch model. Handled in the Rust host, which owns
+  // what each action means and whether it is permitted.
+  | { type: "admin_request"; id: string; sessionId: string; action: string; params: Record<string, unknown> }
   // Faza 6 (L6) Meta Evolution reply — payload shape depends on `op`
   // (status/evolve/rollback/history); `ok:false` carries a `reason`.
   | { type: "meta_result"; id: string; op: string; ok: boolean; [key: string]: unknown }

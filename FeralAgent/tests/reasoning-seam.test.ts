@@ -109,4 +109,41 @@ describe("OpenAICompatibleProvider — reasoning/content seam heal", () => {
     expect(strip(captured)).toBe("");
     expect(content).toBe(THINK_TAG + "only reasoning noAnswerWord" + THINK_END);
   });
+
+  // The seam tests used to be ASCII throughout, and so was the heuristic:
+  // `/^[a-z0-9]/` does not match "ă", so a Romanian word split across the
+  // boundary never healed. The answer began mid-word and the first fragment
+  // stayed stranded inside <think> — on every provider that streams reasoning
+  // separately, in every language whose letters live outside A-Z.
+  it("stitches a Romanian word split across the boundary", async () => {
+    const { captured, content } = await stream([
+      { reasoning_content: "Utilizatorul întreabă ceva. Ne gândim. Stăte" },
+      { content: "ăm pe pagina aceea." },
+      { content: "", finish_reason: "stop" },
+    ]);
+    expect(strip(captured)).toBe("Stăteăm pe pagina aceea.");
+    expect(strip(content)).toBe("Stăteăm pe pagina aceea.");
+    expect(captured).toContain(THINK_END + "Stăte");
+  });
+
+  it("stitches a Cyrillic word too — the rule is Unicode, not one language", async () => {
+    const { captured } = await stream([
+      { reasoning_content: "Думаем. Отве" },
+      { content: "тим сейчас." },
+      { content: "", finish_reason: "stop" },
+    ]);
+    expect(strip(captured)).toBe("Ответим сейчас.");
+  });
+
+  it("still refuses to stitch when the answer starts a fresh capitalised word", async () => {
+    const { captured } = await stream([
+      { reasoning_content: "Ne gândim atent." },
+      { content: "Răspunsul este da." },
+      { content: "", finish_reason: "stop" },
+    ]);
+    // Unicode-aware must not mean stitch-everything: an uppercase start is a
+    // new word in any alphabet.
+    expect(strip(captured)).toBe("Răspunsul este da.");
+    expect(captured).toContain("atent." + THINK_END + "Răspunsul");
+  });
 });

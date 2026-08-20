@@ -47,6 +47,9 @@ import { feralHome } from "../config.ts";
 import type { HookRegistry } from "./hook-registry.ts";
 import type { HookEvent, HookResult } from "../types.ts";
 
+/** Most stderr we keep from a hook, so one noisy program cannot fill memory. */
+const STDERR_CAP = 4096;
+
 export interface UserHook {
   /** Argv. First entry is the program; there is no shell. */
   command: string[];
@@ -126,7 +129,12 @@ function runHook(hook: UserHook, payload: unknown, log: Log): Promise<RunOutcome
     }, timeoutMs);
 
     child.stderr?.on("data", (chunk: Buffer) => {
-      if (stderr.length < 4096) stderr += chunk.toString();
+      // The cap has to apply to what is APPENDED, not just to what is already
+      // there: the old check let a single 8 MB chunk through whenever the
+      // buffer happened to be under 4 KB, so a chatty hook could still hand us
+      // an unbounded string.
+      const room = STDERR_CAP - stderr.length;
+      if (room > 0) stderr += chunk.toString().slice(0, room);
     });
     child.on("error", (err) => {
       log(`hooks: ${program} failed: ${String(err)}`);

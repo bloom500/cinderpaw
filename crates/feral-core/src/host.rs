@@ -76,6 +76,29 @@ pub type DesktopControlHandler = Arc<
     dyn Fn(String, Value) -> BoxFuture<'static, Result<Value, String>> + Send + Sync,
 >;
 
+/// Host-supplied closure that executes one `capability_request` line from the
+/// sidecar: list / inspect / install a capability.
+///
+/// Injected rather than called directly because the skill catalogue lives in
+/// the Tauri host, and because injecting it keeps the security decision on the
+/// host side of the boundary — the sidecar sends a NAME, and the closure the
+/// host supplies is what turns that name into a source, a trust label and
+/// bytes on disk. A headless host passes `None`, and `feral_agent` answers
+/// every request with `ok:false` so the sidecar's Promise never hangs.
+pub type CapabilityHandler = Arc<
+    dyn Fn(String, Value) -> BoxFuture<'static, Result<Value, String>> + Send + Sync,
+>;
+
+/// Host-supplied closure that runs one `admin_request` from the sidecar: the
+/// commands a person would otherwise open a terminal for — update, switch
+/// model. Injected for the same reason as the capability handler: the decision
+/// about what an action means, and whether it is permitted, belongs on the
+/// host side of the wire. `None` on a headless host, where every admin request
+/// is answered "not available" rather than left hanging.
+pub type AdminHandler = Arc<
+    dyn Fn(String, Value) -> BoxFuture<'static, Result<Value, String>> + Send + Sync,
+>;
+
 #[cfg(test)]
 mod tests {
     use super::*;

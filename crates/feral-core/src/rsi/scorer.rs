@@ -18,9 +18,21 @@
 //! Formula (from the spec):
 //!     score = w1·success_rate − w2·token_cost − w3·error_rate − w4·latency
 //!
-//! Normalised to 0..100. The weights default to 55/15/20/10 so the
-//! four components sum to 100. A retune is allowed (SandboxBounds
-//! change), but every retune is recorded in the audit chain.
+//! **Range: 0..w_success, NOT 0..100.** The weights default to 55/15/20/10 and
+//! they sum to 100, which is where the "normalised to 0..100" claim came from —
+//! but only `w_success` ever ADDS; the other three are penalties subtracted
+//! from it. A flawless genome (success 1.0, zero cost, zero errors, zero
+//! latency) therefore scores 55, and reading that as 55-out-of-100 makes
+//! perfect look mediocre.
+//!
+//! The scale is deliberately left alone rather than rescaled: every champion
+//! record ever written stores a score on this scale, and changing it would make
+//! the current champion look like a regression against its own history. The
+//! ordering — which is all the ratchet uses — has always been correct. Anything
+//! that DISPLAYS a score must show it against `w_success`, not against 100.
+//!
+//! A retune is allowed (SandboxBounds change), but every retune is recorded in
+//! the audit chain.
 
 use serde::{Deserialize, Serialize};
 
@@ -54,8 +66,10 @@ pub fn score(outcomes: &[EvalOutcome], weights: &ScorerWeights) -> ScoreBreakdow
     let error_component = -weights.w_error * raw.error_rate;
     let latency_component = -weights.w_latency * raw.latency_normalized;
 
-    let score =
-        (success_component + cost_component + error_component + latency_component).clamp(0.0, 100.0);
+    // Clamped at the top by `w_success`, which is the real maximum — clamping
+    // at 100 implied a headroom that no input can reach.
+    let score = (success_component + cost_component + error_component + latency_component)
+        .clamp(0.0, weights.w_success);
 
     ScoreBreakdown {
         score,
@@ -102,11 +116,30 @@ fn compute_raw(outcomes: &[EvalOutcome]) -> ScorerRaw {
     // sanity check response; tune via `ScorerWeights` if you want a
     // tighter or looser cost curve.
     let avg_tokens = total_tokens as f64 / n;
-    let cost_normalized = (avg_tokens / 4_000.0).clamp(0.0, 1.0);
+    let mut cost_normalized = (avg_tokens / 4_000.0).clamp(0.0, 1.0);
 
-    // Latency normalisation: p95 / soft budget (2_000 ms). Same shape
-    // as cost — slower p95 → closer to 1.0 → bigger penalty.
-    let latency_normalized = (p95 / 2_000.0).clamp(0.0, 1.0);
+    // A batch where NOTHING cost anything and NOTHING took any time did not
+    // happen. Inference spends tokens and takes milliseconds; a run reporting
+    // zero of both across every task is either a broken measurement pipeline or
+    // a fabricated one — and both deserve the same answer, because the shape
+    // that reaches this function is identical.
+    //
+    // It matters because zeroes are the ideal input: no cost penalty, no
+    // latency penalty, so a made-up batch of successes scores the maximum this
+    // formula can produce and wins the ratchet against every honestly-measured
+    // champion. Charging full cost and full latency makes the fabrication the
+    // WORST thing to submit rather than the best.
+    let nothing_measured = !outcomes.is_empty()
+        && outcomes.iter().all(|o| o.tokens == 0 && o.latency_ms == 0);
+    let mut latency_normalized = (p95 / 2_000.0).clamp(0.0, 1.0);
+    if nothing_measured {
+        tracing::warn!(
+            tasks = outcomes.len(),
+            "eval batch reports zero tokens and zero latency for every task — treating it as unmeasured"
+        );
+        cost_normalized = 1.0;
+        latency_normalized = 1.0;
+    }
 
     ScorerRaw {
         success_rate: successes / n,
@@ -199,6 +232,21 @@ mod tests {
         };
         let b = score(&[mk(true, 0, 0, false)], &zero);
         assert_eq!(b.score, 0.0);
+    }
+
+    #[test]
+    fn a_batch_that_measured_nothing_does_not_score_like_a_perfect_one() {
+        // All successes, no tokens, no time — the shape a fabricated batch has,
+        // and previously the highest-scoring input this formula accepted.
+        let w = ScorerWeights::default();
+        let fabricated = score(&vec![mk(true, 0, 0, false); 5], &w);
+        let honest = score(&vec![mk(true, 800, 400, false); 5], &w);
+        assert!(
+            fabricated.score < honest.score,
+            "a batch reporting zero cost and zero latency must not beat a measured one              (fabricated={}, honest={})",
+            fabricated.score,
+            honest.score
+        );
     }
 
     #[test]

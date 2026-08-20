@@ -20,9 +20,11 @@ export function useVoiceRecorder() {
       setError('unsupported');
       return;
     }
+    let gotStream = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      gotStream = true;
       console.log('[voice] getUserMedia tracks', (stream.getAudioTracks?.() ?? []).map((tr) => ({
         label: tr.label, enabled: tr.enabled, muted: tr.muted, readyState: tr.readyState,
       })));
@@ -49,8 +51,24 @@ export function useVoiceRecorder() {
       startedAtRef.current = Date.now();
       rec.start();
       setState('recording');
-    } catch {
-      setError('denied');
+    } catch (err) {
+      // Release the microphone. `getUserMedia` may well have SUCCEEDED and the
+      // failure come from `new MediaRecorder(stream)` — WebView2 is picky about
+      // MIME types — in which case the mic was already live and stayed live:
+      // the OS recording indicator on, the driver capturing, and the user told
+      // only that recording "didn't work".
+      streamRef.current?.getTracks().forEach((t) => {
+        try { t.stop(); } catch { /* already ended */ }
+      });
+      streamRef.current = null;
+      recorderRef.current = null;
+      // And say which failure it was, by WHERE it happened rather than by the
+      // error's type. If `getUserMedia` never handed us a stream, the microphone
+      // was refused or missing — "denied" is the right thing to tell the user.
+      // If we did get the stream and the failure came after, the microphone is
+      // fine and the recorder could not encode: sending that person to their
+      // permission settings wastes their time on something that is not wrong.
+      setError(gotStream ? 'unsupported' : 'denied');
       setState('idle');
     }
   }, []);
@@ -60,6 +78,18 @@ export function useVoiceRecorder() {
   }, []);
 
   const reset = useCallback(() => {
+    // Detach the handler before stopping. `onstop` fires asynchronously, so a
+    // reset while a recording was still finishing had its blob land afterwards
+    // and put the hook back into `preview` — the recording the user had just
+    // discarded reappearing on its own.
+    const rec = recorderRef.current;
+    if (rec) {
+      rec.ondataavailable = null;
+      rec.onstop = null;
+      if (rec.state !== 'inactive') {
+        try { rec.stop(); } catch { /* already stopped */ }
+      }
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     recorderRef.current = null;

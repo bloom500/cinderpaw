@@ -23,7 +23,7 @@ import type { EvalOutcome } from "./eval-worker.ts";
 import type { GateDecision, PairedSample } from "./confidence.ts";
 import type { StageHandlerDeps } from "./contract-stages.ts";
 import type { CommitRequest, RatchetDeps } from "../l1-config/ratchet-handler.ts";
-import { hallucinationFromOutcomes, scoreToFitnessVector, toolSuccessFromOutcomes, type FitnessVector } from "../l1-config/fitness.ts";
+import { hallucinationFromOutcomes, scoreToFitnessVector, toolSuccessFromOutcomes, VECTOR_KEYS, type FitnessVector } from "../l1-config/fitness.ts";
 import {
   auditEntriesToUserSignals,
   computePersonalFitness,
@@ -197,8 +197,19 @@ export function contractLeavesFromRatchet(
       // present — otherwise the accuracy proxy from scoreToFitnessVector.
       const toolSuccess = ctx.outcomes ? toolSuccessFromOutcomes(ctx.outcomes) : null;
       const unmeasured: (keyof FitnessVector)[] = [];
-      if (hallucination === null) unmeasured.push("hallucination");
-      if (!ctx.readRecentAudit) unmeasured.push("userSatisfaction");
+      // No eval batch behind this candidate: `ctx.score` is a number with
+      // nothing under it, and `scoreToFitnessVector` would spread it across
+      // accuracy/latency/cost/toolSuccess as if they had been observed. Two
+      // thirds of the rows in a real journal are this shape, and until now
+      // they were written indistinguishably from a measured run — so anyone
+      // reading the journal later (a person, the UI, an agent asked "is
+      // evolution working") counted them as evidence. Flag ALL of it.
+      if (!ctx.outcomes || ctx.outcomes.length === 0) {
+        unmeasured.push(...VECTOR_KEYS);
+      } else {
+        if (hallucination === null) unmeasured.push("hallucination");
+        if (!ctx.readRecentAudit) unmeasured.push("userSatisfaction");
+      }
       const base = scoreToFitnessVector(ctx.score, { unmeasured });
       const fitnessVector = {
         ...base,
@@ -214,6 +225,10 @@ export function contractLeavesFromRatchet(
       };
       return {
         fitnessVector,
+        // Which components are a neutral 0.5 placeholder rather than an
+        // observation. Carried to the Journal row so a 0.5 can never be read
+        // back as "we measured 0.5".
+        unmeasured: [...unmeasured],
         // Journal scalar only — the deploy leaf hands the RAW score to the
         // ratchet (spec §1), never this normalised aggregate. Uses the score
         // proxy (accuracy), NOT the satisfaction-coloured vector.

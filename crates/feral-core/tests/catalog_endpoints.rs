@@ -297,13 +297,22 @@ async fn connectors_catalog_includes_all_decision_d_pairing_kinds() {
     let mut bot_token = 0;
     let mut qr = 0;
     let mut oauth = 0;
+    // Phase 3 added two more shapes. They are counted, not ignored, so this
+    // test keeps breaking loudly when the enum grows rather than quietly
+    // matching a wildcard that hides the next addition.
+    let mut instance_token = 0;
+    let mut device = 0;
     for e in &entries {
         match e.pairing_method {
             PairingMethod::BotToken => bot_token += 1,
             PairingMethod::Qr => qr += 1,
             PairingMethod::Oauth => oauth += 1,
+            PairingMethod::InstanceToken => instance_token += 1,
+            PairingMethod::OauthDevice => device += 1,
         }
     }
+    assert!(instance_token >= 1, "no instance-token connectors shipped");
+    assert!(device >= 1, "no device-flow connectors shipped");
     assert!(bot_token >= 1, "no bot_token connectors shipped");
     assert!(qr >= 1, "no QR connectors shipped");
     // OAuth is optional today; just sanity-check the enum serialises.
@@ -618,6 +627,43 @@ async fn connectors_decision_d_rich_fields_present() {
                 assert!(entry.validate_endpoint.is_some(), "telegram must have validate_endpoint");
                 assert!(entry.coming_soon, "telegram is coming_soon (sidecar transport not wired)");
             }
+            "matrix" => {
+                // Landed 2026-08-20: `FeralAgent/src/transports/matrix.ts`,
+                // registered with the transport registry and imported at boot.
+                // A card that says "soon" for something that works is its own
+                // kind of lie, so this flipped with the transport.
+                assert!(!entry.coming_soon, "matrix's transport has landed — the card must not still say soon");
+                assert!(entry.console_url.is_some(), "matrix must point somewhere for the token");
+                // The homeserver URL is the field that is required and NOT a
+                // credential — the case the catalog had never carried.
+                let url = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "MATRIX_HOMESERVER")
+                    .expect("matrix declares a homeserver field");
+                assert!(!url.secret, "a homeserver URL is configuration, not a credential");
+            }
+            "mattermost" => {
+                // Landed 2026-08-20: `FeralAgent/src/transports/mattermost.ts`.
+                assert!(!entry.coming_soon, "mattermost's transport has landed — the card must not still say soon");
+                assert!(entry.console_url.is_some(), "mattermost must point somewhere for the token");
+                let url = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "MATTERMOST_URL")
+                    .expect("mattermost declares a server URL field");
+                assert!(!url.secret, "a server URL is configuration, not a credential");
+            }
+            "twitch" => {
+                // Landed 2026-08-20: `FeralAgent/src/transports/twitch.ts`.
+                assert!(!entry.coming_soon, "twitch's transport has landed — the card must not still say soon");
+                assert!(entry.console_url.is_some(), "twitch must point at the dev console");
+                assert!(
+                    entry.pairing_fields.is_empty(),
+                    "a device flow asks the user to type a code on the provider's site, not a token here"
+                );
+                assert!(!entry.oauth_scopes.is_empty(), "twitch must declare its scopes");
+            }
             other => panic!("unexpected connector id: {other}"),
         }
     }
@@ -648,6 +694,79 @@ async fn connectors_qr_pairing_has_no_fields() {
                 entry.id,
                 entry.pairing_fields.len()
             );
+        }
+    }
+}
+
+
+// ── Phase 3: descriptors name a transport, separately from pairing ─────────
+
+#[test]
+fn every_descriptor_names_a_transport() {
+    for entry in connectors::connectors_catalog() {
+        assert!(!entry.transport.is_empty(), "{} has no transport", entry.id);
+    }
+}
+
+#[test]
+fn pairing_and_transport_vary_independently() {
+    // The pair that proves the two fields are not one field wearing a hat:
+    // same pairing shape, no shared wire protocol.
+    let cat = connectors::connectors_catalog();
+    let matrix = cat.iter().find(|c| c.id == "matrix").expect("matrix in catalog");
+    let mattermost = cat.iter().find(|c| c.id == "mattermost").expect("mattermost in catalog");
+    assert_eq!(matrix.pairing_method, PairingMethod::InstanceToken);
+    assert_eq!(mattermost.pairing_method, PairingMethod::InstanceToken);
+    assert_ne!(matrix.transport, mattermost.transport);
+}
+
+#[test]
+fn an_instance_url_is_required_but_not_secret() {
+    // Every field before Phase 3 was a credential, so `secret: false` had
+    // never been exercised. A homeserver URL is configuration: it belongs in
+    // the config file, not the vault.
+    let cat = connectors::connectors_catalog();
+    let matrix = cat.iter().find(|c| c.id == "matrix").unwrap();
+    let url = matrix
+        .pairing_fields
+        .iter()
+        .find(|f| f.key == "MATRIX_HOMESERVER")
+        .expect("matrix declares a homeserver field");
+    assert!(!url.secret, "a homeserver URL is configuration, not a credential");
+    let token = matrix
+        .pairing_fields
+        .iter()
+        .find(|f| f.key == "MATRIX_ACCESS_TOKEN")
+        .expect("matrix declares an access token field");
+    assert!(token.secret, "an access token is a credential");
+}
+
+#[test]
+fn a_device_flow_descriptor_carries_both_endpoints_and_its_scopes() {
+    let cat = connectors::connectors_catalog();
+    let twitch = cat.iter().find(|c| c.id == "twitch").expect("twitch in catalog");
+    assert_eq!(twitch.pairing_method, PairingMethod::OauthDevice);
+    let flow = twitch.device_flow.as_ref().expect("a device-flow connector carries its endpoints");
+    assert!(flow.device_url.starts_with("https://"), "device_url must be absolute");
+    assert!(flow.token_url.starts_with("https://"), "token_url must be absolute");
+    assert!(!flow.scopes.is_empty(), "a device flow with no scopes grants nothing");
+}
+
+#[test]
+fn a_device_flow_without_a_client_id_stays_coming_soon() {
+    // A card that offers to connect must be able to START the flow. Twitch
+    // ships with an empty client_id until a Twitch application exists, so the
+    // card has to stay disabled — otherwise the user clicks Connect and gets
+    // an error from an identity provider they never chose to talk to.
+    for entry in connectors::connectors_catalog() {
+        if let Some(flow) = &entry.device_flow {
+            if flow.client_id.trim().is_empty() {
+                assert!(
+                    entry.coming_soon,
+                    "{} offers a device flow it cannot start: empty client_id but not coming_soon",
+                    entry.id
+                );
+            }
         }
     }
 }

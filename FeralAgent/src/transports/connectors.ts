@@ -38,6 +38,12 @@ import makeWASocket, {
 import qrcode from "qrcode-terminal";
 import type { OutboundEvent, SkillMeta } from "../types.ts";
 import type { LeadDesk } from "../core/lead-desk.ts";
+import {
+  registerTransport,
+  transportFor,
+  type ConnectorContext,
+  type LiveConnector,
+} from "./registry.ts";
 import { ChannelAskRouter } from "../core/ask-user-channel.ts";
 import { readAttachments } from "./attachments.ts";
 import { formatForChat, chatStyleBrief, DISCORD_LIMIT } from "./chat-format.ts";
@@ -146,7 +152,7 @@ export async function runChatCommand(
   }
 }
 
-type Log = (message: string) => void;
+export type Log = (message: string) => void;
 
 /**
  * Public ("business") connector mode: a stranger who messages the linked
@@ -727,10 +733,19 @@ export class DiscordConnector {
     // triggered the turn. `discordTarget` resolves the session id to a
     // channel — the shared channel for an in-channel session, that user's DM
     // for a DM session — so a question never lands in front of the wrong user.
-    this.#ask?.registerSender("discord", async (sessionId, text) => {
-      const ch = await this.#discordTarget(sessionId);
-      if (ch && "send" in ch) await ch.send(text);
-    });
+    this.#ask?.registerSender("discord", (sessionId, text) => this.send(sessionId, text));
+  }
+
+  /** Say something in the channel behind `sessionId`. Public because the
+   *  transport registry routes every connector's outbound text through the
+   *  same `(sessionId, text)` shape. */
+  async send(sessionId: string, text: string): Promise<void> {
+    const ch = await this.#discordTarget(sessionId);
+    if (ch && "send" in ch) await ch.send(text);
+  }
+
+  health(): ConnectorHealth {
+    return { live: this.#client !== null };
   }
 
   async stop(): Promise<void> {
@@ -1003,12 +1018,18 @@ export class SlackConnector {
     this.#log(`slack connector online as ${this.#botUserId} (${allowSummary(this.#allow.size)})`);
 
     // ask_user over Slack: post the question text into the session's channel.
-    this.#ask?.registerSender("slack", async (sessionId, text) => {
-      // `slack:<channel>:<user>` — the channel is segment 1. A question goes
-      // to the channel the asker is in, which is where they will answer.
-      const channel = sessionId.split(":")[1] ?? "";
-      if (channel) await this.#web?.chat.postMessage({ channel, text });
-    });
+    this.#ask?.registerSender("slack", (sessionId, text) => this.send(sessionId, text));
+  }
+
+  /** `slack:<channel>:<user>` — the channel is segment 1. Text goes to the
+   *  channel the person is in, which is where they will answer. */
+  async send(sessionId: string, text: string): Promise<void> {
+    const channel = sessionId.split(":")[1] ?? "";
+    if (channel) await this.#web?.chat.postMessage({ channel, text });
+  }
+
+  health(): ConnectorHealth {
+    return { live: this.#socket !== null };
   }
 
   async stop(): Promise<void> {
@@ -1222,10 +1243,19 @@ export class WhatsAppConnector {
     await this.#connect();
     // ask_user over WhatsApp: message the question into the session's chat.
     // Reads #sock at call time so reconnects don't hold a stale socket.
-    this.#ask?.registerSender("whatsapp", async (sessionId, text) => {
-      const jid = sessionId.slice("whatsapp:".length);
-      await this.#sock?.sendMessage(jid, { text });
-    });
+    this.#ask?.registerSender("whatsapp", (sessionId, text) => this.send(sessionId, text));
+  }
+
+  /** Reads `#sock` at call time so a reconnect never sends over a stale one. */
+  async send(sessionId: string, text: string): Promise<void> {
+    const jid = sessionId.slice("whatsapp:".length);
+    await this.#sock?.sendMessage(jid, { text });
+  }
+
+  /** "Live" must mean a phone is on the other end. An unlinked connector
+   *  spinning through pairing retries is not up, and not broken either. */
+  health(): ConnectorHealth {
+    return { live: WhatsAppConnector.isLinked() };
   }
 
   /**
@@ -1408,6 +1438,11 @@ export interface ConnectorRow {
   id: string;
   enabled?: boolean;
   secrets?: Record<string, string>;
+  /** Settings that are REQUIRED but not secret — a Matrix homeserver address
+   *  being the case that forced it. They used to have nowhere to live but
+   *  `secrets`, which put a public URL into the OS keychain and hid it from
+   *  the person who typed it. */
+  metadata?: Record<string, string>;
   allowlist?: string[];
   channels?: string[];
   /** Legacy single-token field (pre-multi-secret configs); Discord fallback. */
@@ -1431,9 +1466,6 @@ export function configPath(): string {
   return join(feralHome(), "connectors.json");
 }
 
-const sig = (...parts: (string[] | string | undefined)[]): string =>
-  parts.map((p) => (Array.isArray(p) ? [...p].sort().join(",") : p ?? "")).join("|");
-
 /** Where the supervisor publishes what actually connected. */
 export function connectorHealthPath(): string {
   return join(feralHome(), "connector-health.json");
@@ -1447,17 +1479,152 @@ export type ConnectorHealth = {
   error?: string;
 };
 
+// ---------------------------------------------------------------------------
+// The three built-in transports register themselves.
+//
+// Each adapter owns exactly what used to live in the manager's per-connector
+// `#reconcileX`: which secret it needs, what to say when that secret is
+// missing, and how to build itself. The manager keeps none of it, which is the
+// whole point — a fourth connector is a `registerTransport` call in its own
+// file, not an edit here.
+// ---------------------------------------------------------------------------
+
+/** Missing credentials are a config problem the person can fix, so the message
+ *  names the key they need. Thrown, not logged: the manager turns a throw into
+ *  a health entry the desktop and the CLI both render. A secret filed under
+ *  the wrong key looks exactly like no secret at all. */
+function missingSecret(id: string, expected: string, row: ConnectorRow): Error {
+  const present = Object.keys(row.secrets ?? {}).filter((k) => (row.secrets?.[k] ?? "").trim());
+  return new Error(
+    present.length > 0
+      ? `${id}: enabled but no usable credential — secrets has ${present.join(", ")}, expected ${expected}`
+      : `${id}: enabled but no credential configured (expected secrets.${expected})`,
+  );
+}
+
+registerTransport("discord", (): LiveConnector => {
+  let inner: DiscordConnector | null = null;
+  return {
+    async start(ctx: ConnectorContext) {
+      // Legacy single `token` field, for configs written before the
+      // multi-secret migration (until the next save rewrites the file).
+      const token = ctx.secrets.DISCORD_TOKEN?.trim() || ctx.row.token?.trim();
+      if (!token) throw missingSecret("discord", "DISCORD_TOKEN", ctx.row);
+      inner = new DiscordConnector({
+        token,
+        allowlist: ctx.row.allowlist ?? [],
+        channels: ctx.row.channels ?? [],
+        agent: ctx.agent,
+        log: ctx.log,
+        ask: ctx.askRouter,
+        ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
+        ...(ctx.runs ? { runs: ctx.runs } : {}),
+      });
+      await inner.start();
+    },
+    async stop() {
+      await inner?.stop();
+      inner = null;
+    },
+    health: () => inner?.health() ?? { live: false },
+    async send(sessionId, text) {
+      await inner?.send(sessionId, text);
+    },
+  };
+});
+
+registerTransport("slack", (): LiveConnector => {
+  let inner: SlackConnector | null = null;
+  return {
+    async start(ctx: ConnectorContext) {
+      const appToken = ctx.secrets.SLACK_APP_TOKEN?.trim();
+      const botToken = ctx.secrets.SLACK_BOT_TOKEN?.trim();
+      if (!appToken) throw missingSecret("slack", "SLACK_APP_TOKEN", ctx.row);
+      if (!botToken) throw missingSecret("slack", "SLACK_BOT_TOKEN", ctx.row);
+      inner = new SlackConnector({
+        appToken,
+        botToken,
+        allowlist: ctx.row.allowlist ?? [],
+        channels: ctx.row.channels ?? [],
+        agent: ctx.agent,
+        log: ctx.log,
+        ask: ctx.askRouter,
+        ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
+      });
+      await inner.start();
+    },
+    async stop() {
+      await inner?.stop();
+      inner = null;
+    },
+    health: () => inner?.health() ?? { live: false },
+    async send(sessionId, text) {
+      await inner?.send(sessionId, text);
+    },
+  };
+});
+
+registerTransport("whatsapp", (): LiveConnector => {
+  let inner: WhatsAppConnector | null = null;
+  return {
+    async start(ctx: ConnectorContext) {
+      // WhatsApp pairs with a phone instead of carrying a token, so there is
+      // no credential to be missing here.
+      const mode: ConnectorMode = ctx.row.mode === "public" ? "public" : "owner";
+      // The knowledge base is stored inline (the UI saves the text directly,
+      // so a non-technical user never deals with file paths). In public mode
+      // it is compiled into the persona + restricted tool profile up front.
+      if (mode === "public") {
+        ctx.agent.registerProfile?.(WHATSAPP_PUBLIC_PROFILE, {
+          systemPrompt: buildPublicPersona((ctx.row.knowledgeBase ?? "").trim()),
+          allowedTools: [...PUBLIC_ALLOWED_TOOLS],
+        });
+      }
+      inner = new WhatsAppConnector({
+        allowlist: ctx.row.allowlist ?? [],
+        channels: ctx.row.channels ?? [],
+        agent: ctx.agent,
+        log: ctx.log,
+        mode,
+        ...(ctx.leadDesk ? { desk: ctx.leadDesk } : {}),
+        ask: ctx.askRouter,
+        ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
+      });
+      await inner.start();
+    },
+    async stop() {
+      await inner?.stop();
+      inner = null;
+    },
+    health: () => inner?.health() ?? { live: false },
+    async send(sessionId, text) {
+      await inner?.send(sessionId, text);
+    },
+    /** Not part of `LiveConnector`: the manager reaches for it by name when
+     *  the user asks to link a phone. See `ConnectorManager.pairWhatsApp`. */
+    pair: async () => {
+      await inner?.pair();
+    },
+  } as LiveConnector;
+});
+
 export class ConnectorManager {
   readonly #agent: AgentLike;
   readonly #log: Log;
   /** ask_user-over-channel router — the AskUserBridge's delegate (boot.ts). */
   readonly askRouter = new ChannelAskRouter();
-  #discord: DiscordConnector | null = null;
-  #discordKey = "";
-  #slack: SlackConnector | null = null;
-  #slackKey = "";
-  #whatsapp: WhatsAppConnector | null = null;
-  #whatsappKey = "";
+  /**
+   * Every running connector, by id. This used to be six named fields —
+   * `#discord`, `#discordKey`, `#slack`, … — and a hand-written
+   * `#reconcileX` for each. A connector that shipped in the catalog but had
+   * no field here did nothing at all on a stranger's machine: on in the file,
+   * absent from the process, no message anywhere. Adding one now touches this
+   * class not at all.
+   */
+  readonly #live = new Map<string, LiveConnector>();
+  /** Config signature per running connector — the reload only restarts what
+   *  actually changed. */
+  readonly #keys = new Map<string, string>();
   readonly #leadDesk: LeadDesk | null;
   /** Serialize reloads so overlapping pokes can't double-start a connection. */
   #reloading: Promise<void> = Promise.resolve();
@@ -1535,10 +1702,100 @@ export class ConnectorManager {
     } catch {
       rows = []; // no file yet → everything off
     }
-    await this.#reconcileDiscord(rows.find((r) => r.id === "discord"));
-    await this.#reconcileSlack(rows.find((r) => r.id === "slack"));
-    await this.#reconcileWhatsApp(rows.find((r) => r.id === "whatsapp"));
+    await this.applyRows(rows);
+  }
+
+  /**
+   * Reconcile the running connectors against `rows`. One loop, no connector
+   * named anywhere in it.
+   *
+   * Public so a test can drive it without a config file on disk — and so a
+   * host that already has the rows in hand does not have to write them out
+   * just to have them read back.
+   */
+  async applyRows(rows: ConnectorRow[]): Promise<void> {
+    const wanted = new Map<string, ConnectorRow>();
+    for (const row of rows) if (row.enabled) wanted.set(row.id, row);
+
+    // Gone from the config, or switched off: stop it and forget it. Off by
+    // choice is not a failure, so the health entry is removed rather than
+    // written as broken — claiming otherwise trains people to ignore the
+    // warning that matters.
+    for (const id of [...this.#live.keys()]) {
+      if (wanted.has(id)) continue;
+      await this.#live.get(id)?.stop();
+      this.#live.delete(id);
+      this.#keys.delete(id);
+      this.#health.delete(id);
+      this.#log(`${id} connector stopped`);
+    }
+    // A row that is present but disabled must not keep an old failure on
+    // screen either.
+    for (const row of rows) if (!row.enabled) this.#health.delete(row.id);
+
+    for (const [id, row] of wanted) {
+      // The signature is the whole row: a per-connector field list is one
+      // more place to forget something, and forgetting means a setting the
+      // user changed silently does not take effect until the next restart.
+      const key = JSON.stringify(row);
+      if (this.#live.has(id) && this.#keys.get(id) === key) continue;
+
+      const running = this.#live.get(id);
+      if (running) {
+        await running.stop();
+        this.#live.delete(id);
+        this.#keys.delete(id);
+      }
+
+      const make = transportFor(id);
+      if (!make) {
+        // A catalog entry with no transport in this build is a real state,
+        // and the person deserves the words for it rather than silence.
+        this.#mark(id, false, `no transport for "${id}" in this build`);
+        continue;
+      }
+
+      const profileId = this.#personaProfile(id, row);
+      const instance = make();
+      const ctx: ConnectorContext = {
+        row,
+        secrets: row.secrets ?? {},
+        agent: this.#agent,
+        log: this.#log,
+        runs: this.#runs,
+        askRouter: this.askRouter,
+        ...(profileId ? { personaProfileId: profileId } : {}),
+        ...(this.#leadDesk ? { leadDesk: this.#leadDesk } : {}),
+      };
+      try {
+        await instance.start(ctx);
+        this.#live.set(id, instance);
+        this.#keys.set(id, key);
+        this.#health.set(id, instance.health());
+        // Uniform outbound routing: session ids are already connector-
+        // prefixed. A built-in connector also registers its own sender on
+        // start; this overwrites it with an equivalent, and for a transport
+        // the manager has never heard of it is the only registration there is.
+        this.askRouter.registerSender(id, (sessionId, text) => instance.send(sessionId, text));
+      } catch (e) {
+        this.#log(`${id} connector failed to start: ${String(e)}`);
+        this.#mark(id, false, e);
+        await instance.stop();
+      }
+    }
+
     await this.#publishHealth();
+  }
+
+  /** What actually connected, for one id. */
+  healthOf(id: string): ConnectorHealth | undefined {
+    return this.#health.get(id);
+  }
+
+  /** Say something in the channel behind `sessionId` (prefix = connector id). */
+  async send(sessionId: string, text: string): Promise<void> {
+    const id = sessionId.split(":", 1)[0] ?? "";
+    await this.#live.get(id)?.send(sessionId, text);
   }
 
   /** Record what a reconcile actually achieved. */
@@ -1577,126 +1834,6 @@ export class ConnectorManager {
     }
   }
 
-  async #reconcileDiscord(row?: ConnectorRow): Promise<void> {
-    // Fall back to the legacy single `token` field for configs written before
-    // the multi-secret migration (until the next save rewrites the file).
-    const token = row?.secrets?.DISCORD_TOKEN?.trim() || row?.token?.trim();
-    // A secret filed under the wrong key looks exactly like no secret at all,
-    // and the connector then stops without a word — enabled in the file, absent
-    // in the world. Writing `TOKEN` instead of `DISCORD_TOKEN` cost twenty
-    // minutes of reading logs that had nothing in them to read.
-    if (row?.enabled && !token) {
-      const present = Object.keys(row.secrets ?? {}).filter((k) => (row.secrets?.[k] ?? "").trim());
-      this.#log(
-        present.length > 0
-          ? `discord: enabled but no usable token — secrets has ${present.join(", ")}, expected DISCORD_TOKEN`
-          : "discord: enabled but no token configured (expected secrets.DISCORD_TOKEN)",
-      );
-    }
-    if (!row?.enabled || !token) {
-      if (this.#discord) {
-        await this.#discord.stop();
-        this.#discord = null;
-        this.#discordKey = "";
-        this.#log("discord connector stopped");
-      }
-      this.#health.delete("discord"); // off by configuration, not broken
-      return;
-    }
-    const key = sig(token, row.allowlist, row.channels, row.persona, row.personaTools);
-    if (this.#discord && key === this.#discordKey) return;
-    if (this.#discord) await this.#discord.stop();
-    this.#discord = null;
-    const profileId = this.#personaProfile("discord", row);
-    const conn = new DiscordConnector({ token, allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log, ask: this.askRouter, ...(profileId ? { profileId } : {}), ...(this.#runs ? { runs: this.#runs } : {}) });
-    try {
-      await conn.start();
-      this.#discord = conn;
-      this.#discordKey = key;
-      this.#mark("discord", true);
-    } catch (e) {
-      this.#log(`discord connector failed to start: ${String(e)}`);
-      this.#mark("discord", false, e);
-      await conn.stop();
-    }
-  }
-
-  async #reconcileSlack(row?: ConnectorRow): Promise<void> {
-    const appToken = row?.secrets?.SLACK_APP_TOKEN?.trim();
-    const botToken = row?.secrets?.SLACK_BOT_TOKEN?.trim();
-    if (!row?.enabled || !appToken || !botToken) {
-      if (this.#slack) {
-        await this.#slack.stop();
-        this.#slack = null;
-        this.#slackKey = "";
-        this.#log("slack connector stopped");
-      }
-      this.#health.delete("slack"); // off by configuration, not broken
-      return;
-    }
-    const key = sig(appToken, botToken, row.allowlist, row.channels, row.persona, row.personaTools);
-    if (this.#slack && key === this.#slackKey) return;
-    if (this.#slack) await this.#slack.stop();
-    this.#slack = null;
-    const profileId = this.#personaProfile("slack", row);
-    const conn = new SlackConnector({ appToken, botToken, allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log, ask: this.askRouter, ...(profileId ? { profileId } : {}) });
-    try {
-      await conn.start();
-      this.#slack = conn;
-      this.#slackKey = key;
-      this.#mark("slack", true);
-    } catch (e) {
-      this.#log(`slack connector failed to start: ${String(e)}`);
-      this.#mark("slack", false, e);
-      await conn.stop();
-    }
-  }
-
-  async #reconcileWhatsApp(row?: ConnectorRow): Promise<void> {
-    if (!row?.enabled) {
-      if (this.#whatsapp) {
-        await this.#whatsapp.stop();
-        this.#whatsapp = null;
-        this.#whatsappKey = "";
-        this.#log("whatsapp connector stopped");
-      }
-      this.#health.delete("whatsapp"); // off by configuration, not broken
-      return;
-    }
-    const mode: ConnectorMode = row.mode === "public" ? "public" : "owner";
-    // The knowledge base is stored inline (the UI saves the text directly, so
-    // a non-technical user never deals with file paths). In public mode it's
-    // compiled into the persona + restricted tool profile up front.
-    const kbText = (row.knowledgeBase ?? "").trim();
-    const key = sig(row.allowlist, row.channels, mode, String(kbText.length), kbText.slice(0, 64), row.persona, row.personaTools);
-    if (this.#whatsapp && key === this.#whatsappKey) return;
-    if (this.#whatsapp) await this.#whatsapp.stop();
-    this.#whatsapp = null;
-    if (mode === "public") {
-      this.#agent.registerProfile?.(WHATSAPP_PUBLIC_PROFILE, {
-        systemPrompt: buildPublicPersona(kbText),
-        allowedTools: [...PUBLIC_ALLOWED_TOOLS],
-      });
-    }
-    const profileId = this.#personaProfile("whatsapp", row);
-    const conn = new WhatsAppConnector({ allowlist: row.allowlist ?? [], channels: row.channels ?? [], agent: this.#agent, log: this.#log, mode, desk: this.#leadDesk ?? undefined, ask: this.askRouter, ...(profileId ? { profileId } : {}) });
-    try {
-      await conn.start();
-      this.#whatsapp = conn;
-      this.#whatsappKey = key;
-      // "Live" must mean a phone is on the other end. It used to be set here
-      // unconditionally, so an unlinked connector spinning through pairing
-      // retries reported itself healthy — the one state where the health file
-      // most needed to say otherwise. Not linked is not broken either; it is
-      // simply not up, which is what `false` without an error says.
-      this.#mark("whatsapp", WhatsAppConnector.isLinked());
-    } catch (e) {
-      this.#log(`whatsapp connector failed to start: ${String(e)}`);
-      this.#mark("whatsapp", false, e);
-      await conn.stop();
-    }
-  }
-
   /**
    * Link a phone, because the user asked to. The only path that may open a
    * WhatsApp socket without credentials — see `WhatsAppConnector.start`.
@@ -1706,18 +1843,21 @@ export class ConnectorManager {
    * QR that is never coming.
    */
   async pairWhatsApp(): Promise<boolean> {
-    if (!this.#whatsapp) return false;
-    await this.#whatsapp.pair();
-    this.#mark("whatsapp", WhatsAppConnector.isLinked());
+    // `pair` is WhatsApp's alone — it is not on `LiveConnector`, because
+    // nothing else pairs with a phone. Asked for by name, and absent is an
+    // honest "not configured" rather than a crash.
+    const wa = this.#live.get("whatsapp") as (LiveConnector & { pair?: () => Promise<void> }) | undefined;
+    if (!wa?.pair) return false;
+    await wa.pair();
+    this.#health.set("whatsapp", wa.health());
     return true;
   }
 
   async stopAll(): Promise<void> {
-    await this.#discord?.stop();
-    await this.#slack?.stop();
-    await this.#whatsapp?.stop();
-    this.#discord = null;
-    this.#slack = null;
-    this.#whatsapp = null;
+    for (const [id, instance] of this.#live) {
+      await instance.stop();
+      this.#keys.delete(id);
+    }
+    this.#live.clear();
   }
 }

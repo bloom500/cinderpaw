@@ -109,7 +109,7 @@ function ContextWindowRow({ isLocalActive }: { isLocalActive: boolean }) {
 
   if (!isLocalActive || !loaded) {
     return (
-        <p className="pt-3 border-t border-border-subtle text-[10px] text-text-muted leading-snug">
+        <p className="pt-3 border-t border-border-subtle text-micro text-text-muted leading-snug">
         Context window is auto-managed for cloud models. Load a local model to choose it.
       </p>
     );
@@ -138,7 +138,7 @@ function ContextWindowRow({ isLocalActive }: { isLocalActive: boolean }) {
         onChange={(e) => setDraft(Number(e.target.value))}
         className="w-full h-1 rounded-full appearance-none bg-border-subtle cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text-secondary [&::-webkit-slider-thumb]:cursor-pointer disabled:opacity-50"
       />
-      <p className="text-[10px] text-text-muted mt-1.5 leading-snug">
+      <p className="text-micro text-text-muted mt-1.5 leading-snug">
         Auto-detected from {loaded.name}. Bigger = longer memory but more VRAM/RAM.
       </p>
       {dirty && (

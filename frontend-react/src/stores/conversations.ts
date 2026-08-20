@@ -8,6 +8,16 @@ export type { ConversationSummary };
 
 interface ConversationsStore {
   list: ConversationSummary[];
+  /**
+   * False until the first read of the list has come back, whatever it said.
+   *
+   * `list` starts as `[]`, so "empty" and "not read yet" are the same value —
+   * which means a screen that trusts it shows a fresh-install sentence to
+   * someone who has hundreds of conversations, for as long as the disk takes.
+   * Saying "you have nothing" when the truth is "I have not looked yet" is
+   * worse than saying nothing at all.
+   */
+  loaded: boolean;
   currentId: string | null;
   loadingConversation: boolean;
   /**
@@ -43,7 +53,10 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     // `?? undefined` because the store's field is optional while the wire type
     // is nullable — a literal null would render as a present-but-empty stat.
     scratch: p.scratch ?? undefined,
-    createdAt: Date.now() - (1000 * (1000 - idx)),
+    // The real time, when the file has it. The fallback is the old fabricated
+    // ladder, kept only for conversations saved before the field existed —
+    // those genuinely have no timestamp to restore.
+    createdAt: p.created_at ?? Date.now() - (1000 * (1000 - idx)),
   };
 }
 
@@ -57,11 +70,13 @@ function toPersisted(m: ChatMessage): PersistedMessage {
     thinking: m.thinking || undefined,
     voice: voiceToPersisted(m.voice),
     scratch: m.scratch,
+    created_at: m.createdAt,
   };
 }
 
 export const useConversations = create<ConversationsStore>((set, get) => ({
   list: [],
+  loaded: false,
   currentId: null,
   loadingConversation: false,
   streamingIds: {},
@@ -70,9 +85,12 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     try {
       const list = await tauri.conversations.list();
       list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-      set({ list });
+      set({ list, loaded: true });
     } catch (err) {
       // Don't let a failed list read leave the UI in an inconsistent state.
+      // `loaded` still flips: the read is over, and a screen that waits
+      // forever on a failure is a screen that never says anything.
+      set({ loaded: true });
       console.error('[conversations] refresh failed:', err);
     }
   },

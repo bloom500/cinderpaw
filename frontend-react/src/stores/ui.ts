@@ -12,24 +12,31 @@ export type WhisperModel = 'small' | 'base';
 /** Speech-to-text backend for voice messages. `null` = user hasn't chosen yet
  *  (first mic tap opens the provider card). `groq` = cloud whisper-large-v3. */
 export type SttProvider = 'local' | 'groq';
-
 const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
 interface UIStore {
-  sidebarCollapsed: boolean;
+  /** Navigation chrome only. Nothing about the agent or the runtime lives
+   *  here — the rail answers "where do I want to go" and nothing else. */
+  navCollapsed: boolean;
+  toggleNav: () => void;
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
   language: LangPref;
   reasoningMode: ReasoningMode;
   enabledTools: ToolId[];
-  toggleSidebar: () => void;
   setTheme: (t: ThemePref) => void;
   setLanguage: (l: LangPref) => void;
   cycleReasoningMode: () => void;
   setReasoningMode: (m: ReasoningMode) => void;
   toggleTool: (id: ToolId) => void;
   searchOpen:  boolean;
-  openSearch:  () => void;
+  /**
+   * Project the search should open narrowed to, when it was opened from
+   * something that already names one (a Home card). Null means search
+   * everything, which is what ⌘K and the menu item do.
+   */
+  searchScopeId: string | null;
+  openSearch:  (projectId?: string) => void;
   closeSearch: () => void;
   skillsOpen:  boolean;
   openSkills:  () => void;
@@ -45,6 +52,36 @@ interface UIStore {
   /** Chosen STT backend. `null` until the user picks in the provider card. */
   sttProvider: SttProvider | null;
   setSttProvider: (p: SttProvider) => void;
+  /**
+   * Chosen voice (TTS) engine id, from the Rust catalog — a string rather than a
+   * union because the catalog is the source of truth and a TS union here would
+   * be a second list to keep in sync. `null` until the user picks on the first
+   * call, which is also what makes the picker appear.
+   */
+  ttsProvider: string | null;
+  setTtsProvider: (id: string) => void;
+  /**
+   * Which kind of call runs: the `STT → model → TTS` pipeline, or a
+   * speech-to-speech session where one model does all three.
+   *
+   * Not a value in `ttsProvider`, even though picking it is the same gesture:
+   * listing Gemini Live beside Piper and Fish would say it is a voice for the
+   * pipeline, and it is a replacement for the pipeline. The two run on different
+   * loops and only one of them has a text-to-speech engine at all.
+   */
+  callEngine: 'pipeline' | 'live';
+  setCallEngine: (e: 'pipeline' | 'live') => void;
+  /**
+   * Chosen voice per engine id.
+   *
+   * Per engine, because a voice id is only meaningful to the vendor that issued
+   * it — switching engines must not carry a dead id across. Pinning one also
+   * fixes a real defect: a reply split into two synthesis requests with no
+   * explicit voice came back in two different voices, since "the default" is
+   * resolved per request on the vendor's side.
+   */
+  ttsVoice: Record<string, string>;
+  setTtsVoice: (engineId: string, voiceId: string) => void;
 }
 
 const getSystemTheme = (): ResolvedTheme =>
@@ -59,13 +96,13 @@ const applyTheme = (resolved: ResolvedTheme) =>
 export const useUI = create<UIStore>()(
   persist(
     (set) => ({
-      sidebarCollapsed: false,
+      navCollapsed: false,
+      toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
       theme: 'dark',
       resolvedTheme: 'dark',
       language: 'en',
       reasoningMode: 'auto',
       enabledTools: [],
-      toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setLanguage: (language) => {
         document.documentElement.lang = language;
         set({ language });
@@ -88,8 +125,9 @@ export const useUI = create<UIStore>()(
             : [...s.enabledTools, id],
         })),
       searchOpen: false,
-      openSearch:  () => set({ searchOpen: true }),
-      closeSearch: () => set({ searchOpen: false }),
+      searchScopeId: null,
+      openSearch:  (projectId) => set({ searchOpen: true, searchScopeId: projectId ?? null }),
+      closeSearch: () => set({ searchOpen: false, searchScopeId: null }),
       skillsOpen:  false,
       openSkills:  () => set({ skillsOpen: true }),
       closeSkills: () => set({ skillsOpen: false }),
@@ -101,11 +139,18 @@ export const useUI = create<UIStore>()(
       setWhisperModel: (whisperModel) => set({ whisperModel }),
       sttProvider: null,
       setSttProvider: (sttProvider) => set({ sttProvider }),
+      ttsProvider: null,
+      setTtsProvider: (ttsProvider) => set({ ttsProvider }),
+      callEngine: 'pipeline',
+      setCallEngine: (callEngine) => set({ callEngine }),
+      ttsVoice: {},
+      setTtsVoice: (engineId, voiceId) =>
+        set((s) => ({ ttsVoice: { ...s.ttsVoice, [engineId]: voiceId } })),
     }),
     {
       name: 'feral-ui',
       partialize: (s) => ({
-        sidebarCollapsed: s.sidebarCollapsed,
+        navCollapsed: s.navCollapsed,
         theme: s.theme,
         language: s.language,
         reasoningMode: s.reasoningMode,
@@ -114,6 +159,9 @@ export const useUI = create<UIStore>()(
         mascotEnabled: s.mascotEnabled,
         whisperModel: s.whisperModel,
         sttProvider: s.sttProvider,
+        ttsProvider: s.ttsProvider,
+        callEngine: s.callEngine,
+        ttsVoice: s.ttsVoice,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

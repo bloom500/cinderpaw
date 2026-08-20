@@ -584,6 +584,17 @@ describe("parseResponse malformed tool-call detection", () => {
     expect(parsed.text).not.toContain("invoke");
   });
 
+  it("an unclosed invoke does not swallow the call that follows it", () => {
+    // The model forgot one `</invoke>`. The old matcher ran to end-of-message,
+    // so the second call lived inside the first one's body and never ran — a
+    // turn that asked for two tools silently did one.
+    const raw =
+      '<invoke name="time_date">\n<parameter name="tz">UTC</parameter>\n' +
+      '<invoke name="self_health">\n<parameter name="scope">all</parameter>\n</invoke>';
+    const parsed = parseResponse(raw);
+    expect(parsed.toolCalls.map((c) => c.name)).toEqual(["time_date", "self_health"]);
+  });
+
   it("reads the same shape without a namespace", () => {
     const raw =
       '<invoke name="write_file">\n' +

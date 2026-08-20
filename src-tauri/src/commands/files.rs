@@ -10,10 +10,55 @@ use crate::*;
 /// drag those files into chat, and it denies a would-be XSS its highest-value
 /// local targets. `canonical` must already be canonicalized (symlinks resolved)
 /// so a symlink can't point out of an allowed dir into the private one.
-fn deny_feral_private(canonical: &std::path::Path) -> Result<(), String> {
-    if let Ok(feral) = paths::feral_dir().canonicalize() {
-        if canonical.starts_with(&feral) {
-            return Err("Access denied: path is inside the Feral private directory".into());
+pub(crate) fn deny_feral_private(canonical: &std::path::Path) -> Result<(), String> {
+    // Canonicalize if we can, fall back to the plain path if we can't. It used
+    // to be `if let Ok(...)` with no else, so on a first run — before ~/.feral
+    // exists — canonicalize failed, the whole check was skipped, and the dir
+    // this function exists to protect was wide open on exactly the machine
+    // that had never been set up.
+    let feral = paths::feral_dir();
+    let feral = feral.canonicalize().unwrap_or(feral);
+    if canonical.starts_with(&feral) {
+        return Err("Access denied: path is inside the Feral private directory".into());
+    }
+    deny_sensitive_home_paths(canonical)
+}
+
+/// The credential directories every other program on the machine keeps in the
+/// home dir. None of them belongs in a chat window.
+///
+/// `read_file_as_data_url` is safe because its extension allowlist keeps it to
+/// images; `read_file_as_text` had no allowlist and no content check, so it was
+/// a read-any-text-file primitive reachable from the webview. One injected
+/// script — a poisoned markdown render, an iframe — and `~/.ssh/id_rsa` lands
+/// in the conversation, where the agent may well go on to send it to a cloud
+/// model. Blocking ~/.feral alone never covered that.
+pub(crate) fn deny_sensitive_home_paths(canonical: &std::path::Path) -> Result<(), String> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(());
+    };
+    const DENIED: &[&str] = &[
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".azure",
+        ".kube",
+        ".docker",
+        ".netrc",
+        ".git-credentials",
+        ".npmrc",
+        ".pypirc",
+        ".config/gh",
+        ".config/gcloud",
+        ".local/share/keyrings",
+    ];
+    for sub in DENIED {
+        let denied = sub.split('/').fold(home.clone(), |p, part| p.join(part));
+        if canonical == denied || canonical.starts_with(&denied) {
+            return Err(format!(
+                "Access denied: {} holds credentials and is never readable from the app",
+                sub
+            ));
         }
     }
     Ok(())
@@ -161,11 +206,18 @@ fn extract_zip_xml_text(path: &std::path::Path, ext: &str) -> Result<String, Str
     let mut out = String::new();
     for name in &wanted {
         use std::io::Read as _;
-        let mut entry = archive
+        let entry = archive
             .by_name(name)
             .map_err(|e| format!("Zip entry failed: {}", e))?;
+        // Read through a cap, never `read_to_string` on the whole entry. The
+        // 25 MB limit on the file itself says nothing about what is inside it:
+        // a zip entry of repetitive XML decompresses at 1000:1 without effort,
+        // so a 25 MB .docx dropped into chat expands to gigabytes and takes
+        // the process down. Only MAX_CHARS of it is ever shown anyway.
+        const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
         let mut xml = String::new();
         entry
+            .take(MAX_ENTRY_BYTES)
             .read_to_string(&mut xml)
             .map_err(|e| format!("Zip read failed: {}", e))?;
         if !out.is_empty() {

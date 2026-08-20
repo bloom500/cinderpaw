@@ -14,8 +14,8 @@
  * once instead of being fixed twice.
  */
 
-import { isChatStreaming, requestStreamStop } from './chatStream';
-import { isFeralStreaming, requestFeralStop } from './feralAgentStream';
+import { requestStreamStop } from './chatStream';
+import { requestFeralStop } from './feralAgentStream';
 
 /**
  * Stop whatever is streaming for `sessionId`, on whichever path it runs.
@@ -23,8 +23,22 @@ import { isFeralStreaming, requestFeralStop } from './feralAgentStream';
  * raced ahead of the click).
  */
 export async function stopActiveStream(sessionId: string): Promise<void> {
-  const stops: Promise<void>[] = [];
-  if (isFeralStreaming(sessionId)) stops.push(requestFeralStop(sessionId));
-  if (isChatStreaming(sessionId)) stops.push(requestStreamStop(sessionId));
-  await Promise.all(stops);
+  // Both paths are asked, unconditionally.
+  //
+  // This used to be gated on each path's in-flight registry, and that is what
+  // made the Stop button do nothing: the button is rendered from
+  // `useChat.streamStatus`, while the guards read a separate registry.
+  // Two sources of truth for one question, and when they disagreed the user got a
+  // visible button that sent no signal at all — the logs show zero `stop
+  // requested` lines reaching the sidecar for an entire session of pressing it.
+  //
+  // Nothing is saved by guarding. Both stop paths document themselves as no-ops
+  // when that session has nothing in flight: the chat registry trips a flag no
+  // one is reading, and the sidecar latches a stop for a session it is not
+  // running. Asking twice costs one ignored message; asking never costs the user
+  // their only way to interrupt.
+  await Promise.all([
+    requestFeralStop(sessionId).catch(() => {}),
+    requestStreamStop(sessionId).catch(() => {}),
+  ]);
 }

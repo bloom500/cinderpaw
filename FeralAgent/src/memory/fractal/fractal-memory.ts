@@ -25,6 +25,7 @@
  * block and to apply the current-session filter, so we map them from the live
  * episodic rows each time we (re)load a tree.
  */
+import { createHash } from "node:crypto";
 import { buildTree } from "./tree-builder.ts";
 import { FractalRecallEngine, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
 import { saveTree, loadTree } from "./tree-store.ts";
@@ -40,7 +41,7 @@ import {
 import type { BenchReport } from "./bench/runner.ts";
 import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
-import { LeafStore, type LeafSummary } from "./leaf-store.ts";
+import { LeafStore, type LeafRecord, type LeafSummary } from "./leaf-store.ts";
 import type { EvictionPolicy } from "./eviction.ts";
 import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -380,12 +381,25 @@ export class FractalMemory {
   async recall(query: string, sessionId: string): Promise<RecallResult> {
     if (this.#tree && this.#leavesById) {
       try {
-        const engine = new FractalRecallEngine({
-          tree: this.#tree,
-          embed: this.#embed,
-          ftsSearch: this.#ftsSearch,
-          leavesById: this.#leavesById,
-        });
+        // Cached across calls, and thrown away whenever the tree or the leaf
+        // index is replaced. A new engine per recall meant one allocation on
+        // every single user turn, in the path whose latency is the whole
+        // argument for this subsystem.
+        if (
+          !this.#recallEngine ||
+          this.#recallEngineFor !== this.#tree ||
+          this.#recallEngineLeaves !== this.#leavesById
+        ) {
+          this.#recallEngine = new FractalRecallEngine({
+            tree: this.#tree,
+            embed: this.#embed,
+            ftsSearch: this.#ftsSearch,
+            leavesById: this.#leavesById,
+          });
+          this.#recallEngineFor = this.#tree;
+          this.#recallEngineLeaves = this.#leavesById;
+        }
+        const engine = this.#recallEngine;
         const result = await engine.recall(query, sessionId);
         // A real semantic traversal happened → pulse the organism so breathing
         // focuses on the active region. Only on the semantic path, never on the
@@ -582,7 +596,23 @@ export class FractalMemory {
   /** Per-leaf provenance side-channel (hit_count, last_seen_at, provenance). */
   readonly #provenance = new Map<number, LeafProvenance>();
   /** Deduplication: `provenanceKey(leafId)` is set on first insert. */
-  readonly #provenanceKeys = new Set<string>();
+  /**
+   * Provenance key → the leaf id it produced.
+   *
+   * Was a `Set`, and the lookup that followed a hit only searched
+   * `#pendingLeaves` — so once a leaf had been promoted into the built tree, or
+   * had come from a previous session's store, the key said "seen" and the id
+   * could not be found. The function then fell through to the insert path and
+   * wrote the SAME fact again under a new id, with the key already marked, so
+   * the third and fourth attempts did it too. Holding the id makes the answer
+   * available wherever the leaf now lives.
+   */
+  readonly #provenanceKeys = new Map<string, number>();
+
+  /** Recall engine, rebuilt only when the tree or the leaf index changes. */
+  #recallEngine: FractalRecallEngine | null = null;
+  #recallEngineFor: TreeNode | null = null;
+  #recallEngineLeaves: Map<number, Leaf> | null = null;
   /** Pending leaves awaiting the next `loadLeaves()` cycle / rebuild. */
   readonly #pendingLeaves = new Map<number, Leaf>();
 
@@ -672,6 +702,32 @@ export class FractalMemory {
     if (groups.length === 0) return { groups: 0 };
     const absorbedIds = groups.flatMap((g) => g.absorbed.map((l) => l.id));
     this.#leafStore.remove(absorbedIds);
+    // The survivor carries the merged hit_count and the newest last_seen_at —
+    // the whole point of the pass. Only the deletions were being written, so
+    // that aggregate was recomputed in memory and thrown away every time: a
+    // fact seen across twenty sessions went back to disk still reading
+    // "hit_count: 1", and the eviction policy, which scores on exactly that,
+    // then treated it as cold and deleted it.
+    const survivorsById = new Map(this.#leafStore.all().map((r) => [r.id, r]));
+    const updated: LeafRecord[] = [];
+    for (const g of groups) {
+      const record = survivorsById.get(g.survivor.id);
+      if (!record) continue;
+      record.provenance.hit_count = g.survivor.hit_count;
+      record.provenance.last_seen_at = g.survivor.last_seen_at;
+      record.provenance.first_seen_at = g.survivor.first_seen_at;
+      updated.push(record);
+      // Keep the in-memory provenance in step, or the next write undoes it.
+      const live = this.#provenance.get(g.survivor.id);
+      if (live) {
+        live.hit_count = g.survivor.hit_count;
+        live.last_seen_at = g.survivor.last_seen_at;
+        live.first_seen_at = g.survivor.first_seen_at;
+      }
+    }
+    // One rewrite for all survivors, not one per group: `upsert` persists the
+    // entire store each time it is called.
+    this.#leafStore.upsertAll(updated);
     for (const id of absorbedIds) {
       this.#pendingLeaves.delete(id);
       this.#provenance.delete(id);
@@ -734,13 +790,15 @@ export class FractalMemory {
     const key = provenanceKey(opts.text, opts.provenance.first_seen_at);
 
     // 1. Idempotency: same (text, first_seen_at) already inserted → reuse.
-    if (this.#provenanceKeys.has(key)) {
-      const existingId = [...this.#pendingLeaves.entries()].find(
-        ([, l]) => l.text === opts.text,
-      )?.[0];
-      if (existingId !== undefined) {
-        return { kind: "grow", leafId: existingId };
-      }
+    const knownId = this.#provenanceKeys.get(key);
+    if (knownId !== undefined && this.#leafExists(knownId)) {
+      return { kind: "grow", leafId: knownId };
+    }
+    if (knownId !== undefined) {
+      // The key survived but its leaf did not (evicted, deduped away). Drop the
+      // stale mapping so the insert below is recorded against the new id
+      // instead of being swallowed.
+      this.#provenanceKeys.delete(key);
     }
 
     // 2. Near-duplicate scan: nearest existing leaf by cosine.
@@ -780,7 +838,7 @@ export class FractalMemory {
       key: opts.provenance.key,
       value: opts.provenance.value,
     });
-    this.#provenanceKeys.add(key);
+    this.#provenanceKeys.set(key, newId);
 
     // Write the leaf through to the durable store (PR-C C.0) so it survives
     // restart and carries provenance for eviction/dedup.
@@ -878,16 +936,46 @@ export class FractalMemory {
     }
   }
 
-  /** Pick the next positive int not used by any pending or loaded leaf. */
+  /** True if `id` is still a live leaf — pending, in the built tree, or durable. */
+  #leafExists(id: number): boolean {
+    if (this.#pendingLeaves.has(id)) return true;
+    if (this.#leavesById?.has(id)) return true;
+    return this.#leafStore.all().some((r) => r.id === id);
+  }
+
+  /**
+   * Pick the next id for an upserted leaf, from a range episodic rows can never
+   * reach.
+   *
+   * It used to start at 1 and only check what was in memory — so the first
+   * upsert before any rebuild took id 1, which is also the first row id the
+   * episodic table hands out. Recall merges semantic hits and FTS hits BY ID
+   * (`fractal-recall.ts`), so two completely unrelated memories became one
+   * "hit": text from the episode, session from the leaf. The answer looked
+   * whole and was made of two different things.
+   *
+   * Episodic ids are SQLite AUTOINCREMENT starting at 1, so anything above the
+   * offset is ours alone. `Number.MAX_SAFE_INTEGER` is 9e15, so a billion-row
+   * episodic table still never climbs into this range.
+   */
   #nextLeafId(): number {
     const taken = new Set<number>();
     for (const id of this.#pendingLeaves.keys()) taken.add(id);
     if (this.#leavesById) for (const id of this.#leavesById.keys()) taken.add(id);
-    let candidate = 1;
+    // Durable leaves from previous sessions live here and were not consulted
+    // at all — a fresh process re-issued ids that were already on disk.
+    for (const rec of this.#leafStore.all()) taken.add(rec.id);
+    let candidate = UPSERT_LEAF_ID_BASE + 1;
     while (taken.has(candidate)) candidate++;
     return candidate;
   }
 }
+
+/**
+ * Ids at or above this belong to upserted (semantic) leaves; below it, to
+ * episodic rows. Recall merges the two by id, so the two spaces must not touch.
+ */
+const UPSERT_LEAF_ID_BASE = 1_000_000_000;
 
 /** Provenance side-channel — keeps `Leaf` shape stable across writes. */
 interface LeafProvenance {
@@ -899,16 +987,21 @@ interface LeafProvenance {
   value?: string;
 }
 
-/** Compute the dedup key for a leaf insertion. Stable across runs. */
+/**
+ * Compute the dedup key for a leaf insertion. Stable across runs.
+ *
+ * SHA-256, truncated. The previous FNV-1a 32-bit hash has a 4.3-billion-value
+ * space, which sounds ample until the birthday bound: at roughly 65,000 leaves
+ * there is an even chance that two unrelated facts share a key. On an install
+ * that has been extracting facts from conversations for months that is not a
+ * remote possibility, it is the expected outcome — and a collision here reads
+ * as "already stored", so the newer fact is silently dropped.
+ */
 function provenanceKey(text: string, firstSeenAt: number): string {
-  // FNV-1a 32-bit. Good enough for dedup; not for crypto.
-  let h = 0x811c9dc5;
-  const combined = `${text}\u0000${firstSeenAt}`;
-  for (let i = 0; i < combined.length; i++) {
-    h ^= combined.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16);
+  return createHash("sha256")
+    .update(`${text}\u0000${firstSeenAt}`)
+    .digest("hex")
+    .slice(0, 32);
 }
 
 /** Convert a number[] embedding to a Float32Array (unit-norm expected). */

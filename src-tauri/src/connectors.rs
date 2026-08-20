@@ -78,91 +78,53 @@ pub struct ConnectorCatalogEntry {
     pub coming_soon: bool,
 }
 
-/// Internal catalog with field keys as &'static str (cheap for lookups).
-struct CatalogDef {
-    id: &'static str,
-    name: &'static str,
-    description: &'static str,
-    icon: &'static str,
-    logo: Option<&'static str>,
-    fields: Vec<FieldDef>,
-    auth_kind: &'static str,
-    coming_soon: bool,
-}
-
-struct FieldDef {
-    key: &'static str,
-    label: &'static str,
-    secret: bool,
-}
-
-fn catalog_def() -> Vec<CatalogDef> {
-    let f = |key, label, secret| FieldDef { key, label, secret };
-    vec![
-        CatalogDef {
-            id: "discord",
-            name: "Discord",
-            description: "Chat with your assistant from Discord — DMs, @mentions, or a dedicated channel. Only people you allow can reach it.",
-            icon: "🎮",
-            logo: Some("https://cdn.simpleicons.org/discord"),
-            fields: vec![f("DISCORD_TOKEN", "Discord bot token", true)],
-            auth_kind: "token",
-            coming_soon: false,
-        },
-        CatalogDef {
-            id: "slack",
-            name: "Slack",
-            description: "Talk to your assistant from a Slack workspace via Socket Mode. Needs an app-level token and a bot token.",
-            icon: "💬",
-            logo: Some("https://a.slack-edge.com/80588/marketing/img/meta/slack_hash_128.png"),
-            fields: vec![
-                f("SLACK_APP_TOKEN", "App-level token (xapp-…)", true),
-                f("SLACK_BOT_TOKEN", "Bot token (xoxb-…)", true),
-            ],
-            auth_kind: "token",
-            coming_soon: false,
-        },
-        CatalogDef {
-            id: "whatsapp",
-            name: "WhatsApp",
-            description: "Reach your assistant on WhatsApp. Turn it on, then scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.",
-            icon: "💚",
-            logo: Some("https://cdn.simpleicons.org/whatsapp"),
-            fields: vec![],
-            auth_kind: "qr",
-            coming_soon: false,
-        },
-        CatalogDef {
-            id: "telegram",
-            name: "Telegram",
-            description: "Message your assistant from Telegram.",
-            icon: "✈️",
-            logo: Some("https://cdn.simpleicons.org/telegram"),
-            fields: vec![f("TELEGRAM_BOT_TOKEN", "Telegram bot token", true)],
-            auth_kind: "token",
-            coming_soon: true,
-        },
-    ]
-}
-
+/// The desktop catalog is a PROJECTION of the one in `feral-core`, not a
+/// second list.
+///
+/// It used to be a hand-written copy: the same four connectors, entered twice,
+/// in two shapes, with the code itself admitting they were "unrelated" and
+/// kept "their own shape for the existing UI". Adding a connector meant
+/// remembering both, and only one of them is what the user sees. With ~120
+/// connectors as the target, that is the whole budget.
+///
+/// The view types below stay exactly as they were, because the frontend
+/// already renders them — this changes where the data comes from, not what
+/// crosses the boundary.
 fn catalog() -> Vec<ConnectorCatalogEntry> {
-    catalog_def()
+    feral_core::connectors::connectors_catalog()
         .into_iter()
-        .map(|d| ConnectorCatalogEntry {
-            id: d.id.into(),
-            name: d.name.into(),
-            description: d.description.into(),
-            icon: d.icon.into(),
-            logo_url: d.logo.map(Into::into),
-            fields: d
-                .fields
-                .iter()
-                .map(|f| ConnectorField { key: f.key.into(), label: f.label.into(), secret: f.secret })
+        .map(|c| ConnectorCatalogEntry {
+            id: c.id,
+            name: c.name,
+            description: c.description,
+            icon: c.icon,
+            logo_url: c.logo_url,
+            fields: c
+                .pairing_fields
+                .into_iter()
+                .map(|f| ConnectorField { key: f.key, label: f.label, secret: f.secret })
                 .collect(),
-            auth_kind: d.auth_kind.into(),
-            coming_soon: d.coming_soon,
+            auth_kind: auth_kind_of(c.pairing_method),
+            coming_soon: c.coming_soon,
         })
         .collect()
+}
+
+/// What the card has to DO, which is coarser than how the connector pairs.
+///
+/// The UI branches on this string; today it asks one question — "is this a QR
+/// card or a form?" — so every pairing method that ends in the user supplying
+/// values is "token". `oauth_device` is neither: nothing is typed here, the
+/// code is typed on the provider's site. It gets its own kind rather than
+/// being mislabelled as a form the user would then look for and not find.
+fn auth_kind_of(method: feral_core::connectors::PairingMethod) -> String {
+    use feral_core::connectors::PairingMethod as P;
+    match method {
+        P::Qr => "qr",
+        P::OauthDevice => "device",
+        P::BotToken | P::Oauth | P::InstanceToken => "token",
+    }
+    .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -250,7 +212,17 @@ fn is_ready(cfg: &ConnectorConfig) -> bool {
     if entry.auth_kind == "qr" {
         return true; // QR connectors link on first connect — nothing to pre-fill.
     }
-    // token auth: every secret field must be present.
+    if entry.auth_kind == "device" {
+        // A device-flow connector has NO fields, and "every field is filled"
+        // is vacuously true of an empty list — which would report a connector
+        // with no credential whatsoever as ready to run. Readiness here means
+        // "an account finished pairing", which is the account model's answer,
+        // not this function's. Until it is wired, the honest answer is no.
+        return false;
+    }
+    // Every declared field must be present. Not just the secret ones: a Matrix
+    // homeserver URL is required to connect at all, and a connector missing it
+    // is no more ready than one missing its token.
     entry
         .fields
         .iter()
@@ -272,9 +244,20 @@ fn seed_discord(cfg: &mut ConnectorConfig) {
 
 /// Tell the sidecar to reconcile its live connectors after a config change.
 async fn notify_sidecar(state: &crate::AppState) {
+    // Renew anything that ran out BEFORE handing credentials over: the
+    // sidecar would otherwise be given a token it cannot use and would report
+    // a healthy-looking connector that answers nobody.
+    refresh_expired_accounts().await;
     let tx = { state.feral_agent_tx.lock().clone() };
     if let Some(tx) = tx {
-        let _ = tx.send("{\"type\":\"connectors_reload\"}".to_string()).await;
+        // The rows travel WITH their secrets, resolved from the vault. The
+        // sidecar used to read connectors.json itself, which stopped working
+        // the moment the migration emptied that file of credentials — every
+        // connector on the machine would have come up blank. The pipe is
+        // where a credential a subprocess needs belongs; the disk is not.
+        let rows = feral_core::connectors::resolved_connector_configs();
+        let payload = serde_json::json!({ "type": "connectors_reload", "connectors": rows });
+        let _ = tx.send(payload.to_string()).await;
     }
 }
 
@@ -445,4 +428,398 @@ pub async fn connectors_remove(
     save_connector_configs(&connectors)?;
     notify_sidecar(&state).await;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Device pairing (RFC 8628) — the desktop half.
+//
+// The state machine lives in `feral_core::oauth_device` and is pure. This is
+// the part that has a network, a clock and a disk: it runs the machine, keeps
+// the credentials in the vault, and writes down what the person should see.
+// ---------------------------------------------------------------------------
+
+/// The device code is OUR half of the handshake — a credential. It lives in
+/// the vault while a pairing is in flight, never in the account record, which
+/// is a file the UI reads.
+const PAIRING_DEVICE_CODE: &str = "PAIRING_DEVICE_CODE";
+/// Where the granted credentials land.
+const ACCESS_KEY: &str = "OAUTH_ACCESS";
+const REFRESH_KEY: &str = "OAUTH_REFRESH";
+
+/// `TokenHttp` over reqwest.
+///
+/// The state machine is synchronous on purpose (that is what makes it testable
+/// with no runtime), so the whole run happens on a blocking thread and each
+/// request is driven through a captured runtime handle. `spawn_blocking`
+/// rather than `block_in_place` because the latter panics on a current-thread
+/// runtime, and which flavour Tauri hands us is not this module's business.
+struct ReqwestHttp {
+    handle: tokio::runtime::Handle,
+}
+
+impl feral_core::oauth_device::TokenHttp for ReqwestHttp {
+    fn post_form(&self, url: &str, form: &[(&str, &str)]) -> Result<(u16, String), String> {
+        let url = url.to_string();
+        let form: Vec<(String, String)> = form
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        self.handle.block_on(async move {
+            let client = reqwest::Client::new();
+            let resp = client
+                .post(&url)
+                .form(&form)
+                .send()
+                .await
+                .map_err(|e| format!("could not reach the provider: {e}"))?;
+            let status = resp.status().as_u16();
+            let body = resp.text().await.map_err(|e| e.to_string())?;
+            Ok((status, body))
+        })
+    }
+}
+
+/// The login name a granted Twitch token belongs to. `None` on any failure —
+/// pairing has already succeeded at this point, and losing a display name is
+/// not a reason to tell someone their connection failed.
+async fn twitch_login_for(client_id: &str, access: &str) -> Option<String> {
+    let resp = reqwest::Client::new()
+        .get("https://api.twitch.tv/helix/users")
+        .header("Client-Id", client_id)
+        .bearer_auth(access)
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    body.get("data")?
+        .as_array()?
+        .first()?
+        .get("login")?
+        .as_str()
+        .map(str::to_string)
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn device_flow_for(id: &str) -> Result<feral_core::connectors::DeviceFlowDef, String> {
+    feral_core::connectors::connector_by_id(id)
+        .ok_or_else(|| format!("no connector called {id}"))?
+        .device_flow
+        .ok_or_else(|| "this connector is not paired with a code".to_string())
+}
+
+/// Renew every credential that has run out, before anything tries to use it.
+///
+/// Twitch access tokens die in four hours. Without this, a connector that was
+/// working when the person closed the laptop is dead when they open it, and
+/// the only cure on offer would be pairing again — for a credential that never
+/// actually went away. The transport cannot do this itself: the vault and the
+/// client id are on this side of the process boundary.
+///
+/// A refresh that fails transiently is left alone to be retried; only the
+/// provider saying `invalid_grant` marks the account revoked, because that is
+/// the only answer that means "this will never work again".
+pub async fn refresh_expired_accounts() {
+    use feral_core::connector_accounts::{effective_status, AccountStatus};
+    use feral_core::oauth_device::RefreshError;
+
+    for mut account in feral_core::connector_accounts::load_accounts() {
+        let now = now_secs();
+        if !matches!(effective_status(&account, now), AccountStatus::Expired) {
+            continue;
+        }
+        let Ok(def) = device_flow_for(&account.connector_id) else {
+            continue;
+        };
+        let Some(refresh_token) = feral_core::connector_secrets::read(
+            &feral_core::connector_secrets::secret_ref(&account.connector_id, REFRESH_KEY),
+        ) else {
+            // Expired with nothing to renew from. Saying so beats a silent
+            // "disconnected" the person cannot explain.
+            account.status = AccountStatus::Error("this connection ran out and cannot renew itself — connect again".into());
+            let _ = feral_core::connector_accounts::save_account(&account);
+            continue;
+        };
+
+        let handle = tokio::runtime::Handle::current();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let http = ReqwestHttp { handle };
+            feral_core::oauth_device::refresh(&http, &def, &refresh_token, now_secs())
+        })
+        .await;
+        let Ok(outcome) = outcome else { continue };
+
+        match outcome {
+            Ok(tokens) => {
+                if feral_core::connector_secrets::put(&account.connector_id, ACCESS_KEY, &tokens.access).is_err() {
+                    continue;
+                }
+                // The NEW refresh token replaces the old one. Twitch's are
+                // single use: keeping the old one makes the next renewal fail
+                // and reports a revoked account to someone whose account is
+                // perfectly fine.
+                if let Some(refresh) = tokens.refresh.as_deref() {
+                    let _ = feral_core::connector_secrets::put(&account.connector_id, REFRESH_KEY, refresh);
+                }
+                account.status = AccountStatus::Connected;
+                account.expires_at = Some(tokens.expires_at);
+                let _ = feral_core::connector_accounts::save_account(&account);
+            }
+            Err(RefreshError::Revoked) => {
+                account.status = AccountStatus::Revoked;
+                let _ = feral_core::connector_accounts::save_account(&account);
+            }
+            Err(RefreshError::Transient(_)) => {
+                // An outage is not a revoked account. Left exactly as it was,
+                // to be tried again next time.
+            }
+        }
+    }
+}
+
+/// Renew now, because the user is looking at the screen.
+#[tauri::command]
+#[specta::specta]
+pub async fn connector_refresh_expired() -> Vec<feral_core::connector_accounts::ConnectorAccount> {
+    refresh_expired_accounts().await;
+    connector_accounts_list()
+}
+
+/// Every account the machine knows about, with the status the UI should show.
+/// A machine that has never paired anything returns an empty list — the honest
+/// first-run answer rather than an error.
+#[tauri::command]
+#[specta::specta]
+pub fn connector_accounts_list() -> Vec<feral_core::connector_accounts::ConnectorAccount> {
+    let now = now_secs();
+    feral_core::connector_accounts::load_accounts()
+        .into_iter()
+        .map(|mut a| {
+            a.status = feral_core::connector_accounts::effective_status(&a, now);
+            a
+        })
+        .collect()
+}
+
+/// Begin pairing: ask the provider for a code, write down what the person has
+/// to type and where, and hand back the account so the card can render it.
+#[tauri::command]
+#[specta::specta]
+pub async fn connector_pair_start(
+    id: String,
+) -> Result<feral_core::connector_accounts::ConnectorAccount, String> {
+    use feral_core::connector_accounts::{AccountStatus, AuthState, ConnectorAccount};
+
+    let def = device_flow_for(&id)?;
+    let handle = tokio::runtime::Handle::current();
+    let label = id.clone();
+    let started = tokio::task::spawn_blocking(move || {
+        let http = ReqwestHttp { handle };
+        feral_core::oauth_device::start_device_flow(&http, &def, now_secs())
+            .map_err(|e| format!("{label}: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // The device code is a credential: vault, not the account file.
+    feral_core::connector_secrets::put(&id, PAIRING_DEVICE_CODE, &started.device_code)
+        .map_err(|e| e.to_string())?;
+
+    let mut account = feral_core::connector_accounts::load_accounts()
+        .into_iter()
+        .find(|a| a.connector_id == id)
+        .unwrap_or_else(|| ConnectorAccount {
+            connector_id: id.clone(),
+            ..Default::default()
+        });
+    account.status = AccountStatus::Pairing;
+    account.auth_state = Some(AuthState::WaitingForUser {
+        user_code: started.user_code,
+        verification_uri: started.verification_uri,
+        expires_at: started.expires_at,
+    });
+    feral_core::connector_accounts::save_account(&account)?;
+    Ok(account)
+}
+
+/// Ask once whether the person has finished. Called on the interval the
+/// provider asked for; every answer is a state the card can render, including
+/// the ones that are not failures.
+#[tauri::command]
+#[specta::specta]
+pub async fn connector_pair_poll(
+    id: String,
+) -> Result<feral_core::connector_accounts::ConnectorAccount, String> {
+    use feral_core::connector_accounts::{AccountStatus, AuthState, ConnectorAccount};
+    use feral_core::oauth_device::{DeviceCode, PollOutcome};
+
+    let def = device_flow_for(&id)?;
+    let mut account = feral_core::connector_accounts::load_accounts()
+        .into_iter()
+        .find(|a| a.connector_id == id)
+        .unwrap_or_else(|| ConnectorAccount {
+            connector_id: id.clone(),
+            ..Default::default()
+        });
+
+    let Some(AuthState::WaitingForUser {
+        user_code,
+        verification_uri,
+        expires_at,
+    }) = account.auth_state.clone()
+    else {
+        // Nothing in flight. Not an error — the caller polled a card that had
+        // already finished, and the state it is in IS the answer.
+        return Ok(account);
+    };
+
+    let device_code = feral_core::connector_secrets::read(
+        &feral_core::connector_secrets::secret_ref(&id, PAIRING_DEVICE_CODE),
+    )
+    .unwrap_or_default();
+    if device_code.is_empty() {
+        // The vault lost it, or another machine started the flow. Say so, and
+        // leave the card in a state that has a way forward.
+        account.status = AccountStatus::Error("pairing was interrupted — start again".into());
+        account.auth_state = None;
+        feral_core::connector_accounts::save_account(&account)?;
+        return Ok(account);
+    }
+
+    let code = DeviceCode {
+        user_code,
+        verification_uri,
+        device_code,
+        interval_secs: 5,
+        expires_at,
+    };
+    let handle = tokio::runtime::Handle::current();
+    let client_id = def.client_id.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        let http = ReqwestHttp { handle };
+        feral_core::oauth_device::poll_once(&http, &def, &code, now_secs())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match outcome {
+        // Still waiting. The card keeps showing the code it already has.
+        PollOutcome::Pending | PollOutcome::SlowDown => return Ok(account),
+        PollOutcome::Granted(tokens) => {
+            feral_core::connector_secrets::put(&id, ACCESS_KEY, &tokens.access)
+                .map_err(|e| e.to_string())?;
+            if let Some(refresh) = tokens.refresh.as_deref() {
+                // Single-use on Twitch: the NEW one replaces the old, always.
+                feral_core::connector_secrets::put(&id, REFRESH_KEY, refresh)
+                    .map_err(|e| e.to_string())?;
+            }
+            account.status = AccountStatus::Connected;
+            account.secret_ref = Some(feral_core::connector_secrets::secret_ref(&id, ACCESS_KEY));
+            account.expires_at = Some(tokens.expires_at);
+            account.auth_state = None;
+            // Which account did they just connect? Two reasons it matters, and
+            // neither is cosmetic: the card says "as <name>" so somebody with
+            // two accounts can tell which one this is, and the Twitch
+            // transport cannot log in to IRC without the login name matching
+            // the token. Learned once, here, where the client id lives —
+            // asking the person to type their own username again would be
+            // asking them for something we already know.
+            if let Some(login) = twitch_login_for(&client_id, &tokens.access).await {
+                account.display_name = Some(login.clone());
+                account.metadata.insert("TWITCH_LOGIN".into(), login.clone());
+                let mut rows = feral_core::connectors::load_connector_configs();
+                if let Some(row) = rows.iter_mut().find(|r| r.id == id) {
+                    row.metadata.insert("TWITCH_LOGIN".into(), login);
+                    let _ = feral_core::connectors::save_connector_configs(&rows);
+                }
+            }
+        }
+        PollOutcome::Denied => {
+            account.status = AccountStatus::Revoked;
+            account.auth_state = None;
+        }
+        PollOutcome::Expired => {
+            // Nobody refused anything — the code simply ran out of time.
+            account.status = AccountStatus::Disconnected;
+            account.auth_state = None;
+        }
+        PollOutcome::Error(e) => {
+            account.status = AccountStatus::Error(e);
+            account.auth_state = None;
+        }
+    }
+
+    // The pairing code has done its job either way; it is not a credential
+    // worth leaving lying around.
+    let _ = feral_core::connector_secrets::forget(&id, PAIRING_DEVICE_CODE);
+    feral_core::connector_accounts::save_account(&account)?;
+    Ok(account)
+}
+
+#[cfg(test)]
+mod catalog_projection {
+    /// The failure this guards against: someone adds a connector to
+    /// `feral-core` and the desktop never shows it, because the desktop kept
+    /// its own hand-written list. That is how the two drifted before.
+    #[test]
+    fn the_desktop_catalog_is_a_projection_of_the_core_one() {
+        let core: Vec<String> = feral_core::connectors::connectors_catalog()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        let desktop: Vec<String> = super::catalog().into_iter().map(|c| c.id).collect();
+        assert_eq!(core, desktop, "two catalogs have drifted — there must be one list");
+    }
+
+    /// The frontend branches on `auth_kind`, so the mapping is a contract.
+    #[test]
+    fn auth_kind_says_what_the_card_must_do() {
+        let by_id = |id: &str| {
+            super::catalog()
+                .into_iter()
+                .find(|c| c.id == id)
+                .unwrap_or_else(|| panic!("{id} missing from the desktop catalog"))
+        };
+        assert_eq!(by_id("discord").auth_kind, "token", "a bot token is typed into a form");
+        assert_eq!(by_id("whatsapp").auth_kind, "qr", "WhatsApp is scanned, not typed");
+        assert_eq!(
+            by_id("matrix").auth_kind,
+            "token",
+            "an instance URL plus a credential is still a form"
+        );
+        assert_eq!(
+            by_id("twitch").auth_kind,
+            "device",
+            "nothing is typed here — the code goes on the provider's site"
+        );
+    }
+
+    /// A connector that pairs by device code has no fields at all, and
+    /// "all of nothing is filled" must not read as "ready".
+    #[test]
+    fn a_device_flow_connector_is_not_ready_just_because_it_has_no_fields() {
+        let cfg = feral_core::connectors::blank_connector_config("twitch");
+        assert!(!super::is_ready(&cfg), "twitch reported ready with no credential at all");
+    }
+
+    /// A field that is required but not secret is the case the desktop view
+    /// had never carried, and the one Matrix exists to prove.
+    #[test]
+    fn a_non_secret_field_survives_the_projection() {
+        let matrix = super::catalog().into_iter().find(|c| c.id == "matrix").unwrap();
+        let url = matrix
+            .fields
+            .iter()
+            .find(|f| f.key == "MATRIX_HOMESERVER")
+            .expect("the homeserver field reaches the desktop");
+        assert!(!url.secret);
+    }
 }

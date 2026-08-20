@@ -15,7 +15,8 @@
  * Requires `fs:read` (to load the file) AND `fs:write` (to persist the edit).
  */
 
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { atomicWriteFile } from "../../atomic-write.ts";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import { checkBeforeWrite, noteWrite } from "../read-ledger.ts";
 import { lineDelta, isScratchPath, scratchpadBrief } from "../file-delta.ts";
@@ -185,7 +186,7 @@ export function createEditFileTool(allowedPaths: string[]): Tool {
       // and makes any future divergence between the permissions loud.
       resolveAllowedPath(ctx.manifest, "fs:write", safePath);
 
-      await writeFile(safePath, updated, "utf8");
+      await atomicWriteFile(safePath, updated);
       // Our own write must not make the NEXT edit look stale.
       noteWrite(ctx.sessionId, safePath);
 

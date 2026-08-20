@@ -310,6 +310,11 @@ pub fn gateway_start() -> i32 {
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     tick_done();
+    // The pid file is written before we know the gateway came up. Leaving it
+    // behind after a failed start means `feral status` reports a pid with no
+    // port, and the next `feral gateway stop` sends a signal to whatever the
+    // OS has since given that number to — someone else's process.
+    let _ = std::fs::remove_file(feral_file("gateway.pid"));
     eprintln!(
         "{FAIL}gateway did not bind port {port} within 20s{RESET} — see {}",
         log_path.display()
@@ -438,28 +443,53 @@ pub fn logs(follow: bool) -> i32 {
             return 1;
         }
     };
-    let mut buf = String::new();
-    let _ = file.read_to_string(&mut buf);
-    print!("{buf}");
+    let mut raw = Vec::new();
+    let _ = file.read_to_end(&mut raw);
+    // Bytes, not `read_to_string`: a single non-UTF-8 byte — and panic
+    // backtraces and raw pointers produce them — made the read return Err, so
+    // the whole chunk was dropped and `pos` never advanced. The tail then sat
+    // there printing nothing, forever, looking like a quiet gateway.
+    let mut decoder = feral_core::utf8_stream::Utf8Stream::new();
+    print!("{}", decoder.push(&raw));
     let _ = std::io::stdout().flush();
     if !follow {
         return 0;
     }
-    // Tail: seek to EOF, poll for appends. Ctrl+C stops it.
-    let mut pos = file.stream_position().unwrap_or(0);
+    // Tail: poll for appends. Ctrl+C stops it.
+    let mut pos = raw.len() as u64;
+    drop(file);
     loop {
         std::thread::sleep(std::time::Duration::from_millis(500));
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if meta.len() > pos {
-                let _ = file.seek(std::io::SeekFrom::Start(pos));
-                let mut chunk = String::new();
-                if file.read_to_string(&mut chunk).is_ok() {
-                    print!("{chunk}");
-                    let _ = std::io::stdout().flush();
-                    pos += chunk.len() as u64;
-                }
-            }
+        let Ok(meta) = std::fs::metadata(&path) else { continue };
+        // Rotation: `gateway restart` re-creates gateway.log, so the handle we
+        // held pointed at an unlinked inode while `metadata` described the new
+        // file. Size then looked like it had grown, the read returned nothing,
+        // and the tail was stuck on a file nobody was writing to any more. A
+        // file shorter than where we are means it was replaced — start over.
+        if meta.len() < pos {
+            pos = 0;
+            decoder = feral_core::utf8_stream::Utf8Stream::new();
         }
+        if meta.len() == pos {
+            continue;
+        }
+        // Re-open every time rather than keeping a handle, so the tail follows
+        // the NAME the way `tail -F` does, not the inode it first saw.
+        let Ok(mut f) = std::fs::File::open(&path) else { continue };
+        if f.seek(std::io::SeekFrom::Start(pos)).is_err() {
+            continue;
+        }
+        let mut chunk = Vec::new();
+        // Count the BYTES read, not the characters decoded: those differ the
+        // moment the file holds anything that is not plain ASCII, and the
+        // difference used to reprint the tail of every chunk forever.
+        let Ok(n) = f.read_to_end(&mut chunk) else { continue };
+        if n == 0 {
+            continue;
+        }
+        pos += n as u64;
+        print!("{}", decoder.push(&chunk));
+        let _ = std::io::stdout().flush();
     }
 }
 
@@ -598,6 +628,28 @@ pub fn connectors_reload() -> i32 {
 /// `POST /runtime/connectors` (R6). Same in-process-vs-remote posture as
 /// `reload`: requires a live gateway, no local-file fallback. Never echoes a
 /// raw secret value to stdout — only the `filled` flags the route returns.
+/// Read one secret from stdin, prompting only when there is a person there.
+///
+/// Visible while typed — masking needs a tty dependency this crate does not
+/// carry — but never in `ps aux` and never in shell history, which is where the
+/// value actually persisted before.
+fn read_secret_from_stdin(key: &str) -> Option<String> {
+    let Palette { meta: META, reset: RESET, .. } = palette();
+    if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        eprintln!("{META}paste the value for {key}, then Enter (input is visible):{RESET}");
+    }
+    let mut value = String::new();
+    if std::io::stdin().read_line(&mut value).is_err() {
+        return None;
+    }
+    let value = value.trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
 pub fn connectors_set(
     id: &str,
     secrets: Vec<String>,
@@ -618,17 +670,29 @@ pub fn connectors_set(
         return 1;
     };
 
+    // `--secret KEY=VALUE` puts a bot token in argv, where it is readable by
+    // every other account on the machine for as long as the process lives
+    // (`ps aux`), and lands in shell history besides. `--secret KEY` with no
+    // value reads it from stdin instead — the same way `providers set-key`
+    // already takes an API key — so the token never appears in either place.
     let mut secret_map = serde_json::Map::new();
     for kv in &secrets {
-        match kv.split_once('=') {
+        let (k, value) = match kv.split_once('=') {
+            // `KEY=@stdin` is the explicit form, for scripts that want to pipe.
+            Some((k, "@stdin")) | Some((k, "-")) => (k.to_string(), read_secret_from_stdin(k)),
             Some((k, v)) => {
-                secret_map.insert(k.to_string(), serde_json::Value::String(v.to_string()));
+                eprintln!(
+                    "{META}warning: the value of {k} was passed on the command line, where                      other users on this machine can read it from the process list and where                      your shell will record it in its history. Use `--secret {k}` on its own                      next time and paste it when asked, then rotate this one.{RESET}"
+                );
+                (k.to_string(), Some(v.to_string()))
             }
-            None => {
-                eprintln!("{FAIL}--secret must be KEY=VALUE, got: {kv}{RESET}");
-                return 1;
-            }
-        }
+            None => (kv.to_string(), read_secret_from_stdin(kv)),
+        };
+        let Some(value) = value else {
+            eprintln!("{FAIL}no value given for {k}{RESET}");
+            return 1;
+        };
+        secret_map.insert(k, serde_json::Value::String(value));
     }
 
     let mut body = serde_json::json!({ "id": id });
@@ -694,7 +758,10 @@ pub fn dreams() -> i32 {
         println!("  {ACCENT}✦ dreams{RESET} {DIM}{META}watching the Dream Cycle — Ctrl+C to stop{RESET}\n");
     }
     block_on(async move {
-        let resp = match reqwest::Client::new()
+        // A live SSE stream must not carry a whole-request deadline — it is
+        // meant to stay open. Only the connect and the wait for headers are
+        // bounded, which is the failure a timeout is here for.
+        let resp = match stream_client()
             .get(format!("{}/events", base_url()))
             .bearer_auth(&token)
             .send()
@@ -708,9 +775,12 @@ pub fn dreams() -> i32 {
         };
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
+        // Same split-character problem as the desktop stream: decode across
+        // chunk boundaries, not inside each one.
+        let mut decoder = feral_core::utf8_stream::Utf8Stream::new();
         while let Some(chunk) = stream.next().await {
             let Ok(bytes) = chunk else { break };
-            buf.push_str(&String::from_utf8_lossy(&bytes));
+            buf.push_str(&decoder.push(&bytes));
             while let Some(nl) = buf.find('\n') {
                 let line: String = buf.drain(..=nl).collect();
                 let Some(data) = line.trim_end().strip_prefix("data:") else { continue };
@@ -1851,8 +1921,35 @@ fn check_connectors() -> Check {
 
 // ── shared HTTP helpers ────────────────────────────────────────────────────
 
+/// The client every CLI call uses.
+///
+/// `reqwest::Client::new()` has NO timeout — a gateway that accepts the
+/// connection and then never answers left `feral status`, `feral doctor`,
+/// `feral connectors list` and `feral providers use` hanging with no output and
+/// no way out but Ctrl-C. A command that returns an error in 30 seconds is a
+/// far better answer than one that never returns at all.
+///
+/// ponytail: one shared ceiling. The single long call (`/modules/evaluate`,
+/// which really does run for half an hour) keeps its own client below.
+fn stream_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+fn client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        // A client with default settings cannot fail to build; if it somehow
+        // did, an untimed client still beats aborting the command.
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+
 pub(crate) async fn fetch_json(token: &str, path: &str) -> Result<serde_json::Value, String> {
-    reqwest::Client::new()
+    client()
         .get(format!("{}{}", base_url(), path))
         .bearer_auth(token)
         .send()
@@ -1866,7 +1963,7 @@ pub(crate) async fn fetch_json(token: &str, path: &str) -> Result<serde_json::Va
 }
 
 async fn post_json(token: &str, path: &str) -> Result<serde_json::Value, String> {
-    reqwest::Client::new()
+    client()
         .post(format!("{}{}", base_url(), path))
         .bearer_auth(token)
         .send()
@@ -1888,7 +1985,7 @@ pub(crate) async fn post_json_with_body(
     path: &str,
     body: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    reqwest::Client::new()
+    client()
         .post(format!("{}{}", base_url(), path))
         .bearer_auth(token)
         .json(&body)
@@ -1927,7 +2024,7 @@ async fn post_json_slow(
 }
 
 async fn post(token: &str, path: &str) -> Result<(), String> {
-    reqwest::Client::new()
+    client()
         .post(format!("{}{}", base_url(), path))
         .bearer_auth(token)
         .send()
@@ -2093,13 +2190,33 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
     let Palette { accent: ACCENT, meta: META, reset: RESET, fail: FAIL, .. } = palette();
 
     let catalog = feral_core::byok::provider_catalog();
-    let Some(entry) = catalog.iter().find(|e| e.id == id) else {
-        eprintln!("{FAIL}unknown provider {id}{RESET}");
-        eprintln!(
-            "{META}known: {}{RESET}",
-            catalog.iter().map(|e| e.id.as_str()).collect::<Vec<_>>().join(", ")
-        );
-        return 1;
+    let llm_entry = catalog.iter().find(|e| e.id == id);
+    // A voice engine is not in the LLM catalog and correctly never will be — that
+    // catalog is the list of chat backends. Without this branch,
+    // `feral providers set-key fish` reported "unknown provider" for an engine the
+    // app ships, and there was no supported way to store a TTS key from a script.
+    let tts_entry = feral_core::tts::catalog().into_iter().find(|e| e.id == id && e.needs_key);
+    let display_name = match (llm_entry, &tts_entry) {
+        (Some(e), _) => e.name.clone(),
+        (None, Some(e)) => e.label.clone(),
+        (None, None) => {
+            eprintln!("{FAIL}unknown provider {id}{RESET}");
+            eprintln!(
+                "{META}known: {}{RESET}",
+                catalog
+                    .iter()
+                    .map(|e| e.id.clone())
+                    .chain(
+                        feral_core::tts::catalog()
+                            .into_iter()
+                            .filter(|e| e.needs_key)
+                            .map(|e| e.id)
+                    )
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            return 1;
+        }
     };
 
     // stdin, never argv. Works piped (`printf %s "$KEY" | feral providers
@@ -2107,7 +2224,7 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
     // wizard at guided.rs:353 - masked input needs a tty-secrets dependency
     // this crate does not carry.
     if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        eprintln!("{META}paste the {} API key, then Enter (input is visible):{RESET}", entry.name);
+        eprintln!("{META}paste the {display_name} API key, then Enter (input is visible):{RESET}");
     }
     let mut key = String::new();
     if let Err(e) = std::io::stdin().read_line(&mut key) {
@@ -2123,15 +2240,21 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
     let settings = feral_core::settings::load();
     let byok = feral_core::byok::load(&settings);
     let existing = byok.providers.get(id);
+    // A voice engine has no LLM base URL or default model to fall back on: each
+    // one carries its own defaults in `feral_core::tts`, and inventing values
+    // here would overwrite a working region with a blank.
     let base_url = existing
         .and_then(|c| c.base_url.clone())
-        .unwrap_or_else(|| entry.default_base_url.clone());
+        .or_else(|| llm_entry.map(|e| e.default_base_url.clone()));
     let model = model
         .or_else(|| existing.and_then(|c| c.default_model.clone()))
-        // Catalog entries always carry a model, so this is the last resort
-        // rather than a fallible lookup.
-        .or_else(|| Some(entry.default_model.clone()));
+        .or_else(|| llm_entry.map(|e| e.default_model.clone()));
 
+    // Verification runs a chat completion, which a speech endpoint cannot answer.
+    // Skipping it for a voice engine is not a shortcut — the alternative is
+    // refusing every correct key with a message about completions. The key is
+    // proved by the first thing spoken instead.
+    let no_verify = no_verify || tts_entry.is_some();
     if !no_verify {
         eprintln!("{META}checking the key with a real completion...{RESET}");
         let rt = match tokio::runtime::Runtime::new() {
@@ -2141,7 +2264,7 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
                 return 1;
             }
         };
-        let res = rt.block_on(feral_core::byok::test_provider(id, &key, Some(&base_url)));
+        let res = rt.block_on(feral_core::byok::test_provider(id, &key, base_url.as_deref()));
         if !res.success {
             // Nothing is written on failure - the key never touches disk.
             eprintln!("{FAIL}key rejected: {}{RESET}", res.message);
@@ -2160,14 +2283,23 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
         // Never persisted in byok.json - the keychain (or the encrypted file
         // fallback on headless Linux) is the only place the secret lives.
         api_key: String::new(),
-        base_url: Some(base_url),
+        base_url,
         default_model: model.clone(),
     };
     if let Err(e) = feral_core::byok::save_provider(id, cfg) {
         eprintln!("{FAIL}could not write byok.json: {e}{RESET}");
         return 1;
     }
-    println!("{ACCENT}{} key stored{RESET}", entry.name);
+    println!("{ACCENT}{display_name} key stored{RESET}");
+    if tts_entry.is_some() {
+        println!("{META}voice engine — pick it on the call screen to use it{RESET}");
+        // `--activate` routes chat inference; a voice engine is not a chat backend.
+        if activate {
+            eprintln!("{FAIL}--activate applies to chat providers, not voice engines{RESET}");
+            return 1;
+        }
+        return 0;
+    }
 
     if activate {
         let Some(model) = model else {

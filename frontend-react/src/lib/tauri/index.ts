@@ -22,6 +22,39 @@ export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent }
 export type { ModelLoadProgressEvent };
 export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine } from './events';
 
+/**
+ * One row of the voice-engine picker — mirrors `feral_core::tts::TtsEngine`.
+ *
+ * `isLocal` must be shown before recording starts, not buried in settings: with
+ * a hosted engine every spoken reply leaves the machine, and a local-first
+ * product that does not say so has lied by omission.
+ *
+ * `available: false` means the engine is catalogued but not built into this
+ * version. The row is shown (so the plan is visible) and cannot be chosen (so it
+ * cannot lie) — `from_id` refuses it in Rust regardless of what the UI does.
+ */
+export interface TtsProviderInfo {
+  id: string;
+  label: string;
+  isLocal: boolean;
+  needsKey: boolean;
+  needsBaseUrl: boolean;
+  needsModel: boolean;
+  /** Runs from a file the user must fetch first. A property rather than a list of
+   *  ids in this file, so the next local engine cannot skip the download step. */
+  needsDownload: boolean;
+  consoleUrl: string | null;
+  note: string;
+  available: boolean;
+}
+
+/**
+ * One selectable voice, listed by the vendor. `locale` is empty for a
+ * multilingual voice — which is not "English", it means the voice follows the
+ * text, and that is what a bilingual conversation needs.
+ */
+export interface TtsVoice { id: string; label: string; locale: string }
+
 export interface Message       { role: string; content: string; images?: string[] }
 export interface InferParams   {
   temperature: number;
@@ -72,6 +105,8 @@ export interface McpCatalogEntry {
   icon: string;
   logo_url?: string;
   fields: McpConfigField[];
+  /** Connecting opens a browser for the user to sign in to the publisher. */
+  browser_login: boolean;
 }
 export interface McpServerView {
   id: string;
@@ -95,6 +130,35 @@ export interface McpToolView { name: string; description: string }
 // new field is optional. The richer surface lands when the Connectors
 // tab lands as part of Phase 2.
 export interface ConnectorField { key: string; label: string; secret: boolean }
+
+/** A pairing in flight. Public values only — what to type and where. The
+ *  device code is a credential and never crosses this boundary. */
+export type ConnectorAuthState = {
+  kind: 'waiting_for_user';
+  user_code: string;
+  verification_uri: string;
+  expires_at: number;
+};
+
+/** Status is a value derived from the credential, never "enabled in a file".
+ *  `error` carries its own words because the person needs them. */
+export type ConnectorAccountStatus =
+  | 'disconnected'
+  | 'pairing'
+  | 'connected'
+  | 'expired'
+  | 'revoked'
+  | { error: string };
+
+export interface ConnectorAccount {
+  connector_id: string;
+  display_name?: string | null;
+  status: ConnectorAccountStatus;
+  metadata: Record<string, string>;
+  auth_state?: ConnectorAuthState | null;
+  secret_ref?: string | null;
+  expires_at?: number | null;
+}
 export interface ConnectorCatalogEntry {
   id: string;
   name: string;
@@ -207,6 +271,13 @@ export interface Settings {
   token_budget_conversation: number | null;
   /** USD spend cap for the passive RSI background engine. null / 0 = local-only (free). */
   rsi_max_cost_usd: number | null;
+  /** Let the dream cycle run on a CLOUD model. Off by default — background
+   *  dreaming on a paid route spends money while the user is away. Without it,
+   *  a machine with no local model never dreams at all. */
+  rsi_allow_cloud_dreams: boolean;
+  /** The chosen inference route: `"<provider>:<model>"` (cloud) or
+   *  `"local:<file>"`. null = the bundled local default. */
+  active_route: string | null;
 }
 
 export interface ByokProvider {
@@ -436,7 +507,7 @@ export interface CodePatchResolvedPayload {
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 /** Mirrors `conversations::ScratchStats` — churn in the agent's own workspace. */
 export interface ScratchStats        { edits: number; added: number; removed: number }
-export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null; scratch?: ScratchStats | null }
+export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null; scratch?: ScratchStats | null; created_at?: number | null }
 export interface ConversationSummary {
   id: string; title: string; updated_at: string;
   /** Set when this conversation belongs to an agent (Agents tab); null for chat. */
@@ -516,8 +587,35 @@ export type FeralAgentEvent =
   // #18: live progress/retry notes from long-running tools (sidecar emits
   // these with a sessionId, not a message id).
   | { type: 'tool_progress'; sessionId: string; tool: string; stage: string; progress: number | null; message: string }
+  // A background worker spawned by the notebook's `rlm()`. Carries a
+  // sessionId and no message id, and unlike every other event here it usually
+  // arrives AFTER the turn that caused it has finished — `rlm()` returns the
+  // instant a child is admitted, so all the child's work happens later.
+  | {
+      type: 'rlm_child';
+      sessionId: string;
+      childId: string;
+      name: string;
+      status: 'running' | 'completed' | 'error' | 'cancelled';
+      detail?: string;
+      durationMs?: number;
+    }
   | { type: 'proactive';   content: string }
   | { type: 'model_set';   provider: string; model: string }
+  // Which model answered this turn, and why that one. Emitted on the
+  // success AND the failure path: automatic model selection used to fail
+  // into a console warning and a silent switch to the default target, so a
+  // user whose routing broke got a different model with no explanation
+  // anywhere on their screen.
+  | {
+      type: 'model_routed';
+      sessionId: string;
+      provider: string;
+      model: string;
+      reason: 'brain' | 'only_candidate' | 'fallback';
+      category?: string;
+      detail?: string;
+    }
   | { type: 'model_error'; message: string }
   | { type: 'pong' }
   | { type: 'error';       id?: string; message: string }
@@ -591,6 +689,8 @@ const raw = {
     invoke<void>('set_token_budget_conversation', { budget }),
   setRsiBudget: (budget: number | null) =>
     invoke<void>('set_rsi_budget', { budget }),
+  setRsiAllowCloudDreams: (enabled: boolean) =>
+    invoke<void>('set_rsi_allow_cloud_dreams', { enabled }),
   searchHfModels:        (query: string, cursor?: string | null) =>
     invoke<HfSearchPage>('search_hf_models', { query, cursor }),
   getHfModelDetail:      (repoId: string) =>
@@ -612,8 +712,16 @@ const raw = {
   previewRemoteSkill:       (url: string) => invoke<SkillPreview>('preview_remote_skill', { url }),
   previewLocalSkill:        (path: string) => invoke<SkillPreview>('preview_local_skill', { path }),
   skillExistsCmd:           (id: string) => invoke<boolean>('skill_exists_cmd', { id }),
-  installSkill:             (meta: SkillMeta, content: string, overwrite: boolean) =>
-    invoke<void>('install_skill', { meta, content, overwrite }),
+  // The old `install_skill(meta, content, overwrite)` is gone. It let the
+  // CALLER supply the file body, the metadata and the trust label, and the
+  // host checked only that the id was a safe slug. Each of these instead
+  // names a source and lets the host fetch it.
+  installCapability:        (id: string) => invoke<SkillMeta>('install_capability', { id }),
+  inspectCapability:        (id: string) => invoke<SkillPreview>('inspect_capability', { id }),
+  installSkillFromUrl:      (url: string, overwrite: boolean) =>
+    invoke<SkillMeta>('install_skill_from_url', { url, overwrite }),
+  installSkillFromFile:     (path: string, overwrite: boolean) =>
+    invoke<SkillMeta>('install_skill_from_file', { path, overwrite }),
   removeSkill:              (id: string) => invoke<void>('remove_skill', { id }),
   feralSendMessage:         (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
     invoke<string>('feral_send_message', { content, sessionId, images: images ?? null, inferParams: inferParams ?? null }),
@@ -656,6 +764,9 @@ const raw = {
     invoke<ConnectorView>('connectors_set_enabled', { id, enabled }),
   connectorsRemove:         (id: string) => invoke<void>('connectors_remove', { id }),
   connectorsWhatsappQr:     () => invoke<WhatsappQr | null>('connectors_whatsapp_qr'),
+  connectorAccounts:        () => invoke<ConnectorAccount[]>('connector_accounts_list'),
+  connectorPairStart:       (id: string) => invoke<ConnectorAccount>('connector_pair_start', { id }),
+  connectorPairPoll:        (id: string) => invoke<ConnectorAccount>('connector_pair_poll', { id }),
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
@@ -724,10 +835,68 @@ const raw = {
     invoke<boolean>('whisper_model_present', { modelSize }),
   transcribeAudio:          (pcm: number[], modelSize: string) =>
     invoke<string>('transcribe_audio', { pcm, modelSize }),
-  transcribeAudioCloud:     (audioPath: string, provider: string) =>
-    invoke<string>('transcribe_audio_cloud', { audioPath, provider }),
+  transcribeAudioCloud:     (audioPath: string, provider: string, language?: string) =>
+    invoke<string>('transcribe_audio_cloud', { audioPath, provider, language: language ?? null }),
   downloadWhisperModel:     (modelSize: string) =>
     invoke<string>('download_whisper_model', { modelSize }),
+  // Diagnostics bridge: prints into the terminal running the app, because the
+  // webview console is invisible there and the voice loop lives in the webview.
+  uiLog:                    (scope: string, message: string) =>
+    invoke<void>('ui_log', { scope, message }),
+  ttsProviders:             () =>
+    invoke<TtsProviderInfo[]>('tts_providers'),
+  // `getByokSettings` is derived from the LLM provider catalog and so can never
+  // report a voice engine's key. This asks the keychain directly.
+  ttsHasKey:                (providerId: string) =>
+    invoke<boolean>('tts_has_key', { providerId }),
+  // "Can this engine speak right now" — a key for hosted engines, a downloaded
+  // voice for Piper. Ask this before opening the microphone; `ttsHasKey` only
+  // answers half the question and answers `true` for a voiceless Piper.
+  ttsReady:                 (providerId: string) =>
+    invoke<boolean>('tts_ready', { providerId }),
+  ttsVoices:                (providerId: string) =>
+    invoke<TtsVoice[]>('tts_voices', { providerId }),
+  ttsVoicePresent:          (engine: string, voice: string) =>
+    invoke<boolean>('tts_voice_present', { engine, voice }),
+  // Idempotent — returns immediately if everything the engine needs is already
+  // on disk. Progress streams over `feral://tts-download-*`.
+  downloadTtsVoice:         (engine: string, voice: string) =>
+    invoke<string>('download_tts_voice', { engine, voice }),
+  // Resolves when SYNTHESIS ends (with the PCM byte count), not when playback
+  // does — audio arrives on `feral://tts-chunk` and the webview owns the clock.
+  speakText:                (sessionId: string, text: string, provider?: string, voice?: string) =>
+    invoke<number>('speak_text', { sessionId, text, provider: provider ?? null, voice: voice ?? null }),
+  stopSpeaking:             (sessionId: string) =>
+    invoke<void>('stop_speaking', { sessionId }),
+  // Speech to speech. One session replaces STT + the model + TTS, so these three
+  // are a whole call: start it, feed it, hang up.
+  //
+  // Resolves once the model has ACCEPTED the session, so the microphone can open
+  // the moment this returns. Rejects with `live-no-key` when no Google key is
+  // stored — the same AI Studio key the chat side already uses.
+  //
+  // Audio comes back on `feral://tts-chunk` like every other engine's, at the
+  // rate carried in the event; everything else arrives on `feral://live-status`.
+  startLiveCall:            (sessionId: string, brief?: { model?: string; voice?: string; currentTask?: string; workspace?: string; context?: string }) =>
+    invoke<void>('start_live_call', {
+      sessionId,
+      model: brief?.model ?? null,
+      // The voice is pinned for the whole session: absent, the server picks one
+      // per call and the same assistant answers in a different voice tomorrow.
+      voice: brief?.voice ?? null,
+      currentTask: brief?.currentTask ?? null,
+      workspace: brief?.workspace ?? null,
+      context: brief?.context ?? null,
+    }),
+  // Base64 of 16 kHz mono 16-bit LE PCM. Base64 and not a byte array because
+  // Tauri's IPC serialises `Vec<u8>` as a JSON array of numbers.
+  sendLiveAudio:            (pcm: string) => invoke<void>('send_live_audio', { pcm }),
+  // A typed turn into the running call, for what dictation mangles.
+  sendLiveText:             (text: string) => invoke<void>('send_live_text', { text }),
+  // The prebuilt voices a Live call can be pinned to.
+  liveVoices:               () => invoke<string[]>('live_voices'),
+  // Idempotent: hanging up twice is not an error.
+  endLiveCall:              () => invoke<void>('end_live_call'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `feral://embedding-download-*`.
@@ -779,6 +948,7 @@ export const tauri = {
     setDesktopControlYolo: async (enabled: boolean) => raw.setDesktopControlYolo(enabled),
     setTokenBudget: async (budget: number | null) => raw.setTokenBudgetConversation(budget),
     setRsiBudget: async (budget: number | null) => raw.setRsiBudget(budget),
+    setRsiAllowCloudDreams: async (enabled: boolean) => raw.setRsiAllowCloudDreams(enabled),
   },
 
   hf: {
@@ -801,8 +971,26 @@ export const tauri = {
     saveBlob:      async (bytes: number[], ext: string) => raw.saveVoiceBlob(bytes, ext),
     modelPresent:  async (modelSize: string) => raw.whisperModelPresent(modelSize),
     transcribe:    async (pcm: number[], modelSize: string) => raw.transcribeAudio(pcm, modelSize),
-    transcribeCloud: async (audioPath: string, provider: string) => raw.transcribeAudioCloud(audioPath, provider),
+    transcribeCloud: async (audioPath: string, provider: string, language?: string) =>
+      raw.transcribeAudioCloud(audioPath, provider, language),
     downloadModel: async (modelSize: string) => raw.downloadWhisperModel(modelSize),
+    ttsProviders:  async () => raw.ttsProviders(),
+    ttsHasKey:     async (providerId: string) => raw.ttsHasKey(providerId),
+    ttsReady:      async (providerId: string) => raw.ttsReady(providerId),
+    ttsVoices:     async (providerId: string) => raw.ttsVoices(providerId),
+    voicePresent:  async (engine: string, voice: string) => raw.ttsVoicePresent(engine, voice),
+    voiceDownload: async (engine: string, voice: string) => raw.downloadTtsVoice(engine, voice),
+    // An empty `apiKey` means "leave the stored key untouched" all the way down
+    // to the keychain, so re-saving only a region cannot wipe a working key.
+    saveTtsKey:    async (providerId: string, apiKey: string, baseUrl?: string, model?: string) =>
+      raw.saveByokProvider(providerId, true, apiKey, baseUrl ?? null, model ?? null),
+    // Purges the key from the OS keychain. The way out of a stored key nobody
+    // remembers saving — `saveTtsKey` with an empty string deliberately does not
+    // delete, so removal needs its own door.
+    forgetTtsKey:  async (providerId: string) => raw.removeByokProvider(providerId),
+    speak:         async (sessionId: string, text: string, provider?: string, voice?: string) =>
+      raw.speakText(sessionId, text, provider, voice),
+    stopSpeaking:  async (sessionId: string) => raw.stopSpeaking(sessionId),
   },
 
   system: {
@@ -822,8 +1010,11 @@ export const tauri = {
     previewRemote:      async (url: string) => raw.previewRemoteSkill(url),
     previewLocal:       async (path: string) => raw.previewLocalSkill(path),
     exists:             async (id: string) => raw.skillExistsCmd(id),
-    install:            async (meta: SkillMeta, content: string, overwrite: boolean) =>
-      raw.installSkill(meta, content, overwrite),
+    installFromCatalogue: async (id: string) => raw.installCapability(id),
+    installFromUrl:       async (url: string, overwrite: boolean) =>
+      raw.installSkillFromUrl(url, overwrite),
+    installFromFile:      async (path: string, overwrite: boolean) =>
+      raw.installSkillFromFile(path, overwrite),
     remove:             async (id: string) => raw.removeSkill(id),
   },
 
@@ -844,6 +1035,12 @@ export const tauri = {
     setEnabled: async (id: string, enabled: boolean) => raw.connectorsSetEnabled(id, enabled),
     remove:     async (id: string) => raw.connectorsRemove(id),
     whatsappQr: async () => raw.connectorsWhatsappQr(),
+    /** Phase 3 accounts: connectors that pair by signing in rather than by
+     *  pasting a token. `pairPoll` is safe to call on a card that has already
+     *  finished — the state it is in is the answer. */
+    accounts:   async () => raw.connectorAccounts(),
+    pairStart:  async (id: string) => raw.connectorPairStart(id),
+    pairPoll:   async (id: string) => raw.connectorPairPoll(id),
   },
 
   feralAgent: {

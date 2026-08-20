@@ -147,7 +147,9 @@ export function createDelegateTaskTool(deps: {
       // this the parent's only options were to re-delegate the identical task
       // (the loop this whole layer is meant to avoid) or give up. Bounded to
       // exactly one extra run so a failing delegation costs 2× at worst.
-      if (r.status !== "completed") {
+      // `cancelled` is deliberately excluded: retrying a run the user just
+      // stopped spends their money on the work they were stopping.
+      if (r.status !== "completed" && r.status !== "cancelled") {
         ctx.progress?.({ stage: "subagent", progress: null, message: "subagent failed — retrying once" });
         const retry = await subagent.run({
           ...base,

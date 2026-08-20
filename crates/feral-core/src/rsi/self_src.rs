@@ -25,8 +25,10 @@ pub const SELF_SRC_DIR: &str = "self-src";
 
 /// Locate the bundled source tree under the host-supplied resource dirs:
 /// a directory containing `FeralAgent/package.json`. Tauri flattens
-/// `../` resource paths under `_up_/`, so we search a few levels deep
-/// instead of hardcoding the nesting.
+/// `../` resource paths under `_up_/`, so those two documented layouts are
+/// checked directly. Never recurse from a resource directory: in a Tauri dev
+/// run it can be `target/debug`, whose Cargo artifact tree contains thousands
+/// of directories and used to delay the sidecar spawn by minutes.
 ///
 /// Beyond the host-supplied dirs, two exe-relative locations are always
 /// probed so pure-CLI installs (no Tauri resource_dir) get code-RSI too:
@@ -43,25 +45,11 @@ pub fn find_bundled_src(search_dirs: &[PathBuf]) -> Option<PathBuf> {
 }
 
 fn find_in_dirs(search_dirs: &[PathBuf]) -> Option<PathBuf> {
-    fn probe(dir: &Path, depth: u8) -> Option<PathBuf> {
-        if dir.join("FeralAgent").join("package.json").exists() {
-            return Some(dir.to_path_buf());
-        }
-        if depth == 0 {
-            return None;
-        }
-        let entries = std::fs::read_dir(dir).ok()?;
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                if let Some(hit) = probe(&p, depth - 1) {
-                    return Some(hit);
-                }
-            }
-        }
-        None
-    }
-    search_dirs.iter().find_map(|d| probe(d, 3))
+    search_dirs.iter().find_map(|dir| {
+        [dir.clone(), dir.join("_up_")]
+            .into_iter()
+            .find(|root| root.join("FeralAgent").join("package.json").is_file())
+    })
 }
 
 /// Read `"version"` out of a package.json without a JSON dependency walk.
@@ -86,7 +74,22 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
         }
         let from = entry.path();
         let to = dst.join(&name);
-        if from.is_dir() {
+        // Symlinks are skipped, never followed.
+        //
+        // `is_dir()` and `fs::copy` both resolve the target, so a link inside
+        // the bundle pulled in whatever it pointed at ON THIS MACHINE — a
+        // `docs/notes -> /etc/shadow` would arrive in the copied tree as the
+        // file's contents, and the copied tree is then committed into the RSI
+        // git substrate. A link pointing back at an ancestor recursed until the
+        // stack ran out.
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("file type {}: {e}", from.display()))?;
+        if file_type.is_symlink() {
+            tracing::warn!(path = %from.display(), "self-src: skipping symlink — not copied into the bundle");
+            continue;
+        }
+        if file_type.is_dir() {
             copy_tree(&from, &to)?;
         } else {
             std::fs::copy(&from, &to)
@@ -97,9 +100,65 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Keep obvious secrets out of the self-source git substrate.
+///
+/// Written once and then left alone, so a user who edits it keeps their edit.
+fn ensure_gitignore(target: &Path) -> Result<(), String> {
+    let path = target.join(".gitignore");
+    if path.exists() {
+        return Ok(());
+    }
+    let content = "# Written by Feral when provisioning the RSI self-source tree.
+# Anything staged here becomes a permanent git object in the RSI substrate.
+
+# Secrets, wherever they land
+.env
+.env.*
+.envrc
+.npmrc
+*.pem
+*.key
+*.p12
+id_rsa*
+id_ed25519*
+credentials*
+*.credentials
+.aws/
+.ssh/
+.gnupg/
+
+# Build outputs (copy_tree already skips these; belt and braces)
+node_modules/
+dist/
+target/
+";
+    std::fs::write(&path, content).map_err(|e| format!("write .gitignore: {e}"))
+}
+
 fn run_git(repo: &Path, args: &[&str]) -> Result<(), String> {
     let mut cmd = std::process::Command::new("git");
+    // Config overrides FIRST, before the subcommand: the user's own gitconfig
+    // is not a safe input for a command running unattended inside a sidecar.
+    //
+    // `commit.gpgsign = true` — a common, reasonable setting — makes `git
+    // commit` invoke gpg, which asks for a passphrase. With no terminal and no
+    // stdin, that is a provisioning step that hangs forever at app start, with
+    // no window, no prompt and nothing in the UI to say why nothing works.
+    // `init.defaultBranch` is pinned for a different reason: the rest of the
+    // RSI code assumes `main`, and a user still defaulting to `master` got a
+    // substrate whose branch nothing else could find.
+    cmd.arg("-c").arg("commit.gpgsign=false");
+    cmd.arg("-c").arg("tag.gpgsign=false");
+    cmd.arg("-c").arg("init.defaultBranch=main");
     cmd.args(args).current_dir(repo);
+    // Nothing may read from the terminal: closed stdin turns any interactive
+    // prompt into an immediate failure instead of a silent wait.
+    cmd.stdin(std::process::Stdio::null());
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    cmd.env("GIT_OPTIONAL_LOCKS", "0");
+    cmd.env_remove("EDITOR");
+    cmd.env_remove("VISUAL");
+    cmd.env_remove("GIT_EDITOR");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -148,6 +207,12 @@ pub fn provision(search_dirs: &[PathBuf]) -> Result<PathBuf, String> {
     if !target.join(".git").exists() {
         run_git(&target, &["init"])?;
     }
+    // A .gitignore BEFORE `git add -A`, which otherwise stages whatever happens
+    // to be in the tree. Anything a person drops into this directory while
+    // testing — a .env, an API key in a scratch config — becomes a git object
+    // inside the RSI substrate, and from there it is in the lineage, the diffs,
+    // and anything that publishes them. Git objects are not easy to un-write.
+    ensure_gitignore(&target)?;
     run_git(&target, &["add", "-A"])?;
     // Identity flags keep this independent of the user's git config; an
     // empty diff (re-run after a failed later step) must not error.
@@ -183,6 +248,25 @@ mod tests {
         // Nothing there → None.
         let empty = tempfile::tempdir().unwrap();
         assert!(find_bundled_src(&[empty.path().to_path_buf()]).is_none());
+    }
+
+    #[test]
+    fn bundled_src_lookup_never_crawls_unrelated_build_trees() {
+        let tmp = tempfile::tempdir().unwrap();
+        // `resource_dir` is target/debug in a Tauri dev run. Descending from
+        // there walks thousands of Cargo artifact directories before the
+        // sidecar can even spawn. Only documented resource layouts belong in
+        // this lookup; an arbitrary nested match must be ignored.
+        write(
+            &tmp.path()
+                .join("build")
+                .join("dependency")
+                .join("FeralAgent")
+                .join("package.json"),
+            "{\"version\":\"1.2.3\"}",
+        );
+
+        assert!(find_in_dirs(&[tmp.path().to_path_buf()]).is_none());
     }
 
     #[test]

@@ -70,7 +70,7 @@ describe("evaluateCodePatch — lifecycle over a fake exec", () => {
       "worktree_add",
       "numstat",
       "apply",
-      "bun install",
+      "bun install --ignore-scripts",
       "bun test",
       "bunx tsc --noEmit",
       "bun run build",
@@ -94,7 +94,7 @@ describe("evaluateCodePatch — lifecycle over a fake exec", () => {
 
   test("install timeout → hard failure naming the timeout, teardown still runs", async () => {
     const { exec, calls } = fakeExec({
-      "bun install": { exitCode: -2, stdout: "", stderr: "", timedOut: true },
+      "bun install --ignore-scripts": { exitCode: -2, stdout: "", stderr: "", timedOut: true },
     });
     const r = await evaluateCodePatch(genome, { ...opts(exec), timeouts: { installMs: 5 } });
     expect(r.ok).toBe(false);

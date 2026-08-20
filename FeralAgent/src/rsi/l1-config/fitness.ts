@@ -43,7 +43,7 @@ export type { FitnessVector };
 
 /** Resource keys in the order BRSI §2.2 lists them. The aggregate
  *  function iterates this to apply the locked weights. */
-const VECTOR_KEYS: ReadonlyArray<keyof FitnessVector> = [
+export const VECTOR_KEYS: ReadonlyArray<keyof FitnessVector> = [
   "accuracy",
   "latency",
   "cost",

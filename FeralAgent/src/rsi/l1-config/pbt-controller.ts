@@ -202,7 +202,14 @@ export class PbtController {
     const k = Math.min(nReplace, Math.floor(n / 2));
     if (k <= 0) return [];
 
-    const ranked = [...this.strats].sort((a, b) => b.fitness - a.fitness);
+    // Tie-break on the RNG, not on array position. Every strategy starts at
+    // fitness 0, and a stable sort then leaves them in insertion order — so on
+    // the first cycles the first k seeds were ALWAYS the "winners" and the last
+    // k were always overwritten with perturbations of them. A search whose job
+    // is to explore was choosing by position and calling it selection.
+    const ranked = [...this.strats].sort(
+      (a, b) => b.fitness - a.fitness || (this.rng() < 0.5 ? -1 : 1),
+    );
     const topPool = ranked.slice(0, k);
     const bottomPool = ranked.slice(n - k);
 

@@ -37,11 +37,17 @@ export function MessageList() {
     <div ref={containerRef} className="h-full overflow-y-auto scrollbar-hide">
       <div className="max-w-3xl mx-auto px-6 py-6 pb-48 space-y-6">
         {messages.map((m, i) => (
-          <MessageItem
-            key={m.id}
-            message={m}
-            streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
-          />
+          // A message arrives, it does not blink into existence. 200ms and two
+          // pixels of travel is the whole effect — enough for the eye to see
+          // WHERE the new thing came from, short enough that nobody waits for
+          // it. Keyed on the message id so only genuinely new rows animate;
+          // re-rendering a streamed token must never replay it.
+          <div key={m.id} className="animate-in fade-in-0 slide-in-from-bottom-2 duration-200">
+            <MessageItem
+              message={m}
+              streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
+            />
+          </div>
         ))}
         {status === 'streaming' && messages[messages.length - 1]?.content === '' && (
           <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} />

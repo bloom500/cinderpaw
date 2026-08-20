@@ -53,6 +53,7 @@ function makeModel(opts: {
   capabilities: Record<Capability, number>;
   cost: 1 | 2 | 3;
   local?: boolean;
+  contextWindow?: number;
 }): BrainModel {
   return {
     id: opts.id,
@@ -66,6 +67,7 @@ function makeModel(opts: {
     },
     capabilities: opts.capabilities,
     cost: opts.cost,
+    ...(opts.contextWindow === undefined ? {} : { contextWindow: opts.contextWindow }),
     local: opts.local ?? false,
   };
 }
@@ -626,5 +628,106 @@ describe("BrainStack — construction", () => {
         newBreaker(),
       );
     }).toThrow(/duplicate model id/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Context window — a model that cannot hold the turn is not a candidate
+// ---------------------------------------------------------------------------
+
+describe("BrainStack.route() — the prompt has to fit", () => {
+  const small = makeModel({
+    id: "small-local",
+    provider: "ollama",
+    capabilities: { reasoning: 5, coding: 6, vision: 0, speed: 9, multilingual: 5 },
+    cost: 1,
+    local: true,
+    contextWindow: 4_096,
+  });
+  const big = makeModel({
+    id: "big-cloud",
+    provider: "b",
+    capabilities: { reasoning: 8, coding: 8, vision: 0, speed: 5, multilingual: 8 },
+    cost: 3,
+    contextWindow: 200_000,
+  });
+
+  test("when everything fits, the filter changes nothing", () => {
+    const { brain } = newStack([small, big]);
+    const withSize = brain.route({
+      text: "refactor this function",
+      hasImages: false,
+      offline: false,
+      promptTokens: 800,
+    });
+    const without = brain.route({
+      text: "refactor this function",
+      hasImages: false,
+      offline: false,
+    });
+    // The invariant that matters: a caller who reports a prompt size gets the
+    // same decision as one who does not, right up until the size rules a
+    // model out. Anything else would be a routing change smuggled in behind a
+    // safety check.
+    expect(withSize.chosenId).toBe(without.chosenId);
+  });
+
+  test("it loses the moment the turn does not fit", () => {
+    // The failure this exists to stop: in budget mode a local model gets a
+    // scoring bonus, so a 4B with a 4k window was the PREFERRED answer for a
+    // turn carrying the agent's system prompt. Overrunning a window does not
+    // raise — the model degenerates into repeated bytes, which reads as a
+    // broken install and is invisible to every part of the routing path.
+    const { brain } = newStack([small, big]);
+    const r = brain.route({
+      text: "refactor this function",
+      hasImages: false,
+      offline: false,
+      promptTokens: 6_000,
+    });
+    expect(r.chosenId).toBe("big-cloud");
+  });
+
+  test("headroom counts: a prompt that exactly fills the window does not fit", () => {
+    const { brain } = newStack([small, big]);
+    const r = brain.route({
+      text: "refactor this function",
+      hasImages: false,
+      offline: false,
+      promptTokens: 4_096,
+    });
+    // Nowhere left to answer from is the same failure as not fitting.
+    expect(r.chosenId).toBe("big-cloud");
+  });
+
+  test("nothing fits: the reason names the numbers instead of a generic refusal", () => {
+    const { brain } = newStack([small]);
+    expect(() =>
+      brain.route({
+        text: "refactor this function",
+        hasImages: false,
+        offline: false,
+        promptTokens: 90_000,
+      }),
+    ).toThrow(/90000 tokens .*holds 4096/);
+  });
+
+  test("an unrecorded window is not a reason to rule a model out", () => {
+    const unknown = makeModel({
+      id: "unknown-window",
+      provider: "c",
+      capabilities: { reasoning: 9, coding: 9, vision: 0, speed: 5, multilingual: 8 },
+      cost: 1,
+    });
+    const { brain } = newStack([unknown]);
+    const r = brain.route({
+      text: "refactor this function",
+      hasImages: false,
+      offline: false,
+      promptTokens: 90_000,
+    });
+    // Grounding every model nobody measured would empty the registry on the
+    // day this shipped.
+    expect(r.chosenId).toBe("unknown-window");
   });
 });

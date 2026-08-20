@@ -10,6 +10,7 @@ pub mod chat;
 pub mod conversations;
 pub mod feral;
 pub mod files;
+pub mod live;
 pub mod models;
 pub mod projects;
 pub mod settings;
@@ -23,6 +24,7 @@ pub(crate) use chat::*;
 pub(crate) use conversations::*;
 pub(crate) use feral::*;
 pub(crate) use files::*;
+pub(crate) use live::*;
 pub(crate) use models::*;
 pub(crate) use projects::*;
 pub(crate) use settings::*;
@@ -49,7 +51,35 @@ mod command_count_test {
     // the suite has been red since. CI still does not run it — until it does,
     // this constant only moves when someone runs `cargo test -p feral --lib`
     // by hand.
-    const EXPECTED_COMMAND_COUNT: usize = 132;
+    // 136 = + tts_providers + tts_has_key + speak_text + stop_speaking (voice
+    // mode's outbound half — the streaming TTS bridge and its key check).
+    // 138 = + tts_voice_present + download_tts_voice (on-device TTS).
+    // 139 = + tts_ready ("can this engine actually speak", which differs per
+    // engine: a key for hosted ones, a downloaded voice for Piper).
+    // 140 = + ui_log (the webview's console cannot be read from the terminal, so
+    // the voice loop had no way to report its own decisions).
+    // 141 = + tts_voices (the vendor's voice catalogue — account state, so it is
+    // asked for rather than hardcoded).
+    // 144 = + start_live_call + send_live_audio + end_live_call (the Gemini Live
+    // speech-to-speech engine — one session replacing the STT→LLM→TTS chain,
+    // so these three are a call's whole surface: start, feed, hang up).
+    // 146 = + send_live_text + live_voices (typing into a live call, and the
+    // prebuilt voices it can be pinned to — the model's voice is the one thing
+    // a spoken call must not re-roll per session).
+    // 147 = + set_rsi_allow_cloud_dreams (let the dream cycle run on a paid
+    // cloud model — off by default, and until now that default had no switch
+    // and no explanation anywhere the user could see it).
+    // 150 = - install_skill, + install_capability + inspect_capability
+    // + install_skill_from_url + install_skill_from_file. One command that
+    // took the file body, the metadata AND the trust label from its caller
+    // becomes four that each name a SOURCE and let the host fetch it — the
+    // split exists so the agent can ask for a capability without also being
+    // the thing that vouches for where it came from.
+    // 154 = + connector_accounts_list + connector_pair_start
+    // + connector_pair_poll + connector_refresh_expired. Phase 3: an account
+    // is a thing with a status and a lifetime, so listing, pairing, polling
+    // and renewing are four different questions rather than one flag.
+    const EXPECTED_COMMAND_COUNT: usize = 154;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

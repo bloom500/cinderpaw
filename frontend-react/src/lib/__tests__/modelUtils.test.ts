@@ -23,8 +23,8 @@ describe('extractQuant', () => {
   it('extracts F16', () => {
     expect(extractQuant('model.F16.gguf')).toBe('F16');
   });
-  it('returns — for unknown', () => {
-    expect(extractQuant('model.gguf')).toBe('—');
+  it('returns a placeholder for unknown', () => {
+    expect(extractQuant('model.gguf')).toBe('-');
   });
 });
 

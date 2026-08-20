@@ -133,6 +133,11 @@ export interface ContractState {
   fitnessVector?: FitnessVector;
   /** Aggregate of the fitness vector (the scalar the ratchet compares). */
   fitnessAggregate?: number;
+  /** Fitness components that were NOT observed and carry the neutral 0.5
+   *  placeholder. Empty means every component is a real measurement; the
+   *  full key list means this candidate was never evaluated against
+   *  anything. Written to the Journal so the two cannot be confused. */
+  fitnessUnmeasured?: string[];
   /** Confidence gate verdict (computed at end of regression stage). */
   confidence?: GateDecision;
   /** The bootstrap result underlying the confidence decision. */

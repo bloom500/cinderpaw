@@ -52,7 +52,8 @@
  * feature no longer depends on the user having `bun` or `node` installed.
  */
 
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { atomicWriteFileSync } from "../atomic-write.ts";
 import { basename, join } from "node:path";
 import { cfgBool, feralHome } from "../config.ts";
 import { CUSTOM_TOOL_RUNNER_FLAG, TOOL_DOMAINS_ENV } from "./custom-tool-runner.ts";
@@ -175,8 +176,8 @@ function modulePath(dir: string, name: string): string {
 /** Persist a record + its transpiled module. Caller must have validated. */
 export function saveCustomTool(dir: string, record: CustomToolRecord, js: string): void {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(recordPath(dir, record.name), JSON.stringify(record, null, 2), "utf8");
-  writeFileSync(modulePath(dir, record.name), js, "utf8");
+  atomicWriteFileSync(recordPath(dir, record.name), JSON.stringify(record, null, 2));
+  atomicWriteFileSync(modulePath(dir, record.name), js);
 }
 
 /**
@@ -190,7 +191,7 @@ export function setCustomToolCalls(dir: string, name: string, calls: number): vo
     const record = JSON.parse(readFileSync(file, "utf8")) as CustomToolRecord;
     if (record?.name !== name) return;
     record.calls = calls;
-    writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
+    atomicWriteFileSync(file, JSON.stringify(record, null, 2));
   } catch {
     // Missing / corrupt record → nothing to count. The caller still gates
     // the call; losing the counter costs an extra prompt, never a silent

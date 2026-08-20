@@ -71,7 +71,9 @@ export function VoiceProviderCard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md bg-bg-surface border-border-default">
+      {/* Default z-index: the call overlay sits at z-40, below this layer, so a
+          dialog opened from inside a call is above it without a special case. */}
+      <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto bg-bg-surface border-border-default">
         <DialogHeader>
           <DialogTitle>{t('voice.provider.title')}</DialogTitle>
           <DialogDescription>{t('voice.provider.subtitle')}</DialogDescription>
@@ -111,6 +113,12 @@ export function VoiceProviderCard({
               </ExternalLink>
             </div>
           ))}
+
+        {/* No "language you speak" picker. Detection is the transcriber's job
+            and it does it per request; a setting here only gave someone a way to
+            be wrong about themselves, and a wrong value is an ORDER to Whisper,
+            not a hint — it transcribes Romanian through English phonetics and
+            never recovers. */}
 
         <DialogFooter>
           <Button onClick={() => void confirm()} disabled={needsKey || saving}>

@@ -94,19 +94,19 @@ function CompatPopover({ filename, modelTags, compat }: CompatPopoverProps) {
         {/* Header */}
         <div>
           <p className="text-xs font-semibold text-text-primary truncate">{filename}</p>
-          <p className="text-[11px] text-text-muted mt-0.5">Model Variant Information</p>
+          <p className="text-2xs text-text-muted mt-0.5">Model Variant Information</p>
         </div>
         <div className="border-t border-border-subtle" />
 
         {/* Quantization */}
         <div>
-          <p className="text-[10px] uppercase tracking-wider text-text-muted font-medium mb-1">Quantization</p>
+          <p className="text-micro uppercase tracking-wider text-text-muted font-medium mb-1">Quantization</p>
           <p className="text-sm font-mono text-text-primary">{quant}</p>
         </div>
 
         {/* Device compatibility */}
         <div>
-          <p className="text-[10px] uppercase tracking-wider text-text-muted font-medium mb-1.5">Device compatibility</p>
+          <p className="text-micro uppercase tracking-wider text-text-muted font-medium mb-1.5">Device compatibility</p>
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full shrink-0 ${cfg.dotCls}`} />
             <span className="text-sm font-medium text-text-primary">{cfg.label}</span>
@@ -115,14 +115,14 @@ function CompatPopover({ filename, modelTags, compat }: CompatPopoverProps) {
         </div>
 
         {/* Disclaimer */}
-        <p className="text-[10px] text-text-disabled italic leading-relaxed">
+        <p className="text-micro text-text-disabled italic leading-relaxed">
           Estimated from file size and your hardware. Actual performance depends on quantization and context length.
         </p>
 
         {/* Features */}
         {feats.length > 0 && (
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-text-muted font-medium mb-1.5">Features</p>
+            <p className="text-micro uppercase tracking-wider text-text-muted font-medium mb-1.5">Features</p>
             <div className="flex flex-wrap gap-1.5">
               {feats.map((f) => (
                 <span key={f} className="px-2 py-0.5 rounded bg-bg-elevated text-xs text-text-secondary border border-border-subtle">
@@ -230,7 +230,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
                 {f.rfilename}
               </span>
               {isRecommended && (
-                <span className="flex items-center gap-1 text-[10px] text-brand shrink-0">
+                <span className="flex items-center gap-1 text-micro text-brand shrink-0">
                   <Star size={9} fill="currentColor" /> Best
                 </span>
               )}
@@ -244,7 +244,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
               <CompatPopover filename={f.rfilename} modelTags={detail.tags} compat={compat} />
 
               {/* Quality badge */}
-              <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 w-16 text-center ${badgeClass[variant]}`}>
+              <span className={`text-micro px-1.5 py-0.5 rounded shrink-0 w-16 text-center ${badgeClass[variant]}`}>
                 {label}
               </span>
 
@@ -262,7 +262,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
                     <button
                       type="button"
                       onClick={() => void useDownload.getState().cancel()}
-                      className="text-[10px] text-text-muted hover:text-error transition-colors"
+                      className="text-micro text-text-muted hover:text-error transition-colors"
                     >
                       ✕
                     </button>

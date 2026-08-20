@@ -51,6 +51,11 @@ import { fileURLToPath } from "node:url";
  *
  *   FERAL_E2E=1 FERAL_E2E_RUST=1 bun test tests/l3-watchdog.e2e.test.ts
  */
+// NOT RUN IN CI. `FERAL_E2E_RUST` is set by no workflow, because this suite
+// needs a built Rust binary that the JS leg does not have. That is a defensible
+// trade-off, but an undocumented one is a trap: the next person to change the
+// watchdog sees a test file, assumes it guards them, and finds out otherwise in
+// production. If you touch the watchdog, run the line above by hand.
 const ENABLED = process.env.FERAL_E2E === "1" && process.env.FERAL_E2E_RUST === "1";
 
 function findRepoRoot(): string {

@@ -11,7 +11,7 @@
  * assistant — and its tools — on this machine. Empty allowlist = nobody.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
 import {
   tauri,
@@ -20,6 +20,7 @@ import {
   type WhatsappQr,
 } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
+import { ConnectorAccounts } from '@/components/connectors/ConnectorAccounts';
 
 export function ConnectorsPage() {
   const [catalog, setCatalog] = useState<ConnectorCatalogEntry[]>([]);
@@ -27,15 +28,22 @@ export function ConnectorsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // `alive` is checked before every setState: leaving this page while the two
+  // calls are still in flight otherwise updated a component that no longer
+  // exists, which React reports in the console on the very first visit.
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
   const load = () => {
     setError(null);
     Promise.all([tauri.connectors.catalog(), tauri.connectors.list()])
       .then(([cat, list]) => {
+        if (!alive.current) return;
         setCatalog(cat);
         setSaved(list);
       })
-      .catch((e: unknown) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .catch((e: unknown) => { if (alive.current) setError(String(e)); })
+      .finally(() => { if (alive.current) setLoading(false); });
   };
 
   useEffect(load, []);
@@ -50,18 +58,25 @@ export function ConnectorsPage() {
           {/* Hero */}
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-              Connectors <span aria-hidden="true">🔌</span>
+              Accounts <span aria-hidden="true">⚯</span>
             </h1>
             <p className="text-sm text-text-muted mt-1">
-              Talk to your assistant from the apps you already use — it stays on this machine, with your model and your tools.
+              Talk to your assistant from the apps you already use. It stays on this machine, with your model and your tools.
             </p>
+          </div>
+
+          {/* Accounts that pair by signing in, rather than by pasting a token.
+              They come first because a card mid-pairing is showing a code the
+              person is holding in their other hand. */}
+          <div className="mb-8">
+            <ConnectorAccounts />
           </div>
 
           {/* Security banner */}
           <div className="mb-8 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 flex items-start gap-2.5">
             <ShieldAlert size={15} className="text-amber-800 dark:text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-[12px] text-amber-800 dark:text-amber-200/90 leading-relaxed">
-              Anyone you add to a connector's allowed list can command your assistant — and everything it can do — on this
+            <p className="text-xs text-amber-800 dark:text-amber-200/90 leading-relaxed">
+              Anyone you add to a connector's allowed list can command your assistant, and everything it can do, on this
               computer. Add only people you trust. Leave the list empty and no one but you can reach it.
             </p>
           </div>
@@ -267,13 +282,13 @@ function ConnectorCard({
           : 'Allowed sender IDs';
   const allowHint =
     entry.id === 'whatsapp'
-      ? ' (with country code, one per line — only these people can reach your assistant)'
-      : ' (one per line — only these people can message your assistant)';
+      ? ' (with country code, one per line; only these people can reach your assistant)'
+      : ' (one per line; only these people can message your assistant)';
   const channelLabel = entry.id === 'whatsapp' ? 'Group chats to answer' : 'Channels with no @mention needed';
   const channelHint =
     entry.id === 'whatsapp'
-      ? ' (group IDs, one per line — private chats are always answered)'
-      : ' (channel IDs, one per line — it answers every message here, like a dedicated #bot channel)';
+      ? ' (group IDs, one per line; private chats are always answered)'
+      : ' (channel IDs, one per line; it answers every message here, like a dedicated #bot channel)';
   const channelPlaceholder = entry.id === 'whatsapp' ? 'e.g. 120363012345678901@g.us' : 'e.g. 1479216978496458803';
 
   return (
@@ -302,7 +317,7 @@ function ConnectorCard({
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold text-text-primary truncate">{entry.name}</p>
             {entry.coming_soon ? (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-muted shrink-0">
+              <span className="text-micro px-1.5 py-0.5 rounded bg-bg-hover text-text-muted shrink-0">
                 Coming soon
               </span>
             ) : (
@@ -343,7 +358,7 @@ function ConnectorCard({
       {!entry.coming_soon && (
         <div className="mt-3 space-y-2">
           {isQr ? (
-            <div className="rounded-md border border-border-default bg-bg-primary px-2.5 py-2 text-[11px] leading-relaxed">
+            <div className="rounded-md border border-border-default bg-bg-primary px-2.5 py-2 text-2xs leading-relaxed">
               {linked ? (
                 <span className="text-emerald-400">✅ Linked to WhatsApp.</span>
               ) : enabled && waQr ? (
@@ -353,22 +368,22 @@ function ConnectorCard({
                   </span>
                   <pre
                     aria-label="WhatsApp pairing QR code"
-                    className="mx-auto w-fit rounded bg-black text-white p-2 font-mono text-[8px] leading-[8px] select-none"
+                    className="mx-auto w-fit rounded bg-black text-white p-2 font-mono text-micro leading-[8px] select-none"
                   >
                     {waQr.ascii}
                   </pre>
                   <span className="block text-text-muted tabular-nums" role="timer">
                     {qrSecondsLeft > 0
-                      ? `New code in ~${qrSecondsLeft}s — no rush, it refreshes here automatically.`
+                      ? `New code in ~${qrSecondsLeft}s. No rush, it refreshes here automatically.`
                       : 'Getting a fresh code…'}
                   </span>
                   <span className="block text-amber-300/90">
-                    Use a secondary number — automation can get a number banned.
+                    Use a secondary number. Automation can get a number banned.
                   </span>
                 </div>
               ) : enabled && stuckPolls > 10 ? (
                 <span className="text-amber-300/90">
-                  No pairing code is arriving — turn the connector off and on to retry.
+                  No pairing code is arriving. Turn the connector off and on to retry.
                 </span>
               ) : enabled ? (
                 <span className="text-text-muted">
@@ -377,16 +392,16 @@ function ConnectorCard({
                 </span>
               ) : (
                 <span className="text-text-muted">
-                  Turn this on and a QR code will appear here — scan it with{' '}
+                  Turn this on and a QR code will appear here. Scan it with{' '}
                   <span className="text-text-secondary">WhatsApp → Settings → Linked devices</span>.{' '}
-                  <span className="text-amber-300/90">Use a secondary number — automation can get a number banned.</span>
+                  <span className="text-amber-300/90">Use a secondary number. Automation can get a number banned.</span>
                 </span>
               )}
             </div>
           ) : (
             entry.fields.map((f) => (
               <label key={f.key} className="block">
-                <span className="text-[11px] text-text-secondary">
+                <span className="text-2xs text-text-secondary">
                   {f.label}
                   {filled.has(f.key) && <span className="text-emerald-400/80"> · saved</span>}
                 </span>
@@ -402,7 +417,7 @@ function ConnectorCard({
           )}
 
           <label className="block">
-            <span className="text-[11px] text-text-secondary">
+            <span className="text-2xs text-text-secondary">
               {allowLabel}
               <span className="text-text-muted">{allowHint}</span>
             </span>
@@ -416,7 +431,7 @@ function ConnectorCard({
           </label>
 
           <label className="block">
-            <span className="text-[11px] text-text-secondary">
+            <span className="text-2xs text-text-secondary">
               {channelLabel}
               <span className="text-text-muted">{channelHint}</span>
             </span>
@@ -431,13 +446,13 @@ function ConnectorCard({
 
           {entry.id === 'whatsapp' && (
             <div className="rounded-md border border-border-default bg-bg-primary p-2.5 space-y-2">
-              <span className="text-[11px] text-text-secondary font-medium">Who can it talk to?</span>
+              <span className="text-2xs text-text-secondary font-medium">Who can it talk to?</span>
               <div className="flex gap-1.5">
                 <button
                   type="button"
                   onClick={() => setMode('owner')}
                   className={cn(
-                    'flex-1 rounded-md px-2 py-1.5 text-[11px] border transition-colors',
+                    'flex-1 rounded-md px-2 py-1.5 text-2xs border transition-colors',
                     mode === 'owner'
                       ? 'border-brand bg-brand/10 text-text-primary'
                       : 'border-border-default text-text-muted hover:text-text-secondary',
@@ -449,7 +464,7 @@ function ConnectorCard({
                   type="button"
                   onClick={() => setMode('public')}
                   className={cn(
-                    'flex-1 rounded-md px-2 py-1.5 text-[11px] border transition-colors',
+                    'flex-1 rounded-md px-2 py-1.5 text-2xs border transition-colors',
                     mode === 'public'
                       ? 'border-brand bg-brand/10 text-text-primary'
                       : 'border-border-default text-text-muted hover:text-text-secondary',
@@ -460,15 +475,15 @@ function ConnectorCard({
               </div>
               {mode === 'public' ? (
                 <>
-                  <p className="text-[10.5px] text-text-muted leading-relaxed">
+                  <p className="text-micro text-text-muted leading-relaxed">
                     New leads who message you get answered automatically by a sales assistant that can ONLY use the
-                    knowledge below — it can't touch your files or this computer. Numbers in your allowed list above still
+                    knowledge below. It can't touch your files or this computer. Numbers in your allowed list above still
                     get the full assistant.
                   </p>
                   <label className="block">
-                    <span className="text-[11px] text-text-secondary">
+                    <span className="text-2xs text-text-secondary">
                       What it can tell people
-                      <span className="text-text-muted"> (products, prices, FAQ, hours — answers come only from this)</span>
+                      <span className="text-text-muted"> (products, prices, FAQ, hours; answers come only from this)</span>
                     </span>
                     <textarea
                       value={knowledgeBase}
@@ -480,7 +495,7 @@ function ConnectorCard({
                   </label>
                 </>
               ) : (
-                <p className="text-[10.5px] text-text-muted leading-relaxed">
+                <p className="text-micro text-text-muted leading-relaxed">
                   Only the phone numbers in your allowed list above can reach your assistant. Best for personal use.
                 </p>
               )}
@@ -488,7 +503,7 @@ function ConnectorCard({
           )}
 
           {err && (
-            <p className="text-[11px] text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5">
+            <p className="text-2xs text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5">
               {err}
             </p>
           )}
@@ -516,7 +531,7 @@ function ConnectorCard({
                 onClick={() => void remove()}
                 onBlur={() => setRemoveArmed(false)}
                 className={cn(
-                  'inline-flex items-center gap-1 text-[11px]',
+                  'inline-flex items-center gap-1 text-2xs',
                   removeArmed ? 'text-rose-400 font-medium' : 'text-text-muted hover:text-rose-400',
                 )}
               >

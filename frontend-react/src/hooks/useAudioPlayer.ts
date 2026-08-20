@@ -13,6 +13,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export function useAudioPlayer(source: Blob | string) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0); // 0..1
+  /** Why playback failed, for the caller to show. Null when all is well. */
+  const [error, setError] = useState<string | null>(null);
 
   const ctxRef = useRef<AudioContext | null>(null);
   const bufferRef = useRef<AudioBuffer | null>(null);
@@ -20,9 +22,18 @@ export function useAudioPlayer(source: Blob | string) {
   const startedAtRef = useRef(0); // ctx.currentTime when the current node started
   const offsetRef = useRef(0); // seconds into the buffer where playback resumes
   const rafRef = useRef<number | null>(null);
+  /** Latest `stopNode`, so the source-change effect can call it without taking
+   *  the callback as a dependency (which would re-run it on every render). */
+  const stopNodeRef = useRef<(() => void) | null>(null);
 
   // Re-decode if the source changes (e.g. re-record produces a new blob).
   useEffect(() => {
+    // Stop the node too, not just the React state. Clearing `playing` while an
+    // AudioBufferSourceNode was still connected left the OLD clip audible with
+    // the UI showing paused — the user hears one recording and looks at
+    // another. `stopNodeRef` rather than `stopNode` so this effect does not
+    // re-run every time the callback identity changes.
+    stopNodeRef.current?.();
     bufferRef.current = null;
     offsetRef.current = 0;
     setProgress(0);
@@ -57,6 +68,8 @@ export function useAudioPlayer(source: Blob | string) {
     clearRaf();
   }, []);
 
+  stopNodeRef.current = stopNode;
+
   const tick = useCallback(() => {
     const ctx = ctxRef.current;
     const buf = bufferRef.current;
@@ -67,10 +80,12 @@ export function useAudioPlayer(source: Blob | string) {
   }, []);
 
   const play = useCallback(async () => {
-    const buf = await ensureBuffer();
-    const ctx = ctxRef.current!;
-    if (ctx.state === 'suspended') await ctx.resume();
-    stopNode();
+    setError(null);
+    try {
+      const buf = await ensureBuffer();
+      const ctx = ctxRef.current!;
+      if (ctx.state === 'suspended') await ctx.resume();
+      stopNode();
     const startOffset = offsetRef.current >= buf.duration ? 0 : offsetRef.current;
     offsetRef.current = startOffset;
     startedAtRef.current = ctx.currentTime;
@@ -83,10 +98,26 @@ export function useAudioPlayer(source: Blob | string) {
       setProgress(0);
       clearRaf();
     };
-    node.start(0, startOffset);
-    nodeRef.current = node;
-    setPlaying(true);
-    rafRef.current = requestAnimationFrame(tick);
+      node.start(0, startOffset);
+      nodeRef.current = node;
+      setPlaying(true);
+      rafRef.current = requestAnimationFrame(tick);
+    } catch (err) {
+      // `ensureBuffer` creates the AudioContext BEFORE it decodes, so a failed
+      // decode — a corrupt blob, a codec the browser will not take — left a
+      // context allocated with nothing playing. Chrome allows six per page, so
+      // a handful of bad clips in one conversation and every later play() threw
+      // on construction instead: the whole player dead, for the rest of the
+      // session, with no message anywhere.
+      if (ctxRef.current) {
+        void ctxRef.current.close().catch(() => undefined);
+        ctxRef.current = null;
+      }
+      bufferRef.current = null;
+      setPlaying(false);
+      setProgress(0);
+      throw err;
+    }
   }, [ensureBuffer, stopNode, tick]);
 
   const pause = useCallback(() => {
@@ -101,7 +132,10 @@ export function useAudioPlayer(source: Blob | string) {
 
   const toggle = useCallback(() => {
     if (playing) pause();
-    else void play();
+    // `void play()` swallowed the rejection: pressing play on an undecodable
+    // clip did nothing at all, with no error and no state change, which reads
+    // as a dead button. Surface it instead.
+    else void play().catch((err: unknown) => setError(String(err)));
   }, [playing, pause, play]);
 
   // Tear down on unmount.
@@ -113,5 +147,5 @@ export function useAudioPlayer(source: Blob | string) {
     };
   }, [stopNode]);
 
-  return { playing, progress, toggle };
+  return { playing, progress, toggle, error };
 }

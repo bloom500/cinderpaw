@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
-use crate::host::{DesktopControlHandler, HostEvents};
+use crate::host::{AdminHandler, CapabilityHandler, DesktopControlHandler, HostEvents};
 use crate::paths;
 use crate::rsi::runtime::{RsiEngineState, RsiRequestRegistry};
 use crate::runtime::{PlannedExit, PlannedExitSlot, RuntimeState};
@@ -279,12 +279,40 @@ fn load_byok_provider_endpoint(provider_id: &str) -> Option<ByokEndpoint> {
 /// the local bearer token (the gated server expects it). For any remote host,
 /// REQUIRE an explicit `FERAL_API_KEY` — silently forwarding the local token to
 /// a third party would leak a credential. `env_key` is `FERAL_API_KEY` if set.
+/// True only when `base_url`'s HOST is loopback — never merely contains the word.
+///
+/// This used to be `base_url.contains("127.0.0.1") || contains("localhost")`,
+/// which is true of `http://127.0.0.1.evil.com/v1`, of `http://localhost.evil
+/// .com/`, and of any remote URL with `?probe=127.0.0.1` glued on the end. One
+/// mistyped URL copied out of a tutorial and the local API bearer token — the
+/// key to this machine's whole runtime — went to somebody else's server, past
+/// the very check written to stop exactly that.
+fn is_loopback_base_url(base_url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(base_url) else {
+        // Unparseable is not loopback. Failing closed here costs a working
+        // setup nothing (the URL was already broken) and refuses to guess.
+        return false;
+    };
+    match parsed.host_str() {
+        // IPv6 arrives bracketed (`[::1]`); strip them before parsing.
+        Some(host) => {
+            let host = host.trim_start_matches('[').trim_end_matches(']');
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .map(|ip| ip.is_loopback())
+                    .unwrap_or(false)
+        }
+        None => false,
+    }
+}
+
 fn resolve_sidecar_api_key(
     base_url: &str,
     local_token: &str,
     env_key: Option<String>,
 ) -> Result<String, String> {
-    if base_url.contains("127.0.0.1") || base_url.contains("localhost") {
+    if is_loopback_base_url(base_url) {
         Ok(local_token.to_string())
     } else {
         env_key.ok_or_else(|| {
@@ -301,6 +329,8 @@ pub async fn spawn(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
+    capabilities: Option<CapabilityHandler>,
+    admin: Option<AdminHandler>,
     extra_bin_dirs: Vec<PathBuf>,
 ) -> Result<tokio::process::Child, String> {
     let api_port = runtime.settings.api_port;
@@ -567,6 +597,8 @@ pub async fn spawn(
         runtime.clone(),
         events.clone(),
         desktop_control,
+        capabilities,
+        admin,
         stdout,
         runtime.rsi_request_registry.clone(),
         runtime.rsi_engine.clone(),
@@ -607,6 +639,8 @@ pub fn supervise(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
+    capabilities: Option<CapabilityHandler>,
+    admin: Option<AdminHandler>,
     extra_bin_dirs: Vec<PathBuf>,
 ) {
     const MAX_QUICK_FAILURES: u32 = 5;
@@ -623,6 +657,8 @@ pub fn supervise(
                 runtime.clone(),
                 events.clone(),
                 desktop_control.clone(),
+                capabilities.clone(),
+                admin.clone(),
                 extra_bin_dirs.clone(),
             )
             .await
@@ -800,6 +836,8 @@ async fn stdout_reader(
     runtime: Arc<RuntimeState>,
     events: Arc<dyn HostEvents>,
     desktop_control: Option<DesktopControlHandler>,
+    capabilities: Option<CapabilityHandler>,
+    admin: Option<AdminHandler>,
     stdout: tokio::process::ChildStdout,
     rsi_registry: RsiRequestRegistry,
     rsi_engine_mirror: Arc<Mutex<Option<RsiEngineState>>>,
@@ -832,6 +870,16 @@ async fn stdout_reader(
                             "feral-agent: hello line missing 'protocol' field: {v}"
                         ),
                     }
+                    // SOUL.md, for the voice call. A speech-to-speech session
+                    // is briefed by us rather than by the agent loop, so this
+                    // is the only route the persona has into a call — without
+                    // it the caller hears the formatting rules and nothing
+                    // else, which is a correct appliance rather than a voice.
+                    // Absent on an older sidecar; the call just stays as it was.
+                    if let Some(p) = v.get("persona").and_then(|p| p.as_str()) {
+                        crate::live::briefing::set_persona(Some(p.to_string()));
+                        tracing::info!("feral-agent: persona received ({} chars)", p.len());
+                    }
                     continue;
                 }
             }
@@ -843,6 +891,18 @@ async fn stdout_reader(
                     let Some(tx) = runtime.feral_agent_tx.lock().clone() else { continue };
                     let dc = desktop_control.clone();
                     tokio::spawn(async move { handle_desktop_control_request(v, dc, tx).await });
+                    continue;
+                }
+                Some("capability_request") => {
+                    let Some(tx) = runtime.feral_agent_tx.lock().clone() else { continue };
+                    let caps = capabilities.clone();
+                    tokio::spawn(async move { handle_capability_request(v, caps, tx).await });
+                    continue;
+                }
+                Some("admin_request") => {
+                    let Some(tx) = runtime.feral_agent_tx.lock().clone() else { continue };
+                    let adm = admin.clone();
+                    tokio::spawn(async move { handle_admin_request(v, adm, tx).await });
                     continue;
                 }
                 Some("rsi_request") => {
@@ -1185,6 +1245,79 @@ async fn handle_desktop_control_request(
     }
 }
 
+/// Serve a `capability_request` from the sidecar: list, inspect or install a
+/// skill, and write back a matching `capability_response`.
+///
+/// This is the trust boundary. The sidecar sends a NAME and nothing else — no
+/// content, no metadata, no trust label. Everything about what that name means
+/// is resolved here, against manifests this process fetched itself. The agent
+/// can ask for a capability; it cannot vouch for one.
+async fn handle_capability_request(
+    req: serde_json::Value,
+    capabilities: Option<CapabilityHandler>,
+    tx: mpsc::Sender<String>,
+) {
+    let id = req.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let action = req.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
+
+    let response = match capabilities {
+        Some(handler) => match handler(action, params).await {
+            Ok(data) => serde_json::json!({
+                "type": "capability_response", "id": id, "ok": true, "data": data,
+            }),
+            Err(message) => serde_json::json!({
+                "type": "capability_response", "id": id, "ok": false, "error": message,
+            }),
+        },
+        None => serde_json::json!({
+            "type": "capability_response",
+            "id": id,
+            "ok": false,
+            "error": "capability installation is not available in this host",
+        }),
+    };
+
+    if tx.send(response.to_string()).await.is_err() {
+        tracing::warn!("feral-agent: failed to deliver capability_response (sidecar gone?)");
+    }
+}
+
+/// Serve one `admin_request` from the sidecar and answer it.
+async fn handle_admin_request(
+    req: serde_json::Value,
+    admin: Option<AdminHandler>,
+    tx: mpsc::Sender<String>,
+) {
+    let id = req.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let action = req.get("action").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let params = req.get("params").cloned().unwrap_or(serde_json::Value::Null);
+
+    let response = match admin {
+        Some(handler) => match handler(action, params).await {
+            Ok(data) => json_ok("admin_response", &id, data),
+            Err(message) => json_err("admin_response", &id, &message),
+        },
+        None => json_err(
+            "admin_response",
+            &id,
+            "administrative commands are not available in this host",
+        ),
+    };
+
+    if tx.send(response.to_string()).await.is_err() {
+        tracing::warn!("feral-agent: failed to deliver admin_response (sidecar gone?)");
+    }
+}
+
+fn json_ok(kind: &str, id: &str, data: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "type": kind, "id": id, "ok": true, "data": data })
+}
+
+fn json_err(kind: &str, id: &str, message: &str) -> serde_json::Value {
+    serde_json::json!({ "type": kind, "id": id, "ok": false, "error": message })
+}
+
 /// Run a single `rsi_request` from the sidecar and write a matching
 /// `rsi_response` back to its stdin.
 async fn handle_rsi_request(
@@ -1236,7 +1369,12 @@ async fn handle_rsi_request(
     }
 }
 
-/// Log stderr from the agent; emit `feral://agent-ready` when the ready line appears.
+/// The exact line the sidecar prints when it is genuinely up. Kept next to the
+/// reader that waits for it so the two cannot drift apart silently — they are
+/// two halves of one protocol, in two languages, in two files.
+pub const READY_MARKER: &str = "::feral-agent-ready::";
+
+/// Log stderr from the agent; emit `feral://agent-ready` on the ready marker.
 async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::ChildStderr) {
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
@@ -1245,7 +1383,13 @@ async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::Chil
             continue;
         }
         tracing::info!("[feral-agent] {}", &line);
-        if line.contains("ready") {
+        // Exact marker, not a substring. `line.contains("ready")` matched
+        // "already", "not ready" and "model-ready probe failed" — so the app
+        // could declare the agent up because a log line mentioned a failure,
+        // and could equally wait forever if no line happened to contain the
+        // word. The sidecar prints this once, when its transport is up and its
+        // tools are live.
+        if line.ends_with(READY_MARKER) {
             events.emit("feral://agent-ready", serde_json::json!({}));
         }
     }
@@ -1254,6 +1398,24 @@ async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::Chil
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two halves of the ready protocol live in different languages and
+    /// different files. This pins the host half; `boot.ts` prints the same
+    /// string, and the marker is a constant precisely so a rename here fails
+    /// loudly instead of leaving the app waiting forever.
+    #[test]
+    fn only_the_exact_marker_means_ready() {
+        let ready = |line: &str| line.trim().ends_with(READY_MARKER);
+
+        assert!(ready("[feral] ::feral-agent-ready::"));
+        assert!(ready("::feral-agent-ready::"));
+
+        // Every one of these used to flip the app to "the agent is up".
+        assert!(!ready("dream: model-ready probe failed (timeout) — treating as no model"));
+        assert!(!ready("discord: already has a run in flight — not starting a second"));
+        assert!(!ready("transport not ready"));
+        assert!(!ready("ready"));
+    }
 
     #[test]
     fn binary_filename_has_expected_extension_on_windows() {
@@ -1278,6 +1440,30 @@ mod tests {
                 resolve_sidecar_api_key(url, "local-secret", None).unwrap(),
                 "local-secret",
                 "loopback must reuse the local bearer token even without FERAL_API_KEY"
+            );
+        }
+    }
+
+    #[test]
+    fn sidecar_api_key_lookalike_host_is_not_loopback() {
+        // A host that merely CONTAINS the loopback spelling is a remote host,
+        // and must be refused the local token like any other.
+        for url in [
+            "http://127.0.0.1.evil.com/v1",
+            "http://localhost.attacker.com/",
+            "https://evil.com/?probe=127.0.0.1",
+            "https://evil.com/localhost",
+        ] {
+            assert!(
+                resolve_sidecar_api_key(url, "local-secret", None).is_err(),
+                "{url} must not be treated as loopback"
+            );
+        }
+        // The real ones still are, including IPv6 and an uppercase spelling.
+        for url in ["http://[::1]:11435", "http://LOCALHOST:11435"] {
+            assert_eq!(
+                resolve_sidecar_api_key(url, "local-secret", None).unwrap(),
+                "local-secret"
             );
         }
     }

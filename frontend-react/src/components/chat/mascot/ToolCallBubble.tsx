@@ -17,7 +17,7 @@ export interface ToolCallBubbleProps {
   emoji: string;
   label: string;
   mainArg: string | null;
-  status: 'running' | 'done' | 'error';
+  status: 'running' | 'done' | 'error' | 'cancelled';
   startedAt: number;
   endedAt: number | null;
   resultPreview?: string | null;
@@ -29,6 +29,9 @@ const STATUS_BORDER: Record<ToolCallBubbleProps['status'], string> = {
   running: 'border-l-brand',
   done: 'border-l-text-muted',
   error: 'border-l-red-500',
+  // Amber, not red: the user stopped this on purpose. Painting a deliberate
+  // stop the same as a crash is how people learn to ignore red.
+  cancelled: 'border-l-amber-500',
 };
 
 function useElapsedMs(startedAt: number, endedAt: number | null): number {
@@ -77,7 +80,7 @@ export function ToolCallBubble({
         'bg-bg-elevated border border-border-default',
         'border-l-2',
         STATUS_BORDER[status],
-        'text-[11px] text-text-primary shadow-sm',
+        'text-2xs text-text-primary shadow-sm',
         expandable && 'pointer-events-auto cursor-pointer',
       )}
       onClick={expandable ? () => setExpanded((v) => !v) : undefined}
@@ -91,12 +94,13 @@ export function ToolCallBubble({
           {status === 'running' && <span>⏱</span>}
           {status === 'done' && <span>✓</span>}
           {status === 'error' && <span>!</span>}
+          {status === 'cancelled' && <span>⏹</span>}
           <span>{formatMs(elapsed)}</span>
         </span>
       </span>
       {/* #18: live retry/backoff/fallback note while the tool is running */}
       {status === 'running' && progressNote && (
-        <span className="text-[10px] text-text-muted mt-0.5 max-w-[16rem] truncate">
+        <span className="text-micro text-text-muted mt-0.5 max-w-[16rem] truncate">
           {progressNote}
         </span>
       )}
@@ -104,8 +108,8 @@ export function ToolCallBubble({
         <pre
           className={cn(
             'mt-1 max-w-[20rem] max-h-32 overflow-auto whitespace-pre-wrap break-words',
-            'rounded bg-bg-surface border border-border-subtle px-1.5 py-1 text-[10px]',
-            errorMessage ? 'text-red-400' : 'text-text-muted',
+            'rounded bg-bg-surface border border-border-subtle px-1.5 py-1 text-micro',
+            errorMessage ? 'text-error' : 'text-text-muted',
           )}
           onClick={(e) => e.stopPropagation()}
         >

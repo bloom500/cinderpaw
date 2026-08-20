@@ -58,7 +58,7 @@ const RECURSION = [
  * tends to answer as if mid-conversation, and its answer is read by a program,
  * not a person.
  */
-const CHILD =
+export const WORKER_BRIEF =
   "You are a worker spawned by another agent to do one bounded task. You have no memory of its conversation, and your final answer is read by that agent rather than by a person — so answer the task as asked, completely and on its own terms, without asking follow-up questions.";
 
 const DEPTH_LIMIT =
@@ -71,10 +71,12 @@ const DEPTH_LIMIT =
  * observe-and-iterate loop, and the third is a termination condition — without
  * it a model with a REPL will keep poking at the problem after it is solved.
  */
+const STOP = "When you are done, stop running cells and state your final answer.";
+
 const ROLE = [
   "You are a general purpose agent that solves tasks by writing code.",
   "Break a problem into sub-tasks, write and run code, look at what came back, and iterate one step at a time.",
-  "When you are done, stop running cells and state your final answer.",
+  STOP,
 ].join("\n");
 
 const DOCTRINE = [
@@ -84,7 +86,9 @@ const DOCTRINE = [
   "",
   "Tools are async functions in the notebook. Call them with `await`, pass one object of arguments, and compose them as ordinary program logic — loops, conditionals, helper functions. Prefer one cell that does five related calls and prints a summary over five turns that each do one call.",
   "",
-  "Every tool returns `{ ok, content, data?, error? }`. Check `ok` before trusting `content`. Tool calls never throw, so a failure will not kill your cell — branch on it.",
+  "Every tool returns `{ ok, content, data?, error? }`. Check `ok` before trusting the result. Tool calls never throw, so a failure will not kill your cell — branch on it.",
+  "",
+  "`content` is a TRANSCRIPT meant for you to read, and it carries framing: `shell_exec` prefixes the command, the working directory and an `[exit N, Nms]` line before the actual output. `data` is the same result as structured fields — `data.stdout`, `data.exitCode` — with no framing at all. When you are computing on a result rather than reading it, use `data`. Counting the lines of `content` counts the header too, and the number will be quietly wrong rather than obviously broken.",
   "",
   "Do not assume the notebook is the native environment of whatever you are investigating. A repository, service, dataset or API has its own interface and its own way of being run. Drive that thing through its own interface — via `shell_exec` where a command is the right answer — and use the notebook to coordinate the work and analyse what comes back. When that native environment fails, its failure is the answer; do not paper over it by reproducing the work inside the notebook.",
   "",
@@ -99,15 +103,9 @@ const DOCTRINE = [
   "Call only the functions listed below. Do not invent wrappers such as `call_tool(...)`, `run_subagent(...)` or `use_skill(...)` — they do not exist here, and a name that is not on the list will simply be undefined.",
 ].join("\n");
 
-export function buildNotebookPrompt(options: NotebookPromptOptions): string {
-  const depth = options.depth ?? 0;
-  const parts = [ROLE];
-
-  // They state the depth unconditionally; a model that knows it is at depth 0
-  // reads the recursion clause differently from one that knows it is a worker.
-  if (depth > 0) parts.push("", CHILD);
-  parts.push("", DOCTRINE);
-
+/** The recursion clause plus the closing facts, shared by both builders. */
+function body(options: NotebookPromptOptions, depth: number): string[] {
+  const parts: string[] = [];
   if (options.allowRecursion) parts.push("", RECURSION);
   else parts.push("", DEPTH_LIMIT);
 
@@ -119,5 +117,47 @@ export function buildNotebookPrompt(options: NotebookPromptOptions): string {
   }
   if (options.cwd) parts.push("", `Session files live under ${options.cwd}.`);
   parts.push(`Recursion depth: ${depth}.`);
+  return parts;
+}
+
+export function buildNotebookPrompt(options: NotebookPromptOptions): string {
+  const depth = options.depth ?? 0;
+  const parts = [ROLE];
+
+  // They state the depth unconditionally; a model that knows it is at depth 0
+  // reads the recursion clause differently from one that knows it is a worker.
+  if (depth > 0) parts.push("", WORKER_BRIEF);
+  parts.push("", DOCTRINE, ...body(options, depth));
   return parts.join("\n");
+}
+
+/**
+ * The same doctrine as a SECTION of Feral's system prompt, rather than as the
+ * whole of it.
+ *
+ * `buildNotebookPrompt` is upstream's shape, where the notebook IS the
+ * execution mode and so the prompt may open with "you solve tasks by writing
+ * code". Here the notebook is one tool among forty-odd, sitting underneath the
+ * FeralAgent base and the user's SOUL.md — pasting that framing in would tell
+ * the agent to route "what time is it" through a JS interpreter, and it would
+ * contradict two higher-priority layers while doing it.
+ *
+ * So `ROLE` and `CHILD` are dropped (identity is not this section's business)
+ * and everything that describes the *interpreter* is kept verbatim, including
+ * the stop condition — the one ROLE line that is about REPLs rather than about
+ * who the agent is, and the one that keeps a model from poking at a solved
+ * problem.
+ */
+export function buildNotebookSection(options: NotebookPromptOptions): string {
+  const depth = options.depth ?? 0;
+  return [
+    "## The notebook",
+    "",
+    "Run a cell by calling the `notebook` tool with your JavaScript in `code`.",
+    "",
+    DOCTRINE,
+    "",
+    STOP,
+    ...body(options, depth),
+  ].join("\n");
 }

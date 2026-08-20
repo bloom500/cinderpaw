@@ -115,11 +115,20 @@ pub fn providers_pick() -> i32 {
     if let Some(hint) = entry.key_format_hint.as_deref() {
         eprintln!("  {dim}{hint}{reset}");
     }
+    // Asked, not assumed. Passing `None` here meant the catalog default won
+    // silently — and for OpenRouter that default is `openai/gpt-4o`, which is a
+    // reasonable fallback and the wrong answer for almost everyone, since
+    // reaching one specific model is most of why anyone picks OpenRouter at all.
+    // The default stays one Enter away for whoever does not care.
+    eprintln!();
+    eprintln!("  {dim}model id, or Enter for {}{reset}", entry.default_model);
+    let model = ask(&format!("  {meta}model> {reset}")).filter(|s| !s.is_empty());
+
     // Reuse the audited path rather than re-implementing it: stdin-only key
     // (never argv, where `ps` and shell history would see it), a live
     // verification call, then storage. Choosing a provider here means the user
     // wants to use it, so activate on success.
-    providers_set_key(&entry.id.clone(), None, false, true)
+    providers_set_key(&entry.id.clone(), model, false, true)
 }
 
 /// Download a GGUF so the agent runs with no key at all.

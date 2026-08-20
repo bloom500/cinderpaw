@@ -45,7 +45,21 @@ export interface PassiveDecision {
 /** Placeholder model id set by the host when no real model resolved
  *  from /v1/models (see feral_agent.rs). Spinning the engine against it
  *  produces empty responses. */
-const PLACEHOLDER_MODEL = "feral-local";
+export const PLACEHOLDER_MODEL = "feral-local";
+
+/**
+ * Is this model id a stand-in rather than something that can answer?
+ *
+ * Exported because two halves of the process used to disagree about it. RSI
+ * read an unset `FERAL_MODEL` and correctly reported "no real model
+ * configured"; boot substituted `qwen2.5:7b` — an id nobody has installed —
+ * and announced itself ready with it. A fresh install therefore said "ready",
+ * named a model, and failed the first message. One rule, one answer.
+ */
+export function isPlaceholderModel(model: string | undefined): boolean {
+  const m = (model ?? "").trim();
+  return m === "" || m === PLACEHOLDER_MODEL;
+}
 
 /** Decide whether the passive engine should autostart from the
  *  sidecar's environment. */
@@ -56,7 +70,7 @@ export function shouldAutostartPassive(
     return { enabled: false, reason: "disabled via FERAL_RSI_PASSIVE=false" };
   }
   const model = (env.FERAL_MODEL ?? "").trim();
-  if (model === "" || model === PLACEHOLDER_MODEL) {
+  if (isPlaceholderModel(model)) {
     return {
       enabled: false,
       reason: "no real model configured (placeholder/empty FERAL_MODEL)",

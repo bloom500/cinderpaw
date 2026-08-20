@@ -67,8 +67,20 @@ export function dedupAcrossSessions(
   // Pre-normalize all vectors once to avoid redundant L2 normalization in cosine.
   const normalized = leaves.map((l) => l2Normalize(new Float32Array(l.vec)));
 
-  for (let i = 0; i < leaves.length; i++) {
-    const a = leaves[i]!;
+  // Visit in first-seen order, oldest first, so the seed of every group is
+  // also its survivor. Iterating in array order meant the seed was whatever
+  // happened to be at that index: an older leaf discovered later got absorbed
+  // into a younger one, and the group's own reduce then had to demote the seed
+  // — which is how the seed ended up in `absorbed` and got deleted. Ties break
+  // on id, so two runs over the same data group identically.
+  const order = leaves
+    .map((leaf, index) => ({ leaf, index }))
+    .sort(
+      (x, y) =>
+        x.leaf.first_seen_at - y.leaf.first_seen_at || x.leaf.id - y.leaf.id,
+    );
+
+  for (const { leaf: a, index: i } of order) {
     if (used.has(a.id)) continue;
 
     const aVec = normalized[i]!;

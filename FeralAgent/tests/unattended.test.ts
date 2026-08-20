@@ -428,6 +428,9 @@ describe("done_when", () => {
       path: "x",
       value: undefined,
       timeoutMs: undefined,
+      // A stored spec with no recorded origin is the user's own — only the
+      // message parser marks its output as coming from text.
+      origin: "user",
     });
   });
 });

@@ -7,22 +7,28 @@
 //! Invariants: docs/runtime-invariants.md.
 
 pub mod api;
+pub mod atomic_file;
 pub mod boot;
 pub mod byok;
 #[cfg(target_os = "linux")]
 pub mod byok_file_store;
 pub mod connectors;
+pub mod connector_accounts;
+pub mod connector_secrets;
 pub mod db_key;
 pub mod feral_agent;
 pub mod gpu_detect;
 pub mod host;
 pub mod inference;
+pub mod live;
 pub mod migrate;
 pub mod models;
+pub mod oauth_device;
 pub mod paths;
 pub mod perf_policy;
 pub mod rsi;
 pub mod runtime;
+pub mod secret_store;
 pub mod settings;
 pub mod tts;
 pub mod setup;
@@ -30,4 +36,5 @@ pub mod sidecar_protocol;
 pub mod sysinfo_mod;
 pub mod toolchain;
 pub mod tools;
+pub mod utf8_stream;
 pub mod transcription;

@@ -169,6 +169,28 @@ function takeLayer(value: unknown): PublicLayer | null {
 
 /* -------------------------------------------------------- the sanitizer */
 
+/**
+ * The part of a published id that is supposed to make it unique.
+ *
+ * `row.hash` comes from the Evolution Journal and was used verbatim whenever it
+ * was a non-empty string — including `"1"` from a torn write or a debug run.
+ * The store deduplicates on this id, so a short accidental value collides with
+ * an unrelated event and one of the two is silently dropped. Only a real
+ * chain hash is trusted; anything else falls back to the composite key, which
+ * is unique by construction.
+ */
+function hashPart(row: { hash?: unknown; cycleId?: unknown; timestamp?: unknown }, type: string): string {
+  const h = row.hash;
+  // Hex, and long enough to be a digest rather than a stray value. The point is
+  // to reject things like "1" from a torn write or a debug run — which are
+  // short enough to collide with an unrelated event, and the store deduplicates
+  // on this id, so a collision silently drops one of the two. A real chain hash
+  // is 64 characters; the floor is set well below that so a shorter digest
+  // scheme would still be usable.
+  if (typeof h === "string" && h.length >= 8 && /^[a-f0-9]+$/i.test(h)) return h.toLowerCase();
+  return `${String(row.cycleId)}|${String(row.timestamp)}|${type}`;
+}
+
 /** Strings that must never appear in a published event, checked over the
  *  finished object. This is the fail-closed backstop, NOT the primary defence
  *  (that is the allowlist above) — which is why it can be blunt about false
@@ -176,7 +198,14 @@ function takeLayer(value: unknown): PublicLayer | null {
 const FORBIDDEN_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/[A-Za-z]:[\\/]/, "windows filesystem path"],
   [/\\\\[^\\]/, "UNC path"],
-  [/(^|[^\w])\/(home|Users|etc|var|root|tmp|proc)\//, "unix filesystem path"],
+  // The list is the point: a directory NOT named here publishes the path.
+  // `/opt/homebrew/...` on macOS and `/mnt/c/...` under WSL both went
+  // straight through, and a filesystem path is a username, a project name,
+  // and often a client's name, published to a page anyone can read.
+  [
+    /(^|[^\w])\/(home|Users|etc|var|root|tmp|proc|opt|usr|srv|mnt|media|dev|Volumes|Applications|Library|private)\//,
+    "unix filesystem path",
+  ],
   [/\b(sk|pk|rk)-[A-Za-z0-9]{8,}/, "api key"],
   [/\b(ghp|gho|ghs|ghu|github_pat)_[A-Za-z0-9_]{8,}/, "github token"],
   [/\bxox[abprs]-[A-Za-z0-9-]{8,}/, "slack token"],
@@ -321,11 +350,7 @@ export function toPublicEvent(entry: unknown, publisher: Publisher): PublicEvent
     // Re-hashed with the publisher prefix rather than published raw, so the
     // public id cannot be correlated against the local chain.
     id: publicRef(
-      `${publisher}|${
-        typeof row.hash === "string" && row.hash
-          ? row.hash
-          : `${row.cycleId}|${row.timestamp}|${type}`
-      }`,
+      `${publisher}|${hashPart(row, type)}`,
     ),
     publisher,
     ts: Math.floor(row.timestamp),

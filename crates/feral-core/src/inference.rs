@@ -1085,8 +1085,13 @@ mod backend {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-        // Lazy load (idempotent; a rare concurrent double-load just wastes one
-        // load — the second overwrites the first).
+        // Lazy load, serialized behind its own lock. `load_embedding` takes the
+        // EMBED lock itself, so the check could not simply hold it — which left
+        // a window where two concurrent callers both saw None and both mmap'd
+        // the model, the second silently discarding the first. Twice the RAM
+        // and twice the load time, for one model.
+        static EMBED_LOAD: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        let _loading = EMBED_LOAD.lock();
         if EMBED.lock().is_none() {
             let path = embedding_model_path().ok_or_else(|| {
                 anyhow!(
@@ -1096,6 +1101,7 @@ mod backend {
             })?;
             load_embedding(&path)?;
         }
+        drop(_loading);
 
         let mut guard = EMBED.lock();
         let state = guard
@@ -1274,6 +1280,56 @@ mod backend {
     /// the user's chosen window from Hardware settings; it takes precedence over
     /// the FERAL_MAX_CONTEXT env and the conservative 8192 default. The active
     /// context is always clamped to the model's real `n_ctx_train`.
+    /// Turn llama.cpp's silence into a sentence someone can act on.
+    ///
+    /// The library reports a failed load as `null result from llama cpp`, which is
+    /// what a user sees when a model will not open. It names no cause and offers no
+    /// next step, so every one of the three real reasons — a truncated download, a
+    /// file that is not a GGUF at all, and an architecture newer than this build
+    /// can parse — arrives looking identical and looking like a broken app.
+    ///
+    /// The first two are cheap to tell apart from the bytes on disk. The third is
+    /// what is left, and saying so plainly is more useful than saying "null".
+    pub(super) fn explain_load_failure(path: &std::path::Path, raw: &str) -> String {
+        use std::io::Read;
+
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("the model");
+
+        let meta = std::fs::metadata(path).ok();
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        if size == 0 {
+            return format!("{name} is empty — the download did not finish. Remove it and download it again.");
+        }
+
+        let mut magic = [0u8; 4];
+        let read_ok = std::fs::File::open(path)
+            .and_then(|mut f| f.read_exact(&mut magic))
+            .is_ok();
+        if !read_ok {
+            return format!("{name} could not be read from disk ({raw}).");
+        }
+        if &magic != b"GGUF" {
+            return format!(
+                "{name} is not a GGUF model file — the download may have saved an error page              instead of the model. Remove it and download it again."
+            );
+        }
+
+        // Beyond this point the file is a well-formed GGUF that the engine
+        // still refused, and guessing which of the remaining reasons applies
+        // would be exactly that — a guess. The first draft of this message
+        // asserted "the architecture is newer than this build"; measurement
+        // then disproved it. The file that prompted it declares `qwen35`, and
+        // both the old engine and the new one register that architecture, and
+        // the file is complete to the byte its own header asks for.
+        //
+        // So it names the real candidates and points at the log, which now
+        // carries llama.cpp's own account of what went wrong.
+        format!(
+            "{name} is a complete GGUF file that the inference engine refused to open.              The usual causes are not enough free memory for a {gb:.1} GB model, or a              quantisation this build does not support. The engine's own reason is in the              application log (Settings → General → Open logs). (engine said: {raw})",
+            gb = size as f64 / 1_073_741_824.0,
+        )
+    }
+
     pub fn load(path: &Path, n_gpu_layers: i32, max_context: Option<u32>) -> Result<(u32, u32)> {
         let backend = BACKEND.get_or_try_init(|| {
             LlamaBackend::init().map_err(|e| anyhow!("llama backend init: {}", e))
@@ -1332,6 +1388,7 @@ mod backend {
                     .filter(|v| *v >= 512)
             });
 
+
         // One load attempt at a given GPU-layer count: load weights, size the
         // context to the model (capped), and eagerly create the first pooled
         // context. The model is shared via Arc (read-only during inference; see
@@ -1364,7 +1421,7 @@ mod backend {
             };
             let model = Arc::new(
                 LlamaModel::load_from_file(backend, path, &params)
-                    .map_err(|e| anyhow!("load weights: {}", e))?,
+                    .map_err(|e| anyhow!("{}", explain_load_failure(path, &e.to_string())))?,
             );
             let lora = staged_lora
                 .as_ref()
@@ -1907,6 +1964,47 @@ mod backend {
 
             Ok(())
         }
+}
+
+#[cfg(test)]
+#[cfg(feature = "inference")]
+mod load_failure_tests {
+    use super::backend::explain_load_failure;
+    use std::io::Write;
+
+    /// Every one of these used to reach the user as "null result from llama cpp".
+    #[test]
+    fn explains_the_three_reasons_a_model_will_not_open() {
+        let dir = std::env::temp_dir().join("feral-load-explain");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let empty = dir.join("empty.gguf");
+        std::fs::File::create(&empty).unwrap();
+        let msg = explain_load_failure(&empty, "null result from llama cpp");
+        assert!(msg.contains("did not finish"), "{msg}");
+
+        let html = dir.join("notamodel.gguf");
+        std::fs::File::create(&html).unwrap().write_all(b"<!DOCTYPE html>").unwrap();
+        let msg = explain_load_failure(&html, "null result from llama cpp");
+        assert!(msg.contains("not a GGUF"), "{msg}");
+
+        // A well-formed header that the engine still refuses: the remaining
+        // cause is an architecture this build predates, and the message has to
+        // say what to do about it rather than quoting a null.
+        let good = dir.join("newarch.gguf");
+        std::fs::File::create(&good).unwrap().write_all(b"GGUF   ").unwrap();
+        let msg = explain_load_failure(&good, "null result from llama cpp");
+        // Deliberately NOT asserting a cause. The first version of this
+        // message blamed the architecture; the file that prompted it declares
+        // `qwen35`, which both the old and the new engine support, and it is
+        // complete to the byte. What the message must do is stop guessing and
+        // point at the log that now carries llama.cpp's own reason.
+        assert!(msg.contains("refused to open"), "{msg}");
+        assert!(msg.contains("Open logs"), "{msg}");
+        assert!(!msg.contains("newer than"), "the message must not invent a cause: {msg}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]

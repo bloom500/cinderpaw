@@ -356,13 +356,18 @@ fn paste_key_flow(token: &str) -> Option<(Value, Value)> {
     if key.trim().is_empty() {
         return None;
     }
+    // Same reason as `providers_pick`: the catalog default is a fallback, not a
+    // choice, and on an aggregator it is the wrong one for most people.
+    let default_model = p["default_model"].as_str().unwrap_or("");
+    let typed = ask(&format!("Model id (Enter for {default_model})"));
+    let model = if typed.trim().is_empty() { default_model } else { typed.trim() };
     let candidate = json!({
         "kind": "env_key",
         "id": format!("manual:{}", p["id"].as_str().unwrap_or("?")),
-        "label": format!("{} ({})", p["name"].as_str().unwrap_or("?"), p["default_model"].as_str().unwrap_or("?")),
+        "label": format!("{} ({})", p["name"].as_str().unwrap_or("?"), model),
         "detail": "manual key",
         "provider_id": p["id"],
-        "model": p["default_model"],
+        "model": model,
         "base_url": p["default_base_url"],
     });
     let outcome = try_verify_with_key(token, &candidate, Some(key.trim()))?;

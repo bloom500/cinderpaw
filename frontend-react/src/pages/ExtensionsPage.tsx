@@ -10,8 +10,8 @@
  *   - Errors arrive pre-humanized from the backend and are shown as-is.
  */
 
-import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Trash2, Loader2, RefreshCw, ShieldAlert } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, Trash2, Loader2, RefreshCw, ShieldAlert, ArrowUpRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   tauri,
@@ -20,6 +20,7 @@ import {
   type McpToolView,
 } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
+import { useUI } from '@/stores/ui';
 
 // Communication channels live in the dedicated Connectors section now, never
 // in Extensions — hide them here even if an old install lingers in mcp.json.
@@ -31,16 +32,24 @@ export function ExtensionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState<string>('All');
+  const openSkills = useUI((s) => s.openSkills);
+
+  // `alive` is checked before every setState: leaving this page while the two
+  // calls are still in flight otherwise updated a component that no longer
+  // exists, which React reports in the console on the very first visit.
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
 
   const load = () => {
     setError(null);
     Promise.all([tauri.mcp.list(), tauri.mcp.catalog()])
       .then(([list, cat]) => {
+        if (!alive.current) return;
         setInstalled(list.filter((s) => !CONNECTOR_IDS.has(s.id)));
         setCatalog(cat.filter((c) => !CONNECTOR_IDS.has(c.id)));
       })
-      .catch((e: unknown) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .catch((e: unknown) => { if (alive.current) setError(String(e)); })
+      .finally(() => { if (alive.current) setLoading(false); });
   };
 
   useEffect(load, []);
@@ -57,14 +66,33 @@ export function ExtensionsPage() {
       <div className="flex-1 overflow-y-auto scrollbar-hide">
         <div className="max-w-4xl mx-auto px-6 py-8">
           {/* Hero */}
-          <div className="mb-8">
+          <div className="mb-6">
             <h1 className="text-2xl font-bold text-text-primary tracking-tight">
-              Extensions <span aria-hidden="true">🧩</span>
+              Capabilities <span aria-hidden="true">✦</span>
             </h1>
             <p className="text-sm text-text-muted mt-1">
-              Give your assistant new superpowers — install with one click, switch off anytime.
+              What your assistant can do. Install with one click, switch off anytime.
             </p>
           </div>
+
+          {/* Skills live in a drawer, and the sidebar was the only thing that
+              ever opened it. Phase 5 removes the sidebar, so the door moves
+              here — skills and extensions are two subsystems to us and one
+              question to a user: what can it do? */}
+          <button
+            type="button"
+            onClick={openSkills}
+            className="mb-8 w-full text-left rounded-xl border border-border-default bg-bg-surface hover:bg-bg-hover transition-colors p-4 flex items-center gap-3"
+          >
+            <span aria-hidden="true" className="text-lg">✨</span>
+            <span className="flex-1">
+              <span className="block text-sm font-medium text-text-primary">Skills</span>
+              <span className="block text-xs text-text-muted mt-0.5">
+                Written instructions your assistant follows for a particular kind of job.
+              </span>
+            </span>
+            <ArrowUpRight size={15} className="text-text-muted shrink-0" />
+          </button>
 
           {loading && (
             <div className="grid grid-cols-2 gap-3">
@@ -116,9 +144,9 @@ export function ExtensionsPage() {
                         type="button"
                         onClick={() => setCategory(c)}
                         className={cn(
-                          'px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap',
+                          'px-2.5 py-1 rounded-full text-2xs font-medium transition-colors whitespace-nowrap',
                           category === c
-                            ? 'bg-brand text-white'
+                            ? 'bg-brand text-on-brand'
                             : 'bg-bg-hover text-text-muted hover:text-text-secondary',
                         )}
                       >
@@ -260,7 +288,7 @@ function InstalledCard({
       </div>
 
       {err && (
-        <p className="text-[11px] text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
+        <p className="text-2xs text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
           {err}
         </p>
       )}
@@ -270,7 +298,7 @@ function InstalledCard({
           type="button"
           onClick={() => void showTools()}
           disabled={!server.running}
-          className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-secondary disabled:opacity-40"
+          className="inline-flex items-center gap-1 text-2xs text-text-muted hover:text-text-secondary disabled:opacity-40"
         >
           What can it do? {toolsOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
         </button>
@@ -279,7 +307,7 @@ function InstalledCard({
           onClick={() => void remove()}
           onBlur={() => setRemoveArmed(false)}
           className={cn(
-            'inline-flex items-center gap-1 text-[11px]',
+            'inline-flex items-center gap-1 text-2xs',
             removeArmed ? 'text-rose-400 font-medium' : 'text-text-muted hover:text-rose-400',
           )}
         >
@@ -289,17 +317,17 @@ function InstalledCard({
 
       {toolsOpen && (
         <div className="mt-2 space-y-1.5">
-          {tools === null && <p className="text-[11px] text-text-muted">Loading…</p>}
+          {tools === null && <p className="text-2xs text-text-muted">Loading…</p>}
           {tools?.map((t) => (
             <div key={t.name}>
-              <p className="text-[11px] font-medium text-text-secondary">{prettyToolName(t.name)}</p>
+              <p className="text-2xs font-medium text-text-secondary">{prettyToolName(t.name)}</p>
               {t.description && (
-                <p className="text-[10px] text-text-muted line-clamp-2">{t.description}</p>
+                <p className="text-micro text-text-muted line-clamp-2">{t.description}</p>
               )}
             </div>
           ))}
           {tools?.length === 0 && (
-            <p className="text-[11px] text-text-muted">This extension hasn't shared its abilities yet.</p>
+            <p className="text-2xs text-text-muted">This extension hasn't shared its abilities yet.</p>
           )}
         </div>
       )}
@@ -376,7 +404,7 @@ function CatalogCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold text-text-primary truncate">{entry.name}</p>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-muted shrink-0">
+            <span className="text-micro px-1.5 py-0.5 rounded bg-bg-hover text-text-muted shrink-0">
               {entry.category}
             </span>
           </div>
@@ -388,7 +416,7 @@ function CatalogCard({
         <div className="mt-3 space-y-2">
           {entry.fields.map((f) => (
             <label key={f.key} className="block">
-              <span className="text-[11px] text-text-secondary">
+              <span className="text-2xs text-text-secondary">
                 {f.label}
                 {f.optional && <span className="text-text-muted"> (optional)</span>}
               </span>
@@ -404,7 +432,7 @@ function CatalogCard({
       )}
 
       {err && (
-        <p className="text-[11px] text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
+        <p className="text-2xs text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
           {err}
         </p>
       )}
@@ -418,11 +446,21 @@ function CatalogCard({
             'w-full text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5',
             installed
               ? 'bg-bg-hover text-text-muted cursor-default'
-              : 'bg-brand text-white hover:bg-brand/90',
+              : 'bg-brand text-on-brand hover:bg-brand/90',
           )}
         >
           {busy && <Loader2 size={11} className="animate-spin" />}
-          {installed ? '✓ Installed' : configOpen ? 'Confirm & Install' : 'Install'}
+          {installed
+            ? '✓ Installed'
+            : // A bare spinner for up to ten minutes reads as frozen. Say what
+              // it is actually waiting for — which is the user, in another window.
+              busy && entry.browser_login
+              ? 'Waiting for you to sign in…'
+              : busy
+                ? 'Connecting…'
+                : configOpen
+                  ? 'Confirm & Install'
+                  : 'Install'}
         </button>
       </div>
 
@@ -439,9 +477,21 @@ function CatalogCard({
           <div className="space-y-2 text-sm text-text-secondary">
             <p>
               This extension runs third-party software made by its publisher on your
-              computer to do its job. It runs with your account’s access — outside
+              computer to do its job. It runs with your account’s access, outside
               Feral’s protected area.
             </p>
+            {/* Said BEFORE the install starts, not after. A browser window
+                opening by itself looks like something went wrong, and the
+                install cannot finish until the user goes and completes the
+                sign-in — so they have to know it is coming and that it is
+                theirs to finish. */}
+            {entry.browser_login && (
+              <p className="rounded-lg bg-bg-hover px-3 py-2 text-text-secondary">
+                A browser window will open for you to sign in to {entry.name} and
+                approve access. Finish that, and this will connect on its own —
+                it waits for you, so take the time you need.
+              </p>
+            )}
             <p className="text-text-muted">
               Only add extensions from publishers you trust.
             </p>
@@ -457,7 +507,7 @@ function CatalogCard({
             <button
               type="button"
               onClick={() => void doInstall()}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand/90"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-on-brand hover:bg-brand/90"
             >
               Add it
             </button>

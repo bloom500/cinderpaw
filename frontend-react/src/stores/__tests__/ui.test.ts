@@ -3,7 +3,6 @@ import { useUI } from '@/stores/ui';
 
 const reset = () =>
   useUI.setState({
-    sidebarCollapsed: false,
     theme: 'system',
     resolvedTheme: 'dark',
     reasoningMode: 'auto',

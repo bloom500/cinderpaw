@@ -39,6 +39,33 @@ import type { ChatMessage } from "../types.ts";
  */
 export const MAX_CHECKPOINT_BYTES = 4 * 1024 * 1024;
 
+/**
+ * A model that has stopped writing and started looping: 120 or more identical
+ * characters in a row.
+ *
+ * Ordinary text never does this. The longest legitimate run in prose is a few
+ * dashes; separators in code reach a few dozen. The transcript that prompted
+ * this guard carried one character repeated 2,334 times.
+ *
+ * A literal regex rather than one built from a constant — the escaping needed
+ * to build a backreference from a string is exactly the kind of thing that
+ * silently compiles into the wrong pattern.
+ */
+const DEGENERATE_RE = /(.)\1{119,}/u;
+
+/**
+ * Has this text collapsed into a repeated character?
+ *
+ * Deliberately dumb: one regex, no language detection, no model. A cleverer
+ * detector would have opinions about what "good" output looks like, and a
+ * checkpoint guard is the last place that should be making literary
+ * judgements. It has to recognise one failure — the one that poisons the next
+ * turn — and nothing else.
+ */
+export function looksDegenerate(text: string): boolean {
+  return DEGENERATE_RE.test(text);
+}
+
 export type CheckpointStatus = "running" | "done";
 
 export interface Checkpoint {
@@ -85,6 +112,16 @@ export class CheckpointStore {
       return;
     }
     if (Buffer.byteLength(json, "utf8") > MAX_CHECKPOINT_BYTES) return;
+    // A transcript that has collapsed into a repeated character must not be
+    // stored, because storing it is how the failure spreads: the next turn
+    // resumes from the checkpoint, the model reads its own loop as context,
+    // and repeats it harder. That is how a single bad local reply became bad
+    // replies from a cloud model with a 200k window — nothing about the model
+    // was wrong, its context had been poisoned from disk.
+    //
+    // Skipping the write costs one step of resumability. Keeping it costs
+    // every turn after it.
+    if (looksDegenerate(json)) return;
     try {
       this.#db
         .query(
@@ -134,6 +171,10 @@ export class CheckpointStore {
     try {
       const messages = JSON.parse(row.messages) as ChatMessage[];
       if (!Array.isArray(messages)) return null;
+      // Same check on the way out, because rows written before the guard
+      // existed are still on disk. Starting clean is strictly better than
+      // resuming into a loop.
+      if (looksDegenerate(row.messages)) return null;
       return {
         sessionId: row.session_id,
         messageId: row.message_id,

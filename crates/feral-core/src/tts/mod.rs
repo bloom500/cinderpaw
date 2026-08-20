@@ -17,10 +17,111 @@
 //! almost immediately and never starves. A provider that can only return a
 //! whole buffer should send it as one chunk rather than change this shape.
 
+pub mod azure;
+pub mod elevenlabs;
 pub mod fish;
+#[cfg(feature = "kokoro")]
+pub mod kokoro;
+pub mod openai_compat;
+#[cfg(feature = "piper")]
+pub mod piper;
 
-use anyhow::Result;
+/// Ids known to the catalog whether or not the engine is compiled in — the row
+/// is shown either way, and `from_id` is what refuses it.
+pub const PIPER_ID: &str = "piper";
+pub const KOKORO_ID: &str = "kokoro";
+
+use anyhow::{bail, Context, Result};
+use futures::StreamExt;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
+
+/// Long enough for a slow link, short enough that a wrong key does not hang a
+/// picker. Voice lists are small.
+pub(crate) const LIST_TIMEOUT_SECS: u64 = 30;
+/// Generous but finite: a long reply legitimately takes a while, a hung
+/// connection must not hold the voice loop open forever.
+pub(crate) const SPEAK_TIMEOUT_SECS: u64 = 120;
+
+/// One HTTP client, built the same way for every hosted engine.
+pub(crate) fn http(timeout_secs: u64) -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()
+        .context("build reqwest client")
+}
+
+/// Forward a streaming response body to `audio` as it arrives, returning the
+/// byte count.
+///
+/// A closed receiver is a barge-in, not an error: stop pulling the body rather
+/// than reporting a failure the user has to see. Every hosted engine does
+/// exactly this, and the four copies of it differed only in which vendor name
+/// went into the error message.
+/// Refuse to send a bearer token in the clear.
+///
+/// The TTS base URL is user-configurable — legitimately, for a self-hosted
+/// proxy — and the request attaches the vendor API key to whatever it is set
+/// to. A plain-http URL therefore puts a paid key on the wire in clear text,
+/// readable by anything between here and the host: a mistyped setting, a
+/// prompt-injected config, or just an http:// proxy on the office LAN.
+///
+/// Loopback is exempt: there is no network to eavesdrop on, and a local proxy
+/// over http is the ordinary self-hosted setup.
+pub(crate) fn assert_key_safe_base_url(base_url: &str, who: &str) -> Result<()> {
+    let parsed = reqwest::Url::parse(base_url)
+        .with_context(|| format!("{who}: base URL is not a valid URL: {base_url}"))?;
+    if parsed.scheme() == "https" {
+        return Ok(());
+    }
+    let host = parsed.host_str().unwrap_or("");
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false);
+    if loopback {
+        return Ok(());
+    }
+    bail!(
+        "{who}: refusing to send the API key to {base_url} over an unencrypted connection.          Use https, or a address on this machine for a local proxy."
+    )
+}
+
+pub(crate) async fn pump(
+    res: reqwest::Response,
+    who: &str,
+    audio: Sender<Vec<u8>>,
+) -> Result<usize> {
+    // A ceiling on the whole response. Backpressure alone does not bound this:
+    // a proxy that trickles very large chunks keeps allocating for as long as
+    // the request timeout allows, and nothing in a voice reply is anywhere near
+    // this size. 32 MiB of 24 kHz mono 16-bit PCM is about eleven minutes of
+    // speech — far past any single utterance, far below trouble.
+    const MAX_TTS_BYTES: usize = 32 * 1024 * 1024;
+
+    let mut stream = res.bytes_stream();
+    let mut total = 0usize;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.with_context(|| format!("{who}: stream interrupted"))?;
+        if chunk.is_empty() {
+            continue;
+        }
+        total += chunk.len();
+        if total > MAX_TTS_BYTES {
+            bail!(
+                "{who}: response exceeded {} MiB of audio — refusing to keep reading",
+                MAX_TTS_BYTES / 1024 / 1024
+            );
+        }
+        if audio.send(chunk.to_vec()).await.is_err() {
+            break;
+        }
+    }
+    Ok(total)
+}
 
 /// PCM the whole pipeline agrees on: 24 kHz, mono, signed 16-bit little-endian.
 ///
@@ -37,6 +138,23 @@ pub const BYTES_PER_SAMPLE: usize = 2;
 
 /// Bytes of PCM per second, for turning a byte count into a duration.
 pub const BYTES_PER_SECOND: usize = SAMPLE_RATE as usize * CHANNELS as usize * BYTES_PER_SAMPLE;
+
+/// One selectable voice.
+///
+/// Listed from the vendor rather than hardcoded, because a voice catalogue is
+/// account state: Fish voices are user-cloned, Azure adds locales, ElevenLabs
+/// voices are per-workspace. A baked-in list is wrong the day after it is written.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Voice {
+    /// What goes into `SpeechRequest::voice`.
+    pub id: String,
+    pub label: String,
+    /// BCP-47 when the vendor states one ("ro-RO"); empty for a multilingual or
+    /// unspecified voice. Empty is not "English" — it is "the voice follows the
+    /// text", which is what a bilingual conversation needs.
+    pub locale: String,
+}
 
 /// What a caller wants said, and how.
 #[derive(Debug, Clone, Default)]
@@ -65,25 +183,218 @@ pub trait TtsProvider: Send + Sync {
     /// silently ships every spoken reply to a third party has lied by omission.
     fn is_local(&self) -> bool;
 
+    /// Sample rate of the PCM this provider emits, so the bridge can label the
+    /// chunks it forwards.
+    ///
+    /// Every hosted engine here is *asked* for `SAMPLE_RATE` and returns it. A
+    /// local model returns whatever it was trained at — Piper voices are 22.05
+    /// kHz — and playing those bytes at 24 kHz makes the voice audibly wrong
+    /// (fast and high) while looking like a working feature. Hence a method, not
+    /// the constant, at the one place the number is put on the wire.
+    fn sample_rate(&self) -> u32 {
+        SAMPLE_RATE
+    }
+
+    /// Voices this engine offers, asked of the vendor.
+    ///
+    /// Empty means "this engine publishes no list", not "this engine has one
+    /// voice" — the caller shows a free-text field in that case instead of
+    /// pretending the choice does not exist.
+    ///
+    /// Pinning a voice matters more than it looks: a reply split into two
+    /// synthesis requests with no explicit voice came back in two DIFFERENT
+    /// voices, because "the default" is resolved per request at the vendor.
+    async fn voices(&self) -> Result<Vec<Voice>> {
+        Ok(vec![])
+    }
+
     async fn speak(&self, req: &SpeechRequest, audio: Sender<Vec<u8>>) -> Result<usize>;
 }
 
-/// Providers the build knows about, for the settings UI.
-pub fn available() -> Vec<(&'static str, &'static str, bool)> {
-    vec![(fish::ID, "Fish Audio S2.1 Pro", false)]
+/// One row of the voice-engine picker.
+///
+/// This is a catalog rather than a list of ids because the picker has to be
+/// honest about three separate things per engine — whether audio leaves the
+/// machine, whether the user must supply a key, and whether it is even built
+/// yet — and a UI that has to infer any of those from the id will eventually
+/// infer wrong.
+/// `camelCase` on the wire, and it is not cosmetic: the React picker reads
+/// `needsKey`, `isLocal`, `needsDownload`. Serialised as snake_case, every one of
+/// those is `undefined` — which is falsy, so the UI silently concluded that no
+/// engine needs a key, none is local, and none needs a download. The result was a
+/// picker with no key field, no download button, and a disabled Call button with
+/// nothing on screen explaining why.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsEngine {
+    pub id: String,
+    pub label: String,
+    /// Audio never leaves the machine. The picker says so before recording.
+    pub is_local: bool,
+    /// Needs an API key from the BYOK keychain.
+    pub needs_key: bool,
+    /// Needs a base URL — Azure's region, or a compatible gateway's endpoint.
+    /// False for engines with a fixed endpoint: showing the field anyway invites
+    /// someone to fill in something that will only break the request.
+    pub needs_base_url: bool,
+    /// Takes a model or voice name (Piper's voice, ElevenLabs' voice id, OpenAI's
+    /// model). Separate from `needs_base_url` because most engines want one and
+    /// only some want the other.
+    pub needs_model: bool,
+    /// Runs from a file the user must fetch first. A property, not an id: the UI
+    /// must not have to know which engines those are, or the next local engine
+    /// added will silently skip the download step and start a mute call.
+    pub needs_download: bool,
+    /// Where to get a key, when there is a stable console page for it.
+    pub console_url: Option<String>,
+    /// One line of honest description for the picker.
+    pub note: String,
+    /// False = the engine is in the catalog but its implementation is not here
+    /// yet. `from_id` refuses it, so a row can never look usable before it is.
+    pub available: bool,
 }
 
-/// Resolve a provider id from settings. Unknown ids are an error rather than a
-/// silent fallback: quietly speaking through a different engine than the one
-/// configured is worse than refusing, especially when the difference is whether
-/// the audio left the machine.
-pub fn from_id(id: &str, api_key: &str) -> Result<Box<dyn TtsProvider>> {
-    match id {
-        fish::ID => Ok(Box::new(fish::FishTts::new(api_key.to_string()))),
-        other => anyhow::bail!(
-            "unknown TTS provider {other:?} — known: {}",
-            available().iter().map(|(i, _, _)| *i).collect::<Vec<_>>().join(", ")
+fn engine(id: &str, label: &str, note: &str) -> TtsEngine {
+    TtsEngine {
+        id: id.to_string(),
+        label: label.to_string(),
+        is_local: false,
+        needs_key: false,
+        needs_base_url: false,
+        needs_model: false,
+        needs_download: false,
+        console_url: None,
+        note: note.to_string(),
+        available: true,
+    }
+}
+
+/// Every voice engine the picker offers, built or not.
+///
+/// Local engines come first deliberately: for a product whose pitch is "raised
+/// on your machine", the option where nothing leaves it is the default the user
+/// should have to actively move away from.
+pub fn catalog() -> Vec<TtsEngine> {
+    vec![
+        TtsEngine {
+            is_local: true,
+            needs_model: true,
+            needs_download: true,
+            // Compiled in only when the `piper` feature is on, because it pulls a
+            // native runtime. A build without it must not offer the row as
+            // usable — the picker would be promising an engine that is not here.
+            available: cfg!(feature = "piper"),
+            ..engine(
+                PIPER_ID,
+                "Piper",
+                "On device. ~60 MB voice, 35+ languages. MIT.",
+            )
+        },
+        TtsEngine {
+            is_local: true,
+            needs_model: true,
+            needs_download: true,
+            available: cfg!(feature = "kokoro"),
+            ..engine(
+                KOKORO_ID,
+                "Kokoro",
+                "On device. Better voice than Piper, ~90 MB. English, ES, FR, HI, IT, JA, PT, ZH. Apache-2.0.",
+            )
+        },
+        TtsEngine {
+            needs_key: true,
+            needs_model: true,
+            console_url: Some("https://fish.audio/go-api/api-keys/".into()),
+            ..engine(
+                fish::ID,
+                "Fish Audio S2.1 Pro",
+                "Hosted. Free tier announced through 31 Aug 2026, no SLA.",
+            )
+        },
+        TtsEngine {
+            needs_key: true,
+            needs_base_url: true,
+            needs_model: true,
+            console_url: Some("https://portal.azure.com/".into()),
+            ..engine(
+                azure::ID,
+                "Azure Speech",
+                "Hosted. 500k characters/month on the standing free tier; has Romanian.",
+            )
+        },
+        TtsEngine {
+            needs_key: true,
+            // Fixed endpoint. It was marked as needing a base URL, which put an
+            // empty field in front of the user for a value there is no reason to
+            // change — the id it actually needs is the voice.
+            needs_model: true,
+            console_url: Some("https://elevenlabs.io/app/settings/api-keys".into()),
+            ..engine(
+                elevenlabs::ID,
+                "ElevenLabs",
+                "Hosted. Set the voice id (or voice:model) in the model field.",
+            )
+        },
+        TtsEngine {
+            needs_key: true,
+            needs_base_url: true,
+            needs_model: true,
+            console_url: Some("https://platform.openai.com/api-keys".into()),
+            ..engine(
+                openai_compat::ID,
+                "OpenAI-compatible",
+                "Hosted. OpenAI, Groq, or any /v1/audio/speech endpoint. Set your own base URL and model.",
+            )
+        },
+    ]
+}
+
+/// What an engine needs to start speaking, beyond the text itself.
+///
+/// A struct rather than positional arguments because engines disagree about
+/// what they need — Fish wants only a key, Azure wants a region, a compatible
+/// gateway wants an endpoint and a model name — and adding the next engine's
+/// requirement should not edit every call site.
+#[derive(Debug, Default, Clone)]
+pub struct EngineConfig<'a> {
+    pub api_key: &'a str,
+    /// Azure: `https://<region>.tts.speech.microsoft.com`. Compatible gateways:
+    /// the API root. `None` uses the engine's own default where it has one.
+    pub base_url: Option<&'a str>,
+    /// Vendor model name, for engines that take one.
+    pub model: Option<&'a str>,
+}
+
+/// Resolve an engine id from settings.
+///
+/// Unknown *and unbuilt* ids are both errors rather than silent fallbacks:
+/// quietly speaking through a different engine than the one configured is worse
+/// than refusing, especially when the difference is whether the audio left the
+/// machine.
+pub fn from_id(id: &str, cfg: EngineConfig) -> Result<Box<dyn TtsProvider>> {
+    let known = catalog();
+    match known.iter().find(|e| e.id == id) {
+        None => anyhow::bail!(
+            "unknown TTS provider {id:?}. Known: {}",
+            known.iter().map(|e| e.id.as_str()).collect::<Vec<_>>().join(", ")
         ),
+        Some(e) if !e.available => anyhow::bail!(
+            "{} is in the catalog but not built into this version yet",
+            e.label
+        ),
+        Some(_) => match id {
+            #[cfg(feature = "piper")]
+            PIPER_ID => Ok(Box::new(piper::PiperTts::new(&cfg))),
+            #[cfg(feature = "kokoro")]
+            KOKORO_ID => Ok(Box::new(kokoro::KokoroTts::new(&cfg))),
+            fish::ID => Ok(Box::new(fish::FishTts::new(cfg.api_key.to_string()))),
+            azure::ID => Ok(Box::new(azure::AzureTts::new(&cfg)?)),
+            elevenlabs::ID => Ok(Box::new(elevenlabs::ElevenLabsTts::new(&cfg))),
+            openai_compat::ID => Ok(Box::new(openai_compat::OpenAiCompatTts::new(&cfg))),
+            // Unreachable while the catalog and this match agree; the test below
+            // is what keeps them agreeing.
+            other => anyhow::bail!("TTS provider {other:?} is catalogued but not wired"),
+        },
     }
 }
 
@@ -96,15 +407,98 @@ pub fn duration_secs(bytes: usize) -> f64 {
 mod tests {
     use super::*;
 
+    fn cfg(key: &str) -> EngineConfig<'_> {
+        EngineConfig { api_key: key, ..Default::default() }
+    }
+
     #[test]
     fn unknown_provider_is_refused_not_silently_swapped() {
         // `unwrap_err` would demand Debug on Box<dyn TtsProvider>; match instead.
-        let err = match from_id("piper", "k") {
+        let err = match from_id("nope", cfg("k")) {
             Ok(_) => panic!("an unknown id must not resolve to a provider"),
             Err(e) => e.to_string(),
         };
         assert!(err.contains("unknown TTS provider"), "{err}");
         assert!(err.contains(fish::ID), "the error should list what IS known: {err}");
+    }
+
+    #[test]
+    fn every_available_engine_in_the_catalog_is_actually_wired() {
+        // Guards the one thing the `from_id` match cannot: a row added to the
+        // catalog and marked available, with no arm to construct it.
+        for e in catalog().iter().filter(|e| e.available) {
+            let c = EngineConfig {
+                api_key: "k",
+                base_url: Some("https://example.invalid"),
+                model: Some("m"),
+            };
+            match from_id(&e.id, c) {
+                Ok(p) => assert_eq!(p.id(), e.id, "{} resolved to a different engine", e.id),
+                Err(err) => panic!("catalogued engine {} does not resolve: {err}", e.id),
+            }
+        }
+    }
+
+    #[test]
+    fn local_engines_are_offered_before_hosted_ones() {
+        // Order is product, not decoration: the option where nothing leaves the
+        // machine is the one a local-first product should show first.
+        let first_hosted = catalog().iter().position(|e| !e.is_local).unwrap();
+        let last_local = catalog().iter().rposition(|e| e.is_local).unwrap();
+        assert!(last_local < first_hosted, "hosted engines must not be listed above local ones");
+    }
+
+    #[test]
+    fn hosted_engines_declare_they_need_a_key() {
+        for e in catalog() {
+            assert_eq!(
+                e.needs_key, !e.is_local,
+                "{}: a hosted engine needs a key and a local one must not ask for one",
+                e.id
+            );
+        }
+    }
+
+    #[test]
+    fn the_catalog_goes_over_the_wire_in_camel_case() {
+        // The bug this exists for: without `rename_all`, the fields arrive as
+        // `needs_key` / `is_local` / `needs_download` while the picker reads
+        // `needsKey` / `isLocal` / `needsDownload`. Every one is `undefined`,
+        // which is falsy, so the UI concluded that nothing needs a key, nothing is
+        // local and nothing needs downloading — and showed no key field, no
+        // download button, and a disabled Call button with no explanation. Types
+        // cannot catch it; only the serialised shape can.
+        let json = serde_json::to_string(&catalog()[0]).expect("catalog row serialises");
+        for camel in ["isLocal", "needsKey", "needsBaseUrl", "needsModel", "needsDownload", "consoleUrl"] {
+            assert!(json.contains(camel), "missing {camel} in {json}");
+        }
+        for snake in ["is_local", "needs_key", "needs_base_url", "needs_model", "needs_download"] {
+            assert!(!json.contains(snake), "{snake} leaked into {json}");
+        }
+    }
+
+    #[test]
+    fn only_local_engines_ask_for_a_download() {
+        // The flag exists so the UI never has to name engines. If a hosted one
+        // ever set it, the picker would demand a file that no download provides.
+        for e in catalog() {
+            if e.needs_download {
+                assert!(e.is_local, "{}: a hosted engine has nothing to download", e.id);
+            }
+        }
+        assert!(
+            catalog().iter().any(|e| e.needs_download),
+            "the flag is only meaningful while some engine uses it",
+        );
+    }
+
+    #[test]
+    fn an_engine_with_a_fixed_endpoint_does_not_ask_for_a_base_url() {
+        // Every field the picker shows is a field someone can fill in wrongly.
+        for id in [elevenlabs::ID, fish::ID, PIPER_ID] {
+            let e = catalog().into_iter().find(|e| e.id == id).expect("catalogued");
+            assert!(!e.needs_base_url, "{id} has a fixed endpoint and must not prompt for one");
+        }
     }
 
     #[test]
@@ -116,10 +510,11 @@ mod tests {
 
     #[test]
     fn every_provider_declares_whether_audio_leaves_the_machine() {
-        for (id, label, _) in available() {
-            assert!(!id.is_empty() && !label.is_empty(), "provider metadata must be usable in UI");
+        for e in catalog() {
+            assert!(!e.id.is_empty() && !e.label.is_empty(), "engine metadata must be usable in UI");
+            assert!(!e.note.is_empty(), "{}: the picker needs something honest to show", e.id);
         }
-        let p = match from_id(fish::ID, "k") { Ok(p) => p, Err(e) => panic!("{e}") };
+        let p = match from_id(fish::ID, cfg("k")) { Ok(p) => p, Err(e) => panic!("{e}") };
         assert!(!p.is_local(), "Fish is a hosted API and must not claim to be local");
     }
 }

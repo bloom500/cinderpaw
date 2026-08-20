@@ -40,6 +40,14 @@ export function SkillHubDrawer() {
 
   // Import tab state
   const [importInput, setImportInput]   = useState('');
+  /**
+   * Where the currently-selected skill came from. The install command differs
+   * per source because the host, not this drawer, now fetches the content —
+   * the old single `install_skill(meta, content, overwrite)` let the caller
+   * hand over the file body and its trust label together, which is exactly
+   * the shape that could not be given to the agent.
+   */
+  const [origin, setOrigin] = useState<{ kind: 'catalogue' } | { kind: 'url'; url: string } | { kind: 'file'; path: string } | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError]   = useState<string | null>(null);
 
@@ -107,11 +115,16 @@ export function SkillHubDrawer() {
   // Fetch a bundled local SKILL.md via browser fetch (public/ dir, no backend needed)
   async function fetchBundledContent(localPath: string): Promise<string> {
     const r = await fetch(localPath);
-    if (!r.ok) throw new Error(`HTTP ${r.status} — skill content not found`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}: skill content not found`);
     return r.text();
   }
 
-  function openDetail(skill: SkillMeta, getContent: () => Promise<string>) {
+  function openDetail(
+    skill: SkillMeta,
+    getContent: () => Promise<string>,
+    from: { kind: 'catalogue' } | { kind: 'url'; url: string } | { kind: 'file'; path: string } = { kind: 'catalogue' },
+  ) {
+    setOrigin(from);
     setSelected(skill);
     setContent(null);
     setContentError(null);
@@ -124,6 +137,7 @@ export function SkillHubDrawer() {
   }
 
   function closeDetail() {
+    setOrigin(null);
     setSelected(null);
     setContent(null);
     setContentError(null);
@@ -133,10 +147,16 @@ export function SkillHubDrawer() {
   }
 
   async function doInstall(overwrite: boolean) {
-    if (!selected || content === null) return;
+    if (!selected || !origin) return;
     setInstalling(true);
     try {
-      await tauri.skills.install(selected, content, overwrite);
+      if (origin.kind === 'url') {
+        await tauri.skills.installFromUrl(origin.url, overwrite);
+      } else if (origin.kind === 'file') {
+        await tauri.skills.installFromFile(origin.path, overwrite);
+      } else {
+        await tauri.skills.installFromCatalogue(selected.id);
+      }
       setInstalling(false);
       setOverwritePending(false);
       setSelected(prev => prev ? { ...prev, install_status: 'installed' } : null);
@@ -182,12 +202,17 @@ export function SkillHubDrawer() {
     setImportLoading(true);
     setImportError(null);
     try {
-      const preview: SkillPreview = input.startsWith('https://')
+      const isUrl = input.startsWith('https://');
+      const preview: SkillPreview = isUrl
         ? await tauri.skills.previewRemote(input)
         : await tauri.skills.previewLocal(input);
       setImportInput('');
       setImportError(null);
-      openDetail(preview.meta, async () => preview.content);
+      openDetail(
+        preview.meta,
+        async () => preview.content,
+        isUrl ? { kind: 'url', url: input } : { kind: 'file', path: input },
+      );
     } catch (e: unknown) {
       setImportError(String(e));
     } finally {
@@ -252,7 +277,7 @@ export function SkillHubDrawer() {
                       if (t === 'discover') fetchRemote();
                       if (t === 'community') fetchCommunity();
                     }}
-                    className={`flex-1 py-2.5 text-[11px] font-medium capitalize transition-colors border-b-2 -mb-px ${
+                    className={`flex-1 py-2.5 text-2xs font-medium capitalize transition-colors border-b-2 -mb-px ${
                       tab === t
                         ? 'border-brand text-text-primary'
                         : 'border-transparent text-text-muted hover:text-text-secondary'
@@ -281,13 +306,13 @@ export function SkillHubDrawer() {
 
                   <div className="flex items-start justify-between gap-2">
                     <span className="font-bold text-sm text-text-primary">{selected.name}</span>
-                    <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${badgeColor[selected.trust_label] ?? badgeColor.unknown}`}>
+                    <span className={`text-micro font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${badgeColor[selected.trust_label] ?? badgeColor.unknown}`}>
                       {selected.trust_label}
                     </span>
                   </div>
 
                   {/* Metadata */}
-                  <div className="flex gap-3 flex-wrap text-[11px] text-text-muted">
+                  <div className="flex gap-3 flex-wrap text-2xs text-text-muted">
                     {selected.author && <span>{selected.author}</span>}
                     {selected.version && selected.version !== '0.0.0' && <span>v{selected.version}</span>}
                     {selected.license && <span>{selected.license}</span>}
@@ -297,7 +322,7 @@ export function SkillHubDrawer() {
                   {selected.tags.length > 0 && (
                     <div className="flex gap-1.5 flex-wrap">
                       {selected.tags.map(t => (
-                        <span key={t} className="text-[11px] px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted">{t}</span>
+                        <span key={t} className="text-2xs px-2 py-0.5 rounded-full bg-bg-elevated text-text-muted">{t}</span>
                       ))}
                     </div>
                   )}
@@ -308,7 +333,7 @@ export function SkillHubDrawer() {
                       href={selected.source_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-1 text-[11px] text-brand hover:underline w-fit"
+                      className="flex items-center gap-1 text-2xs text-brand hover:underline w-fit"
                     >
                       View source <ArrowUpRight size={11} />
                     </a>
@@ -325,7 +350,7 @@ export function SkillHubDrawer() {
                       </p>
                     )}
                     {content && !contentLoading && !contentError && (
-                      <pre className="text-[11px] leading-relaxed text-text-muted p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto scrollbar-hide font-mono">{content}</pre>
+                      <pre className="text-2xs leading-relaxed text-text-muted p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto scrollbar-hide font-mono">{content}</pre>
                     )}
                   </div>
 
@@ -357,7 +382,7 @@ export function SkillHubDrawer() {
                         <p className="text-xs text-text-muted">A skill with this ID is already installed. Overwrite?</p>
                         <div className="flex gap-2">
                           <button type="button" onClick={() => void doInstall(true)}
-                            className="px-3 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand/90">
+                            className="px-3 py-1.5 text-xs rounded bg-brand text-on-brand hover:bg-brand/90">
                             Overwrite
                           </button>
                           <button type="button" onClick={() => setOverwritePending(false)}
@@ -369,7 +394,7 @@ export function SkillHubDrawer() {
                     ) : (
                       <button type="button" onClick={() => void tryInstall()}
                         disabled={installing || content === null || contentError !== null}
-                        className="px-3 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 transition-colors">
+                        className="px-3 py-1.5 text-xs rounded bg-brand text-on-brand hover:bg-brand/90 disabled:opacity-50 transition-colors">
                         {installing ? 'Installing…' : 'Install'}
                       </button>
                     )}
@@ -431,7 +456,7 @@ export function SkillHubDrawer() {
                   <EmptyState message="No community skills found." hint="Check your connection or try again." />
                 ) : (
                   <>
-                    <p className="text-[11px] text-text-muted px-1 pb-1">
+                    <p className="text-2xs text-text-muted px-1 pb-1">
                       Community skills are contributed by third-party authors and are not vetted or maintained by Feral.
                       Preview before installing.
                     </p>
@@ -474,7 +499,7 @@ export function SkillHubDrawer() {
                     type="button"
                     onClick={() => void doImport()}
                     disabled={importLoading || !importInput.trim()}
-                    className="px-3 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 transition-colors w-fit"
+                    className="px-3 py-1.5 text-xs rounded bg-brand text-on-brand hover:bg-brand/90 disabled:opacity-50 transition-colors w-fit"
                   >
                     {importLoading ? 'Loading…' : 'Preview'}
                   </button>
@@ -509,15 +534,15 @@ function SkillCard({
     <div className="bg-bg-elevated border border-border-subtle rounded-xl p-3 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-semibold text-text-primary truncate">{skill.name}</span>
-        <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${badgeColor[skill.trust_label] ?? badgeColor.unknown}`}>
+        <span className={`text-micro font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 ${badgeColor[skill.trust_label] ?? badgeColor.unknown}`}>
           {skill.trust_label}
         </span>
       </div>
       {showAuthor && (skill.author || skill.source_provider) && (
-        <div className="flex items-center gap-2 text-[11px] text-text-muted">
+        <div className="flex items-center gap-2 text-2xs text-text-muted">
           {skill.author && <span>by {skill.author}</span>}
           {skill.source_provider && (
-            <span className="px-1.5 py-px rounded bg-bg-hover text-[10px]">
+            <span className="px-1.5 py-px rounded bg-bg-hover text-micro">
               {providerLabel[skill.source_provider] ?? skill.source_provider}
             </span>
           )}

@@ -1,6 +1,7 @@
 [
   {
     "id": "discord",
+    "transport": "discord",
     "name": "Discord",
     "description": "Chat with your assistant from Discord — DMs, @mentions, or a dedicated channel. Only people you allow can reach it.",
     "icon": "🎮",
@@ -19,6 +20,7 @@
   },
   {
     "id": "slack",
+    "transport": "slack",
     "name": "Slack",
     "description": "Talk to your assistant from a Slack workspace via Socket Mode. Needs an app-level token and a bot token.",
     "icon": "💬",
@@ -49,6 +51,7 @@
   },
   {
     "id": "whatsapp",
+    "transport": "whatsapp",
     "name": "WhatsApp",
     "description": "Reach your assistant on WhatsApp. Turn it on, then scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.",
     "icon": "💚",
@@ -60,6 +63,7 @@
   },
   {
     "id": "telegram",
+    "transport": "telegram",
     "name": "Telegram",
     "description": "Message your assistant from Telegram.",
     "icon": "✈️",
@@ -75,5 +79,77 @@
     "coming_soon": true,
     "console_url": "https://t.me/BotFather",
     "validate_endpoint": "https://api.telegram.org/bot{TOKEN}/getMe"
+  },
+  {
+    "id": "matrix",
+    "transport": "matrix",
+    "name": "Matrix",
+    "description": "Talk to your assistant from any Matrix homeserver — yours, or one you already have an account on.",
+    "icon": "🌐",
+    "logo_url": "https://cdn.simpleicons.org/matrix",
+    "pairing_fields": [
+      {
+        "key": "MATRIX_HOMESERVER",
+        "label": "Homeserver URL (e.g. https://matrix.org)",
+        "secret": false
+      },
+      {
+        "key": "MATRIX_ACCESS_TOKEN",
+        "label": "Access token",
+        "secret": true
+      }
+    ],
+    "pairing_method": "instance_token",
+    "coming_soon": false,
+    "console_url": "https://matrix.org/docs/guides/client-server-api"
+  },
+  {
+    "id": "mattermost",
+    "transport": "mattermost",
+    "name": "Mattermost",
+    "description": "Connect a self-hosted Mattermost. Uses a personal access token, which does not expire.",
+    "icon": "💬",
+    "logo_url": "https://cdn.simpleicons.org/mattermost",
+    "pairing_fields": [
+      {
+        "key": "MATTERMOST_URL",
+        "label": "Server URL (e.g. https://chat.example.com)",
+        "secret": false
+      },
+      {
+        "key": "MATTERMOST_TOKEN",
+        "label": "Personal access token",
+        "secret": true
+      }
+    ],
+    "pairing_method": "instance_token",
+    "coming_soon": false,
+    "console_url": "https://developers.mattermost.com/integrate/reference/personal-access-token/"
+  },
+  {
+    "id": "twitch",
+    "device_flow": {
+      "device_url": "https://id.twitch.tv/oauth2/device",
+      "token_url": "https://id.twitch.tv/oauth2/token",
+      "client_id": "d6y2kpxx5lphmk55t1989ddc9p4cqn",
+      "scopes": [
+        "chat:read",
+        "chat:edit"
+      ]
+    },
+    "transport": "twitch",
+    "name": "Twitch",
+    "description": "Let your assistant read and answer in your Twitch chat. You approve it with a code on twitch.tv — no password, no token to copy.",
+    "icon": "🟣",
+    "logo_url": "https://cdn.simpleicons.org/twitch",
+    "pairing_fields": [],
+    "pairing_method": "oauth_device",
+    "coming_soon": false,
+    "console_url": "https://dev.twitch.tv/console/apps",
+    "validate_endpoint": "https://id.twitch.tv/oauth2/validate",
+    "oauth_scopes": [
+      "chat:read",
+      "chat:edit"
+    ]
   }
 ]

@@ -142,6 +142,7 @@ export function kmeans(
       const sum = sums[c]!;
       for (let d = 0; d < dim; d++) sum[d]! += p[d]!;
     }
+    const empty: number[] = [];
     for (let c = 0; c < effectiveK; c++) {
       const count = counts[c]!;
       const sum = sums[c]!;
@@ -149,13 +150,51 @@ export function kmeans(
       if (count > 0) {
         for (let d = 0; d < dim; d++) next[d] = sum[d]! / count;
       } else {
-        // Empty cluster: keep the old centroid (we don't re-seed mid-loop to
-        // keep determinism tight — a divergent split would change cluster ids
-        // across reruns).
+        // Keep the old centroid for now; re-seeded below.
         next.set(centroids[c]!);
+        empty.push(c);
       }
       normalize(next);
       centroids[c] = next;
+    }
+
+    // Re-seed empty clusters from the worst-served points.
+    //
+    // Keeping the old centroid meant an empty cluster stayed empty forever:
+    // nothing was ever assigned to it, so assignments stopped changing, Lloyd's
+    // loop declared convergence, and the caller got fewer real clusters than it
+    // asked for. In the tree builder that becomes a parent node with no leaves
+    // under it — a branch recall can descend into and find nothing.
+    //
+    // Deterministic, which is why this was avoided before: the point chosen is
+    // the one furthest from its own centroid, ties broken by the lower index,
+    // and a point already taken by an earlier re-seed cannot be taken again. The
+    // same input still produces the same clusters.
+    if (empty.length > 0) {
+      const claimed = new Set<number>();
+      for (const c of empty) {
+        let worst = -1;
+        let worstD = -1;
+        for (let i = 0; i < n; i++) {
+          if (claimed.has(i)) continue;
+          // Never strip the last point out of a cluster to fill another.
+          if (counts[assignments[i]!]! <= 1) continue;
+          const d = sqCosineDist(points[i]!, centroids[assignments[i]!]!);
+          if (d > worstD) {
+            worstD = d;
+            worst = i;
+          }
+        }
+        if (worst < 0) break; // nothing left to give
+        claimed.add(worst);
+        const seeded = clone(points[worst]!);
+        normalize(seeded);
+        centroids[c] = seeded;
+        counts[assignments[worst]!]!--;
+        assignments[worst] = c;
+        counts[c]!++;
+        changed = true;
+      }
     }
 
     if (!changed) break;
