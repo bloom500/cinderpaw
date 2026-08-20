@@ -641,7 +641,7 @@ func renderWizResume(w *WizardState, width int) string {
 		{"Start over", "Clear progress and re-run the wizard from the top.", 1},
 	}
 	var b strings.Builder
-		b.WriteString(wizLine("  You exited before finishing setup. Last completed:"))
+	b.WriteString(wizLine("  You exited before finishing setup. Last completed:"))
 	b.WriteByte('\n')
 	b.WriteString(wizLine("    " + resumeStepLabel(w.ResumeStep)))
 	b.WriteByte('\n')
@@ -703,24 +703,22 @@ func resumeStepLabel(s WizardStep) string {
 	}
 }
 
-
-
 // renderToolViewerOverlay draws the full-screen tool-result browser.
 // Layout:
 //
-//   tools  · 3 calls
-//   ───────────────────────────────────────────────────────────
-//   ▸ ● read_file (project_local_models_gpu.md)  ⏱ 0.1s ✓
-//     ● scan_workspace                           ⏱ 1.2s ✓
-//     ● tool_health                              ⏱ 0.4s ✓
-//   ───────────────────────────────────────────────────────────
-//   ▸ result ────────────────────────────────────────────────
-//   # project_local_models_gpu.md
-//   On-disk models:
-//   - bge-small-en-v1.5 (default embed)
-//   ...
-//   ───────────────────────────────────────────────────────────
-//   ↑↓ navigate · enter expand · esc close
+//	tools  · 3 calls
+//	───────────────────────────────────────────────────────────
+//	▸ ● read_file (project_local_models_gpu.md)  ⏱ 0.1s ✓
+//	  ● scan_workspace                           ⏱ 1.2s ✓
+//	  ● tool_health                              ⏱ 0.4s ✓
+//	───────────────────────────────────────────────────────────
+//	▸ result ────────────────────────────────────────────────
+//	# project_local_models_gpu.md
+//	On-disk models:
+//	- bge-small-en-v1.5 (default embed)
+//	...
+//	───────────────────────────────────────────────────────────
+//	↑↓ navigate · enter expand · esc close
 //
 // The expanded preview panel appears under the list only when
 // `ToolViewer.Expanded` is true; otherwise the box closes after the
@@ -777,7 +775,7 @@ func (a *App) renderToolViewerOverlay(under string) string {
 		absoluteIdx := start + i
 		line := formatToolViewerRow(row, a.Now)
 		if absoluteIdx == a.ToolViewer.Idx {
-			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed+" "+stripAnsiLocal(line))
+			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed + " " + stripAnsiLocal(line))
 		} else {
 			line = "  " + ui.ToolViewerRow.Render(stripAnsiLocal(line))
 		}
@@ -806,12 +804,12 @@ func (a *App) renderToolViewerOverlay(under string) string {
 
 // renderModelPickerOverlay draws the full-screen model picker. Layout:
 //
-//   models  ·  2 available
-//   ─────────────────────────────────────────────────────────
-//   ▸ cloud nvidia:stepfun-ai/step-3.7-flash   cloud · nvidia
-//     local Qwen_Qwen3-4B-Q5_K_M.gguf          local · llama.cpp
-//   ─────────────────────────────────────────────────────────
-//   ↑↓ navigate · enter switch · esc close
+//	models  ·  2 available
+//	─────────────────────────────────────────────────────────
+//	▸ cloud nvidia:stepfun-ai/step-3.7-flash   cloud · nvidia
+//	  local Qwen_Qwen3-4B-Q5_K_M.gguf          local · llama.cpp
+//	─────────────────────────────────────────────────────────
+//	↑↓ navigate · enter switch · esc close
 //
 // The kind column (cloud / local) replaces an icon, the active model is
 // marked with a leading "▸".
@@ -888,7 +886,7 @@ func (a *App) renderModelPickerOverlay(under string) string {
 		line := fmt.Sprintf("%s %s   %s",
 			marker, row.ID, ui.ToolViewerMeta.Render(kind))
 		if absIdx == a.ModelPicker.Idx {
-			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed+" "+stripAnsiLocal(line))
+			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed + " " + stripAnsiLocal(line))
 		} else {
 			line = "  " + ui.ToolViewerRow.Render(stripAnsiLocal(line))
 		}
@@ -1102,7 +1100,7 @@ func (a *App) renderErrorCard(e ErrorCard, width int) string {
 //
 // Layout per row:
 //
-//   ▸ /help              show this overlay
+//	▸ /help              show this overlay
 //
 // where `▸` marks the highlighted row and the right column shows the
 // command's one-line description. The bottom strip carries a hint so the
@@ -1239,9 +1237,11 @@ func collapsedToolSummary(turn *Turn, gutter string, now time.Time) string {
 }
 
 // renderToolPill renders one tool call as flat lines:
-//   ⏺ tool_name(main arg)  ⏱ 0.4s ✓
-//     ⎿ result preview / note / error
-//     ⎿ … (+N more chars · /tools)
+//
+//	⏺ tool_name(main arg)  ⏱ 0.4s ✓
+//	  ⎿ result preview / note / error
+//	  ⎿ … (+N more chars · /tools)
+//
 // No emoji, no bullet card — the leading ⏺ is colored by status
 // (accent = running, meta = done, fail = error) so the eye reads state
 // from color before reading the name, same idea Claude Code uses.
@@ -1549,7 +1549,7 @@ func wizSep(int) string { return "" }
 // "only use the bear in branding").
 func renderWizWelcome(w *WizardState, width int) string {
 	var b strings.Builder
-	b.WriteString(ui.AccentStyle.Render(ui.FeralLogo))
+	b.WriteString(ui.AccentStyle.Render(ui.CinderpawLogo))
 	b.WriteByte('\n')
 	b.WriteString(ui.WarnStyle.Render(ui.BearLogo))
 	b.WriteByte('\n')
@@ -1603,7 +1603,6 @@ func renderWizWelcome(w *WizardState, width int) string {
 	b.WriteByte('\n')
 	return b.String()
 }
-
 
 // modelDisplayName turns a model repo id into a short, human label for the
 // Engine/download rows (e.g. "bartowski/Qwen_Qwen3.5-9B-GGUF" → "Qwen3.5 9B").
@@ -1739,7 +1738,7 @@ func renderWizCloudProvider(w *WizardState, width int) string {
 	b.WriteString(wizSep(width))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-		// F2 / spec §SEARCHABLE LISTS: search input + filtered list.
+	// F2 / spec §SEARCHABLE LISTS: search input + filtered list.
 	// The cursor (`_`) marks the end of the query.
 	cursor := ui.G.Cursor
 	if w.SearchQuery == "" {
@@ -1837,7 +1836,7 @@ func renderWizTestIt(w *WizardState, width int) string {
 	var b strings.Builder
 	running := w.TestItRunning || anyCheckRunning(w.HealthChecks)
 	if running {
-				// Show all four granular checks with live status.
+		// Show all four granular checks with live status.
 		for i := 0; i < 4; i++ {
 			hc := w.HealthChecks[i]
 			name := hc.Kind.String()
@@ -2024,4 +2023,3 @@ func renderWizardFooter(w *WizardState) string {
 	}
 	return ui.FooterStyle.Render(hint)
 }
-

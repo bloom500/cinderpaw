@@ -29,8 +29,8 @@ describe('SideNav', () => {
     mount();
     const labels = ['New', 'Search', 'Chats', 'Projects', 'Models', 'Settings'];
     for (const l of labels) expect(screen.getByText(l)).toBeTruthy();
-    // FERAL is the seventh, and it is identity rather than a destination.
-    expect(screen.getByText('FERAL')).toBeTruthy();
+    // The wordmark is the seventh, and it is identity rather than a destination.
+    expect(screen.getByText('CINDERPAW')).toBeTruthy();
     // Nothing technical in primary navigation. The whole point of the phase.
     for (const banned of ['Skills', 'Extensions', 'Connectors', 'Memory', 'MCP', 'Agent']) {
       expect(screen.queryByText(banned)).toBeNull();

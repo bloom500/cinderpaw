@@ -19,7 +19,7 @@ import { tauri, type ByokProvider, type ModelInfo } from '@/lib/tauri';
 // `ollama` provider (expecting NDJSON) cannot parse.
 const FERAL_API_BASE = 'http://localhost:11435';
 // Sentinel provider id — the backend ignores it for the openai_compatible
-// source (it keys off baseUrl), but the FeralModelSelection type requires one.
+// source (it keys off baseUrl), but the CinderpawModelSelection type requires one.
 const LOCAL_PROVIDER_ID = 'feral-local';
 
 export function CinderpawModelSelector() {

@@ -629,7 +629,7 @@ export type CinderpawAgentEvent =
   | { type: 'cron_error'; jobId: string; jobName: string; message: string };
 
 /** Display-safe snapshot of the Cinderpaw Agent's active LLM — no API keys. */
-export interface FeralModelConfigView {
+export interface CinderpawModelConfigView {
   provider: string;
   model: string;
   base_url: string;
@@ -637,7 +637,7 @@ export interface FeralModelConfigView {
 }
 
 /** What React sends to Rust when changing the Cinderpaw model. */
-export type FeralModelSelection =
+export type CinderpawModelSelection =
   | { source: 'ollama';            model: string; baseUrl: string }
   | { source: 'byok';              providerId: string; model: string }
   | { source: 'openai_compatible'; baseUrl: string; model: string; providerId: string };
@@ -736,7 +736,7 @@ const raw = {
     providerId?: string | null,
     baseUrl?: string | null,
   ) => invoke<void>('feral_set_model', { source, model, providerId, baseUrl }),
-  feralGetModelConfig:      () => invoke<FeralModelConfigView | null>('feral_get_model_config'),
+  feralGetModelConfig:      () => invoke<CinderpawModelConfigView | null>('feral_get_model_config'),
   mcpCatalog:               () => invoke<McpCatalogEntry[]>('mcp_catalog'),
   mcpList:                  () => invoke<McpServerView[]>('mcp_list'),
   mcpInstall:               (id: string, values: Record<string, string>) =>

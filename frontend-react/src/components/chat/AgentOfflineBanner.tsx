@@ -51,10 +51,15 @@ export function AgentOfflineBanner() {
         {/* The headline shimmers, the explanation does not: a moving sentence
             is harder to read, and only the first half needs to say "still
             working on it" at a glance. */}
+        {/* Calm, and still true. This is the first sentence a new user reads,
+            and it used to end "Messages sent now will fail until it is up" —
+            which is accurate and reads like a fault report on a product they
+            have owned for four seconds. Same information, said the way you
+            would say it to someone standing next to you. */}
         <span>
-          <ShimmeringText text="Cinderpaw is starting" />
-          {' — it loads its memory first, which takes a moment on a large '}
-          {'workspace. Messages sent now will fail until it is up.'}
+          <ShimmeringText text="Cinderpaw is waking up" />
+          {' — it reads its memory first, which takes a moment on a large '}
+          {'workspace. Send in a few seconds and it will be listening.'}
         </span>
       </div>
     );

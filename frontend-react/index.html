@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Feral</title>
+    <title>Cinderpaw</title>
     <!--
       Cinematic shell startup: a blocking, same-origin pre-paint script runs
       before the React module (CSP `script-src 'self'` — no inline JS). It
@@ -91,7 +91,11 @@
         position: relative;
         z-index: 4;
         font-family: 'Geist Variable', Geist, system-ui, sans-serif;
-        font-size: clamp(120px, 22vw, 300px);
+        /* Sized for NINE letters, not five. CINDERPAW at the old 22vw ran off
+           both edges — the crop here is meant to read as deliberate framing,
+           and a word that simply does not fit reads as a bug. Scaled by 5/9 so
+           the wordmark occupies the same share of the screen it always did. */
+        font-size: clamp(64px, 12.2vw, 168px);
         font-weight: 600;
         line-height: 0.9;
         letter-spacing: 0.14em;
@@ -144,21 +148,29 @@
         /* Rest between passes so it reads as a sweep, not a strobe. */
         55%, 100% { background-position: -75% 0; }
       }
-      /* Screen-reader only. The startup screen is deliberately just the
-         wordmark — but "nothing else" must not mean "nothing announced":
-         someone using a screen reader still needs to hear that the app is
-         starting. Visually hidden, not removed. */
+      /* Visible, and announced. This was screen-reader-only, which left the
+         startup screen saying nothing at all to someone looking at it — and on
+         a large workspace that silence lasts long enough to read as a hang.
+         The wordmark alone cannot distinguish "loading" from "stuck".
+         One quiet line, pulsing, is the whole difference. */
       .feral-startup-status {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        margin: -1px;
-        padding: 0;
-        overflow: hidden;
-        clip: rect(0 0 0 0);
-        clip-path: inset(50%);
-        white-space: nowrap;
-        border: 0;
+        position: relative;
+        z-index: 4;
+        margin-top: 1.6em;
+        font-family: 'Geist Variable', Geist, system-ui, sans-serif;
+        font-size: 0.78rem;
+        font-weight: 500;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(240, 230, 211, 0.34);
+        animation: feral-startup-breathe 2200ms ease-in-out infinite;
+      }
+      html[data-theme="light"] .feral-startup-status {
+        color: rgba(28, 22, 16, 0.38);
+      }
+      @keyframes feral-startup-breathe {
+        0%, 100% { opacity: 0.55; }
+        50%      { opacity: 1; }
       }
       /* React mounted: the pre-paint script adds `feral-ready`; the surface
          does an exposure fade (opacity + slight scale) out into the app scene,
@@ -180,6 +192,9 @@
           animation: none;
           background-position: 50% 0;
         }
+        /* Legible and still, not hidden: the line is the only thing on screen
+           telling the person anything. */
+        .feral-startup-status { animation: none; opacity: 1; }
         #feral-startup { transition: opacity 0.45s ease; }
         html.feral-ready #feral-startup { transform: none; }
       }
@@ -191,8 +206,11 @@
       <div class="feral-startup-light" aria-hidden="true"></div>
       <!-- data-word feeds the ::after copy that carries the moving spotlight;
            both layers must show the same letters. -->
-      <div class="feral-startup-wordmark" data-word="FERAL" aria-hidden="true">FERAL</div>
-      <div class="feral-startup-status" role="status">Starting Feral</div>
+      <div class="feral-startup-wordmark" data-word="CINDERPAW" aria-hidden="true">CINDERPAW</div>
+      <!-- Deliberately not "Starting Cinderpaw": the wordmark directly above
+           already says the name, and repeating it spends the one line the
+           startup screen has on something the eye has just read. -->
+      <div class="feral-startup-status" role="status">Starting</div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

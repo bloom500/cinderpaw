@@ -1,10 +1,13 @@
 package ui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAppName(t *testing.T) {
-	if AppName != "FERAL" {
-		t.Fatalf("AppName = %q, want FERAL", AppName)
+	if AppName != "CINDERPAW" {
+		t.Fatalf("AppName = %q, want CINDERPAW", AppName)
 	}
 }
 
@@ -14,14 +17,22 @@ func TestAppVersion(t *testing.T) {
 	}
 }
 
-func TestFeralLogo(t *testing.T) {
-	if FeralLogo == "" {
-		t.Fatal("FeralLogo is empty")
+func TestCinderpawLogo(t *testing.T) {
+	if CinderpawLogo == "" {
+		t.Fatal("CinderpawLogo is empty")
 	}
 	// Should contain box-drawing characters from oh-my-logo/ANSI Shadow.
 	for _, want := range []string{"█", "╗", "╝"} {
-		if !contains(FeralLogo, want) {
-			t.Fatalf("FeralLogo missing %q", want)
+		if !contains(CinderpawLogo, want) {
+			t.Fatalf("CinderpawLogo missing %q", want)
+		}
+	}
+	// Every row must clear a default 80-column terminal. Nine letters is close
+	// enough to the edge that this is worth pinning: a wordmark that wraps does
+	// not look like a wordmark, it looks like the app is broken on first sight.
+	for _, line := range strings.Split(strings.TrimSpace(CinderpawLogo), "\n") {
+		if w := len([]rune(line)); w > 78 {
+			t.Fatalf("CinderpawLogo row is %d columns, too wide for an 80-column terminal: %q", w, line)
 		}
 	}
 }

@@ -692,7 +692,7 @@ body { overflow: hidden; }
 }
 
 /* ── Call telemetry widgets ──────────────────────────────────────────────
-   The panel that shows what Feral is doing during a voice call. Motion here
+   The panel that shows what Cinderpaw is doing during a voice call. Motion here
    has one job: make work legible at a glance, from across a room. So it is
    deliberately small — one entrance, one running state, one completion —
    rather than a set of effects. Durations sit in the 150–300 ms band that

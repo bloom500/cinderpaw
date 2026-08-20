@@ -18,9 +18,9 @@ describe('AgentOfflineBanner startup grace', () => {
     act(() => vi.advanceTimersByTime(14_999));
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1));
-    // "Cinderpaw is starting", not "Cinderpaw Agent": the UX contract bans `agent` from
+    // "Cinderpaw is waking up", not "Cinderpaw Agent": the UX contract bans `agent` from
     // the primary interface, and the person waiting does not have two things.
-    expect(screen.getByRole('status')).toHaveTextContent('Cinderpaw is starting');
+    expect(screen.getByRole('status')).toHaveTextContent('Cinderpaw is waking up');
   });
 
   it('never flashes the startup warning when ready arrives inside the grace period', () => {

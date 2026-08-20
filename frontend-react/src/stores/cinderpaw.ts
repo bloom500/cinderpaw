@@ -1,10 +1,10 @@
 import { create } from 'zustand';
-import type { FeralModelConfigView, FeralModelSelection } from '@/lib/tauri';
+import type { CinderpawModelConfigView, CinderpawModelSelection } from '@/lib/tauri';
 import { tauri } from '@/lib/tauri';
 
 interface FeralStore {
   /** Active model in the sidecar. Null until feral_get_model_config resolves. */
-  modelConfig: FeralModelConfigView | null;
+  modelConfig: CinderpawModelConfigView | null;
   /** True once cinderpaw://agent-ready fires. */
   isReady: boolean;
   /** Last set_model error, if any. Cleared on next setModel call. */
@@ -19,7 +19,7 @@ interface FeralStore {
   /** True while the Rust supervisor is attempting an automatic restart. */
   restarting: boolean;
 
-  setModelConfig(cfg: FeralModelConfigView): void;
+  setModelConfig(cfg: CinderpawModelConfigView): void;
   setReady(v: boolean): void;
   setModelError(err: string | null): void;
   setOffline(offline: boolean, restarting: boolean): void;
@@ -31,7 +31,7 @@ interface FeralStore {
    * Hot-swap the Cinderpaw Agent model. Rust injects the API key from BYOK store —
    * the key never touches React. Throws on error so callers can surface it.
    */
-  setModel(selection: FeralModelSelection): Promise<void>;
+  setModel(selection: CinderpawModelSelection): Promise<void>;
 }
 
 export const useCinderpawStore = create<FeralStore>((set) => ({

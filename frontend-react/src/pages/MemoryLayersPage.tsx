@@ -353,7 +353,7 @@ export default function MemoryLayersPage() {
             <TierPanel key={t} tier={t} nodes={tiers[t]} totalAllTime={stats.total} now={now} />
           ))}
 
-        {/* ── FERAL'S DREAMS ────────────────────────────────────── */}
+        {/* ── CINDERPAW'S DREAMS ────────────────────────────────────── */}
         <section className={`rounded-lg border border-border-default bg-bg-surface/60 p-4 transition-shadow ${panelGlow}`}>
           <header className="mb-3 flex items-center gap-2">
             <Sparkles size={14} className="text-brand" />

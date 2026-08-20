@@ -1,5 +1,5 @@
 === Welcome (step 1 of 14) ===
-FERAL setup wizard                                      [38;2;121;116;107mstep 1 of 14 · Welcome[0m
+CINDERPAW setup wizard                                  [38;2;121;116;107mstep 1 of 14 · Welcome[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  Welcome to Cinderpaw                                                      [38;2;137;83;47m│[0m
@@ -8,10 +8,10 @@ FERAL setup wizard                                      [38;2;121;116;107mstep 
 [38;2;137;83;47m│[0m  Press Enter to continue.                                                  [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 
 === Security (step 2 of 14) ===
-FERAL setup wizard                                     [38;2;121;116;107mstep 2 of 14 · Security[0m
+CINDERPAW setup wizard                                 [38;2;121;116;107mstep 2 of 14 · Security[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  Feral may execute actions using the connectors you enable.                [38;2;137;83;47m│[0m
@@ -23,20 +23,20 @@ FERAL setup wizard                                     [38;2;121;116;107mstep 2
 [38;2;137;83;47m│[0m  Press y to accept, n to decline.                                          [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 
 === Setup mode (step 3 of 14) ===
-FERAL setup wizard                                   [38;2;121;116;107mstep 3 of 14 · Setup mode[0m
+CINDERPAW setup wizard                               [38;2;121;116;107mstep 3 of 14 · Setup mode[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  Pick a path. QuickStart uses safe defaults; Manual                        [38;2;137;83;47m│[0m
 [38;2;137;83;47m│[0m  lets you change every step. Import is coming soon.                        [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 
 === Hardware probe (step 4 of 14) ===
-FERAL setup wizard                               [38;2;121;116;107mstep 4 of 14 · Hardware probe[0m
+CINDERPAW setup wizard                           [38;2;121;116;107mstep 4 of 14 · Hardware probe[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  Probing your machine...                                                   [38;2;137;83;47m│[0m
@@ -47,10 +47,10 @@ FERAL setup wizard                               [38;2;121;116;107mstep 4 of 14
 [38;2;137;83;47m│[0m    Disk:  500 GB free                                                      [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 
 === Model (step 5 of 14) ===
-FERAL setup wizard                                        [38;2;121;116;107mstep 5 of 14 · Model[0m
+CINDERPAW setup wizard                                    [38;2;121;116;107mstep 5 of 14 · Model[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  Run locally  /  Use a cloud key                                           [38;2;137;83;47m│[0m
@@ -59,10 +59,10 @@ FERAL setup wizard                                        [38;2;121;116;107mste
 [38;2;137;83;47m│[0m  Cloud: paste a key. Instant, stronger, some free tiers.                   [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 
 === Provider (step 6 of 14) ===
-FERAL setup wizard                                     [38;2;121;116;107mstep 6 of 14 · Provider[0m
+CINDERPAW setup wizard                                 [38;2;121;116;107mstep 6 of 14 · Provider[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  1. OpenAI        - sk-...                                                 [38;2;137;83;47m│[0m
@@ -71,10 +71,10 @@ FERAL setup wizard                                     [38;2;121;116;107mstep 6
 [38;2;137;83;47m│[0m  4. OpenRouter     - free tier                                             [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 
 === API key (step 7 of 14) ===
-FERAL setup wizard                                      [38;2;121;116;107mstep 7 of 14 · API key[0m
+CINDERPAW setup wizard                                  [38;2;121;116;107mstep 7 of 14 · API key[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  Paste your OpenAI API key.                                                [38;2;137;83;47m│[0m
@@ -84,10 +84,10 @@ FERAL setup wizard                                      [38;2;121;116;107mstep 
 [38;2;137;83;47m│[0m    [Enter] validate                                                        [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 
 === Connectors (step 8 of 14) ===
-FERAL setup wizard                                   [38;2;121;116;107mstep 8 of 14 · Connectors[0m
+CINDERPAW setup wizard                               [38;2;121;116;107mstep 8 of 14 · Connectors[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  Connect chat platforms you already use.                                   [38;2;137;83;47m│[0m
@@ -98,10 +98,10 @@ FERAL setup wizard                                   [38;2;121;116;107mstep 8 o
 [38;2;137;83;47m│[0m  [ ] Telegram                                                              [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 
 === Test it (step 9 of 14) ===
-FERAL setup wizard                                      [38;2;121;116;107mstep 9 of 14 · Test it[0m
+CINDERPAW setup wizard                                  [38;2;121;116;107mstep 9 of 14 · Test it[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  Health checks:                                                            [38;2;137;83;47m│[0m
@@ -111,10 +111,10 @@ FERAL setup wizard                                      [38;2;121;116;107mstep 
 [38;2;137;83;47m│[0m    [..] Streaming round-trip                                               [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 
 === Ready (step 10 of 14) ===
-FERAL setup wizard                                       [38;2;121;116;107mstep 10 of 14 · Ready[0m
+CINDERPAW setup wizard                                   [38;2;121;116;107mstep 10 of 14 · Ready[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
 [38;2;137;83;47m│[0m  Setup complete.                                                           [38;2;137;83;47m│[0m
@@ -127,5 +127,5 @@ FERAL setup wizard                                       [38;2;121;116;107mstep
 [38;2;137;83;47m│[0m    - Explain this codebase.                                                [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m
                                                                               
- [38;2;121;116;107m(=-._.=) FERAL v0.1.0 | Own your agent[0m                                       
+ [38;2;121;116;107m(=-._.=) CINDERPAW v0.1.0 | Own your agent[0m                                   
 

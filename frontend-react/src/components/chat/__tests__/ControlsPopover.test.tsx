@@ -12,7 +12,7 @@ vi.mock('@/stores/cinderpaw', () => ({ useCinderpawStore: vi.fn() }));
 
 const mockUseModel = vi.mocked(useModel);
 const mockUseUI = vi.mocked(useUI);
-const mockUseFeral = vi.mocked(useCinderpawStore);
+const mockUseCinderpaw = vi.mocked(useCinderpawStore);
 const mockSetModelContext = vi.fn().mockResolvedValue(undefined);
 
 /**
@@ -37,7 +37,7 @@ function setup(
     }),
   );
   mockUseUI.mockImplementation((sel: any) => sel({ inputMode: 'chat' }));
-  mockUseFeral.mockImplementation((sel: any) => sel({ modelConfig: null }));
+  mockUseCinderpaw.mockImplementation((sel: any) => sel({ modelConfig: null }));
 }
 
 describe('ControlsPopover — context window', () => {

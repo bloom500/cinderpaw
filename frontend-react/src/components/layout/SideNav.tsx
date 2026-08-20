@@ -13,6 +13,7 @@ import { useUI } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
 import { cn } from '@/lib/utils';
+import { APP_NAME } from '@/lib/brand';
 
 /**
  * Primary navigation. It answers exactly one question — where do I want to go —
@@ -240,7 +241,7 @@ export function SideNav() {
         <div className="h-12 px-3 flex items-center justify-between shrink-0">
           {!collapsed && (
             <span className="font-semibold text-sm text-text-primary tracking-wide select-none">
-              FERAL
+              {APP_NAME.toUpperCase()}
             </span>
           )}
           <button
