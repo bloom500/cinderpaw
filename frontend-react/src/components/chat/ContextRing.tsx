@@ -39,21 +39,28 @@ export function ContextRing() {
       ? (livePromptTokens! + (liveCompletionTokens ?? 0))
       : messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
 
-    const pct = Math.min(1, used / ctxWindow);
+    // `ctxWindow` is 0 when no model is loaded, and 0/0 is NaN — which then
+    // flows into the ring's stroke-dashoffset and the percentage label, drawing
+    // nothing and reading "NaN%".
+    const pct = ctxWindow > 0 ? Math.min(1, used / ctxWindow) : 0;
     const remaining = estimateRemaining(ctxWindow, used, messages.length);
     return { used, ctxWindow, pct, modelName: model ?? 'Unknown', remaining, isLive };
   }, [messages, livePromptTokens, liveCompletionTokens, isAgentMode, feralConfig, cloudModel, loaded]);
 
   if (messages.length === 0) return null;
 
+  // `--c-red` and `--color-text-muted` do not exist — the tokens are `--error`
+  // and `--text-muted` — so every branch fell through to its hardcoded fallback
+  // and the ring was painted in Tailwind's red/amber/grey regardless of theme.
+  // Against a warm brown palette that reads as a foreign element pasted on.
   const ringColor =
-    pct >= 0.9 ? 'var(--c-red, #ef4444)'
-    : pct >= 0.75 ? '#f59e0b'
-    : 'var(--color-text-muted, #888)';
+    pct >= 0.9 ? 'var(--error)'
+    : pct >= 0.75 ? 'var(--warning)'
+    : 'var(--text-muted)';
 
   const statusColor =
-    pct >= 0.9 ? 'text-red-400'
-    : pct >= 0.75 ? 'text-amber-400'
+    pct >= 0.9 ? 'text-error'
+    : pct >= 0.75 ? 'text-warning'
     : 'text-text-muted';
 
   const pctLabel = pct < 0.01 ? '<1' : Math.round(pct * 100).toString();

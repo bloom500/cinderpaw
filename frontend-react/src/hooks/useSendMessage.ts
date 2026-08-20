@@ -100,6 +100,26 @@ export function voiceSurfaceBrief(hasTools: boolean): string {
   return hasTools ? VOICE_WITH_TOOLS : VOICE_WITHOUT_TOOLS;
 }
 
+/**
+ * A filename or path, made safe to put inside a marker in the prompt.
+ *
+ * These were interpolated raw, so a file whose NAME contains a closing marker
+ * and a newline could end the block the model is reading and start giving it
+ * instructions instead. The person who dropped the file is not necessarily the
+ * person who named it — it may have arrived by email, download or connector.
+ *
+ * Control characters go, the marker brackets go, and the length is capped.
+ * What is left still reads as the filename to a person.
+ */
+function safeMarkerText(raw: string): string {
+  const cleaned = raw
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1F\x7F]+/g, ' ')
+    .replace(/[[\]]/g, '')
+    .trim();
+  return cleaned.length > 200 ? `${cleaned.slice(0, 200)}…` : cleaned || 'unnamed';
+}
+
 export function buildUserContent(text: string, files: AttachedFile[]): string {
   const textFiles = files.filter((f) => f.content !== null);
   const imageFiles = files.filter((f) => f.kind === 'image' && f.dataUrl);
@@ -113,14 +133,17 @@ export function buildUserContent(text: string, files: AttachedFile[]): string {
     // back out for display (showing a "Feral.pdf" chip instead of the whole
     // file) — see parseUserAttachments(). It also gives the model a clear file
     // boundary. Keep the marker format in sync with that parser.
-    ...textFiles.map((f) => `[File: ${f.name}]\n${f.content}\n[/File: ${f.name}]`),
+    ...textFiles.map((f) => {
+      const name = safeMarkerText(f.name);
+      return `[File: ${name}]\n${f.content}\n[/File: ${name}]`;
+    }),
     // Text-only models can't see pixels — note the attachment so the model
     // can at least acknowledge it instead of silently ignoring the upload.
-    ...imageFiles.map((f) => `[Image attached: ${f.name}]`),
+    ...imageFiles.map((f) => `[Image attached: ${safeMarkerText(f.name)}]`),
     ...binaryFiles.map((f) =>
       f.path.startsWith('clipboard://')
-        ? `[File attached: ${f.name} (binary, no extractable text)]`
-        : `[File attached: ${f.name} (binary file at path: ${f.path}). If you have file tools, you can read it from that path.]`,
+        ? `[File attached: ${safeMarkerText(f.name)} (binary, no extractable text)]`
+        : `[File attached: ${safeMarkerText(f.name)} (binary file at path: ${safeMarkerText(f.path)}). If you have file tools, you can read it from that path.]`,
     ),
   ];
   return `${blocks.join('\n\n')}\n\n${text}`;
@@ -304,6 +327,7 @@ export function useSendMessage() {
           // the scratchpad here) — but it re-saves the WHOLE conversation, so
           // omitting the field would wipe the stats off every earlier agent turn.
           scratch: m.scratch,
+          created_at: m.createdAt,
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);
@@ -367,6 +391,11 @@ export function useSendMessage() {
           cancelFlush();
           if (isActive()) useChat.getState().setStreamStatus('error', err);
           useConversations.getState().unmarkStreaming(sessionId);
+          // Save what did arrive. `onStopped` persists and `useFeral`'s error
+          // path persists; this one did not, so a turn that failed halfway —
+          // a dropped connection, a 500 from the provider — lost every token
+          // it had already produced the moment the conversation was reloaded.
+          void persistFinal();
         },
         onStopped: () => {
           cancelFlush();

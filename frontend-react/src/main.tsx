@@ -16,6 +16,10 @@ import './styles/globals.css';
         : pref;
     document.documentElement.setAttribute('data-theme', resolved);
   } catch {
+    // Unparseable persisted UI state. The theme falls back, but the value stays
+    // broken for zustand's own rehydrate too — every boot silently loses the
+    // user's settings again. Clear it once so the next start is clean.
+    try { localStorage.removeItem('feral-ui'); } catch { /* storage unavailable */ }
     document.documentElement.setAttribute('data-theme', 'dark');
   }
 })();

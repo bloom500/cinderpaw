@@ -61,7 +61,13 @@ export function ChatPage() {
     if (isEmpty && !showAgentOnboarding) {
       const containerH = container.offsetHeight;
       const inputH     = wrapper.offsetHeight;
-      setTranslateY(-(containerH / 2 - inputH / 2));
+      // Never push the composer DOWN. When the window is short enough that the
+      // composer is taller than the space it sits in — a narrow window with
+      // attachments and a few lines typed — the centring maths goes positive
+      // and moves the input toward the bottom edge, half of it off screen. In
+      // that case there is nothing to centre: leave it where it is.
+      const offset = containerH / 2 - inputH / 2;
+      setTranslateY(offset > 0 ? -offset : 0);
     } else {
       setTranslateY(0);
     }

@@ -1085,8 +1085,13 @@ mod backend {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-        // Lazy load (idempotent; a rare concurrent double-load just wastes one
-        // load — the second overwrites the first).
+        // Lazy load, serialized behind its own lock. `load_embedding` takes the
+        // EMBED lock itself, so the check could not simply hold it — which left
+        // a window where two concurrent callers both saw None and both mmap'd
+        // the model, the second silently discarding the first. Twice the RAM
+        // and twice the load time, for one model.
+        static EMBED_LOAD: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        let _loading = EMBED_LOAD.lock();
         if EMBED.lock().is_none() {
             let path = embedding_model_path().ok_or_else(|| {
                 anyhow!(
@@ -1096,6 +1101,7 @@ mod backend {
             })?;
             load_embedding(&path)?;
         }
+        drop(_loading);
 
         let mut guard = EMBED.lock();
         let state = guard

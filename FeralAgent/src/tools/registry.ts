@@ -161,12 +161,31 @@ export class ToolRegistry {
     if (result.ok) return result;
     const fallbacks = tool.manifest.fallback;
     if (!fallbacks || fallbacks.length === 0) return result;
+    // The chain so far, including this tool. A fallback that leads back to
+    // something already tried is a cycle, and a cycle here is a stack overflow
+    // rather than a failed tool call.
+    const chain: readonly string[] = [...(opts.fallbackChain ?? []), name];
+    const MAX_FALLBACK_DEPTH = 4;
+    if (chain.length > MAX_FALLBACK_DEPTH) {
+      return {
+        ...result,
+        content: `${result.content} (fallback chain stopped after ${MAX_FALLBACK_DEPTH} hops: ${chain.join(" → ")})`,
+      };
+    }
     for (const fb of fallbacks) {
       const fbName = typeof fb === "string" ? fb : fb.name;
       const fbTool = this.#tools.get(fbName);
       if (!fbTool) continue;
+      if (chain.includes(fbName)) continue; // already tried in this chain
       const fbArgs = typeof fb === "object" && fb.argMap ? fb.argMap(args) : args;
-      const fbResult = await this.call(fbName, fbArgs, sessionId, opts);
+      // A fresh signal per fallback: reusing `opts` handed the fallback the
+      // abort signal that had ALREADY fired for the primary, so the retry was
+      // cancelled before it started and reported as if it had been tried.
+      const { signal: _dead, ...rest } = opts;
+      const fbResult = await this.call(fbName, fbArgs, sessionId, {
+        ...rest,
+        fallbackChain: chain,
+      });
       if (fbResult.ok) {
         return {
           ok: true,

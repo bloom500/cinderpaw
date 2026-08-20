@@ -84,9 +84,9 @@ function ConfirmDeleteDialog({
         </DialogHeader>
         <p className="text-sm text-text-secondary">{body}</p>
         {error && (
-          <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-3">
-            <AlertCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
-            <p className="text-sm text-red-400">{error}</p>
+          <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
+            <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+            <p className="text-sm text-error">{error}</p>
           </div>
         )}
         <DialogFooter>
@@ -166,7 +166,7 @@ function RenameDialog({
           <button
             onClick={() => void save()}
             disabled={!draft.trim()}
-            className="px-3 py-1.5 text-sm rounded bg-brand text-white disabled:opacity-40"
+            className="px-3 py-1.5 text-sm rounded bg-brand text-on-brand disabled:opacity-40"
           >
             Save
           </button>
@@ -231,7 +231,7 @@ export function ConversationActions({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => setConfirmDelete(true)}
-            className="text-red-400 focus:text-red-400"
+            className="text-error focus:text-error"
           >
             <Trash2 size={13} />
             Delete chat
@@ -271,7 +271,7 @@ export function ProjectActions({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => setConfirmDelete(true)}
-            className="text-red-400 focus:text-red-400"
+            className="text-error focus:text-error"
           >
             <Trash2 size={13} />
             Delete project

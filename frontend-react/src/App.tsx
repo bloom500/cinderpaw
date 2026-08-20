@@ -26,9 +26,14 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
       <span>
         Downloading embedding model… {pct}%
       </span>
+      {/* `bg-bg-muted` was not a token in tailwind.config.ts — the bg scale has
+          `elevated`, `hover` and `active`, and no `muted` — so the class
+          compiled to nothing and this progress track was invisible: the bar
+          floated with no groove behind it, and at 0% there was nothing on
+          screen at all. */}
       <span
         aria-hidden
-        className="ml-1 h-1 w-16 overflow-hidden rounded-full bg-bg-muted"
+        className="ml-1 h-1 w-16 overflow-hidden rounded-full bg-bg-elevated"
       >
         <span
           className="block h-full bg-brand transition-[width] duration-150"
@@ -69,13 +74,19 @@ export default function App() {
   // Auto-reload: when the Rust startup task finishes loading the last model,
   // it emits model-load-progress at 100% while isLoading=false. Sync the store.
   useEffect(() => {
+    // `listen()` resolves asynchronously. Unmounting before it does used to run
+    // the cleanup while `unlisten` was still null, and the listener then
+    // registered itself into a component that no longer exists — attached for
+    // the life of the window, firing on every event, with nothing left to
+    // release it. `cancelled` closes that gap by releasing on arrival.
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
     events.modelLoadProgressEvent.listen((e) => {
       if (e.payload.percentage >= 100 && !useModel.getState().isLoading) {
         void useModel.getState().refresh();
       }
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    }).then((fn) => { if (cancelled) fn(); else unlisten = fn; });
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   return (

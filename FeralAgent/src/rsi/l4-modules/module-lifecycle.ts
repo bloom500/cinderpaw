@@ -259,6 +259,25 @@ export class ModuleLifecycle {
       this.setState(moduleId, "awaiting_approval");
       this.transition(seam, moduleId, "evaluated", "awaiting_approval", "dream", "gates passed — human approval required");
       return { ok: true, state: "awaiting_approval", report };
+    } catch (err) {
+      // A throw past `setState(evaluated)` used to leave the module sitting in
+      // `evaluated` — which is itself an evaluatable state. The next dream cycle
+      // therefore evaluated it again, and again, each pass paying for a full
+      // contract FSM run against a cloud model. A module with a deterministic
+      // bug billed the user on every boot until they demoted it by hand.
+      //
+      // Marking it failed makes the failure terminal, and the error still
+      // propagates so the caller learns what happened.
+      this.setState(moduleId, "failed");
+      this.transition(
+        seam,
+        moduleId,
+        this.stateOf(moduleId) ?? "evaluated",
+        "failed",
+        "dream",
+        `evaluation threw: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw err;
     } finally {
       this.evalBusy.delete(seam);
     }
@@ -389,9 +408,23 @@ export class ModuleLifecycle {
             // the other four are not observable in a module eval → 0.
             fitnessVector: {
               accuracy: passRate,
+              // Every FitnessVector component is contracted to be in [0, 1],
+              // higher-is-better. The raw candidate/incumbent ratio is neither:
+              // a module twice as slow scored 2.0, and L6's meta-evolution
+              // aggregated that as if it were an excellent result — the slower
+              // the module, the better it looked. Mapped so 1 means "at least
+              // as fast as the incumbent" and 0 means "twice as slow or worse".
               latency:
                 report.latency.incumbentMeanMs > 0
-                  ? report.latency.candidateMeanMs / report.latency.incumbentMeanMs
+                  ? Math.min(
+                      1,
+                      Math.max(
+                        0,
+                        2 -
+                          report.latency.candidateMeanMs /
+                            report.latency.incumbentMeanMs,
+                      ),
+                    )
                   : 0,
               cost: 0,
               toolSuccess: 0,

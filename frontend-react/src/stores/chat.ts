@@ -221,6 +221,17 @@ export const TOOL_CALL_STREAM_MAX = 4;
 /** How long a finished tool bubble lingers before fading out on its own. */
 export const TOOL_CALL_LINGER_MS = 4_000;
 
+/**
+ * Linger timers for finished tool-call bubbles, so a session reset can cancel
+ * the ones whose entries are about to be discarded anyway.
+ */
+const lingerTimers = new Set<number>();
+
+function clearLingerTimers(): void {
+  for (const t of lingerTimers) window.clearTimeout(t);
+  lingerTimers.clear();
+}
+
 export const useChat = create<ChatStore>((set) => ({
   sessionId: crypto.randomUUID(),
   messages: [],
@@ -235,7 +246,8 @@ export const useChat = create<ChatStore>((set) => ({
   lastCompletionStopped: false,
   feedback: {},
 
-  newSession: () =>
+  newSession: () => {
+    clearLingerTimers();
     set({
       sessionId: crypto.randomUUID(),
       messages: [],
@@ -249,10 +261,13 @@ export const useChat = create<ChatStore>((set) => ({
       toolCallStream: [],
       lastCompletionStopped: false,
       feedback: {},
-    }),
+    });
+  },
 
-  loadSession: (sessionId, messages, streamStatus = 'idle') =>
-    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false, feedback: {} }),
+  loadSession: (sessionId, messages, streamStatus = 'idle') => {
+    clearLingerTimers();
+    return set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false, feedback: {} });
+  },
 
   setFeedback: (messageId, value) =>
     set((s) => {
@@ -364,9 +379,16 @@ export const useChat = create<ChatStore>((set) => ({
     // Finished bubbles fade out on their own after a short linger instead of
     // piling up until the whole turn ends. AnimatePresence in ToolCallStack
     // plays the exit animation when the entry leaves the array.
-    window.setTimeout(() => {
+    //
+    // The handle is tracked so starting a new session can cancel it. Untracked,
+    // every finished tool call left a timer running for its full linger, and
+    // rapidly starting new chats piled up timers that would each wake the app
+    // to filter a list their entry had already left.
+    const timer = window.setTimeout(() => {
+      lingerTimers.delete(timer);
       set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== id) }));
     }, TOOL_CALL_LINGER_MS);
+    lingerTimers.add(timer);
   },
 
   noteToolProgress: (message) => {

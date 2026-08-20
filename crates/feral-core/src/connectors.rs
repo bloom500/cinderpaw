@@ -574,13 +574,12 @@ pub fn save_connector_configs(connectors: &[ConnectorConfig]) -> Result<(), Stri
     let raw = serde_json::to_string_pretty(&ConnectorConfigFile { connectors: connectors.to_vec() })
         .map_err(|e| e.to_string())?;
     let path = config_path();
-    // Temp-file + rename: `std::fs::write` truncates before writing, so a
-    // crash mid-write would lose the whole file. The rename is atomic on
-    // both Windows and Unix, so a killed process leaves either the old file
-    // intact or the new one fully written — never a half-written one.
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, raw).map_err(|e| format!("Couldn't save connector settings: {e}"))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("Couldn't save connector settings: {e}"))
+    // Temp-file + rename, and owner-only: this file holds the Discord, Slack,
+    // Telegram and WhatsApp bot tokens in clear text, and it used to land at
+    // whatever the umask gave — typically 0644, readable by every other account
+    // on the machine. The atomicity was already here; the permission was not.
+    crate::atomic_file::write_secret_atomic(&path, raw.as_bytes())
+        .map_err(|e| format!("Couldn't save connector settings: {e}"))
 }
 
 pub fn load_connector_config(id: &str) -> Option<ConnectorConfig> {

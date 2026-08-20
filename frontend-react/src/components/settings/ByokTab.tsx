@@ -207,8 +207,8 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
                 Remove key
               </button>
             )}
-            {testMsg && <span className={cn('text-xs', testMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>{testMsg}</span>}
-            {saveMsg && <span className={cn('text-xs', saveMsg.startsWith('✓') ? 'text-text-muted' : 'text-red-400')}>{saveMsg}</span>}
+            {testMsg && <span className={cn('text-xs', testMsg.startsWith('✓') ? 'text-green-400' : 'text-error')}>{testMsg}</span>}
+            {saveMsg && <span className={cn('text-xs', saveMsg.startsWith('✓') ? 'text-text-muted' : 'text-error')}>{saveMsg}</span>}
           </div>
         </div>
       </CollapsibleContent>

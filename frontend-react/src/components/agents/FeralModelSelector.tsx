@@ -62,6 +62,21 @@ export function FeralModelSelector() {
     } catch (err) {
       setModelError(String(err));
       useNotifications.getState().push('error', 'Could not switch model', String(err));
+      // The engine unloads the current model before it tries to load the new
+      // one, so a failure here leaves NOTHING resident — while the picker still
+      // shows the previous model as active. The next message then goes to an
+      // engine with no model and comes back empty, and the screen says the
+      // model is loaded. Ask what is actually live and show that.
+      try {
+        const live = await tauri.models.loaded();
+        if (!live) {
+          useNotifications.getState().push(
+            'error',
+            'No model is loaded',
+            'The previous model was unloaded before the new one failed. Pick a model to load.',
+          );
+        }
+      } catch { /* status unavailable — the error above is what matters */ }
     } finally {
       setLoadingModel(null);
     }

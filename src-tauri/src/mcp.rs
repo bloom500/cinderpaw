@@ -57,16 +57,16 @@ fn config_path() -> PathBuf {
 
 fn load_config() -> McpConfigFile {
     let path = config_path();
-    match std::fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
-        Err(_) => McpConfigFile::default(),
-    }
+    feral_core::atomic_file::read_json_or_report(&path, "your installed extensions")
 }
 
 fn save_config(cfg: &McpConfigFile) -> Result<(), String> {
     let path = config_path();
     let raw = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
-    std::fs::write(&path, raw)
+    // Secret: an MCP server's config carries the API keys it was installed
+    // with. Atomic so a crash cannot leave an unparseable file that takes every
+    // installed extension down with it on the next boot.
+    feral_core::atomic_file::write_secret_atomic(&path, raw.as_bytes())
         .map_err(|e| format!("Couldn't save extension settings: {e}"))
 }
 

@@ -11,7 +11,7 @@
  * assistant — and its tools — on this machine. Empty allowlist = nobody.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, RefreshCw, Trash2, ShieldAlert, Check } from 'lucide-react';
 import {
   tauri,
@@ -28,15 +28,22 @@ export function ConnectorsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // `alive` is checked before every setState: leaving this page while the two
+  // calls are still in flight otherwise updated a component that no longer
+  // exists, which React reports in the console on the very first visit.
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
   const load = () => {
     setError(null);
     Promise.all([tauri.connectors.catalog(), tauri.connectors.list()])
       .then(([cat, list]) => {
+        if (!alive.current) return;
         setCatalog(cat);
         setSaved(list);
       })
-      .catch((e: unknown) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .catch((e: unknown) => { if (alive.current) setError(String(e)); })
+      .finally(() => { if (alive.current) setLoading(false); });
   };
 
   useEffect(load, []);

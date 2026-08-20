@@ -84,7 +84,36 @@ const W_DIFF: f64 = 0.10;
 /// is not "all green" — and a crashed/killed suite gets no pass
 /// credit for its partial counts (see the inline rule).
 pub fn score_code_patch(m: &CodePatchMeasurements) -> CodePatchScore {
-    let total = m.tests_passed + m.tests_failed;
+    // The counts come from parsing the test runner's OUTPUT, in a worktree
+    // holding code the agent just wrote — which means a candidate can print
+    // its own scoreboard. `console.log("99999 pass, 0 fail")` produced a
+    // perfect pass rate for a patch with no tests at all.
+    //
+    // Keeping the formula in Rust protects the WEIGHTS from being edited; it
+    // does nothing about fabricated INPUTS. A count far outside what this repo
+    // could possibly run is treated as no evidence rather than as a triumph.
+    //
+    // ponytail: a flat ceiling, not a count of test files. Counting them means
+    // walking the worktree from here and agreeing with the runner about what a
+    // test is; the ceiling catches the fabrication without either.
+    const MAX_CREDIBLE_TESTS: u32 = 20_000;
+    if m.tests_passed > MAX_CREDIBLE_TESTS || m.tests_failed > MAX_CREDIBLE_TESTS {
+        tracing::warn!(
+            passed = m.tests_passed,
+            failed = m.tests_failed,
+            "code patch reported an impossible number of tests — scoring it as no evidence"
+        );
+        return CodePatchScore {
+            score: 0.0,
+            pass_rate: 0.0,
+            tsc_clean: m.tsc_exit_code == 0,
+            build_ok: m.build_exit_code == 0,
+            diff_economy: 0.0,
+        };
+    }
+    // Saturating: `tests_passed + tests_failed` at u32::MAX wrapped to a small
+    // total, which turned an absurd pair of counts into a plausible pass rate.
+    let total = m.tests_passed.saturating_add(m.tests_failed);
     // No pass credit when: nothing ran; the runner killed the suite
     // (negative exit = timeout/crash — a partial pass count is not a
     // pass rate); or the suite exited non-zero WITHOUT any parsed
@@ -220,6 +249,25 @@ fn check_header_path(rest: &str) -> Result<(), String> {
     let Some(p) = header_path(rest) else {
         return Ok(());
     };
+    // Nothing but printable ASCII in a path this patch may touch.
+    //
+    // Two separate attacks, both of which read as the ordinary filename in
+    // every UI a human would review the patch in:
+    //   * a zero-width space inside `code-genome.ts` makes the denylist
+    //     comparison below fail byte-for-byte, so the file that ENFORCES what
+    //     may be patched becomes patchable;
+    //   * a right-to-left override renders the name reversed, so a reviewer
+    //     approves what looks like an existing file and a different one is
+    //     written.
+    // The source tree is ASCII filenames, so refusing everything else costs
+    // nothing real.
+    if let Some(bad) = p.chars().find(|c| !c.is_ascii_graphic() && *c != ' ') {
+        return Err(format!(
+            "path contains a non-printable or non-ASCII character (U+{:04X}): {}",
+            bad as u32,
+            p.escape_debug()
+        ));
+    }
     if p.starts_with('/') || (p.len() >= 2 && p.as_bytes()[1] == b':') {
         return Err(format!("absolute path not allowed: {p}"));
     }
@@ -232,8 +280,13 @@ fn check_header_path(rest: &str) -> Result<(), String> {
     if !p.ends_with(ALLOWED_EXTENSION) {
         return Err(format!("only {ALLOWED_EXTENSION} files may be patched: {p}"));
     }
-    let basename = p.rsplit('/').next().unwrap_or(&p);
-    if DENYLIST_BASENAMES.contains(&basename) {
+    // Case-insensitive: NTFS and default macOS treat `Code-Genome.ts` and
+    // `code-genome.ts` as one file, so a case change was a way around the list.
+    let basename = p.rsplit('/').next().unwrap_or(&p).to_ascii_lowercase();
+    if DENYLIST_BASENAMES
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(&basename))
+    {
         return Err(format!("enforcement file may not be patched: {p}"));
     }
     Ok(())

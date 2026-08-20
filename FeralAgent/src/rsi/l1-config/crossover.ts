@@ -52,13 +52,18 @@ export function crossoverConfigs(
 
 /**
  * Element-wise mean of two weight vectors, renormalised onto the simplex
- * (sum 1). Operates over the shorter length if they differ. Falls back
- * to a uniform vector if the blended weights sum to zero (degenerate),
- * so the result is always a valid point on the simplex.
+ * (sum 1). Missing entries in the shorter vector count as zero, so a child
+ * never loses a weight the longer parent had. Falls back to a uniform vector
+ * if the blended weights sum to zero (degenerate), so the result is always a
+ * valid point on the simplex.
  */
 function blendSimplex(a: number[], b: number[]): number[] {
-  const n = Math.min(a.length, b.length);
-  const blended = Array.from({ length: n }, (_, i) => mean(a[i]!, b[i]!));
+  // Pad, do not truncate. `Math.min` dropped the tail of the LONGER vector, so
+  // when the tool registry grew between iterations the child silently lost
+  // every weight the fitter parent had learned for the new tools — and the
+  // result still looked like a valid simplex point.
+  const n = Math.max(a.length, b.length);
+  const blended = Array.from({ length: n }, (_, i) => mean(a[i] ?? 0, b[i] ?? 0));
   const total = blended.reduce((s, w) => s + w, 0);
   if (total <= 0) return Array.from({ length: n }, () => 1 / n);
   return blended.map((w) => w / total);

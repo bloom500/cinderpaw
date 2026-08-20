@@ -117,6 +117,44 @@ function severed<T extends object>(o: T): T {
   return o;
 }
 
+/**
+ * Rebuild `value` inside the sandbox's own realm before handing it over.
+ *
+ * The escape being closed: a tool result or an `rlm.*` answer is a HOST object.
+ * Its prototype chain leads to the host `Array`/`Object`, whose `.constructor`
+ * is the host `Function` — and `Function("return process")()` compiled there
+ * runs with our filesystem and our network, past the registry, the egress proxy
+ * and the audit log. `severed()` closed that for the envelope only; anything
+ * one property deeper (`result.data.rows`, `entry.trail`) was still a live host
+ * object.
+ *
+ * Nulling prototypes all the way down would close it too, and did — by also
+ * removing `.map`, `.filter` and `.join` from every array we handed over, which
+ * makes the values useless to the notebook. So instead the value is serialised
+ * and parsed AGAIN by the guest's own `JSON`, which produces objects whose
+ * prototypes belong to the sandbox realm. The notebook gets ordinary arrays and
+ * objects with all their methods; `.constructor.constructor` reaches the
+ * sandbox's own `Function`, which is where it already was.
+ *
+ * Functions and cycles do not survive JSON, which is correct: neither should
+ * cross this boundary.
+ */
+function toGuest<T>(value: T, parseInGuest: (json: string) => unknown): T {
+  if (value === null || typeof value !== "object") return value;
+  let json: string;
+  try {
+    json = JSON.stringify(value) ?? "null";
+  } catch {
+    // A cycle, or something JSON cannot represent. Refusing beats leaking a
+    // host object, and a notebook cell can survive being told so.
+    return severed({ error: "value could not be passed into the notebook" }) as unknown as T;
+  }
+  return parseInGuest(json) as T;
+}
+
+/** Most tool names the notebook keeps; see `#calls`. */
+const MAX_TRACKED_CALLS = 10_000;
+
 /** JS identifier for a tool name (`read_file` → `read_file`, `read-file` → `read_file`). */
 export function toIdentifier(toolName: string): string {
   const id = toolName.replace(/[^A-Za-z0-9_$]/g, "_");
@@ -143,6 +181,15 @@ export class Notebook {
    */
   #signal?: AbortSignal;
   #log: string[] = [];
+  /**
+   * Tool names invoked, newest last, capped at {@link MAX_TRACKED_CALLS}.
+   *
+   * The notebook is long-lived by design — it survives compaction and lives as
+   * long as the session — and this array only ever grew. Weeks of active use
+   * meant tens of thousands of strings kept for a list nothing reads in full,
+   * plus a fresh `slice` copy on every cell. Dropping the oldest entries costs
+   * nothing: every reader wants the calls made by the CURRENT cell.
+   */
   #calls: string[] = [];
   #children: string[] = [];
   #injected = new Set<string>();
@@ -154,6 +201,18 @@ export class Notebook {
     const logLines: string[] = [];
     const write = (a: unknown[]) => {
       logLines.push(a.map(render).join(" "));
+    };
+
+    // Filled in immediately after `createContext` below. The closures built
+    // here run later — once a cell calls them — so by then it is set. If a
+    // value somehow crosses before that, refuse rather than hand over a host
+    // object: that is the whole point of the boundary.
+    let parseInGuest: ((json: string) => unknown) | null = null;
+    const guest = <T,>(value: T): T => {
+      if (!parseInGuest) {
+        return severed({ error: "notebook not ready" }) as unknown as T;
+      }
+      return toGuest(value, parseInGuest);
     };
     // Start from nothing: the context supplies its own JSON/Math/Array/etc.
     const sandbox: Record<string, unknown> = {
@@ -173,13 +232,16 @@ export class Notebook {
       if (excluded.has(name)) continue;
       sandbox[toIdentifier(name)] = severed(async (args: Record<string, unknown> = {}) => {
         this.#calls.push(name);
+        if (this.#calls.length > MAX_TRACKED_CALLS) {
+          this.#calls.splice(0, this.#calls.length - MAX_TRACKED_CALLS);
+        }
         const res: ToolResult = await opts.registry.call(name, args ?? {}, opts.sessionId, {
           signal: this.#signal,
         });
         // Sever the result too: handing back an object with host
         // `Object.prototype` would reopen the `.constructor` route we just
         // closed. Own properties still read normally with a null prototype.
-        return severed({ ok: res.ok, content: res.content, data: res.data, error: res.error });
+        return guest({ ok: res.ok, content: res.content, data: res.data, error: res.error });
       });
     }
 
@@ -222,29 +284,28 @@ export class Notebook {
           signal: this.#signal,
         });
         this.#children.push(h.rlm_child_id);
-        return severed({ ...h });
+        return guest({ ...h });
       }) as ((task: unknown, options?: unknown) => Promise<unknown>) & Record<string, unknown>;
 
-      rlm.list_subagents = severed(async () => severed({ subagents: kids.list().map((e) => severed({ ...e })) }));
+      rlm.list_subagents = severed(async () => guest({ subagents: kids.list() }));
       // The mailbox. `messages()` drains; `pending` peeks — a parent that is
       // mid-thought should be able to check without consuming.
-      rlm.messages = severed(async () =>
-        severed({ messages: kids.drainInbox().map((m) => severed({ ...m })) }));
-      rlm.pending = severed(async () => kids.pending);
+      rlm.messages = severed(async () => guest({ messages: kids.drainInbox() }));
+      rlm.pending = severed(async () => guest(kids.pending));
 
       rlm.observe = severed(async (target: unknown) => {
         if (typeof target !== "string" || !target.trim()) {
           throw new Error("rlm.observe target must be a non-empty string");
         }
         const e = kids.observe(target.trim());
-        return severed({ ...e, trail: (e.trail ?? []).map((t) => severed({ ...t })) });
+        return guest({ ...e, trail: e.trail ?? [] });
       });
       rlm.delete_subagent = severed(async (target: unknown) => {
         if (typeof target !== "string" || !target.trim()) {
           throw new Error("rlm.delete_subagent target must be a non-empty string");
         }
         const r = kids.delete(target.trim());
-        return severed({ subagent: severed({ ...r.subagent }), outcome: r.outcome });
+        return guest({ subagent: r.subagent, outcome: r.outcome });
       });
       sandbox.rlm = rlm;
     }
@@ -256,6 +317,11 @@ export class Notebook {
     // cell would otherwise expose host `Object.prototype` — the last escape
     // route, and the one a model hits by writing plain `this`.
     this.#ctx = createContext(severed(sandbox));
+    // The guest's own JSON. Values handed to the notebook are rebuilt with it
+    // so their prototypes belong to the sandbox realm — see `toGuest`.
+    parseInGuest = runInContext("(s) => JSON.parse(s)", this.#ctx) as (
+      json: string,
+    ) => unknown;
     // The log array is read back after each cell; keep it on our side only.
     this.#log = logLines;
   }
@@ -337,6 +403,8 @@ export class Notebook {
    * a REPL would, so `x = await read_file({path})` both binds and echoes.
    */
   async run(source: string): Promise<CellResult> {
+    // Clamped when the trim above has moved the window: `before` is only a
+    // valid index into the array that still exists.
     const before = this.#calls.length;
     const log = this.#log;
     log.length = 0;
@@ -354,7 +422,7 @@ export class Notebook {
           ok: true,
           value: value === undefined ? undefined : render(value),
           output: log.join("\n"),
-          toolCalls: this.#calls.slice(before),
+          toolCalls: this.#calls.slice(Math.min(before, this.#calls.length)),
         };
       } catch (err) {
         lastError = err;
@@ -373,7 +441,7 @@ export class Notebook {
       ok: false,
       output: log.join("\n"),
       error: lastError instanceof Error ? `${lastError.name}: ${lastError.message}` : String(lastError),
-      toolCalls: this.#calls.slice(before),
+      toolCalls: this.#calls.slice(Math.min(before, this.#calls.length)),
     };
   }
 }

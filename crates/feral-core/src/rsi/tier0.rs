@@ -183,13 +183,66 @@ fn json_format_ok(
     true
 }
 
+/// Does `response` actually state `answer`?
+///
+/// A plain `contains` is wrong for the numeric answers Tier 0 is built on. The
+/// frozen checks expect things like `8` (planets), `1945`, `3.14` — and
+/// `"there are 18 planets"` contains `"8"`, `"pi is 13.14159"` contains
+/// `"3.14"`, `"ended in 194504"` contains `"1945"`. Every one of those is a
+/// wrong answer that passed, which means a model can fail these checks
+/// confidently and still score a clean sweep — and Tier 0's entire promise is
+/// that it is the part of the RSI numbers that cannot be gamed.
+///
+/// So: an answer that is numeric must appear on its own, not glued to more
+/// digits. A textual answer keeps the substring rule, where being lenient about
+/// surrounding words is the point.
+fn contains_answer(response: &str, answer: &str) -> bool {
+    // A digit always continues a number. A separator only does when a digit
+    // follows it — otherwise "founded in 1945." fails on the full stop that
+    // ends the sentence, and the check rejects a correct answer.
+    let continues = |rest: &str| -> bool {
+        let mut it = rest.chars();
+        match it.next() {
+            Some(c) if c.is_ascii_digit() => true,
+            Some('.') | Some(',') => it.next().is_some_and(|c| c.is_ascii_digit()),
+            _ => false,
+        }
+    };
+    let preceded = |before: &str| -> bool {
+        let mut it = before.chars().rev();
+        match it.next() {
+            Some(c) if c.is_ascii_digit() => true,
+            Some('.') | Some(',') => it.next().is_some_and(|c| c.is_ascii_digit()),
+            _ => false,
+        }
+    };
+    if !answer.chars().any(|c| c.is_ascii_digit()) {
+        return response.contains(answer);
+    }
+    let bytes = response.as_bytes();
+    let mut from = 0usize;
+    while let Some(rel) = response[from..].find(answer) {
+        let start = from + rel;
+        let end = start + answer.len();
+        let before_ok = start == 0 || !preceded(&response[..start]);
+        let after_ok = end >= bytes.len() || !continues(&response[end..]);
+        if before_ok && after_ok {
+            return true;
+        }
+        // Advance past this occurrence. `answer` is non-empty (checked by the
+        // caller), so this always makes progress.
+        from = start + answer.chars().next().map_or(1, char::len_utf8);
+    }
+    false
+}
+
 fn fact_lookup_ok(response: &str, answer: &str, forbidden: &[String]) -> bool {
     let norm_resp = normalise(response);
     let norm_ans = normalise(answer);
     if norm_resp.is_empty() || norm_ans.is_empty() {
         return false;
     }
-    if !norm_resp.contains(&norm_ans) {
+    if !contains_answer(&norm_resp, &norm_ans) {
         return false;
     }
     // Blacklist: any forbidden substring (case-insensitive) in the
@@ -462,6 +515,23 @@ pub static TIER0_SPECS: once_cell::sync::Lazy<Vec<Tier0Spec>> =
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_number_inside_a_bigger_number_is_not_the_answer() {
+        // The whole value of Tier 0 is that it cannot be talked past. Each of
+        // these responses is WRONG and used to pass on a bare substring match.
+        assert!(!contains_answer("there are 18 planets", "8"));
+        assert!(!contains_answer("pi is 13.14159", "3.14"));
+        assert!(!contains_answer("the war ended in 194504", "1945"));
+        assert!(!contains_answer("the year 21945 ad", "1945"));
+        // And each of these is right, in the shapes a model actually writes.
+        assert!(contains_answer("there are 8 planets", "8"));
+        assert!(contains_answer("8 planets, in fact.", "8"));
+        assert!(contains_answer("founded in 1945.", "1945"));
+        assert!(contains_answer("pi is about 3.14, roughly", "3.14"));
+        // Textual answers keep the lenient rule.
+        assert!(contains_answer("the capital is paris, france", "paris"));
+    }
 
     #[test]
     fn thirteen_specs_constant() {

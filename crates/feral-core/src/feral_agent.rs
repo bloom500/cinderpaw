@@ -279,12 +279,40 @@ fn load_byok_provider_endpoint(provider_id: &str) -> Option<ByokEndpoint> {
 /// the local bearer token (the gated server expects it). For any remote host,
 /// REQUIRE an explicit `FERAL_API_KEY` — silently forwarding the local token to
 /// a third party would leak a credential. `env_key` is `FERAL_API_KEY` if set.
+/// True only when `base_url`'s HOST is loopback — never merely contains the word.
+///
+/// This used to be `base_url.contains("127.0.0.1") || contains("localhost")`,
+/// which is true of `http://127.0.0.1.evil.com/v1`, of `http://localhost.evil
+/// .com/`, and of any remote URL with `?probe=127.0.0.1` glued on the end. One
+/// mistyped URL copied out of a tutorial and the local API bearer token — the
+/// key to this machine's whole runtime — went to somebody else's server, past
+/// the very check written to stop exactly that.
+fn is_loopback_base_url(base_url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(base_url) else {
+        // Unparseable is not loopback. Failing closed here costs a working
+        // setup nothing (the URL was already broken) and refuses to guess.
+        return false;
+    };
+    match parsed.host_str() {
+        // IPv6 arrives bracketed (`[::1]`); strip them before parsing.
+        Some(host) => {
+            let host = host.trim_start_matches('[').trim_end_matches(']');
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .map(|ip| ip.is_loopback())
+                    .unwrap_or(false)
+        }
+        None => false,
+    }
+}
+
 fn resolve_sidecar_api_key(
     base_url: &str,
     local_token: &str,
     env_key: Option<String>,
 ) -> Result<String, String> {
-    if base_url.contains("127.0.0.1") || base_url.contains("localhost") {
+    if is_loopback_base_url(base_url) {
         Ok(local_token.to_string())
     } else {
         env_key.ok_or_else(|| {
@@ -1412,6 +1440,30 @@ mod tests {
                 resolve_sidecar_api_key(url, "local-secret", None).unwrap(),
                 "local-secret",
                 "loopback must reuse the local bearer token even without FERAL_API_KEY"
+            );
+        }
+    }
+
+    #[test]
+    fn sidecar_api_key_lookalike_host_is_not_loopback() {
+        // A host that merely CONTAINS the loopback spelling is a remote host,
+        // and must be refused the local token like any other.
+        for url in [
+            "http://127.0.0.1.evil.com/v1",
+            "http://localhost.attacker.com/",
+            "https://evil.com/?probe=127.0.0.1",
+            "https://evil.com/localhost",
+        ] {
+            assert!(
+                resolve_sidecar_api_key(url, "local-secret", None).is_err(),
+                "{url} must not be treated as loopback"
+            );
+        }
+        // The real ones still are, including IPv6 and an uppercase spelling.
+        for url in ["http://[::1]:11435", "http://LOCALHOST:11435"] {
+            assert_eq!(
+                resolve_sidecar_api_key(url, "local-secret", None).unwrap(),
+                "local-secret"
             );
         }
     }

@@ -128,7 +128,25 @@ export const runContract: RunContract = async (initial, deps) => {
       }
     }
 
-    const result = await handlerFor(deps, stage)(state);
+    // A handler that throws is a programming error in the leaf — but letting
+    // the throw escape breaks the one invariant this runner exists to hold:
+    // every contract ends with exactly one terminal Journal row. It ended with
+    // none, so the cycle vanished from the record it is audited by, and L6
+    // meta-evolution reasoned from a history missing its failures.
+    //
+    // The bug is still reported — as a halt naming the stage and the error —
+    // rather than being turned into a quiet rejection.
+    let result: StageResult;
+    try {
+      result = await handlerFor(deps, stage)(state);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return terminal(state, deps, stage, {
+        action: "halt",
+        reason: `leaf error in ${stage}: ${message}`,
+        stage: phase,
+      });
+    }
     state = withHistory(state, stage, result);
 
     if (!result.ok) {

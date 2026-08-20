@@ -234,6 +234,8 @@ export class ChildRegistry {
     else parent?.addEventListener("abort", onParentAbort, { once: true });
     this.#aborts.set(id, ac);
 
+    // Set by the `.finally` below. See the note where `#inflight` is populated.
+    let settled = false;
     const p = this.run(task, opts.allowedTools, push, id, ac.signal)
       .then((r) => {
         entry.status = r.status === "completed" ? "completed" : "error";
@@ -261,14 +263,30 @@ export class ChildRegistry {
         parent?.removeEventListener("abort", onParentAbort);
         this.#aborts.delete(id);
         this.#inflight.delete(p);
+        // The name is NOT released here. `observe(name)` and
+        // `delete_subagent(name)` both resolve through `#byName`, and a settled
+        // child is still a child the parent can look up and read the answer
+        // from — releasing it on settle made every finished worker unreachable
+        // by the name it was given. The name goes back when the entry is
+        // deleted, which `delete()` does.
+        settled = true;
       });
-    this.#inflight.add(p);
+    // A `run()` that throws synchronously settles the promise before this line,
+    // so `.finally` ran with nothing in the set and the entry was added
+    // afterwards — left in `#inflight` for good, and `drain()` waiting on a
+    // child that finished before it was ever registered.
+    if (!settled) this.#inflight.add(p);
 
     return { rlm_child_id: id, name, status: "running" };
   }
 
   list(): ChildEntry[] {
-    return [...this.#entries.values()].map((e) => ({ ...e }));
+    // `{ ...e }` is a shallow copy: `trail` was the SAME array the registry
+    // keeps appending to, handed to the caller to hold and to modify. Copy it.
+    return [...this.#entries.values()].map((e) => ({
+      ...e,
+      ...(e.trail ? { trail: e.trail.map((t) => ({ ...t })) } : {}),
+    }));
   }
 
   /**
@@ -317,7 +335,9 @@ export class ChildRegistry {
     const id = this.#entries.has(target) ? target : this.#byName.get(target);
     const entry = id ? this.#entries.get(id) : undefined;
     if (!entry) throw new Error(`rlm.observe: no child matches "${target}"`);
-    return { ...entry, trail: [...(entry.trail ?? [])] };
+    // Each trail row copied too: `[...arr]` is a new array of the SAME row
+    // objects, so a caller could still edit the registry's own records.
+    return { ...entry, trail: (entry.trail ?? []).map((t) => ({ ...t })) };
   }
 
   /** Accepts either an id or a name, as upstream's `delete_subagent` does. */
@@ -327,6 +347,9 @@ export class ChildRegistry {
     if (!entry || !id) throw new Error(`rlm.delete_subagent: no child matches "${target}"`);
     if (entry.status === "running") return { subagent: { ...entry }, outcome: "skipped_running" };
     this.#entries.delete(id);
+    // Releasing the name here — and only here — is what lets a name be reused
+    // after a failed worker is cleared away, without breaking lookup for the
+    // settled children that are still listed.
     this.#byName.delete(entry.name);
     return { subagent: { ...entry }, outcome: "deleted" };
   }

@@ -85,6 +85,28 @@ export { type MascotStateSink };
  */
 const joinSegments = (a: string, b: string): string => (a && b ? a + '\n\n' + b : a + b);
 
+/**
+ * `JSON.stringify` that cannot throw.
+ *
+ * A tool result holding a cycle — a node that references its parent, a handle
+ * that references its own registry — threw here, inside a stream callback with
+ * nothing to catch it: the tool's preview vanished and the rejection went
+ * unhandled. A tool that returns an awkward shape should still show its result.
+ */
+/** One line of untrusted text, trimmed to something a toast can hold. */
+function toastText(value: unknown, max: number): string {
+  const text = typeof value === 'string' ? value : String(value ?? '');
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return `${String(value)} [could not be shown in full]`;
+  }
+}
+
 export function useFeralStream(chatSessionId: string) {
   const send = useCallback(
     async (
@@ -244,6 +266,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
           // the first half the line vanished on the very save meant to keep it.
           scratch:
             m.id === asstId && state.scratch.edits > 0 ? { ...state.scratch } : m.scratch,
+          created_at: m.createdAt,
         }));
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
@@ -356,7 +379,7 @@ export function useFeralSendMessage(chatSessionId: string, mascotSink?: MascotSt
               typeof r?.content === 'string'
                 ? r.content
                 : result !== undefined && result !== null
-                  ? JSON.stringify(result, null, 2)
+                  ? safeStringify(result)
                   : '';
             completeLiveToolCall(sessionId, lastRunning.id, {
               ok,
@@ -526,9 +549,21 @@ export function useFeralGlobal() {
           setModelError(parsed.message);
         } else if (parsed.type === 'cron_fired') {
           // X3: scheduled-job results were previously dropped on the floor.
-          useNotifications.getState().push('success', `Scheduled task: ${parsed.jobName}`, parsed.content);
+          // Capped. Both strings are model output — a cron job's answer and the
+          // job's own name — so their length is not ours to trust, and a toast
+          // rendering a few thousand lines covers the app. (They are rendered as
+          // React text, never as HTML, so this is about size, not script.)
+          useNotifications.getState().push(
+            'success',
+            `Scheduled task: ${toastText(parsed.jobName, 80)}`,
+            toastText(parsed.content, 2000),
+          );
         } else if (parsed.type === 'cron_error') {
-          useNotifications.getState().push('error', `Scheduled task failed: ${parsed.jobName}`, parsed.message);
+          useNotifications.getState().push(
+            'error',
+            `Scheduled task failed: ${toastText(parsed.jobName, 80)}`,
+            toastText(parsed.message, 2000),
+          );
         }
       });
 

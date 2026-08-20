@@ -45,6 +45,15 @@ pub struct PersistedMessage {
     /// contract as the two above, so no migration and no unreadable history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scratch: Option<ScratchStats>,
+    /// When the message was created, epoch milliseconds.
+    ///
+    /// Nothing recorded it before, so the UI invented one on reload — every
+    /// message in a re-opened conversation claimed to be seconds old, whatever
+    /// day it was actually written. Optional and `#[serde(default)]` like the
+    /// fields above: conversations saved before this still load, they just have
+    /// nothing better than the old guess.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -91,9 +100,21 @@ fn read_index(dir: &Path) -> Result<Vec<ConversationSummary>> {
     Ok(index.conversations)
 }
 
+/// Serialises every read-modify-write of the index.
+///
+/// `save_to_dir` and `delete_from_dir` both read the whole index, change one
+/// entry and write it back. Two of them at once — a chat autosave landing while
+/// the user deletes another conversation — each start from the same "before",
+/// and the second write erases the first change with nothing to show for it.
+/// The sidebar then disagrees with what is on disk until the next full reload.
+static INDEX_WRITE: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
 fn write_index(dir: &Path, summaries: &[ConversationSummary]) -> Result<()> {
     let index = ConversationIndex { conversations: summaries.to_vec() };
-    std::fs::write(index_path(dir), serde_json::to_vec(&index)?)?;
+    // Atomic: a truncate-in-place that dies halfway leaves an index.json no
+    // parser accepts, and the whole conversation list reads as empty — every
+    // chat still on disk, none of them visible.
+    feral_core::atomic_file::write_atomic(&index_path(dir), &serde_json::to_vec(&index)?)?;
     Ok(())
 }
 
@@ -106,6 +127,7 @@ pub fn save_to_dir(
     messages: &[PersistedMessage],
     agent_id: Option<&str>,
 ) -> Result<()> {
+    let _guard = INDEX_WRITE.lock();
     std::fs::create_dir_all(dir)?;
 
     let conv_path = dir.join(format!("{}.json", id));
@@ -137,7 +159,7 @@ pub fn save_to_dir(
         agent_id: agent_id.clone(),
     };
 
-    std::fs::write(&conv_path, serde_json::to_vec(&conv)?)?;
+    feral_core::atomic_file::write_atomic(&conv_path, &serde_json::to_vec(&conv)?)?;
 
     let mut summaries = read_index(dir)?;
     let summary = ConversationSummary {
@@ -165,13 +187,34 @@ pub fn load_index_from_dir(dir: &Path) -> Result<Vec<ConversationSummary>> {
 }
 
 pub fn delete_from_dir(dir: &Path, id: &str) -> Result<()> {
+    let _guard = INDEX_WRITE.lock();
     let path = dir.join(format!("{}.json", id));
     // Best-effort cleanup of on-disk voice blobs referenced by this conversation
     // before the JSON is removed (errors ignored — orphaned files are harmless).
+    //
+    // `audio_path` is read back out of a JSON file, so it is untrusted input by
+    // the time we get here: anything that can write a conversation (a model
+    // fabricating voice metadata, a hand-edited file, a malicious import) would
+    // otherwise aim this `remove_file` at ~/.ssh/id_rsa. Only blobs that really
+    // live in the voice directory — where `save_voice_blob` puts them — are
+    // ours to delete. `is_under` canonicalises, so `voice/../../secrets` fails
+    // the check rather than passing it syntactically. It also fails closed when
+    // the voice dir does not exist yet (fresh install, no recording ever made).
     if let Ok(conv) = load_from_dir(dir, id) {
+        let voice_dir = paths::voice_dir();
         for m in &conv.messages {
             if let Some(v) = &m.voice {
-                let _ = std::fs::remove_file(&v.audio_path);
+                let audio = Path::new(&v.audio_path);
+                match feral_core::rsi::paths::is_under(&voice_dir, audio) {
+                    Ok(true) => {
+                        let _ = std::fs::remove_file(audio);
+                    }
+                    _ => tracing::warn!(
+                        path = %v.audio_path,
+                        "conversation delete: refusing to remove a voice blob outside {}",
+                        voice_dir.display()
+                    ),
+                }
             }
         }
     }
@@ -239,12 +282,40 @@ mod tests {
                 content: format!("Message {}", i),
                 thinking: None,
                 voice: None,
-                scratch: None,
-            })
+                scratch: None, created_at: None })
             .collect()
     }
 
     // ── RED tests written first ────────────────────────────────────────────────
+
+    /// A conversation whose `voice.audio_path` points outside the voice
+    /// directory must not have that file deleted along with it. The path comes
+    /// out of a JSON file, so it is attacker-reachable; before the guard,
+    /// deleting a conversation deleted whatever it named.
+    #[test]
+    fn delete_refuses_voice_blob_outside_voice_dir() {
+        let dir = tmp();
+        let victim = dir.join("not-a-voice-blob.txt");
+        std::fs::write(&victim, b"a file that must survive").unwrap();
+
+        let messages = vec![PersistedMessage {
+            role: "user".into(),
+            content: "hi".into(),
+            thinking: None,
+            voice: Some(VoiceMeta {
+                audio_path: victim.to_string_lossy().into_owned(),
+                duration_ms: 1,
+                transcript: String::new(),
+                peaks: vec![],
+            }),
+            scratch: None, created_at: None }];
+        save_to_dir(&dir, "c1", "t", &messages, None).unwrap();
+
+        delete_from_dir(&dir, "c1").unwrap();
+
+        assert!(victim.exists(), "delete_from_dir removed a file outside the voice dir");
+    }
+
 
     #[test]
     fn loads_message_without_voice_field() {
@@ -275,8 +346,7 @@ mod tests {
             content: "wrote my notes".into(),
             thinking: None,
             voice: None,
-            scratch: Some(ScratchStats { edits: 1, added: 71, removed: 0 }),
-        }];
+            scratch: Some(ScratchStats { edits: 1, added: 71, removed: 0 }), created_at: None }];
         save_to_dir(&dir, "c1", "Title", &msgs, None).unwrap();
 
         // Nothing in memory — read back off disk exactly as a fresh launch does.
@@ -295,7 +365,7 @@ mod tests {
             content: "hi".into(),
             thinking: None,
             voice: None,
-            scratch: None,
+            scratch: None, created_at: None,
         };
         let json = serde_json::to_string(&m).unwrap();
         assert!(!json.contains("scratch"), "absent stats must not be written: {json}");
@@ -393,15 +463,15 @@ mod tests {
         let dir = tmp();
 
         let conv1_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None, voice: None, scratch: None },
-            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None, voice: None, scratch: None },
-            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None, voice: None, scratch: None },
+            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None, voice: None, scratch: None, created_at: None },
+            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None, voice: None, scratch: None, created_at: None },
+            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None, voice: None, scratch: None, created_at: None },
         ];
         let conv2_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None, voice: None, scratch: None },
-            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None, voice: None, scratch: None },
-            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None, voice: None, scratch: None },
-            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None, voice: None, scratch: None },
+            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None, voice: None, scratch: None, created_at: None },
+            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None, voice: None, scratch: None, created_at: None },
+            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None, voice: None, scratch: None, created_at: None },
+            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None, voice: None, scratch: None, created_at: None },
         ];
 
         save_to_dir(&dir, "session-1", "Hello world", &conv1_msgs, None).unwrap();

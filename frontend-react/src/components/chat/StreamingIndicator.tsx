@@ -52,11 +52,15 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
   // - streamProgressEvent: Rust local inference (chat tab, feral://stream-progress)
   // - onStreamProgress: sidecar agent inference (agent tab, filtered feral://agent-output)
   useEffect(() => {
+    // See App.tsx: a listener whose `listen()` resolves after unmount must be
+    // released on arrival, or it stays attached to a dead component forever.
+    let cancelled = false;
     const unlistens: Array<() => void> = [];
+    const keep = (fn: () => void) => { if (cancelled) fn(); else unlistens.push(fn); };
     const set = (e: StreamProgressEvent) => setProgress(e);
-    events.streamProgressEvent.listen((e) => set(e.payload)).then((fn) => unlistens.push(fn));
-    events.onStreamProgress.listen(set).then((fn) => unlistens.push(fn));
-    return () => { unlistens.forEach((u) => u()); setProgress(null); };
+    events.streamProgressEvent.listen((e) => set(e.payload)).then(keep);
+    events.onStreamProgress.listen(set).then(keep);
+    return () => { cancelled = true; unlistens.forEach((u) => u()); setProgress(null); };
   }, []);
 
   // Phase transitions → fade the base label. Progress ticks don't touch this.

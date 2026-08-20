@@ -425,8 +425,11 @@ function pathViolation(path: string, policy: CodePatchPolicy): string | null {
   if (!p.endsWith(policy.allowedExtension)) {
     return `only ${policy.allowedExtension} files may be patched: ${path}`;
   }
-  const basename = p.slice(p.lastIndexOf("/") + 1);
-  if (policy.denylistBasenames.includes(basename)) {
+  // Case-insensitive: NTFS and the default macOS filesystem both treat
+  // `CODE-GENOME.ts` and `code-genome.ts` as the same file, so a patch could
+  // rewrite the very policy that is refusing it just by changing the case.
+  const basename = p.slice(p.lastIndexOf("/") + 1).toLowerCase();
+  if (policy.denylistBasenames.some((name) => name.toLowerCase() === basename)) {
     return `enforcement file may not be patched: ${path}`;
   }
   return null;

@@ -83,6 +83,7 @@ pub(crate) fn set_onboarding_record(record: OnboardingRecord) -> Result<(), Stri
     }
     let pretty = serde_json::to_string_pretty(&record)
         .map_err(|e| format!("serialize failed: {}", e))?;
-    std::fs::write(&path, pretty).map_err(|e| format!("write failed: {}", e))?;
+    feral_core::atomic_file::write_atomic(&path, pretty.as_bytes())
+        .map_err(|e| format!("write failed: {}", e))?;
     Ok(())
 }

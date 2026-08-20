@@ -53,7 +53,10 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     // `?? undefined` because the store's field is optional while the wire type
     // is nullable — a literal null would render as a present-but-empty stat.
     scratch: p.scratch ?? undefined,
-    createdAt: Date.now() - (1000 * (1000 - idx)),
+    // The real time, when the file has it. The fallback is the old fabricated
+    // ladder, kept only for conversations saved before the field existed —
+    // those genuinely have no timestamp to restore.
+    createdAt: p.created_at ?? Date.now() - (1000 * (1000 - idx)),
   };
 }
 
@@ -67,6 +70,7 @@ function toPersisted(m: ChatMessage): PersistedMessage {
     thinking: m.thinking || undefined,
     voice: voiceToPersisted(m.voice),
     scratch: m.scratch,
+    created_at: m.createdAt,
   };
 }
 

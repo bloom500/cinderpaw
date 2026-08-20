@@ -127,9 +127,14 @@ pub fn save_marker(path: &Path, m: &PatchMarker) -> Result<()> {
 
     std::fs::write(&tmp, &bytes)
         .with_context(|| format!("write tmp marker {}", tmp.display()))?;
-    std::fs::rename(&tmp, path).with_context(|| {
-        format!("rename tmp marker {} -> {}", tmp.display(), path.display())
-    })?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        // Clean up after ourselves: the temp name carries a pid and a counter,
+        // so a failing rename left a new stale file behind on every attempt.
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e).with_context(|| {
+            format!("rename tmp marker {} -> {}", tmp.display(), path.display())
+        });
+    }
     Ok(())
 }
 
@@ -223,6 +228,18 @@ pub fn applied_patch_text(store_path: &Path, patch_id: &str) -> Option<String> {
 /// `markReverted`, including its applied-only precondition). Edits the
 /// JSON as a `Value` so an evolving TS schema doesn't break us.
 pub fn mark_patch_reverted(store_path: &Path, patch_id: &str) -> Result<()> {
+    // Read-modify-write of a file the TS side writes too. Serialised in-process
+    // so two Rust callers cannot lose each other's change, and written through
+    // a temp file so a crash halfway cannot leave a pending-patches.json that
+    // no longer parses — which would take the auto-revert path down with it,
+    // exactly when something has already gone wrong.
+    //
+    // ponytail: in-process lock only. The sidecar writing the same file at the
+    // same instant is still last-writer-wins; closing that needs a lockfile
+    // both languages honour.
+    static STORE_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = STORE_WRITE.lock().unwrap_or_else(|e| e.into_inner());
+
     let bytes = std::fs::read(store_path)
         .with_context(|| format!("read pending store {}", store_path.display()))?;
     let mut v: serde_json::Value =
@@ -240,7 +257,7 @@ pub fn mark_patch_reverted(store_path: &Path, patch_id: &str) -> Result<()> {
         anyhow::bail!("patch '{patch_id}' is {status}, not applied — nothing to revert");
     }
     p["status"] = serde_json::Value::from("reverted");
-    std::fs::write(store_path, serde_json::to_vec_pretty(&v)?)
+    crate::atomic_file::write_atomic(store_path, &serde_json::to_vec_pretty(&v)?)
         .with_context(|| format!("write pending store {}", store_path.display()))?;
     Ok(())
 }

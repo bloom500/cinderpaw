@@ -114,7 +114,22 @@ export class CapabilityRegistry {
           `CapabilityRegistry: duplicate model id "${m.id}"`,
         );
       }
-      seen.set(m.id, m);
+      // Normalised on the way in. The scores are documented as 0..10 and the
+      // router multiplies them by the request's weights — but nothing enforced
+      // the range, and `brain.json` is a file a person edits. One `"reasoning":
+      // 999` (a typo, an extra digit) and that model outscores every other for
+      // every request mentioning reasoning, permanently, with the UI showing a
+      // routing decision that looks deliberate. Same for `cost`, whose type
+      // says 1 | 2 | 3 and whose value at runtime is whatever the JSON said.
+      const capabilities = clampCapabilities(m.capabilities);
+      const cost = clampCost(m.cost);
+      // Keep the original object when nothing needed changing: callers compare
+      // registry entries by identity, and a defensive copy for a model that was
+      // already in range buys nothing and breaks that.
+      seen.set(
+        m.id,
+        capabilities === null && cost === m.cost ? m : { ...m, ...(capabilities ? { capabilities } : {}), cost },
+      );
     }
     this.#byId = seen;
   }
@@ -196,7 +211,37 @@ export function normalizeCapabilities(
   const out = {} as Record<Capability, number>;
   for (const cap of ALL_CAPS) {
     const v = partial[cap];
+    // Deliberately NOT clamped: filling in a missing value is normalisation,
+    // deciding that 42 is out of range is policy, and the two have different
+    // callers. The registry clamps on the way in — see its constructor.
     out[cap] = typeof v === "number" && Number.isFinite(v) ? v : 0;
   }
   return out;
+}
+
+/**
+ * Capabilities brought into the documented 0..10 range, or `null` when they
+ * were already inside it (so the caller can keep the original object).
+ */
+function clampCapabilities(
+  caps: Record<Capability, number>,
+): Record<Capability, number> | null {
+  let changed = false;
+  const out = {} as Record<Capability, number>;
+  for (const cap of ALL_CAPS) {
+    const v = caps[cap];
+    const safe = typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(10, v)) : 0;
+    if (safe !== v) changed = true;
+    out[cap] = safe;
+  }
+  return changed ? out : null;
+}
+
+/** Cost is documented as 1 | 2 | 3; anything else is brought back into range. */
+function clampCost(cost: number): 1 | 2 | 3 {
+  if (!Number.isFinite(cost)) return 2;
+  const rounded = Math.round(cost);
+  if (rounded <= 1) return 1;
+  if (rounded >= 3) return 3;
+  return 2;
 }

@@ -122,9 +122,17 @@ export class DreamScheduler {
         if (typeof t === "object" && t && "unref" in t) {
           (t as { unref: () => void }).unref();
         }
+        // Kept so `shutdown()` can actually stop it. Nothing held this handle
+        // before, so the interval outlived every shutdown: `tick()` returned
+        // early on the flag, but the timer kept firing, and a restarted
+        // scheduler simply added a second one on top of the first.
+        this.#pollTimer = t;
       });
     schedule(() => void this.tick(), this.deps.pollMs ?? 30_000);
   }
+
+  /** The interval handle from the default scheduler, when one is running. */
+  #pollTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Evaluate the triggers once and launch a bounded episode if one fires.
@@ -208,5 +216,9 @@ export class DreamScheduler {
   /** Break the loop (app teardown). After this, no episode ever launches. */
   shutdown(): void {
     this.shuttingDown = true;
+    if (this.#pollTimer !== null) {
+      clearInterval(this.#pollTimer);
+      this.#pollTimer = null;
+    }
   }
 }

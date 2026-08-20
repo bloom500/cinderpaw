@@ -29,6 +29,17 @@ pub(crate) fn save_byok_provider(
     base_url: Option<String>,
     default_model: Option<String>,
 ) -> Result<(), String> {
+    // An enabled provider needs a key. Saving one with an empty key stored a
+    // configuration that looks complete in the UI and fails on the first
+    // request with an authentication error from the vendor — which reads as
+    // "my key is wrong" rather than "there is no key". Whitespace counts as
+    // empty: a pasted key with a stray newline is the common way this happens.
+    let api_key = api_key.trim().to_string();
+    if enabled && api_key.is_empty() {
+        return Err(format!(
+            "{provider_id} cannot be enabled without an API key — paste the key, or leave the provider off"
+        ));
+    }
     let mut settings = byok::load(&state.settings);
     let config = byok::ProviderConfig {
         enabled,

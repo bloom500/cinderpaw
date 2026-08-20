@@ -255,8 +255,15 @@ export class FractalRecallEngine {
     const ranked = (await this.#rankedHits(query, sessionId)).slice(0, MAX_CONTEXT_HITS);
 
     // 6. Counters.
+    //
+    // `semanticFacts` was `ranked.length` — every hit, including the ones FTS
+    // found on its own without the tree contributing anything. The number the
+    // benchmark reports as "what the fractal tree retrieved" therefore included
+    // the keyword search it is being compared against, which flatters exactly
+    // the comparison it exists to settle. Only a hit that came down the tree
+    // (it has a summary path) counts as semantic.
     const episodicHits = ranked.filter((h) => h.fts).length;
-    const semanticFacts = ranked.length;
+    const semanticFacts = ranked.filter((h) => h.viaSummaryPath.length > 0).length;
 
     // 7. Format the same `[Memory context] … [End memory context]` block
     //    `RecallEngine` produces.

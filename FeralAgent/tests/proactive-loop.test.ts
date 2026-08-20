@@ -317,12 +317,14 @@ describe("InnerThoughtsLoop — daily cap (P-#12 v2)", () => {
     }
   });
 
-  test("counter resets when the UTC day rolls over (midnight UTC)", () => {
-    // The day-rollover behavior is implicit in the daily-cap test
-    // above (we drive 4 ticks within a single UTC day and confirm
-    // the cap holds). This test documents the contract: the counter
-    // IS per-UTC-day, not per-rolling-24h window. Verified by reading
-    // `#maybeResetDailyCounter` (uses Date.UTC day-of-year).
-    expect(true).toBe(true);
-  });
+  test.todo(
+    "counter resets when the UTC day rolls over (midnight UTC) — needs a clock the loop reads",
+    // Was `expect(true).toBe(true)` with a comment saying the behaviour had been
+    // "verified by reading code". That is a test that can never fail, sitting in
+    // a green suite claiming to cover a rollover nothing exercises — worse than
+    // no test, because the coverage looks present.
+    //
+    // Marked `todo` until the proactive loop takes an injectable clock: without
+    // one there is no way to drive it across a UTC midnight from here.
+  );
 });

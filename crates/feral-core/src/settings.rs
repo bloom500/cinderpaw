@@ -123,7 +123,17 @@ pub fn load() -> Settings {
 pub fn save(s: &Settings) -> anyhow::Result<()> {
     paths::ensure_dirs()?;
     let path = paths::settings_path();
-    std::fs::write(path, serde_json::to_vec_pretty(s)?)?;
+    // Temp file + rename, never a truncate-in-place. A crash halfway through a
+    // direct write leaves settings.json unparseable, and `load()` answers that
+    // by returning defaults — so the user loses api_port, active_route, the
+    // desktop-control choices and the RSI budget all at once, silently. Worst
+    // of all is active_route: with it gone the next boot falls back to a local
+    // model, and every connector routed through a cloud provider goes quiet
+    // without saying why. Rename is atomic, so a reader sees the old file or
+    // the new one, never half of either.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, serde_json::to_vec_pretty(s)?)?;
+    std::fs::rename(&tmp, &path)?;
     Ok(())
 }
 

@@ -549,6 +549,9 @@ pub fn run() {
                     capabilities,
                     admin,
                     extra_bin_dirs,
+                    // The desktop host has no single-instance probe to hand
+                    // over; the API server binds the port itself.
+                    None,
                 )
                 .await;
             });

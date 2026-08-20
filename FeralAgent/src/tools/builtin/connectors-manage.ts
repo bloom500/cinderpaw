@@ -18,7 +18,8 @@
  * and `configure` results never contain secret values.
  */
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir } from "node:fs/promises";
+import { atomicWriteFile } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { configPath, type ConnectorRow } from "../../transports/connectors.ts";
@@ -197,7 +198,7 @@ export function createConnectorsManageTool(
       const next = [...rows.filter((r) => r.id !== id), row];
       const file = configPath();
       await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, JSON.stringify({ connectors: next }, null, 2), "utf8");
+      await atomicWriteFile(file, JSON.stringify({ connectors: next }, null, 2));
       await manager.reload();
 
       const missing = CATALOG[id]!.secrets.filter(

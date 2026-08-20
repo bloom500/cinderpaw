@@ -115,7 +115,25 @@ export class EventBus {
         const list = this.handlers.get(next.type);
         if (!list) continue;
         for (const handler of list) {
-          await handler(next);
+          try {
+            await handler(next);
+          } catch (err) {
+            // One handler failing must not end the cascade. It used to: the
+            // throw left the pump, so every handler after it never saw the
+            // event and everything still queued behind it was stranded until
+            // some unrelated `emit` happened to drain it in the wrong order.
+            // Concretely — an error in the ratchet handler meant the extinction
+            // handler never saw EvalComplete, monoculture went undetected,
+            // GoodhartDetected was never raised, and the engine sat in a local
+            // optimum looking healthy.
+            //
+            // The failure is not swallowed: it is reported, and the remaining
+            // handlers still run. A bug in one leaf stays a bug in one leaf.
+            console.error(
+              `[rsi] handler for ${next.type} threw — continuing the cascade:`,
+              err,
+            );
+          }
         }
       }
     } finally {

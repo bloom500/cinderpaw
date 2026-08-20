@@ -223,7 +223,13 @@ pub mod security {
         if !allowlist.is_empty() {
             let permitted = allowlist.iter().any(|a| {
                 let a = norm(a);
-                !a.is_empty() && (n == a || n.contains(&a))
+                // Exact match only. `n.contains(&a)` meant allowlisting
+                // "notepad" silently also allowed "notepad-evil.exe" and
+                // "xxnotepad.exe" — an allowlist that grows entries the user
+                // never wrote. (The denylist above stays substring-based: there
+                // the loose match errs toward refusing, which is the safe way
+                // to be wrong.)
+                !a.is_empty() && n == a
             });
             if !permitted {
                 return Err(format!(

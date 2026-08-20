@@ -102,6 +102,15 @@ export function createGrepTool(allowedPaths: string[]): Tool {
       } catch (err) {
         return { ok: false, content: `Invalid regex: ${String(err)}`, error: "bad_args" };
       }
+      if (isCatastrophic(regex)) {
+        return {
+          ok: false,
+          content:
+            `That pattern can take effectively forever to match (nested repetition — ` +
+            `"${pattern}"). Rewrite it more specifically, e.g. replace (a+)+ with a+.`,
+          error: "bad_args",
+        };
+      }
 
       const requestedRoot = typeof args.path === "string" && args.path.trim()
         ? args.path
@@ -273,4 +282,44 @@ function splitTopLevel(s: string, sep: string): string[] {
   }
   parts.push(buf);
   return parts;
+}
+
+
+/**
+ * Refuse a pattern that backtracks catastrophically, before it is ever run on
+ * real files.
+ *
+ * The pattern comes from the model, and the model's idea of a pattern can come
+ * from a file it just read or a page it just fetched — so `(a+)+$` is a thing
+ * that can arrive here without anyone hostile being involved. JavaScript's
+ * regex engine has no timeout: one `test()` on the wrong pattern pins the
+ * sidecar's single thread for minutes or hours, and everything else the agent
+ * was doing — connectors, cron, the current conversation — stops with it.
+ *
+ * ponytail: an empirical canary, not a regex parser. We run the pattern against
+ * short strings built to provoke backtracking and time it. That catches the
+ * classic shapes without a new dependency and without rejecting the many
+ * legitimate patterns a static "nested quantifier" rule would refuse. A pattern
+ * that only explodes on input unlike the canaries still gets through — swap in
+ * a linear-time engine (RE2) if that ever shows up in practice.
+ */
+function isCatastrophic(regex: RegExp): boolean {
+  const CANARY_BUDGET_MS = 50;
+  const canaries = [
+    "a".repeat(32) + "!",
+    "ab".repeat(16) + "!",
+    "0".repeat(32) + "!",
+    " ".repeat(32) + "!",
+  ];
+  for (const canary of canaries) {
+    const started = Date.now();
+    try {
+      // `lastIndex` is irrelevant here: the tool builds a non-global regex.
+      regex.test(canary);
+    } catch {
+      return false;
+    }
+    if (Date.now() - started > CANARY_BUDGET_MS) return true;
+  }
+  return false;
 }

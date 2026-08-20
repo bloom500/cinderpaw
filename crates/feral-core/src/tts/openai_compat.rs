@@ -120,6 +120,7 @@ impl TtsProvider for OpenAiCompatTts {
             response_format: "pcm",
         };
 
+        super::assert_key_safe_base_url(&self.base_url, "openai-compatible tts")?;
         let res = http(SPEAK_TIMEOUT_SECS)?
             .post(format!("{}/v1/audio/speech", self.base_url))
             .bearer_auth(&self.api_key)

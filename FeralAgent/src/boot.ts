@@ -1055,7 +1055,7 @@ export async function boot(transportOverride?: Transport) {
   // One breaker for the brain's lifetime, so a model switch does not also
   // reset what we have learned about which endpoints are unwell.
   const brainBreaker = new CircuitBreaker();
-  const brain = brainCfg ? new BrainStack(brainCfg, brainBreaker) : null;
+  const brain = brainCfg ? new BrainStack(brainCfg, brainBreaker, log) : null;
   const agent = new AgentLoop(
     router, registry, episodic,
     { onBudgetExhausted: config.inference.tokenBudget.onExhausted },
@@ -2190,7 +2190,7 @@ export async function boot(transportOverride?: Transport) {
   });
 
   // Persist final audit state on unexpected termination.
-  const shutdown = () => {
+  const shutdown = async () => {
     // Break the Dream Cycle trigger loop so we don't launch an episode
     // into a closing process.
     dream?.shutdown();
@@ -2198,7 +2198,9 @@ export async function boot(transportOverride?: Transport) {
     // started (i.e. the proactive subsystem is on).
     innerThoughts?.stop();
     heartbeat.stop();
-    cronScheduler.stop();
+    // Awaited: a cron job in flight must finish (or be given 5s to) before the
+    // database closes underneath it.
+    await cronScheduler.stop();
     void connectors.stopAll();
     graphCleaner.stop();
     try {
@@ -2224,8 +2226,8 @@ export async function boot(transportOverride?: Transport) {
       process.exit(0);
     }
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
 
   transport.start();
 

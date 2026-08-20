@@ -241,8 +241,22 @@ export async function spawnModuleHost(opts: SpawnOpts): Promise<SpawnResult> {
           if (!reply.ok) failures++;
           resolve(reply.ok ? { ok: true, result: reply.result } : { ok: false, error: reply.error });
         });
-        proc.stdin.write(`${JSON.stringify({ type: "request", id, method, params })}\n`);
-        void proc.stdin.flush();
+        // A broken pipe here used to throw straight out of the promise
+        // executor: the timer stayed armed, the `pending` entry was never
+        // settled, and the caller waited the full timeout for a request that
+        // was never sent. Fail it immediately and clean up instead.
+        try {
+          proc.stdin.write(`${JSON.stringify({ type: "request", id, method, params })}\n`);
+          void proc.stdin.flush();
+        } catch (err) {
+          clearTimeout(timer);
+          pending.delete(id);
+          failures++;
+          resolve({
+            ok: false,
+            error: `host stdin closed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
       });
     },
   };

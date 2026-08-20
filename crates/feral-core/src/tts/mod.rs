@@ -31,7 +31,7 @@ pub mod piper;
 pub const PIPER_ID: &str = "piper";
 pub const KOKORO_ID: &str = "kokoro";
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::Sender;
@@ -59,11 +59,49 @@ pub(crate) fn http(timeout_secs: u64) -> Result<reqwest::Client> {
 /// than reporting a failure the user has to see. Every hosted engine does
 /// exactly this, and the four copies of it differed only in which vendor name
 /// went into the error message.
+/// Refuse to send a bearer token in the clear.
+///
+/// The TTS base URL is user-configurable — legitimately, for a self-hosted
+/// proxy — and the request attaches the vendor API key to whatever it is set
+/// to. A plain-http URL therefore puts a paid key on the wire in clear text,
+/// readable by anything between here and the host: a mistyped setting, a
+/// prompt-injected config, or just an http:// proxy on the office LAN.
+///
+/// Loopback is exempt: there is no network to eavesdrop on, and a local proxy
+/// over http is the ordinary self-hosted setup.
+pub(crate) fn assert_key_safe_base_url(base_url: &str, who: &str) -> Result<()> {
+    let parsed = reqwest::Url::parse(base_url)
+        .with_context(|| format!("{who}: base URL is not a valid URL: {base_url}"))?;
+    if parsed.scheme() == "https" {
+        return Ok(());
+    }
+    let host = parsed.host_str().unwrap_or("");
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false);
+    if loopback {
+        return Ok(());
+    }
+    bail!(
+        "{who}: refusing to send the API key to {base_url} over an unencrypted connection.          Use https, or a address on this machine for a local proxy."
+    )
+}
+
 pub(crate) async fn pump(
     res: reqwest::Response,
     who: &str,
     audio: Sender<Vec<u8>>,
 ) -> Result<usize> {
+    // A ceiling on the whole response. Backpressure alone does not bound this:
+    // a proxy that trickles very large chunks keeps allocating for as long as
+    // the request timeout allows, and nothing in a voice reply is anywhere near
+    // this size. 32 MiB of 24 kHz mono 16-bit PCM is about eleven minutes of
+    // speech — far past any single utterance, far below trouble.
+    const MAX_TTS_BYTES: usize = 32 * 1024 * 1024;
+
     let mut stream = res.bytes_stream();
     let mut total = 0usize;
     while let Some(chunk) = stream.next().await {
@@ -72,6 +110,12 @@ pub(crate) async fn pump(
             continue;
         }
         total += chunk.len();
+        if total > MAX_TTS_BYTES {
+            bail!(
+                "{who}: response exceeded {} MiB of audio — refusing to keep reading",
+                MAX_TTS_BYTES / 1024 / 1024
+            );
+        }
         if audio.send(chunk.to_vec()).await.is_err() {
             break;
         }

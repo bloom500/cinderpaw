@@ -6,7 +6,8 @@
  * out of the workspace is refused and audited by the registry.
  */
 
-import { writeFile, readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir } from "node:fs/promises";
+import { atomicWriteFile } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import { checkBeforeWrite, noteWrite } from "../read-ledger.ts";
@@ -110,7 +111,7 @@ export function createWriteFileTool(allowedPaths: string[]): Tool {
       }
 
       await mkdir(dirname(safePath), { recursive: true });
-      await writeFile(safePath, content, "utf8");
+      await atomicWriteFile(safePath, content);
       // Our own write must not make a follow-up edit look stale.
       noteWrite(ctx.sessionId, safePath);
 

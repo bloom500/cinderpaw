@@ -227,13 +227,20 @@ export class BrainStack {
   readonly #breaker: CircuitBreaker;
   readonly #overrides: Partial<Record<Category, string>>;
   readonly #offlineModelId: string | undefined;
+  /** Optional diagnostics sink — see the override branches in `#choosePrimary`. */
+  readonly #log: ((msg: string) => void) | undefined;
 
-  constructor(cfg: BrainConfig, breaker: CircuitBreaker) {
+  constructor(
+    cfg: BrainConfig,
+    breaker: CircuitBreaker,
+    log?: (msg: string) => void,
+  ) {
     this.#registry = new CapabilityRegistry(cfg.registry);
     this.#mode = cfg.mode;
     this.#breaker = breaker;
     this.#overrides = cfg.overrides ?? {};
     this.#offlineModelId = cfg.offlineModelId;
+    this.#log = log;
   }
 
   /** Current cost/quality dial. */
@@ -327,7 +334,15 @@ export class BrainStack {
       // NOT throw here: an unavailable override is a config bug, but
       // the user's intent (route to something for this category) is
       // better served by falling back to scoring than by failing the
-      // whole turn. Slice S5 will log this if a logger is wired in.
+      // whole turn.
+      //
+      // It is said out loud, though. Silently ignoring an override means the
+      // user configured a model, watched something else answer, and had no way
+      // to tell whether their setting was wrong, unread, or working.
+      this.#log?.(
+        `brain: override "${overrideId}" for category "${classification.category}" is not ` +
+          "available (missing credentials, or not in brain.json) — scoring instead",
+      );
     }
 
     // 2. Offline-forced model (category is "offline" AND offlineModelId
@@ -339,7 +354,11 @@ export class BrainStack {
       const m = available.find((x) => x.id === this.#offlineModelId);
       if (m !== undefined) return m;
       // offlineModelId set but unavailable — fall through to scoring.
-      // Better to answer with something working than to refuse.
+      // Better to answer with something working than to refuse, but not
+      // silently: see the override case above.
+      this.#log?.(
+        `brain: offline model "${this.#offlineModelId}" is not available — scoring instead`,
+      );
     }
 
     // 3. Score every candidate and pick the top scorer.

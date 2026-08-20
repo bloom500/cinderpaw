@@ -315,6 +315,15 @@ export interface ToolCallOptions {
   timeoutMs?: number;
   /** Progress events emitted by long-running tools during this call. */
   onProgress?: (event: ToolProgressEvent) => void;
+  /**
+   * Tools already tried in the current fallback chain. Internal.
+   *
+   * Falling back re-enters `registry.call`, so two tools declaring each other
+   * as a fallback recursed until the stack ran out — and every level left an
+   * AbortController and a 60-second timer behind it. Carrying the chain makes
+   * a cycle a refusal instead of a crash.
+   */
+  fallbackChain?: readonly string[];
 }
 
 /** Structured result of a tool invocation. Never throws across this boundary. */

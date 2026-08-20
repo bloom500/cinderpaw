@@ -29,6 +29,32 @@ fn validate_content_url(url: &str) -> Result<()> {
     Ok(())
 }
 
+/// The HTTP client every skill/manifest fetch uses.
+///
+/// `validate_content_url` checked only the URL we typed. With reqwest's default
+/// policy the response could redirect anywhere — a 302 off an allowed host to
+/// somewhere else entirely — and the allowlist was already satisfied by then,
+/// so the check it exists to make never ran on the URL actually fetched. The
+/// custom policy below re-runs it on every hop and stops the chain rather than
+/// following a redirect out of the allowlist.
+fn content_client() -> Result<reqwest::Client> {
+    let policy = reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= 5 {
+            return attempt.stop();
+        }
+        if validate_content_url(attempt.url().as_str()).is_ok() {
+            attempt.follow()
+        } else {
+            attempt.stop()
+        }
+    });
+    Ok(reqwest::Client::builder()
+        .user_agent("feral/0.1")
+        .timeout(std::time::Duration::from_secs(15))
+        .redirect(policy)
+        .build()?)
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -241,10 +267,7 @@ pub fn parse_frontmatter(id: &str, content: &str) -> SkillMeta {
 /// Download the GitHub skills manifest and return SkillMeta list.
 /// Cross-references with local installed skills to set install_status.
 pub async fn github_list() -> Result<Vec<SkillMeta>> {
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?;
+    let client = content_client()?;
 
     validate_content_url(GITHUB_MANIFEST_URL)?;
 
@@ -283,10 +306,7 @@ pub async fn github_list() -> Result<Vec<SkillMeta>> {
 /// Download the community manifest and return SkillMeta list.
 /// Skills are stamped ClawHub / Community trust level; install_status cross-referenced.
 pub async fn community_list() -> Result<Vec<SkillMeta>> {
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?;
+    let client = content_client()?;
 
     validate_content_url(COMMUNITY_MANIFEST_URL)?;
 
@@ -360,10 +380,7 @@ async fn fetch_catalogue_content(meta: &SkillMeta) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("catalogue entry '{}' has no content URL", meta.id))?;
     validate_content_url(url)?;
 
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?;
+    let client = content_client()?;
 
     Ok(client
         .get(url)
@@ -405,10 +422,7 @@ pub async fn install_from_catalogue(id: &str) -> Result<SkillMeta> {
 pub async fn fetch_remote_preview(url: &str) -> Result<SkillPreview> {
     validate_content_url(url)?;
 
-    let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?;
+    let client = content_client()?;
 
     let content = client
         .get(url)
@@ -453,6 +467,24 @@ pub fn preview_local_file(path: &str) -> Result<SkillPreview> {
     let canon = p.canonicalize()?;
     if !canon.is_file() {
         bail!("resolved path is not a regular file");
+    }
+
+    // Reachable from the webview (`preview_local_skill`), so it must not be an
+    // arbitrary-file-read primitive: without these two guards, pointing it at
+    // ~/.ssh/id_rsa returned the private key as "skill preview content", and
+    // pointing it at a huge file — or /dev/urandom — read until the process
+    // died. Same threat model, same guard, as the file readers in commands/files.rs.
+    crate::commands::files::deny_feral_private(&canon).map_err(|e| anyhow::anyhow!(e))?;
+    crate::commands::files::deny_sensitive_home_paths(&canon).map_err(|e| anyhow::anyhow!(e))?;
+
+    const MAX_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
+    if metadata.len() > MAX_PREVIEW_BYTES {
+        bail!(
+            "'{}' is {} bytes — too large to preview as a skill (limit {} bytes)",
+            path,
+            metadata.len(),
+            MAX_PREVIEW_BYTES
+        );
     }
 
     let content = std::fs::read_to_string(&canon)?;

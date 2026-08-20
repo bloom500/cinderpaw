@@ -183,7 +183,10 @@ enum ConnectorsAction {
     Set {
         /// Connector id (discord, slack, whatsapp, telegram)
         id: String,
-        /// A secret field, KEY=VALUE (repeatable). E.g. --secret DISCORD_TOKEN=abc
+        /// A secret field (repeatable). Prefer `--secret DISCORD_TOKEN` on its
+        /// own and paste the value when asked: anything written as KEY=VALUE
+        /// here is visible to every other user on the machine through the
+        /// process list, and is saved in your shell history.
         #[arg(long = "secret")]
         secrets: Vec<String>,
         /// Turn the connector on
@@ -335,8 +338,13 @@ fn run_gateway() -> i32 {
         // Single-instance guard: the API port is the lock. If it's taken,
         // another Feral host (desktop app or gateway) already owns this brain.
         let port = runtime.settings.api_port;
-        match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
-            Ok(probe) => drop(probe), // free it for the real server below
+        // Held, not dropped. Freeing it "for the real server below" left the
+        // port unowned for as long as boot took to reach its own bind, and
+        // anything that grabbed it in between turned a clean "one brain, one
+        // process" message into an unexplained "address in use" from deep
+        // inside startup. The socket goes straight to the server instead.
+        let api_listener = match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(probe) => probe,
             Err(_) => {
                 eprintln!(
                     "feral: port {port} is busy — a Feral host (desktop app or another \
@@ -344,7 +352,7 @@ fn run_gateway() -> i32 {
                 );
                 return 1;
             }
-        }
+        };
 
         // Slice 3: the gateway's event sink broadcasts onto the runtime bus so
         // `/events` SSE subscribers replay host events live (LogEvents only
@@ -359,7 +367,16 @@ fn run_gateway() -> i32 {
         // `capabilities` and `admin` were added, so the gateway binary did not
         // compile at all — caught by `scripts/verify.sh`, which is what it is
         // for.)
-        feral_core::boot::start(runtime.clone(), events, None, None, None, Vec::new()).await;
+        feral_core::boot::start(
+            runtime.clone(),
+            events,
+            None,
+            None,
+            None,
+            Vec::new(),
+            Some(api_listener),
+        )
+        .await;
         tracing::info!(port, "feral gateway up — model API + sidecar supervised");
 
         // Stop on Ctrl+C (interactive) or a `POST /runtime/shutdown`

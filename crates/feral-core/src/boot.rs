@@ -104,11 +104,15 @@ pub async fn start(
     // headless host, which has no updater and no model UI to keep in step.
     admin: Option<AdminHandler>,
     extra_bin_dirs: Vec<PathBuf>,
+    // A listener already bound to the API port, when the host bound it itself
+    // to check that no other Feral owns this brain. Passing it through means
+    // the port is never let go between the check and the server.
+    api_listener: Option<tokio::net::TcpListener>,
 ) {
     fragile_amd_embed_guard();
     bootstrap_rsi_substrate(&runtime);
     export_settings_env(&runtime.settings);
-    spawn_api_server_if_enabled(&runtime).await;
+    spawn_api_server_if_enabled(&runtime, api_listener).await;
     feral_agent::supervise(runtime, events, desktop_control, capabilities, admin, extra_bin_dirs);
 }
 
@@ -146,14 +150,13 @@ fn build_and_persist_api_token() -> Arc<str> {
     );
 
     let token_path = paths::feral_dir().join("api-token");
-    if let Err(e) = std::fs::write(&token_path, token.as_bytes()) {
+    // The mode is set AT CREATION, not after. Writing first and chmod'ing
+    // second leaves the file world-readable for the length of the write, and
+    // any local process that opens it in that window keeps a valid descriptor
+    // no later permission change can revoke. On a shared machine that window
+    // is the whole secret.
+    if let Err(e) = crate::atomic_file::write_secret_atomic(&token_path, token.as_bytes()) {
         tracing::warn!(?e, "failed to persist api-token (external API consumers won't have it)");
-    } else {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600));
-        }
     }
 
     token
@@ -305,7 +308,10 @@ fn export_settings_env(settings: &Settings) {
 /// the previous sync version panicked with "no reactor running" when
 /// invoked from Tauri 2's setup closure. The `async` signature on
 /// `start()` (above) makes this reachable.
-async fn spawn_api_server_if_enabled(runtime: &Arc<RuntimeState>) {
+async fn spawn_api_server_if_enabled(
+    runtime: &Arc<RuntimeState>,
+    listener: Option<tokio::net::TcpListener>,
+) {
     if !runtime.settings.api_server_enabled {
         return;
     }
@@ -316,7 +322,11 @@ async fn spawn_api_server_if_enabled(runtime: &Arc<RuntimeState>) {
     };
     let port = runtime.settings.api_port;
     tokio::spawn(async move {
-        if let Err(e) = api::serve(api_state, port).await {
+        let result = match listener {
+            Some(l) => api::serve_on(api_state, l).await,
+            None => api::serve(api_state, port).await,
+        };
+        if let Err(e) = result {
             tracing::error!(?e, "api server stopped");
         }
     });

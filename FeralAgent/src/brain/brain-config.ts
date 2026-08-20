@@ -107,13 +107,26 @@ export function loadBrainConfig(
   let raw: string;
   try {
     raw = readFileSync(brainPath, "utf8");
-  } catch {
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
     if (forcedEnable) {
       throw new Error(
-        `FERAL_BRAIN=1 but brain.json not found at ${brainPath}`,
+        code === "ENOENT" || code === undefined
+          ? `FERAL_BRAIN=1 but brain.json not found at ${brainPath}`
+          : `FERAL_BRAIN=1 but brain.json could not be read at ${brainPath} (${code})`,
       );
     }
-    // No file, no opt-in → Brain is off.
+    // ONLY "the file is not there" means opted out. Any other failure — no
+    // permission to read it, a broken symlink, an I/O error — used to look
+    // identical, so a brain.json the user had written and could see on disk was
+    // silently ignored and the whole routing config appeared never to have
+    // existed. That is the failure they cannot debug: nothing is wrong on
+    // screen, and the model choice is simply not theirs.
+    if (code !== undefined && code !== "ENOENT") {
+      throw new Error(
+        `brain.json exists at ${brainPath} but could not be read (${code}): ${String(err)}`,
+      );
+    }
     return null;
   }
 
@@ -234,10 +247,16 @@ export const BRAIN_EXAMPLE_CONFIG: BrainConfig = {
   registry: [
     {
       id: "local-default",
+      // Feral's OWN model server, not an external Ollama on 11434. Pointing
+      // the example at 11434 sent anyone who copied it to a different program
+      // that may not be installed, running, or holding the model they picked in
+      // Feral — and the UI's own model selector targets 11435 for exactly that
+      // reason. `model` is whatever is loaded here, so it is left as a
+      // placeholder rather than a name that may not exist on this machine.
       target: {
-        provider: "ollama",
-        model: "qwen2.5-coder:7b",
-        baseUrl: "http://localhost:11434",
+        provider: "openai_compatible",
+        model: "REPLACE-ME-with-the-model-you-loaded-in-Feral",
+        baseUrl: "http://localhost:11435",
       },
       capabilities: { reasoning: 6, coding: 8, vision: 0, speed: 8, multilingual: 5 },
       cost: 1,

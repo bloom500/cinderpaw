@@ -81,10 +81,16 @@ export const useModel = create<ModelStore>()(persist((set) => ({
   load: async (path) => {
     set({ isLoading: true, cloudModel: null, loadProgress: { percentage: 0, statusText: 'Initializing...' } });
     if (progressUnlisten) { progressUnlisten(); progressUnlisten = null; }
-    progressUnlisten = await events.modelLoadProgressEvent.listen((e) => {
-      set({ loadProgress: { percentage: e.payload.percentage, statusText: e.payload.statusText } });
-    });
     try {
+      // Inside the try. `listen()` is async and can reject — the host not ready
+      // yet at first paint, a permission refused — and it used to sit ABOVE the
+      // try with `isLoading: true` already set. The rejection escaped past every
+      // reset, so the spinner turned forever and the Load button stayed disabled
+      // until the user reloaded the window, with nothing on screen suggesting
+      // that would help.
+      progressUnlisten = await events.modelLoadProgressEvent.listen((e) => {
+        set({ loadProgress: { percentage: e.payload.percentage, statusText: e.payload.statusText } });
+      });
       const maxContext = useModel.getState().contextByModel[path];
       const loaded = await tauri.models.startLoad(path, maxContext);
       set({ loaded, isLoading: false, loadProgress: null });

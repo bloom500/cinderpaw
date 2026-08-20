@@ -137,6 +137,37 @@ describe("CronJobsRepo", () => {
     expect(job.createdAt).toBeGreaterThan(0);
   });
 
+  test("a brand-new job is scheduled — nextRunMs is never left null", () => {
+    // The scheduler skips jobs with a null nextRunMs and only ever computed one
+    // AFTER a run, so leaving it null here meant every cron the user added
+    // never fired at all.
+    const before = Date.now();
+    const job = repo.upsert(makeInput({ schedule: { kind: "every", intervalMs: 60_000 } }));
+    expect(job.nextRunMs).toBeGreaterThanOrEqual(before + 60_000);
+  });
+
+  test("changing the schedule recomputes nextRunMs; editing the name does not", () => {
+    const a = repo.upsert(makeInput({ schedule: { kind: "every", intervalMs: 60_000 } }));
+    const renamed = repo.upsert({ ...makeInput({ name: "renamed" }), id: a.id });
+    expect(renamed.nextRunMs).toBe(a.nextRunMs);
+
+    const rescheduled = repo.upsert({
+      ...makeInput({ schedule: { kind: "every", intervalMs: 3_600_000 } }),
+      id: a.id,
+    });
+    expect(rescheduled.nextRunMs).toBeGreaterThan(a.nextRunMs!);
+  });
+
+  test("rescheduling to a one-shot in the past means never, not immediately", () => {
+    const a = repo.upsert(makeInput({ schedule: { kind: "every", intervalMs: 1 } }));
+    expect(a.nextRunMs).not.toBeNull();
+    const past = repo.upsert({
+      ...makeInput({ schedule: { kind: "at", isoTimestamp: "2020-01-01T00:00:00.000Z" } }),
+      id: a.id,
+    });
+    expect(past.nextRunMs ?? null).toBeNull();
+  });
+
   test("upsert with an explicit id overwrites the existing row", () => {
     const a = repo.upsert(makeInput({ name: "first" }));
     const b = repo.upsert({ ...makeInput({ name: "second" }), id: a.id });
@@ -562,6 +593,10 @@ describe("CronScheduler — an unfinished run is not a success", () => {
       path: undefined,
       value: "npm test",
       timeoutMs: undefined,
+      // Set on the job itself, so it counts as the user's own instruction and
+      // the command is allowed to run. An assertion parsed out of a message
+      // carries `origin: "message"` and the command form is refused.
+      origin: "user",
     });
   });
 });

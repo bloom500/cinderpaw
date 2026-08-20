@@ -16,13 +16,49 @@ pub(crate) async fn save_voice_blob(bytes: Vec<u8>, ext: String) -> Result<Strin
     // First stage of a call turn to reach Rust. If this never logs, the microphone
     // or the VAD is where to look, not the engines.
     tracing::info!(bytes = bytes.len(), ext = %ext, "voice: blob received from the webview");
+    // A cap, and a cleanup. Nothing bounded how large a "voice blob" could be —
+    // the webview hands over a byte array — so a bug in the recorder (or a
+    // deliberately large post) wrote it straight to disk. 100 MB of 24 kHz mono
+    // PCM is about half an hour of speech, well past any single utterance.
+    const MAX_BLOB_BYTES: usize = 100 * 1024 * 1024;
+    if bytes.len() > MAX_BLOB_BYTES {
+        return Err(format!(
+            "voice recording is {} MB — refusing to store more than {} MB",
+            bytes.len() / 1024 / 1024,
+            MAX_BLOB_BYTES / 1024 / 1024
+        ));
+    }
     let safe_ext = ext.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>();
     let ext = if safe_ext.is_empty() { "webm".to_string() } else { safe_ext };
     let dir = paths::voice_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    // Nothing ever removed these. A conversation deleted through the UI takes
+    // its blobs with it, but a recording the user re-took, or one from a chat
+    // that was never saved, stayed on disk for the life of the install —
+    // megabytes a day on an install used by voice, growing silently.
+    prune_old_voice_blobs(&dir);
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// Drop voice recordings older than the retention window.
+///
+/// Best-effort and silent: this runs on the recording path, and a failure to
+/// tidy up must never stop a recording from being saved.
+fn prune_old_voice_blobs(dir: &std::path::Path) {
+    const RETAIN: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 60 * 60);
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+        let Ok(modified) = meta.modified() else { continue };
+        if modified.elapsed().unwrap_or_default() > RETAIN {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// True if the whisper ggml model for `model_size` is already downloaded.
@@ -59,8 +95,16 @@ pub(crate) async fn download_whisper_model(
         return Ok(key);
     }
 
+    // Check and claim under one lock — see `download_model` for why the split
+    // version let two concurrent calls write the same partial file.
     let cancel: CancelFlag = Arc::new(AtomicBool::new(false));
-    state.downloads.lock().insert(key.clone(), cancel.clone());
+    {
+        let mut map = state.downloads.lock();
+        if map.contains_key(&key) {
+            return Err(format!("Download already in progress: {}", key));
+        }
+        map.insert(key.clone(), cancel.clone());
+    }
 
     let (tx, mut rx) = mpsc::channel::<f32>(32);
     {
@@ -94,7 +138,19 @@ pub(crate) async fn download_whisper_model(
             cancel_for_task.clone(),
         )
         .await;
-        downloads_map.lock().remove(&key_for_task);
+        // Only remove OUR entry. A download that finishes after a new one has
+        // claimed the same key used to delete the newcomer's cancel flag, so
+        // pressing Cancel on the second download did nothing at all — the flag
+        // it would have set was no longer in the map.
+        {
+            let mut map = downloads_map.lock();
+            if map
+                .get(&key_for_task)
+                .is_some_and(|f| std::sync::Arc::ptr_eq(f, &cancel_for_task))
+            {
+                map.remove(&key_for_task);
+            }
+        }
         match result {
             Ok(path) => {
                 let _ = app_for_task.emit(
@@ -242,6 +298,25 @@ pub(crate) async fn transcribe_audio_cloud(
         _ => return Err("stt-cloud-failed".into()),
     };
 
+    // Only a blob this app recorded is ours to upload. `audio_path` arrives
+    // from the webview, and without this the command reads any file on the
+    // machine and POSTs it to Groq as "audio" — an exfiltration primitive one
+    // injected script away, where the bytes leave the machine even though the
+    // transcript comes back as nonsense. `is_under` canonicalises, so
+    // `voice/../../.ssh/id_rsa` fails the check rather than passing it, and it
+    // fails closed when the voice dir does not exist yet.
+    let voice_dir = paths::voice_dir();
+    if !matches!(
+        feral_core::rsi::paths::is_under(&voice_dir, std::path::Path::new(&audio_path)),
+        Ok(true)
+    ) {
+        tracing::warn!(
+            path = %audio_path,
+            "stt: refusing to upload a file outside {}",
+            voice_dir.display()
+        );
+        return Err("stt-cloud-failed".into());
+    }
     let bytes = std::fs::read(&audio_path).map_err(|_| "stt-cloud-failed".to_string())?;
     let file_name = std::path::Path::new(&audio_path)
         .file_name()
@@ -461,18 +536,21 @@ pub(crate) async fn download_tts_voice(
     };
 
     let key = format!("{engine}::{voice}");
-    {
-        let map = state.downloads.lock();
-        if map.contains_key(&key) {
-            return Err(format!("Download already in progress: {key}"));
-        }
-    }
     if engine_voice_present(&engine, &voice) {
         return Ok(key);
     }
 
+    // Check and claim under one lock — see `download_model` for why the split
+    // version let two concurrent calls write the same partial file.
     let cancel: CancelFlag = Arc::new(AtomicBool::new(false));
-    state.downloads.lock().insert(key.clone(), cancel.clone());
+    {
+        let mut map = state.downloads.lock();
+        if map.contains_key(&key) {
+            return Err(format!("Download already in progress: {key}"));
+        }
+        map.insert(key.clone(), cancel.clone());
+    }
+    let cancel_for_task = cancel.clone();
 
     let (tx, mut rx) = mpsc::channel::<f32>(32);
     {
@@ -514,7 +592,19 @@ pub(crate) async fn download_tts_voice(
             }
         }
 
-        downloads_map.lock().remove(&key_for_task);
+        // Only remove OUR entry. A download that finishes after a new one has
+        // claimed the same key used to delete the newcomer's cancel flag, so
+        // pressing Cancel on the second download did nothing at all — the flag
+        // it would have set was no longer in the map.
+        {
+            let mut map = downloads_map.lock();
+            if map
+                .get(&key_for_task)
+                .is_some_and(|f| std::sync::Arc::ptr_eq(f, &cancel_for_task))
+            {
+                map.remove(&key_for_task);
+            }
+        }
         match result {
             Ok(path) => {
                 let _ = app.emit(

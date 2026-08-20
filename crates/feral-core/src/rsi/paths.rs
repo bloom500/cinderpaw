@@ -171,7 +171,13 @@ pub fn genome_snapshot_path(commit_hash: &str) -> Result<PathBuf> {
 /// `git2::Oid::to_string()` produces so we don't have to massage the
 /// hash on its way through the IPC boundary.
 pub fn is_valid_commit_hash(s: &str) -> bool {
-    s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    // 40 hex = SHA-1, 64 hex = SHA-256. Git has supported SHA-256 repositories
+    // since 2.29, and a user whose global `init.defaultObjectFormat` is sha256
+    // gets one — at which point every RSI commit id is 64 characters, this
+    // returned false for all of them, and the whole subsystem refused to work
+    // on a machine where nothing was wrong.
+    (s.len() == 40 || s.len() == 64)
+        && s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 /// Resolve a sidecar-supplied relative path (a "key" into the eval

@@ -1,6 +1,9 @@
 import path from "node:path";
 import fs from "node:fs";
 import { feralHome } from "../config.ts";
+import { atomicWriteFileSync } from "../atomic-write.ts";
+
+export { atomicWriteFileSync };
 
 export interface GraphNode {
   id: string;
@@ -60,8 +63,16 @@ export function withFileLock<T>(filePath: string, fn: () => T): T {
       } catch {
         continue; // lock disappeared between attempts
       }
-      const until = Date.now() + LOCK_RETRY_MS;
-      while (Date.now() < until) { /* spin briefly */ }
+      // Sleep instead of spinning. The old `while (Date.now() < until) {}` held
+      // the CPU at 100% for the whole 50ms retry AND blocked the single thread,
+      // so under a few concurrent writers the sidecar looked periodically dead
+      // — no timers, no socket reads, nothing.
+      //
+      // ponytail: `Atomics.wait` still blocks the thread, it just stops burning
+      // it. Making this genuinely non-blocking means turning `withFileLock`
+      // async, and with it every synchronous caller — worth doing if lock
+      // contention ever shows up in a profile.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_RETRY_MS);
     }
   }
   if (!acquired) {
@@ -72,21 +83,6 @@ export function withFileLock<T>(filePath: string, fn: () => T): T {
   } finally {
     try { fs.unlinkSync(lp); } catch { /* best-effort */ }
   }
-}
-
-// ponytail: write-temp + fsync + rename. Atomic on POSIX; best-effort on Windows.
-export function atomicWriteFileSync(filePath: string, contents: string): void {
-  const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
-  const tmp = `${filePath}.tmp.${process.pid}.${Date.now()}`;
-  const fd = fs.openSync(tmp, "w");
-  try {
-    fs.writeSync(fd, contents);
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-  fs.renameSync(tmp, filePath);
 }
 
 export interface MemoryGraphOptions {

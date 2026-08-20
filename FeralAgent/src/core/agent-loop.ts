@@ -3138,7 +3138,12 @@ export function parseInvokeXml(input: string): ParsedToolCall[] {
   // intent and far enough to miss a matcher anchored on a bare tag. Thirty-one
   // good calls in our syntax, then one in this one, delivered to the person as
   // raw markup.
-  const invokeRe = /<(?:[A-Za-z_][\w.-]*:)?invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)(?:<\/(?:[A-Za-z_][\w.-]*:)?invoke>|$)/g;
+  // The final alternative used to be just `$`, so an invoke the model never
+  // closed swallowed everything to the end of the message — including any
+  // LATER `<invoke>`, which was then never seen at all: a turn that asked for
+  // three tools ran one. Stopping at the next opener keeps the tolerance for a
+  // missing closer without letting one call eat its siblings.
+  const invokeRe = /<(?:[A-Za-z_][\w.-]*:)?invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)(?:<\/(?:[A-Za-z_][\w.-]*:)?invoke>|(?=<(?:[A-Za-z_][\w.-]*:)?invoke\s)|$)/g;
   let m: RegExpExecArray | null;
   while ((m = invokeRe.exec(input)) !== null) {
     const name = m[1];

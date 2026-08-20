@@ -158,6 +158,22 @@ pub fn bootstrap() -> Result<String> {
     if !plan_path.exists() {
         std::fs::write(&plan_path, super::plan::PLAN_MD)
             .with_context(|| format!("write PLAN.md to {}", plan_path.display()))?;
+    } else {
+        // The file says "DO NOT EDIT" and nothing checked. An edited PLAN.md is
+        // never overwritten, so the copy the engine reads from disk could drift
+        // away from the one compiled into the binary — and every later
+        // discussion of "the plan" would be about two different documents.
+        // We still do not overwrite (someone edited it on purpose, and silently
+        // discarding their work would be worse), but we no longer stay quiet.
+        match std::fs::read_to_string(&plan_path) {
+            Ok(on_disk) if on_disk != super::plan::PLAN_MD => {
+                tracing::warn!(
+                    path = %plan_path.display(),
+                    "PLAN.md on disk differs from the one built into this binary —                      it is being kept as-is, but the engine and the build no longer agree"
+                );
+            }
+            _ => {}
+        }
     }
 
     let eval_root = rsi_path.join("eval");
@@ -261,9 +277,11 @@ pub fn commit_genome(
     let snapshot_rel = format!("{}/{}.json", GENOMES_DIR, &short_id_for_filename(genome_id));
     let snapshot_abs = rsi_root.join(&snapshot_rel);
     std::fs::create_dir_all(snapshot_abs.parent().unwrap())?;
-    std::fs::write(
+    // Atomic: a torn snapshot is a genome nobody can read back, and this file is
+    // the record of what the commit is ABOUT.
+    crate::atomic_file::write_atomic(
         &snapshot_abs,
-        serde_json::to_string_pretty(genome_json)?,
+        serde_json::to_string_pretty(genome_json)?.as_bytes(),
     )?;
 
     // Stage the snapshot.
@@ -363,8 +381,12 @@ pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
     let main_branch = repo.find_branch("main", BranchType::Local)?;
     let mut main_reference = main_branch.into_reference();
     main_reference.set_target(candidate_oid, "rsi: ratchet advance")?;
-    // Detach the working tree just in case anyone is observing it.
-    let _ = repo.set_head("refs/heads/main");
+    // Not `let _ =`. If HEAD fails to follow main, the next `commit_genome` —
+    // which commits to "HEAD" — writes onto whatever ref HEAD still points at,
+    // quietly building the lineage somewhere other than main. A ratchet that
+    // reports `advanced: true` with the repo in that state is a lie.
+    repo.set_head("refs/heads/main")
+        .context("ratchet advanced main but could not move HEAD to it")?;
 
     Ok(RatchetResult {
         advanced: true,
@@ -381,6 +403,20 @@ pub fn log(max: usize) -> Result<Vec<CommitMeta>> {
     let repo = open()?;
     let mut revwalk = repo.revwalk()?;
     revwalk.push_head()?;
+    // Every local branch tip, not just HEAD. The docstring promised "across all
+    // refs" and only main was walked, so every candidate that was evaluated and
+    // NOT ratcheted — the `genome-*` branches — was invisible to whatever reads
+    // this. Selection then drew parents only from the promoted line, which is
+    // the opposite of exploring: the search saw only the path it had already
+    // taken.
+    if let Ok(branches) = repo.branches(Some(BranchType::Local)) {
+        for branch in branches.flatten() {
+            if let Some(oid) = branch.0.get().target() {
+                // The revwalk de-duplicates, so pushing main again is harmless.
+                let _ = revwalk.push(oid);
+            }
+        }
+    }
     revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
 
     let mut out = Vec::with_capacity(max.min(1024));
@@ -446,7 +482,14 @@ pub fn diff(a: &str, b: &str) -> Result<String> {
 /// {json}
 /// ```
 fn format_iteration_message(genome_id: &str, meta: &IterationMetadata) -> String {
-    let blob = serde_json::to_string_pretty(meta).unwrap_or_else(|_| "{}".to_string());
+    // A failure here writes `{}` into the commit body, which `parse_iteration_metadata`
+    // then reads as "no metadata" — and the ratchet refuses the candidate with
+    // a message about unparseable metadata, several steps away from the actual
+    // problem. Say what really happened, where it happens.
+    let blob = serde_json::to_string_pretty(meta).unwrap_or_else(|e| {
+        tracing::error!(?e, genome_id, "failed to serialise iteration metadata for the commit body");
+        "{}".to_string()
+    });
     format!("rsi: iteration {}\n\n{}", genome_id, blob)
 }
 
@@ -474,7 +517,18 @@ pub fn parse_iteration_metadata(commit: &Commit) -> Option<IterationMetadata> {
 /// genomes within a single user / single day.
 fn short_id_for_filename(id: &str) -> String {
     let hex: String = id.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    hex.chars().take(8).collect()
+    let short: String = hex.chars().take(8).collect();
+    if !short.is_empty() {
+        return short;
+    }
+    // An id with no hex digits at all filtered down to nothing, and the
+    // snapshot then landed at `genomes/.json` — the SAME path for every such
+    // genome, each one silently overwriting the last with no error anywhere.
+    // Hash instead: still a short stable filename, but one that exists.
+    use std::hash::{Hash as _, Hasher as _};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut h);
+    format!("{:08x}", h.finish() as u32)
 }
 
 #[allow(dead_code)]
@@ -521,10 +575,23 @@ pub async fn gc() -> Result<GcReport> {
         .map_err(|e| anyhow!("gc task join: {e}"))?
 }
 
+/// How long a loose object is protected from pruning after it is written.
+///
+/// A commit writes its blobs before it references them, so anything younger
+/// than this may belong to a write still in flight. Same reasoning as
+/// `git gc --prune=<date>`.
+const PRUNE_GRACE: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// Sync prune. Walks every local ref + HEAD, builds the reachable OID
 /// set, then removes any loose-object file under `.git/objects/` whose
 /// OID is unreachable. Pack files are left alone.
 fn gc_sync() -> Result<GcReport> {
+    gc_sync_with_grace(PRUNE_GRACE)
+}
+
+/// `gc_sync`, with the grace period as a parameter so tests can prune the
+/// objects they just created.
+fn gc_sync_with_grace(grace: std::time::Duration) -> Result<GcReport> {
     use std::collections::HashSet;
     use std::time::Instant;
 
@@ -624,6 +691,26 @@ fn gc_sync() -> Result<GcReport> {
                 loose_after += 1;
                 continue;
             }
+            // Reachability was computed BEFORE this walk started. A commit
+            // being written right now has already put its blobs on disk and
+            // has not yet referenced them from a tree, so they look garbage —
+            // and deleting them leaves the commit that follows pointing at
+            // objects that no longer exist. That is corruption of the RSI
+            // substrate itself: the lineage the ratchet walks.
+            //
+            // ponytail: a grace period, which is what `git gc --prune=<date>`
+            // does for exactly this reason. Cheaper and less deadlock-prone
+            // than taking a lock every commit path would also have to honour.
+            // An object younger than this survives to the next GC.
+            let young = inner
+                .metadata()
+                .and_then(|m| m.modified())
+                .map(|t| t.elapsed().unwrap_or_default() < grace)
+                .unwrap_or(true); // unreadable timestamp → treat as fresh, keep it
+            if young {
+                loose_after += 1;
+                continue;
+            }
             // Use remove_file (not unlink) so the failure mode is the same
             // on Windows where unlink has stricter semantics.
             match std::fs::remove_file(inner.path()) {
@@ -704,11 +791,15 @@ mod tests {
             short_id_for_filename("550e8400-e29b-41d4-a716-446655440000"),
             "550e8400"
         );
-        // No hex digits at all (g, r, b, s are NOT a-f — `b` and `r`
-        // are NOT in the [0-9a-f] hex set; `b` IS but `r`/`s`/`g`
-        // aren't). Actually 'b' is hex, so this is "b" alone.
-        let empty = short_id_for_filename("zzz!!!");
-        assert!(empty.is_empty());
+        // An id with no hex digits at all must still get a filename of its
+        // own. It used to filter down to "", which put every such genome's
+        // snapshot at `genomes/.json` — one shared file, each write erasing
+        // the previous genome without a word.
+        let a = short_id_for_filename("zzz!!!");
+        let b = short_id_for_filename("yyy???");
+        assert_eq!(a.len(), 8, "a hexless id still needs a filename");
+        assert_ne!(a, b, "two hexless ids must not share one snapshot path");
+        assert_eq!(a, short_id_for_filename("zzz!!!"), "and it must be stable");
     }
 
     /// The keystone test: bootstrap the git substrate into a temp
@@ -840,7 +931,9 @@ mod tests {
             // Run the prune. We do it via the sync inner so the test
             // doesn't depend on a tokio runtime; the async wrapper is
             // tested separately by the lib's normal compile/test cycle.
-            let report = gc_sync().expect("gc_sync");
+            // Zero grace: the objects under test were made moments ago, and the
+            // production grace period exists precisely to spare those.
+            let report = gc_sync_with_grace(std::time::Duration::ZERO).expect("gc_sync");
             assert!(
                 report.loose_pruned >= 2,
                 "gc should have pruned at least the two seeded blobs, got report={:?}",
@@ -900,7 +993,7 @@ mod tests {
             // A second GC is a no-op (everything reachable is already
             // accounted for, nothing to prune). This pins that the
             // function is idempotent and doesn't accumulate work.
-            let report2 = gc_sync().expect("gc_sync idempotent");
+            let report2 = gc_sync_with_grace(std::time::Duration::ZERO).expect("gc_sync idempotent");
             assert_eq!(
                 report2.loose_pruned, 0,
                 "second gc should prune nothing, got {:?}",

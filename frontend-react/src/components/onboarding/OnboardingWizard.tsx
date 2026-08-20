@@ -143,7 +143,7 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
         // route behind the overlay — the provider step can leave the router
         // elsewhere (e.g. a deep-link to /models). Finish closes the wizard.
         onClick={() => { navigate('/chat'); void finish(); }}
-        className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 transition-colors"
+        className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-on-brand hover:bg-brand/90 transition-colors"
       >
         Open chat <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
       </button>
@@ -155,7 +155,7 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
       type="button"
       onClick={next}
       disabled={!canProceed}
-      className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-on-brand hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
     >
       Continue <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
     </button>
@@ -506,7 +506,7 @@ function DetectedSection() {
               <p className="text-sm text-text-primary truncate">{c.label}</p>
               <p className="text-xs text-text-muted truncate">
                 {outcome && !outcome.ok ? (
-                  <span className="text-red-400">{outcome.message}</span>
+                  <span className="text-error">{outcome.message}</span>
                 ) : (
                   c.detail
                 )}
@@ -604,13 +604,13 @@ function LocalBranch() {
           type="button"
           onClick={() => void start(model.repoId, model.filename)}
           disabled={!!active}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
           <Download size={15} /> Download {model.label} ({model.approxSize})
         </button>
       )}
 
-      {error && <p className="text-xs text-red-400">Download failed: {error}</p>}
+      {error && <p className="text-xs text-error">Download failed: {error}</p>}
 
       {/*
         Audit M-R2 fix (2026-07-07): was `finish()` then `navigate()`, which
@@ -736,10 +736,17 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Trimmed at both call sites. Copying a key out of a browser or a password
+  // manager routinely picks up trailing whitespace, and a key stored with a
+  // newline in it goes onto the wire inside the Authorization header — which
+  // the provider answers with a 401. The user then re-pastes the same correct
+  // key, gets the same error, and nothing suggests whitespace is the problem.
   const handleTest = async () => {
+    const key = apiKey.trim();
+    if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
     setBusy(true); setMsg(null);
     try {
-      const r = await testByokProvider({ providerId: def.id, apiKey, baseUrl: null });
+      const r = await testByokProvider({ providerId: def.id, apiKey: key, baseUrl: null });
       setMsg(r.ok ? { ok: true, text: '✓ Connected' } : { ok: false, text: r.error ?? 'Connection failed' });
     } catch (e) {
       setMsg({ ok: false, text: String(e) });
@@ -747,9 +754,11 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
   };
 
   const handleSave = async () => {
+    const key = apiKey.trim();
+    if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
     setBusy(true); setMsg(null);
     try {
-      await saveByokProvider({ providerId: def.id, enabled: true, apiKey, baseUrl: null, defaultModel: null });
+      await saveByokProvider({ providerId: def.id, enabled: true, apiKey: key, baseUrl: null, defaultModel: null });
       setMsg({ ok: true, text: `✓ ${def.name} saved` });
     } catch {
       setMsg({ ok: false, text: 'Save failed' });
@@ -793,11 +802,11 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
           type="button"
           onClick={() => void handleSave()}
           disabled={busy || !apiKey}
-          className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
+          className="px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
           Save
         </button>
-        {msg && <span className={cn('text-xs', msg.ok ? 'text-green-400' : 'text-red-400')}>{msg.text}</span>}
+        {msg && <span className={cn('text-xs', msg.ok ? 'text-green-400' : 'text-error')}>{msg.text}</span>}
       </div>
     </div>
   );

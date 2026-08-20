@@ -120,15 +120,17 @@ pub(crate) async fn download_model(
     let key = download_key(&repo_id, &filename);
 
     // Refuse concurrent download of the same file (would race on the .part path).
+    // Claim and check under ONE lock: taking the lock, dropping it, and taking
+    // it again to insert left a window where two clicks both saw "not present"
+    // and both spawned a download writing the same `.part` file.
+    let cancel: CancelFlag = Arc::new(AtomicBool::new(false));
     {
-        let map = state.downloads.lock();
+        let mut map = state.downloads.lock();
         if map.contains_key(&key) {
             return Err(format!("Download already in progress: {}", key));
         }
+        map.insert(key.clone(), cancel.clone());
     }
-
-    let cancel: CancelFlag = Arc::new(AtomicBool::new(false));
-    state.downloads.lock().insert(key.clone(), cancel.clone());
 
     // Progress forwarder: mpsc<f32> → Tauri events.
     let (tx, mut rx) = mpsc::channel::<f32>(32);
@@ -167,7 +169,19 @@ pub(crate) async fn download_model(
         .await;
 
         // Always release the slot first.
-        downloads_map.lock().remove(&key_for_task);
+        // Only remove OUR entry. A download that finishes after a new one has
+        // claimed the same key used to delete the newcomer's cancel flag, so
+        // pressing Cancel on the second download did nothing at all — the flag
+        // it would have set was no longer in the map.
+        {
+            let mut map = downloads_map.lock();
+            if map
+                .get(&key_for_task)
+                .is_some_and(|f| std::sync::Arc::ptr_eq(f, &cancel_for_task))
+            {
+                map.remove(&key_for_task);
+            }
+        }
 
         match result {
             Ok(path) => {
@@ -923,20 +937,21 @@ pub(crate) async fn download_embedding_model(
     let filename = paths::EMBED_FILENAME.to_string();
     let key = format!("embedding::{}", filename);
 
-    {
-        let map = state.downloads.lock();
-        if map.contains_key(&key) {
-            return Err(format!("Download already in progress: {}", key));
-        }
-    }
-
     // Already present — nothing to do.
     if paths::embedding_model_path().exists() {
         return Ok(key);
     }
 
+    // Check and claim under one lock — see `download_model` for why the split
+    // version let two concurrent calls both start writing the same `.part`.
     let cancel: CancelFlag = Arc::new(AtomicBool::new(false));
-    state.downloads.lock().insert(key.clone(), cancel.clone());
+    {
+        let mut map = state.downloads.lock();
+        if map.contains_key(&key) {
+            return Err(format!("Download already in progress: {}", key));
+        }
+        map.insert(key.clone(), cancel.clone());
+    }
 
     let (tx, mut rx) = mpsc::channel::<f32>(32);
     {
@@ -970,7 +985,19 @@ pub(crate) async fn download_embedding_model(
             cancel_for_task.clone(),
         )
         .await;
-        downloads_map.lock().remove(&key_for_task);
+        // Only remove OUR entry. A download that finishes after a new one has
+        // claimed the same key used to delete the newcomer's cancel flag, so
+        // pressing Cancel on the second download did nothing at all — the flag
+        // it would have set was no longer in the map.
+        {
+            let mut map = downloads_map.lock();
+            if map
+                .get(&key_for_task)
+                .is_some_and(|f| std::sync::Arc::ptr_eq(f, &cancel_for_task))
+            {
+                map.remove(&key_for_task);
+            }
+        }
         match result {
             Ok(path) => {
                 let _ = app_for_task.emit(

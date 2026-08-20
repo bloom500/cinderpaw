@@ -289,7 +289,10 @@ func saveWizardProgress(step WizardStep, mode SetupMode, choice WizardChoice) {
 		return
 	}
 	payload := fmt.Sprintf("v%d:%d:%d:%d", wizardProgressVersion, int(step), int(mode), int(choice))
-	os.WriteFile(path, []byte(payload), 0644)
+	// 0600, matching the api-token next to it: this lives in the user's private
+	// ~/.feral and there is no reason for other accounts on the machine to read
+	// what setup path they chose.
+	os.WriteFile(path, []byte(payload), 0600)
 }
 
 // loadWizardProgress reads the last completed step and setup mode from

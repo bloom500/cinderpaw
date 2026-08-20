@@ -1117,7 +1117,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           // provider the user had just left. Refusing was right; routing there
           // at all was the fault.
           const nextBrain = rebuildDerivedBrain(brainDerived, primary, fallback);
-          if (nextBrain) agent.setBrain(new BrainStack(nextBrain, brainBreaker));
+          if (nextBrain) agent.setBrain(new BrainStack(nextBrain, brainBreaker, log));
           // Local models forward their active context window so the agent loop
           // compacts to the real KV-cache size (Hardware can raise it well past
           // the old 8192); cloud models send none and use the cloud budget.

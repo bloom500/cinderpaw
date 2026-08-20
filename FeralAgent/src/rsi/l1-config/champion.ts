@@ -23,7 +23,8 @@
  * always override the champion (see agent-loop `#complete`).
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync } from "node:fs";
+import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname, join } from "node:path";
 import { feralHome } from "../../config.ts";
 import type { GenomeConfig } from "./genome.ts";
@@ -70,7 +71,10 @@ export function defaultChampionPath(): string {
 /** Persist the champion. Creates the parent dir if needed. */
 export function writeChampion(path: string, record: ChampionRecord): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(record, null, 2), "utf8");
+  // Atomic: this is what boot reads to resume from the current champion. A
+  // half-written file means the next start finds nothing, falls back to the
+  // seed, and every gain from the previous session is gone.
+  atomicWriteFileSync(path, JSON.stringify(record, null, 2));
 }
 
 /** Build a population seed from the persisted champion so a fresh run

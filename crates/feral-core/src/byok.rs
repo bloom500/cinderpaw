@@ -776,10 +776,8 @@ fn clear_key(provider_id: &str) -> anyhow::Result<()> {
 /// the keychain, then deletes the legacy file.
 pub fn load(_settings: &crate::settings::Settings) -> ByokSettings {
     let path = crate::paths::feral_dir().join("byok.json");
-    let mut s = match std::fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice::<ByokSettings>(&bytes).unwrap_or_default(),
-        Err(_) => ByokSettings::default(),
-    };
+    let mut s: ByokSettings =
+        crate::atomic_file::read_json_or_report(&path, "your provider settings");
 
     let mut migrated_any = false;
     for (id, cfg) in s.providers.iter_mut() {
@@ -883,7 +881,7 @@ fn load_metadata() -> ByokSettings {
 /// Write only the non-secret metadata to disk (api_key is skip_serializing).
 fn write_metadata(settings: &ByokSettings) -> anyhow::Result<()> {
     let path = crate::paths::feral_dir().join("byok.json");
-    std::fs::write(path, serde_json::to_vec_pretty(settings)?)?;
+    crate::atomic_file::write_secret_atomic(&path, &serde_json::to_vec_pretty(settings)?)?;
     Ok(())
 }
 

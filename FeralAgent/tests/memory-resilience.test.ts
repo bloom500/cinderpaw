@@ -36,7 +36,7 @@ import {
   deleteWorkspace,
 } from "../src/memory/workspaces.ts";
 import type { AuditLogger } from "../src/types.ts";
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -465,10 +465,23 @@ describe("memory/resilience: writer lock (single-writer discipline)", () => {
   });
 
   test(":memory: path skips the lock entirely — many in-process opens are fine", () => {
+    // `expect(true).toBe(true)` used to stand here, which passes whether or not
+    // the behaviour holds — the test could only ever fail by throwing. Assert
+    // what the title claims: two in-memory databases open at once, neither
+    // blocks the other, and no lockfile is created for either.
+    const before = readdirSync(tmpDir).length;
     const a = openDatabase(":memory:");
     const b = openDatabase(":memory:");
+    expect(a.raw).toBeDefined();
+    expect(b.raw).toBeDefined();
+    // Independent handles, not one shared database.
+    a.raw.exec("CREATE TABLE only_in_a (x INTEGER)");
+    expect(() => b.raw.query("SELECT x FROM only_in_a").all()).toThrow();
     a.close();
     b.close();
-    expect(true).toBe(true);
+    // A third open still succeeds after both closed — nothing was left held.
+    const c = openDatabase(":memory:");
+    c.close();
+    expect(readdirSync(tmpDir).length).toBe(before);
   });
 });

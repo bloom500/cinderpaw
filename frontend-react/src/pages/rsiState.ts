@@ -62,13 +62,34 @@ class RsiStateStore {
     return this.#snap;
   }
 
+  /**
+   * Bumped by every teardown, so a registration still in flight can tell that
+   * the subscriber it was started for is already gone.
+   *
+   * `#subscribed` is set synchronously but the listeners register
+   * asynchronously. A page that mounted and unmounted before `listen()`
+   * resolved ran `#teardown()` against an empty `#unlistens`, and the
+   * registration then landed afterwards with nothing left that could ever
+   * release it — every quick mount/unmount cycle added another permanent
+   * handler, all of them firing on every dream-cycle event for the rest of the
+   * session.
+   */
+  #generation = 0;
+
   #ensureSubscribed(): void {
     if (this.#subscribed) return;
     this.#subscribed = true;
+    const generation = this.#generation;
     void (async () => {
       try {
         const uDream = await events.onDreamCycle.listen((e: DreamCycleLine) => this.#applyDream(e));
         const uRsi = await events.onRsiEngineEvent.listen((e: RsiEngineEventLine) => this.#applyRsi(e));
+        if (generation !== this.#generation) {
+          // Torn down while we were registering — release immediately.
+          try { uDream(); } catch { /* ignore */ }
+          try { uRsi(); } catch { /* ignore */ }
+          return;
+        }
         this.#unlistens.push(() => uDream(), () => uRsi());
       } catch (err) {
         // Listen failures are non-fatal — the tree still draws the idle state.
@@ -78,6 +99,7 @@ class RsiStateStore {
   }
 
   #teardown(): void {
+    this.#generation += 1;
     for (const u of this.#unlistens) {
       try { u(); } catch { /* ignore */ }
     }

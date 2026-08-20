@@ -57,8 +57,7 @@ pub fn router(state: ApiState) -> Router {
     // malicious page that guesses the origin still cannot forge the token.
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
-            origin.as_bytes().starts_with(b"http://localhost")
-                || origin.as_bytes().starts_with(b"http://127.0.0.1")
+            is_loopback_origin(origin.as_bytes())
         }))
         .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any);
@@ -263,23 +262,58 @@ async fn require_token(
 /// but a token check is exactly the place to not get cute — the cost is one
 /// XOR per byte.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
+    // No early return on a length mismatch: answering "wrong length" faster
+    // than "wrong bytes" hands an attacker the real token's length for free.
+    // The zip walks min(len) bytes either way, and the length equality is
+    // folded into the verdict AFTER the loop instead of before it.
     let mut diff = 0u8;
     for (x, y) in a.iter().zip(b.iter()) {
         diff |= x ^ y;
     }
-    diff == 0
+    diff == 0 && a.len() == b.len()
+}
+
+/// True only when `origin` is exactly a loopback origin — scheme, host, and
+/// then either a port or nothing at all.
+///
+/// `starts_with("http://localhost")` also matches `http://localhost.evil.com`,
+/// which is a domain an attacker can register and point anywhere. The bearer
+/// token still gates every route behind this, so the bypass was not a breach
+/// on its own — but a CORS allowlist that accepts a stranger's origin is one
+/// bug away from being one, and the exact check is no longer code.
+fn is_loopback_origin(origin: &[u8]) -> bool {
+    for host in [&b"http://localhost"[..], &b"http://127.0.0.1"[..]] {
+        if let Some(rest) = origin.strip_prefix(host) {
+            // Nothing after the host, or a port. `.evil.com` is neither.
+            if rest.is_empty() || rest[0] == b':' {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub async fn serve(state: ApiState, port: u16) -> anyhow::Result<()> {
-    let app = router(state);
     // Loopback only — see module docstring. Binding to 0.0.0.0 here exposed
     // model deletion and inference to every host on the network.
     let addr = format!("127.0.0.1:{}", port);
-    tracing::info!(%addr, "feral api listening (loopback, token-gated)");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    serve_on(state, listener).await
+}
+
+/// Serve on a listener somebody else already bound.
+///
+/// The gateway uses the API port as its single-instance lock: it binds, sees
+/// the port is free, then drops the socket so the real server can take it. In
+/// the gap between the drop and the re-bind the port belongs to nobody, and
+/// whoever grabs it first wins — so the guard could say "clear" and the server
+/// still die on "address in use". Handing the listener over closes the gap:
+/// the port is never released at all.
+pub async fn serve_on(state: ApiState, listener: tokio::net::TcpListener) -> anyhow::Result<()> {
+    let app = router(state);
+    if let Ok(addr) = listener.local_addr() {
+        tracing::info!(%addr, "feral api listening (loopback, token-gated)");
+    }
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -557,6 +591,18 @@ async fn wait_for_model(state: &ApiState, requested: &str) -> bool {
                 .map(|(_, name)| name.to_string())
         });
         let manager = state.manager.clone();
+        // Clears the flag however this scope ends — including the case that made
+        // the flag a permanent outage: the client disconnects, axum drops this
+        // handler future mid-`.await`, the store below never runs, and every
+        // later request takes the 120s wait path and 503s until the gateway is
+        // restarted. A drop guard is the only reset that survives cancellation.
+        struct ClearOnDrop;
+        impl Drop for ClearOnDrop {
+            fn drop(&mut self) {
+                API_AUTOLOAD_IN_FLIGHT.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let _clear = ClearOnDrop;
         let loaded = tokio::task::spawn_blocking(move || {
             let models = models::scan_models_dir().unwrap_or_default();
             let pick = pick_user_model(&models, &requested, chosen.as_deref());
@@ -577,7 +623,7 @@ async fn wait_for_model(state: &ApiState, requested: &str) -> bool {
         })
         .await
         .unwrap_or(false);
-        API_AUTOLOAD_IN_FLIGHT.store(false, Ordering::SeqCst);
+        drop(_clear);
         if loaded {
             return true;
         }
@@ -2626,6 +2672,34 @@ mod tests {
     use super::*;
     use crate::host::HostEvent;
     use crate::models::ModelInfo;
+
+    #[test]
+    fn cors_allows_loopback_only_and_not_lookalikes() {
+        for ok in [
+            "http://localhost",
+            "http://localhost:1420",
+            "http://127.0.0.1:11435",
+        ] {
+            assert!(is_loopback_origin(ok.as_bytes()), "{ok} must be allowed");
+        }
+        for bad in [
+            "http://localhost.attacker.com",
+            "http://127.0.0.1.evil.com",
+            "https://localhost",
+            "http://example.com",
+        ] {
+            assert!(!is_loopback_origin(bad.as_bytes()), "{bad} must be refused");
+        }
+    }
+
+    #[test]
+    fn constant_time_eq_matches_only_identical_slices() {
+        assert!(constant_time_eq(b"token", b"token"));
+        assert!(!constant_time_eq(b"token", b"tokeN"));
+        assert!(!constant_time_eq(b"token", b"tok"));
+        assert!(!constant_time_eq(b"tok", b"token"));
+        assert!(constant_time_eq(b"", b""));
+    }
 
     fn agent_output(line: &str) -> HostEvent {
         HostEvent { event: "feral://agent-output".into(), payload: json!({ "data": line }) }

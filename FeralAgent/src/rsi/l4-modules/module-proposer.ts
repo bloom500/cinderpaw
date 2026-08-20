@@ -125,7 +125,13 @@ export async function proposeModule(deps: ModuleProposerDeps): Promise<ProposedM
 
   const rationale = /RATIONALE:\s*(.+)/.exec(text)?.[1]?.trim() ?? "unspecified";
   const sourceHash = createHash("sha256").update(source).digest("hex");
-  const moduleId = `mod-${row.seam.replace(/_/g, "-")}-${sourceHash.slice(0, 8)}`;
+  // 16 hex chars, not 8. At 8 the id space is 32 bits, and the module dir is
+  // created with `recursive: true` — which does not complain about an existing
+  // directory — so a collision silently overwrote the impl.ts of whatever
+  // module already held that id. On a long-running install proposing a
+  // candidate every dream cycle, the collision is not hypothetical, and the
+  // module it lands on may be the one currently promoted and serving a seam.
+  const moduleId = `mod-${row.seam.replace(/_/g, "-")}-${sourceHash.slice(0, 16)}`;
   const dir = join(deps.modulesDir, moduleId);
 
   const manifest: ModuleManifest = {

@@ -49,7 +49,21 @@ pub struct GoodhartDetector {
 impl GoodhartDetector {
     /// Build a detector with the thresholds from the current bounds.
     pub fn new(window_size: u32, tier1_threshold: f64, tier2_threshold: f64, consecutive_required: u32) -> Self {
-        let cap = (window_size as usize).clamp(1, MAX_WINDOW);
+        // A `window_size` below `consecutive_required` can never accumulate
+        // enough samples to fire, so the detector is switched off — silently,
+        // by a config value that looks like a tuning choice. Raise it to the
+        // minimum that can actually work and say what happened.
+        let requested = (window_size as usize).clamp(1, MAX_WINDOW);
+        let needed = (consecutive_required as usize).max(1).min(MAX_WINDOW);
+        let cap = requested.max(needed);
+        if cap != requested {
+            tracing::warn!(
+                requested = requested,
+                using = cap,
+                consecutive_required = consecutive_required,
+                "goodhart: window smaller than the consecutive run it must observe —                  raising it, or the detector could never fire at all"
+            );
+        }
         Self {
             window: VecDeque::with_capacity(cap),
             window_size: cap,

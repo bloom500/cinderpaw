@@ -69,7 +69,18 @@ export function useEmbeddingDownloadStatus(): EmbeddingDownloadState {
         // surfaces the reason so the operator can investigate.
         if (!e.payload.cancelled) setState({ kind: 'failed', reason: e.payload.error });
       });
+      // Register even if we were torn down mid-await: `unlistens` is assigned
+      // only after all three resolve, so an unmount in between left the cleanup
+      // with an empty list and all three listeners attached for good. `alive`
+      // silences their handlers but nothing ever detaches them.
       unlistens = [u1, u2, u3];
+      if (!alive) {
+        for (const u of unlistens) {
+          try { u(); } catch { /* already detached */ }
+        }
+        unlistens = [];
+        return;
+      }
 
       // Probe: the Rust command is idempotent. If the model is on disk it
       // returns Ok with no events — we time out to 'present'. Otherwise it

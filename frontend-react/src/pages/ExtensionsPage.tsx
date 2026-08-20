@@ -10,7 +10,7 @@
  *   - Errors arrive pre-humanized from the backend and are shown as-is.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Trash2, Loader2, RefreshCw, ShieldAlert, ArrowUpRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
@@ -34,15 +34,22 @@ export function ExtensionsPage() {
   const [category, setCategory] = useState<string>('All');
   const openSkills = useUI((s) => s.openSkills);
 
+  // `alive` is checked before every setState: leaving this page while the two
+  // calls are still in flight otherwise updated a component that no longer
+  // exists, which React reports in the console on the very first visit.
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
   const load = () => {
     setError(null);
     Promise.all([tauri.mcp.list(), tauri.mcp.catalog()])
       .then(([list, cat]) => {
+        if (!alive.current) return;
         setInstalled(list.filter((s) => !CONNECTOR_IDS.has(s.id)));
         setCatalog(cat.filter((c) => !CONNECTOR_IDS.has(c.id)));
       })
-      .catch((e: unknown) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .catch((e: unknown) => { if (alive.current) setError(String(e)); })
+      .finally(() => { if (alive.current) setLoading(false); });
   };
 
   useEffect(load, []);
@@ -139,7 +146,7 @@ export function ExtensionsPage() {
                         className={cn(
                           'px-2.5 py-1 rounded-full text-2xs font-medium transition-colors whitespace-nowrap',
                           category === c
-                            ? 'bg-brand text-white'
+                            ? 'bg-brand text-on-brand'
                             : 'bg-bg-hover text-text-muted hover:text-text-secondary',
                         )}
                       >
@@ -439,7 +446,7 @@ function CatalogCard({
             'w-full text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5',
             installed
               ? 'bg-bg-hover text-text-muted cursor-default'
-              : 'bg-brand text-white hover:bg-brand/90',
+              : 'bg-brand text-on-brand hover:bg-brand/90',
           )}
         >
           {busy && <Loader2 size={11} className="animate-spin" />}
@@ -500,7 +507,7 @@ function CatalogCard({
             <button
               type="button"
               onClick={() => void doInstall()}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-white hover:bg-brand/90"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand text-on-brand hover:bg-brand/90"
             >
               Add it
             </button>

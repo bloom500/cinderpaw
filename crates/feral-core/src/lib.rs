@@ -7,6 +7,7 @@
 //! Invariants: docs/runtime-invariants.md.
 
 pub mod api;
+pub mod atomic_file;
 pub mod boot;
 pub mod byok;
 #[cfg(target_os = "linux")]
@@ -35,4 +36,5 @@ pub mod sidecar_protocol;
 pub mod sysinfo_mod;
 pub mod toolchain;
 pub mod tools;
+pub mod utf8_stream;
 pub mod transcription;

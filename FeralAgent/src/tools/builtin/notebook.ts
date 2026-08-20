@@ -19,7 +19,8 @@
  * could call the notebook from inside the notebook.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { join } from "node:path";
 import { Notebook } from "../../rlm/repl.ts";
 import { ChildRegistry, type ChildTelemetry, type RunChild } from "../../rlm/children.ts";
@@ -124,7 +125,7 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
     const t = setTimeout(() => {
       try {
         mkdirSync(deps.stateDir!, { recursive: true });
-        writeFileSync(file(sessionId), JSON.stringify(book.snapshot()), "utf8");
+        atomicWriteFileSync(file(sessionId), JSON.stringify(book.snapshot()));
       } catch {
         // A notebook that cannot persist is still a working notebook; losing
         // state on restart is not worth failing the user's cell over.

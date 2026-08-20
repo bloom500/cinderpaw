@@ -108,6 +108,7 @@ pub async fn synthesize(
         normalize: true,
     };
 
+    super::assert_key_safe_base_url(&opts.base_url, "fish audio")?;
     let res = http(SPEAK_TIMEOUT_SECS)?
         .post(format!("{}/v1/tts", opts.base_url.trim_end_matches('/')))
         .bearer_auth(api_key)

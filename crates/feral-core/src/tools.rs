@@ -448,12 +448,26 @@ async fn code_execute(args: Value) -> Result<String> {
 // resolved IP (anti-DNS-rebinding), including IPv4-mapped IPv6 (::ffff:127.0.0.1).
 
 fn is_blocked_v4(a: std::net::Ipv4Addr) -> bool {
+    let o = a.octets();
     a.is_loopback()        // 127.0.0.0/8
         || a.is_private()  // 10/8, 172.16/12, 192.168/16
         || a.is_link_local() // 169.254/16
         || a.is_unspecified() // 0.0.0.0
         || a.is_broadcast()
-        || a.octets()[0] == 0 // "this" network
+        || o[0] == 0 // "this" network
+        // 100.64.0.0/10 — carrier-grade NAT. `is_private` does not cover it,
+        // and it is exactly where an ISP's and a corporate LAN's internal
+        // machines live, so a domain resolving here was a way through the SSRF
+        // guard to somewhere that felt "public" only on paper.
+        || (o[0] == 100 && (64..=127).contains(&o[1]))
+        // Documentation/test ranges: never a legitimate destination.
+        || (o[0] == 192 && o[1] == 0 && o[2] == 2)
+        || (o[0] == 198 && o[1] == 51 && o[2] == 100)
+        || (o[0] == 203 && o[1] == 0 && o[2] == 113)
+        // 198.18.0.0/15 — benchmarking range.
+        || (o[0] == 198 && (o[1] == 18 || o[1] == 19))
+        // 240.0.0.0/4 — reserved.
+        || o[0] >= 240
 }
 
 fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
@@ -479,6 +493,20 @@ fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
 
 /// Validate a single URL hop: scheme, host-string SSRF guard, and resolved-IP
 /// SSRF guard. Returns the parsed URL so the caller can follow redirects.
+/// `assert_public_url` off the async worker.
+///
+/// It resolves DNS with the blocking `to_socket_addrs`, and it is called from
+/// an async tool handler — so a slow or dead resolver parks a whole tokio
+/// worker thread for the length of the lookup, and every unrelated request
+/// that happens to sit on that worker times out with it. The check itself is
+/// right; only the thread it ran on was wrong.
+async fn assert_public_url_async(raw: &str) -> Result<reqwest::Url> {
+    let raw = raw.to_string();
+    tokio::task::spawn_blocking(move || assert_public_url(&raw))
+        .await
+        .map_err(|e| anyhow!("url validation task failed: {e}"))?
+}
+
 fn assert_public_url(raw: &str) -> Result<reqwest::Url> {
     use std::net::ToSocketAddrs;
     let parsed = reqwest::Url::parse(raw).map_err(|e| anyhow!("malformed URL: {e}"))?;
@@ -540,7 +568,7 @@ async fn http_request(args: Value) -> Result<String> {
         .build()?;
 
     const MAX_REDIRECTS: usize = 5;
-    let mut current = assert_public_url(url)?;
+    let mut current = assert_public_url_async(url).await?;
     let mut cur_method = method;
     let mut cur_body = body;
 
@@ -569,7 +597,7 @@ async fn http_request(args: Value) -> Result<String> {
                         cur_method = "GET".into();
                         cur_body = String::new();
                     }
-                    current = assert_public_url(next.as_str())?;
+                    current = assert_public_url_async(next.as_str()).await?;
                     hop += 1;
                     continue;
                 }

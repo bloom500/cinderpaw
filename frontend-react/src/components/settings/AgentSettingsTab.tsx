@@ -73,7 +73,7 @@ export function AgentSettingsTab() {
             useAgent.getState().clear();
             navigate('/chat');
           }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors"
         >
           <Plus size={13} />
           New agent
@@ -81,9 +81,9 @@ export function AgentSettingsTab() {
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-3">
-          <AlertCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-400">{error}</p>
+        <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
+          <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+          <p className="text-sm text-error">{error}</p>
         </div>
       )}
 
@@ -100,7 +100,7 @@ export function AgentSettingsTab() {
               useAgent.getState().clear();
               navigate('/chat');
             }}
-            className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors"
+            className="px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors"
           >
             Create agent
           </button>
@@ -162,7 +162,7 @@ export function AgentSettingsTab() {
                   <button
                     type="button"
                     onClick={() => setConfirmId(a.id ?? null)}
-                    className="inline-flex items-center gap-1 text-2xs text-text-muted hover:text-red-400 transition-colors"
+                    className="inline-flex items-center gap-1 text-2xs text-text-muted hover:text-error transition-colors"
                     aria-label={`Delete ${a.name}`}
                   >
                     <Trash2 size={11} />
@@ -194,9 +194,9 @@ export function AgentSettingsTab() {
             definition is deleted.
           </p>
           {deleteError && (
-            <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/5 p-3">
-              <AlertCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
-              <p className="text-sm text-red-400">{deleteError}</p>
+            <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
+              <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+              <p className="text-sm text-error">{deleteError}</p>
             </div>
           )}
           <DialogFooter>
@@ -267,7 +267,7 @@ function RsiBudgetControl() {
             onClick={() => void setPreset(value)}
             className={cn(
               'flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50',
-              budget === value ? 'bg-brand text-white' : 'text-text-secondary hover:bg-bg-hover',
+              budget === value ? 'bg-brand text-on-brand' : 'text-text-secondary hover:bg-bg-hover',
             )}
           >
             {label}
@@ -362,7 +362,7 @@ function TokenBudgetToggle() {
                 className={cn(
                   'flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors',
                   budget === value
-                    ? 'bg-brand text-white'
+                    ? 'bg-brand text-on-brand'
                     : 'text-text-secondary hover:bg-bg-hover',
                 )}
               >
@@ -421,7 +421,7 @@ function DesktopControlToggle() {
   const segBtn = (active: boolean) =>
     cn(
       'flex-1 px-3 py-1.5 rounded text-xs font-medium transition-colors',
-      active ? 'bg-brand text-white' : 'text-text-secondary hover:bg-bg-hover',
+      active ? 'bg-brand text-on-brand' : 'text-text-secondary hover:bg-bg-hover',
     );
 
   return (

@@ -13,16 +13,26 @@ import { parseDoneWhenFromMessage } from "../src/cron/done-when.ts";
 
 describe("declaring done from a chat message", () => {
   test("the three forms", () => {
+    // `origin: "message"` is part of the shape now: an assertion parsed out of
+    // TEXT is not the same thing as one the user set on the job, and the
+    // command form is refused when it arrives this way.
     expect(parseDoneWhenFromMessage("write it\ndone_when: exists out/REPORT.md")).toEqual({
       kind: "file_exists",
       path: "out/REPORT.md",
+      origin: "message",
     });
     expect(
       parseDoneWhenFromMessage('do it\ndone_when: contains out/REPORT.md "total: 231"'),
-    ).toEqual({ kind: "file_contains", path: "out/REPORT.md", value: "total: 231" });
+    ).toEqual({
+      kind: "file_contains",
+      path: "out/REPORT.md",
+      value: "total: 231",
+      origin: "message",
+    });
     expect(parseDoneWhenFromMessage("fix the tests\ndone_when: run bun test")).toEqual({
       kind: "command",
       value: "bun test",
+      origin: "message",
     });
   });
 
@@ -40,13 +50,14 @@ describe("declaring done from a chat message", () => {
   test("the last line wins, because that is how people correct themselves", () => {
     expect(
       parseDoneWhenFromMessage("go\ndone_when: exists a.md\ndone_when: exists b.md"),
-    ).toEqual({ kind: "file_exists", path: "b.md" });
+    ).toEqual({ kind: "file_exists", path: "b.md", origin: "message" });
   });
 
   test("case and leading spaces do not matter", () => {
     expect(parseDoneWhenFromMessage("go\n  DONE_WHEN: Exists out/x.md")).toEqual({
       kind: "file_exists",
       path: "out/x.md",
+      origin: "message",
     });
   });
 });

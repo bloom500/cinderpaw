@@ -55,7 +55,9 @@ export type StopReason =
   | "PlateauPersistent"
   | "WallClockExhausted"
   | "UserStopped"
-  | "Converged";
+  | "Converged"
+  /** The scheduler itself failed — the run is stopped rather than left hanging. */
+  | "RefillFailed";
 
 export interface GoalResult {
   reason: StopReason;
@@ -188,7 +190,17 @@ export class GoalMode {
           })
           .finally(() => {
             inFlight.delete(p);
-            refill();
+            try {
+              refill();
+            } catch (err) {
+              // A throw here escapes into the promise `.finally` returns, where
+              // nobody is listening — an unhandled rejection, and a pool that
+              // never launches anything again. The run would sit at zero
+              // in-flight genomes forever, looking like it was still thinking.
+              // eslint-disable-next-line no-console
+              console.error("goal-mode: refill failed — stopping the run", err);
+              stopReason ??= "RefillFailed";
+            }
           });
         inFlight.add(p);
         return p;

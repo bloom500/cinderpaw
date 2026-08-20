@@ -44,11 +44,17 @@ func toolTick() tea.Cmd {
 // fetchSessionsCmd hits /runtime/sessions for the welcome screen. Cached
 // results are valid for 30s so window resize doesn't refetch.
 func (a *App) fetchSessionsCmd() tea.Cmd {
+	// Snapshot the model HERE, on the update loop. The returned closure runs on
+	// its own goroutine, and reading a.Sessions / a.SessionsAt from there races
+	// with the Update handler writing them — bubbletea's rule is that a Cmd
+	// never touches the model, and `go test -race` flags this one on sight.
+	cached, cachedAt, cachedErr := a.Sessions, a.SessionsAt, a.SessionsErr
+	baseURL, token := a.BaseURL, a.Token
 	return func() tea.Msg {
-		if !a.SessionsAt.IsZero() && time.Since(a.SessionsAt) < 30*time.Second && a.SessionsErr == nil {
-			return SessionsMsg{Sessions: a.Sessions, Err: nil}
+		if !cachedAt.IsZero() && time.Since(cachedAt) < 30*time.Second && cachedErr == nil {
+			return SessionsMsg{Sessions: cached, Err: nil}
 		}
-		sessions, err := api.FetchSessions(a.BaseURL, a.Token, 3)
+		sessions, err := api.FetchSessions(baseURL, token, 3)
 		return SessionsMsg{Sessions: sessions, Err: err}
 	}
 }
@@ -58,11 +64,14 @@ func (a *App) fetchSessionsCmd() tea.Cmd {
 // refetch on every Tab / resize. Errors collapse to "no prior task" so a
 // transient gateway hiccup never blocks the welcome render.
 func (a *App) fetchResumeCmd() tea.Cmd {
+	// Same snapshot-before-goroutine rule as fetchSessionsCmd above.
+	cachedView, cachedAt, cachedErr := a.LastTaskView, a.LastTaskAt, a.LastTaskErr
+	baseURL, token := a.BaseURL, a.Token
 	return func() tea.Msg {
-		if !a.LastTaskAt.IsZero() && time.Since(a.LastTaskAt) < 30*time.Second && a.LastTaskErr == nil {
-			return LastTaskMsg{View: a.LastTaskView, Err: nil}
+		if !cachedAt.IsZero() && time.Since(cachedAt) < 30*time.Second && cachedErr == nil {
+			return LastTaskMsg{View: cachedView, Err: nil}
 		}
-		view, err := api.FetchResume(a.BaseURL, a.Token)
+		view, err := api.FetchResume(baseURL, token)
 		return LastTaskMsg{View: view, Err: err}
 	}
 }

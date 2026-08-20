@@ -7,13 +7,24 @@
  * and audited before any disk access happens.
  */
 
-import { readFile } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
 import { noteRead } from "../read-ledger.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 /** Largest file the tool will return, to keep transcripts bounded. */
 const MAX_BYTES = 64 * 1024;
+
+/**
+ * Largest file we are willing to pull into memory whole.
+ *
+ * `readFile` ignores MAX_BYTES: it loads everything and only then trims to
+ * 64 KB, so a GGUF model or a big log inside an allowed root took the sidecar
+ * down with an out-of-memory kill before the cap it already had could apply.
+ * Under this ceiling we still read the whole file, because that is what makes
+ * the exact line count possible; over it we read only the head.
+ */
+const MAX_SLURP_BYTES = 8 * 1024 * 1024;
 
 /**
  * `cat -n` layout: right-aligned line number, tab, content.
@@ -99,12 +110,29 @@ export function createReadFileTool(allowedPaths: string[]): Tool {
       // Throws PermissionDeniedError (caught by the registry) if out of bounds.
       const safePath = resolveAllowedPath(ctx.manifest, "fs:read", requested);
 
-      const buf = await readFile(safePath);
-      const truncated = buf.byteLength > MAX_BYTES;
-      const text = buf.toString("utf8", 0, MAX_BYTES);
-      // The whole file is already in memory, so the true total costs nothing
-      // and is the one number that was being guessed.
-      const totalLines = countLines(buf.toString("utf8"));
+      const size = (await stat(safePath)).size;
+      let buf: Buffer;
+      let totalLines: number | null;
+      if (size <= MAX_SLURP_BYTES) {
+        buf = await readFile(safePath);
+        // The whole file is already in memory, so the true total costs nothing
+        // and is the one number that was being guessed.
+        totalLines = countLines(buf.toString("utf8"));
+      } else {
+        // Too big to hold. Read the head only; the exact line count is not
+        // knowable without walking the file, and saying so beats guessing.
+        const handle = await open(safePath, "r");
+        try {
+          const head = Buffer.alloc(MAX_BYTES);
+          const { bytesRead } = await handle.read(head, 0, MAX_BYTES, 0);
+          buf = head.subarray(0, bytesRead);
+        } finally {
+          await handle.close();
+        }
+        totalLines = null;
+      }
+      const truncated = size > MAX_BYTES;
+      const text = buf.toString("utf8", 0, Math.min(buf.byteLength, MAX_BYTES));
 
       // Satisfies the read-before-edit gate in edit_file / write_file.
       // Deliberately recorded even for a TRUNCATED read: the agent has seen
@@ -115,14 +143,17 @@ export function createReadFileTool(allowedPaths: string[]): Tool {
 
       const body = numberLines(text);
       const shown = countLines(text);
+      const lineLabel = totalLines === null ? "?" : String(totalLines);
+      const notShown =
+        totalLines === null ? "the rest" : `${totalLines - shown} lines`;
       return {
         ok: true,
         content: truncated
-          ? `${safePath} — ${totalLines} lines, ${buf.byteLength} bytes; showing lines 1-${shown} ` +
+          ? `${safePath} — ${lineLabel} lines, ${size} bytes; showing lines 1-${shown} ` +
             `(first ${MAX_BYTES} bytes)\n${body}\n\n[truncated at ${MAX_BYTES} bytes — ` +
-            `${totalLines - shown} lines not shown]`
-          : `${safePath} — ${totalLines} lines, ${buf.byteLength} bytes\n${body}`,
-        data: { path: safePath, bytes: buf.byteLength, lines: totalLines, truncated },
+            `${notShown} not shown]`
+          : `${safePath} — ${lineLabel} lines, ${size} bytes\n${body}`,
+        data: { path: safePath, bytes: size, lines: totalLines, truncated },
       };
     },
   };

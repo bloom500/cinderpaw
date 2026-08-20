@@ -382,7 +382,7 @@ export function SkillHubDrawer() {
                         <p className="text-xs text-text-muted">A skill with this ID is already installed. Overwrite?</p>
                         <div className="flex gap-2">
                           <button type="button" onClick={() => void doInstall(true)}
-                            className="px-3 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand/90">
+                            className="px-3 py-1.5 text-xs rounded bg-brand text-on-brand hover:bg-brand/90">
                             Overwrite
                           </button>
                           <button type="button" onClick={() => setOverwritePending(false)}
@@ -394,7 +394,7 @@ export function SkillHubDrawer() {
                     ) : (
                       <button type="button" onClick={() => void tryInstall()}
                         disabled={installing || content === null || contentError !== null}
-                        className="px-3 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 transition-colors">
+                        className="px-3 py-1.5 text-xs rounded bg-brand text-on-brand hover:bg-brand/90 disabled:opacity-50 transition-colors">
                         {installing ? 'Installing…' : 'Install'}
                       </button>
                     )}
@@ -499,7 +499,7 @@ export function SkillHubDrawer() {
                     type="button"
                     onClick={() => void doImport()}
                     disabled={importLoading || !importInput.trim()}
-                    className="px-3 py-1.5 text-xs rounded bg-brand text-white hover:bg-brand/90 disabled:opacity-50 transition-colors w-fit"
+                    className="px-3 py-1.5 text-xs rounded bg-brand text-on-brand hover:bg-brand/90 disabled:opacity-50 transition-colors w-fit"
                   >
                     {importLoading ? 'Loading…' : 'Preview'}
                   </button>

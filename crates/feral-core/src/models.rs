@@ -152,7 +152,17 @@ pub async fn download_hf_model_to(
     progress: Sender<f32>,
     cancel: Arc<AtomicBool>,
 ) -> Result<PathBuf> {
-    let dest = dest_dir.join(&filename);
+    // `filename` comes from the caller — ultimately from the webview — and was
+    // joined onto the models dir unchecked, so `safe/../../.ssh/authorized_keys`
+    // normalised its way clean out of it and the download wrote wherever the
+    // process could. Subdirectories stay legal (a sharded repo really does keep
+    // its GGUF one level down); escaping the destination does not.
+    std::fs::create_dir_all(&dest_dir)?;
+    let dest = crate::rsi::paths::safe_join(&dest_dir, Path::new(&filename))
+        .with_context(|| format!("refusing to download to '{filename}'"))?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     download_hf_file_as(repo_id, filename, dest, progress, cancel).await
 }
 

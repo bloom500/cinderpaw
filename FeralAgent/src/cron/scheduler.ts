@@ -123,12 +123,28 @@ export class CronScheduler {
     this.#schedule();
   }
 
-  /** Stop the timer cleanly. */
-  stop(): void {
+  /**
+   * Stop the timer, and wait for a tick already in progress to finish.
+   *
+   * `clearTimeout` only cancels the NEXT tick. A job running right now — and a
+   * cron job can run for minutes — kept going while the caller moved straight
+   * on to `db.close()` and `process.exit()`: the job's next query hit a closed
+   * database, so the last thing a shutdown produced was an error from work that
+   * was otherwise fine.
+   *
+   * Bounded, because shutdown must not hang on a job that will not end. Past
+   * the deadline we leave anyway, which is where we were before — just no
+   * longer as the default path.
+   */
+  async stop(timeoutMs = 5_000): Promise<void> {
     this.#running = false;
     if (this.#timer) {
       clearTimeout(this.#timer);
       this.#timer = null;
+    }
+    const deadline = Date.now() + timeoutMs;
+    while (this.#inflight && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
 
@@ -165,6 +181,10 @@ export class CronScheduler {
         })
         .finally(() => this.#schedule());
     }, this.#tickMs);
+    // `unref` is absent in some runtimes (browsers, certain test shims). Where
+    // it is missing the interval keeps the process alive, so shutdown hangs on
+    // a tick nobody is waiting for — `stop()` is what actually clears it, and
+    // it is called on shutdown.
     this.#timer.unref?.();
   }
 
@@ -246,9 +266,17 @@ export class CronScheduler {
           fetch: globalThis.fetch,
         });
       } catch (err) {
-        process.stderr.write(
-          `[cron] delivery failed for "${job.name}": ${String(err)}\n`,
-        );
+        // Also reported through `onJobError`, which is what actually reaches
+        // the user. A cron job whose delivery fails produced its answer and
+        // then dropped it: the history says "success", nothing arrives, and
+        // the only trace was a line on a stderr stream nobody has open.
+        const detail = `delivery failed: ${String(err)}`;
+        process.stderr.write(`[cron] ${detail} for "${job.name}"\n`);
+        try {
+          this.#onJobError?.(job, detail);
+        } catch {
+          /* a broken error reporter must not break the run */
+        }
       }
     }
   }

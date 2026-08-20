@@ -71,6 +71,49 @@ describe("notebook isolation", () => {
     expect(r.ok === false || r.value === "undefined").toBe(true);
   });
 
+  // A severed envelope with a live host object INSIDE it is the same escape,
+  // one property deeper. Every one of these reached the host realm: the
+  // envelope's prototype was nulled, the array or the nested object it carried
+  // was not.
+  it.each([
+    [
+      "a nested array in a tool result",
+      `(await deep_result({})).data.rows.constructor.constructor("return typeof process")()`,
+    ],
+    [
+      "a nested object in a tool result",
+      `(await deep_result({})).data.meta.constructor.constructor("return typeof process")()`,
+    ],
+  ])("cannot reach the host realm via %s", async (_label, source) => {
+    const registry = {
+      list: () => [{ manifest: { name: "deep_result" } }] as unknown as Tool[],
+      call: async (): Promise<ToolResult> => ({
+        ok: true,
+        content: "",
+        data: { rows: [1, 2, 3], meta: { nested: { deeper: true } } },
+      }),
+    } as unknown as ToolRegistry;
+    const nb = new Notebook({ registry, sessionId: "s1" });
+    const r = await nb.run(source);
+    expect(r.ok === false || r.value === "undefined").toBe(true);
+  });
+
+  it("a tool result's nested data is still readable after severing", async () => {
+    const registry = {
+      list: () => [{ manifest: { name: "deep_result" } }] as unknown as Tool[],
+      call: async (): Promise<ToolResult> => ({
+        ok: true,
+        content: "",
+        data: { rows: [1, 2, 3], meta: { nested: { deeper: true } } },
+      }),
+    } as unknown as ToolRegistry;
+    const nb = new Notebook({ registry, sessionId: "s1" });
+    // Severing must close the escape without breaking ordinary use.
+    expect((await nb.run(`(await deep_result({})).data.rows.length`)).value).toBe("3");
+    expect((await nb.run(`(await deep_result({})).data.rows[1]`)).value).toBe("2");
+    expect((await nb.run(`(await deep_result({})).data.meta.nested.deeper`)).value).toBe("true");
+  });
+
   it("still exposes the context's own builtins", async () => {
     const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1" });
     expect((await nb.run(`JSON.stringify({a:1})`)).value).toBe(`{"a":1}`);
@@ -398,6 +441,33 @@ describe("recursion — the R in RLM", () => {
     const { nb, children } = nbWith();
     const r = await nb.run(`(await rlm("x")).constructor.constructor("return typeof process")()`);
     expect(r.ok === false || r.value === "undefined").toBe(true);
+    await children.drain();
+  });
+
+  // The handle was the only rlm surface covered. Every OTHER one returns an
+  // object holding arrays — `subagents`, `messages`, `trail` — and an array is
+  // a live host object whose `.constructor.constructor` is the host `Function`.
+  // Each of these reached the host realm before the envelope was severed all
+  // the way down.
+  it.each([
+    ["list_subagents", `(await rlm.list_subagents()).subagents.constructor.constructor("return typeof process")()`],
+    ["messages", `(await rlm.messages()).messages.constructor.constructor("return typeof process")()`],
+    ["observe.trail", `(await rlm.observe("x")).trail.constructor.constructor("return typeof process")()`],
+  ])("does not let %s leak the host realm", async (_label, source) => {
+    const { nb, children } = nbWith();
+    await nb.run(`await rlm("x", { name: "x" })`);
+    const r = await nb.run(source);
+    expect(r.ok === false || r.value === "undefined").toBe(true);
+    await children.drain();
+  });
+
+  it("observe() hands back a copy — the notebook cannot edit the registry", async () => {
+    const { nb, children } = nbWith();
+    await nb.run(`await rlm("x", { name: "x" })`);
+    // Mutating what observe returned must not change what the next call sees.
+    await nb.run(`const o = await rlm.observe("x"); o.trail.push({ at: 0, kind: "forged", detail: "" }); o.status = "completed";`);
+    const again = await nb.run(`(await rlm.observe("x")).trail.filter((t) => t.kind === "forged").length`);
+    expect(again.value).toBe("0");
     await children.drain();
   });
 });

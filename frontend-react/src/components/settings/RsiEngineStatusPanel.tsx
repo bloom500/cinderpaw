@@ -154,7 +154,7 @@ export function RsiEngineStatusPanel() {
                 className={cn(
                   'min-w-[24px] rounded-md px-1.5 py-0.5 text-2xs transition-colors',
                   active
-                    ? 'bg-brand text-white'
+                    ? 'bg-brand text-on-brand'
                     : 'bg-bg-elevated text-text-secondary hover:text-text-primary',
                 )}
               >

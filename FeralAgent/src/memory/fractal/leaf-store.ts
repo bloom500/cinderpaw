@@ -18,7 +18,8 @@
  *     counted, never throws (a partially-written file must not crash boot).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 
 /** The single source of truth for the store's filename. */
@@ -94,6 +95,21 @@ export class LeafStore {
     this.#persist();
   }
 
+  /**
+   * Insert or replace many records with ONE rewrite.
+   *
+   * `#persist` rewrites the whole file, so calling `upsert` in a loop — which
+   * is what the fact extractor does, five to ten times at the end of every turn
+   * — rewrote every leaf on disk once per fact. At ten thousand leaves that is
+   * a hundred thousand serialisations and ten fsyncs to store ten short
+   * sentences.
+   */
+  upsertAll(recs: LeafRecord[]): void {
+    if (recs.length === 0) return;
+    for (const rec of recs) this.#records.set(rec.id, rec);
+    this.#persist();
+  }
+
   /** Drop the given ids and persist (only when something changed). */
   remove(ids: number[]): void {
     let changed = false;
@@ -117,13 +133,17 @@ export class LeafStore {
     }));
   }
 
-  /** Atomic full rewrite: write `<path>.tmp` then rename over `<path>`. */
+  /**
+   * Atomic full rewrite.
+   *
+   * The temp file used to be a fixed `<path>.tmp`, shared by every writer and
+   * left behind whenever the rename failed. `atomicWriteFileSync` gives each
+   * write its own name, fsyncs before the rename, and cleans up after itself.
+   */
   #persist(): void {
     if (this.#inMemory) return;
     mkdirSync(dirname(this.#path), { recursive: true });
     const body = this.all().map((r) => JSON.stringify(r)).join("\n");
-    const tmp = `${this.#path}.tmp`;
-    writeFileSync(tmp, body.length ? body + "\n" : "", "utf8");
-    renameSync(tmp, this.#path);
+    atomicWriteFileSync(this.#path, body.length ? body + "\n" : "");
   }
 }

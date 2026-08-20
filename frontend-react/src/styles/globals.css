@@ -247,7 +247,12 @@
   --brand:           #C4843A;
   --brand-hover:     #D4944A;
   --brand-muted:     #6B4820;
-  --error:           #C0472A;
+  /* #C0472A measured 3.84:1 against this background — below AA, and it is the
+     colour every failure message is written in. A person who cannot read the
+     error is left with a screen that simply stopped working. #D4553A is the
+     same hue at 4.74:1. */
+  --brand-foreground: #100E09;
+  --error:           #D4553A;
   --success:         #6A9E5A;
   --warning:         #D4A03A;
 
@@ -285,9 +290,14 @@
   --border-default:  #D4C4B0;
   --text-primary:    #1C1610;
   --text-secondary:  #4A3F32;
-  --text-muted:      #8C7060;
+  /* Both of these measured just under AA on #FFF5EE — 4.25:1 and 4.34:1 — and
+     both carry small text: timestamps, token counts, and every link written in
+     the brand colour. "Almost readable" at 11px is not readable. Now 5.65:1
+     and 5.08:1, same hues. */
+  --text-muted:      #7A5C4A;
   --text-disabled:   #C0B0A0;
-  --brand:           #A06828;
+  --brand:           #925E22;
+  --brand-foreground: #FFFFFF;
   --brand-hover:     #8B5820;
   --brand-muted:     #E8D4B8;
   --error:           #A03820;
@@ -559,7 +569,12 @@ body::after {
   50%       { opacity: 0; }
 }
 
-.streaming-content > *:last-child::after {
+/* The cursor hangs off the last child. `::after` does not render on a
+   replaced/void element, so a stream whose last block is an image or an `<hr>`
+   showed no cursor at all — the answer looked finished while it was still
+   arriving. Excluding those elements moves the cursor to the block before,
+   which is visible, instead of nowhere. */
+.streaming-content > *:last-child:not(img):not(hr):not(br):not(input)::after {
   content: '▍';
   display: inline-block;
   margin-left: 1px;
@@ -769,4 +784,51 @@ body { overflow: hidden; }
   /* The ring still has to be visible, just not moving. */
   .tw-focus { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.8); }
   .tw-type { max-width: 100%; }
+}
+
+/* ── Text on a brand-coloured surface ──────────────────────────────────────
+   `bg-brand text-white` was written into twenty-five buttons. In light mode
+   white on the brand is fine; in dark mode the brand is a warm amber and white
+   on it measures 3.13:1 — below AA for normal text, on the PRIMARY action of
+   nearly every dialog. The same class cannot be right in both themes, so the
+   foreground becomes a token that flips with the theme: near-black on the light
+   amber (6.16:1), white on the darker one (5.46:1). */
+.text-on-brand {
+  color: var(--brand-foreground, #ffffff);
+}
+
+/* ── Keyboard focus, everywhere ────────────────────────────────────────────
+   Icon buttons across the app carry no visible focus ring: the browser default
+   is suppressed by the reset, and each component would have had to opt back in.
+   The result is that a keyboard user tabbing through the sidebar, the window
+   controls or the message actions cannot see where they are — the app is
+   navigable and invisible at the same time.
+
+   One rule, on `:focus-visible` only, so a mouse click never draws a ring while
+   a Tab press always does. Components that want a different treatment can still
+   override it locally. */
+:where(a, button, input, select, textarea, summary, [role="button"], [role="menuitem"], [role="tab"], [tabindex]):focus-visible {
+  outline: 2px solid var(--brand, #3b69ef);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ── Reduced motion, as a blanket ──────────────────────────────────────────
+   The blocks above opt specific animations out one at a time, which means every
+   animation added since — and there are many, across framer-motion and CSS —
+   ignores the preference by default. A person who set "reduce motion" because
+   movement makes them ill should not have to hope each new component remembered.
+
+   Kept as a floor rather than `animation: none`: transitions still complete
+   (state changes stay coherent), they just do not travel. Anything that must
+   move for meaning can opt back in with `.motion-safe-required`. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.motion-safe-required),
+  *:not(.motion-safe-required)::before,
+  *:not(.motion-safe-required)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

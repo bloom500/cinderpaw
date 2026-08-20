@@ -91,7 +91,7 @@ export function UpdateToast() {
                 onClick={() => void install()}
                 className={cn(
                   'px-3 py-1.5 rounded-md text-xs font-medium',
-                  'bg-brand text-white hover:opacity-90 transition-opacity',
+                  'bg-brand text-on-brand hover:opacity-90 transition-opacity',
                 )}
               >
                 Install now

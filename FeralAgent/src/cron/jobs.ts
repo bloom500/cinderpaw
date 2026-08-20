@@ -21,6 +21,7 @@ import type {
   Schedule,
 } from "../types.ts";
 import { parseDoneWhen } from "./done-when.ts";
+import { nextRunAt } from "./schedule.ts";
 
 const HISTORY_CAP = 50;
 
@@ -76,6 +77,11 @@ export class CronJobsRepo {
         schedule_json = excluded.schedule_json,
         delivery_json = excluded.delivery_json,
         enabled = excluded.enabled,
+        -- Carried through the update too, or a reschedule would keep firing on
+        -- the OLD schedule's timestamp. upsert() only puts a new value here
+        -- when the schedule actually changed, so an ordinary rename still
+        -- leaves the pending run exactly where it was.
+        next_run_ms = excluded.next_run_ms,
         done_when_json = excluded.done_when_json,
         max_retries = excluded.max_retries,
         updated_at = excluded.updated_at
@@ -124,11 +130,18 @@ export class CronJobsRepo {
 
   /** Insert or update. Returns the persisted job (with id + timestamps).
    *
-   *  `nextRunMs` is left null on a brand-new job — the scheduler
-   *  computes it on its first tick so the same clock source drives
-   *  scheduling and "is this job due" comparisons. Existing jobs keep
-   *  their `nextRunMs` (the schedule didn't change unless the caller
-   *  also overwrote `nextRunMs` via the API).
+   *  `nextRunMs` is computed HERE, from the schedule, whenever the schedule is
+   *  new or has changed. It used to be left null for the scheduler to fill in
+   *  "on its first tick" — but the tick skips jobs whose `nextRunMs` is null
+   *  and the only place that ever computed one was the after-a-run path, so a
+   *  freshly created job had no first run to be scheduled from: every cron the
+   *  user or the agent added simply never fired, silently, forever.
+   *
+   *  An unchanged schedule keeps the stored `nextRunMs` — renaming a job or
+   *  editing its task must not push the next run out. A changed one recomputes,
+   *  which is also what makes "every 5m" → "at <a past date>" mean "never
+   *  again" instead of "fire immediately on the next tick" from the stale
+   *  timestamp the old schedule had left behind.
    */
   upsert(input: CronJobInput): CronJob {
     const existing = input.id ? this.get(input.id) : undefined;
@@ -136,6 +149,11 @@ export class CronJobsRepo {
     const now = Date.now();
     const scheduleJson = JSON.stringify(input.schedule);
     const deliveryJson = JSON.stringify(input.delivery);
+    const scheduleChanged =
+      !existing || JSON.stringify(existing.schedule) !== scheduleJson;
+    const nextRunMs = scheduleChanged
+      ? nextRunAt(input.schedule, new Date(now))
+      : (existing.nextRunMs ?? null);
 
     this.#insert.run({
       $id: id,
@@ -145,7 +163,7 @@ export class CronJobsRepo {
       $deliveryJson: deliveryJson,
       $enabled: (input.enabled ?? true) ? 1 : 0,
       $lastRunMs: existing?.lastRunMs ?? null,
-      $nextRunMs: existing?.nextRunMs ?? null,
+      $nextRunMs: nextRunMs,
       $historyJson: JSON.stringify(existing?.history ?? []),
       // A malformed done_when is stored as null rather than rejected: a check
       // that can never run would fail the job forever, which is worse than the

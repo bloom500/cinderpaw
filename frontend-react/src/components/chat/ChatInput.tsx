@@ -205,6 +205,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       micHoldTimer.current = null;
     }
   };
+  // Also on unmount. Holding the mic button and then navigating away left the
+  // 500 ms timer armed against a component that no longer exists, which React
+  // reports as a state update on an unmounted component — and the provider card
+  // it opens would have appeared over whatever the user moved on to.
+  useEffect(() => clearMicHold, []);
   const onMicClick = () => {
     if (micHeldRef.current) { micHeldRef.current = false; return; } // long-press handled it
     if (sttProvider === null) { setProviderCardOpen(true); return; } // force first-use choice

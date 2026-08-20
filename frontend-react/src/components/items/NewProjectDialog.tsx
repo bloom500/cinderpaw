@@ -61,7 +61,7 @@ export function NewProjectDialog({
           <button
             onClick={() => void create()}
             disabled={!name.trim()}
-            className="px-3 py-1.5 text-sm rounded bg-brand text-white disabled:opacity-40"
+            className="px-3 py-1.5 text-sm rounded bg-brand text-on-brand disabled:opacity-40"
           >
             Create
           </button>
