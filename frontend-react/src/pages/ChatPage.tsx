@@ -6,7 +6,6 @@ import { useModel } from '@/stores/model';
 import { useProjects } from '@/stores/projects';
 import { useUI } from '@/stores/ui';
 import { useAgent } from '@/stores/agent';
-import { cn } from '@/lib/utils';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { HomeGreeting } from '@/components/shell/HomeGreeting';
 import { HomeIntents } from '@/components/shell/HomeIntents';
@@ -204,14 +203,13 @@ export function ChatPage() {
             transform: `translateY(${translateY}px)`,
             transition: 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}
-          className={cn(
-            'absolute inset-x-0 bottom-0 z-20 pt-8',
-            // The fade exists to let a transcript slide out of sight behind the
-            // composer. On Home there is no transcript, and the gradient's
-            // opaque half became a hard horizontal seam across the scene the
-            // moment the theme tokens started honouring opacity at all.
-            !isEmpty && 'bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent',
-          )}
+          // No fade behind the composer at all. It was meant to let the
+          // transcript slide out of sight, but once the theme tokens started
+          // honouring opacity it rendered as a black wash around the field —
+          // a shadow with no object casting it. The transcript's own top fade
+          // does the "there is more" job now, and the composer sits on the
+          // scene like everything else.
+          className="absolute inset-x-0 bottom-0 z-20 pt-8"
         >
           {isEmpty && !showAgentOnboarding && <HomeGreeting />}
           {/* #10: humanized inference errors with a fix-it action */}

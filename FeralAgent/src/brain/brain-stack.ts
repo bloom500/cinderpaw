@@ -139,6 +139,27 @@ export interface RouteInput {
   text: string;
   hasImages: boolean;
   offline: boolean;
+  /**
+   * Roughly how many tokens this turn will send — system prompt, tool
+   * definitions, history and the new message together. Optional: a caller
+   * that does not know passes nothing and routing behaves exactly as before.
+   */
+  promptTokens?: number;
+}
+
+/**
+ * Room a reply needs on top of the prompt.
+ *
+ * A model whose window the prompt exactly fills has nowhere to answer from,
+ * which is the same failure as not fitting at all — it just takes a few
+ * hundred tokens longer to arrive.
+ */
+const REPLY_HEADROOM_TOKENS = 512;
+
+/** Would this turn fit? Unknown windows are not ruled out. */
+export function fits(model: BrainModel, promptTokens: number | undefined): boolean {
+  if (promptTokens === undefined || model.contextWindow === undefined) return true;
+  return promptTokens + REPLY_HEADROOM_TOKENS <= model.contextWindow;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +268,21 @@ export class BrainStack {
     const isHealthy = (id: string): boolean =>
       this.#breaker.stateOf(id) !== "open";
 
-    const available = this.#registry.available(isHealthy);
+    const all = this.#registry.available(isHealthy);
+    // Models that cannot hold this turn are out before scoring, not after.
+    // Scoring them and picking the best of the ones that will degenerate is
+    // how a 4B with a 4k window won a turn carrying the agent prompt.
+    const available = all.filter((m) => fits(m, input.promptTokens));
+    if (available.length === 0 && all.length > 0) {
+      const biggest = all.reduce((a, b) =>
+        (b.contextWindow ?? 0) > (a.contextWindow ?? 0) ? b : a,
+      );
+      throw new BrainError(
+        `this turn needs about ${input.promptTokens} tokens and the largest ` +
+          `configured model holds ${biggest.contextWindow ?? "an unknown number of"} ` +
+          `— shorten the conversation, or add a model with a bigger context window`,
+      );
+    }
     if (available.length === 0) {
       throw new BrainError(
         `no models available for category "${classification.category}" ` +

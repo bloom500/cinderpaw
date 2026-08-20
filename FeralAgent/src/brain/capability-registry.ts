@@ -69,6 +69,25 @@ export interface BrainModel {
   cost: 1 | 2 | 3;
   /** True iff this model runs on-device (Ollama / local llama.cpp). */
   local: boolean;
+  /**
+   * Tokens the model can actually hold, prompt and reply together.
+   *
+   * Added because the scorer had no way to know. It weighed reasoning,
+   * coding, vision, speed, multilingual and cost — five judgements about how
+   * GOOD a model is and not one about whether the prompt FITS. In budget mode
+   * a small local model even gets a bonus, so a 4B with a 4k window was the
+   * preferred answer for a turn carrying the agent's system prompt and a
+   * conversation on top of it.
+   *
+   * A model that overruns its window does not raise: it degenerates. The
+   * repeated-byte replies that look like a broken install are this, and
+   * nothing in the routing path could see it coming.
+   *
+   * `undefined` means unknown, which is treated as "do not rule it out" —
+   * refusing every model whose window nobody recorded would ground the whole
+   * registry the day it shipped.
+   */
+  contextWindow?: number;
 }
 
 /** All capability keys, as a tuple — used to default-fill missing capabilities. */

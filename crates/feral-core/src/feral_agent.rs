@@ -1341,7 +1341,12 @@ async fn handle_rsi_request(
     }
 }
 
-/// Log stderr from the agent; emit `feral://agent-ready` when the ready line appears.
+/// The exact line the sidecar prints when it is genuinely up. Kept next to the
+/// reader that waits for it so the two cannot drift apart silently — they are
+/// two halves of one protocol, in two languages, in two files.
+pub const READY_MARKER: &str = "::feral-agent-ready::";
+
+/// Log stderr from the agent; emit `feral://agent-ready` on the ready marker.
 async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::ChildStderr) {
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
@@ -1350,7 +1355,13 @@ async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::Chil
             continue;
         }
         tracing::info!("[feral-agent] {}", &line);
-        if line.contains("ready") {
+        // Exact marker, not a substring. `line.contains("ready")` matched
+        // "already", "not ready" and "model-ready probe failed" — so the app
+        // could declare the agent up because a log line mentioned a failure,
+        // and could equally wait forever if no line happened to contain the
+        // word. The sidecar prints this once, when its transport is up and its
+        // tools are live.
+        if line.ends_with(READY_MARKER) {
             events.emit("feral://agent-ready", serde_json::json!({}));
         }
     }
@@ -1359,6 +1370,24 @@ async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::Chil
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two halves of the ready protocol live in different languages and
+    /// different files. This pins the host half; `boot.ts` prints the same
+    /// string, and the marker is a constant precisely so a rename here fails
+    /// loudly instead of leaving the app waiting forever.
+    #[test]
+    fn only_the_exact_marker_means_ready() {
+        let ready = |line: &str| line.trim().ends_with(READY_MARKER);
+
+        assert!(ready("[feral] ::feral-agent-ready::"));
+        assert!(ready("::feral-agent-ready::"));
+
+        // Every one of these used to flip the app to "the agent is up".
+        assert!(!ready("dream: model-ready probe failed (timeout) — treating as no model"));
+        assert!(!ready("discord: already has a run in flight — not starting a second"));
+        assert!(!ready("transport not ready"));
+        assert!(!ready("ready"));
+    }
 
     #[test]
     fn binary_filename_has_expected_extension_on_windows() {

@@ -171,6 +171,12 @@ const FERAL_HOME = feralHome();
  * module graph. Re-exported here because this was their public home.
  */
 import { log, VERSION } from "./runtime-meta.ts";
+/**
+ * The one line the host waits for. Mirrored by `READY_MARKER` in
+ * `crates/feral-core/src/feral_agent.rs`, which matches it exactly — the two
+ * halves of one protocol, in two languages, and a test on each side.
+ */
+const READY_MARKER = "::feral-agent-ready::";
 export { VERSION, log } from "./runtime-meta.ts";
 
 /** When this sidecar process started, for uptime reports. */
@@ -2127,6 +2133,23 @@ export async function boot(transportOverride?: Transport) {
     // deliver through the transport.
     cronScheduler.start();
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
+
+    // The one line the host waits for.
+    //
+    // Until now there was no ready protocol at all: the host matched the
+    // substring "ready" against every stderr line the sidecar ever printed.
+    // `dream: model-ready probe failed` contains it. So does `already has a
+    // run in flight`. So does the word "not ready". Any of them flipped the
+    // app to "the agent is up" whether it was or not — and if no such line
+    // happened to be printed, the startup banner never went away at all.
+    //
+    // An exact marker, printed once, at the point where the transport is up
+    // and the tools are live. Match it exactly on the other side.
+    //
+    // Not spelled FERAL_SOMETHING: the env-var documentation check scans the
+    // source for that shape and would demand this be documented as a setting,
+    // which it is not.
+    log(READY_MARKER);
     // Start any enabled inbound connectors (Discord, …) now that the agent and
     // its tools are live. Best-effort: failures log to stderr, never crash.
     //
