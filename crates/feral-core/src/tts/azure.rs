@@ -45,7 +45,7 @@ impl AzureTts {
     pub fn new(cfg: &EngineConfig) -> Result<Self> {
         let Some(base_url) = cfg.base_url.map(str::trim).filter(|u| !u.is_empty()) else {
             bail!(
-                "Azure Speech needs its region — set the base URL to \
+                "Azure Speech needs its region. Set the base URL to \
                  https://<region>.tts.speech.microsoft.com (the region of your Speech resource)"
             );
         };
@@ -117,7 +117,7 @@ impl TtsProvider for AzureTts {
     /// and asking the wrong one returns voices that then 400 on synthesis.
     async fn voices(&self) -> Result<Vec<Voice>> {
         if self.api_key.trim().is_empty() {
-            bail!("no Azure Speech key configured — add one on the call screen");
+            bail!("no Azure Speech key configured. Add one on the call screen");
         }
         let res = http(LIST_TIMEOUT_SECS)?
             .get(format!("{}/cognitiveservices/voices/list", self.base_url))
@@ -153,7 +153,7 @@ impl TtsProvider for AzureTts {
 
     async fn speak(&self, req: &SpeechRequest, audio: Sender<Vec<u8>>) -> Result<usize> {
         if self.api_key.trim().is_empty() {
-            bail!("no Azure Speech key configured — add one on the call screen");
+            bail!("no Azure Speech key configured. Add one on the call screen");
         }
         if req.text.trim().is_empty() {
             return Ok(0);
@@ -187,9 +187,9 @@ impl TtsProvider for AzureTts {
         if !status.is_success() {
             let detail = res.text().await.unwrap_or_default();
             let hint = match status.as_u16() {
-                401 => "the Azure Speech key was rejected — check the key AND that the region matches the resource",
+                401 => "the Azure Speech key was rejected. Check the key AND that the region matches the resource",
                 429 => "the Azure Speech free allowance for this month is used up, or you are over the rate limit",
-                400 => "Azure rejected the request — usually an unknown voice name for this region",
+                400 => "Azure rejected the request, usually an unknown voice name for this region",
                 503 => "Azure Speech is unavailable; retry shortly",
                 _ => "unexpected response from Azure Speech",
             };

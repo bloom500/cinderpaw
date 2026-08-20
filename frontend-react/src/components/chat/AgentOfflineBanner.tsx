@@ -48,7 +48,7 @@ export function AgentOfflineBanner() {
       >
         <Loader2 size={13} className="shrink-0 animate-spin text-brand" />
         <span>
-          Feral Agent is starting — it loads its memory first, which takes a
+          Feral Agent is starting. It loads its memory first, which takes a
           moment on a large workspace. Messages sent now will fail until it
           is up.
         </span>
@@ -67,7 +67,7 @@ export function AgentOfflineBanner() {
         <>
           <Loader2 size={13} className="animate-spin shrink-0" />
           <span>
-            Feral Agent went offline — restarting automatically. Messages sent now
+            Feral Agent went offline and is restarting automatically. Messages sent now
             will fail until it&apos;s back.
           </span>
         </>

@@ -52,7 +52,7 @@ function notifyIfGpuUnused(loaded: LoadedModel) {
   if (!loaded.backend?.includes('GPU build')) return;
   useNotifications.getState().push(
     'info',
-    'Running on CPU — your GPU is not being used',
+    'Running on CPU, your GPU is not being used',
     `${loaded.name} did not fit in VRAM, so every layer runs on the CPU and replies will be slow. ` +
       'A smaller model, or a shorter context window in Settings → Hardware, will fit on the card.',
   );

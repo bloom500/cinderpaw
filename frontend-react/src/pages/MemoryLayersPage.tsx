@@ -114,7 +114,7 @@ function TierPanel({
       {nodes.length === 0 ? (
         <p className="text-xs text-text-muted">
           {tier === 'today'
-            ? 'Nothing yet today — chat with Feral to fill this tier.'
+            ? 'Nothing yet today. Chat with Feral to fill this tier.'
             : `No memories in this tier yet.`}
         </p>
       ) : (
@@ -325,7 +325,7 @@ export default function MemoryLayersPage() {
             <p className="mt-1 text-xs text-text-secondary">
               As you chat, facts you mention begin to fill the layers below.
               Start a conversation in <span className="text-brand">Chat</span>{' '}
-              and come back — memories land in real time.
+              and come back. Memories land in real time.
             </p>
           </section>
         ) : (
@@ -366,7 +366,7 @@ export default function MemoryLayersPage() {
           </header>
           {dreamLast.length === 0 ? (
             <p className="text-xs text-text-muted">
-              No dream cycles yet. Feral tunes its own parameters while you're away —
+              No dream cycles yet. Feral tunes its own parameters while you're away.
               leave the app for ~5 minutes and the first dream will land here.
             </p>
           ) : (

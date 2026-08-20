@@ -92,7 +92,7 @@ pub async fn synthesize(
         // against the LLM provider catalog, which a speech engine is correctly
         // absent from. The key is entered on the call screen and stored in the
         // same keychain.
-        bail!("no Fish Audio API key configured — add one on the call screen");
+        bail!("no Fish Audio API key configured. Add one on the call screen");
     }
     if text.trim().is_empty() {
         return Ok(0);
@@ -123,7 +123,7 @@ pub async fn synthesize(
     if !status.is_success() {
         let detail = res.text().await.unwrap_or_default();
         let hint = match status.as_u16() {
-            401 => "the Fish Audio key was rejected — enter it again on the call screen",
+            401 => "the Fish Audio key was rejected. Enter it again on the call screen",
             402 => "the Fish Audio account is out of credit",
             503 => "Fish Audio is overloaded; retry shortly",
             _ => "unexpected response from Fish Audio",
@@ -194,7 +194,7 @@ impl TtsProvider for FishTts {
     /// that looks like "you have no voices".
     async fn voices(&self) -> anyhow::Result<Vec<Voice>> {
         if self.api_key.trim().is_empty() {
-            bail!("no Fish Audio API key configured — add one on the call screen");
+            bail!("no Fish Audio API key configured. Add one on the call screen");
         }
         let res = http(LIST_TIMEOUT_SECS)?
             .get(format!("{}/model", self.opts.base_url.trim_end_matches('/')))

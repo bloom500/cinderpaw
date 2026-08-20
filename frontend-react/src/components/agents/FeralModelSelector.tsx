@@ -168,7 +168,7 @@ export function FeralModelSelector() {
 
         {!hasLocal && !hasCloud && (
           <DropdownMenuItem disabled className="text-text-muted text-xs">
-            No models found — load a model in the Models tab or add a cloud key in Settings
+            No models found. Load a model in the Models tab or add a cloud key in Settings
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

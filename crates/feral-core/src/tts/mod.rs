@@ -243,7 +243,7 @@ pub fn catalog() -> Vec<TtsEngine> {
             ..engine(
                 PIPER_ID,
                 "Piper",
-                "On device. ~60 MB voice, 35+ languages including Romanian. MIT.",
+                "On device. ~60 MB voice, 35+ languages. MIT.",
             )
         },
         TtsEngine {
@@ -254,7 +254,7 @@ pub fn catalog() -> Vec<TtsEngine> {
             ..engine(
                 KOKORO_ID,
                 "Kokoro",
-                "On device. Better voice than Piper, ~90 MB. No Romanian — English, ES, FR, HI, IT, JA, PT, ZH. Apache-2.0.",
+                "On device. Better voice than Piper, ~90 MB. English, ES, FR, HI, IT, JA, PT, ZH. Apache-2.0.",
             )
         },
         TtsEngine {
@@ -299,7 +299,7 @@ pub fn catalog() -> Vec<TtsEngine> {
             ..engine(
                 openai_compat::ID,
                 "OpenAI-compatible",
-                "Hosted. OpenAI, Groq, or any /v1/audio/speech endpoint — set your own base URL and model.",
+                "Hosted. OpenAI, Groq, or any /v1/audio/speech endpoint. Set your own base URL and model.",
             )
         },
     ]
@@ -331,7 +331,7 @@ pub fn from_id(id: &str, cfg: EngineConfig) -> Result<Box<dyn TtsProvider>> {
     let known = catalog();
     match known.iter().find(|e| e.id == id) {
         None => anyhow::bail!(
-            "unknown TTS provider {id:?} — known: {}",
+            "unknown TTS provider {id:?}. Known: {}",
             known.iter().map(|e| e.id.as_str()).collect::<Vec<_>>().join(", ")
         ),
         Some(e) if !e.available => anyhow::bail!(

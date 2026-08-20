@@ -53,7 +53,7 @@ export function ConnectorsPage() {
               Connectors <span aria-hidden="true">🔌</span>
             </h1>
             <p className="text-sm text-text-muted mt-1">
-              Talk to your assistant from the apps you already use — it stays on this machine, with your model and your tools.
+              Talk to your assistant from the apps you already use. It stays on this machine, with your model and your tools.
             </p>
           </div>
 
@@ -61,7 +61,7 @@ export function ConnectorsPage() {
           <div className="mb-8 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 flex items-start gap-2.5">
             <ShieldAlert size={15} className="text-amber-800 dark:text-amber-400 shrink-0 mt-0.5" />
             <p className="text-[12px] text-amber-800 dark:text-amber-200/90 leading-relaxed">
-              Anyone you add to a connector's allowed list can command your assistant — and everything it can do — on this
+              Anyone you add to a connector's allowed list can command your assistant, and everything it can do, on this
               computer. Add only people you trust. Leave the list empty and no one but you can reach it.
             </p>
           </div>
@@ -267,13 +267,13 @@ function ConnectorCard({
           : 'Allowed sender IDs';
   const allowHint =
     entry.id === 'whatsapp'
-      ? ' (with country code, one per line — only these people can reach your assistant)'
-      : ' (one per line — only these people can message your assistant)';
+      ? ' (with country code, one per line; only these people can reach your assistant)'
+      : ' (one per line; only these people can message your assistant)';
   const channelLabel = entry.id === 'whatsapp' ? 'Group chats to answer' : 'Channels with no @mention needed';
   const channelHint =
     entry.id === 'whatsapp'
-      ? ' (group IDs, one per line — private chats are always answered)'
-      : ' (channel IDs, one per line — it answers every message here, like a dedicated #bot channel)';
+      ? ' (group IDs, one per line; private chats are always answered)'
+      : ' (channel IDs, one per line; it answers every message here, like a dedicated #bot channel)';
   const channelPlaceholder = entry.id === 'whatsapp' ? 'e.g. 120363012345678901@g.us' : 'e.g. 1479216978496458803';
 
   return (
@@ -359,16 +359,16 @@ function ConnectorCard({
                   </pre>
                   <span className="block text-text-muted tabular-nums" role="timer">
                     {qrSecondsLeft > 0
-                      ? `New code in ~${qrSecondsLeft}s — no rush, it refreshes here automatically.`
+                      ? `New code in ~${qrSecondsLeft}s. No rush, it refreshes here automatically.`
                       : 'Getting a fresh code…'}
                   </span>
                   <span className="block text-amber-300/90">
-                    Use a secondary number — automation can get a number banned.
+                    Use a secondary number. Automation can get a number banned.
                   </span>
                 </div>
               ) : enabled && stuckPolls > 10 ? (
                 <span className="text-amber-300/90">
-                  No pairing code is arriving — turn the connector off and on to retry.
+                  No pairing code is arriving. Turn the connector off and on to retry.
                 </span>
               ) : enabled ? (
                 <span className="text-text-muted">
@@ -377,9 +377,9 @@ function ConnectorCard({
                 </span>
               ) : (
                 <span className="text-text-muted">
-                  Turn this on and a QR code will appear here — scan it with{' '}
+                  Turn this on and a QR code will appear here. Scan it with{' '}
                   <span className="text-text-secondary">WhatsApp → Settings → Linked devices</span>.{' '}
-                  <span className="text-amber-300/90">Use a secondary number — automation can get a number banned.</span>
+                  <span className="text-amber-300/90">Use a secondary number. Automation can get a number banned.</span>
                 </span>
               )}
             </div>
@@ -462,13 +462,13 @@ function ConnectorCard({
                 <>
                   <p className="text-[10.5px] text-text-muted leading-relaxed">
                     New leads who message you get answered automatically by a sales assistant that can ONLY use the
-                    knowledge below — it can't touch your files or this computer. Numbers in your allowed list above still
+                    knowledge below. It can't touch your files or this computer. Numbers in your allowed list above still
                     get the full assistant.
                   </p>
                   <label className="block">
                     <span className="text-[11px] text-text-secondary">
                       What it can tell people
-                      <span className="text-text-muted"> (products, prices, FAQ, hours — answers come only from this)</span>
+                      <span className="text-text-muted"> (products, prices, FAQ, hours; answers come only from this)</span>
                     </span>
                     <textarea
                       value={knowledgeBase}

@@ -107,7 +107,7 @@ impl TtsProvider for OpenAiCompatTts {
 
     async fn speak(&self, req: &SpeechRequest, audio: Sender<Vec<u8>>) -> Result<usize> {
         if self.api_key.trim().is_empty() {
-            bail!("no API key configured for the OpenAI-compatible voice — add one on the call screen");
+            bail!("no API key configured for the OpenAI-compatible voice. Add one on the call screen");
         }
         if req.text.trim().is_empty() {
             return Ok(0);
@@ -132,11 +132,11 @@ impl TtsProvider for OpenAiCompatTts {
         if !status.is_success() {
             let detail = res.text().await.unwrap_or_default();
             let hint = match status.as_u16() {
-                401 => "the key was rejected — check it belongs to the base URL you set",
-                404 => "no /v1/audio/speech at that base URL — check the endpoint",
+                401 => "the key was rejected. Check it belongs to the base URL you set",
+                404 => "no /v1/audio/speech at that base URL. Check the endpoint",
                 // The most likely misconfiguration by far: the right key, the
                 // wrong vendor's model name.
-                400 | 422 => "the request was rejected — usually the model name does not exist at this endpoint",
+                400 | 422 => "the request was rejected, usually the model name does not exist at this endpoint",
                 429 => "rate limited or out of quota",
                 _ => "unexpected response from the speech endpoint",
             };

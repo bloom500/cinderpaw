@@ -386,7 +386,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'anthropic', name: 'Anthropic (Claude)', console: 'https://console.anthropic.com/settings/keys',
     keyPlaceholder: 'sk-ant-...',
-    note: 'Paid — add ~$5 credit under Billing before the key will work.',
+    note: 'Paid. Add ~$5 credit under Billing before the key will work.',
     steps: [
       'Sign in at console.anthropic.com',
       'Settings → API keys → "Create Key"',
@@ -396,7 +396,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'google', name: 'Google Gemini', console: 'https://aistudio.google.com/apikey', free: true,
     keyPlaceholder: 'AIza...',
-    note: 'Free tier — no credit card needed.',
+    note: 'Free tier, no credit card needed.',
     steps: [
       'Sign in at aistudio.google.com with any Google account',
       'Click "Get API key" → "Create API key"',
@@ -406,7 +406,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'openrouter', name: 'OpenRouter', console: 'https://openrouter.ai/keys', free: true,
     keyPlaceholder: 'sk-or-...',
-    note: 'Free models available (look for ":free") — no credit card needed.',
+    note: 'Free models available (look for ":free"), no credit card needed.',
     steps: [
       'Sign in at openrouter.ai (Google or email)',
       'Profile menu → Keys → "Create Key"',
@@ -514,11 +514,11 @@ function DetectedSection() {
             </div>
             {outcome?.ok ? (
               <span className="flex items-center gap-1.5 text-xs text-green-400 shrink-0">
-                <Check size={13} /> ready — I'll use it ({outcome.message})
+                <Check size={13} /> ready, I'll use it ({outcome.message})
               </span>
             ) : isTesting ? (
               <span className="flex items-center gap-1.5 text-xs text-text-muted shrink-0">
-                <Loader2 size={12} className="animate-spin" /> Testing — real completion…
+                <Loader2 size={12} className="animate-spin" /> Testing a real completion…
               </span>
             ) : (
               <button
@@ -587,7 +587,7 @@ function LocalBranch() {
 
       {done ? (
         <p className="flex items-center gap-2 text-sm text-green-400">
-          <Check size={16} /> {model.label} is ready — I'll use it automatically.
+          <Check size={16} /> {model.label} is ready, I'll use it automatically.
         </p>
       ) : isThisDownloading ? (
         <div className="space-y-1.5">
@@ -869,7 +869,7 @@ function DiskEncryptionNotice() {
       accent: 'text-amber-500',
       ring: 'border-amber-500/30 bg-amber-500/5',
       title: 'Turn on disk encryption',
-      body: 'Your data lives only on this device — enable BitLocker (Windows) or FileVault (macOS) so it stays private if the device is lost or stolen.',
+      body: 'Your data lives only on this device. Enable BitLocker (Windows) or FileVault (macOS) so it stays private if the device is lost or stolen.',
     },
     unknown: {
       Icon: Shield,

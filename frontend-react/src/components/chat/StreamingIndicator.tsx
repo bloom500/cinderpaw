@@ -24,8 +24,8 @@ function formatElapsed(ms: number): string {
 }
 
 function progressLabel(p: StreamProgressEvent): string {
-  if (p.phase === 'prefill') return `Prefill — ${formatElapsed(p.elapsedMs)}`;
-  if (p.tokensPerSec > 0.5) return `Generating — ${p.tokensPerSec.toFixed(1)} tok/s`;
+  if (p.phase === 'prefill') return `Prefill · ${formatElapsed(p.elapsedMs)}`;
+  if (p.tokensPerSec > 0.5) return `Generating · ${p.tokensPerSec.toFixed(1)} tok/s`;
   return 'Generating…';
 }
 
@@ -67,7 +67,7 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
         const pct = loadProgress ? ` ${Math.round(loadProgress.percentage)}%` : '';
         setBaseLabel(`Loading model…${pct}`);
       } else if (slowStart && phase === 'thinking') {
-        setBaseLabel('Processing your message — the first response after loading a model can take a while…');
+        setBaseLabel('Processing your message. The first response after loading a model can take a while…');
       } else {
         setBaseLabel(phaseLabel(phase, tool));
       }

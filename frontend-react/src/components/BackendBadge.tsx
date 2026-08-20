@@ -37,9 +37,9 @@ export function BackendBadge({ className }: { className?: string }) {
     : 'CPU';
 
   const title =
-    tone === 'gpu'          ? `Running on the GPU — ${backend}.`
+    tone === 'gpu'          ? `Running on the GPU: ${backend}.`
     : tone === 'hybrid'     ? `${onGpu} of ${total} layers are on the GPU; the rest run on the CPU because they did not fit in VRAM. A smaller model or a shorter context window puts more on the card.`
-    : tone === 'cpu-fallback' ? 'This build can use your GPU, but the model did not fit in VRAM (or the driver refused the allocation), so it is running entirely on the CPU — much slower. Try a smaller model or a shorter context window in Settings → Hardware.'
+    : tone === 'cpu-fallback' ? 'This build can use your GPU, but the model did not fit in VRAM (or the driver refused the allocation), so it is running entirely on the CPU, which is much slower. Try a smaller model or a shorter context window in Settings → Hardware.'
     : 'Running on the CPU.';
 
   const Icon = tone === 'gpu' ? Zap : tone === 'cpu-fallback' ? AlertTriangle : Cpu;

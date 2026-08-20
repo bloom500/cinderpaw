@@ -132,10 +132,10 @@ export function RsiEngineStatusPanel() {
       </header>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-4">
-        <Stat label="Iteration" value={e ? e.iteration.toLocaleString() : '—'} />
-        <Stat label="Best score" value={e?.best_score != null ? e.best_score.toFixed(3) : '—'} />
+        <Stat label="Iteration" value={e ? e.iteration.toLocaleString() : '-'} />
+        <Stat label="Best score" value={e?.best_score != null ? e.best_score.toFixed(3) : '-'} />
         <Stat label="Spent" value={`$${(e?.cost_so_far_usd ?? 0).toFixed(4)}`} sub={capped ? `cap ${capDisplay}` : 'no cap'} />
-        <Stat label="Main tip" value={status.main_tip ? status.main_tip.slice(0, 7) : '—'} sub={status.main_tip_score != null ? status.main_tip_score.toFixed(3) : 'no score'} />
+        <Stat label="Main tip" value={status.main_tip ? status.main_tip.slice(0, 7) : '-'} sub={status.main_tip_score != null ? status.main_tip_score.toFixed(3) : 'no score'} />
       </div>
 
       <div className="flex items-center gap-3 text-[11px]">
@@ -168,7 +168,7 @@ export function RsiEngineStatusPanel() {
             ? (e.concurrency < MIN_CONCURRENCY || e.concurrency > MAX_CONCURRENCY
                 ? 'clamped to 1..4 by the engine'
                 : 'applied on next pool refill')
-            : '—'}
+            : '-'}
         </span>
       </div>
 

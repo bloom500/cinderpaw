@@ -132,7 +132,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
                 type={showKey ? 'text' : 'password'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={state?.has_api_key ? 'Key saved — enter new key to update' : 'sk-...'}
+                placeholder={state?.has_api_key ? 'Key saved, enter new key to update' : 'sk-...'}
                 className={cn(inputCls, 'flex-1 font-mono')}
               />
               <button

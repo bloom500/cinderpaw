@@ -98,7 +98,7 @@ impl TtsProvider for ElevenLabsTts {
     /// `GET /v1/voices` — the workspace's voices, including cloned ones.
     async fn voices(&self) -> Result<Vec<Voice>> {
         if self.api_key.trim().is_empty() {
-            bail!("no ElevenLabs key configured — add one on the call screen");
+            bail!("no ElevenLabs key configured. Add one on the call screen");
         }
         let res = http(LIST_TIMEOUT_SECS)?
             .get(format!("{}/v1/voices", self.base_url))
@@ -143,7 +143,7 @@ impl TtsProvider for ElevenLabsTts {
 
     async fn speak(&self, req: &SpeechRequest, audio: Sender<Vec<u8>>) -> Result<usize> {
         if self.api_key.trim().is_empty() {
-            bail!("no ElevenLabs key configured — add one on the call screen");
+            bail!("no ElevenLabs key configured. Add one on the call screen");
         }
         if req.text.trim().is_empty() {
             return Ok(0);
@@ -167,7 +167,7 @@ impl TtsProvider for ElevenLabsTts {
                 401 => "the ElevenLabs key was rejected",
                 // Their most common 4xx is an unknown voice id, which reads as a
                 // generic validation error unless you know to look for it.
-                400 | 422 => "ElevenLabs rejected the request — usually an unknown voice or model id",
+                400 | 422 => "ElevenLabs rejected the request, usually an unknown voice or model id",
                 429 => "ElevenLabs rate limit or monthly character quota reached",
                 _ => "unexpected response from ElevenLabs",
             };

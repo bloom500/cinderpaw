@@ -21,7 +21,7 @@ export function PresetCard({ preset, selected, onSelect }: Props) {
   const name = isScratch ? 'Start from scratch' : preset.name;
   const emoji = isScratch ? '✨' : (PRESET_EMOJI[preset.name] ?? '🤖');
   const description = isScratch
-    ? 'Build your own helper — a blank canvas, no pre-picked tools.'
+    ? 'Build your own helper: a blank canvas, no pre-picked tools.'
     : (PRESET_DESCRIPTIONS[preset.name] ?? 'A pre-configured agent template.');
   const tools: string[] = isScratch ? [] : preset.tools;
 

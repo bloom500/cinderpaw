@@ -108,11 +108,11 @@ function readFrontendEnv(): Record<string, string | undefined> {
 export function deadlineMessage(reason: DeadlineReason, policy: PerfPolicy): string {
   switch (reason) {
     case 'ttft_timeout':
-      return `[ttft_timeout] The model didn't start responding within ${Math.round(policy.ttftDeadlineMs / 1000)}s. The prompt may be too long or the model too large for this hardware — try a shorter prompt, a smaller model, or a cloud key.`;
+      return `[ttft_timeout] The model didn't start responding within ${Math.round(policy.ttftDeadlineMs / 1000)}s. The prompt may be too long or the model too large for this hardware. Try a shorter prompt, a smaller model, or a cloud key.`;
     case 'total_timeout':
       return `[total_timeout] Generation ran past the ${Math.round(policy.totalDeadlineMs / 1000)}s limit and was stopped. Try a smaller model or shorter output.`;
     case 'stall_timeout':
-      return `[stall_timeout] The model stopped producing output (no tokens for ${Math.round(policy.stallMs / 1000)}s). It may have wedged — reloading is recommended.`;
+      return `[stall_timeout] The model stopped producing output (no tokens for ${Math.round(policy.stallMs / 1000)}s). It may have wedged, and reloading is recommended.`;
     case 'engine_unready':
       return `[engine_unready] The local model isn't loaded or stopped responding. Reload it and try again.`;
   }

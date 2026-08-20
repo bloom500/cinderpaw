@@ -8,7 +8,6 @@ import { TOOL_LABELS } from '@/components/agents/agentUtils';
 import { cn } from '@/lib/utils';
 import { RsiEngineStatusPanel } from './RsiEngineStatusPanel';
 import { FeralDreamsPanel } from './FeralDreamsPanel';
-import { FractalBenchmarkPanel } from './FractalBenchmarkPanel'; // PROVISIONAL — remove after ship/hold decision
 
 export function AgentSettingsTab() {
   const navigate          = useNavigate();
@@ -56,7 +55,6 @@ export function AgentSettingsTab() {
       <RsiBudgetControl />
       <RsiEngineStatusPanel />
       <FeralDreamsPanel />
-      <FractalBenchmarkPanel />{/* PROVISIONAL — remove after ship/hold decision */}
       <DesktopControlToggle />
 
       <div className="flex items-center gap-2">
@@ -192,7 +190,7 @@ export function AgentSettingsTab() {
           </DialogHeader>
           <p className="text-sm text-text-secondary">
             This permanently removes the agent profile. The chat history
-            tied to it stays in your conversations — only the agent
+            tied to it stays in your conversations. Only the agent
             definition is deleted.
           </p>
           {deleteError && (
@@ -255,7 +253,7 @@ function RsiBudgetControl() {
       <div className="min-w-0">
         <p className="text-sm font-medium text-text-primary">Background self-improvement budget</p>
         <p className="text-xs text-text-muted mt-0.5">
-          Feral quietly improves itself in the background. Local models are free —
+          Feral quietly improves itself in the background. Local models are free;
           this caps what it may spend on <span className="text-text-secondary">paid cloud models</span>.
           <span className="text-text-secondary"> $0 = never spend cloud money.</span>
         </p>
@@ -332,7 +330,7 @@ function TokenBudgetToggle() {
           <p className="text-sm font-medium text-text-primary">Token budget</p>
           <p className="text-xs text-text-muted mt-0.5">
             Cap the number of tokens an agent can use per conversation.
-            Unlimited by default — you're responsible for your own inference costs.
+            Unlimited by default. You're responsible for your own inference costs.
           </p>
         </div>
         <button
@@ -464,7 +462,7 @@ function DesktopControlToggle() {
               className={segBtn(!yolo)}
               aria-pressed={!yolo}
             >
-              Safe — ask before each action
+              Safe: ask before each action
             </button>
             <button
               type="button"
@@ -473,7 +471,7 @@ function DesktopControlToggle() {
               className={segBtn(yolo)}
               aria-pressed={yolo}
             >
-              YOLO — no prompts
+              YOLO: no prompts
             </button>
           </div>
           <p className="text-[11px] text-text-muted">

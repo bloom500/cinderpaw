@@ -376,7 +376,7 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
             on a machine running PowerShell would make the one panel whose worth
             is that it does not lie into a costume. */}
         <span className="pointer-events-none absolute inset-x-0 truncate text-center text-[9px] font-medium text-white/70">
-          {folder} — pwsh — 80×24
+          {folder} · pwsh · 80×24
         </span>
         {/* State on the title bar, where a window puts its own status — the card
             around this one no longer has a header to carry it. */}
