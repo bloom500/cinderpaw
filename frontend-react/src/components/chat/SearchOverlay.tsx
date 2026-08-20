@@ -145,6 +145,24 @@ export function SearchOverlay() {
    * survive, and project rows are dropped — you are already in one.
    */
   const visible = (() => {
+    // Nothing typed, no project picked: the answer is what you have, newest
+    // first. Search is where the rail's conversation list went, and a list you
+    // can only see by naming the thing you want is not a list — it is a quiz.
+    // Browsing and finding are the same field: type to narrow, type nothing to
+    // see everything.
+    if (!scope && !query.trim()) {
+      const projects = allProjects
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((p): SearchResult => ({
+          kind: 'project', project: p, chatCount: p.conversation_ids.length,
+        }));
+      const convs = allConvs
+        .slice()
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .map((conv): SearchResult => ({ kind: 'conversation', conv, snippet: null }));
+      return [...projects, ...convs];
+    }
     if (!scope) return results;
     // Inside a project with nothing typed yet, the answer is what the project
     // CONTAINS. Filtering an empty search would report "nothing matches" about
@@ -260,13 +278,19 @@ export function SearchOverlay() {
           </div>
         )}
 
-        {/* Results */}
-        {(query.trim() || scope) && (
+        {/* Results. Always rendered: with an empty field this is the browse
+            list, and on a fresh install it is the one honest line saying so. */}
+        {(
           <div
             id="search-results"
             role="listbox"
             className="mt-2 bg-bg-surface border border-bg-hover rounded-2xl overflow-hidden shadow-xl max-h-[60vh] overflow-y-auto"
           >
+            {!scope && !query.trim() && visible.length > 0 && (
+              <div className="px-4 pt-3 pb-1 text-[11px] uppercase tracking-wide text-text-disabled">
+                Recent
+              </div>
+            )}
             {visible.length === 0 ? (
               <div className="px-4 py-6 text-center text-sm text-text-disabled">
                 {/* Name what was searched. "No matches" alone leaves the user
@@ -275,7 +299,9 @@ export function SearchOverlay() {
                   ? (query.trim()
                       ? `Nothing in ${scope.name} matches.`
                       : `${scope.name} has no conversations yet.`)
-                  : 'No conversations or projects match.'}
+                  : query.trim()
+                    ? 'No conversations or projects match.'
+                    : 'No conversations yet. Ask Feral something and it will show up here.'}
               </div>
             ) : (
               visible.map((r, i) => (

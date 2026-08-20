@@ -38,9 +38,12 @@ vi.mock('@/lib/tauri', async (orig) => {
   };
 });
 
+// Distinct timestamps on purpose: with the browse list sorted by recency, two
+// identical ones make the order a coin flip and the test passes or fails by
+// luck. c1 is the newer.
 const CONVS = [
-  { id: 'c1', title: 'Refactor the router', updated_at: new Date().toISOString() },
-  { id: 'c2', title: 'Dinner ideas', updated_at: new Date().toISOString() },
+  { id: 'c1', title: 'Refactor the router', updated_at: new Date(Date.now() - 60_000).toISOString() },
+  { id: 'c2', title: 'Dinner ideas', updated_at: new Date(Date.now() - 3_600_000).toISOString() },
 ];
 
 const PROJECTS = [
@@ -137,6 +140,32 @@ describe('SearchOverlay', () => {
     await waitFor(() =>
       expect(screen.getByText(/No conversations or projects match/i)).toBeInTheDocument(),
     );
+  });
+});
+
+describe('with nothing typed', () => {
+  /**
+   * Phase 5. The rail is deleted, so this list is the ONLY place a person can
+   * see their own history without already knowing what they are looking for.
+   * A search field that shows nothing until you name the thing you want is not
+   * a list, it is a quiz.
+   */
+  it('shows everything, projects first and newest chat first', async () => {
+    setup();
+    expect(await rows()).toEqual([
+      expect.stringContaining('Bloom Media'),
+      expect.stringContaining('Feral'),
+      expect.stringContaining('Refactor the router'),
+      expect.stringContaining('Dinner ideas'),
+    ]);
+  });
+
+  it('says so on a fresh install rather than showing an empty box', async () => {
+    useConversations.setState({ list: [] as never, open: vi.fn() as never });
+    useProjects.setState({ list: [] as never });
+    useUI.setState({ searchOpen: true } as never);
+    render(<MemoryRouter><SearchOverlay /></MemoryRouter>);
+    expect(await screen.findByText(/No conversations yet/i)).toBeTruthy();
   });
 });
 
