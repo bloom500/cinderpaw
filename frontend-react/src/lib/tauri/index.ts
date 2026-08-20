@@ -1035,6 +1035,12 @@ export const tauri = {
     setEnabled: async (id: string, enabled: boolean) => raw.connectorsSetEnabled(id, enabled),
     remove:     async (id: string) => raw.connectorsRemove(id),
     whatsappQr: async () => raw.connectorsWhatsappQr(),
+    /** Phase 3 accounts: connectors that pair by signing in rather than by
+     *  pasting a token. `pairPoll` is safe to call on a card that has already
+     *  finished — the state it is in is the answer. */
+    accounts:   async () => raw.connectorAccounts(),
+    pairStart:  async (id: string) => raw.connectorPairStart(id),
+    pairPoll:   async (id: string) => raw.connectorPairPoll(id),
   },
 
   feralAgent: {

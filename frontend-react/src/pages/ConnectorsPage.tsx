@@ -20,6 +20,7 @@ import {
   type WhatsappQr,
 } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
+import { ConnectorAccounts } from '@/components/connectors/ConnectorAccounts';
 
 export function ConnectorsPage() {
   const [catalog, setCatalog] = useState<ConnectorCatalogEntry[]>([]);
@@ -55,6 +56,13 @@ export function ConnectorsPage() {
             <p className="text-sm text-text-muted mt-1">
               Talk to your assistant from the apps you already use. It stays on this machine, with your model and your tools.
             </p>
+          </div>
+
+          {/* Accounts that pair by signing in, rather than by pasting a token.
+              They come first because a card mid-pairing is showing a code the
+              person is holding in their other hand. */}
+          <div className="mb-8">
+            <ConnectorAccounts />
           </div>
 
           {/* Security banner */}
