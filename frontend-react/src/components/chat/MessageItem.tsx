@@ -119,7 +119,10 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
     const fileChips =
       images.length > 0 ? attachments.filter((a) => a.kind !== 'image') : attachments;
     return (
-      <div className="flex justify-end">
+      // One rule for the whole transcript: every message says when it was sent.
+      // The reply carried a time and the question did not, which read as an
+      // oversight because it was one.
+      <div className="flex flex-col items-end gap-1">
         <div className="max-w-[75%] rounded-2xl rounded-tr-sm px-4 py-3 bg-bg-elevated border border-border-default">
           {images.length > 0 && (
             <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
@@ -141,6 +144,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             </p>
           )}
         </div>
+        <MessageMeta message={message} />
       </div>
     );
   }

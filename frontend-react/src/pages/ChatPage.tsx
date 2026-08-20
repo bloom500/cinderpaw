@@ -179,6 +179,12 @@ export function ChatPage() {
 
       {/* Positioning context for absolute children */}
       <div ref={containerRef} className="relative flex-1 overflow-hidden">
+        {/* The transcript scrolls under the header, and without this the top
+            line is sliced clean in half against the banner above it. A short
+            fade says "there is more up there" instead. */}
+        {messages.length > 0 && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-6 z-10 bg-gradient-to-b from-bg-primary/90 to-transparent" />
+        )}
         {loadingConversation && (
           <div className="absolute inset-x-0 top-0 h-0.5 bg-brand animate-pulse z-10" />
         )}
