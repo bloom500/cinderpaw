@@ -21,6 +21,14 @@
       html[data-theme="light"] { background-color: #FFF5EE; }
       body { margin: 0; background-color: #100E09; }
       html[data-theme="light"] body { background-color: #FFF5EE; }
+      /* Added by the host once it knows the OS is really blurring what is
+         behind the window (Mica on Windows 11, vibrancy on macOS). Until then
+         these stay opaque, so a platform without the effect gets a normal
+         window instead of text floating on the wallpaper. */
+      html.has-window-effect,
+      html.has-window-effect body,
+      html[data-theme="light"].has-window-effect,
+      html[data-theme="light"].has-window-effect body { background-color: transparent; }
 
       /* Startup surface: hero wordmark + amber key light + shimmer line, all
          rendered statically so the first paint is the product, not a blank

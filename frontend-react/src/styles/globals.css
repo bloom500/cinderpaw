@@ -421,6 +421,11 @@ body {
   background-color: var(--scene-base);
   background-image: radial-gradient(115% 115% at 50% 42%, transparent 58%, var(--scene-vignette) 100%);
 }
+/* Real transparency, but only where the OS blurs behind the window. The lights
+   and the grain stay — they now drift over the desktop instead of over a flat
+   fill, which is the whole point — and `#root > div` keeps its tint so text
+   still has something to sit on. */
+html.has-window-effect body { background-color: transparent; }
 body::before,
 body::after {
   content: '';

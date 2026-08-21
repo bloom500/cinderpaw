@@ -521,6 +521,28 @@ pub fn run() {
 
     let specta_builder_for_setup = specta_builder.clone();
     tauri::Builder::default()
+        // The page only goes see-through where the OS actually blurs what is
+        // behind it. `windowEffects` is ignored on platforms that cannot honour
+        // it, but `transparent: true` is not — so on Linux, where there is no
+        // Mica and no vibrancy, a transparent page would put the app's text
+        // straight onto the user's wallpaper with nothing between them. The
+        // stylesheet keeps its opaque background until this class says the
+        // blur is real.
+        //
+        // Set on page load rather than at setup: a script evaluated before the
+        // document exists has nothing to add the class to, and the failure
+        // looks like the effect not working.
+        .on_page_load(|window, _| {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            {
+                use tauri::Manager as _;
+                let _ = window.eval(
+                    "document.documentElement.classList.add('has-window-effect')",
+                );
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            let _ = &window;
+        })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
