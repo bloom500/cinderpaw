@@ -353,7 +353,7 @@
   /* 0.88 opaque was the same as no scene at all: the lights below it arrived
      at roughly 2% and the app read as flat black. The pane is thinner now and
      the lights are stronger, which is the whole point of having them. */
-  --scene-surface:       rgba(16, 14, 9, 0.46);
+  --scene-surface:       rgba(16, 14, 9, 0.30);
   /* Diffuse amber key light and restrained blue-violet counterlight. */
   --scene-key-light:     rgba(196, 132, 58, 0.50);
   --scene-counter-light: rgba(91, 97, 182, 0.38);
@@ -381,7 +381,7 @@
      through at all, then at 0.70 with lights half the strength of dark's. It
      gets the same treatment now — a thinner pane and lights strong enough to
      see, warmed for daylight rather than recoloured. */
-  --scene-surface:       rgba(255, 245, 238, 0.55);
+  --scene-surface:       rgba(255, 245, 238, 0.40);
   /* Amber sunlight, a cool blue-grey shadow light, and a rose fill. */
   --scene-key-light:     rgba(232, 168, 92, 0.55);
   --scene-counter-light: rgba(128, 142, 214, 0.40);
@@ -446,8 +446,19 @@ body::before {
      canvas as flat base colour, which is what made this read as "a stain in
      the corner" rather than as lighting. */
   background-size: 125% 125%, 115% 115%, 100% 100%;
-  animation: scene-drift 34s ease-in-out infinite alternate;
-  will-change: transform;
+  /* Two animations, deliberately out of step, because ONE transform moves every
+     light together and the eye reads a rigid sheet sliding — the opposite of
+     liquid. `scene-drift` carries the whole layer; `scene-flow` slides the three
+     gradients WITHIN it at a different rhythm, so the key light and the
+     counterlight change their distance from each other and the colour between
+     them keeps reforming. That relative motion is the whole effect.
+     ponytail: background-position repaints this layer; the travel is kept
+     small (a few percent) for that reason. If it ever costs frames on a weak
+     GPU, the flow is the half to drop — the drift is composited. */
+  animation:
+    scene-drift 19s ease-in-out infinite alternate,
+    scene-flow  13s ease-in-out infinite alternate;
+  will-change: transform, background-position;
 }
 /* Grain: a small repeatable noise tile over everything, shifting subtly so
    the gradients never read as synthetic paint. */
@@ -464,9 +475,18 @@ body::after {
    be. Bigger travel, and a third of the duration. Still transform-only, still
    one layer, so the cost per frame is unchanged. */
 @keyframes scene-drift {
-  from { transform: translate3d(-4%, -3%, 0) scale(1.06) rotate(0deg); }
-  50%  { transform: translate3d(3%, 2%, 0) scale(1.14) rotate(1.5deg); }
-  to   { transform: translate3d(5%, -2%, 0) scale(1.08) rotate(-1deg); }
+  from { transform: translate3d(-5%, -4%, 0) scale(1.06) rotate(0deg); }
+  30%  { transform: translate3d(2%, 3%, 0)  scale(1.15) rotate(1.8deg); }
+  60%  { transform: translate3d(6%, -2%, 0) scale(1.09) rotate(-1.4deg); }
+  to   { transform: translate3d(-2%, 4%, 0) scale(1.12) rotate(0.6deg); }
+}
+/* The three lights sliding against each other. Different period from the drift
+   on purpose: two motions that share a cycle resolve into one, and the point of
+   this one is that the pattern never quite repeats. */
+@keyframes scene-flow {
+  from { background-position: 18% 12%, 82% 88%, 62% 34%; }
+  50%  { background-position: 26% 20%, 72% 78%, 48% 46%; }
+  to   { background-position: 12% 22%, 88% 80%, 68% 26%; }
 }
 @keyframes scene-grain-shift {
   0%   { transform: translate3d(0, 0, 0); }
@@ -486,6 +506,13 @@ body::after {
 }
 #root > div {
   background-color: var(--scene-surface);
+  /* A tint alone is a coloured sheet; glass is a tint PLUS what is behind it,
+     blurred. Without the backdrop filter the lights below read as flat paint
+     seen through cellophane — the sidebar has had this since it was built, and
+     the page it sits on did not, which is why the two never looked like the
+     same material. */
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
 }
 
 /* Reduced motion: the whole static lighting composition stays visible, only

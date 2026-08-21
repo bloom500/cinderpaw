@@ -50,6 +50,7 @@ export const NAV_COLLAPSED_W = 0;
  */
 const NAV = [
   { to: '/models',   icon: Box,           label: 'Models' },
+  { to: '/settings', icon: Settings,      label: 'Settings' },
 ] as const;
 
 function Row({
@@ -266,8 +267,8 @@ export function SideNav() {
           // hole and its rounded corners vanish with it — which is what the
           // first two attempts here looked like. Theme tokens rather than
           // hand-rolled rgba, so light mode gets the same treatment for free.
-          'rounded-2xl border border-white/[0.07] bg-bg-elevated/70 shadow-xl',
-          'backdrop-blur-xl backdrop-saturate-150',
+          'rounded-2xl border border-white/[0.07] bg-bg-elevated/40 shadow-xl',
+          'backdrop-blur-2xl backdrop-saturate-150',
           // A hairline of light along the top edge. Real glass catches the
           // light source above it; a flat border says "rectangle", and that
           // one line is most of the difference between the two.
@@ -333,9 +334,6 @@ export function SideNav() {
           <Library collapsed={collapsed} />
         </div>
 
-        <div className="px-2 pb-2 shrink-0">
-          <Row icon={Settings} label="Settings" collapsed={collapsed} to="/settings" />
-        </div>
       </motion.nav>
 
       <NewProjectDialog open={projectOpen} onOpenChange={setProjectOpen} />

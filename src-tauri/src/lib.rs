@@ -636,6 +636,29 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+
+    /// The markup can be perfect and the window still immovable.
+    ///
+    /// `data-tauri-drag-region` does nothing unless the window is allowed to
+    /// start a drag, and a missing permission reports no fault anywhere: no
+    /// console error, no log line, just a window that will not move. The
+    /// frontend guards the markup (`dragRegion.test.ts`); this guards the half
+    /// that makes it mean anything.
+    #[test]
+    fn window_drag_permission_is_granted() {
+        let caps = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+        let mut granted = String::new();
+        for entry in std::fs::read_dir(&caps).expect("capabilities directory").flatten() {
+            if entry.path().extension().is_some_and(|e| e == "json") {
+                granted.push_str(&std::fs::read_to_string(entry.path()).unwrap_or_default());
+            }
+        }
+        assert!(
+            granted.contains("core:window:allow-start-dragging"),
+            "the window cannot be dragged and nothing will say why",
+        );
+    }
+
     use super::*;
 
     #[test]
