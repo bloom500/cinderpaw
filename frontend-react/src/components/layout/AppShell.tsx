@@ -85,6 +85,29 @@ export function AppShell() {
       >
         <Outlet />
       </motion.main>
+      {/* The window's drag handle, once, for every page there is and every page
+          there will be.
+          Each page used to bring its own strip, which meant each page could
+          forget — and two had: Connectors and Extensions could not be dragged at
+          all, and Chat lost its handle entirely while the agent onboarding was
+          on screen, because the header that carried it was not rendered. A
+          frameless window that cannot be moved is not a small bug.
+
+          Deliberately placed after `main` and given no z-index: both are
+          positioned, so DOM order puts this above the page content and it
+          receives the drag. Everything that must stay clickable already sits
+          higher — the sidebar at z-30 (its collapse button lives in this band),
+          the call overlay at z-100 with a strip of its own, and the window
+          controls at z-200.
+
+          Only the element carrying the attribute drags, so a button that ends up
+          under this band is still a button: Tauri looks at the event target, not
+          at the ancestors. */}
+      <div
+        data-tauri-drag-region
+        aria-hidden
+        className="fixed top-0 inset-x-0 h-8"
+      />
       {/* Window controls — fixed top-right, above EVERYTHING including
           full-screen overlays and modals. These used to share z-40 with the
           voice-call overlay and got buried by it, leaving a frameless window with
