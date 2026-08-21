@@ -14,6 +14,22 @@ pub struct FeralInferParams {
     pub max_tokens: Option<u32>,
 }
 
+/// Is the sidecar ready right now?
+///
+/// The companion to `cinderpaw://agent-ready`, and the reason the banner used
+/// to stay on screen forever: an event reaches only whoever is already
+/// listening. The sidecar announces itself about eleven seconds in, and in a
+/// cold start the webview can still be mounting — so the one announcement went
+/// out to nobody and the frontend waited for a second that never came.
+///
+/// Asking is also what makes a reloaded window correct, which the event alone
+/// never could.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn agent_is_ready(state: State<'_, AppState>) -> bool {
+    state.runtime.agent_ready.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Send a message to the Cinderpaw Agent sidecar. Returns the message ID that
 /// will appear in the corresponding `cinderpaw://agent-output` chunk/done events.
 ///

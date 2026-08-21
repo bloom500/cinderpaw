@@ -65,6 +65,15 @@ pub struct RuntimeState {
     pub local_api_token: Arc<str>,
     /// Cinderpaw Agent sidecar process.
     pub cinderpaw_agent_process: Arc<Mutex<Option<tokio::process::Child>>>,
+    /// Whether the sidecar has announced itself ready, right now.
+    ///
+    /// `cinderpaw://agent-ready` is emitted once, when the marker appears on the
+    /// sidecar's stderr. An event is only received by whoever is already
+    /// listening — so a frontend that finishes mounting a second later never
+    /// learns it happened, waits forever, and shows "waking up" for the rest of
+    /// the session. This is the same fact, held rather than announced, so a
+    /// listener that arrived late can simply ask.
+    pub agent_ready: Arc<std::sync::atomic::AtomicBool>,
     /// Sender for writing JSON messages to the Cinderpaw Agent's stdin.
     /// Commands clone this to send messages without holding the lock during I/O.
     pub cinderpaw_agent_tx: Arc<Mutex<Option<tokio::sync::mpsc::Sender<String>>>>,
@@ -152,6 +161,7 @@ impl RuntimeState {
             settings,
             local_api_token,
             cinderpaw_agent_process: Arc::new(Mutex::new(None)),
+            agent_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             cinderpaw_agent_tx: Arc::new(Mutex::new(None)),
             cinderpaw_agent_planned_exit: Arc::new(Mutex::new(None)),
             rsi_state: rsi::RsiState::default(),

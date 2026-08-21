@@ -356,6 +356,7 @@ pub fn run() {
             save_conversation,
             load_conversations,
             load_conversation,
+            agent_is_ready,
             rename_conversation,
             delete_conversation,
             clear_all_conversations,

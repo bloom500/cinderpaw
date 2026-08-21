@@ -494,6 +494,24 @@ export function useCinderpawGlobal() {
         void fetchConfig();
       });
 
+      // The event fires once, and only reaches whoever is already listening.
+      // The sidecar announces itself about eleven seconds in; a cold webview
+      // can still be mounting then, and the announcement goes out to nobody —
+      // which left "Cinderpaw is waking up" on screen for the whole session,
+      // waiting for a second occurrence that never comes.
+      //
+      // Asked AFTER the listener is attached, deliberately: an announcement
+      // that lands between the two is caught by the listener rather than
+      // falling into the gap the other order would open.
+      try {
+        if (await tauri.raw.agentIsReady()) {
+          setReady(true);
+          void fetchConfig();
+        }
+      } catch {
+        // An older host without the command. The event path still works.
+      }
+
       // #11: the Rust supervisor emits this when the sidecar dies. While
       // `restarting` is true it will respawn with backoff and agent-ready
       // will clear the banner; when false, the supervisor gave up.

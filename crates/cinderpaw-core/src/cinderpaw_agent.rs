@@ -605,7 +605,7 @@ pub async fn spawn(
         runtime.cinderpaw_agent_process.clone(),
         runtime.cinderpaw_agent_planned_exit.clone(),
     ));
-    tokio::spawn(stderr_logger(events.clone(), stderr));
+    tokio::spawn(stderr_logger(events.clone(), stderr, runtime.agent_ready.clone()));
 
     tracing::info!("cinderpaw-agent: started (pid {:?})", child.id());
     Ok(child)
@@ -761,6 +761,10 @@ pub fn supervise(
             // Invalidate the stale stdin sender so feral_send_message fails
             // fast instead of writing into a dead pipe.
             *runtime.cinderpaw_agent_tx.lock() = None;
+            // A dead sidecar is not a ready one. Cleared here as well as
+            // announced, or a window opened after the crash would ask, be told
+            // yes, and sit waiting for an agent that is not there.
+            runtime.agent_ready.store(false, std::sync::atomic::Ordering::SeqCst);
             let events_for_exit = events.clone();
             events_for_exit.emit(
                 "cinderpaw://agent-exit",
@@ -1384,7 +1388,11 @@ pub const READY_MARKER: &str = "::cinderpaw-agent-ready::";
 pub const LEGACY_READY_MARKER: &str = "::feral-agent-ready::";
 
 /// Log stderr from the agent; emit `cinderpaw://agent-ready` on the ready marker.
-async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::ChildStderr) {
+async fn stderr_logger(
+    events: Arc<dyn HostEvents>,
+    stderr: tokio::process::ChildStderr,
+    agent_ready: Arc<std::sync::atomic::AtomicBool>,
+) {
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         let line = line.trim().to_string();
@@ -1399,6 +1407,10 @@ async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::Chil
         // word. The sidecar prints this once, when its transport is up and its
         // tools are live.
         if line.ends_with(READY_MARKER) || line.ends_with(LEGACY_READY_MARKER) {
+            // Recorded BEFORE it is announced. A listener that missed the event
+            // can ask; one that missed both the flag and the event does not
+            // exist, because the flag outlives the moment.
+            agent_ready.store(true, std::sync::atomic::Ordering::SeqCst);
             events.emit("cinderpaw://agent-ready", serde_json::json!({}));
         }
     }

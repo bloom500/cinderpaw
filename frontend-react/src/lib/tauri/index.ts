@@ -673,6 +673,7 @@ const raw = {
     invoke<void>('save_conversation', { id, title, messages, agentId: agentId ?? null }),
   loadConversations:     ()    => invoke<ConversationSummary[]>('load_conversations'),
   loadConversation:      (id: string) => invoke<Conversation>('load_conversation', { id }),
+  agentIsReady:          ()    => invoke<boolean>('agent_is_ready'),
   renameConversation:    (id: string, title: string) =>
     invoke<void>('rename_conversation', { id, title }),
   deleteConversation:    (id: string) => invoke<void>('delete_conversation', { id }),
