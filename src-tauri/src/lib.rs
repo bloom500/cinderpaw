@@ -260,6 +260,31 @@ pub fn run() {
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")))
         .init();
 
+    // The rename moves `~/.feral` to `~/.cinderpaw` on the first start after
+    // upgrading. It is fatal when it fails — but on the desktop, "fatal" without
+    // this block means the window never appears and the reason goes to a
+    // terminal nobody opened. From the person's side the app simply stopped
+    // working after an update, which is the worst thing this rename could do to
+    // them. So the reason gets a window of its own.
+    //
+    // `rfd` rather than `tauri-plugin-dialog`: this runs before the Tauri app is
+    // built, so there is no handle for a plugin to hang off. It is already in
+    // the tree as that plugin's own dependency, so this costs nothing.
+    if let Err(e) = cinderpaw_core::migrate_home::ensure_migrated() {
+        let msg = format!(
+            "Cinderpaw could not move your data to its new home folder, so it stopped \
+             before changing anything.\n\n{e}\n\nYour existing data has not been touched \
+             or deleted."
+        );
+        eprintln!("[cinderpaw] FATAL: {msg}");
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("Cinderpaw could not start")
+            .set_description(&msg)
+            .show();
+        std::process::exit(1);
+    }
+
     // Faza 4.5 Slice 2: the runtime (token + settings + ModelManager) is
     // built by the host-agnostic `cinderpaw_core::boot::build_runtime`. The
     // headless `cinderpaw-cli` gateway calls the same function — see

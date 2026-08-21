@@ -1,7 +1,7 @@
 /**
  * SP0 launcher + packaging guards.
  *
- * The launcher (bin/feral.js) is glue, but it has two failure modes worth a
+ * The launcher (bin/cinderpaw.js) is glue, but it has two failure modes worth a
  * cheap net: (1) shipping a syntactically broken ESM file (the require/
  * "type":"module" trap), and (2) losing the Windows-only guard. Plus a
  * pack-manifest check so we never leak src/ or forget the binaries.
@@ -13,9 +13,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const pkgDir = resolve(import.meta.dir, "..");
-const launcher = resolve(pkgDir, "bin", "feral.js");
+const launcher = resolve(pkgDir, "bin", "cinderpaw.js");
 
-describe("launcher bin/feral.js", () => {
+describe("launcher bin/cinderpaw.js", () => {
   test("is valid ESM node can parse (guards the require/type:module trap)", () => {
     const r = spawnSync("node", ["--check", launcher], { encoding: "utf8" });
     expect(r.status).toBe(0);
@@ -39,11 +39,11 @@ describe("launcher bin/feral.js", () => {
     // Extension is computed (cinderpaw-cli${ext}), so match the base name, not a
     // hardcoded .exe.
     expect(src).toContain("cinderpaw-cli");
-    expect(src).not.toContain("dist/feral-agent");
+    expect(src).not.toContain("dist/cinderpaw-agent");
   });
 });
 
-describe("feral update", () => {
+describe("cinderpaw update", () => {
   // The whole point of handling `update` in the shim is that it runs when the
   // Rust binary can't: Windows won't overwrite a running .exe, and a
   // half-installed machine has no binary at all. So the branch MUST sit above
@@ -86,7 +86,7 @@ describe("npm pack manifest (files whitelist)", () => {
     if (r.status !== 0 || !r.stdout.trim().startsWith("[")) return;
     const parsed = JSON.parse(r.stdout) as Array<{ files: Array<{ path: string }> }>;
     const paths = parsed[0]!.files.map((f) => f.path);
-    expect(paths.some((p) => p === "bin/feral.js")).toBe(true);
+    expect(paths.some((p) => p === "bin/cinderpaw.js")).toBe(true);
     expect(paths.some((p) => p.startsWith("src/"))).toBe(false);
     expect(paths.some((p) => p.startsWith("dist/"))).toBe(false);
   }, 30_000); // npm pack shells out to npm.cmd — slow on Windows, well past the 5s default

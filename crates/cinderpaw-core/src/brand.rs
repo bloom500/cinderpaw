@@ -1,17 +1,17 @@
 //! Brand constants — the single source of truth for user-facing names in Rust.
 //!
-//! Mirror of `frontend-react/src/lib/brand.ts` and `FeralAgent/src/brand.ts`.
+//! Mirror of `frontend-react/src/lib/brand.ts` and `CinderpawAgent/src/brand.ts`.
 //!
-//! The technical identities below (bundle id, home directory) deliberately still
-//! say `feral`: they are what an existing install is already using, and moving
-//! them without a migrator beside them loses the user's data. They live here so
-//! that the phase which does move them has one place to edit rather than five
-//! hundred call sites.
+//! The technical identities below (bundle id, home directory) have now moved
+//! too. Nothing here is safe to edit on its own: the home directory is carried
+//! across by `crate::migrate_home`, and the bundle identifier travels with it,
+//! because an app whose data moved but whose identity did not is an app with
+//! two half-installs. `LEGACY_HOME_DIR_NAME` stays for as long as machines that
+//! predate the rename exist.
 
 /// What the app calls itself to a person.
 pub const APP_NAME: &str = "Cinderpaw";
 pub const APP_NAME_LOWER: &str = "cinderpaw";
-pub const APP_DOMAIN: &str = "cinderpaw.ai";
 
 /// Config directory under the home directory. Moved in this release; the
 /// one-shot copy lives in `crate::migrate_home` and runs before anything reads

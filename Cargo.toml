@@ -5,8 +5,8 @@
 # workspace.
 # Faza 4.5 Slice 2: `crates/cinderpaw-cli` joins the workspace as the headless
 # gateway binary (Slice 2/Task 4). The dev binary is `cinderpaw-cli` because the
-# desktop dev binary already claims `target/debug/feral.exe` (src-tauri
-# package name `feral`). The user-facing name `feral` is applied at
+# desktop dev binary already claims `target/debug/cinderpaw.exe` (src-tauri
+# package name `cinderpaw`). The user-facing name `cinderpaw` is applied at
 # packaging time (installer alias/rename) per spec D6a.
 members = ["src-tauri", "crates/cinderpaw-core", "crates/cinderpaw-cli"]
 resolver = "2"
@@ -15,7 +15,7 @@ resolver = "2"
 version = "2026.8.11"
 edition = "2021"
 license = "BUSL-1.1"
-authors = ["Feral Contributors"]
+authors = ["Cinderpaw Contributors"]
 
 [profile.release]
 opt-level = 3

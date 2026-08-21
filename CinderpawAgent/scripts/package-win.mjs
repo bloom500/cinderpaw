@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Local Windows dev helper. Populates CinderpawAgent/vendor/ with the two prebuilt
-// binaries so `node bin/feral.js ...` works from a source checkout (bin/feral.js
+// binaries so `node bin/cinderpaw.js ...` works from a source checkout (bin/cinderpaw.js
 // falls back to vendor/ when no per-platform package is installed).
 //
 // ⚠️ This is NO LONGER the publish path. npm distribution is cross-platform and

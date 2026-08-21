@@ -1,4 +1,4 @@
-//! `feral` management subcommands (Faza 4.5 Slice 4/4b, spec D6):
+//! `cinderpaw` management subcommands (Faza 4.5 Slice 4/4b, spec D6):
 //! `gateway start|stop|restart|status`, `model`, `doctor`, `logs`,
 //! `connectors`, `dreams`, `config`. Everything talks to the same loopback
 //! runtime the desktop app and connectors use.
@@ -63,7 +63,7 @@ pub enum GovernanceAction {
     },
 }
 
-/// Phase B (L4 Architecture Evolution, spec §10) — `feral modules …`.
+/// Phase B (L4 Architecture Evolution, spec §10) — `cinderpaw modules …`.
 /// Mirrors the `governance` surface: reads via GET, mutations via POST,
 /// `--json` honored, exit 0 on `ok:true`.
 #[derive(Subcommand)]
@@ -104,7 +104,7 @@ pub enum ModulesAction {
     },
 }
 
-/// Faza 4 (L2 LoRA) — `feral lora …`: the personal-adaptation loop,
+/// Faza 4 (L2 LoRA) — `cinderpaw lora …`: the personal-adaptation loop,
 /// headless. Mirrors the desktop Training card: train fires a cycle,
 /// reviews lists the human inbox, approve/reject is THE promotion gate.
 #[derive(Subcommand)]
@@ -112,7 +112,7 @@ pub enum LoraAction {
     /// Registry summary: champions per domain + the active adapter
     Status,
     /// Run one training cycle (dataset → trainer → paired eval → review
-    /// card). Fire-and-forget; watch `feral logs -f` or `feral lora reviews`
+    /// card). Fire-and-forget; watch `cinderpaw logs -f` or `cinderpaw lora reviews`
     Train {
         /// Adapter domain (general, coding, research, writing, planning)
         #[arg(long, default_value = "general")]
@@ -134,7 +134,7 @@ pub(crate) fn block_on<F: std::future::Future>(f: F) -> F::Output {
 }
 
 /// Auto-start the gateway if the loopback port is free, then wait for it to
-/// bind. Shared by `feral chat`, `feral setup` (guided + classic). Returns a
+/// bind. Shared by `cinderpaw chat`, `cinderpaw setup` (guided + classic). Returns a
 /// non-zero exit code on failure.
 pub(crate) fn ensure_gateway() -> Result<(), i32> {
     let port = api_port();
@@ -145,7 +145,7 @@ pub(crate) fn ensure_gateway() -> Result<(), i32> {
     println!("\n  {META}Gateway not running. Starting...{RESET}");
     let code = gateway_start();
     if code != 0 {
-        eprintln!("feral: could not start the gateway — run `feral doctor` to diagnose.");
+        eprintln!("cinderpaw: could not start the gateway — run `cinderpaw doctor` to diagnose.");
         return Err(code);
     }
     for _ in 0..20 {
@@ -154,7 +154,7 @@ pub(crate) fn ensure_gateway() -> Result<(), i32> {
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
-    eprintln!("feral: gateway started but not listening on port {port} after 4s");
+    eprintln!("cinderpaw: gateway started but not listening on port {port} after 4s");
     Err(1)
 }
 
@@ -203,12 +203,12 @@ pub fn gateway_status() -> i32 {
             println!("{}", serde_json::json!({ "online": false, "port": port }));
         } else {
             println!("{META}● gateway offline{RESET}  (nothing on port {port})");
-            println!("  start it: {ACCENT}feral gateway start{RESET}");
+            println!("  start it: {ACCENT}cinderpaw gateway start{RESET}");
         }
         return 1;
     }
     let Some(token) = read_token() else {
-        eprintln!("{WARN}● port {port} busy but ~/.feral/api-token is missing{RESET}");
+        eprintln!("{WARN}● port {port} busy but ~/.cinderpaw/api-token is missing{RESET}");
         return 1;
     };
     match block_on(fetch_json(&token, "/runtime/status")) {
@@ -263,7 +263,7 @@ pub fn gateway_start() -> i32 {
     let exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("feral: cannot locate own binary: {e}");
+            eprintln!("cinderpaw: cannot locate own binary: {e}");
             return 1;
         }
     };
@@ -273,7 +273,7 @@ pub fn gateway_start() -> i32 {
     let log = match std::fs::File::create(&log_path) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("feral: cannot open {}: {e}", log_path.display());
+            eprintln!("cinderpaw: cannot open {}: {e}", log_path.display());
             return 1;
         }
     };
@@ -292,7 +292,7 @@ pub fn gateway_start() -> i32 {
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("feral: failed to start gateway: {e}");
+            eprintln!("cinderpaw: failed to start gateway: {e}");
             return 1;
         }
     };
@@ -311,8 +311,8 @@ pub fn gateway_start() -> i32 {
     }
     tick_done();
     // The pid file is written before we know the gateway came up. Leaving it
-    // behind after a failed start means `feral status` reports a pid with no
-    // port, and the next `feral gateway stop` sends a signal to whatever the
+    // behind after a failed start means `cinderpaw status` reports a pid with no
+    // port, and the next `cinderpaw gateway stop` sends a signal to whatever the
     // OS has since given that number to — someone else's process.
     let _ = std::fs::remove_file(feral_file("gateway.pid"));
     eprintln!(
@@ -330,7 +330,7 @@ pub fn gateway_stop() -> i32 {
         return 0;
     }
     let Some(token) = read_token() else {
-        eprintln!("{FAIL}cannot stop: ~/.feral/api-token missing{RESET}");
+        eprintln!("{FAIL}cannot stop: ~/.cinderpaw/api-token missing{RESET}");
         return 1;
     };
     if let Err(e) = block_on(post(&token, "/runtime/shutdown")) {
@@ -359,7 +359,7 @@ pub fn gateway_restart() -> i32 {
         // routinely finishes seconds after `gateway_stop` stops watching, and
         // bailing here left the gateway down for good — whatever it was serving
         // (a Discord or Slack connector, most of the time) simply vanished, with
-        // the CLI reporting a restart it never performed. `feral update` rides
+        // the CLI reporting a restart it never performed. `cinderpaw update` rides
         // this path, so the failure landed exactly where nobody was watching.
         //
         // Keep waiting for the port instead. Only a port still bound after the
@@ -378,7 +378,7 @@ pub fn gateway_restart() -> i32 {
             eprintln!(
                 "{FAIL}gateway still bound to port {port} after 95s — not starting a second one.{RESET}"
             );
-            eprintln!("       inspect it with `feral status`, or kill the process and run `feral gateway start`.");
+            eprintln!("       inspect it with `cinderpaw status`, or kill the process and run `cinderpaw gateway start`.");
             return 1;
         }
     }
@@ -396,7 +396,7 @@ pub fn model_list() -> i32 {
         return 1;
     }
     let Some(token) = read_token() else {
-        eprintln!("{}~/.feral/api-token missing{}", palette().fail, RESET);
+        eprintln!("{}~/.cinderpaw/api-token missing{}", palette().fail, RESET);
         return 1;
     };
     match block_on(fetch_json(&token, "/runtime/models")) {
@@ -412,7 +412,7 @@ pub fn model_list() -> i32 {
                 println!("{META}no models on disk{RESET}");
                 return 0;
             }
-            println!("{BOLD}{TEXT}models{RESET} {DIM}{META}(~/.feral/models){RESET}");
+            println!("{BOLD}{TEXT}models{RESET} {DIM}{META}(~/.cinderpaw/models){RESET}");
             for m in models {
                 if let Some(id) = m.as_str() {
                     let is_active = Some(id) == active;
@@ -438,7 +438,7 @@ pub fn logs(follow: bool) -> i32 {
     let mut file = match std::fs::File::open(&path) {
         Ok(f) => f,
         Err(_) => {
-            eprintln!("{}no gateway.log yet — start the gateway with `feral gateway start`{}",
+            eprintln!("{}no gateway.log yet — start the gateway with `cinderpaw gateway start`{}",
                 palette().meta, palette().reset);
             return 1;
         }
@@ -505,7 +505,7 @@ pub fn connectors_list() -> i32 {
             if json() {
                 println!("{}", serde_json::json!({ "connectors": [] }));
             } else {
-                println!("{META}no connectors configured{RESET} {DIM}{META}(~/.feral/connectors.json){RESET}");
+                println!("{META}no connectors configured{RESET} {DIM}{META}(~/.cinderpaw/connectors.json){RESET}");
             }
             return 0;
         }
@@ -548,7 +548,7 @@ pub fn connectors_list() -> i32 {
     // connectors.json shape: { "connectors": [ { "id": "discord", "enabled": … } ] }.
     let rows = v.get("connectors").and_then(|c| c.as_array()).cloned().unwrap_or_default();
     if rows.is_empty() {
-        println!("{META}no connectors configured{RESET} {DIM}{META}(~/.feral/connectors.json){RESET}");
+        println!("{META}no connectors configured{RESET} {DIM}{META}(~/.cinderpaw/connectors.json){RESET}");
         return 0;
     }
     // What actually connected, published by the sidecar's connector supervisor.
@@ -608,7 +608,7 @@ pub fn connectors_reload() -> i32 {
         return 1;
     }
     let Some(token) = read_token() else {
-        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        eprintln!("{FAIL}~/.cinderpaw/api-token missing{RESET}");
         return 1;
     };
     match block_on(post(&token, "/runtime/connectors/reload")) {
@@ -623,7 +623,7 @@ pub fn connectors_reload() -> i32 {
     }
 }
 
-/// `feral connectors set <id> --secret KEY=VALUE [--enable|--disable] [--allow ID]
+/// `cinderpaw connectors set <id> --secret KEY=VALUE [--enable|--disable] [--allow ID]
 /// [--channel ID]` — configures one connector against a running gateway via
 /// `POST /runtime/connectors` (R6). Same in-process-vs-remote posture as
 /// `reload`: requires a live gateway, no local-file fallback. Never echoes a
@@ -662,11 +662,11 @@ pub fn connectors_set(
 ) -> i32 {
     let Palette { ok: OK, fail: FAIL, meta: META, reset: RESET, .. } = palette();
     if !port_in_use(api_port()) {
-        eprintln!("{META}gateway offline — start it first (`feral gateway start`){RESET}");
+        eprintln!("{META}gateway offline — start it first (`cinderpaw gateway start`){RESET}");
         return 1;
     }
     let Some(token) = read_token() else {
-        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        eprintln!("{FAIL}~/.cinderpaw/api-token missing{RESET}");
         return 1;
     };
 
@@ -682,7 +682,7 @@ pub fn connectors_set(
             Some((k, "@stdin")) | Some((k, "-")) => (k.to_string(), read_secret_from_stdin(k)),
             Some((k, v)) => {
                 eprintln!(
-                    "{META}warning: the value of {k} was passed on the command line, where                      other users on this machine can read it from the process list and where                      your shell will record it in its history. Use `--secret {k}` on its own                      next time and paste it when asked, then rotate this one.{RESET}"
+                    "{META}warning: the value of {k} was passed on the command line, where other users on this machine can read it from the process list and where your shell will record it in its history. Use `--secret {k}` on its own next time and paste it when asked, then rotate this one.{RESET}"
                 );
                 (k.to_string(), Some(v.to_string()))
             }
@@ -751,7 +751,7 @@ pub fn dreams() -> i32 {
         return 1;
     }
     let Some(token) = read_token() else {
-        eprintln!("{}~/.feral/api-token missing{}", palette().fail, RESET);
+        eprintln!("{}~/.cinderpaw/api-token missing{}", palette().fail, RESET);
         return 1;
     };
     if !json() {
@@ -815,11 +815,11 @@ pub fn meta(op: &str) -> i32 {
     let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, reset: RESET, .. } =
         palette();
     if !port_in_use(api_port()) {
-        eprintln!("{META}gateway offline — start it with `feral gateway start`{RESET}");
+        eprintln!("{META}gateway offline — start it with `cinderpaw gateway start`{RESET}");
         return 1;
     }
     let Some(token) = read_token() else {
-        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        eprintln!("{FAIL}~/.cinderpaw/api-token missing{RESET}");
         return 1;
     };
     let result = block_on(async {
@@ -906,11 +906,11 @@ pub fn governance(action: GovernanceAction) -> i32 {
     let pal = palette();
     let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, reset: RESET, .. } = pal;
     if !port_in_use(api_port()) {
-        eprintln!("{META}gateway offline — start it with `feral gateway start`{RESET}");
+        eprintln!("{META}gateway offline — start it with `cinderpaw gateway start`{RESET}");
         return 1;
     }
     let Some(token) = read_token() else {
-        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        eprintln!("{FAIL}~/.cinderpaw/api-token missing{RESET}");
         return 1;
     };
 
@@ -1000,7 +1000,7 @@ pub fn governance(action: GovernanceAction) -> i32 {
                 })
                 .unwrap_or_default();
             if pending.is_empty() {
-                eprintln!("{FAIL}no pending proposal with id '{id}' (already approved? check `feral governance proposals`){RESET}");
+                eprintln!("{FAIL}no pending proposal with id '{id}' (already approved? check `cinderpaw governance proposals`){RESET}");
                 return 1;
             }
             println!("  {ACCENT}approve proposal {id}{RESET}");
@@ -1067,19 +1067,19 @@ pub fn governance(action: GovernanceAction) -> i32 {
     }
 }
 
-/// Phase B (L4) — `feral modules …`. Same plumbing as `governance`:
-/// gateway must be up, token from `~/.feral/api-token`, one HTTP call per
+/// Phase B (L4) — `cinderpaw modules …`. Same plumbing as `governance`:
+/// gateway must be up, token from `~/.cinderpaw/api-token`, one HTTP call per
 /// op. `evaluate` waits for the paired suite to finish (minutes on local
 /// hardware) — it uses a long-timeout client + the spinner.
 pub fn modules(action: ModulesAction) -> i32 {
     let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, ok: OK, reset: RESET, .. } =
         palette();
     if !port_in_use(api_port()) {
-        eprintln!("{META}gateway offline — start it with `feral gateway start`{RESET}");
+        eprintln!("{META}gateway offline — start it with `cinderpaw gateway start`{RESET}");
         return 1;
     }
     let Some(token) = read_token() else {
-        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        eprintln!("{FAIL}~/.cinderpaw/api-token missing{RESET}");
         return 1;
     };
 
@@ -1155,7 +1155,7 @@ pub fn modules(action: ModulesAction) -> i32 {
                 let state = v.get("state").and_then(|s| s.as_str()).unwrap_or("done");
                 println!("{OK}✓ {state}{RESET}");
                 if let Some(mid) = v.get("moduleId").and_then(|m| m.as_str()) {
-                    println!("  {META}candidate:{RESET} {TEXT}{mid}{RESET}  {DIM}next: feral modules evaluate {mid}{RESET}");
+                    println!("  {META}candidate:{RESET} {TEXT}{mid}{RESET}  {DIM}next: cinderpaw modules evaluate {mid}{RESET}");
                 }
                 if let Some(rep) = v.get("report") {
                     let accept = rep.get("accept").and_then(|b| b.as_bool()).unwrap_or(false);
@@ -1178,17 +1178,17 @@ pub fn modules(action: ModulesAction) -> i32 {
     }
 }
 
-/// Faza 4 (L2 LoRA) — `feral lora …`. Same plumbing as `modules`: gateway
+/// Faza 4 (L2 LoRA) — `cinderpaw lora …`. Same plumbing as `modules`: gateway
 /// up, token, one HTTP call per op, `--json` honored.
 pub fn lora(action: LoraAction) -> i32 {
     let Palette { accent: ACCENT, text: TEXT, meta: META, dim: DIM, fail: FAIL, ok: OK, reset: RESET, .. } =
         palette();
     if !port_in_use(api_port()) {
-        eprintln!("{META}gateway offline — start it with `feral gateway start`{RESET}");
+        eprintln!("{META}gateway offline — start it with `cinderpaw gateway start`{RESET}");
         return 1;
     }
     let Some(token) = read_token() else {
-        eprintln!("{FAIL}~/.feral/api-token missing{RESET}");
+        eprintln!("{FAIL}~/.cinderpaw/api-token missing{RESET}");
         return 1;
     };
 
@@ -1237,7 +1237,7 @@ pub fn lora(action: LoraAction) -> i32 {
         }
         LoraAction::Train { domain } => {
             println!("{OK}✓ training cycle started{RESET} {META}(domain={domain}){RESET}");
-            println!("  {DIM}takes minutes to hours — follow with `feral logs -f`; the result lands in `feral lora reviews`{RESET}");
+            println!("  {DIM}takes minutes to hours — follow with `cinderpaw logs -f`; the result lands in `cinderpaw lora reviews`{RESET}");
             0
         }
         LoraAction::Reviews => {
@@ -1593,7 +1593,7 @@ pub fn doctor() -> i32 {
         return if fails == 0 { 0 } else { 1 };
     }
 
-    println!("\n  {ACCENT}{BOLD}feral{RESET} {ACCENT}▸{RESET} {TEXT}doctor{RESET}\n");
+    println!("\n  {ACCENT}{BOLD}cinderpaw{RESET} {ACCENT}▸{RESET} {TEXT}doctor{RESET}\n");
     let mut fails = 0;
     let mut warns = 0;
     for (label, c) in &checks {
@@ -1643,7 +1643,7 @@ fn check_port() -> Check {
                 } else {
                     Check::Warn(format!(
                         "gateway running on 127.0.0.1:{port} but sidecar is DOWN — \
-                         check ~/.feral/gateway.log"
+                         check ~/.cinderpaw/gateway.log"
                     ))
                 }
             }
@@ -1658,34 +1658,30 @@ fn check_port() -> Check {
 
 fn check_token() -> Check {
     match read_token() {
-        Some(t) if !t.is_empty() => Check::Ok("~/.feral/api-token present".into()),
-        _ => Check::Warn("~/.feral/api-token missing — created on first gateway boot".into()),
+        Some(t) if !t.is_empty() => Check::Ok("~/.cinderpaw/api-token present".into()),
+        _ => Check::Warn("~/.cinderpaw/api-token missing — created on first gateway boot".into()),
     }
 }
 
-/// `feral setup` — launches the Go/Bubble Tea onboarding wizard (feral-tui).
-/// Replaces the old Bun sidecar path. The Rust side handles runtime auto-start
-/// so the TUI connects immediately. The TUI binary sits next to the CLI binary;
-/// build it with `cd tui && go build -o feral-tui.exe .`.
+/// `cinderpaw setup` — launches the Go/Bubble Tea onboarding wizard
+/// (cinderpaw-tui). Replaces the old Bun sidecar path. The Rust side handles
+/// runtime auto-start so the TUI connects immediately. The TUI binary sits next
+/// to the CLI binary; build it with `cd tui && go build -o cinderpaw-tui.exe .`.
 pub fn setup() -> i32 {
-    // Auto-start the gateway if not already running (same as `feral chat`).
+    // Auto-start the gateway if not already running (same as `cinderpaw chat`).
     if let Err(code) = ensure_gateway() {
         return code;
     }
 
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let tui_bin = exe_dir.join(if cfg!(windows) { "feral-tui.exe" } else { "feral-tui" });
-
-    if !tui_bin.exists() {
+    // Same resolver `cinderpaw chat` uses — including the pre-rename name, so
+    // one of the two commands cannot find a TUI the other one launches.
+    let Some(tui_bin) = crate::chat::tui_binary_path() else {
         // CLI-only installs don't ship the Go TUI — steer to the native guided
         // flow (which needs no TUI) rather than the developer build command.
-        eprintln!("feral: the classic wizard needs the interactive TUI, which isn't in this CLI-only build.");
-        eprintln!("       run the guided setup instead:  feral setup");
+        eprintln!("cinderpaw: the classic wizard needs the interactive TUI, which isn't in this CLI-only build.");
+        eprintln!("           run the guided setup instead:  cinderpaw setup");
         return 1;
-    }
+    };
 
 	let code = match std::process::Command::new(&tui_bin)
 		.arg("--wizard")
@@ -1697,7 +1693,7 @@ pub fn setup() -> i32 {
         Ok(s) => s.code().unwrap_or(0),
         Err(e) => {
             let Palette { fail: FAIL, reset: RESET, .. } = palette();
-            eprintln!("{FAIL}feral: setup failed to start: {e}{RESET}");
+            eprintln!("{FAIL}cinderpaw: setup failed to start: {e}{RESET}");
             1
         }
     };
@@ -1709,16 +1705,16 @@ pub fn setup() -> i32 {
 fn check_models() -> Check {
     match cinderpaw_core::models::scan_models_dir() {
         Ok(m) if !m.is_empty() => Check::Ok(format!("{} model(s) on disk", m.len())),
-        Ok(_) => Check::Warn("no .gguf models in ~/.feral/models — download one or use BYOK".into()),
+        Ok(_) => Check::Warn("no .gguf models in ~/.cinderpaw/models — download one or use BYOK".into()),
         Err(e) => Check::Fail(format!("cannot read models dir: {e}")),
     }
 }
 
 /// Validate `brain.json` against the contract the sidecar's `loadBrainConfig()`
 /// enforces: `{ enabled: bool, mode: string, registry: array }`. This is the
-/// one check that would have caught the P0 where the old `feral setup` wrote
+/// one check that would have caught the P0 where the old `cinderpaw setup` wrote
 /// `{ primary, fallback, capabilities }` — a shape the runtime rejects, so
-/// `feral chat` / `FERAL_BRAIN=1` threw on first run. Doctor runs offline
+/// `cinderpaw chat` / `FERAL_BRAIN=1` threw on first run. Doctor runs offline
 /// (no sidecar), so it parses the file itself rather than asking the gateway.
 ///
 /// Absent brain.json is a WARN, not a FAIL: Brain Stack is opt-in.
@@ -1726,7 +1722,7 @@ fn check_brain() -> Check {
     let path = feral_file("brain.json");
     let raw = match std::fs::read_to_string(&path) {
         Ok(s) => s,
-        Err(_) => return Check::Warn("no brain.json — Brain Stack off (run `feral setup`)".into()),
+        Err(_) => return Check::Warn("no brain.json — Brain Stack off (run `cinderpaw setup`)".into()),
     };
     let obj = match serde_json::from_str::<serde_json::Value>(&raw) {
         Ok(serde_json::Value::Object(o)) => o,
@@ -1755,7 +1751,7 @@ fn check_brain() -> Check {
     // Name the legacy shape explicitly so the fix ("re-run setup") is obvious.
     if obj.contains_key("primary") || obj.contains_key("capabilities") {
         return Check::Fail(format!(
-            "old shape (found: {}) — expected: enabled, mode, registry. Re-run `feral setup`.",
+            "old shape (found: {}) — expected: enabled, mode, registry. Re-run `cinderpaw setup`.",
             found.join(", ")
         ));
     }
@@ -1779,7 +1775,7 @@ fn check_brain() -> Check {
 ///
 /// Gate choice: this is WARN, not FAIL, when the gateway is offline or
 /// the policy hasn't been seeded yet — first-run users without a
-/// `~/.feral/governance/policy.json` shouldn't see a red row. It becomes
+/// `~/.cinderpaw/governance/policy.json` shouldn't see a red row. It becomes
 /// FAIL when the gateway is reachable AND the policy is the builtin
 /// (G-INV-5 fail-closed is still functional but operators need to know
 /// they're on the safety default) or when the verify report says any
@@ -1805,7 +1801,7 @@ fn check_governance() -> Check {
         .unwrap_or(false);
     if source == "builtin" {
         return Check::Fail(
-            "policy is the fail-closed builtin (no user policy on disk) — propose one with `feral governance propose <file>`".into(),
+            "policy is the fail-closed builtin (no user policy on disk) — propose one with `cinderpaw governance propose <file>`".into(),
         );
     }
     if !policy_ok {
@@ -1860,7 +1856,7 @@ fn check_sidecar() -> Check {
                 Check::Ok(format!("{}", p.display()))
             } else {
                 Check::Warn(format!(
-                    "{} on disk; gateway not running — start with `feral gateway start`",
+                    "{} on disk; gateway not running — start with `cinderpaw gateway start`",
                     p.display()
                 ))
             }
@@ -1881,7 +1877,7 @@ fn check_sidecar() -> Check {
 fn check_keychain() -> Check {
     if cinderpaw_core::byok::file_fallback_used() {
         return Check::Ok(
-            "file store at ~/.feral/byok.keys (OS keychain unavailable on this host)".to_string(),
+            "file store at ~/.cinderpaw/byok.keys (OS keychain unavailable on this host)".to_string(),
         );
     }
     match cinderpaw_core::byok::keychain_probe() {
@@ -1889,7 +1885,7 @@ fn check_keychain() -> Check {
         Err(e) => {
             let kind = cinderpaw_core::byok::keychain_error_kind(&e);
             Check::Warn(format!(
-                "OS keychain unavailable ({kind}); byok will fall back to ~/.feral/byok.keys on first save"
+                "OS keychain unavailable ({kind}); byok will fall back to ~/.cinderpaw/byok.keys on first save"
             ))
         }
     }
@@ -1924,8 +1920,8 @@ fn check_connectors() -> Check {
 /// The client every CLI call uses.
 ///
 /// `reqwest::Client::new()` has NO timeout — a gateway that accepts the
-/// connection and then never answers left `feral status`, `feral doctor`,
-/// `feral connectors list` and `feral providers use` hanging with no output and
+/// connection and then never answers left `cinderpaw status`, `cinderpaw doctor`,
+/// `cinderpaw connectors list` and `cinderpaw providers use` hanging with no output and
 /// no way out but Ctrl-C. A command that returns an error in 30 seconds is a
 /// far better answer than one that never returns at all.
 ///
@@ -2036,9 +2032,9 @@ async fn post(token: &str, path: &str) -> Result<(), String> {
 }
 
 /* ------------------------------------------------------------ providers */
-// `feral providers` — the management surface for cloud providers.
+// `cinderpaw providers` — the management surface for cloud providers.
 //
-// `feral model` only ever listed local .gguf files, and `feral setup` is a
+// `cinderpaw model` only ever listed local .gguf files, and `cinderpaw setup` is a
 // wizard. On a headless box with no TTY there was no way to see which
 // providers were configured, switch between them, or add a key without
 // hand-rolling a curl against /runtime/setup/verify.
@@ -2046,7 +2042,7 @@ async fn post(token: &str, path: &str) -> Result<(), String> {
 // Reads and writes byok.json + settings.json through cinderpaw-core, so it works
 // with the gateway offline — which is exactly when you need it most.
 
-/// Actions for `feral providers`.
+/// Actions for `cinderpaw providers`.
 #[derive(Subcommand)]
 pub enum ProvidersAction {
     /// List providers, which have a key, and which one is active (default)
@@ -2086,7 +2082,7 @@ pub fn split_route(route: &str) -> (String, String) {
     }
 }
 
-/// `feral providers` — one row per provider the user has actually touched.
+/// `cinderpaw providers` — one row per provider the user has actually touched.
 pub fn providers_list() -> i32 {
     let Palette { accent: ACCENT, text: TEXT, meta: META, bold: BOLD, dim: DIM, reset: RESET, .. } =
         palette();
@@ -2118,7 +2114,7 @@ pub fn providers_list() -> i32 {
         return 0;
     }
 
-    println!("{BOLD}{TEXT}providers{RESET} {DIM}{META}(~/.feral/byok.json){RESET}");
+    println!("{BOLD}{TEXT}providers{RESET} {DIM}{META}(~/.cinderpaw/byok.json){RESET}");
     for entry in cinderpaw_core::byok::provider_catalog() {
         let cfg = byok.providers.get(&entry.id);
         let has_key = cinderpaw_core::byok::byok_get(&entry.id).is_some();
@@ -2141,21 +2137,21 @@ pub fn providers_list() -> i32 {
         );
     }
     if active.is_empty() {
-        println!("\n{META}no active route set - feral providers use <id>{RESET}");
+        println!("\n{META}no active route set - cinderpaw providers use <id>{RESET}");
     } else {
         println!("\n{META}active route: {ACCENT}{active}{RESET}");
     }
     0
 }
 
-/// `feral providers use <id>` — repoint `active_route`.
+/// `cinderpaw providers use <id>` — repoint `active_route`.
 pub fn providers_use(id: &str, model: Option<String>) -> i32 {
     let Palette { accent: ACCENT, meta: META, reset: RESET, fail: FAIL, .. } = palette();
     let mut settings = cinderpaw_core::settings::load();
     let byok = cinderpaw_core::byok::load(&settings);
 
     let Some(cfg) = byok.providers.get(id) else {
-        eprintln!("{FAIL}provider {id} is not configured - run feral providers to see what is{RESET}");
+        eprintln!("{FAIL}provider {id} is not configured - run cinderpaw providers to see what is{RESET}");
         return 1;
     };
     let Some(model) = model.or_else(|| cfg.default_model.clone()) else {
@@ -2166,7 +2162,7 @@ pub fn providers_use(id: &str, model: Option<String>) -> i32 {
     // switch "succeeds" and every completion afterwards fails with an auth
     // error that points nowhere near this command.
     if cinderpaw_core::byok::byok_get(id).is_none() {
-        eprintln!("{FAIL}provider {id} has no stored key - feral providers set-key {id} first{RESET}");
+        eprintln!("{FAIL}provider {id} has no stored key - cinderpaw providers set-key {id} first{RESET}");
         return 1;
     }
 
@@ -2176,11 +2172,11 @@ pub fn providers_use(id: &str, model: Option<String>) -> i32 {
         return 1;
     }
     println!("{ACCENT}active route -> {id}:{model}{RESET}");
-    println!("{META}restart the gateway for it to take effect: feral gateway restart{RESET}");
+    println!("{META}restart the gateway for it to take effect: cinderpaw gateway restart{RESET}");
     0
 }
 
-/// `feral providers set-key <id>` — read a key from stdin, verify it with a
+/// `cinderpaw providers set-key <id>` — read a key from stdin, verify it with a
 /// real completion, then persist.
 ///
 /// Verify-then-save is the invariant the setup wizard already holds: a key
@@ -2193,7 +2189,7 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
     let llm_entry = catalog.iter().find(|e| e.id == id);
     // A voice engine is not in the LLM catalog and correctly never will be — that
     // catalog is the list of chat backends. Without this branch,
-    // `feral providers set-key fish` reported "unknown provider" for an engine the
+    // `cinderpaw providers set-key fish` reported "unknown provider" for an engine the
     // app ships, and there was no supported way to store a TTS key from a script.
     let tts_entry = cinderpaw_core::tts::catalog().into_iter().find(|e| e.id == id && e.needs_key);
     let display_name = match (llm_entry, &tts_entry) {
@@ -2219,7 +2215,7 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
         }
     };
 
-    // stdin, never argv. Works piped (`printf %s "$KEY" | feral providers
+    // stdin, never argv. Works piped (`printf %s "$KEY" | cinderpaw providers
     // set-key nvidia`) and typed. ponytail: plain echoed read, same as the
     // wizard at guided.rs:353 - masked input needs a tty-secrets dependency
     // this crate does not carry.
@@ -2308,6 +2304,6 @@ pub fn providers_set_key(id: &str, model: Option<String>, no_verify: bool, activ
         };
         return providers_use(id, Some(model));
     }
-    println!("{META}make it the active route: feral providers use {id}{RESET}");
+    println!("{META}make it the active route: cinderpaw providers use {id}{RESET}");
     0
 }

@@ -1,4 +1,4 @@
-//! `feral migrate` — the command surface.
+//! `cinderpaw migrate` — the command surface.
 //!
 //! Prints the plan before it writes, always. The report's three sections are
 //! ordered so the honest one cannot be missed: what it will do, what it could
@@ -56,7 +56,7 @@ pub fn render_report(found: &Found, plan: &Plan) -> String {
         let hidden = plan.not_imported.len().saturating_sub(MAX_LEFTOVER_LINES);
         if hidden > 0 {
             out.push_str(&format!(
-                "  {DIM}{META}… and {hidden} more — `feral migrate --json` for the full list{RESET}\n"
+                "  {DIM}{META}… and {hidden} more — `cinderpaw migrate --json` for the full list{RESET}\n"
             ));
         }
     }
@@ -116,8 +116,8 @@ pub fn run(
 
     if found.is_empty() {
         println!("No OpenClaw or Hermes install found.");
-        println!("If you have one somewhere unusual, point at it: feral migrate --source <path>");
-        println!("Setting Cinderpaw up from scratch instead: feral setup");
+        println!("If you have one somewhere unusual, point at it: cinderpaw migrate --source <path>");
+        println!("Setting Cinderpaw up from scratch instead: cinderpaw setup");
         return 0;
     }
 

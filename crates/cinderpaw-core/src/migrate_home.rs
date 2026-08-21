@@ -10,13 +10,18 @@
 //! 1. **Never delete the source.** The old directory is left exactly as it was
 //!    and marked as migrated. If anything goes wrong afterwards, the data is
 //!    still sitting where it always was.
-//! 2. **Verify before committing to it.** The copy is counted and measured
-//!    against the source. A short copy is a failure, not a smaller install.
-//! 3. **Fail loudly, not quietly.** A partial migration is removed and the
+//! 2. **Link rather than duplicate.** Most of this directory is downloaded
+//!    models, and a rename has no business copying gigabytes. Files are hard
+//!    linked where the filesystem allows and copied where it does not — see
+//!    `link_or_copy` for why that keeps the old directory intact.
+//! 3. **Verify before committing to it.** The result is counted and measured
+//!    against the source. A short migration is a failure, not a smaller
+//!    install.
+//! 4. **Fail loudly, not quietly.** A partial migration is removed and the
 //!    caller gets an error naming what to do. Starting on half a home directory
 //!    would present itself as "all my conversations are gone".
-//! 4. **Idempotent.** Running twice is a no-op; the marker says it is done.
-//! 5. **Never follow symlinks.** A link inside the source would otherwise pull
+//! 5. **Idempotent.** Running twice is a no-op; the marker says it is done.
+//! 6. **Never follow symlinks.** A link inside the source would otherwise pull
 //!    in whatever it points at, the same lesson as the self-source bundle.
 
 use std::path::{Path, PathBuf};
@@ -42,6 +47,27 @@ pub fn maybe_migrate() -> Result<MigrationOutcome> {
     migrate_between(&home.join(".feral"), &home.join(".cinderpaw"))
 }
 
+/// Run the migration exactly once per process, before anybody is told where
+/// data lives.
+///
+/// Putting the call at the top of `build_runtime` was not enough. Roughly
+/// twenty places call `ensure_dirs()`, and a single one of them reaching disk
+/// first lays down the empty tree that the migration then trips over. That is
+/// not a hypothetical ordering problem — it is what happened on the first real
+/// boot after the rename, and the app died on a panic before showing a window.
+///
+/// So the migration hangs off `paths::feral_dir()` instead: every path in the
+/// program is built from that function, which makes "before the migration" a
+/// state no caller can be in.
+///
+/// The result is cached rather than recomputed, because the answer cannot
+/// change while the process runs and the error must be reported identically to
+/// every later caller.
+pub fn ensure_migrated() -> &'static Result<MigrationOutcome, String> {
+    static ONCE: std::sync::OnceLock<Result<MigrationOutcome, String>> = std::sync::OnceLock::new();
+    ONCE.get_or_init(|| maybe_migrate().map_err(|e| format!("{e:#}")))
+}
+
 /// The body of [`maybe_migrate`], with both paths given, so it can be tested
 /// without touching the real home directory.
 pub fn migrate_between(old: &Path, new: &Path) -> Result<MigrationOutcome> {
@@ -51,15 +77,25 @@ pub fn migrate_between(old: &Path, new: &Path) -> Result<MigrationOutcome> {
     if old.join(MIGRATION_MARKER).exists() {
         return Ok(MigrationOutcome::AlreadyMigrated);
     }
-    if new.exists() {
-        // Both present and the old one not marked done. Ambiguous, and guessing
-        // means overwriting one of them. Ask the person instead.
+    if new.exists() && !is_empty_skeleton(new) {
+        // Both present, the new one has real content, and the old one is not
+        // marked done. Ambiguous, and guessing means overwriting one of them.
+        // Ask the person instead.
         bail!(
             "both {} and {} exist, and the older one is not marked as migrated. \
              Cinderpaw will not overwrite either. Move one aside and start again.",
             old.display(),
             new.display()
         );
+    }
+
+    // A directory tree with no files in it is not data, it is the empty
+    // scaffolding that `ensure_dirs` lays down. Refusing to migrate because of
+    // it would tell somebody with months of history to "move one aside" over a
+    // handful of empty folders — a fatal error message about nothing.
+    if new.exists() {
+        std::fs::remove_dir_all(new)
+            .with_context(|| format!("clearing the empty {}", new.display()))?;
     }
 
     // Copy into a temporary sibling first: an interrupted copy then leaves a
@@ -110,6 +146,25 @@ pub fn migrate_between(old: &Path, new: &Path) -> Result<MigrationOutcome> {
     Ok(MigrationOutcome::Migrated { files: copied.0, bytes: copied.1 })
 }
 
+/// True when `dir` contains no files at all — only (possibly nested) empty
+/// directories. Symlinks count as content: something put them there.
+fn is_empty_skeleton(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false; // Cannot tell, so assume it matters.
+    };
+    for entry in entries.flatten() {
+        let Ok(ft) = entry.file_type() else { return false };
+        if ft.is_dir() {
+            if !is_empty_skeleton(&entry.path()) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
 /// Files and total bytes under `dir`, not following symlinks.
 fn measure(dir: &Path) -> Result<(u64, u64)> {
     let mut files = 0u64;
@@ -132,6 +187,36 @@ fn measure(dir: &Path) -> Result<(u64, u64)> {
     Ok((files, bytes))
 }
 
+/// Try a hard link first, fall back to copying the bytes.
+///
+/// Returns the file's size either way, so the caller's verification is the same
+/// in both cases.
+///
+/// Why link: this directory is mostly downloaded models — gigabytes of them —
+/// and a rename has no business duplicating them. On the machine this was
+/// written on that is 11 GB of copying for a name change. On a laptop with less
+/// free space than the models take, the copy version simply fails and the app
+/// does not start, which is a rename bricking an install.
+///
+/// Why it is safe: a hard link is the same file under two names, and the app
+/// only ever replaces these files through write-temp-then-rename. A rename puts
+/// a NEW file at the new path and leaves the old name pointing at the old
+/// content — so the preserved `~/.feral` keeps exactly what it had, which is the
+/// entire point of not deleting it. Nothing here writes in place.
+fn link_or_copy(from: &Path, to: &Path) -> Result<u64> {
+    let len = std::fs::metadata(from)
+        .with_context(|| format!("stat {}", from.display()))?
+        .len();
+    match std::fs::hard_link(from, to) {
+        Ok(()) => Ok(len),
+        // Different volume, a filesystem without links, a permission rule, a
+        // link count already at its maximum: copy instead. Correctness does not
+        // depend on which one happened.
+        Err(_) => std::fs::copy(from, to)
+            .with_context(|| format!("copy {} -> {}", from.display(), to.display())),
+    }
+}
+
 /// Recursive copy that skips symlinks. Returns (files, bytes) written.
 fn copy_tree(src: &Path, dst: &Path) -> Result<(u64, u64)> {
     std::fs::create_dir_all(dst).with_context(|| format!("mkdir {}", dst.display()))?;
@@ -151,11 +236,12 @@ fn copy_tree(src: &Path, dst: &Path) -> Result<(u64, u64)> {
             files += f;
             bytes += b;
         } else {
-            let n = std::fs::copy(&from, &to)
-                .with_context(|| format!("copy {} -> {}", from.display(), to.display()))?;
+            let n = link_or_copy(&from, &to)?;
             // A secret quietly becoming world-readable during a rename is
             // exactly the kind of thing nobody would notice, so the mode is
-            // re-applied explicitly rather than trusted to the copy.
+            // re-applied explicitly rather than trusted to the copy. (A hard
+            // link shares the original's mode already; this is for the fallback
+            // path, and is harmless either way.)
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt as _;
@@ -212,6 +298,31 @@ mod tests {
     }
 
     #[test]
+    fn replacing_a_migrated_file_leaves_the_original_alone() {
+        // The safety argument for hard-linking, pinned. After migration the two
+        // paths may be the same file — so the question that matters is what
+        // happens when the app writes. It writes through temp-then-rename, and a
+        // rename must leave the preserved copy holding the old content. If this
+        // ever fails, the old directory stops being a safety net.
+        let dir = tempfile::TempDir::new().unwrap();
+        let old = dir.path().join(".feral");
+        let new = dir.path().join(".cinderpaw");
+        write(&old, "settings.json", b"original");
+        migrate_between(&old, &new).unwrap();
+        assert_eq!(std::fs::read(new.join("settings.json")).unwrap(), b"original");
+
+        // Exactly what `atomic_file::write_atomic` does.
+        crate::atomic_file::write_atomic(&new.join("settings.json"), b"edited").unwrap();
+
+        assert_eq!(std::fs::read(new.join("settings.json")).unwrap(), b"edited");
+        assert_eq!(
+            std::fs::read(old.join("settings.json")).unwrap(),
+            b"original",
+            "the preserved folder must keep what it had"
+        );
+    }
+
+    #[test]
     fn running_twice_does_nothing_the_second_time() {
         let dir = tempfile::TempDir::new().unwrap();
         let old = dir.path().join(".feral");
@@ -234,6 +345,41 @@ mod tests {
         let err = migrate_between(&old, &new).unwrap_err().to_string();
         assert!(err.contains("will not overwrite"), "got: {err}");
         assert_eq!(std::fs::read(new.join("settings.json")).unwrap(), b"other");
+    }
+
+    #[test]
+    fn an_empty_new_folder_does_not_block_the_migration() {
+        // What actually happened on the first real boot: something asked where
+        // things live before the migration ran, `ensure_dirs` created the tree,
+        // and the migration then refused because the destination "existed".
+        let dir = tempfile::TempDir::new().unwrap();
+        let old = dir.path().join(".feral");
+        let new = dir.path().join(".cinderpaw");
+        write(&old, "conversations/a.json", b"months of history");
+        for sub in ["models", "agents", "rsi/meta", "voice"] {
+            std::fs::create_dir_all(new.join(sub)).unwrap();
+        }
+
+        match migrate_between(&old, &new).unwrap() {
+            MigrationOutcome::Migrated { files, .. } => assert_eq!(files, 1),
+            other => panic!("expected a migration, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(new.join("conversations/a.json")).unwrap(),
+            b"months of history"
+        );
+    }
+
+    #[test]
+    fn one_real_file_in_the_new_folder_still_blocks() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let old = dir.path().join(".feral");
+        let new = dir.path().join(".cinderpaw");
+        write(&old, "a.json", b"old");
+        write(&new, "deep/nested/thing.json", b"new");
+        let err = migrate_between(&old, &new).unwrap_err().to_string();
+        assert!(err.contains("will not overwrite"), "got: {err}");
+        assert_eq!(std::fs::read(new.join("deep/nested/thing.json")).unwrap(), b"new");
     }
 
     #[test]

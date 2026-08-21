@@ -1,8 +1,8 @@
-//! Interactive provider picker for `feral providers`.
+//! Interactive provider picker for `cinderpaw providers`.
 //!
-//! Running `feral providers` on a terminal drops into a numbered menu: pick a
+//! Running `cinderpaw providers` on a terminal drops into a numbered menu: pick a
 //! provider, paste the key, and the route is set. Piped or redirected, it falls
-//! back to the plain listing so `feral providers | grep` and every script that
+//! back to the plain listing so `cinderpaw providers | grep` and every script that
 //! already parses it keep working.
 //!
 //! HuggingFace sits in the same menu but takes a different path. It is not a
@@ -52,7 +52,7 @@ fn ask(prompt: &str) -> Option<String> {
     }
 }
 
-/// `feral providers` with no subcommand.
+/// `cinderpaw providers` with no subcommand.
 pub fn providers_pick() -> i32 {
     let Palette { accent, text, meta, bold, dim, reset, fail, .. } = palette();
 
@@ -211,7 +211,7 @@ pub fn huggingface_install() -> i32 {
     match result {
         Ok(path) => {
             eprintln!("  {ok}done{reset}  {dim}{}{reset}", path.display());
-            eprintln!("  {meta}start the gateway and it will be picked up, or choose it with `feral model use`.{reset}");
+            eprintln!("  {meta}start the gateway and it will be picked up, or choose it with `cinderpaw model use`.{reset}");
             0
         }
         Err(e) => {

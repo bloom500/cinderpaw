@@ -29,6 +29,8 @@ src-tauri/binaries/cinderpaw-agent
 scripts/*.exe
 
 # Go TUI binary (go build output)
+tui/cinderpaw-tui.exe
+tui/cinderpaw-tui
 tui/feral-tui.exe
 tui/feral-tui
 

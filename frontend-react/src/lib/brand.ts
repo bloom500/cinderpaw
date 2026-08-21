@@ -17,7 +17,6 @@ export const APP_NAME_LOWER = 'cinderpaw' as const;
 /** What a brand-new agent is called before the user names it. */
 export const AGENT_DEFAULT_NAME = APP_NAME;
 
-export const APP_DOMAIN = 'cinderpaw.ai' as const;
 
 /** One line, for the welcome screen and the about panel. */
 export const BRAND_TAGLINE = 'An AI companion that lives on your machine.';

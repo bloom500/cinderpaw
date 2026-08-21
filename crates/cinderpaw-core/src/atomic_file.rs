@@ -112,7 +112,7 @@ where
                 "The unreadable file could not be moved aside.".to_string()
             };
             eprintln!(
-                "[feral] WARNING: {} ({}) could not be parsed ({e}) — starting from                  defaults, so anything configured there is not in effect. {where_}",
+                "[cinderpaw] WARNING: {} ({}) could not be parsed ({e}) — starting from defaults, so anything configured there is not in effect. {where_}",
                 what,
                 path.display()
             );

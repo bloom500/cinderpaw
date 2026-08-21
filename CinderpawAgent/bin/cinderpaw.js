@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Feral launcher — cross-platform. npm guarantees node (not bun), so this thin
-// shim (node) locates the bundled Rust `feral` binary for the host platform and
+// Cinderpaw launcher — cross-platform. npm guarantees node (not bun), so this thin
+// shim (node) locates the bundled Rust binary for the host platform and
 // execs it; the Rust binary in turn spawns the TS sidecar sitting NEXT TO it in
-// the same package. The user only ever types `feral ...`; Rust/Bun/sidecar/
+// the same package. The user only ever types `cinderpaw ...`; Rust/Bun/sidecar/
 // gateway are internal.
 //
 // Distribution model (esbuild/swc-style): the platform binaries do NOT ship in
@@ -22,7 +22,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const ext = process.platform === "win32" ? ".exe" : "";
 
-// `feral update` is handled HERE and never reaches the Rust binary. Two reasons,
+// `cinderpaw update` is handled HERE and never reaches the Rust binary. Two reasons,
 // both fatal if we delegated: on Windows npm cannot overwrite a running .exe, and
 // a half-installed machine (platform package missing) has no Rust binary to run —
 // which is exactly when you most want to re-install. This shim is the one file in
@@ -41,16 +41,16 @@ if (process.argv[2] === "update") {
     shell: win, // npm.cmd is a batch file; Node needs a shell to exec it
   });
   if (install.error || install.status !== 0) {
-    process.stderr.write(`feral: update failed.\n${updateFailureHint(win)}`);
+    process.stderr.write(`cinderpaw: update failed.\n${updateFailureHint(win)}`);
     process.exit(install.status ?? 1);
   }
   if (!wasOnline) {
-    process.stdout.write("feral: updated. Start it with: feral gateway start\n");
+    process.stdout.write("cinderpaw: updated. Start it with: cinderpaw gateway start\n");
     process.exit(0);
   }
   // Re-run THIS file — npm has just replaced it with the new version, so the
   // restart is driven by the new shim and starts the new binary.
-  process.stdout.write("feral: updated — restarting the gateway…\n");
+  process.stdout.write("cinderpaw: updated — restarting the gateway…\n");
   const restart = spawnSync(
     process.execPath,
     [fileURLToPath(import.meta.url), "gateway", "restart"],
@@ -90,7 +90,7 @@ function updateFailureHint(win) {
       "Either install as root:\n" +
       "  sudo npm install -g cinderpaw-agent@latest\n" +
       "or point npm at a prefix you own — this also makes every future\n" +
-      "`feral update` work without sudo:\n" +
+      "`cinderpaw update` work without sudo:\n" +
       "  npm config set prefix ~/.npm-global\n" +
       "  export PATH=~/.npm-global/bin:$PATH   # add this to your shell rc\n" +
       "  npm install -g cinderpaw-agent@latest\n"
@@ -116,7 +116,7 @@ const exe = exeFor();
 
 if (!exe) {
   process.stderr.write(
-    `Feral could not find its runtime for ${process.platform}-${process.arch}.\n` +
+    `Cinderpaw could not find its runtime for ${process.platform}-${process.arch}.\n` +
       `The matching package \`@bloommedia/cinderpaw-agent-${process.platform}-${process.arch}\` may have failed to install ` +
       "(a blocked optional dependency, an unsupported platform, or " +
       "`--ignore-optional`).\n" +
@@ -142,7 +142,7 @@ const res = spawnSync(exe, process.argv.slice(2), {
 });
 
 if (res.error) {
-  process.stderr.write(`Feral failed to launch: ${res.error.message}\n`);
+  process.stderr.write(`Cinderpaw failed to launch: ${res.error.message}\n`);
   process.exit(1);
 }
 process.exit(res.status == null ? 1 : res.status);

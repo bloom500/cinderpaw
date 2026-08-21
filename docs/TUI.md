@@ -13,7 +13,7 @@ feral setup    # guided setup: detects AI you already have, verifies, saves
 feral tui      # alias for `feral chat`
 ```
 
-`feral chat` and `feral setup` shell out to the `feral-tui` binary that ships
+`cinderpaw chat` and `cinderpaw setup` shell out to the `cinderpaw-tui` binary that ships
 next to the CLI. You can also run it directly:
 
 | Flag | Effect |
@@ -97,7 +97,7 @@ off.
 
 ```bash
 cd tui
-go build -o feral-tui.exe .   # drop the .exe suffix on macOS/Linux
+go build -o cinderpaw-tui.exe .   # drop the .exe suffix on macOS/Linux
 go test ./...
 ```
 

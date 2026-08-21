@@ -52,7 +52,7 @@ whisper-rs = { version = "0.16", default-features = false, optional = true }
 # Text-to-speech on device — Piper voices through ONNX Runtime. Optional and
 # feature-gated for the same reason whisper is: it pulls a native runtime and
 # compiles espeak-ng from C, so a toolchain that cannot build it must still be
-# able to build Feral. `tts::catalog()` reports Piper unavailable when this is
+# able to build Cinderpaw. `tts::catalog()` reports Piper unavailable when this is
 # off and `from_id` refuses it, so the picker can never offer an engine that
 # this build does not contain.
 piper-rs = { version = "0.2", optional = true }
@@ -78,7 +78,7 @@ dirs = "5"
 # here uses the same algorithm but a separate chain so a tamper on one side
 # cannot mask a tamper on the other.
 sha2 = "0.10"
-# git2 (libgit2 bindings) for the RSI git substrate at ~/.feral/rsi/.git/.
+# git2 (libgit2 bindings) for the RSI git substrate at ~/.cinderpaw/rsi/.git/.
 # Vendored so we don't depend on a system libgit2 install — the spec requires
 # "fără dependență de git instalat pe sistem". The C build is heavy; only the
 # rsi module pulls it in.
@@ -106,12 +106,12 @@ tokio-tungstenite = { version = "0.30.0", default-features = false, features = [
 # File-backed fallback for the Linux-headless keychain gap: when the OS
 # Secret Service is unreachable (NoStorageAccess / PlatformFailure — common on
 # VPS images that ship without gnome-keyring/kwallet), byok_set/byok_get fall
-# back to AES-256-GCM at-rest in `~/.feral/byok.keys` (chmod 0600). Key is
+# back to AES-256-GCM at-rest in `~/.cinderpaw/byok.keys` (chmod 0600). Key is
 # derived from `/etc/machine-id` + a compile-time app secret via HKDF-SHA-256.
 # Threat model: protects against another non-root local user reading the key;
 # does NOT protect against an attacker with root or who can rewrite machine-id
 # (same level as `~/.ssh/known_hosts`). Linux-only — Windows has Credential
-# Manager, macOS has Keychain; both are reliable on every SKU Feral targets.
+# Manager, macOS has Keychain; both are reliable on every SKU Cinderpaw targets.
 # Listed LAST so the regular `[dependencies]` block above is unaffected.
 [target.'cfg(target_os = "linux")'.dependencies]
 aes-gcm = "0.10"

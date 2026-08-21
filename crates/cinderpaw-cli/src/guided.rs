@@ -1,10 +1,10 @@
-//! `feral setup` — the GUIDED flow (default), OpenClaw-parity
+//! `cinderpaw setup` — the GUIDED flow (default), OpenClaw-parity
 //! (2026-07-10 spec, Part 5). Shape: detect what this machine already has →
 //! live-test the first candidate with a REAL completion → persist only a
 //! verified route → offer chat. ~4 interactions on the happy path, zero
 //! questions about ports, models or auth modes.
 //!
-//! The classic step-by-step wizard stays behind `feral setup --classic`
+//! The classic step-by-step wizard stays behind `cinderpaw setup --classic`
 //! (the Go TUI wizard, `admin::setup`). All detection/verification logic
 //! lives server-side in cinderpaw-core (`/runtime/setup/*`) so the TUI and the
 //! desktop app consume the identical ladder.
@@ -22,14 +22,14 @@ pub fn run(accept_risk: bool) -> i32 {
         return code;
     }
     let Some(token) = read_token() else {
-        eprintln!("feral: no API token at ~/.feral/api-token — is the gateway healthy? Run `feral doctor`.");
+        eprintln!("cinderpaw: no API token at ~/.cinderpaw/api-token — is the gateway healthy? Run `cinderpaw doctor`.");
         return 1;
     };
     let Palette { accent: ACCENT, meta: META, ok: OK, fail: FAIL, warn: WARN, bold: BOLD, reset: RESET, .. } =
         palette();
 
     println!("\n  {ACCENT}{BOLD}◆ Connect your AI{RESET}");
-    println!("  {META}For the full step-by-step wizard, run `feral setup --classic`.{RESET}\n");
+    println!("  {META}For the full step-by-step wizard, run `cinderpaw setup --classic`.{RESET}\n");
 
     print!("  {META}Looking for AI you can already use…{RESET}");
     let _ = std::io::stdout().flush();
@@ -37,7 +37,7 @@ pub fn run(accept_risk: bool) -> i32 {
         Ok(v) => v,
         Err(e) => {
             println!();
-            eprintln!("{FAIL}feral: detection failed: {e}{RESET}");
+            eprintln!("{FAIL}cinderpaw: detection failed: {e}{RESET}");
             return 1;
         }
     };
@@ -133,7 +133,7 @@ pub fn run(accept_risk: bool) -> i32 {
     let Some((candidate, outcome)) = verified else {
         // Skip path — say exactly how to resume later (OpenClaw parity).
         println!("\n  {META}To add AI later: set OPENAI_API_KEY or ANTHROPIC_API_KEY, download a");
-        println!("  local model in the desktop app, or re-run `feral setup`.{RESET}");
+        println!("  local model in the desktop app, or re-run `cinderpaw setup`.{RESET}");
         return 0;
     };
 
@@ -142,20 +142,20 @@ pub fn run(accept_risk: bool) -> i32 {
     let check = outcome["message"].as_str().unwrap_or("replied");
     println!("\n  {OK}✓ {label} is ready{RESET} {META}— AI check: {check}{RESET}");
     // The interactive TUI ships only with the desktop app; CLI-only installs
-    // (npm, headless install.sh) don't have it, so don't dangle a `feral chat`
+    // (npm, headless install.sh) don't have it, so don't dangle a `cinderpaw chat`
     // that would just error out — steer those users to connectors instead.
     let has_tui = crate::chat::tui_binary_path().is_some();
     println!("\n  {BOLD}Next steps{RESET}");
     if has_tui {
-        println!("  {META}Chat here:        {RESET}feral chat");
+        println!("  {META}Chat here:        {RESET}cinderpaw chat");
     }
-    println!("  {META}Add a connector:  {RESET}feral connectors set discord --secret TOKEN=… --enable");
-    println!("  {META}Health check:     {RESET}feral doctor");
+    println!("  {META}Add a connector:  {RESET}cinderpaw connectors set discord --secret TOKEN=… --enable");
+    println!("  {META}Health check:     {RESET}cinderpaw doctor");
 
     if has_tui && confirm("\nOpen the chat now?", true) {
         crate::chat::run(); // never returns
     }
-    println!("  {META}stay feral. ↝{RESET}");
+    println!("  {META}stay wild. ↝{RESET}");
     0
 }
 

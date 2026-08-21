@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/bloom500/feral/main/scripts/install
 ```
 
 - **Linux with a display** → installs the latest desktop app (`.deb`/`.rpm`).
-- **Linux headless (VPS/server)** → builds the `feral` CLI + gateway from source (no GPU toolchain needed). Force a mode with `| bash -s -- --headless` or `--desktop`.
+- **Linux headless (VPS/server)** → builds the `cinderpaw` CLI + gateway from source (no GPU toolchain needed). Force a mode with `| bash -s -- --headless` or `--desktop`.
 - **macOS** → downloads the right `.dmg` for your chip, installs to /Applications, clears the quarantine flag.
 
 **Windows 10/11** — download the latest `.exe` from
@@ -47,7 +47,7 @@ PowerShell:
 
 ```powershell
 $a = (irm https://api.github.com/repos/bloom500/feral/releases/latest).assets | ? name -like '*x64-setup.exe' | select -First 1
-iwr $a.browser_download_url -OutFile feral-setup.exe; .\feral-setup.exe
+iwr $a.browser_download_url -OutFile cinderpaw-setup.exe; .\cinderpaw-setup.exe
 ```
 
 > SmartScreen may warn on first run (the installer isn't code-signed yet) — click **More info → Run anyway**.
@@ -61,33 +61,33 @@ Linux `.deb`/`.rpm` — is on the
 Want the terminal agent without the desktop app? One command, any OS:
 
 ```bash
-npm install -g feral-agent
-feral            # the command is `feral`; the package is `feral-agent`
+npm install -g cinderpaw-agent
+cinderpaw        # the command is `cinderpaw`; the package is `cinderpaw-agent`
 ```
 
 npm pulls only the binary for your platform (Windows, macOS Intel/Apple Silicon,
-or Linux x64). Then `feral setup` to configure, `feral chat` for the terminal
-UI, `feral gateway start` to run it as a service.
+or Linux x64). Then `cinderpaw setup` to configure, `cinderpaw chat` for the terminal
+UI, `cinderpaw gateway start` to run it as a service.
 
-`feral update` pulls the latest release and restarts the gateway, so a running
+`cinderpaw update` pulls the latest release and restarts the gateway, so a running
 connector (Discord, Slack, …) picks up the new build instead of staying on the
 old one until you notice. It knows how Cinderpaw got onto the machine — npm here,
 a `git pull` + rebuild on a from-source server — and does the right one.
 
-`feral uninstall` removes the binaries. **Your `~/.feral` stays**: settings,
+`cinderpaw uninstall` removes the binaries. **Your `~/.cinderpaw` stays**: settings,
 memory, API keys and downloaded models, so reinstalling resumes instead of
-starting over. `feral uninstall --purge` deletes that too (permanently).
+starting over. `cinderpaw uninstall --purge` deletes that too (permanently).
 
 > **Note:** the npm build is a **cloud/gateway CLI — it does not bundle the local
 > llama.cpp inference engine.** Point it at a cloud provider (BYOK via
-> `FERAL_BASE_URL` / `FERAL_API_KEY` / `FERAL_MODEL`) or at a running desktop
+> `CINDERPAW_BASE_URL` / `CINDERPAW_API_KEY` / `CINDERPAW_MODEL`) or at a running desktop
 > Cinderpaw. For **local GGUF models on your own machine, install the desktop app**
 > above — that's the build with the inference engine.
 
 <details>
 <summary><b>Headless server / CLI from source</b> (no npm, build it yourself)</summary>
 
-Build the `feral` CLI + gateway from source — no GPU or llama.cpp compile needed.
+Build the `cinderpaw` CLI + gateway from source — no GPU or llama.cpp compile needed.
 Requires [Rust](https://rustup.rs) + [Bun](https://bun.sh).
 
 ```bash
@@ -98,18 +98,18 @@ git clone --depth 1 https://github.com/bloom500/feral && cd feral
 ( cd CinderpawAgent && bun install --frozen-lockfile && bun run build )
 # --no-default-features skips the local llama.cpp engine (the CLI's default
 # `inference` feature) — on a server you point the gateway at a cloud
-# provider via FERAL_BASE_URL/FERAL_API_KEY/FERAL_MODEL instead:
-cargo build --release -p feral-cli --no-default-features
+# provider via CINDERPAW_BASE_URL/CINDERPAW_API_KEY/CINDERPAW_MODEL instead:
+cargo build --release -p cinderpaw-cli --no-default-features
 # The sidecar binary must sit NEXT TO the CLI:
 mkdir -p ~/.local/bin
-install target/release/feral-cli    ~/.local/bin/feral
-install CinderpawAgent/dist/feral-agent ~/.local/bin/feral-agent
-feral doctor && feral gateway start
+install target/release/cinderpaw-cli        ~/.local/bin/cinderpaw
+install CinderpawAgent/dist/cinderpaw-agent ~/.local/bin/cinderpaw-agent
+cinderpaw doctor && cinderpaw gateway start
 ```
 
 </details>
 
-See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd service, cloud keys via env (`FERAL_BASE_URL` / `FERAL_API_KEY` / `FERAL_MODEL`), and the HTTP API. Full install notes (hardware requirements, first-launch warnings per OS) are in [Install](#install) below.
+See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd service, cloud keys via env (`CINDERPAW_BASE_URL` / `CINDERPAW_API_KEY` / `CINDERPAW_MODEL`), and the HTTP API. Full install notes (hardware requirements, first-launch warnings per OS) are in [Install](#install) below.
 
 ---
 
@@ -148,11 +148,11 @@ See [docs/HEADLESS.md](docs/HEADLESS.md) for running the gateway as a systemd se
   backed by code review alone.
 
 - 🧬 **Sub-agents.** The agent can hand a slice of work to a fresh sub-agent (`delegate_task`), run several in parallel, and stream their progress back live. A depth guard keeps it from recursively spawning itself.
-- 🙋 **It asks before it guesses.** Hit a real fork in the road and Cinderpaw stops to ask you (`ask_user`) instead of guessing, and the question reaches you wherever you are: the desktop app, the `feral chat` TUI, or right in your Discord/Slack/WhatsApp channel.
+- 🙋 **It asks before it guesses.** Hit a real fork in the road and Cinderpaw stops to ask you (`ask_user`) instead of guessing, and the question reaches you wherever you are: the desktop app, the `cinderpaw chat` TUI, or right in your Discord/Slack/WhatsApp channel.
 - 🎓 **On-device LoRA training.** Fine-tune a personal adapter on your own hardware (Unsloth, with a graceful fallback), gated behind an A/B eval so a worse adapter never ships. Needs an NVIDIA GPU to train.
 - 📦 **One-command install.** A single command detects your OS and sets everything up on Windows, macOS, and Linux (see [Quick install](#quick-install) above).
 - 💬 **Connectors, with personas.** Talk to your agent from **WhatsApp** (QR pairing), **Discord**, and **Slack**; each connector can run its own persona (`--persona`), so the same Cinderpaw is a support bot in one channel and your personal agent in another.
-- 🤖 **Agent unleashed.** The sandbox is allow-by-default: open web access (SSRF-guarded, rate-limited, audited), filesystem access across your home directory (with a hard deny-wall on `~/.feral`, `~/.ssh`, and anything you list in `FERAL_FS_DENY`), and shell access out of the box. Every knob still exists if you want to lock it down.
+- 🤖 **Agent unleashed.** The sandbox is allow-by-default: open web access (SSRF-guarded, rate-limited, audited), filesystem access across your home directory (with a hard deny-wall on `~/.cinderpaw`, `~/.ssh`, and anything you list in `CINDERPAW_FS_DENY`), and shell access out of the box. Every knob still exists if you want to lock it down.
 - 🧠 **Memory Layers + RSI.** See everything Cinderpaw remembers, grouped by recency; Cinderpaw tunes its own parameters while you're away and keeps only what measurably works.
 - 🔑 **BYOK (Bring Your Own Key).** OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, Mistral, OpenRouter, Kimi, GLM, MiniMax, or any custom endpoint.
 
@@ -204,10 +204,10 @@ For deep research, ask the agent something like *"Research the current state of 
 
 ### Prefer the terminal?
 
-The same brain is fully drivable headless: `feral chat` opens a full-screen
-terminal chat (same sessions, memory and models as the desktop app), `feral setup`
-runs the wizard, `feral gateway start` runs everything as a background service,
-and `feral doctor` diagnoses the install. See [docs/TUI.md](docs/TUI.md) for the
+The same brain is fully drivable headless: `cinderpaw chat` opens a full-screen
+terminal chat (same sessions, memory and models as the desktop app), `cinderpaw setup`
+runs the wizard, `cinderpaw gateway start` runs everything as a background service,
+and `cinderpaw doctor` diagnoses the install. See [docs/TUI.md](docs/TUI.md) for the
 terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 
 | Dark mode | Connectors (Discord, Slack, …) | Memory Layers |
@@ -300,7 +300,7 @@ user message
     └── no tool call?       → final answer, persist to memory, done
 ```
 
-Up to 10 iterations per message (50 for complex multi-step tasks like deep research). Failed web/network tools retry with linear backoff and fall back through the `web_search → deep_research → read_webpage` chain. Token budgets are off by default — re-enable with `FERAL_BUDGET_DAY` / `FERAL_BUDGET_CONVERSATION`.
+Up to 10 iterations per message (50 for complex multi-step tasks like deep research). Failed web/network tools retry with linear backoff and fall back through the `web_search → deep_research → read_webpage` chain. Token budgets are off by default — re-enable with `CINDERPAW_BUDGET_DAY` / `CINDERPAW_BUDGET_CONVERSATION`.
 
 ### Memory layers
 
@@ -328,15 +328,15 @@ Every tool call passes through a security layer before execution:
 The philosophy is **capable by default, restrictable by choice**: the agent can browse the open web and work across your files out of the box, while hard guarantees stay call-time enforced:
 
 - **Manifest validation** — tools declare `permissions: ["fs:read" | "fs:write" | "network:outbound" | "process:spawn"]` at registration; undeclared permissions are blocked
-- **Egress proxy** — all network requests go through `ctx.fetch()` (never raw `fetch()`), which blocks SSRF (loopback / private / link-local ranges, re-checked on every redirect hop), rate-limits (30 req/60s), and audits every call. Open to all public hosts by default; set `FERAL_FETCH_DOMAINS` / `FERAL_HTTP_DOMAINS` to restrict to an allowlist.
-- **Filesystem deny wall** — file tools work across your workspace roots (launch dir + home by default, `FERAL_WORKSPACE` to restrict), but `~/.feral` (your agent's own config, memory, and keys), `~/.ssh`, and anything in `FERAL_FS_DENY` are refused at call time — always, regardless of roots. Directory traversal (`../`) is resolved before any disk access.
+- **Egress proxy** — all network requests go through `ctx.fetch()` (never raw `fetch()`), which blocks SSRF (loopback / private / link-local ranges, re-checked on every redirect hop), rate-limits (30 req/60s), and audits every call. Open to all public hosts by default; set `CINDERPAW_FETCH_DOMAINS` / `CINDERPAW_HTTP_DOMAINS` to restrict to an allowlist.
+- **Filesystem deny wall** — file tools work across your workspace roots (launch dir + home by default, `CINDERPAW_WORKSPACE` to restrict), but `~/.cinderpaw` (your agent's own config, memory, and keys), `~/.ssh`, and anything in `CINDERPAW_FS_DENY` are refused at call time — always, regardless of roots. Directory traversal (`../`) is resolved before any disk access.
 - **Audit log** — every tool call, network request, and inference call is written to SQLite
 
 ### Built-in tools
 
 | Tool | Permissions | Description |
 |---|---|---|
-| `web_search` | `network:outbound` | Ranked web results, no setup needed: keyless via DuckDuckGo, paced at one query per 5s (`FERAL_DDG_MIN_INTERVAL_MS`) to stay under its rate limit. For search with no rate limit and no pacing delay, run a [SearXNG](https://docs.searxng.org/) instance and point `FERAL_SEARXNG_URL` at it: several engines, and queries that never leave your machine. DuckDuckGo then stays as the fallback if it goes down. |
+| `web_search` | `network:outbound` | Ranked web results, no setup needed: keyless via DuckDuckGo, paced at one query per 5s (`CINDERPAW_DDG_MIN_INTERVAL_MS`) to stay under its rate limit. For search with no rate limit and no pacing delay, run a [SearXNG](https://docs.searxng.org/) instance and point `CINDERPAW_SEARXNG_URL` at it: several engines, and queries that never leave your machine. DuckDuckGo then stays as the fallback if it goes down. |
 | `read_webpage` | `network:outbound` | Extracts clean Markdown from any URL via Jina Reader (`r.jina.ai`). No API key required. |
 | `deep_research` | `network:outbound` | DeepResearch-style iterative loop: plan → search (Jina Search) → select URLs → read pages → extract findings → repeat → synthesize cited Markdown report. 4–8 iterations. |
 | `read_file` | `fs:read` | Read files from the workspace. 64 KB cap. |
@@ -344,7 +344,7 @@ The philosophy is **capable by default, restrictable by choice**: the agent can 
 | `list_directory` | `fs:read` | List directory contents. 200 entries max. |
 | `fetch_url` | `network:outbound` | Fetch any public URL (SSRF-guarded, rate-limited, audited). |
 | `http_request` | `network:outbound` | Generic HTTP client for APIs — GET/POST/PUT/DELETE with headers and JSON bodies. |
-| `shell_exec` | `process:spawn` | Run shell commands. On by default; disable with `FERAL_ENABLE_SHELL_EXEC=false`. |
+| `shell_exec` | `process:spawn` | Run shell commands. On by default; disable with `CINDERPAW_ENABLE_SHELL_EXEC=false`. |
 | `delegate_task` | — | Hand a self-contained sub-task to a fresh sub-agent (optionally several in parallel) and stream its progress back. Depth-guarded against runaway recursion. |
 | `ask_user` | — | Pause and ask you a question when the task genuinely forks — routed to wherever you are (desktop, TUI, or the connector channel) instead of guessing. |
 | `connectors_manage` | — | The agent can list and configure its own messaging connectors (tokens are write-only — it can never read them back). |
@@ -392,7 +392,7 @@ question
 [Synthesize] Final Markdown report with inline citations [1][2] + Sources section
 ```
 
-All requests go through the egress proxy (domain allowlist: `s.jina.ai`, `r.jina.ai`). Optional `FERAL_JINA_API_KEY` env var for higher rate limits.
+All requests go through the egress proxy (domain allowlist: `s.jina.ai`, `r.jina.ai`). Optional `CINDERPAW_JINA_API_KEY` env var for higher rate limits.
 
 ### Model fitness scoring (llmfit-adapted)
 
@@ -428,28 +428,28 @@ Hover the score bar on any model card to see the 4-component breakdown, memory u
 
 ## Environment variables (Agent sidecar)
 
-When launched by the desktop app, the sidecar is pointed at Feral's **own bundled llama.cpp engine** (the loopback API on port 11435, with the per-launch bearer token injected automatically) — **no Ollama required**. The `FERAL_PROVIDER` / `FERAL_BASE_URL` defaults below apply only when running the sidecar standalone.
+When launched by the desktop app, the sidecar is pointed at Feral's **own bundled llama.cpp engine** (the loopback API on port 11435, with the per-launch bearer token injected automatically) — **no Ollama required**. The `CINDERPAW_PROVIDER` / `CINDERPAW_BASE_URL` defaults below apply only when running the sidecar standalone.
 
 | Variable | Default | Description |
 |---|---|---|
-| `FERAL_DB` | `data/feral.db` | SQLite path (`:memory:` for ephemeral) |
-| `FERAL_WORKSPACE` | cwd + home | Path-list of filesystem roots. Unset = launch dir + your home dir; set it to RESTRICT |
-| `FERAL_FS_DENY` | — | Extra paths file tools may never touch (on top of the built-in `~/.feral` + `~/.ssh` deny wall) |
-| `FERAL_MODEL` | `qwen2.5:7b` | Model name (overridden to `feral-local` by the app) |
-| `FERAL_BASE_URL` | `http://127.0.0.1:11435` | Inference endpoint — Feral's bundled llama.cpp engine |
-| `FERAL_PROVIDER` | `openai_compatible` | Provider (`openai_compatible` or `ollama` for a legacy Ollama setup) |
-| `FERAL_FALLBACK_BASE_URL` | `http://localhost:11434` | Fallback endpoint if the primary is unreachable (e.g. a local Ollama) |
-| `FERAL_API_KEY` | — | Bearer token for the inference endpoint (app injects the local API token) |
-| `FERAL_ENABLE_SHELL_EXEC` | `true` | Register the `shell_exec` tool. Set `false` to disable shell access entirely. |
-| `FERAL_SHELL_WHITELIST` | `git,node,python,…` | Comma-separated binaries `shell_exec` may run |
-| `FERAL_TOOL_GRAMMAR` | `false` | Grammar-constrain tool calls on the bundled engine (lazy GBNF) |
-| `FERAL_SEARXNG_URL` | — | Origin of a [SearXNG](https://docs.searxng.org/) instance for `web_search` (e.g. `http://127.0.0.1:8888`). Unset = keyless DuckDuckGo, paced |
-| `FERAL_DDG_MIN_INTERVAL_MS` | `5000` | Minimum gap between keyless DuckDuckGo queries. Raise if you see `rate_limited`; ~3s is the floor |
-| `FERAL_JINA_API_KEY` | — | Jina API key for higher rate limits on `read_webpage` + `deep_research` |
-| `FERAL_FETCH_DOMAINS` | — | Domain allowlist for `fetch_url`. Unset = all public hosts (SSRF guard still applies); set to RESTRICT |
-| `FERAL_HTTP_DOMAINS` | — | Same as above, for the `http_request` tool |
-| `FERAL_BUDGET_CONVERSATION` | `5000000` | Per-conversation token ceiling |
-| `FERAL_BUDGET_DAY` | `50000000` | Per-day token ceiling |
+| `CINDERPAW_DB` | `data/feral.db` | SQLite path (`:memory:` for ephemeral) |
+| `CINDERPAW_WORKSPACE` | cwd + home | Path-list of filesystem roots. Unset = launch dir + your home dir; set it to RESTRICT |
+| `CINDERPAW_FS_DENY` | — | Extra paths file tools may never touch (on top of the built-in `~/.cinderpaw` + `~/.ssh` deny wall) |
+| `CINDERPAW_MODEL` | `qwen2.5:7b` | Model name (overridden to `feral-local` by the app) |
+| `CINDERPAW_BASE_URL` | `http://127.0.0.1:11435` | Inference endpoint — Feral's bundled llama.cpp engine |
+| `CINDERPAW_PROVIDER` | `openai_compatible` | Provider (`openai_compatible` or `ollama` for a legacy Ollama setup) |
+| `CINDERPAW_FALLBACK_BASE_URL` | `http://localhost:11434` | Fallback endpoint if the primary is unreachable (e.g. a local Ollama) |
+| `CINDERPAW_API_KEY` | — | Bearer token for the inference endpoint (app injects the local API token) |
+| `CINDERPAW_ENABLE_SHELL_EXEC` | `true` | Register the `shell_exec` tool. Set `false` to disable shell access entirely. |
+| `CINDERPAW_SHELL_WHITELIST` | `git,node,python,…` | Comma-separated binaries `shell_exec` may run |
+| `CINDERPAW_TOOL_GRAMMAR` | `false` | Grammar-constrain tool calls on the bundled engine (lazy GBNF) |
+| `CINDERPAW_SEARXNG_URL` | — | Origin of a [SearXNG](https://docs.searxng.org/) instance for `web_search` (e.g. `http://127.0.0.1:8888`). Unset = keyless DuckDuckGo, paced |
+| `CINDERPAW_DDG_MIN_INTERVAL_MS` | `5000` | Minimum gap between keyless DuckDuckGo queries. Raise if you see `rate_limited`; ~3s is the floor |
+| `CINDERPAW_JINA_API_KEY` | — | Jina API key for higher rate limits on `read_webpage` + `deep_research` |
+| `CINDERPAW_FETCH_DOMAINS` | — | Domain allowlist for `fetch_url`. Unset = all public hosts (SSRF guard still applies); set to RESTRICT |
+| `CINDERPAW_HTTP_DOMAINS` | — | Same as above, for the `http_request` tool |
+| `CINDERPAW_BUDGET_CONVERSATION` | `5000000` | Per-conversation token ceiling |
+| `CINDERPAW_BUDGET_DAY` | `50000000` | Per-day token ceiling |
 
 ---
 

@@ -285,14 +285,21 @@ func StartGateway(port int) (*os.Process, error) {
 	return proc, nil
 }
 
-// findGateway looks for the feral binary next to the TUI binary, in PATH,
+// findGateway looks for the host binary next to the TUI binary, in PATH,
 // and at common install locations.
+//
+// The old names are still tried: someone who installed before the rename has a
+// feral binary on disk, and a TUI that cannot find it would report "not found"
+// on a machine where it is plainly installed.
 func findGateway() (string, error) {
 	// Look next to the TUI binary first.
 	exe, err := os.Executable()
 	if err == nil {
 		dir := filepath.Dir(exe)
 		candidates := []string{
+			filepath.Join(dir, "cinderpaw.exe"),
+			filepath.Join(dir, "cinderpaw-gateway.exe"),
+			filepath.Join(dir, "cinderpaw"),
 			filepath.Join(dir, "feral.exe"),
 			filepath.Join(dir, "feral-gateway.exe"),
 			filepath.Join(dir, "feral"),
@@ -304,11 +311,12 @@ func findGateway() (string, error) {
 		}
 	}
 	// Fall back to PATH.
-	look := "feral"
-	if _, err := os.Stat(look); err == nil {
-		return look, nil
+	for _, look := range []string{"cinderpaw", "feral"} {
+		if _, err := os.Stat(look); err == nil {
+			return look, nil
+		}
 	}
-	return "", fmt.Errorf("feral binary not found — run `feral gateway start` manually")
+	return "", fmt.Errorf("cinderpaw binary not found — run `cinderpaw gateway start` manually")
 }
 
 // A gateway that accepts the connection and then never answers used to freeze

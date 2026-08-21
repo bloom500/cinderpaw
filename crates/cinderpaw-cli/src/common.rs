@@ -1,4 +1,4 @@
-//! Shared bits for the `feral` CLI: the brand palette (color-gated for
+//! Shared bits for the `cinderpaw` CLI: the brand palette (color-gated for
 //! `--no-color`) and the loopback endpoint helpers every subcommand needs.
 
 use std::sync::OnceLock;
@@ -80,7 +80,7 @@ pub fn base_url() -> String {
     format!("http://127.0.0.1:{}", api_port())
 }
 
-/// Read the per-launch bearer token the gateway persists to `~/.feral/api-token`.
+/// Read the per-launch bearer token the gateway persists to `~/.cinderpaw/api-token`.
 pub fn read_token() -> Option<String> {
     let path = cinderpaw_core::paths::feral_dir().join("api-token");
     std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())

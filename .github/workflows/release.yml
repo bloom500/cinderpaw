@@ -77,7 +77,7 @@ jobs:
             features: inference-vulkan
 
     steps:
-      - name: Checkout FeralLocalAI
+      - name: Checkout Cinderpaw
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -184,13 +184,13 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # Feral Agent is vendored in this monorepo at CinderpawAgent/ — the single
+      # Cinderpaw Agent is vendored in this monorepo at CinderpawAgent/ — the single
       # source of truth. The actual compile + copy into src-tauri/binaries/
       # happens in tauri.conf.json's beforeBuildCommand
       # (scripts/build-sidecar.mjs), which derives the correct
       # cinderpaw-agent-<target-triple> name for the host platform. We only need
       # the dependencies installed first.
-      - name: Install Feral Agent sidecar dependencies
+      - name: Install Cinderpaw Agent sidecar dependencies
         working-directory: CinderpawAgent
         run: bun install
 
@@ -253,7 +253,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Feral ${{ github.ref_name }}"
+          releaseName: "Cinderpaw ${{ github.ref_name }}"
           releaseBody: ${{ steps.changelog.outputs.NOTES }}
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -301,7 +301,7 @@ jobs:
         if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
         uses: actions/upload-artifact@v4
         with:
-          name: feral-windows-unsigned
+          name: cinderpaw-windows-unsigned
           path: signpath-in/*
 
       - name: Sign with SignPath Foundation
@@ -467,7 +467,7 @@ jobs:
           workspaces: src-tauri
           key: cuda
 
-      - name: Install Feral Agent sidecar dependencies
+      - name: Install Cinderpaw Agent sidecar dependencies
         working-directory: CinderpawAgent
         run: bun install
 

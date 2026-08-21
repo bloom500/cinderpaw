@@ -69,7 +69,7 @@ jobs:
           FERAL_E2E: "1"
           FERAL_FMS_BENCH: "1"
 
-  # The Go TUI (`feral chat`, the guided setup, the connector wizard) — 16k
+  # The Go TUI (`cinderpaw chat`, the guided setup, the connector wizard) — 16k
   # lines with its own suite, built by install.sh and bundled with the desktop
   # app, and until now compiled by nothing in CI. A break shipped silently.
   #

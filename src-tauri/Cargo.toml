@@ -1,8 +1,8 @@
 [package]
-name = "feral"
+name = "cinderpaw"
 version = "2026.8.11"
-description = "Feral — local AI desktop runtime"
-authors = ["Feral Contributors"]
+description = "Cinderpaw — local AI desktop runtime"
+authors = ["Cinderpaw Contributors"]
 license = "BUSL-1.1"
 edition = "2021"
 rust-version = "1.77.2"
@@ -19,6 +19,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
+# Native message box for the one failure that happens before a window exists
+# (the home-folder migration). Already present as tauri-plugin-dialog's own dep.
+rfd = "0.16"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 specta = "=2.0.0-rc.25"

@@ -9,7 +9,7 @@ name: Publish cinderpaw-agent to npm
 # per-platform package `cinderpaw-agent-<os>-<arch>` (with `os`/`cpu` set), and
 # publishes it. The `main` job then publishes the umbrella `cinderpaw-agent` package,
 # which lists all four as optionalDependencies — npm installs only the one that
-# matches the user's machine. See CinderpawAgent/bin/feral.js for the runtime shim.
+# matches the user's machine. See CinderpawAgent/bin/cinderpaw.js for the runtime shim.
 on:
   workflow_dispatch:
     inputs:
@@ -140,7 +140,7 @@ jobs:
             npm pack --dry-run
           fi
 
-  # Umbrella package: the `feral` bin + the optionalDependencies that point npm at
+  # Umbrella package: the `cinderpaw` bin + the optionalDependencies that point npm at
   # the per-platform packages published above. No binaries of its own.
   main:
     name: cinderpaw-agent (umbrella)

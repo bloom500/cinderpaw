@@ -23,6 +23,18 @@ pub fn feral_dir() -> PathBuf {
             return PathBuf::from(over);
         }
     }
+    // Nothing may learn where data lives until the rename has been carried out
+    // — see `migrate_home::ensure_migrated` for why this lives here and not in
+    // `build_runtime`. Runs once; every later call is a load of an already
+    // settled answer.
+    //
+    // A failed migration is fatal on purpose. Continuing would hand back a path
+    // to an empty directory sitting next to a full one, which presents itself
+    // to the person as "the update deleted everything".
+    if let Err(e) = crate::migrate_home::ensure_migrated() {
+        panic!("home directory migration failed: {e}");
+    }
+
     let base = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join(crate::brand::APP_HOME_DIR_NAME)
 }

@@ -714,9 +714,9 @@ mod tests {
     #[test]
     fn denylist_blocks_sensitive_apps_even_with_allowlist() {
         // An attacker-set allowlist must not be able to re-enable a denied app.
-        let allow = vec!["1password.exe".to_string(), "feral.exe".to_string()];
+        let allow = vec!["1password.exe".to_string(), "cinderpaw.exe".to_string()];
         assert!(security::check_app("1Password.exe", &allow).is_err());
-        assert!(security::check_app("feral.exe", &allow).is_err());
+        assert!(security::check_app("cinderpaw.exe", &allow).is_err());
         assert!(security::check_app("consent.exe", &[]).is_err());
         assert!(security::check_app("BitWarden.exe", &[]).is_err());
     }

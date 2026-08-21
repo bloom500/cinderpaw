@@ -1,18 +1,18 @@
-//! Install provenance — the one fact `feral update` and `feral uninstall` both
+//! Install provenance — the one fact `cinderpaw update` and `cinderpaw uninstall` both
 //! need and neither can guess.
 //!
 //! Cinderpaw arrives four different ways (npm, a from-source headless build, a
 //! .deb/.rpm desktop package, a macOS .app) and every one of them updates and
 //! removes differently. Assuming npm is not a harmless default: it told a
-//! from-source VPS to `npm install -g feral-agent@latest`, which would have put
-//! a SECOND, unrelated `feral` earlier on PATH and left the real one to rot.
+//! from-source VPS to `npm install -g cinderpaw-agent@latest`, which would have put
+//! a SECOND, unrelated `cinderpaw` earlier on PATH and left the real one to rot.
 //!
 //! Two rules the rest of this module exists to keep:
 //!
 //! 1. We only ever delete a layout WE created (scripts/install.sh's). npm, apt
 //!    and dnf own their files and know how to remove them; we print the command
 //!    instead of racing the package manager.
-//! 2. `~/.feral` — settings, memory, keys, models — survives an uninstall
+//! 2. `~/.cinderpaw` — settings, memory, keys, models — survives an uninstall
 //!    unless `--purge` says otherwise. Reinstalling should resume, not restart.
 
 // Palette fields destructure into SCREAMING locals so `{ACCENT}`-style
@@ -79,6 +79,11 @@ pub fn detect() -> Kind {
         .filter(|p| p.join(".git").exists());
     let script = [
         checkout.as_ref().map(|c| c.join("scripts").join("install.sh")),
+        // Both share dirs: the bundle moved to `share/cinderpaw` with the
+        // rename, and an install from before it still has `share/feral`.
+        // Missing this is not cosmetic — the install classifies as Unknown and
+        // `cinderpaw update` tells the person to update it by hand.
+        home().map(|h| h.join(".local").join("share").join("cinderpaw").join("scripts").join("install.sh")),
         home().map(|h| h.join(".local").join("share").join("feral").join("scripts").join("install.sh")),
     ]
     .into_iter()
@@ -109,12 +114,12 @@ fn home() -> Option<PathBuf> {
 pub fn update() -> i32 {
     let Palette { accent: ACCENT, meta: META, warn: WARN, dim: DIM, reset: RESET, .. } = palette();
     match detect() {
-        // The npm launcher (bin/feral.js) intercepts `update` and never reaches
+        // The npm launcher (bin/cinderpaw.js) intercepts `update` and never reaches
         // this binary: it is the file npm has to replace, and Windows will not
         // overwrite a running .exe. Getting here means direct invocation.
         Kind::Npm => {
-            eprintln!("feral: `update` is handled by the npm launcher, not this binary.");
-            eprintln!("       run:  npm install -g feral-agent@latest");
+            eprintln!("cinderpaw: `update` is handled by the npm launcher, not this binary.");
+            eprintln!("       run:  npm install -g cinderpaw-agent@latest");
             1
         }
         Kind::Dev { tree } => {
@@ -128,9 +133,9 @@ pub fn update() -> i32 {
             run_installer(&script)
         }
         _ => {
-            eprintln!("feral: this install is managed by its packaging — re-run the installer:");
+            eprintln!("cinderpaw: this install is managed by its packaging — re-run the installer:");
             if cfg!(windows) {
-                eprintln!("       see the PowerShell one-liner in the README (or: npm install -g feral-agent@latest)");
+                eprintln!("       see the PowerShell one-liner in the README (or: npm install -g cinderpaw-agent@latest)");
             } else {
                 eprintln!("       {ONE_LINER}");
             }
@@ -167,7 +172,7 @@ fn run_installer(script: &Path) -> i32 {
     }
 
     if !was_online {
-        println!("{OK}feral: updated{RESET} — start it with: feral gateway start");
+        println!("{OK}feral: updated{RESET} — start it with: cinderpaw gateway start");
         return 0;
     }
     println!("  {ACCENT}restarting the gateway{RESET}  {DIM}{META}connectors reconnect on the new build{RESET}");
@@ -178,7 +183,7 @@ fn run_installer(script: &Path) -> i32 {
             Ok(s) => s.code().unwrap_or(0),
             Err(e) => {
                 eprintln!("{FAIL}feral: updated, but the restart failed{RESET}: {e}");
-                eprintln!("       run:  feral gateway restart");
+                eprintln!("       run:  cinderpaw gateway restart");
                 1
             }
         },
@@ -207,7 +212,12 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
             // bundle and the checkout they were built from.
             if let Ok(exe) = std::env::current_exe().and_then(|p| p.canonicalize()) {
                 if let Some(dir) = exe.parent() {
-                    for sib in ["feral-agent", "feral-tui"] {
+                    // Both generations of names: an install from before the
+                    // rename has the old ones, and an uninstall that leaves
+                    // binaries behind is not an uninstall.
+                    for sib in
+                        ["cinderpaw-agent", "cinderpaw-tui", "feral-agent", "feral-tui", "feral"]
+                    {
                         let p = dir.join(sib);
                         if p.exists() {
                             targets.push(p);
@@ -216,20 +226,26 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
                 }
                 targets.push(exe);
             }
-            if let Some(share) = home().map(|h| h.join(".local").join("share").join("feral")) {
-                if share.exists() {
-                    targets.push(share);
+            for name in ["cinderpaw", "feral"] {
+                if let Some(share) = home().map(|h| h.join(".local").join("share").join(name)) {
+                    if share.exists() {
+                        targets.push(share);
+                    }
                 }
             }
             if let Some(c) = checkout {
                 targets.push(c.clone());
             }
         }
-        Kind::Npm => manual.push("npm uninstall -g feral-agent"),
+        Kind::Npm => manual.push("npm uninstall -g cinderpaw-agent"),
+        // The package was called `feral` before the rename, and this machine
+        // may still be holding that one — naming only the new package would
+        // print a command that reports "not installed" and leaves the install
+        // exactly where it was.
         Kind::SystemPackage => manual.push(if Path::new("/usr/bin/dpkg").exists() {
-            "sudo apt-get remove feral"
+            "sudo apt-get remove cinderpaw    (or `feral`, if installed before the rename)"
         } else {
-            "sudo dnf remove feral"
+            "sudo dnf remove cinderpaw        (or `feral`, if installed before the rename)"
         }),
         Kind::MacApp => manual.push("rm -rf /Applications/Cinderpaw.app"),
         Kind::Dev { tree } => {
@@ -240,18 +256,23 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
                 return 1;
             }
         }
-        Kind::Unknown => manual.push("(unrecognized layout — remove the `feral` binary by hand)"),
+        Kind::Unknown => manual.push("(unrecognized layout — remove the `cinderpaw` binary by hand)"),
     }
 
     if purge && data.exists() {
         targets.push(data.clone());
     }
+    // Both name generations are collected above, so a machine holding only one
+    // of them can list the same path twice — and the second removal would fail
+    // and be reported as an error on a file that IS gone.
+    targets.sort();
+    targets.dedup();
     if targets.is_empty() && manual.is_empty() {
         println!("{META}feral: nothing to remove{RESET}");
         return 0;
     }
 
-    println!("\n  {BOLD}{ACCENT}feral uninstall{RESET}");
+    println!("\n  {BOLD}{ACCENT}cinderpaw uninstall{RESET}");
     for t in &targets {
         println!(
             "    {FAIL}remove{RESET}        {TEXT}{}{RESET}  {DIM}{META}{}{RESET}",
@@ -396,7 +417,7 @@ mod tests {
         }
     }
 
-    /// The rule that keeps `feral uninstall` from eating a developer's work:
+    /// The rule that keeps `cinderpaw uninstall` from eating a developer's work:
     /// running from inside a checkout is `Dev`, and `Dev` deletes nothing.
     #[test]
     fn a_build_tree_is_never_an_install() {

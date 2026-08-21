@@ -9,7 +9,7 @@
 // Output: CinderpawAgent/npm/dist/cinderpaw-agent-<os>-<arch>/  (ready to `npm publish`)
 //
 // The main `cinderpaw-agent` package declares all of these as optionalDependencies;
-// see bin/feral.js for how the shim resolves the installed one at runtime.
+// see bin/cinderpaw.js for how the shim resolves the installed one at runtime.
 
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";

@@ -32,16 +32,21 @@ pub const SELF_SRC_DIR: &str = "self-src";
 ///
 /// Beyond the host-supplied dirs, two exe-relative locations are always
 /// probed so pure-CLI installs (no Tauri resource_dir) get code-RSI too:
-/// `<exe_dir>/../share/feral` — where `scripts/install.sh --headless`
-/// places the bundle (XDG layout: `~/.local/bin` + `~/.local/share/feral`)
+/// `<exe_dir>/../share/cinderpaw` — where `scripts/install.sh --headless`
+/// places the bundle (XDG layout: `~/.local/bin` + `~/.local/share/cinderpaw`)
 /// — and `<exe_dir>` itself, which also covers a CLI binary dropped next
 /// to a desktop install (resources live beside the exe on Windows).
+///
+/// `share/feral` is still probed after it: an install from before the rename
+/// has the bundle under the old name, and silently losing code-RSI on upgrade
+/// is a capability disappearing with nothing on screen to explain it.
 pub fn find_bundled_src(search_dirs: &[PathBuf]) -> Option<PathBuf> {
     if let Some(hit) = find_in_dirs(search_dirs) {
         return Some(hit);
     }
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    find_in_dirs(&[exe_dir.join("..").join("share").join("feral"), exe_dir])
+    let share = exe_dir.join("..").join("share");
+    find_in_dirs(&[share.join("cinderpaw"), share.join("feral"), exe_dir])
 }
 
 fn find_in_dirs(search_dirs: &[PathBuf]) -> Option<PathBuf> {

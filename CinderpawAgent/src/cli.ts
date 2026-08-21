@@ -8,7 +8,7 @@
  *
  * `feral setup` is a known subcommand (so the redirect is friendly), but
  * the actual wizard lives in the Rust CLI (`feral-cli`'s `admin::setup()`),
- * which execs `feral-tui.exe --wizard`. The on-board setup wizard code that
+ * which execs `cinderpaw-tui.exe --wizard`. The on-board setup wizard code that
  * used to live in this sidecar binary was removed in the 2026-07-07
  * terminal-onboarding slice — it hardcoded a cloud provider and silently
  * dropped keys, neither of which we ship.

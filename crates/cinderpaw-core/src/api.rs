@@ -1939,7 +1939,7 @@ async fn runtime_byok_save(Json(req): Json<SaveByokReq>) -> Response {
                 "byok_save_failed",
                 "Could not save the provider configuration.",
                 Some(
-                    "Try the setup again. If the problem keeps happening, run `feral doctor` to diagnose.",
+                    "Try the setup again. If the problem keeps happening, run `cinderpaw doctor` to diagnose.",
                 ),
             )
         }
@@ -2236,7 +2236,7 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
                 StatusCode::UNAUTHORIZED,
                 format!(
                     "provider '{}' has no API key in the OS keychain — \
-                     run `feral byok set {0} <key>` or paste one in Settings → Cloud Keys",
+                     run `cinderpaw byok set {0} <key>` or paste one in Settings → Cloud Keys",
                     provider_id
                 ),
             )

@@ -103,7 +103,7 @@ pub fn build_ask_user_cancel_line(
 /// At bundle time Tauri strips the target-triple suffix from externalBin
 /// entries and places the binary NEXT TO the main executable — that means
 /// `Contents/MacOS/cinderpaw-agent` inside a macOS .app, `/usr/bin/cinderpaw-agent`
-/// for Linux deb/rpm, and `cinderpaw-agent.exe` beside `feral.exe` on Windows.
+/// for Linux deb/rpm, and `cinderpaw-agent.exe` beside `cinderpaw.exe` on Windows.
 /// The triple-suffixed name only exists in dev (`src-tauri/binaries/`) and,
 /// historically, in the Windows installer.
 ///
@@ -1095,7 +1095,7 @@ async fn run_rebuild_script(repo_root: &str) -> Result<(), String> {
 /// Push the freshly rebuilt sidecar to the path the NEXT spawn will
 /// actually use. Gap found by the live smoke: the rebuild script updates
 /// `<repo>/src-tauri/binaries/`, but in dev mode `cargo tauri dev` copies
-/// the sidecar NEXT TO feral.exe (in the cargo target dir) and
+/// the sidecar NEXT TO cinderpaw.exe (in the cargo target dir) and
 /// `find_binary` prefers that copy — so without this, the supervisor
 /// keeps respawning the stale binary forever. Must run while the sidecar
 /// is dead (the destination is unlocked then).

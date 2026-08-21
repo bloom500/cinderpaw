@@ -66,21 +66,21 @@ pub fn build_runtime() -> Arc<RuntimeState> {
     // Failure here is fatal on purpose. The alternative is starting with an
     // empty home directory beside a full one, which reads to the user as "it
     // deleted everything" and invites them to make it true by reinstalling.
-    match crate::migrate_home::maybe_migrate() {
+    match crate::migrate_home::ensure_migrated() {
         Ok(crate::migrate_home::MigrationOutcome::Migrated { files, bytes }) => {
             tracing::info!(
                 files,
                 bytes,
                 "moved your data from ~/.feral to ~/.cinderpaw — the old folder was left in place"
             );
-            eprintln!(
-                "[cinderpaw] Your data moved from ~/.feral to ~/.cinderpaw                  ({files} files). Nothing was deleted: the old folder is still there,                  marked as migrated, and you can remove it whenever you like."
-            );
+            eprintln!("[cinderpaw] Your data moved from ~/.feral to ~/.cinderpaw ({files} files).");
+            eprintln!("[cinderpaw] Nothing was deleted — the old folder is still there, marked");
+            eprintln!("[cinderpaw] as migrated, and you can remove it whenever you like.");
         }
         Ok(_) => {}
         Err(e) => {
-            eprintln!("[cinderpaw] FATAL: {e:#}");
-            panic!("home directory migration failed: {e:#}");
+            eprintln!("[cinderpaw] FATAL: {e}");
+            panic!("home directory migration failed: {e}");
         }
     }
 

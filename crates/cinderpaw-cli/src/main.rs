@@ -1,13 +1,14 @@
-//! `cinderpaw-cli` — the headless Feral Runtime entry point (Faza 4.5 Slice 2).
+//! `cinderpaw-cli` — the headless Cinderpaw Runtime entry point (Faza 4.5 Slice 2).
 //!
 //! Same brain as the desktop app: `cinderpaw_core::boot` starts the model server
 //! (127.0.0.1:api_port, bearer-token gated), the supervised Bun sidecar
 //! (AgentLoop + connectors), and the RSI substrate. No webview, no Tauri.
 //!
 //! **Shipping name (D6a):** the dev binary is `cinderpaw-cli` (this package)
-//! because the desktop dev binary already claims `target/debug/feral.exe`
-//! (src-tauri package name `feral`). The user-facing name `feral` is
-//! applied at packaging time (installer alias/rename).
+//! because the desktop dev binary already claims `target/debug/cinderpaw.exe`
+//! (src-tauri package name `cinderpaw`). The user-facing name `cinderpaw` is
+//! applied at packaging time (installer alias/rename); installs from before the
+//! rename also keep a `feral` alias pointing at the same binary.
 //!
 //! **Usage:** `cinderpaw-cli gateway` runs in the foreground until Ctrl+C,
 //! then drains per spec D7 (planned shutdown, bounded wait, hard-kill
@@ -30,7 +31,7 @@ mod migrate;
 /// memory, LoRA, dreams and tools as the desktop app, reachable over a small
 /// loopback API and from this terminal.
 #[derive(Parser)]
-#[command(name = "feral", version, about, long_about = None)]
+#[command(name = "cinderpaw", version, about, long_about = None)]
 struct Cli {
     /// Machine-readable JSON output (where it applies).
     #[arg(long, global = true)]
@@ -42,7 +43,7 @@ struct Cli {
     command: Option<Command>,
 }
 
-// Declaration order = `feral --help` order (clap). Daily commands first,
+// Declaration order = `cinderpaw --help` order (clap). Daily commands first,
 // evolution/operator plumbing last, marked "(advanced)" — a first `--help`
 // should read as a product, not a research tool (audit 2026-07-10 Part 2).
 #[derive(Subcommand)]
@@ -73,7 +74,7 @@ enum Command {
     Update,
     /// Remove Cinderpaw. Settings, memory, keys and models are KEPT unless --purge
     Uninstall {
-        /// Also delete ~/.feral — settings, memory, API keys, models. Permanent.
+        /// Also delete ~/.cinderpaw — settings, memory, API keys, models. Permanent.
         #[arg(long)]
         purge: bool,
         /// Skip the confirmation prompt (for scripts)
@@ -94,7 +95,7 @@ enum Command {
         /// Skip the confirmation prompt
         #[arg(long, short = 'y')]
         yes: bool,
-        /// Replace files that already exist in ~/.feral
+        /// Replace files that already exist in ~/.cinderpaw
         #[arg(long)]
         overwrite: bool,
     },
@@ -245,7 +246,7 @@ fn main() {
 
     let code: i32 = match cli.command {
         None => {
-            // OpenClaw parity: plain `feral` in a terminal opens the chat TUI
+            // OpenClaw parity: plain `cinderpaw` in a terminal opens the chat TUI
             // (like plain `openclaw`). Piped/non-TTY keeps help + exit 2 so
             // scripts that probe the binary don't hang on an interactive app.
             if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
@@ -315,7 +316,7 @@ fn main() {
         Some(Command::Lora { action }) => admin::lora(action),
         Some(Command::Completion { shell }) => {
             let mut cmd = Cli::command();
-            clap_complete::generate(shell, &mut cmd, "feral", &mut std::io::stdout());
+            clap_complete::generate(shell, &mut cmd, "cinderpaw", &mut std::io::stdout());
             0
         }
     };
@@ -347,7 +348,7 @@ fn run_gateway() -> i32 {
             Ok(probe) => probe,
             Err(_) => {
                 eprintln!(
-                    "feral: port {port} is busy — a Cinderpaw host (desktop app or another \
+                    "cinderpaw: port {port} is busy — a Cinderpaw host (desktop app or another \
                      gateway) is already running. One brain, one process."
                 );
                 return 1;
@@ -377,10 +378,10 @@ fn run_gateway() -> i32 {
             Some(api_listener),
         )
         .await;
-        tracing::info!(port, "feral gateway up — model API + sidecar supervised");
+        tracing::info!(port, "cinderpaw gateway up — model API + sidecar supervised");
 
         // Stop on Ctrl+C (interactive) or a `POST /runtime/shutdown`
-        // (`feral gateway stop`, cross-platform — no Windows console signal
+        // (`cinderpaw gateway stop`, cross-platform — no Windows console signal
         // group needed to reach a detached child).
         tokio::select! {
             _ = tokio::signal::ctrl_c() => tracing::info!("Ctrl+C — draining (D7)"),
@@ -426,7 +427,7 @@ mod tests {
         Cli::command().debug_assert();
     }
 
-    /// OpenClaw-parity aliases: `feral onboard` = setup, `feral channels` =
+    /// OpenClaw-parity aliases: `cinderpaw onboard` = setup, `cinderpaw channels` =
     /// connectors (their naming) — muscle-memory for switchers.
     #[test]
     fn parses_onboard_alias_as_setup() {
@@ -440,13 +441,13 @@ mod tests {
         assert!(matches!(cli.command, Some(Command::Connectors { action: None })));
     }
 
-    /// Slice A5 — parse the `feral governance …` subcommands exactly the way
+    /// Slice A5 — parse the `cinderpaw governance …` subcommands exactly the way
     /// clap will see them on the command line. The variants live in
     /// `crate::admin::GovernanceAction` (mirrors `meta` CLI parsing for
     /// A6+). Each test also pins the variant discriminant so a future
     /// clap attribute change that would silently re-shape the parser
     /// fails CI.
-    /// Phase B (L4) — pin the `feral modules …` parser shape.
+    /// Phase B (L4) — pin the `cinderpaw modules …` parser shape.
     #[test]
     fn parses_modules_list() {
         let cli = Cli::try_parse_from(["feral", "modules", "list"]).unwrap();

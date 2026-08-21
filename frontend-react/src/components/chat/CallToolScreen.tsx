@@ -354,8 +354,13 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
   const lines = a.output ? a.output.split('\n').filter(Boolean).slice(-6) : [];
   // The real directory the command ran in. The last segment is what a shell
   // prompt shows, and it is what makes this a session rather than a drawing of
-  // one: `~ %` on its own is furniture, `FeralLocalAI %` is a place.
-  const folder = (a.cwd || 'D:\\FeralLocalAI').split(/[\\/]/).filter(Boolean).pop() ?? '~';
+  // one: `~ %` on its own is furniture, `my-project %` is a place.
+  //
+  // No invented fallback. This used to substitute the developer's own
+  // checkout path, so a tool call that reported no cwd showed every user a
+  // folder from a machine that is not theirs. `~` is the honest answer to
+  // "we were not told".
+  const folder = a.cwd ? (a.cwd.split(/[\\/]/).filter(Boolean).pop() ?? '~') : '~';
 
   return (
     <div className="overflow-hidden rounded-lg border border-black/60 shadow-[0_8px_24px_rgba(0,0,0,0.5)]">

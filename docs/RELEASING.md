@@ -54,7 +54,7 @@ per-platform package per OS/arch (`feral-agent-win32-x64`, `-darwin-arm64`,
 `-darwin-x64`, `-linux-x64`), each carrying just that platform's `feral-cli` +
 sidecar binaries with `os`/`cpu` set, then publishes the umbrella `feral-agent`
 that lists all four as `optionalDependencies`. `npm install -g feral-agent`
-pulls only the one matching the user's machine; `bin/feral.js` resolves it.
+pulls only the one matching the user's machine; `bin/cinderpaw.js` resolves it.
 
 Cutting an npm release:
 
