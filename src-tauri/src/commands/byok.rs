@@ -1,7 +1,6 @@
 //! BYOK (bring-your-own-key) cloud provider settings.
 
 use crate::*;
-use tauri::State;
 
 #[tauri::command]
 #[specta::specta]
@@ -22,34 +21,61 @@ pub(crate) fn provider_catalog() -> Vec<byok::ProviderCatalogEntry> {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn save_byok_provider(
-    state: State<AppState>,
     provider_id: String,
     enabled: bool,
     api_key: String,
     base_url: Option<String>,
     default_model: Option<String>,
 ) -> Result<(), String> {
+    // Route through `save_provider` (single-provider write path) instead of
+    // `load` + `save(&settings)` (all-providers rewrite path).
+    //
+    // The old code loaded ALL providers into memory (populating api_key from
+    // the keychain for every one of them), updated just the one the UI edited,
+    // then called `save(&settings)` — which iterates every provider and
+    // re-writes its keychain entry. On macOS (Cinderpaw isn't Apple-notarized
+    // yet, see README) each keychain write can prompt for the login password;
+    // if the user dismisses the prompt for ANY provider — including ones they
+    // never touched in this edit — the whole call fails with a generic
+    // keychain error. This is what the "Save Failed on OpenRouter / NVIDIA
+    // NIM" report (Darius, 2026-08-22) actually was: the user was editing one
+    // row, but the save touched the OS keychain for every previously-saved
+    // provider, and one prompt got dismissed.
+    //
+    // `save_provider` only writes THIS provider's keychain entry (when the
+    // api_key field is non-empty) and updates just its row in byok.json. The
+    // rest of the keychain is untouched — no unrelated prompts, no unrelated
+    // failures. `save_provider` reads the on-disk metadata directly, so we
+    // no longer need `State<AppState>` here (removed from the arg list; the
+    // other read/remove/test commands in this file already had no state).
+    //
     // An enabled provider needs a key. Saving one with an empty key stored a
     // configuration that looks complete in the UI and fails on the first
     // request with an authentication error from the vendor — which reads as
     // "my key is wrong" rather than "there is no key". Whitespace counts as
     // empty: a pasted key with a stray newline is the common way this happens.
+    //
+    // "Empty" means empty EVERYWHERE, not just in this request. The key field
+    // in the UI is never pre-filled with the stored secret, so someone who
+    // opens an already-configured provider to change only its model or base
+    // URL sends an empty api_key with enabled=true. Rejecting that was the
+    // "Save Failed on OpenRouter / NVIDIA NIM" report (Darius, 2026-08-22):
+    // the providers that failed were exactly the ones already set up. An
+    // empty key here means "leave the stored one alone" — `save_provider`
+    // already skips the keychain write in that case.
     let api_key = api_key.trim().to_string();
-    if enabled && api_key.is_empty() {
+    if enabled && api_key.is_empty() && byok::byok_get(&provider_id).is_none() {
         return Err(format!(
             "{provider_id} cannot be enabled without an API key — paste the key, or leave the provider off"
         ));
     }
-    let mut settings = byok::load(&state.settings);
     let config = byok::ProviderConfig {
         enabled,
         api_key,
         base_url,
         default_model,
     };
-    settings.update_provider(&provider_id, config);
-    byok::save(&settings).map_err(|e| e.to_string())?;
-
+    byok::save_provider(&provider_id, config).map_err(|e| e.to_string())?;
     Ok(())
 }
 
