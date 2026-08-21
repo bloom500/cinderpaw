@@ -56,7 +56,13 @@ describe('ByokTab', () => {
   });
 
   it('Test button calls testByokProvider and shows ✓ Connected on success', async () => {
-    mockTestByok.mockResolvedValue({ ok: true });
+    // Rust returns TestProviderResponse { success, message, models } — see
+    // `crates/feral-core/src/byok.rs::test_provider`. The prior mock used
+    // { ok: true } which never matched the real backend contract; the test
+    // still passed because the OLD component code ALSO used the wrong field
+    // names — both were wrong together, hiding the bug end-to-end. Mock the
+    // real shape now.
+    mockTestByok.mockResolvedValue({ success: true, message: 'Connection successful', models: [] });
     render(<ByokTab />);
     await userEvent.click(screen.getByText('OpenAI'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
@@ -66,13 +72,29 @@ describe('ByokTab', () => {
   });
 
   it('Test button shows error message on failure', async () => {
-    mockTestByok.mockResolvedValue({ ok: false, error: 'Invalid API key' });
+    // Same real-backend shape; failure carries `success: false` + `message`.
+    mockTestByok.mockResolvedValue({ success: false, message: 'Invalid API key', models: [] });
     render(<ByokTab />);
     await userEvent.click(screen.getByText('OpenAI'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
     await userEvent.type(keyInput, 'sk-bad');
     await userEvent.click(screen.getByRole('button', { name: /^test$/i }));
     await waitFor(() => expect(screen.getByText(/Invalid API key/)).toBeInTheDocument());
+  });
+
+  it('Save button surfaces the Rust error message verbatim on failure', async () => {
+    // Previously the component swallowed the error with a bare `catch {}`
+    // and showed a generic "Save failed" — this made the "Save Failed" bug
+    // reported on OpenRouter / NVIDIA NIM (2026-08-22) undebuggable.
+    mockSaveByok.mockRejectedValue('keychain locked');
+    render(<ByokTab />);
+    await userEvent.click(screen.getByText('OpenAI'));
+    const keyInput = await screen.findByPlaceholderText('sk-...');
+    await userEvent.type(keyInput, 'sk-key');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/Save failed: keychain locked/)).toBeInTheDocument(),
+    );
   });
 
   it('MiniMax row shows a model <select> with MiniMax-M3 preselected', async () => {

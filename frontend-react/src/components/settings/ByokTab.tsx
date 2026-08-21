@@ -71,8 +71,17 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
       await saveByokProvider(p);
       setSaveMsg('✓ Saved');
       setTimeout(() => setSaveMsg(null), 2000);
-    } catch {
-      setSaveMsg('Save failed');
+    } catch (e) {
+      // The Rust command returns Result<(), String> with the real cause
+      // (keychain locked, disk full, permission denied on ~/.feral/byok.json,
+      // etc.). Swallowing it in a bare `catch {}` and showing a generic
+      // "Save failed" left the user with no way to tell why — the reported
+      // "Save Failed" bug on OpenRouter / NVIDIA NIM (2026-08-22) turned out
+      // to be an OS keychain prompt the user didn't see because the toast
+      // hid it. Surface the message verbatim so the next report starts with
+      // the actual error, not a shrug.
+      const reason = typeof e === 'string' ? e : (e as Error)?.message ?? String(e);
+      setSaveMsg(`Save failed: ${reason}`);
     } finally {
       setSaving(false);
     }
@@ -82,14 +91,25 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
     setTesting(true);
     setTestMsg(null);
     try {
-      const result = await testByokProvider({
+      // The Rust command (see `crates/feral-core/src/byok.rs::test_provider`)
+      // returns TestProviderResponse { success, message, models }. The prior
+      // code here read `result.ok` and `result.error` — fields that don't
+      // exist — so every Test click showed "Error: Unknown error" regardless
+      // of whether the probe actually succeeded (result.ok === undefined
+      // → falsy). Read the real field names.
+      const result = (await testByokProvider({
         providerId: def.id,
         apiKey,
         baseUrl: def.hasBaseUrl ? (baseUrl || null) : null,
-      });
-      setTestMsg(result.ok ? '✓ Connected' : `Error: ${result.error ?? 'Unknown error'}`);
+      })) as { success?: boolean; message?: string; models?: string[] };
+      setTestMsg(
+        result.success
+          ? '✓ Connected'
+          : `Error: ${result.message ?? 'Unknown error'}`,
+      );
     } catch (e) {
-      setTestMsg(`Error: ${String(e)}`);
+      const reason = typeof e === 'string' ? e : (e as Error)?.message ?? String(e);
+      setTestMsg(`Error: ${reason}`);
     } finally {
       setTesting(false);
     }
