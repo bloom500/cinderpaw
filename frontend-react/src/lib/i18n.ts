@@ -168,6 +168,15 @@ const en = {
   'engine.voicePlaceholder': 'Voice',
   'engine.downloadVoice': 'Download voice (~60 MB)',
   'engine.downloading': 'Downloading the voice…',
+  // Conversation list headings. Deliberately the same words every other app
+  // uses — this is a list someone scans, not a place to be inventive.
+  'chats.group.today': 'Today',
+  'chats.group.yesterday': 'Yesterday',
+  'chats.group.last7': 'Previous 7 days',
+  'chats.group.last30': 'Previous 30 days',
+  // For conversations saved before a timestamp was recorded. Says what is
+  // true — we do not know when — rather than guessing a date for them.
+  'chats.group.undated': 'Older',
 } as const;
 
 type Strings = Record<keyof typeof en, string>;
@@ -300,6 +309,11 @@ const ro: Strings = {
   'engine.voicePlaceholder': 'Voce',
   'engine.downloadVoice': 'Descarcă vocea (~60 MB)',
   'engine.downloading': 'Se descarcă vocea…',
+  'chats.group.today': 'Azi',
+  'chats.group.yesterday': 'Ieri',
+  'chats.group.last7': 'Ultimele 7 zile',
+  'chats.group.last30': 'Ultimele 30 de zile',
+  'chats.group.undated': 'Mai vechi',
 };
 
 const DICTS = { en, ro } as const;
