@@ -3,8 +3,8 @@
 **Owner:** Darius (Bloom Media)
 **Reporter:** Darius, 2026-08-22
 **For:** Opus (implementer)
-**Consolidates:** 3 active bugs across UI, providers, and voice call — send as one handoff instead of three separate notes.
-**Status:** All three verified from screenshots / code inspection / user report on real Windows build. None fixed in this document — this is the spec.
+**Consolidates:** 3 active bugs + 1 architectural decision — send as one handoff instead of four separate notes.
+**Status:** All bugs verified from screenshots / code inspection / user report on real Windows build. None fixed in this document except BYOK — this is the spec.
 
 ---
 
@@ -12,14 +12,16 @@
 
 1. [Glassmorphism visibility on light wallpapers](#bug-1--glassmorphism-visibility)
 2. [BYOK provider "Save Failed" + Test button always errors (backend + frontend)](#bug-2--byok-providers)
-3. [Voice call latency: mic → transcript → agent → speech gap of 30-60s between phrases](#bug-3--voice-call-latency)
+3. [Voice call latency: mic → transcript → agent → speech gap of 30-60s between phrases](#bug-3--voice-call-latency-superseded-by-4)
+4. [DECISION: Replace entire voice call engine with LiveKit Agents](#bug-4--replace-voice-engine-with-livekit-agents-supersedes-3)
 
 Each bug has: **symptom**, **what I verified**, **root cause hypothesis**, **fix approach**, **estimated effort**, **testing checklist**.
 
 **Fix status:**
 - Bug 1: **NOT fixed** (needs your code — glass work lives on your local branch, not on any remote branch I can inspect)
 - Bug 2: **FIXED in agent branch** (commits `05d879b` frontend + `63ca556` backend + `f1ce830` TTFT bump) — merge these into main first, then continue with the rest
-- Bug 3: **DIAGNOSED not fixed** — needs measurement on real hardware; I only had the code to inspect
+- Bug 3: **SUPERSEDED by Bug 4** — do NOT invest more time debugging the current voice engine; it's being replaced. Diagnosis kept below for institutional memory.
+- Bug 4: **NEW STRATEGIC DECISION** (Darius, 2026-08-22) — full engine replacement, not a patch.
 
 ---
 
@@ -157,7 +159,9 @@ After merging both commits:
 
 ---
 
-## BUG 3 — Voice call latency
+## BUG 3 — Voice call latency (SUPERSEDED BY 4)
+
+> **⚠️ SUPERSEDED.** Darius decided on 2026-08-22 to replace the entire voice engine with LiveKit Agents (see Bug 4). Do not invest more time debugging or patching the current voice engine. The diagnosis below is kept for institutional memory and as a reference point for evaluating whether LiveKit fixes each of the observed symptoms.
 
 ### Symptom (from Darius, 2026-08-22 verbatim)
 
@@ -264,6 +268,136 @@ But confirm hypothesis A first before implementing.
 
 ---
 
+## BUG 4 — Replace voice engine with LiveKit Agents (SUPERSEDES 3)
+
+### Decision (from Darius, 2026-08-22 verbatim)
+
+> "vreau sa inlocuiesc tot motorul de voice call cu LiveKit Agents, este mai matur, mai robust decat ce avem noi. o sa schimb tot motorul, stiu ca deja avem ceva construit, dar decat sa peticesc ce avem mai bine iau un motor functional si deja matur si stabil"
+
+Translation + strategic framing: rather than patch a hand-rolled Gemini Live bridge that has documented latency issues (Bug 3), swap in a battle-tested framework built specifically for realtime voice AI.
+
+### Why this is the right call (not just Darius's instinct)
+
+**What LiveKit Agents actually is (verified from `docs.livekit.io/agents/` on 2026-08-22):**
+- Framework for building agents as first-class participants in WebRTC rooms
+- Python and Node.js SDKs (Cinderpaw sidecar is Bun/TypeScript — **Node SDK works directly**)
+- Provider-agnostic: OpenAI Realtime, Gemini Live, Anthropic, ElevenLabs, Cartesia, Deepgram — user's own key, we don't lock them in
+- Custom turn detection model (LiveKit's own, not vendor-provided)
+- Built-in interruption handling, streaming STT→LLM→TTS pipeline
+- Apache 2.0 license — **compatible with Cinderpaw's BSL 1.1** (BSL restricts distribution of Cinderpaw itself, Apache dependencies are fine to consume)
+- Deploy to LiveKit Cloud OR self-hosted (no forced cloud lock-in)
+- Production-ready: load balancing, k8s-compatible orchestration built in
+
+**What our current voice engine has that LiveKit does not:**
+- Bespoke integration with Cinderpaw's tool call bridge (see `crates/feral-core/src/live/bridge.rs`)
+- Tight coupling to Gemini Live specifically
+- 400+ hours of debugging work encoded as institutional comments in the code (see `useLiveCallSession.ts` docstrings — some of that context is worth preserving as design notes)
+
+**What LiveKit fixes vs Bug 3 hypotheses:**
+
+| Bug 3 Hypothesis | LiveKit handling |
+|---|---|
+| A — model blocks on tool call | LiveKit has function-calling with streaming responses + configurable "thinking" feedback |
+| B — TTFT bump interaction | LiveKit uses its own timeouts, isolated from our PerfPolicy — clean slate |
+| C — turn detection too generous | LiveKit ships a custom turn-detection MODEL, not a silence threshold — measurably better |
+| D — WebSocket/IPC congestion | WebRTC (LiveKit's transport) is the actual right protocol for realtime audio, not JSON-over-IPC + base64 |
+| E — TTS scheduling delay | LiveKit's audio pipeline is Opus-native end-to-end, no PCM-base64-encode-decode roundtrips |
+
+All five root causes of Bug 3 are either non-issues or better-handled in LiveKit. This is not a "same problem, different vendor" swap — it's a fundamentally more appropriate stack.
+
+### What the migration actually costs
+
+**IN SCOPE — must build or port:**
+
+1. **Add LiveKit Agents Node SDK to `FeralAgent`**
+   - `bun add @livekit/agents @livekit/agents-plugin-openai @livekit/agents-plugin-google @livekit/agents-plugin-cartesia` (or whichever plugin set)
+   - Estimated: 30 min
+
+2. **Rewrite `crates/feral-core/src/live/bridge.rs` OR replace with a Node process**
+   - Two options:
+     - **(A)** Keep Rust as the transport, but delegate to a Node.js LiveKit worker process (like the sidecar pattern already used for `FeralAgent`). Rust supervises + IPC's audio.
+     - **(B)** Move voice entirely into `FeralAgent` (TypeScript), have Rust just proxy the Tauri events. Simpler.
+   - **Recommend (B)** — LiveKit's Node SDK expects to own its own event loop and process lifecycle; wrapping it in Rust IPC recreates the complexity we're trying to escape.
+   - Estimated: 4-6 hours
+
+3. **Reimplement the CallOverlay UI to consume LiveKit's client events instead of `feral://liveStatusEvent`**
+   - LiveKit's browser SDK (`@livekit/client`) emits room events, track events, participant events
+   - Map: `inputTranscript` → LiveKit's `RemoteParticipant transcription`, `outputTranscript` → agent's own transcription, `turnComplete` → conversation-turn boundary, `closed` → `RoomEvent.Disconnected`
+   - Estimated: 3-4 hours
+
+4. **Port the briefing/context injection** (from `useLiveCallSession.ts::briefing()`)
+   - LiveKit agents accept a `system` prompt and can be preloaded with conversation context
+   - Estimated: 30 min
+
+5. **Wire tool calls through LiveKit's function-calling** instead of Cinderpaw's current inline tool bridge
+   - LiveKit supports OpenAI-compatible function definitions
+   - Cinderpaw already has these definitions in `FeralAgent/src/tools/`
+   - Estimated: 2 hours
+
+6. **Deployment decision:**
+   - **Option A — LiveKit Cloud:** managed, works out of the box, ~$0.01/min for realtime rooms. Fits "user brings their own inference" thesis if we let user configure their own LiveKit Cloud project. **BUT: contradicts "no server we run" positioning slightly** — LiveKit Cloud is a server, we'd be sending it audio.
+   - **Option B — Self-hosted LiveKit server** embedded in Cinderpaw desktop app (LiveKit server itself is Apache 2.0 Go binary, can bundle)
+   - **Option C — User-hosted:** user runs their own LiveKit server (VPS, Fly.io, Docker). Cinderpaw has a "LiveKit URL + API key" setting.
+   - **Recommend (B)** for solo tier — bundle a lightweight LiveKit server as a companion binary the way we already bundle `feral-agent`. Zero cloud dependency, matches "your machine, your data" positioning.
+   - Estimated for (B): 3-5 hours for bundle + spawn + healthcheck integration
+   - Estimated for (A) or (C): 30 min config exposure only
+
+**OUT OF SCOPE — deliberately drop:**
+
+- Do NOT try to preserve the 400h of institutional debugging in `useLiveCallSession.ts` docstrings verbatim. Extract the DESIGN NOTES (why we chose 128ms mic frames, why input+output transcripts are stored separately, why the mascot needs certain lifecycle events) to a `docs/voice-design-notes.md`. Discard the workaround code — LiveKit handles those cases already.
+- Do NOT keep the Gemini Live path as a fallback. Maintaining two voice engines is worse than either. Ship LiveKit, deprecate Gemini Live in same release.
+
+### Migration plan — 3 phases
+
+**Phase 1 — Spike (1 day, gated deliverable)**
+- New branch `feat/voice-livekit` from `main`
+- Bundle LiveKit server binary + get LiveKit Node SDK agent responding to a mic in a minimal test harness
+- Deliverable: 30s recorded video of a working end-to-end call using OpenAI Realtime through LiveKit, from Cinderpaw's app
+- **Gate: if this doesn't work in 1 day, escalate to Darius before continuing** — some integration issues surface only during implementation
+
+**Phase 2 — Feature parity (2-3 days)**
+- All current voice-call features: briefing context, tool calls, transcript persistence to chat store, mascot lifecycle events, interruption handling, session restart on server disconnect
+- Deliverable: same feature set as `voice-mode` branch, on LiveKit substrate
+- Gate: Darius does a 15-min real call, compares against `voice-mode` branch subjectively
+
+**Phase 3 — Deprecation (1 day)**
+- Delete `crates/feral-core/src/live/`, `src-tauri/src/commands/live.rs`, `useLiveCallSession.ts`
+- Extract design notes to `docs/voice-design-notes.md`
+- Update CHANGELOG.md, README.md (voice section), user docs
+- Deliverable: single voice engine in the codebase, clean
+
+**Total estimated: 5-7 days of focused work.**
+
+### Risks / open questions
+
+1. **BYOK compatibility.** LiveKit plugins support OpenAI Realtime, Gemini Live, but each requires the vendor's specific API key format. Cinderpaw's BYOK stores these as generic API keys. Need a mapping layer.
+2. **License clarity.** Apache 2.0 dependency in a BSL 1.1 project is fine (BSL doesn't restrict dependencies). But if we bundle the LiveKit SERVER binary, we're distributing Apache 2.0 code — must include NOTICE file per Apache terms. Trivially handled.
+3. **Binary size.** LiveKit server binary is ~30MB. Cinderpaw installer grows accordingly. Acceptable for the feature it enables.
+4. **Cold start latency.** Spawning a LiveKit server subprocess on first call might add 1-2s to the first-call flow. Mitigation: warm-start the LiveKit server on Cinderpaw boot (or lazy on first Settings → Voice view).
+5. **Windows service model.** LiveKit server on Windows — needs a Windows service wrapper or handle it as a child process the same way `feral-agent` is handled. Precedent exists in the codebase.
+6. **What happens to Fish Audio TTS integration?** (Just added on `voice-mode` branch.) LiveKit has its own TTS plugin ecosystem. Either add a `@livekit/agents-plugin-fish` (write one, upstream if useful) or drop Fish and use one of LiveKit's already-supported providers (Cartesia, ElevenLabs). Recommend: drop Fish for v1.0 LiveKit ship, revisit if Cartesia/ElevenLabs quality is worse.
+
+### What Darius owns (not you)
+
+- **Decision on deployment mode** (A/B/C above) — I recommend B, but Darius may have opinions about installer size or cloud spend
+- **Decision on TTS plugin** — Fish vs Cartesia vs ElevenLabs is a taste call
+- **Decision on when to sunset the current voice engine** — same release as LiveKit ship, or one release later as a soft deprecation?
+
+Ping Darius on these before Phase 2 finishes so they're settled by Phase 3.
+
+### What you own
+
+Everything else. Ship a working LiveKit-backed voice call in Cinderpaw, delete the old engine, move on.
+
+### Fallback plan if LiveKit doesn't work out
+
+If Phase 1 spike reveals a blocker (unlikely but possible):
+- Cost sunk: 1 day
+- Revert to Bug 3 diagnostic path (measurement + patch)
+- Restart Bug 3 from measurement step, not from scratch — the diagnosis section above is still valid
+
+---
+
 ## Priority order
 
 If time is limited:
@@ -271,7 +405,10 @@ If time is limited:
 1. **Bug 2 (BYOK)** — already fixed, just merge the 3 commits. 5 min.
 2. **Bug 1F (`.feral` → `.cinderpaw` migration)** — blocker for rebrand launch. 2-3 hours.
 3. **Bug 1A-1E (glass calibration)** — polish, users notice, but not blocker. 30-60 min.
-4. **Bug 3 (voice latency)** — requires measurement round with Darius. Schedule when you have 2 hours of contiguous focus.
+4. **Bug 4 (LiveKit migration)** — 5-7 days of focused work, biggest single lever for perceived quality of the app. Start with Phase 1 spike, gate before continuing.
+5. **~~Bug 3 (voice latency)~~** — do not work on this. Superseded by Bug 4.
+
+**Why Bug 4 is #4 in priority, not #1:** it's the largest chunk of work and depends on nothing time-critical. Ship rebrand (Bugs 1F + 2 + 1A-1E) first — that unblocks the public launch. Voice engine swap can happen in v1.0.1 or v1.1 without holding up the launch narrative.
 
 ---
 
@@ -281,10 +418,11 @@ If time is limited:
 - `63ca556` — byok: save_byok_provider re-wrote every keychain entry (backend fix)
 - `f1ce830` — perf: cloud TTFT 30s → 5min for reasoning models
 - `438ebd0` — Glass visibility handoff spec (this doc's predecessor for Bug 1 only)
-- `[this commit]` — BUGS-HANDOFF-OPUS.md consolidating all 3 bugs
+- `00118ec6` — BUGS-HANDOFF-OPUS.md initial (Bugs 1-3)
+- `[this commit]` — BUGS-HANDOFF-OPUS.md extended with Bug 4 (LiveKit migration)
 
 ---
 
 ## What Darius wants
 
-The three bugs listed here. Nothing extra scope-creeped into this doc. If you spot additional issues while working on any of these three, flag them separately — do not fold into these fixes silently.
+The four items listed here. Nothing extra scope-creeped into this doc. If you spot additional issues while working on any of these, flag them separately — do not fold into these fixes silently.
