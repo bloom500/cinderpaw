@@ -347,6 +347,525 @@ Reference: post-onboarding, prima intrare în app, empty state. Structură obser
 
 ---
 
+## SECȚIUNEA G — GLASSMORPHISM (cerere Darius 2026-08-21)
+
+**Cerere verbatim:**
+> „Cum facem TOT UI aplicației glassmorphic? Vreau să se vadă prin aplicație, să fie transparentă, ca și cum te-ai uita printr-o sticlă mată."
+
+**Reformulare:** „TOT UI" e ambiguu și periculos dacă îl luăm literal (frosted glass sub text lung = ochi obosiți, sub cod = imposibil de citit). Regula industry (Apple, Arc, Windows 11 Settings, ChatGPT desktop): **chrome = glass, content = solid**.
+
+Glass: sidebar, top bar, popovers, modals, tooltips, notifications, empty states.
+Solid: message body, code blocks, inputs în composer, forms de settings.
+
+Cu asta stabilit, planul concret:
+
+---
+
+### G1 — OS-level window transparency (Tauri config)  [P0 · S · Low]
+
+**Actualmente:** `src-tauri/tauri.conf.json:29` are `decorations: false`, dar fereastra e complet opacă. Trebuie transparent + effect nativ pe Windows/macOS.
+
+**Fix propus:**
+
+1. Instalează plugin: `cd src-tauri && cargo add tauri-plugin-window-effects`
+2. Register în `src-tauri/src/lib.rs` sau `main.rs`:
+   ```
+   .plugin(tauri_plugin_window_effects::init())
+   ```
+3. Update `tauri.conf.json` window config:
+   ```
+   "windows": [{
+     "title": "Cinderpaw",
+     "width": 1280,
+     "height": 800,
+     "minWidth": 900,
+     "minHeight": 600,
+     "resizable": true,
+     "fullscreen": false,
+     "decorations": false,
+     "transparent": true,              // NEW
+     "windowEffects": {                // NEW (via plugin)
+       "effects": ["mica", "acrylic", "vibrancy"],
+       "state": "active",
+       "radius": 12
+     }
+   }]
+   ```
+   - Windows 11 preia `mica` automat, fallback la `acrylic` pe Windows 10
+   - macOS preia `vibrancy` (NSVisualEffectView), fallback la nothing
+   - Linux ignoră toate 3 → fallback CSS-only (vezi G4)
+4. În CSS root (`globals.css`), setează body background la transparent DAR cu tint warm:
+   ```
+   body { background: rgba(14, 13, 12, 0.65); }
+   ```
+   0.65 alpha = suficient să vezi desktop-ul din spate, dar UI-ul rămâne lizibil.
+
+**Test critic:** după implementare, deschide app-ul cu wallpaper viu în spate (nu solid color) — dacă e neplăcut vizual, ajustează alpha 0.65 → 0.75-0.80.
+
+**Fișier țintă:** `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/src/lib.rs`, `frontend-react/src/styles/globals.css`
+
+**Risc:** Med pe Linux — Mutter (GNOME) nu suportă blur, transparent window arată sec (vezi desktop direct fără blur). Fallback: pe Linux detectezi environment și setezi `transparent: false` cu solid dark background.
+
+---
+
+### G2 — Design tokens „glass" în paletă  [P1 · S · Low]
+
+**Actualmente:** paleta e solid — `--bg-surface`, `--bg-elevated`, etc. Componente adăugă manual `bg-bg-surface/85 backdrop-blur` — inconsistent (unele au /85, altele /80, altele /90).
+
+**Fix propus:** adaugă 3 tokens noi în `globals.css`:
+
+```
+:root[data-theme="dark"] {
+  /* Existing solid tokens stay */
+
+  /* NEW glass tokens */
+  --glass-surface: rgba(28, 25, 23, 0.55);
+  --glass-elevated: rgba(38, 33, 30, 0.65);
+  --glass-overlay: rgba(20, 18, 16, 0.75);
+  --glass-blur: 24px;
+  --glass-saturate: 180%;
+}
+:root[data-theme="light"] {
+  --glass-surface: rgba(250, 248, 245, 0.60);
+  --glass-elevated: rgba(255, 253, 250, 0.70);
+  --glass-overlay: rgba(240, 235, 230, 0.75);
+  --glass-blur: 20px;
+  --glass-saturate: 160%;
+}
+```
+
+Tailwind config `tailwind.config.js` — expose ca utility:
+```
+theme: {
+  extend: {
+    backgroundColor: {
+      'glass-surface': 'var(--glass-surface)',
+      'glass-elevated': 'var(--glass-elevated)',
+      'glass-overlay': 'var(--glass-overlay)',
+    },
+    backdropBlur: {
+      'glass': 'var(--glass-blur)',
+    },
+    backdropSaturate: {
+      'glass': 'var(--glass-saturate)',
+    },
+  }
+}
+```
+
+**Rezultat:** oriunde vrei glass, scrii `bg-glass-surface backdrop-blur-glass backdrop-saturate-glass` — consistent, tokenized, dark/light aware.
+
+**Fișier țintă:** `frontend-react/src/styles/globals.css`, `frontend-react/tailwind.config.js`
+
+---
+
+### G3 — Componente care devin glass (checklist explicit)  [P1 · M · Low]
+
+**Devin glass (înlocuiesc `bg-bg-surface` cu `bg-glass-*`):**
+
+| Component | Fișier | Token target |
+|---|---|---|
+| Sidebar | `components/layout/Sidebar.tsx:232` (deja are `/90 backdrop-blur` — normalize) | `glass-surface` + `backdrop-blur-glass` |
+| Top bar / TitleBar | `components/layout/TitleBar.tsx` (dacă există) sau `AppShell.tsx` | `glass-surface` |
+| Composer | `components/chat/ChatInput.tsx` | `glass-elevated` (mai opac, e primary interaction) |
+| ModelPickerPopover | `components/chat/ModelPickerPopover.tsx` | `glass-elevated` |
+| ControlsPopover | `components/chat/ControlsPopover.tsx` | `glass-elevated` |
+| SearchOverlay | `components/chat/SearchOverlay.tsx:134` (deja glass) | normalize la `glass-overlay` |
+| Toasts | `components/Toasts.tsx:43` (deja glass) | normalize la `glass-elevated` |
+| UpdateToast | `components/UpdateToast.tsx:36` (deja glass) | normalize la `glass-elevated` |
+| SkillHubDrawer | `components/SkillHubDrawer.tsx` | `glass-surface` |
+| Dialog / Modal | `components/ui/dialog.tsx` | `glass-overlay` pentru backdrop, `glass-elevated` pentru content |
+| Popover primitive | `components/ui/popover.tsx` | `glass-elevated` |
+| Dropdown menu | `components/ui/dropdown-menu.tsx` | `glass-elevated` |
+| Tooltip | `components/ui/tooltip.tsx` | `glass-elevated` |
+| Onboarding wizard backdrop | `components/onboarding/OnboardingWizard.tsx:57` | `glass-overlay` |
+| Empty state „Good evening" | `pages/ChatPage.tsx` | fundal transparent, doar text |
+
+**Rămân solid (NU aplic glass):**
+
+| Component | De ce |
+|---|---|
+| Message bubbles content | Lectură lungă → glass = eye strain în 15 min |
+| Code blocks `<pre>` | Cod pe glass = imposibil de citit, contrast rupt |
+| Composer TEXTAREA input (nu wrapper) | User trebuie să vadă clar unde tastează |
+| Settings form inputs | Precision entry, glass distracts |
+| Table rows (Models page) | Long-form data, glass complicates scanning |
+| Documentation / Markdown render | Long-form text |
+| Terminal outputs / logs | Monospace + high contrast requirement |
+| Splash screen (deja negru solid) | Boot moment, glass n-ar avea sub ce să blur-eze |
+
+**Regulă generală care rămâne cu tine forever:** dacă content-ul cere lectură > 30s continuous, e SOLID. Dacă e chrome-ul care doar afișează controluri sau surface temporar, e GLASS.
+
+**Fișier țintă:** ~15 componente listate mai sus. Effort M pentru că e find-and-replace mecanic + verificare vizuală per componentă.
+
+---
+
+### G4 — Fallback pentru Linux (Mutter fără blur)  [P1 · M · Med]
+
+**Problema:** GNOME (Mutter compositor, cel mai comun pe Ubuntu default) NU suportă blur behind transparent windows. Dacă lași `transparent: true` pe GNOME, user-ul vede desktop direct, brut, fără blur — arată brutal urât.
+
+**Fix propus (2 straturi):**
+
+1. **Runtime detection în Rust:**
+   ```rust
+   // src-tauri/src/lib.rs - la window creation
+   #[cfg(target_os = "linux")]
+   {
+     let is_mutter = std::env::var("XDG_CURRENT_DESKTOP")
+       .map(|d| d.to_lowercase().contains("gnome") || d.to_lowercase().contains("unity"))
+       .unwrap_or(false);
+     if is_mutter {
+       // Disable transparency, use solid bg
+       window.set_effects(WindowEffectsConfig::default())?;
+       // Emit event to frontend
+       window.emit("cinderpaw://compositor-nblur", ())?;
+     }
+   }
+   ```
+
+2. **Frontend listens și dezactivează glass tokens:**
+   ```typescript
+   // App.tsx sau un hook nou
+   useEffect(() => {
+     const unlisten = listen('cinderpaw://compositor-nblur', () => {
+       document.documentElement.dataset.glass = 'off';
+     });
+     return () => { unlisten.then(fn => fn()); };
+   }, []);
+   ```
+
+3. **CSS override:**
+   ```
+   :root[data-glass="off"] {
+     --glass-surface: var(--bg-surface);
+     --glass-elevated: var(--bg-elevated);
+     --glass-overlay: var(--bg-overlay);
+     --glass-blur: 0px;
+     --glass-saturate: 100%;
+   }
+   ```
+
+Rezultat: pe GNOME/Mutter, app-ul cade elegant la solid mode, arată identic cu ce e azi. Pe KDE/KWin (suportă blur nativ) și Sway/wlroots (suportă blur via extensii), rămâne glass.
+
+**Fișier țintă:** `src-tauri/src/lib.rs`, `frontend-react/src/App.tsx`, `frontend-react/src/styles/globals.css`
+
+**Risc:** Med — detection GNOME e euristică (var env poate lipsi în some setups). Test pe cel puțin Ubuntu 24.04 GNOME + Fedora KDE + Arch Sway înainte de release.
+
+---
+
+### G5 — Performance guard  [P1 · S · Low]
+
+**Problema:** `backdrop-filter: blur(24px)` e GPU-heavy. Pe hardware low-end (Intel HD Graphics din laptopurile 2019-, ARM SBC-uri), frame rate cade la 20-30fps când multe panele glass sunt active.
+
+**Fix propus:**
+
+1. Detectează prin `navigator.hardwareConcurrency` + heuristic pe GPU tier
+2. Sau: adaugă în Settings toggle „Enable glass effects (may reduce performance)"
+3. Sau: `@media (prefers-reduced-transparency: reduce)` → colapse la solid
+4. Sau — cel mai simplu — folosește tokens: dacă `--glass-blur: 0px`, glass devine solid, zero GPU cost
+
+Recomandare: pattern G4 (data attribute pe html root) + un setting simplu „Reduce transparency" în Settings → Appearance care setează `data-glass="off"`. User poate opta out. Default = on.
+
+**Fișier țintă:** `frontend-react/src/components/settings/AppearanceTab.tsx`, `stores/ui.ts` (adaugă `reducedTransparency: boolean`)
+
+---
+
+### G6 — Splash screen — glass sau nu?  [P2 · S · Low]
+
+Splash screen (Secțiunea A) e primul frame vizual. Întrebare de design: glass sau solid?
+
+**Decizia mea:** SOLID.
+
+**De ce:** splash arată înainte ca window-ul principal să fie ready. Dacă transparent + blur, user vede desktop-ul cu wordmark „CINDERPAW" plutind — arată ca un notification, nu ca un boot moment.
+
+Splash rămâne `#0e0d0c` solid + spotlight sweep. Restul app-ului devine glass după ce splash-ul dispare.
+
+---
+
+### G7 — Referință vizuală pentru „cum arată bine"
+
+Studii Opus înainte de implementare:
+
+- **Arc Browser (macOS/Windows)** — sidebar glass, content area solid. Model perfect pentru Cinderpaw.
+- **Windows 11 Settings** — Mica effect pe fundal, panouri de setări cu vibrancy discret. Foarte subtle glass.
+- **ChatGPT Desktop (macOS)** — sidebar cu vibrancy, chat area solid dark. Fix pattern-ul recomandat.
+- **Raycast (macOS)** — command palette full glass, extensions cu content solid. Similar cu SearchOverlay-ul nostru.
+- **Warp Terminal** — panel management glass, terminal output solid. Aceeași filosofie.
+
+**Anti-exemple (ce NU face):**
+- **Vista era 2007** — glass peste TOT, inclusiv document content. Ochi obosiți, retras.
+- **Instagram stories** — glass peste text lung. Illegible.
+
+---
+
+### G8 — Order de implementare (pentru Opus)
+
+**Sprint 1 (2-3h):**
+- G1: window transparency + Tauri plugin
+- G2: design tokens glass
+
+**Sprint 2 (3-4h):**
+- G3: aplicare pe cele ~15 componente listate
+- Verificare vizuală per componentă cu wallpaper viu în spate
+
+**Sprint 3 (2h):**
+- G4: Linux GNOME fallback
+- G5: setting „Reduce transparency"
+- Testing pe Windows 11, macOS Sonoma+, Ubuntu GNOME, Fedora KDE
+
+**Total: ~7-9h de lucru concentrat. Realistic 1 zi.**
+
+---
+
+## SECȚIUNEA G — GLASSMORPHISM (cerere Darius 2026-08-21)
+
+**Cerere verbatim:**
+> „Cum facem TOT UI aplicației glassmorphic? Vreau să se vadă prin aplicație, să fie transparentă, ca și cum te-ai uita printr-o sticlă mată."
+
+**Reformulare:** „TOT UI" e ambiguu și periculos dacă îl luăm literal (frosted glass sub text lung = ochi obosiți, sub cod = imposibil de citit). Regula industry (Apple, Arc, Windows 11 Settings, ChatGPT desktop): **chrome = glass, content = solid**.
+
+Glass: sidebar, top bar, popovers, modals, tooltips, notifications, empty states.
+Solid: message body, code blocks, inputs în composer, forms de settings.
+
+Cu asta stabilit, planul concret:
+
+---
+
+### G1 — OS-level window transparency (Tauri config)  [P0 · S · Low]
+
+**Actualmente:** `src-tauri/tauri.conf.json:29` are `decorations: false`, dar fereastra e complet opacă. Trebuie transparent + effect nativ pe Windows/macOS.
+
+**Fix propus:**
+
+1. Instalează plugin: `cd src-tauri && cargo add tauri-plugin-window-effects`
+2. Register în `src-tauri/src/lib.rs` sau `main.rs`:
+   ```
+   .plugin(tauri_plugin_window_effects::init())
+   ```
+3. Update `tauri.conf.json` window config:
+   ```
+   "windows": [{
+     "title": "Cinderpaw",
+     "width": 1280,
+     "height": 800,
+     "minWidth": 900,
+     "minHeight": 600,
+     "resizable": true,
+     "fullscreen": false,
+     "decorations": false,
+     "transparent": true,
+     "windowEffects": {
+       "effects": ["mica", "acrylic", "vibrancy"],
+       "state": "active",
+       "radius": 12
+     }
+   }]
+   ```
+   - Windows 11 preia `mica` automat, fallback la `acrylic` pe Windows 10
+   - macOS preia `vibrancy` (NSVisualEffectView), fallback la nothing
+   - Linux ignoră toate 3 → fallback CSS-only (vezi G4)
+4. În CSS root (`globals.css`), setează body background la transparent DAR cu tint warm:
+   ```
+   body { background: rgba(14, 13, 12, 0.65); }
+   ```
+   0.65 alpha = suficient să vezi desktop-ul din spate, dar UI-ul rămâne lizibil.
+
+**Test critic:** după implementare, deschide app-ul cu wallpaper viu în spate (nu solid color) — dacă e neplăcut vizual, ajustează alpha 0.65 → 0.75-0.80.
+
+**Fișier țintă:** `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/src/lib.rs`, `frontend-react/src/styles/globals.css`
+
+**Risc:** Med pe Linux — Mutter (GNOME) nu suportă blur, transparent window arată sec (vezi desktop direct fără blur). Fallback: pe Linux detectezi environment și setezi `transparent: false` cu solid dark background.
+
+---
+
+### G2 — Design tokens „glass" în paletă  [P1 · S · Low]
+
+**Actualmente:** paleta e solid — `--bg-surface`, `--bg-elevated`, etc. Componente adăugă manual `bg-bg-surface/85 backdrop-blur` — inconsistent (unele au /85, altele /80, altele /90).
+
+**Fix propus:** adaugă 3 tokens noi în `globals.css`:
+
+```
+:root[data-theme="dark"] {
+  /* Existing solid tokens stay */
+
+  /* NEW glass tokens */
+  --glass-surface: rgba(28, 25, 23, 0.55);
+  --glass-elevated: rgba(38, 33, 30, 0.65);
+  --glass-overlay: rgba(20, 18, 16, 0.75);
+  --glass-blur: 24px;
+  --glass-saturate: 180%;
+}
+:root[data-theme="light"] {
+  --glass-surface: rgba(250, 248, 245, 0.60);
+  --glass-elevated: rgba(255, 253, 250, 0.70);
+  --glass-overlay: rgba(240, 235, 230, 0.75);
+  --glass-blur: 20px;
+  --glass-saturate: 160%;
+}
+```
+
+Tailwind config `tailwind.config.js` — expose ca utility:
+```
+theme: {
+  extend: {
+    backgroundColor: {
+      'glass-surface': 'var(--glass-surface)',
+      'glass-elevated': 'var(--glass-elevated)',
+      'glass-overlay': 'var(--glass-overlay)',
+    },
+    backdropBlur: {
+      'glass': 'var(--glass-blur)',
+    },
+    backdropSaturate: {
+      'glass': 'var(--glass-saturate)',
+    },
+  }
+}
+```
+
+**Rezultat:** oriunde vrei glass, scrii `bg-glass-surface backdrop-blur-glass backdrop-saturate-glass` — consistent, tokenized, dark/light aware.
+
+**Fișier țintă:** `frontend-react/src/styles/globals.css`, `frontend-react/tailwind.config.js`
+
+---
+
+### G3 — Componente care devin glass (checklist explicit)  [P1 · M · Low]
+
+**Devin glass (înlocuiesc `bg-bg-surface` cu `bg-glass-*`):**
+
+| Component | Fișier | Token target |
+|---|---|---|
+| Sidebar | `components/layout/Sidebar.tsx:232` (deja `/90 backdrop-blur` — normalize) | `glass-surface` + `backdrop-blur-glass` |
+| Top bar / TitleBar | `components/layout/TitleBar.tsx` (dacă există) sau `AppShell.tsx` | `glass-surface` |
+| Composer WRAPPER (nu textarea) | `components/chat/ChatInput.tsx` | `glass-elevated` |
+| ModelPickerPopover | `components/chat/ModelPickerPopover.tsx` | `glass-elevated` |
+| ControlsPopover | `components/chat/ControlsPopover.tsx` | `glass-elevated` |
+| SearchOverlay | `components/chat/SearchOverlay.tsx:134` (deja glass) | normalize la `glass-overlay` |
+| Toasts | `components/Toasts.tsx:43` (deja glass) | normalize la `glass-elevated` |
+| UpdateToast | `components/UpdateToast.tsx:36` (deja glass) | normalize la `glass-elevated` |
+| SkillHubDrawer | `components/SkillHubDrawer.tsx` | `glass-surface` |
+| Dialog / Modal | `components/ui/dialog.tsx` | `glass-overlay` backdrop, `glass-elevated` content |
+| Popover primitive | `components/ui/popover.tsx` | `glass-elevated` |
+| Dropdown menu | `components/ui/dropdown-menu.tsx` | `glass-elevated` |
+| Tooltip | `components/ui/tooltip.tsx` | `glass-elevated` |
+| Onboarding backdrop | `components/onboarding/OnboardingWizard.tsx:57` | `glass-overlay` |
+
+**Rămân solid (NU aplic glass):**
+
+| Component | De ce |
+|---|---|
+| Message bubbles content | Lectură lungă → eye strain în 15 min |
+| Code blocks `<pre>` | Cod pe glass = imposibil de citit |
+| Composer TEXTAREA (input-ul actual, nu wrapper) | User trebuie să vadă clar unde tastează |
+| Settings form inputs | Precision entry |
+| Table rows (Models page) | Long-form data scanning |
+| Markdown render / docs | Long-form text |
+| Terminal / logs | Monospace + high contrast |
+| Splash screen (deja solid) | Nu are sub ce blur-a la boot |
+
+**Regulă permanentă:** dacă content-ul cere lectură > 30s continuous, e SOLID. Dacă e chrome sau surface temporar, e GLASS.
+
+**Fișier țintă:** ~14 componente. Effort M — find-and-replace mecanic + verificare vizuală.
+
+---
+
+### G4 — Fallback pentru Linux (Mutter fără blur)  [P1 · M · Med]
+
+**Problema:** GNOME (Mutter compositor, cel mai comun pe Ubuntu default) NU suportă blur behind transparent windows. `transparent: true` pe GNOME → user vede desktop brut fără blur → arată urât.
+
+**Fix propus:**
+
+1. Runtime detection în Rust la window creation:
+   ```rust
+   #[cfg(target_os = "linux")]
+   {
+     let is_mutter = std::env::var("XDG_CURRENT_DESKTOP")
+       .map(|d| { let l = d.to_lowercase(); l.contains("gnome") || l.contains("unity") })
+       .unwrap_or(false);
+     if is_mutter {
+       window.emit("cinderpaw://compositor-noblur", ())?;
+     }
+   }
+   ```
+
+2. Frontend listener dezactivează glass tokens:
+   ```typescript
+   useEffect(() => {
+     const unlisten = listen('cinderpaw://compositor-noblur', () => {
+       document.documentElement.dataset.glass = 'off';
+     });
+     return () => { unlisten.then(fn => fn()); };
+   }, []);
+   ```
+
+3. CSS override:
+   ```
+   :root[data-glass="off"] {
+     --glass-surface: var(--bg-surface);
+     --glass-elevated: var(--bg-elevated);
+     --glass-overlay: var(--bg-overlay);
+     --glass-blur: 0px;
+     --glass-saturate: 100%;
+   }
+   ```
+
+Rezultat: GNOME/Mutter cade elegant la solid. KDE/KWin + Sway (support blur) rămân glass.
+
+**Test:** Ubuntu 24.04 GNOME + Fedora KDE + Arch Sway minimum înainte de release.
+
+**Fișier țintă:** `src-tauri/src/lib.rs`, `frontend-react/src/App.tsx`, `frontend-react/src/styles/globals.css`
+
+---
+
+### G5 — Performance guard + user opt-out  [P1 · S · Low]
+
+**Problema:** `backdrop-filter: blur(24px)` e GPU-heavy. Pe Intel HD Graphics 2019- sau ARM SBC, frame rate cade la 20-30fps cu multe panouri glass.
+
+**Fix propus:** Setting toggle „Reduce transparency" în `AppearanceTab.tsx`:
+- Default: on (glass activ)
+- Off → setează `data-glass="off"` pe root → colapse la solid (fallback G4 reused)
+- Detectează automat `prefers-reduced-transparency: reduce` media query → forțează off
+
+Zero cost pentru user care nu bifează.
+
+**Fișier țintă:** `frontend-react/src/components/settings/AppearanceTab.tsx`, `stores/ui.ts` (`reducedTransparency: boolean`)
+
+---
+
+### G6 — Splash screen — glass sau nu?  [P2 · S · Low]
+
+Splash (Secțiunea A) e primul frame înainte ca window-ul să fie ready. Dacă transparent + blur, user vede desktop cu wordmark plutind → arată ca notification, nu ca boot.
+
+**Decizie:** SOLID `#0e0d0c` cu spotlight sweep. Glass începe DUPĂ splash dispare.
+
+---
+
+### G7 — Referință vizuală (Opus, study înainte de implementare)
+
+Ce să urmărești:
+
+- **Arc Browser (macOS/Windows)** — sidebar glass, content solid. Model perfect pentru Cinderpaw.
+- **Windows 11 Settings** — Mica pe fundal, panouri cu vibrancy discret. Subtle glass.
+- **ChatGPT Desktop (macOS)** — sidebar cu vibrancy, chat area solid dark. Fix pattern-ul recomandat.
+- **Raycast (macOS)** — command palette full glass, extensions cu content solid.
+- **Warp Terminal** — panel management glass, terminal output solid.
+
+**Anti-exemple:**
+- **Vista era 2007** — glass peste TOT, inclusiv document content. Retras după 6 luni.
+- **Instagram stories** — glass peste text lung. Illegible.
+
+---
+
+### G8 — Order de implementare (pentru Opus)
+
+**Sprint 1 (2-3h):** G1 window transparency + G2 tokens
+**Sprint 2 (3-4h):** G3 aplicare 14 componente + verificare vizuală
+**Sprint 3 (2h):** G4 Linux fallback + G5 setting user + testing cross-platform
+
+**Total: ~7-9h de lucru concentrat. Realistic 1 zi.**
+
+---
+
 ## Referințe
 
 - Screenshots reale: chat empty state (2026-08-20) + loading screen (2026-08-21) trimise de utilizator în conversație. Nu sunt persisted în repo.
