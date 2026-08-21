@@ -430,16 +430,18 @@ body {
    no depth in it — the colour arriving from us instead of from behind. In
    glass, what you see through the pane is the thing behind it.
 
-   So the lights drop to a fifth, the grain to a third, and the vignette nearly
-   out. Not to zero: a trace of warmth is what keeps the pane feeling like
-   tinted glass rather than a hole cut in the window. */
+   Only the see-through-to-the-DESKTOP half is gated on the platform class. The
+   material itself — refraction, rim, radius, the strength of the lights — is
+   unconditional, because it looks right over an opaque window too. Gating all
+   of it, which is what the first attempt did, meant that if the class never
+   arrived nothing changed at all and the app looked untouched. */
 html.has-window-effect body { background-color: transparent; }
 /* The lights are the CONTENT of the glass, so they are stronger here, not
    weaker. The earlier pass dialled them down to let the desktop through and got
    the worst of both: too faint to be a scene, too tinted to be a window. A
    glass panel needs something worth bending, and the surest way to have that is
    to own it rather than to hope the user's wallpaper provides it. */
-html.has-window-effect {
+:root[data-theme="dark"] {
   --scene-key-light:     rgba(214, 132, 48, 0.62);
   --scene-counter-light: rgba(84, 96, 210, 0.52);
   --scene-fill-light:    rgba(160, 84, 196, 0.34);
@@ -448,7 +450,7 @@ html.has-window-effect {
   /* Thin: the lights below have to arrive. This one number is the glass. */
   --scene-surface:       rgba(16, 14, 9, 0.26);
 }
-html.has-window-effect[data-theme="light"] {
+:root[data-theme="light"] {
   --scene-key-light:     rgba(240, 168, 78, 0.58);
   --scene-counter-light: rgba(118, 134, 226, 0.46);
   --scene-fill-light:    rgba(220, 140, 196, 0.40);
@@ -468,8 +470,9 @@ html.has-window-effect[data-theme="light"] {
 .liquid-glass {
   backdrop-filter: blur(22px) saturate(180%);
   -webkit-backdrop-filter: blur(22px) saturate(180%);
-}
-html.has-window-effect .liquid-glass {
+  /* Second declaration, same property: a browser that cannot parse `url()`
+     here drops this line and keeps the one above, so the fallback is a frosted
+     pane rather than no backdrop at all. */
   backdrop-filter: blur(22px) saturate(180%) url(#liquid-glass);
   -webkit-backdrop-filter: blur(22px) saturate(180%) url(#liquid-glass);
 }
@@ -485,9 +488,7 @@ html.has-window-effect .liquid-glass {
 /* Glass has an edge. Without a lit rim the pane has no boundary and reads as a
    stain on the desktop rather than as a sheet lying over it — the single
    detail that separates the reference from what we had. */
-html.has-window-effect #root > div {
-  backdrop-filter: blur(28px) saturate(150%) url(#liquid-glass-soft);
-  -webkit-backdrop-filter: blur(28px) saturate(150%) url(#liquid-glass-soft);
+#root > div {
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.10);
   box-shadow:
@@ -589,8 +590,14 @@ body::after {
      seen through cellophane — the sidebar has had this since it was built, and
      the page it sits on did not, which is why the two never looked like the
      same material. */
-  backdrop-filter: blur(28px) saturate(140%);
-  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  /* This rule comes after the pane's own block and therefore WINS. It used to
+     set a plain blur here, which silently threw the refraction away — the
+     filter was declared, applied, and then overridden four hundred lines
+     later. Both halves live here now so there is one place to look. */
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: blur(28px) saturate(150%) url(#liquid-glass-soft);
 }
 
 /* Reduced motion: the whole static lighting composition stays visible, only

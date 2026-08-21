@@ -542,9 +542,16 @@ pub fn run() {
         .on_page_load(|window, _| {
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
-                let _ = window.eval(
-                    "document.documentElement.classList.add('has-window-effect')",
-                );
+                // Logged, because the failure is invisible: if this does not
+                // land the window simply stays opaque and looks like the effect
+                // was never configured. One line in the log is the difference
+                // between "not supported" and "never ran".
+                match window
+                    .eval("document.documentElement.classList.add('has-window-effect')")
+                {
+                    Ok(()) => tracing::info!("window effect: page marked as blurred-behind"),
+                    Err(e) => tracing::warn!("window effect: could not mark the page ({e})"),
+                }
             }
             #[cfg(not(any(target_os = "windows", target_os = "macos")))]
             let _ = &window;
