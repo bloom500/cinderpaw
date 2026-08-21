@@ -1,7 +1,10 @@
 # Cinderpaw Roadmap
 
-**Last updated:** 2026-08-20
-**Status:** Draft — pending user approval on ADR-0014, ADR-0015, ADR-0016.
+**Last updated:** 2026-08-21
+**Status:** Updated per STRATEGY-PIVOT.md. ADR-0016 superseded, split into ADR-0017 (Shared Projects, paid) + ADR-0018 (Agent Feed, free).
+
+> **⚠️ Major update 2026-08-21:** Cinderpaw pivots to „multiplayer AI workspace" positioning. Solo tier stays free forever, first paid tier is Shared Projects v1.2 Feb 2027. See STRATEGY-PIVOT.md for full context and PROMISES.md for public commitments.
+
 
 Single-page timeline that ties together: bug backlog (~319 findings audit) + rebrand (Feral → Cinderpaw) + Brain Stack v2 + Multi Agents + Community launch.
 
@@ -62,7 +65,7 @@ v1.0 GA ────────────────────────
          Brain Stack v2 stable
          Multi Agents stable
          Rebrand Faza D complete (Feral → Cinderpaw public)
-         Domain live: cinderpaw.ai
+         Domain live: cinderpaw.dev
          npm/crates published
          Marketing launch: HN post, blog, social
          Target: fin Mar 2027 / early Apr
@@ -81,7 +84,7 @@ Q2 2027 ────────────────────────
          + C4 reputation full (trust scoring, sybil resistance)
          + C5 moderation infrastructure (LLM classifier + report flow)
          + C6 legal framework (ToS, Privacy Policy, DMCA agent designated)
-         + Public discovery UI on cinderpaw.ai/community
+         + Public discovery UI on cinderpaw.dev/community
          5000 public beta users
          Target: fin Jun 2027
 
@@ -143,22 +146,29 @@ Multi Agents L3 (delegation) ─── Brain Stack R9 (RSI integration)
 Rebrand Faza D (public) ─── v1.0 GA
                                       │
                                       ▼
-                          Community C1-C5 (alpha → beta)
+                          v1.1 Personal Agent Teams (Nov 2026)
                                       │
                                       ▼
-                          Community C3 Model B + C6 legal
+                          v1.2 Shared Projects Beta [FIRST PAID TIER]
+                                    (Feb 2027, Duo $12 + Team $8/user)
                                       │
                                       ▼
-                          v1.3 Community GA
-                                      │
+                          v1.3 Shared Projects GA + Team tier stable
+                                      │            (May 2027)
                                       ▼
-                          Community C7 payments → v2.0
+                          v1.5 Agent Feed public [FREE, marketing funnel]
+                                      │            (Q3 2027)
+                                      ▼
+                          v2.0 Self-hosted relay option + Enterprise tier
+                                                     (2028)
 ```
 
-**Critical path** (longest chain that dictates timeline):
-`Audit MOAT fixes → Multi Agents L3 → Community C3 → v1.3 GA`
+**Critical path** (longest chain that dictates timeline + revenue):
+`v1.0 launch marți 26 aug → v1.1 Agent Teams nov → v1.2 Shared Projects Beta feb 2027 (FIRST $) → v1.3 GA may 2027 → v1.5 Feed Q3 2027`
 
-Aproximativ 12 luni de la now (2026-08) până Community GA (2027-08). Realistic dacă Opus 5 continuă la ritm-ul actual.
+Aproximativ 12 luni de la now (2026-08) până Shared Projects GA (2027-05), 14 luni până Agent Feed (2027-Q3). Realistic dacă Opus 5 continuă la ritmul actual + relay infrastructure work începe Q4 2026.
+
+**Revenue milestone target:** $5,000/mo MRR până august 2027 (12 luni post-launch v1.0). Detaliat în STRATEGY-PIVOT.md.
 
 ## Parallelization opportunities
 
@@ -190,7 +200,7 @@ Diferite streams pot rula concurrent cu diferite people:
 - DEPENDENCE: v1.0 must ship first cu audit clean.
 
 **Stream F — Documentation + Marketing:**
-- Public docs on cinderpaw.ai website (rebrand cinderpaw.ai/docs).
+- Public docs on cinderpaw.dev website (rebrand cinderpaw.dev/docs).
 - Blog posts per release.
 - Video walkthroughs.
 - Ongoing throughout all phases.

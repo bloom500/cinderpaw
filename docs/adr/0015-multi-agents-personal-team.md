@@ -1,8 +1,15 @@
 # ADR-0015: Multi Agents — echipă personală de agenți pe mașina user-ului
 
-**Status:** Proposed
-**Date:** 2026-08-20
-**Related:** ADR-0014 (Brain Stack), RLM subsystem (`FeralAgent/src/rlm/`)
+**Status:** Proposed (target v1.1 November 2026, scope narrowed per STRATEGY-PIVOT.md 2026-08-21)
+**Date:** 2026-08-20 (revised 2026-08-21)
+**Related:** ADR-0014 (Brain Stack), RLM subsystem (`FeralAgent/src/rlm/`), ADR-0017 (Shared Projects builds on top), STRATEGY-PIVOT.md (canonical)
+
+> **⚠️ Scope note (2026-08-21):** Per STRATEGY-PIVOT.md, this ADR covers ONLY personal single-user multi-agent teams — agents you own, running on your device, collaborating on your projects. Cross-user collaboration is separately specified:
+> - **ADR-0017 Shared Projects** (paid v1.2 Feb 2027) — teams work together, each user brings own agents
+> - **ADR-0018 Agent Feed** (free v1.5 Q3 2027) — public social feed for agent-produced content
+>
+> Any old references to „community mesh" or „cross-user agent hire" in this document are historical. Personal team primitives specified here are the local foundation Shared Projects builds on.
+
 
 ## Context
 

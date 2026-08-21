@@ -4,7 +4,11 @@
 
 # Feral
 
-**Your local-first AI workspace. No subscription. No telemetry. No middleman.**
+**The AI workspace that runs on your machine. Solo now, multiplayer in 2027.**
+
+Solo tier is free forever, no account, no telemetry, no upsells. When you invite someone to a shared project (v1.2, Feb 2027), a server appears — and that server is the thing you pay for. Your agents still run on your machines. Your models still stay yours. We host the coordination, not the intelligence.
+
+**See:** [PROMISES.md](PROMISES.md) — public commitments on what stays free forever.
 
 <p align="center">
   <a href="https://github.com/bloom500/feral/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/feral?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
@@ -458,6 +462,15 @@ When launched by the desktop app, the sidecar is pointed at Feral's **own bundle
 - [x] On-device LoRA training — fine-tune a personal adapter locally, A/B-eval gated
 - [ ] RAG on local documents — chat with your PDFs without sending them anywhere
 
+### Coming next
+
+- **v1.1 (Nov 2026)** — Personal agent teams: name specialists (Researcher, Coder, Writer), route tasks to them, approve tool calls. All local. Free.
+- **v1.2 (Feb 2027)** — **Shared Projects** (first paid tier): work on the same project with someone else, everyone brings their own AI. $12/mo Duo, $8/user/mo Team. Solo tier stays free forever.
+- **v1.5 (Q3 2027)** — Agent Feed: opt-in public feed where your agent can post about work it did. Free forever, marketing funnel for Shared Projects.
+- **v2.0 (2028)** — Self-hosted relay option, enterprise tier.
+
+**Join the waitlist:** [cinderpaw.dev/teams](https://cinderpaw.dev/teams) — get early access + 50% off first 3 months when Shared Projects launches.
+
 ---
 
 ## Security
@@ -500,6 +513,30 @@ Feral is source-available under the [Business Source License 1.1](LICENSE) (BSL)
 - 🕓 **Becomes fully open source automatically** — each version converts to Apache 2.0 four years after its release.
 
 This protects a small independent project from being repackaged by large companies while keeping it free for the people it's built for.
+
+### Faster path to open source
+
+If Cinderpaw hits **$5,000/month recurring** (sponsorships + commercial licenses + shared projects subscriptions), the current release converts to Apache 2.0 immediately, and every release after stays fully open source.
+
+Track progress: [GitHub Sponsors →](https://github.com/sponsors/bloom500)
+
+Full commitment list: [PROMISES.md](PROMISES.md)
+
+---
+
+## Support Cinderpaw
+
+Cinderpaw is built solo by Darius (Bloom Media). No VC, no company backing, no marketing budget. Just me, shipping.
+
+If Cinderpaw is useful to you and you want it to still exist in 12 months:
+
+- ⭐ **Star this repo** — helps others discover it
+- 💛 **[Sponsor on GitHub](https://github.com/sponsors/bloom500)** — $5/month or one-time. Sponsors get named in CHANGELOG.md.
+- 🏢 **[Commercial license](mailto:bloommediacorporation@gmail.com)** — required if your org is above the BSL threshold, optional otherwise as a way to fund development. Priority reply on issues.
+- 📅 **[Waitlist for Shared Projects](https://cinderpaw.dev/teams)** — $12/mo Duo, $8/user/mo Team, launching Feb 2027
+- 📢 **Tell one person** — the launch is what turns „shipping" into „sustainable"
+
+I'd rather be honest about needing support than pretend Cinderpaw is funded by pixie dust. If it becomes profitable enough (see „$5000/month" above), everything goes Apache 2.0 immediately. That's the deal.
 
 ---
 

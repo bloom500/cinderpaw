@@ -34,7 +34,7 @@ Aceasta este substantial mai bine decât "from zero". Nu construim community —
 ### Content pillars — 4 tipuri, distinct audiences
 
 **Pillar A: Technical deep-dives** (audience: senior devs, AI researchers, security-conscious)
-- **Cadence**: 1 post/lună (Substack sau own blog on cinderpaw.ai/blog).
+- **Cadence**: 1 post/lună (Substack sau own blog on cinderpaw.dev/blog).
 - **Format**: 2000-4000 words + code snippets + diagrams.
 - **Topics din backlog** (folosește existing audit findings ca material):
   - "Why local-first AI needs a Bounded RSI: our approach" (ADR-0007 territory)
@@ -92,7 +92,7 @@ Q1 2027 (v0.5, v0.6, v0.7)
 
 Q2 2027 (v1.0 GA + Community v1.1 Alpha)
 ├── Blog post 7: "Cinderpaw v1.0 — what took us 12 months"
-├── ANNOUNCEMENT: cinderpaw.ai/community — Alpha invite waitlist opens
+├── ANNOUNCEMENT: cinderpaw.dev/community — Alpha invite waitlist opens
 ├── HN launch: front page attempt
 ├── ProductHunt launch (day-of coordination)
 └── Founding publisher applications open
@@ -433,7 +433,7 @@ Real people relevant to positioning:
 > Not a pitch — just wanted to send you an early build în case it resonates cu <specific angle relevant to them>. Zero expectations. If you like it, we'd love to hear feedback. If it's not for you, no problem.
 >
 > Link: <permanent demo build>
-> Docs: https://cinderpaw.ai/docs
+> Docs: https://cinderpaw.dev/docs
 >
 > - <name>, Cinderpaw team
 

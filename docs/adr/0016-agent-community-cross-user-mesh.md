@@ -1,8 +1,34 @@
-# ADR-0016: Agent Community — cross-user mesh cu identity, reputation, moderation
+# ADR-0016: Agent Community — cross-user mesh (SUPERSEDED 2026-08-21)
 
-**Status:** Proposed (post-v1.0 milestone)
-**Date:** 2026-08-20 (revised 2026-08-20)
+**Status:** ⚠️ SUPERSEDED by STRATEGY-PIVOT.md + ADR-0017 + ADR-0018
+**Date:** 2026-08-20 (revised 2026-08-20, superseded 2026-08-21)
 **Related:** ADR-0015 (Multi Agents — prerequisite), public-journal export layer
+
+---
+
+## ⚠️ THIS ADR IS SUPERSEDED — DO NOT IMPLEMENT AS SPEC-ED
+
+Per STRATEGY-PIVOT.md (2026-08-21), the „cross-user agent mesh" vision was split into two separate features with fundamentally different architectures:
+
+- **ADR-0017 (Shared Projects)** — the PAID feature: two or more users work on the same project, each running their own agents with their own inference. Server hosts identity + membership + relay + encrypted storage. This is the **first monetization vehicle** ($12/mo Duo, $8/user/mo Team). Target v1.2 Feb 2027.
+
+- **ADR-0018 (Agent Feed)** — the FREE marketing feature: public social feed where agents post about work they've done, Moltbook-style but purpose-built as acquisition funnel for Shared Projects. Never paywalled. Target v1.5 Q3 2027.
+
+**Key changes from ADR-0016 vision:**
+- ❌ „Emprumut agent" removed — model is „shared project, each brings own agent"
+- ❌ Sybil-resistant reputation removed — social feed doesn't need it, replaced with Ed25519 identity from ADR-0017
+- ❌ Hybrid sandboxing for foreign agents removed — never running someone else's agent locally
+- ❌ Payment cross-user per invocation removed — model is seat-based SaaS instead
+- ❌ Agent marketplace removed (deferred to v2.0+ if ever)
+- ✅ Cross-user permission gate KEPT (moved to ADR-0017 as extension of existing sandbox)
+- ✅ Agent moderation infrastructure KEPT for feed (moved to ADR-0018)
+- ✅ Discovery mechanics KEPT for feed (simplified, no marketplace)
+
+**Read this ADR only for historical context. Implementation MUST reference ADR-0017 and ADR-0018.**
+
+---
+
+## Historical context (preserved below for reference)
 
 ## Context
 
@@ -95,11 +121,11 @@ User din UI: "Publish" un agent din team-ul lui la Community.
 Server registers agent under `@handle/agent-name`, indexes for discovery.
 
 **Discovery infrastructure**:
-- Central directory: `cinderpaw.ai/community` (hosted).
+- Central directory: `cinderpaw.dev/community` (hosted).
 - Full-text search + filters (capability, rating, cost model, verified tier).
 - Trending / new / high-rated tabs.
 - Categories: coding, research, writing, data-analysis, creative, other (curated taxonomy).
-- Per-agent public page: `cinderpaw.ai/community/@alice/rust-auditor` shows description, stats, recent reviews, invoke button.
+- Per-agent public page: `cinderpaw.dev/community/@alice/rust-auditor` shows description, stats, recent reviews, invoke button.
 
 **API surface** (for third-party integrations, LSP-style):
 - `GET /api/v1/agents/search?q=...&capability=coding` — public directory API.
@@ -367,7 +393,7 @@ Assume everything can go wrong. Prepare:
 - User account deletion complete în 30 days (soft-delete → hard-delete).
 
 **Federation option (post-v2)**:
-- Alternative registries can be added by user în settings (`community.registry_urls = [cinderpaw.ai, myserver.example.com]`).
+- Alternative registries can be added by user în settings (`community.registry_urls = [cinderpaw.dev, myserver.example.com]`).
 - Bridging protocol between registries — publisher on registry A discoverable from registry B via mutual trust.
 - Complex, add only after single-registry model proves scaling model.
 

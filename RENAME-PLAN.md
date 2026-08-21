@@ -23,7 +23,7 @@
 | npm `cinderpaw-agent`, `-cli` | ✅ libere | 404 |
 | crates.io `cinderpaw`, `-core`, `-cli` | ✅ libere | 404 |
 | PyPI `cinderpaw` | ✅ liber | 404 |
-| `cinderpaw.ai` | ✅ liber | Identity Digital 404 |
+| `cinderpaw.dev` | ✅ liber | Identity Digital 404 |
 | `cinderpaw.io` | ✅ liber | Identity Digital 404 |
 | `cinderpaw.app` | ✅ liber | Google Registry 404 |
 | `cinderpaw.dev` | ✅ liber | Google Registry 404 |
@@ -31,7 +31,7 @@
 
 **Risc conflict:** "Cinderpaw" e un character canonic din seria Warriors (Erin Hunter, HarperCollins). Nu-i brand comercial, nu-i trademark filed (verificat prin trademarkia search). SEO organic dominat de fanfiction (DeviantArt, Wattpad, Warriors wikis). **Zero risc legal**, moderate SEO friction — dar Warriors fandom = tineri creativi, potențial early adopter demografic.
 
-**Domain principal:** `cinderpaw.ai`
+**Domain principal:** `cinderpaw.dev`
 
 **Bundle identifier:** `ai.cinderpaw.app`
 
@@ -113,7 +113,7 @@ Nu se poate face totul într-un singur PR — risc de breakage prea mare + revie
 export const APP_NAME = 'Cinderpaw' as const;
 export const APP_NAME_LOWER = 'cinderpaw' as const;
 export const AGENT_DEFAULT_NAME = APP_NAME;
-export const APP_DOMAIN = 'cinderpaw.ai' as const;
+export const APP_DOMAIN = 'cinderpaw.dev' as const;
 
 /** Legacy names — folosit pentru migration lookups, deprecation warnings. */
 export const LEGACY_BRAND_NAMES = ['Feral', 'feral', 'FERAL'] as const;
@@ -136,7 +136,7 @@ export const LEGACY_HOME_DIR_NAME = '.feral';
 pub const APP_NAME: &str = "Cinderpaw";
 pub const APP_HOME_DIR_NAME: &str = ".cinderpaw";
 pub const LEGACY_HOME_DIR_NAME: &str = ".feral";
-pub const APP_DOMAIN: &str = "cinderpaw.ai";
+pub const APP_DOMAIN: &str = "cinderpaw.dev";
 pub const APP_IDENTIFIER: &str = "ai.feral.app";  // NU se schimbă în faza A
 ```
 
@@ -728,7 +728,7 @@ Shipping: install script include both `feral` (shim) și `cinderpaw` (main).
 - GitHub repo `bloom500/feral` → `bloom500/cinderpaw` (via GitHub repo rename — automatic redirect for git operations)
 - Publish `cinderpaw-core`, `cinderpaw-cli` pe crates.io
 - Publish `cinderpaw-agent`, `@cinderpaw/agent` pe npm
-- Register domenii: `cinderpaw.ai` (primary), `cinderpaw.io`, `cinderpaw.app`, `cinderpaw.dev` (protective)
+- Register domenii: `cinderpaw.dev` (primary), `cinderpaw.io`, `cinderpaw.app`, `cinderpaw.dev` (protective)
 - Create GitHub org `cinderpaw` (optional)
 - Deprecate old crates/npm packages cu redirect notice
 
@@ -764,7 +764,7 @@ npm deprecate feral-agent@"*" "Renamed to cinderpaw-agent"
 
 ### D.3 — Domain registration
 
-- `cinderpaw.ai` — primary, redirect all others aici
+- `cinderpaw.dev` — primary, redirect all others aici
 - `cinderpaw.io`, `.app`, `.dev` — defensive, redirect la .ai
 - `cinderpaw.com` — attempt purchase via broker (RegistryGate GmbH — cel mai probabil rezonabil sub $5k)
 
@@ -839,7 +839,7 @@ Un plan de rebrand bine executat = un-shot fix pentru clase de bug-uri de tehnic
 
 - [ ] Zero user reports "unde-mi sunt conversațiile" post-migration
 - [ ] Zero user reports "BYOK key nu mai merge" post-migration
-- [ ] `cinderpaw.ai` primary domain live cu redirect din alte TLDs
+- [ ] `cinderpaw.dev` primary domain live cu redirect din alte TLDs
 - [ ] npm downloads `cinderpaw-agent` > deprecate `feral-agent`
 - [ ] GitHub stars migrate correct (automatic prin rename)
 - [ ] SEO organic: prima pagină Google pentru "cinderpaw AI" arată produsul (nu Warriors fandom)

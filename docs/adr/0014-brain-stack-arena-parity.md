@@ -248,7 +248,7 @@ Modele cu breaker open sunt excluded din pool înainte de scoring, nu penalize d
 
 Un user nou n-are `runtime_stats` — U2 scoring returnează valori neutrale, RUX bad pentru primele 50 turns.
 
-Soluție: **anonymized global stats** — opt-in la boot ("Help improve Cinderpaw's routing by sharing anonymous latency/error stats for models you use"). Aggregate global fed într-un manifest hosted la `cinderpaw.ai/api/model-baseline.json`:
+Soluție: **anonymized global stats** — opt-in la boot ("Help improve Cinderpaw's routing by sharing anonymous latency/error stats for models you use"). Aggregate global fed într-un manifest hosted la `cinderpaw.dev/api/model-baseline.json`:
 
 ```json
 {

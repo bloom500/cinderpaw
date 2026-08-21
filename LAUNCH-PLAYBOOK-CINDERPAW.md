@@ -1,10 +1,12 @@
 # LAUNCH-PLAYBOOK-CINDERPAW.md
 
 **Owner:** Darius (Bloom Media)
-**Product:** Cinderpaw (rebrand din Feral) — local-first AI desktop workspace
+**Product:** Cinderpaw (rebrand din Feral) — the AI workspace that runs on your machine (solo now, multiplayer in 2027)
 **Day 0 propus:** **Marți 26 August 2026**
 **Ora ancoră:** 8:00 AM ET (US-East) = **15:00 EEST (România)** ← tot documentul folosește ora RO
 **Timp local user:** UTC+3 (EEST, DST activ până 25 oct 2026)
+
+> **Update 2026-08-21 per STRATEGY-PIVOT.md:** Poziționare updated de la „local AI companion" la „multiplayer AI workspace, solo tier free forever". Toate copy-urile din acest playbook au fost updated să includă (a) mențiune subtilă despre multiplayer coming 2027, (b) link waitlist pentru Cinderpaw for Teams, (c) `$5000/mo → Apache 2.0` commit public. Vezi STRATEGY-PIVOT.md pentru context complet.
 
 ---
 
@@ -27,10 +29,15 @@
 ### **D-5 · Joi 21 aug 2026** ← AZI
 
 - [ ] **Confirmă rename-ul complet Feral → Cinderpaw în cod** (RENAME-PLAN.md fazele 1-2 minim: `productName`, `<title>`, sidebar wordmark, splash screen)
-- [ ] **Domain redirect setup:** dacă `feral.ai` există, adaugă 301 permanent redirect către `cinderpaw.ai` pentru toate rutele
+- [ ] **Domain cumpărat:** `cinderpaw.dev` la Porkbun (~$9.73/an, `.ai` prea scump)
+- [ ] **Domain redirect setup:** dacă `feral.ai` există, adaugă 301 permanent redirect către `cinderpaw.dev` pentru toate rutele
 - [ ] **GitHub org/repo rename:** `bloom500/feral` → `bloom500/cinderpaw`. GitHub păstrează redirect automat pentru URL-uri vechi (linkuri, clone-uri, forks), dar release download URLs vechi din CLI se rup — vezi secțiunea "npm/Cargo publish" mai jos
 - [ ] **Cont X (Twitter):** creează sau redenumește `@cinderpaw_ai` (păstrează `@BloomMedia66730` ca personal). Dacă handle-ul e liber, ia-l ACUM înainte de squatteri.
 - [ ] **Reserve Reddit account name:** `u/cinderpaw_ai` (crează cont dacă nu există, chiar dacă nu postezi de pe el — evită impersonators post-launch)
+- [ ] **GitHub Sponsors application** — https://github.com/sponsors/apply — aprobare durează 5-10 zile, aplică AZI ca să fie live pentru launch. Tiere: $5, $15, $50, $150 lunar + one-time $10, $50, $200. Descriere: „Solo dev on Cinderpaw. Your sponsorship keeps me shipping instead of job-hunting."
+- [ ] **Loops.so waitlist setup** — https://loops.so, free până 1k subscribers. Creează list „Cinderpaw for Teams waitlist". Setează welcome email + nurture cadence per STRATEGY-PIVOT.md
+- [ ] **Ko-fi backup** — https://ko-fi.com — instant setup ca fallback până GitHub Sponsors se aprobă
+- [ ] **Push PROMISES.md + STRATEGY-PIVOT.md + ADR-0017 + ADR-0018 pe branch** (deja fost făcut de agent 2026-08-21)
 
 ### **D-4 · Vineri 22 aug 2026**
 
@@ -42,7 +49,9 @@
 
 ### **D-3 · Sâmbătă 23 aug 2026**
 
-- [ ] **Landing page cinderpaw.ai** — deploy final. Vezi secțiunea "Landing page Nuxt" pentru copy complet
+- [ ] **Landing page cinderpaw.dev** — deploy final. Vezi secțiunea "Landing page Nuxt" pentru copy complet, inclusiv secțiune „Cinderpaw for Teams" cu Loops.so form embedded
+- [ ] **`/teams` route dedicată** cu waitlist form prominent + pricing tiers ($12 Duo, $8 Team, $16 Business) + explicație „coordination not tokens"
+- [ ] **`/promises` route** care afișează PROMISES.md ca HTML — trust anchor vizibil
 - [ ] **Product Hunt asset prep:**
   - Gallery: 3-6 images, prima e "hero" (Cinderpaw UI cu splash sweep captured mid-frame)
   - Video 30-60s opțional (nu obligatoriu, dar boostează CTR ~40%)
@@ -61,7 +70,7 @@
 - [ ] **npm publish `cinderpaw-agent`** (dacă nume păstrat `feral-agent` deprecated, publish stub cu README care redirectează)
 - [ ] **Cargo publish `cinderpaw-core`, `cinderpaw-cli`** (aceeași pattern)
 - [ ] **GitHub Release draft** cu changelog complet + assets attached (nu publish yet)
-- [ ] **DM 5-10 influencers/friends** cu heads-up: "Marți dimineață lansez, poți face un boost? Linkul principal e cinderpaw.ai" — dar NU cere upvotes explicit (asta e HN/Reddit auto-ban).
+- [ ] **DM 5-10 influencers/friends** cu heads-up: "Marți dimineață lansez, poți face un boost? Linkul principal e cinderpaw.dev" — dar NU cere upvotes explicit (asta e HN/Reddit auto-ban).
 - [ ] **Test emergency hotfix flow:** dacă apare bug critic în primele 4h post-launch, cât durează un rebuild + release? Măsoară.
 
 ### **D-1 · Luni 25 aug 2026**
@@ -82,13 +91,13 @@
 ### **14:00 RO** — Warm-up
 
 - [ ] Deschide toate tab-urile: HN new-post form (nesubmit), Twitter, Reddit new-post pentru fiecare din cele 8 sub-uri, Product Hunt, Indie Hackers, Discord admin
-- [ ] Verifică că landing page-ul cinderpaw.ai încarcă corect pe mobile + desktop
+- [ ] Verifică că landing page-ul cinderpaw.dev încarcă corect pe mobile + desktop
 - [ ] Verifică că GitHub Release download links merg
 - [ ] Deschide un doc scratch pentru a nota comments interesante și feedback de urmărit
 
 ### **15:00 RO (8:00 AM ET)** — GO TIME
 
-- [ ] **BLOG POST published** la `blog.cinderpaw.ai/introducing-cinderpaw` (canonical URL — este linkul pe care îl vor share alții)
+- [ ] **BLOG POST published** la `blog.cinderpaw.dev/introducing-cinderpaw` (canonical URL — este linkul pe care îl vor share alții)
 - [ ] **GitHub Release publish** (v1.0 sau versiunea actuală renamed, cu titlu "Cinderpaw v1.0 — the rebrand release")
 
 ### **15:05 RO (8:05 AM ET)** — HN Show HN submit
@@ -202,46 +211,53 @@ Absolut. Nu, serios. Restul lumii merge mai departe, ai 24h + 6 zile de post-lau
 **Title (max 80 chars, exact format „Show HN: <name> — <one-liner>"):**
 
 ```
-Show HN: Cinderpaw – a local-first AI desktop app that runs offline (rebrand of Feral)
+Show HN: Cinderpaw – AI workspace that runs on your machine; multiplayer coming 2027
 ```
 
-**URL field:** `https://cinderpaw.ai`
+**URL field:** `https://cinderpaw.dev`
 
 **Text field (max ~2000 chars, keep tight):**
 
 ```
 Hey HN — I'm Darius, solo dev on Cinderpaw (previously Feral).
 
-Cinderpaw is a desktop app that runs LLMs on your machine. Local GGUF
-models via llama.cpp, so everything happens offline — no API bills, no
-data leaving your computer. You can also plug in your own OpenAI /
-Anthropic / Gemini keys (BYOK) and talk to those directly; the app is
-just the client, your key, your bill, no proxy in between.
+Cinderpaw is a desktop app for having an AI workspace on your machine.
+Chat + agents + memory + tools, running local GGUF models via llama.cpp
+OR your own cloud API keys (BYOK, direct to Anthropic/OpenAI/etc,
+no proxy). Solo tier is free forever, no account required.
 
-What's actually in it:
+What v1.0 today has:
 - Chat with local or cloud models, same UI
 - Agent runtime with memory + tool-use (file ops, web search, MCP servers)
-- Multi-step deep research (queue + subagents)
+- Multi-step deep research with parallel sub-agents
 - Skills / extensions system
-- Pixel-art mascot that reacts to what the agent is doing (small joy)
+- Pixel-art mascot that reacts to what the agent's doing
 
-Built with Tauri 2 + Rust + TypeScript + React. BSL 1.1 license — source
-is open, commercial re-hosting requires a chat. Runs on Windows, macOS,
-Linux.
+What's coming (upfront so nothing's a surprise):
+- v1.1 Nov 2026 — personal agent teams (Researcher, Coder, Writer). Free.
+- v1.2 Feb 2027 — SHARED PROJECTS: work with someone else on the same
+  project, each of you brings own AI. This is the first paid tier
+  ($12/mo Duo, $8/user/mo Team). Solo stays free forever.
+- v1.5 Q3 2027 — public agent feed (opt-in, free forever).
 
-Why the rebrand: "Feral" was fine but too generic — hard to trademark,
-hard to talk about without confusion (there's a game studio named Feral).
-Cinderpaw is unique, ownable, and the mascot fits.
+Business model plain-spoken: solo local single-user free forever, we
+monetize coordination between users (shared projects) once we build
+the server infrastructure for it. Not paywalling anything you have
+today, ever. Written commitments in PROMISES.md in the repo.
 
-I spent the last ~3 weeks doing a self-audit — 259 findings across the
-codebase, ~170 real, patched them. Blog post about that going up
-tomorrow.
+Built with Tauri 2 + Rust + TypeScript + React. BSL 1.1 (converts to
+Apache 2.0 automatically after 4 years, OR immediately if we hit
+$5k/mo recurring). Windows, macOS, Linux.
 
-Happy to answer questions on architecture, why I picked BSL vs MIT,
-memory system design, or anything else. Roadmap is on the site.
+Pre-launch I did a 10-round self-audit — 259 findings, ~170 real, all
+patched. Blog post about that tomorrow.
 
-Download: https://cinderpaw.ai/download
+Happy to answer on architecture, why BSL vs MIT, memory system, or
+how I'm planning to run shared projects without ever hosting inference.
+
+Download: https://cinderpaw.dev/download
 Source: https://github.com/bloom500/cinderpaw
+Teams waitlist: https://cinderpaw.dev/teams
 ```
 
 **Notă:** *NU* întreba pentru upvotes. *NU* posta din 2 conturi să pară „momentum". *NU* edita title-ul după 5 min. *NU* posta între 3 AM și 6 AM ET (dead zone).
@@ -254,7 +270,7 @@ Source: https://github.com/bloom500/cinderpaw
 
 > After a year of building in the open under the name "Feral", today I'm shipping v1.0 under a new name: **Cinderpaw.**
 >
-> A local-first AI desktop workspace. No subscription. No telemetry. No middleman.
+> An AI workspace that runs on your machine. Solo tier free forever. Multiplayer coming in 2027.
 >
 > [screenshot: splash screen mid-sweep + main UI stacked]
 >
@@ -309,11 +325,11 @@ Source: https://github.com/bloom500/cinderpaw
 
 > Where to start:
 >
-> → App: cinderpaw.ai (Windows / macOS / Linux)
+> → App: cinderpaw.dev (Windows / macOS / Linux)
 > → CLI only: `npm install -g cinderpaw-agent`
 > → From source: github.com/bloom500/cinderpaw
-> → Roadmap: cinderpaw.ai/roadmap
-> → Discord: cinderpaw.ai/discord
+> → Roadmap: cinderpaw.dev/roadmap
+> → Discord: cinderpaw.dev/discord
 
 **Tweet 9 (CTA soft — no beg):**
 
@@ -325,9 +341,17 @@ Source: https://github.com/bloom500/cinderpaw
 
 **Tweet 10 (optional — social proof / transparency):**
 
-> Full transparency: v1.0 is not "complete". It's the version I'd give a friend without embarrassment. Multi-agent teams (v1.1), cross-user community (v1.3), and voice-first mode (v1.2) are all on the roadmap.
+> Full transparency: v1.0 is not "complete". It's the version I'd give a friend without embarrassment. Personal agent teams (v1.1 Nov 2026), Shared Projects — the first paid tier (v1.2 Feb 2027), and public agent feed (v1.5 Q3 2027) are all on the roadmap.
 >
 > What you can help with: bug reports, use-cases I haven't thought of, and honest feedback.
+
+**Tweet 11 (business model transparency — anti-bait-and-switch preempt):**
+
+> Business model, plain-spoken: solo tier stays free forever, no account, no telemetry. First paid tier is Shared Projects (v1.2, Feb 2027) — work with a friend on the same project, each of you brings your own AI. We host the coordination server, we don't ever run inference.
+>
+> $12/mo Duo (2 users), $8/user/mo Team. Full commitments in PROMISES.md in the repo.
+>
+> Waitlist: cinderpaw.dev/teams — 50% off first 3 months for early signups.
 
 ---
 
@@ -379,9 +403,9 @@ the memory pipeline, which platforms you'd want prioritized for perf
 work, which MCP servers you'd want first-party support for.
 
 **Links:**
-- Download: https://cinderpaw.ai/download
+- Download: https://cinderpaw.dev/download
 - Source: https://github.com/bloom500/cinderpaw
-- Discord: https://cinderpaw.ai/discord
+- Discord: https://cinderpaw.dev/discord
 ```
 
 ---
@@ -418,7 +442,7 @@ Cinderpaw is a local-first AI desktop app I've been building solo for
 
 **Install one-liner (Linux/macOS):**
 ```
-curl -fsSL https://cinderpaw.ai/install.sh | bash
+curl -fsSL https://cinderpaw.dev/install.sh | bash
 ```
 Detects your platform. Force headless with `-- --headless`.
 
@@ -428,7 +452,7 @@ promise-not-to-train-on-your-data. Local inference solves that. Cloud
 BYOK solves the "but I want frontier quality sometimes" problem
 without a proxy in between.
 
-Roadmap: cinderpaw.ai/roadmap
+Roadmap: cinderpaw.dev/roadmap
 Source: github.com/bloom500/cinderpaw
 ```
 
@@ -502,8 +526,8 @@ didn't trust.
 models, BYOK cloud, agent runtime with memory + tools. Tauri 2 + Rust.
 BSL 1.1.
 
-- Blog post with full audit numbers: https://blog.cinderpaw.ai/audit-story
-- App: https://cinderpaw.ai
+- Blog post with full audit numbers: https://blog.cinderpaw.dev/audit-story
+- App: https://cinderpaw.dev
 - Source: https://github.com/bloom500/cinderpaw
 ```
 
@@ -541,7 +565,7 @@ Windows, macOS, Linux. Open source (BSL 1.1).
 
 Rebranded from "Feral" — same team, better name.
 
-https://cinderpaw.ai
+https://cinderpaw.dev
 ```
 
 ---
@@ -577,7 +601,7 @@ Also: mascot. Small pixel-art creature that reacts to what the agent
 is doing. Not just decoration — it's the ambient signal that the
 agent is thinking / calling tools / done.
 
-https://cinderpaw.ai
+https://cinderpaw.dev
 https://github.com/bloom500/cinderpaw
 ```
 
@@ -609,7 +633,7 @@ Stack: Tauri 2 + Rust + TypeScript + React
 Models: local GGUF via llama.cpp, or cloud via BYOK
 Platforms: Windows / macOS / Linux
 
-https://cinderpaw.ai
+https://cinderpaw.dev
 https://github.com/bloom500/cinderpaw
 
 Would love feedback from folks who care about the licensing choices
@@ -644,7 +668,7 @@ directly for cloud (no markup).
 
 Open source. Rebranded from "Feral" this week.
 
-https://cinderpaw.ai
+https://cinderpaw.dev
 ```
 
 ---
@@ -653,15 +677,15 @@ https://cinderpaw.ai
 
 **Tagline (60 chars):**
 ```
-Local-first AI desktop app. Your model, your data, your rules.
+AI workspace on your machine. Solo free, multiplayer 2027.
 ```
-(exact: 62 chars — trim un cuvânt: `Local-first AI desktop app. Your model. Your data.` = 51 chars ✓)
+(58 chars ✓)
 
 **Description (260 chars):**
 ```
-Cinderpaw runs LLMs on your machine — GGUF models via llama.cpp or cloud models via your own API keys. Full agent runtime with memory, tools, MCP support. Windows, macOS, Linux. Open source (BSL 1.1). No subscription, no telemetry, no middleman.
+Cinderpaw is an AI workspace that runs on your machine. Chat, agents, memory, tools — with local GGUF models or your own cloud API keys. Solo tier free forever, no account. Shared Projects (paid, Feb 2027) let teams collaborate — you host the coordination.
 ```
-(240 chars ✓)
+(255 chars ✓)
 
 **Topics/tags:** Artificial Intelligence, Developer Tools, Productivity, Open Source, Desktop Apps
 
@@ -674,25 +698,27 @@ I'm Darius, solo dev on Cinderpaw. Been building for ~11 months
 under the name "Feral", rebranded to Cinderpaw this week for
 v1.0.
 
-The pitch in one paragraph: local-first AI desktop app that runs
-LLMs on your own machine (offline, zero data leaving your computer)
-OR connects to cloud models via your own API keys (no proxy, no
-markup). Agent runtime with memory + tool-use. Cross-platform.
+The pitch: Cinderpaw is an AI workspace that runs on your machine.
+Chat with local models (GGUF via llama.cpp) or cloud (BYOK — your
+own API keys, direct to Anthropic/OpenAI/etc, no proxy). Agent
+runtime with memory + tools. Cross-platform, no account required.
 
-Why I built it: I didn't want to trust a startup's promise not to
-train on my data, and I didn't want to pay a $20/month subscription
-for a wrapper around Anthropic's API when I could pay Anthropic
-directly.
+Solo tier is free forever. In February 2027 I'm launching Shared
+Projects — the first paid tier — where two or more people can work
+on the same project, each running their own agents. My server hosts
+identity + relay + storage, but NEVER inference — you keep bringing
+your own AI. That means my gross margin doesn't get eaten by tokens
+as users grow. Structural advantage vs anyone who hosts inference.
 
-Happy to answer questions here on architecture (Tauri 2 + Rust +
-TS), the memory system (Fractal Memory Search), why BSL 1.1 over
-MIT, or anything else.
+Full commitments (what stays free forever, what might be paid) in
+PROMISES.md in the repo.
 
-If you try it and something breaks, please open a GitHub issue —
-I'm one person and reports > silence.
+Happy to answer on architecture, why BSL vs MIT, how the shared
+projects economy works, or the memory system.
 
-Download: https://cinderpaw.ai
+Download: https://cinderpaw.dev
 Source: https://github.com/bloom500/cinderpaw
+Teams waitlist: https://cinderpaw.dev/teams
 ```
 
 ---
@@ -744,7 +770,7 @@ or cloud models via BYOK. Full agent runtime with memory + tools.
 Happy to chat business model (BYOK + eventual paid cloud tier),
 Tauri vs Electron tradeoffs, or how I'd do it differently.
 
-App: cinderpaw.ai
+App: cinderpaw.dev
 Source: github.com/bloom500/cinderpaw
 ```
 
@@ -794,7 +820,7 @@ a landing page, and that meant a lot.
 
 ### **Blog post 1 — „Introducing Cinderpaw"** (schelet + hook + outline)
 
-Publicat la `blog.cinderpaw.ai/introducing-cinderpaw`
+Publicat la `blog.cinderpaw.dev/introducing-cinderpaw`
 
 **Title:** `Introducing Cinderpaw — the AI desktop app formerly known as Feral`
 
@@ -820,29 +846,29 @@ Cinderpaw is a local-first AI desktop app that runs on your machine. No subscrip
 
 ---
 
-## LANDING PAGE cinderpaw.ai (Nuxt/Vue)
+## LANDING PAGE cinderpaw.dev (Nuxt/Vue)
 
 Nu am acces la repo-ul landing (îmi zici tu în sesiune viitoare unde e). Îți dau copy-ul complet pe secțiuni, ready-to-paste în componente Vue.
 
 ### **Hero section**
 
 ```
-<h1>Your AI. Your machine. Your rules.</h1>
+<h1>The AI workspace that runs on your machine.</h1>
 
 <p class="subtitle">
-  Cinderpaw is a local-first AI desktop app. Run open-source
-  models on your own hardware, or connect to Claude, GPT, and
-  Gemini with your own API keys. No subscription. No telemetry.
-  No middleman.
+  Chat, agents, memory, tools — with local models or your own
+  cloud API keys. Solo tier free forever, no account. Shared
+  Projects (paid, Feb 2027) let teams collaborate — you host
+  the coordination, not the intelligence.
 </p>
 
 <div class="cta">
   <button primary>Download for [detected OS]</button>
-  <a href="/download">All platforms →</a>
+  <a href="/teams">Get Teams waitlist →</a>
 </div>
 
 <p class="footnote">
-  Free · Open source · Windows, macOS, Linux
+  Free forever · Open source (BSL 1.1 → Apache 2.0) · Windows, macOS, Linux
 </p>
 ```
 
@@ -911,7 +937,7 @@ Dacă nu ai încă testimonials, folosește:
 
 Post-launch, adaugă 3-4 quotes din HN / Reddit / X în această secțiune (screenshot forms sau text quotes cu link back).
 
-### **Section 6 — Roadmap teaser**
+### **Section 6 — Roadmap teaser + Teams waitlist**
 
 ```
 <h2>Where we're going.</h2>
@@ -919,23 +945,84 @@ Post-launch, adaugă 3-4 quotes din HN / Reddit / X în această secțiune (scre
 <div class="roadmap">
   <div class="release now">
     <h3>v1.0 · Today</h3>
-    <p>Chat, agent runtime, memory, tools, skills.</p>
+    <p>Chat, agents, memory, tools, skills. Solo tier. Free forever.</p>
   </div>
   <div class="release">
     <h3>v1.1 · Nov 2026</h3>
-    <p>Multi-agent teams. Delegate tasks to specialists.</p>
+    <p>Personal agent teams — Researcher, Coder, Writer. Free.</p>
+  </div>
+  <div class="release paid">
+    <h3>v1.2 · Feb 2027 · FIRST PAID</h3>
+    <p><strong>Shared Projects</strong> — work on the same project with someone else. Each brings own AI. From $12/mo.</p>
   </div>
   <div class="release">
-    <h3>v1.2 · Jan 2027</h3>
-    <p>Voice mode. Talk to Cinderpaw hands-free.</p>
-  </div>
-  <div class="release">
-    <h3>v1.3 · Q3 2027</h3>
-    <p>Cross-user community. Share and remix agents.</p>
+    <h3>v1.5 · Q3 2027</h3>
+    <p>Public agent feed — opt-in, free forever.</p>
   </div>
 </div>
 
 <a href="/roadmap">Full roadmap →</a>
+<a href="/promises">Free-forever commitments →</a>
+```
+
+### **Section 6b — Cinderpaw for Teams waitlist (NEW SECTION per pivot)**
+
+```
+<section id="teams" class="teams-waitlist">
+  <h2>Cinderpaw for Teams — Coming February 2027</h2>
+
+  <p class="lead">
+    Work on shared projects with people around the world. Everyone
+    brings their own AI. Everyone stays local. Cinderpaw handles
+    the sync — you don't pay for tokens.
+  </p>
+
+  <div class="pricing-cards">
+    <div class="tier duo">
+      <h3>Duo</h3>
+      <p class="price">$12<span>/month flat</span></p>
+      <ul>
+        <li>2 users, 1 shared project</li>
+        <li>5 GB E2E encrypted storage</li>
+        <li>No account for peer</li>
+        <li>Community support</li>
+      </ul>
+    </div>
+    <div class="tier team recommended">
+      <h3>Team</h3>
+      <p class="price">$8<span>/user/month</span></p>
+      <ul>
+        <li>Unlimited users, unlimited projects</li>
+        <li>50 GB storage per team</li>
+        <li>SSO (Google, GitHub)</li>
+        <li>Audit log</li>
+        <li>Email support (48h SLA)</li>
+      </ul>
+    </div>
+    <div class="tier business">
+      <h3>Business</h3>
+      <p class="price">$16<span>/user/month</span></p>
+      <ul>
+        <li>Everything in Team, plus</li>
+        <li>SSO SAML</li>
+        <li>GDPR data residency (EU/US)</li>
+        <li>Priority support (24h SLA)</li>
+        <li>500 GB storage</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="waitlist-form">
+    <form action="https://app.loops.so/api/v1/lists/YOUR_LIST_ID" method="POST">
+      <label>Get early access + 50% off first 3 months</label>
+      <input type="email" name="email" placeholder="you@example.com" required />
+      <button type="submit">Join waitlist</button>
+    </form>
+    <p class="reassurance">
+      1 email at launch + occasional progress updates. No spam. Unsubscribe anytime.
+    </p>
+  </div>
+</section>
 ```
 
 ### **Section 7 — Community + community CTAs**
@@ -977,26 +1064,26 @@ License: BSL 1.1
 [GitHub] [Discord] [X]
 ```
 
-### **SEO / meta pentru cinderpaw.ai**
+### **SEO / meta pentru cinderpaw.dev**
 
 ```html
 <title>Cinderpaw — Local-first AI desktop app</title>
 <meta name="description" content="Cinderpaw runs LLMs on your machine. Open source, no subscription, no telemetry. Windows, macOS, Linux." />
 <meta property="og:title" content="Cinderpaw — Local-first AI desktop app" />
 <meta property="og:description" content="Chat with local models or cloud via your own API keys. No proxy, no middleman. v1.0 out now." />
-<meta property="og:image" content="https://cinderpaw.ai/og-image.png" />
+<meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
 ```
 
-### **feral.ai → cinderpaw.ai redirect (Nuxt/Cloudflare)**
+### **feral.ai → cinderpaw.dev redirect (Nuxt/Cloudflare)**
 
 Dacă `feral.ai` există separat, în Cloudflare Rules sau nuxt.config.ts:
 
 ```
-301 permanent redirect: feral.ai/*  →  cinderpaw.ai/$1
+301 permanent redirect: feral.ai/*  →  cinderpaw.dev/$1
 ```
 
-Preserve path + query string. Test manual după deploy: `curl -I https://feral.ai/download` trebuie să returneze `301` cu `Location: https://cinderpaw.ai/download`.
+Preserve path + query string. Test manual după deploy: `curl -I https://feral.ai/download` trebuie să returneze `301` cu `Location: https://cinderpaw.dev/download`.
 
 ---
 
@@ -1007,11 +1094,11 @@ Nu am CV-ul tău, dar checklist de căutare & înlocuire:
 - [ ] Titlu poziție: `Founder & Solo Developer, Feral` → `Founder & Solo Developer, Cinderpaw (formerly Feral)`
 - [ ] Descriere proiect: înlocuiește toate `Feral` cu `Cinderpaw`, dar păstrează UN loc unde spui `Cinderpaw (formerly Feral)` — asta preserve continuitatea pentru recruiters care ar fi văzut Feral pe X sau GitHub anterior
 - [ ] Link GitHub: `github.com/bloom500/feral` → `github.com/bloom500/cinderpaw`
-- [ ] Link website: `feral.ai` → `cinderpaw.ai`
+- [ ] Link website: `feral.ai` → `cinderpaw.dev`
 - [ ] X handle: dacă e listat, adaugă `@cinderpaw_ai` (produs) și păstrează `@BloomMedia66730` (personal)
 - [ ] Description bullet-uri: verifică că nu ai text de tip "Built Feral, a local-first AI app" — asta rescrie ca "Built Cinderpaw (formerly Feral)"
 - [ ] LinkedIn: același pattern, cu experience section update
-- [ ] Portfolio site (dacă separat de cinderpaw.ai): update lint-uri și thumbnails
+- [ ] Portfolio site (dacă separat de cinderpaw.dev): update lint-uri și thumbnails
 - [ ] Freelance profiles (Upwork, Toptal etc): dacă listezi produse, update
 
 **Regulă:** primele 60 zile post-rebrand, folosește `Cinderpaw (formerly Feral)` peste tot. După asta, drop-uiește paranteza.
@@ -1073,7 +1160,7 @@ Founder & solo developer, Cinderpaw (formerly Feral) — a local-first AI deskto
 **Eu am livrat aici:**
 - Timeline exact D-5 → D+7 cu ore locale RO
 - Copy real pentru: HN, X thread, 8 Reddit posts, PH, Indie Hackers, Discord announcement, Blog post 1 outline
-- Copy real landing page cinderpaw.ai pe secțiuni (paste-uibile în Vue components)
+- Copy real landing page cinderpaw.dev pe secțiuni (paste-uibile în Vue components)
 - Checklist CV + social media
 
 **Tu execuți:**
