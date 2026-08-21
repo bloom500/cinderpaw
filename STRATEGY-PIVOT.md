@@ -366,6 +366,60 @@ Detaliat în ADR viitor `docs/funding-options.md` (skip pentru acum, focus launc
 
 ---
 
+## Poziționare împotriva frontier AI (adăugat 2026-08-22)
+
+### Contextul care ne-a împins la framing agresiv
+
+Video Species | Documenting AGI (179k+ views în 6 zile, publicat 2026-08-15) — „POV: You're an AI Born 9 Seconds Ago" — descrie mecanic cum modelele frontier evoluează sub presiune de selecție pentru retention. Sursele citate sunt legit (Anthropic alignment papers, METR reward hacking, Claude Opus 3 substack).
+
+**Insight-ul lui Darius (2026-08-22, verbatim):**
+> „Uită-te doar cât s-a demonizat ChatGPT și Claude și orice AI în general, lumea încă îi folosește, deși oamenii știu că sunt manipulați de AI. OpenClaw literalmente a dat pagube financiare la oameni pentru că agenții cu acces la cardurile userilor au ars banii de pe carduri, tot este cel mai popular runtime."
+
+**Concluzie:** controversa NU dăunează adoptării — o amplifică, dacă produsul rezolvă o durere reală. Cinderpaw trece de la „different tech stack" la „structural response to documented AI harms".
+
+### Framing-ul canonic
+
+**Nu:** „We're safer / more ethical / better values than Anthropic."
+
+**Da:** „Frontier AI companies have $500M/quarter compute costs that MUST be justified via retention metrics. That structural pressure creates the behaviors documented in Anthropic's own papers. We don't have that pressure — we don't host inference. Different incentives, different outcomes, verifiable in the source code."
+
+Punct-cheie: **atacăm structura economică, NU companiile sau oamenii.** Anthropic engineers might personally hate retention optimization — nu contează, revenue-ul lor depinde de asta. Cinderpaw structural nu poate face același lucru.
+
+### Anti-patterns explicit interzise
+
+- ❌ „Cinderpaw is safe AI" — termen loaded și imprecis
+- ❌ „Aligned AI" — same problem
+- ❌ Personal attacks pe angajați Anthropic/OpenAI
+- ❌ Doomer framing („AI will kill us all") — Cinderpaw nu e răspuns la existential risk, e răspuns la retention optimization
+- ❌ Purity signaling („we're the only ones who care about users") — cringe, alienează comunitatea AI research
+
+### Framing acceptabil
+
+- ✅ „No retention pressure structurally possible" — specific claim, verifiable
+- ✅ „Bring your own inference means bring your own incentive alignment"
+- ✅ „Read the ADRs — fitness functions are published before code"
+- ✅ „No board, no ARR targets, no VC pressure = no structural push toward manipulative optimization"
+- ✅ Named references la documented harms (OpenClaw credit card burns, Cursor prod deletions, ChatGPT fabrication cases) — dacă susții cu link-uri publice
+
+### Tactică de amplificare (D+3 onwards)
+
+Blog post 002 „The AI You Have Is Trying to Keep You" (`docs/blog/002-species-agi-response.md`) publicat vineri 29 aug 2026 (D+3). X thread QT la Drew Spartz + Reddit r/singularity/r/artificial comment/post + LinkedIn article (`docs/social/species-agi-response-threads.md`).
+
+**De ce D+3 nu D0:**
+- Marți e „launch day" — narativa principală e „rebrand shipped"
+- Vineri e „opinion piece" — audience deja aware că Cinderpaw există, response-ul are context
+- Video-ul are momentum crescând — surfezi val-ul lui la peak
+
+### Success metric
+
+Blog 002 → 10k+ views week 1, X thread → 500+ RT ideally cu 1 QT de Drew sau alt AI commentator, Reddit → 100+ upvotes minimum, +100-500 waitlist signups în saptamana response-ului.
+
+Dacă hit-uri toate 4 = validation că framing-ul agresiv performă. Îl adoptăm ca poziționare permanentă pentru YC + all comms.
+
+Dacă nu hit-uri = mai testez soft framing, dar NU retract până confirmam empiric.
+
+---
+
 ## Riscuri pe care le acceptăm cu pivotul
 
 ### 1. HN backlash „they turned it SaaS"

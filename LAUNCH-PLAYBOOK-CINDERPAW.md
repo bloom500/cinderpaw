@@ -191,10 +191,24 @@ Absolut. Nu, serios. Restul lumii merge mai departe, ai 24h + 6 zile de post-lau
 - Twitter: retweet cele mai interesante user-uses / community mentions
 - Reddit r/LocalLLaMA follow-up comment în post-ul principal cu "Update — v1.0.1 shipped based on your feedback (fixes X, Y)"
 
-### **D+3 · Vineri 29 aug**
+### **D+3 · Vineri 29 aug — SPECIES AGI RESPONSE WAVE**
 
-- Weekly blog post 3 (patternul weekly începe de aici): "Week 1 numbers — downloads, community, what surprised us"
-- Newsletter draft (dacă ai email list) pentru cei care s-au înscris via landing
+**Ora ancoră:** publish 15:00 RO (8:00 AM ET, aceeași fereastră ca launch marți — HN cadence optim)
+
+- **15:00 RO** — Blog post 002 „The AI You Have Is Trying to Keep You" LIVE la blog.cinderpaw.dev/species-agi-response (draft complet în `docs/blog/002-species-agi-response.md`)
+- **15:30 RO** — X thread QT pe video Species AGI (7 tweets, draft în `docs/social/species-agi-response-threads.md`)
+- **17:30 RO** — Reddit r/singularity top-level comment pe thread-ul video-ului (verifică că există; dacă nu, aștepți — cineva îl va cross-posta cu 179k views)
+- **D+4 sâmbătă 30 aug** — Reddit r/artificial self-post separat DACĂ engagement pe r/singularity a fost solid (>50 upvotes comment)
+- **D+5 duminică 31 aug** — DM Drew Spartz (autor video) cu thank you + link blog. Nu ceri platforming, doar courtesy. Dacă QT, win.
+- **D+6 luni 1 sep** — LinkedIn article „The economic reason your AI is designed to keep you engaged" publicat 09:00 RO (peak US-East professional feed)
+
+**Framing rules (STRICT):**
+- ❌ NU „safer AI" / „ethical AI" / „aligned AI"
+- ✅ „No retention pressure structurally possible"
+- ✅ Attack incentive structure, NU companies sau angajați
+- ✅ Named references la documented harms (OpenClaw credit cards, Cursor prod deletions) susținute cu link-uri
+
+**Weekly blog post 3 (planificat original pentru D+3) se decalează la D+10 vineri 5 sep** — „Week 1 numbers" reține pattern-ul weekly cu shift 1 săptămână.
 
 ### **D+7 · Marți 2 sept**
 
