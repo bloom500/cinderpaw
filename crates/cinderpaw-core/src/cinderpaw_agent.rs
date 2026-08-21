@@ -464,7 +464,7 @@ pub async fn spawn(
     } else {
         discover_active_model(&base_url, &api_key)
             .await
-            .unwrap_or_else(|| "feral-local".to_string())
+            .unwrap_or_else(|| "cinderpaw-local".to_string())
     };
     cmd.env("FERAL_MODEL", &model_name);
     *runtime.active_agent_model.lock() = Some(model_name.clone());

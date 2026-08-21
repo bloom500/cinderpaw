@@ -254,9 +254,9 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
 
   // ---- Workspace / paths / state -----------------------------------------------------
   { name: "FERAL_HOME", type: "path", default: null,
-    description: "Override the agent's profile dir (default ~/.feral/, resolved via homedir() when unset).", security: false },
-  { name: "FERAL_DB", type: "path", default: "data/feral.db",
-    description: "Override the SQLite DB path. \":memory:\" is a sentinel and is not path-resolved.", security: false },
+    description: "Override the agent's profile dir (default ~/.cinderpaw/, resolved via homedir() when unset).", security: false },
+  { name: "FERAL_DB", type: "path", default: "data/cinderpaw.db",
+    description: "Override the SQLite DB path. \":memory:\" is a sentinel and is not path-resolved. Falls back to a pre-rename data/feral.db when that is the file this install actually has.", security: false },
   { name: "FERAL_AGENT_BASE_PROMPT", type: "string", default: null,
     description: "Universal operating manual injected into every model call; usually bundled.", security: false },
 

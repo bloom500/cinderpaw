@@ -18,8 +18,17 @@ import { dirname } from "node:path";
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
+export const SCHEMA_VERSION = "cinderpaw.tool-observation.v1" as const;
+
+/** What the same records were stamped with before the rename. The log is
+  * append-only and lives on the user's disk, so every line written until now
+  * carries this and would become invisible to `tool-health` if the reader
+  * only accepted the new one — the tool would report no history on a machine
+  * that has months of it. */
+export const LEGACY_SCHEMA_VERSION = "feral.tool-observation.v1" as const;
+
 export interface ToolObservation {
-  schemaVersion: "feral.tool-observation.v1";
+  schemaVersion: typeof SCHEMA_VERSION | typeof LEGACY_SCHEMA_VERSION;
   observationId: string;
   timestamp: string;        // ISO 8601
   sessionId: string;
@@ -62,7 +71,7 @@ export class ToolObservationLog {
     try {
       mkdirSync(dirname(this.#path), { recursive: true });
       const record: ToolObservation = {
-        schemaVersion: "feral.tool-observation.v1",
+        schemaVersion: SCHEMA_VERSION,
         observationId: `obs-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
         timestamp: new Date().toISOString(),
         ...obs,
@@ -154,7 +163,10 @@ export class ToolObservationLog {
         .map((line) => {
           try { return JSON.parse(line) as ToolObservation; } catch { return null; }
         })
-        .filter((r): r is ToolObservation => r?.schemaVersion === "feral.tool-observation.v1");
+        .filter(
+          (r): r is ToolObservation =>
+            r?.schemaVersion === SCHEMA_VERSION || r?.schemaVersion === LEGACY_SCHEMA_VERSION,
+        );
     } catch {
       return [];
     }

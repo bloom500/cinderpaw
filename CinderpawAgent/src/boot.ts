@@ -9,7 +9,7 @@
  */
 
 import { resolve, join, delimiter, sep } from "node:path";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
@@ -264,12 +264,27 @@ function isLoopbackUrl(url: string): boolean {
   }
 }
 
+/** `data/cinderpaw.db`, unless a pre-rename `data/feral.db` is the one that
+  * actually holds this install's history. Nothing is copied or moved: the file
+  * that exists is the file that gets opened. */
+function defaultDbPath(): string {
+  const current = "data/cinderpaw.db";
+  const legacy = "data/feral.db";
+  return !existsSync(resolve(current)) && existsSync(resolve(legacy)) ? legacy : current;
+}
+
 function loadConfig(): AppConfig {
   const env = process.env;
   const workspaceRoots = loadWorkspaceRoots(env);
 
   // ":memory:" is a SQLite sentinel and must not be path-resolved.
-  const dbEnv = env.FERAL_DB ?? "data/feral.db";
+  //
+  // The default file was renamed with the app. An install that predates the
+  // rename has its whole history in `data/feral.db`, and simply changing the
+  // default would start it on an empty database sitting next to a full one —
+  // which presents itself to the person as every conversation being gone. So
+  // the old file wins whenever it is there and the new one is not.
+  const dbEnv = env.FERAL_DB ?? defaultDbPath();
   const dbPath = dbEnv === ":memory:" ? ":memory:" : resolve(dbEnv);
 
   return {

@@ -7,7 +7,7 @@
 **Your local-first AI workspace. No subscription. No telemetry. No middleman.**
 
 <p align="center">
-  <a href="https://github.com/bloom500/feral/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/feral?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
+  <a href="https://github.com/bloom500/cinderpaw/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/cinderpaw?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
   <img src="https://img.shields.io/badge/license-BSL%201.1-green?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge" alt="Platform" />
   <img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=for-the-badge&logo=tauri" alt="Tauri" />
@@ -15,11 +15,11 @@
 
 <p align="center">
   <a href="https://x.com/BloomMedia66730"><img src="https://img.shields.io/badge/Follow-%40BloomMedia66730-black?style=for-the-badge&logo=x" alt="X/Twitter" /></a>
-  <a href="https://github.com/bloom500/feral"><img src="https://img.shields.io/badge/Source-GitHub-181717?style=for-the-badge&logo=github" alt="GitHub" /></a>
-  <a href="https://github.com/bloom500/feral/discussions"><img src="https://img.shields.io/badge/Community-Discussions-purple?style=for-the-badge&logo=github" alt="Discussions" /></a>
+  <a href="https://github.com/bloom500/cinderpaw"><img src="https://img.shields.io/badge/Source-GitHub-181717?style=for-the-badge&logo=github" alt="GitHub" /></a>
+  <a href="https://github.com/bloom500/cinderpaw/discussions"><img src="https://img.shields.io/badge/Community-Discussions-purple?style=for-the-badge&logo=github" alt="Discussions" /></a>
 </p>
 
-[Download](https://github.com/bloom500/feral/releases/latest) · [Report an issue](https://github.com/bloom500/feral/issues) · [Discussions](https://github.com/bloom500/feral/discussions) · Discord: *coming soon* · Website: *coming soon*
+[Download](https://github.com/bloom500/cinderpaw/releases/latest) · [Report an issue](https://github.com/bloom500/cinderpaw/issues) · [Discussions](https://github.com/bloom500/cinderpaw/discussions) · Discord: *coming soon* · Website: *coming soon*
 
 ---
 
@@ -34,7 +34,7 @@ Cinderpaw is a desktop app that runs AI on your machine. With local GGUF models,
 **One command, any Linux or macOS — the installer detects your system:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bloom500/feral/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash
 ```
 
 - **Linux with a display** → installs the latest desktop app (`.deb`/`.rpm`).
@@ -42,11 +42,11 @@ curl -fsSL https://raw.githubusercontent.com/bloom500/feral/main/scripts/install
 - **macOS** → downloads the right `.dmg` for your chip, installs to /Applications, clears the quarantine flag.
 
 **Windows 10/11** — download the latest `.exe` from
-[Releases](https://github.com/bloom500/feral/releases/latest) and run it. Or, in
+[Releases](https://github.com/bloom500/cinderpaw/releases/latest) and run it. Or, in
 PowerShell:
 
 ```powershell
-$a = (irm https://api.github.com/repos/bloom500/feral/releases/latest).assets | ? name -like '*x64-setup.exe' | select -First 1
+$a = (irm https://api.github.com/repos/bloom500/cinderpaw/releases/latest).assets | ? name -like '*x64-setup.exe' | select -First 1
 iwr $a.browser_download_url -OutFile cinderpaw-setup.exe; .\cinderpaw-setup.exe
 ```
 
@@ -54,7 +54,7 @@ iwr $a.browser_download_url -OutFile cinderpaw-setup.exe; .\cinderpaw-setup.exe
 
 Prefer to grab a file by hand? Every installer — Windows `.exe`, macOS `.dmg`,
 Linux `.deb`/`.rpm` — is on the
-[Releases page](https://github.com/bloom500/feral/releases/latest).
+[Releases page](https://github.com/bloom500/cinderpaw/releases/latest).
 
 ### Just the CLI (npm)
 
@@ -94,7 +94,7 @@ Requires [Rust](https://rustup.rs) + [Bun](https://bun.sh).
 # Build deps (Debian/Ubuntu). libdbus-1-dev is needed by the keyring crate:
 sudo apt install -y build-essential pkg-config libssl-dev libdbus-1-dev cmake git curl
 
-git clone --depth 1 https://github.com/bloom500/feral && cd feral
+git clone --depth 1 https://github.com/bloom500/cinderpaw && cd cinderpaw
 ( cd CinderpawAgent && bun install --frozen-lockfile && bun run build )
 # --no-default-features skips the local llama.cpp engine (the CLI's default
 # `inference` feature) — on a server you point the gateway at a cloud
@@ -162,13 +162,13 @@ Full details in the [CHANGELOG](CHANGELOG.md). Upgrading from **0.1.7 or older**
 
 ## Install
 
-Grab the latest installer from [Releases](https://github.com/bloom500/feral/releases/latest). No admin rights required. The built-in updater keeps you current after that.
+Grab the latest installer from [Releases](https://github.com/bloom500/cinderpaw/releases/latest). No admin rights required. The built-in updater keeps you current after that.
 
 | Platform | Installer | Status |
 |---|---|---|
 | **Windows 10/11** (x64) | `.msi` / `.exe` | 🟢 Stable — primary target |
-| **macOS** (Apple Silicon, Intel) | `.dmg` | 🟡 Beta — CI-built, lightly tested on real hardware. [Report issues](https://github.com/bloom500/feral/issues). |
-| **Linux** (Ubuntu/Debian) | `.deb` / `.rpm` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/feral/issues). |
+| **macOS** (Apple Silicon, Intel) | `.dmg` | 🟡 Beta — CI-built, lightly tested on real hardware. [Report issues](https://github.com/bloom500/cinderpaw/issues). |
+| **Linux** (Ubuntu/Debian) | `.deb` / `.rpm` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/cinderpaw/issues). |
 
 > **Windows first launch:** the installer isn't code-signed yet (certificates cost real money and Cinderpaw is free), so SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway**. The installer is built by public GitHub Actions CI from this repository — you can audit exactly what went into it.
 
@@ -178,7 +178,7 @@ Grab the latest installer from [Releases](https://github.com/bloom500/feral/rele
 > ```
 > Then open Cinderpaw normally. This removes the quarantine flag macOS puts on downloaded apps — nothing is actually damaged.
 
-> **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.feral.byok`. That's your saved API keys in the macOS Keychain — enter your Mac login password and click **Always Allow** (or just re-enter the key in Settings → Cloud Keys). This happens because Feral isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Feral ships with an Apple Developer certificate.
+> **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.feral.byok`. That's your saved API keys in the macOS Keychain — the name still says `feral` on purpose, because that is where your existing keys are, and renaming the Keychain item without moving them would lose them — enter your Mac login password and click **Always Allow** (or just re-enter the key in Settings → Cloud Keys). This happens because Cinderpaw isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Cinderpaw ships with an Apple Developer certificate.
 
 ### Hardware requirements
 
@@ -356,7 +356,7 @@ The philosophy is **capable by default, restrictable by choice**: the agent can 
 Every tool call is appended to `data/tool-observations.jsonl` (append-only JSONL, human-readable):
 
 ```json
-{"schemaVersion":"feral.tool-observation.v1","tool":"web_search","success":true,"durationMs":843,"error":null,"argsKeys":["query"],...}
+{"schemaVersion":"cinderpaw.tool-observation.v1","tool":"web_search","success":true,"durationMs":843,"error":null,"argsKeys":["query"],...}
 ```
 
 The `tool_health` tool aggregates these into a health report:
@@ -428,15 +428,15 @@ Hover the score bar on any model card to see the 4-component breakdown, memory u
 
 ## Environment variables (Agent sidecar)
 
-When launched by the desktop app, the sidecar is pointed at Feral's **own bundled llama.cpp engine** (the loopback API on port 11435, with the per-launch bearer token injected automatically) — **no Ollama required**. The `CINDERPAW_PROVIDER` / `CINDERPAW_BASE_URL` defaults below apply only when running the sidecar standalone.
+When launched by the desktop app, the sidecar is pointed at Cinderpaw's **own bundled llama.cpp engine** (the loopback API on port 11435, with the per-launch bearer token injected automatically) — **no Ollama required**. The `CINDERPAW_PROVIDER` / `CINDERPAW_BASE_URL` defaults below apply only when running the sidecar standalone.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CINDERPAW_DB` | `data/feral.db` | SQLite path (`:memory:` for ephemeral) |
+| `CINDERPAW_DB` | `data/cinderpaw.db` | SQLite path (`:memory:` for ephemeral) |
 | `CINDERPAW_WORKSPACE` | cwd + home | Path-list of filesystem roots. Unset = launch dir + your home dir; set it to RESTRICT |
 | `CINDERPAW_FS_DENY` | — | Extra paths file tools may never touch (on top of the built-in `~/.cinderpaw` + `~/.ssh` deny wall) |
-| `CINDERPAW_MODEL` | `qwen2.5:7b` | Model name (overridden to `feral-local` by the app) |
-| `CINDERPAW_BASE_URL` | `http://127.0.0.1:11435` | Inference endpoint — Feral's bundled llama.cpp engine |
+| `CINDERPAW_MODEL` | `qwen2.5:7b` | Model name (overridden to `cinderpaw-local` by the app) |
+| `CINDERPAW_BASE_URL` | `http://127.0.0.1:11435` | Inference endpoint — Cinderpaw's bundled llama.cpp engine |
 | `CINDERPAW_PROVIDER` | `openai_compatible` | Provider (`openai_compatible` or `ollama` for a legacy Ollama setup) |
 | `CINDERPAW_FALLBACK_BASE_URL` | `http://localhost:11434` | Fallback endpoint if the primary is unreachable (e.g. a local Ollama) |
 | `CINDERPAW_API_KEY` | — | Bearer token for the inference endpoint (app injects the local API token) |
@@ -500,8 +500,8 @@ cd CinderpawAgent && bun install && bun test    # 2400+ tests, ~60s
 That's the fastest loop in the repo and where most of the interesting work is. If you want real impact, the biggest open gap is **end-to-end tests against a live provider** — the entire suite currently mocks `fetch`, and that single gap is the main limit on Cinderpaw's release maturity.
 
 - Deep dive: [Contributor guide](docs/CONTRIBUTOR_GUIDE.md) (IPC protocols, test matrix, build & release flow)
-- Open a [Discussion](https://github.com/bloom500/feral/discussions) for ideas and questions
-- Check [open issues](https://github.com/bloom500/feral/issues) for something to pick up
+- Open a [Discussion](https://github.com/bloom500/cinderpaw/discussions) for ideas and questions
+- Check [open issues](https://github.com/bloom500/cinderpaw/issues) for something to pick up
 
 Note that Cinderpaw is **source-available under BSL 1.1, not OSI open source** — free for individuals and small orgs, converting to Apache 2.0 four years after each release. Details in [Licence](#license) below; we'd rather you know upfront.
 
@@ -526,4 +526,4 @@ This protects a small independent project from being repackaged by large compani
   <em>Built with 🖤🧡 by <a href="https://github.com/bloom500">Bloom Lab</a></em>
 </p>
 
-*Cinderpaw does not phone home, does not collect telemetry, and has never once asked you to "sign up to unlock the full experience." That would be very un-feral of it.*
+*Cinderpaw does not phone home, does not collect telemetry, and has never once asked you to "sign up to unlock the full experience." That would be very un-Cinderpaw of it.*

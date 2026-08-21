@@ -2732,16 +2732,16 @@ mod tests {
     fn pick_user_model_falls_back_to_the_users_selection() {
         let models = [model("qwen-9b"), model("llama-8b")];
         // Sidecar sent a name we don't have on disk; the user's saved pick wins.
-        let pick = pick_user_model(&models, "feral-local", Some("llama-8b"));
+        let pick = pick_user_model(&models, "cinderpaw-local", Some("llama-8b"));
         assert_eq!(pick.map(|m| m.id.as_str()), Some("llama-8b"));
     }
 
     #[test]
     fn pick_user_model_never_guesses_the_first_model_on_disk() {
         let models = [model("qwen-9b"), model("llama-8b")];
-        assert!(pick_user_model(&models, "feral-local", None).is_none());
+        assert!(pick_user_model(&models, "cinderpaw-local", None).is_none());
         // A stale selection pointing at a deleted model is not a licence either.
-        assert!(pick_user_model(&models, "feral-local", Some("deleted-model")).is_none());
+        assert!(pick_user_model(&models, "cinderpaw-local", Some("deleted-model")).is_none());
     }
 
     #[test]

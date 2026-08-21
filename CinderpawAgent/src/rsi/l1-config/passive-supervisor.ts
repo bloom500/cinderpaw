@@ -45,7 +45,14 @@ export interface PassiveDecision {
 /** Placeholder model id set by the host when no real model resolved
  *  from /v1/models (see cinderpaw_agent.rs). Spinning the engine against it
  *  produces empty responses. */
-export const PLACEHOLDER_MODEL = "feral-local";
+export const PLACEHOLDER_MODEL = "cinderpaw-local";
+
+/** The same stand-in under its pre-rename name. A sidecar can be rebuilt on its
+  * own (that is what code-RSI does), so it can find itself running beside a host
+  * that still sends the old id — and failing to recognise the placeholder is not
+  * cosmetic: it makes the agent announce itself ready with a model that answers
+  * nothing. */
+export const LEGACY_PLACEHOLDER_MODEL = "feral-local";
 
 /**
  * Is this model id a stand-in rather than something that can answer?
@@ -58,7 +65,7 @@ export const PLACEHOLDER_MODEL = "feral-local";
  */
 export function isPlaceholderModel(model: string | undefined): boolean {
   const m = (model ?? "").trim();
-  return m === "" || m === PLACEHOLDER_MODEL;
+  return m === "" || m === PLACEHOLDER_MODEL || m === LEGACY_PLACEHOLDER_MODEL;
 }
 
 /** Decide whether the passive engine should autostart from the
