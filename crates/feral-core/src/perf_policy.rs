@@ -53,7 +53,17 @@ mod defaults {
     pub(super) const LOCAL_TOTAL_DEADLINE_MS: u64 = 300_000;
     pub(super) const LOCAL_STALL_MS: u64 = 45_000;
 
-    pub(super) const CLOUD_TTFT_DEADLINE_MS: u64 = 30_000;
+    // CLOUD_TTFT bumped 30_000 → 300_000 (5 min) on 2026-08-22 per user
+    // report (Darius): reasoning models on OpenRouter and slow-first-token
+    // cloud paths were killed before responding on complex prompts
+    // (deep_research, multi-tool agent turns, RSI evals). TTFT still scales
+    // per-prompt-token via PER_TOKEN_PREFILL_MS and is capped at
+    // CLOUD_TOTAL_DEADLINE_MS below — small prompts still give up fast if
+    // the endpoint is dead; this only extends the ceiling for prompts that
+    // legitimately take a while to think. Kept in sync with the TS +
+    // frontend copies per the three-layers-agree contract at the top of
+    // this file.
+    pub(super) const CLOUD_TTFT_DEADLINE_MS: u64 = 300_000;
     pub(super) const CLOUD_TOTAL_DEADLINE_MS: u64 = 120_000;
     pub(super) const CLOUD_STALL_MS: u64 = 30_000;
 
@@ -236,11 +246,26 @@ mod tests {
     }
 
     #[test]
-    fn cloud_is_tighter_than_local() {
+    fn cloud_and_local_deadlines_diverge_per_use_case() {
+        // Historically this test asserted `cloud < local` on every dimension,
+        // matching the pre-2026-08-22 defaults where cloud TTFT was 30s
+        // (typical chat completion) and local TTFT was 90s (slow prefill on
+        // consumer hardware). After the TTFT bump (user report: reasoning
+        // models on OpenRouter get killed mid-thought), cloud TTFT is now
+        // LARGER than local — reasoning models can take minutes to produce
+        // their first token via a cloud provider even when local models
+        // would already have started streaming. The other dimensions still
+        // follow the original relationship: cloud has a shorter total-budget
+        // (users hit rate limits or fall back faster) and a tighter stall
+        // window (a wedged cloud endpoint should be given up on quickly —
+        // the network side of "no bytes for 30s" is a dead connection, not
+        // slow-but-working).
         let local = perf_policy_with_env(false, &empty_env());
         let cloud = perf_policy_with_env(true, &empty_env());
-        assert!(cloud.ttft_deadline_ms < local.ttft_deadline_ms);
+        // total: cloud shorter (users would rather fail fast + retry than
+        // sit through a 5-min hung completion on someone else's servers).
         assert!(cloud.total_deadline_ms < local.total_deadline_ms);
+        // stall: cloud tighter or equal (network stalls are dead network).
         assert!(cloud.stall_ms <= local.stall_ms);
     }
 

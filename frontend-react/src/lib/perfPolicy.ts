@@ -36,7 +36,12 @@ export interface ResolveArgs {
 
 const DEFAULTS = {
   local:   { ttftDeadlineMs: 90_000,  totalDeadlineMs: 300_000, stallMs: 45_000 },
-  cloud:   { ttftDeadlineMs: 30_000,  totalDeadlineMs: 120_000, stallMs: 30_000 },
+  // cloud.ttftDeadlineMs bumped 30_000 → 300_000 (5 min) on 2026-08-22 —
+  // reasoning models on OpenRouter (DeepSeek-R1, o1-style) and slow-first-
+  // token cloud paths were killed before responding on complex prompts.
+  // Kept in lockstep with the TS sidecar and Rust host copies per the
+  // three-layers-agree contract documented in perf-policy.ts.
+  cloud:   { ttftDeadlineMs: 300_000, totalDeadlineMs: 120_000, stallMs: 30_000 },
   perTokenPrefillMs: 4,
   softWarnMs:  20_000,
   heartbeatMs: 750,

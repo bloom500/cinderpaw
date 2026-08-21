@@ -27,7 +27,17 @@ const DEFAULTS = {
     stallMs: 45_000,
   },
   cloud: {
-    ttftDeadlineMs: 30_000,
+    // Bumped 30_000 → 300_000 (5 min) on 2026-08-22 per user report (Darius):
+    // reasoning models on OpenRouter and slow-first-token cloud paths were
+    // killed before they could respond on complex prompts (deep_research,
+    // multi-tool agent turns, RSI evals). 30s was calibrated for classic
+    // chat completions and no longer matches the mix of workloads the sidecar
+    // actually runs. TTFT still scales per-prompt-token
+    // (perTokenPrefillMs * promptTokens) and is capped at totalDeadlineMs
+    // below, so a small prompt still gives up fast if the endpoint is truly
+    // dead — this only extends the ceiling for prompts that legitimately
+    // take a while to think.
+    ttftDeadlineMs: 300_000,
     totalDeadlineMs: 120_000,
     stallMs: 30_000,
   },

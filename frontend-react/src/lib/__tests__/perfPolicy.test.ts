@@ -23,10 +23,19 @@ describe('resolvePerfPolicy — defaults', () => {
     expect(p.stallMs).toBe(__TEST_DEFAULTS.cloud.stallMs);
   });
 
-  it('cloud deadlines are tighter than local', () => {
+  it('cloud deadlines diverge from local per use-case', () => {
+    // Historically asserted `cloud < local` on every dimension, matching the
+    // pre-2026-08-22 defaults where cloud TTFT was 30s (typical chat
+    // completion) and local TTFT was 90s (slow prefill on consumer hardware).
+    // After the TTFT bump (user report: reasoning models on OpenRouter get
+    // killed mid-thought), cloud TTFT is now LARGER than local — reasoning
+    // models can take minutes to produce the first token via cloud even
+    // when local models would already have started streaming. Other
+    // dimensions still follow the original relationship. See the paired Rust
+    // test `cloud_and_local_deadlines_diverge_per_use_case` in
+    // `crates/feral-core/src/perf_policy.rs` for the same explanation.
     const local = resolvePerfPolicy({ isCloud: false, env: EMPTY_ENV });
     const cloud = resolvePerfPolicy({ isCloud: true, env: EMPTY_ENV });
-    expect(cloud.ttftDeadlineMs).toBeLessThan(local.ttftDeadlineMs);
     expect(cloud.totalDeadlineMs).toBeLessThan(local.totalDeadlineMs);
     expect(cloud.stallMs).toBeLessThanOrEqual(local.stallMs);
   });
