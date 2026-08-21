@@ -47,12 +47,12 @@ export function AboutTab() {
         </Button>
 
         {status === 'up-to-date' && (
-          <span className="flex items-center gap-1 text-xs text-emerald-400">
+          <span className="flex items-center gap-1 text-xs text-success">
             <CheckCircle size={13} /> You're on the latest version
           </span>
         )}
         {status === 'error' && (
-          <span className="flex items-center gap-1 text-xs text-rose-400">
+          <span className="flex items-center gap-1 text-xs text-error">
             <AlertCircle size={13} /> {error}
           </span>
         )}
@@ -63,7 +63,7 @@ export function AboutTab() {
           href="https://github.com/bloom500/feral"
           target="_blank"
           rel="noreferrer"
-          className="block text-sm text-blue-400 hover:underline"
+          className="block text-sm text-info hover:underline"
         >
           View on GitHub →
         </a>
@@ -71,7 +71,7 @@ export function AboutTab() {
           href="https://github.com/bloom500/feral/issues"
           target="_blank"
           rel="noreferrer"
-          className="block text-sm text-blue-400 hover:underline"
+          className="block text-sm text-info hover:underline"
         >
           Report an issue →
         </a>

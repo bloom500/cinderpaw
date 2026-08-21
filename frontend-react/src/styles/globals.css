@@ -228,10 +228,38 @@
 :root[data-theme="dark"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
   --bg-primary:      #100E09;
-  --bg-surface:      #1C1916;
-  --bg-elevated:     #252119;
-  --bg-hover:        #2C2820;
-  --bg-active:       #353027;
+  /* Translucent, because these two ARE the glass. Every card, panel, popover
+     and menu in the app is painted with one of them, so making the pane
+     see-through and leaving these opaque produced exactly what we had: a glass
+     window with a solid app stamped on it. Alpha here, once, reaches all ~120
+     call sites without touching a component.
+
+     --bg-primary stays a solid hex on purpose: it is also --scene-base (the
+     opaque ground a transparent window must never be without) and
+     --primary-foreground (text on brand buttons). A colour doing three jobs
+     only gets translucency in the one where it means something. */
+  /* Thin, and they can afford to be: these sheets lie on `--scene-surface`,
+     which is now a stable ground rather than a window onto the wallpaper. The
+     measured minimum at which text on them still clears every threshold is
+     0.05 — so these values are chosen for how the material LOOKS, not forced
+     by legibility, which is the first time that has been true here.
+
+     They went the wrong way once: with a see-through pane underneath, the only
+     way to make text readable was to thicken every panel, and the app turned
+     into opaque boxes floating on glass. Ground first, then sheets. */
+  /* The one surface in the app that is nearly solid, and it has to be.
+     Every other sheet lies on the pane, with nothing but scenery behind it.
+     The composer lies on the TRANSCRIPT — it is positioned over the scroll
+     area — so whatever alpha it has, the conversation slides underneath it
+     and reads through. At 0.34 that was a second column of text moving
+     behind the field you are typing in. 0.94 keeps the material (there is
+     still a blur, and the rim, and the desktop's colour reaches it) while
+     leaving nothing legible able to pass through. */
+  --surface-typing:  rgba(24, 21, 17, 0.94);
+  --bg-surface:      rgba(28, 25, 22, 0.24);
+  --bg-elevated:     rgba(37, 33, 25, 0.34);
+  --bg-hover:        rgba(44, 40, 32, 0.46);
+  --bg-active:       rgba(53, 48, 39, 0.58);
   --border-subtle:   #2C2820;
   --border-default:  #3A342B;
   --text-primary:    #F0E6D3;
@@ -242,19 +270,60 @@
      rail's "Nothing yet" line was set in — a sentence written to explain an
      empty screen, itself too faint to read. Both step up; the hierarchy between
      the four is unchanged. */
-  --text-muted:      #9A8B75;
-  --text-disabled:   #6B6053;
+  /* White, and the three tiers below it are white too — only dimmer.
+     Requested directly, and the glass is why it is also correct: warm
+     mid-tones like the old #9A8B75 were drawn for a flat near-black page, and
+     on a pane that is partly somebody's wallpaper they are the first thing to
+     disappear. A neutral white scale keeps every tier far from whatever is
+     behind it, in both directions.
+
+     Hierarchy survives as luminance rather than as hue: 100 / 88 / 74 / 68
+     percent of white. Measured worst case over any wallpaper, on the bare
+     pane: 10.4, 7.9, 5.5 and 4.6. Every tier clears AA — including the two
+     that used to be held to 3:1 only because a warm brown could not do
+     better on this ground. */
+  --text-primary:    #FFFFFF;
+  --text-secondary:  #E0E0E0;
+  --text-muted:      #BDBDBD;
+  --text-disabled:   #ADADAD;
   --brand:           #C4843A;
   --brand-hover:     #D4944A;
   --brand-muted:     #6B4820;
-  /* #C0472A measured 3.84:1 against this background — below AA, and it is the
-     colour every failure message is written in. A person who cannot read the
-     error is left with a screen that simply stopped working. #D4553A is the
-     same hue at 4.74:1. */
   --brand-foreground: #100E09;
   --error:           #D4553A;
   --success:         #6A9E5A;
   --warning:         #D4A03A;
+  --info:            #5B8DEF;
+
+  /* ── The same five colours, as TEXT ──────────────────────────────────
+     A colour that fills a shape and a colour that spells a word are not the
+     same colour, and pretending otherwise is what made the accents on this
+     glass unreadable.
+
+     A fill brings its own ground: `bg-error` is a solid rectangle, and the
+     only thing that has to clear a threshold is the label ON it. A word
+     written in `text-error` has no ground of its own — it sits on the pane,
+     and through the pane on the user's wallpaper. Held to the same
+     worst-case rule as the four text tiers (see the contrast block in
+     `src/test/glass.test.ts`), the fill values measure 2.55 (error), 3.28
+     (success), 3.31 (brand) and 4.39 (warning) over a pale desktop. Error
+     text — the 41 places the app explains a failure — was the worst of them.
+
+     So the roles split. `--brand` and friends stay exactly as they were and
+     keep every `bg-`, `border-` and `ring-` in the app looking the same;
+     these five are what `text-brand`, `text-error`, `text-success`,
+     `text-warning` and `text-info` resolve to (wired in
+     `tailwind.config.ts` under `textColor`, so not one call site changed).
+
+     Same hue, raised until the worst case clears 4.5:1, with as much chroma
+     kept as that allows — solved, not picked. Red is the one that visibly
+     moves: at the luminance AA demands on this ground, a red IS a coral.
+     That is the trade, and an error nobody can read is the alternative. */
+  --brand-text:      #EC9E44;
+  --error-text:      #FD937D;
+  --success-text:    #7DC068;
+  --warning-text:    #FBAD14;
+  --info-text:       #82B2FF;
 
   /* ── shadcn aliases ─────────────────────────────────────────────────── */
   --background:           var(--bg-primary);
@@ -282,20 +351,26 @@
 :root[data-theme="light"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
   --bg-primary:      #FFF5EE;
-  --bg-surface:      #F5EBE0;
-  --bg-elevated:     #FFFFFF;
-  --bg-hover:        #EBE0D2;
-  --bg-active:       #E0D0C0;
+  /* Higher alpha than dark on purpose. Dark text over a blurred desktop loses
+     contrast far faster than light text does — a bright wallpaper behind a 55%
+     ivory panel puts near-black type on near-white ground with a photograph
+     moving underneath it. */
+  --surface-typing:  rgba(252, 248, 243, 0.95);
+  --bg-surface:      rgba(245, 235, 224, 0.34);
+  --bg-elevated:     rgba(255, 255, 255, 0.46);
+  --bg-hover:        rgba(235, 224, 210, 0.58);
+  --bg-active:       rgba(224, 208, 192, 0.70);
   --border-subtle:   #E8DCC9;
   --border-default:  #D4C4B0;
   --text-primary:    #1C1610;
   --text-secondary:  #4A3F32;
-  /* Both of these measured just under AA on #FFF5EE — 4.25:1 and 4.34:1 — and
-     both carry small text: timestamps, token counts, and every link written in
-     the brand colour. "Almost readable" at 11px is not readable. Now 5.65:1
-     and 5.08:1, same hues. */
-  --text-muted:      #7A5C4A;
-  --text-disabled:   #C0B0A0;
+  /* Both of these carry small text: timestamps, token counts, empty-state
+     sentences. They were tuned on the flat #FFF5EE page, where they measured
+     5.65:1 and 5.08:1 — but the page is glass now, and over a DARK wallpaper
+     the pale panel darkens under them: 3.98:1 and 3.01:1. Same hues, stepped
+     down until the worst case clears AA like the two tiers above them. */
+  --text-muted:      #6C5141;
+  --text-disabled:   #5E5649;
   --brand:           #925E22;
   --brand-foreground: #FFFFFF;
   --brand-hover:     #8B5820;
@@ -303,6 +378,17 @@
   --error:           #A03820;
   --success:         #5A8A4A;
   --warning:         #B8862A;
+  --info:            #1A5FD0;
+
+  /* Text roles — see the dark block for why these are separate colours from
+     the fills above. Light theme fails in the mirror-image way: its accents
+     are dark on a pale panel, and a DARK wallpaper behind that panel is what
+     erodes them (success 2.66:1, warning 2.13:1). Same hues, deepened. */
+  --brand-text:      #834805;
+  --error-text:      #A82000;
+  --success-text:    #346225;
+  --warning-text:    #774E04;
+  --info-text:       #004CC9;
 
   /* ── shadcn aliases ─────────────────────────────────────────────────── */
   --background:           var(--bg-primary);
@@ -335,9 +421,13 @@
  * pane over it, and the scene never remounts across route changes.
  *
  * Naming: `--scene-*` is the background environment (base, lights, grain,
- * vignette); `--glass-*` is the translucent material hierarchy later page
- * subprojects adopt instead of hard-coding rgba values. `--brand` and the
- * shadcn `--accent` contract above are untouched.
+ * vignette). The translucent material itself lives on --bg-surface /
+ * --bg-elevated in the palette above, so every existing `bg-bg-surface` in the
+ * app is already made of it. (A parallel `--glass-1/2/3` hierarchy used to be
+ * declared here for "later subprojects" to adopt; nothing ever did, and the
+ * surfaces it described were these. Deleted rather than kept as a second
+ * vocabulary for the same material.) `--brand` and the shadcn `--accent`
+ * contract above are untouched.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 /* Loading hero: wordmark size for the pre-paint startup surface (slice 0).
@@ -363,15 +453,13 @@
   --scene-grain-opacity: 0.05;
   --scene-vignette:      rgba(8, 6, 4, var(--scene-vignette-strength));
   --scene-vignette-strength: 0.5;
-  /* Glass surface levels (1 = nearest the page base). */
-  --glass-1:             rgba(28, 25, 22, 0.62);
-  --glass-2:             rgba(37, 33, 25, 0.55);
-  --glass-3:             rgba(44, 40, 32, 0.50);
-  /* Glass border, upper-edge reflection, drop shadow and amber bloom. */
-  --glass-border:        rgba(240, 230, 211, 0.10);
-  --glass-edge:          rgba(255, 250, 240, 0.14);
-  --glass-shadow:        0 18px 44px rgba(0, 0, 0, 0.38);
-  --glass-bloom:         0 0 0 1px rgba(196, 132, 58, 0.09), 0 10px 36px rgba(196, 132, 58, 0.12);
+  /* The rim: border, the lit top edge, the shaded bottom one, and the bright
+     gleam the two gradient edges are drawn in. Close to the reference recipe's
+     white values, because on a dark pane white IS the light. */
+  --rim-border: rgba(255, 255, 255, 0.18);
+  --rim-light:  rgba(255, 255, 255, 0.30);
+  --rim-shade:  rgba(0, 0, 0, 0.22);
+  --rim-gleam:  rgba(255, 255, 255, 0.65);
 }
 
 :root[data-theme="light"] {
@@ -389,14 +477,13 @@
   --scene-grain-opacity: 0.04;
   --scene-vignette:      rgba(92, 64, 36, var(--scene-vignette-strength));
   --scene-vignette-strength: 0.3;
-  /* Milky glass: enough opacity to keep body text readable. */
-  --glass-1:             rgba(255, 245, 238, 0.72);
-  --glass-2:             rgba(255, 250, 244, 0.60);
-  --glass-3:             rgba(255, 252, 248, 0.52);
-  --glass-border:        rgba(28, 22, 16, 0.12);
-  --glass-edge:          rgba(255, 255, 255, 0.85);
-  --glass-shadow:        0 18px 44px rgba(122, 92, 62, 0.20);
-  --glass-bloom:         0 0 0 1px rgba(160, 104, 40, 0.10), 0 10px 32px rgba(160, 104, 40, 0.12);
+  /* Light mode keeps the white gleam — a highlight is a highlight — but the
+     border has to be dark. A white border on a near-white pane is no border,
+     which is how a light-mode panel ends up with no edge at all. */
+  --rim-border: rgba(28, 22, 16, 0.14);
+  --rim-light:  rgba(255, 255, 255, 0.80);
+  --rim-shade:  rgba(122, 92, 62, 0.14);
+  --rim-gleam:  rgba(255, 255, 255, 0.95);
 }
 
 /* ── The scene ────────────────────────────────────────────────────────────
@@ -436,6 +523,83 @@ body {
    of it, which is what the first attempt did, meant that if the class never
    arrived nothing changed at all and the app looked untouched. */
 html.has-window-effect body { background-color: transparent; }
+
+/* ── …and the scene actually gets out of the way ───────────────────────────
+   The comment above has said this for three commits. The CSS only ever did
+   half of it: `background-color` went transparent, and the two full-screen
+   pseudo-element layers below — three overscanned radial lights and the grain
+   — kept painting at full strength on top of the now-see-through window.
+
+   That is what a transparent window with our own fog over it looks like:
+   amber key + blue-violet counter + purple fill, overlapping across the whole
+   canvas, averaging out to a flat mauve field. It reads as "the glass has a
+   colour" rather than as "the desktop is behind the glass", and no amount of
+   lowering the pane's alpha fixes it, because the alpha was never what was in
+   the way.
+
+   The lights are not deleted — a trace of them is what keeps the window ours
+   rather than a plain sheet of frost, and on every machine WITHOUT a real
+   window effect they are still the entire visual environment. They are simply
+   turned down to a hint once there is something real behind them. */
+html.has-window-effect body::before { opacity: 0.16; }
+/* The grain carries its own opacity from a token (0.02, not 1), so this halves
+   it rather than setting it — writing a flat number here would have turned a
+   barely-there texture into a twenty-times-stronger one, which is the sort of
+   thing that looks like a rendering bug rather than a choice. */
+html.has-window-effect body::after  { opacity: calc(var(--scene-grain-opacity) * 0.5); }
+
+/* ── Bounding the wallpaper instead of covering it ─────────────────────────
+   The thing that was wrong for four rounds: we kept reaching for a flat tint.
+   A tint has to be nearly opaque before text is safe, because the ground it is
+   protecting against — the user's wallpaper — can be pure white. And an opaque
+   tint does not merely hide the desktop, it FLATTENS it: every tone behind the
+   window converges on one colour, which is why the app kept looking like a
+   sheet of paint rather than like glass.
+
+   `brightness()` in the backdrop filter does the same job multiplicatively.
+   Pure white behind the window arrives as 30% of pure white; a dark wallpaper
+   stays dark. The luminance is bounded from ABOVE — which is the only thing
+   contrast actually needs — while every gradation in between survives, scaled.
+   That is why the reference shows the ocean and the cliff through the window,
+   just much darker: it is the whole picture, turned down, not a lid over it.
+
+   The numbers are solved rather than picked. Search over contrast/brightness/
+   tint alpha, maximising how much of the desktop survives, subject to all four
+   text tiers clearing their thresholds against BOTH a white and a black
+   wallpaper. Dark lands at brightness(0.30) with a 0.20 tint: the backdrop is
+   confined to rgb(3,3,2)…rgb(64,64,63), a visible range of 61 levels — wider
+   than the flat 0.80 tint it replaces, and with a far lower floor, which is
+   where the sense of depth comes from.
+
+   Light cannot use brightness alone: multiplying a black wallpaper by anything
+   leaves it black, and dark text needs a bright ground. `contrast(0.35)` pulls
+   both ends toward the middle first — lifting the floor — and brightness(2.5)
+   carries the result up into the pale band the theme is drawn against.
+
+   `saturate()` stays at or below 1 in both. Desaturating moves a colour toward
+   its own luminance, so it can never push the backdrop brighter than the
+   solver assumed; a saturate above 1 would quietly invalidate every number
+   above. */
+html.has-window-effect[data-theme="dark"] .app-pane {
+  backdrop-filter: saturate(0.85) brightness(0.30);
+  -webkit-backdrop-filter: saturate(0.85) brightness(0.30);
+  backdrop-filter: saturate(0.85) brightness(0.30) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: saturate(0.85) brightness(0.30) url(#liquid-glass-soft);
+}
+html.has-window-effect[data-theme="light"] .app-pane {
+  backdrop-filter: saturate(0.6) contrast(0.35) brightness(2.5);
+  -webkit-backdrop-filter: saturate(0.6) contrast(0.35) brightness(2.5);
+  backdrop-filter: saturate(0.6) contrast(0.35) brightness(2.5) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: saturate(0.6) contrast(0.35) brightness(2.5) url(#liquid-glass-soft);
+}
+
+/* The pane's own tint drops to a whisper, because the filter above is now
+   doing the work the tint used to do badly. Written with the theme attribute
+   in the selector so it beats the palette blocks on specificity rather than on
+   where it happens to sit in the file — the palette is declared both above and
+   below this point, and source order alone would pick the wrong one. */
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(16, 14, 9, 0.20); }
+html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238, 0.05); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —
    both confirmed in the log at startup. So whether you can SEE through is
@@ -455,9 +619,22 @@ html.has-window-effect body { background-color: transparent; }
   --scene-fill-light:    rgba(160, 84, 196, 0.12);
   --scene-grain-opacity: 0.02;
   --scene-vignette-strength: 0.16;
-  /* The pane text sits on. Thin enough to read the desktop through, dark
-     enough to read words on — the one number that decides both. */
-  --scene-surface:       rgba(16, 14, 9, 0.16);
+  /* The pane text sits on, and the number this whole design turns on.
+     It was 0.16, and at 0.16 the app was beautiful and unusable: Settings,
+     the Models list and the greeting all paint text straight onto this, and
+     over a pale wallpaper that measured 1.15:1 for body copy — the same
+     colour, twice.
+
+     0.80 is the measured floor at which all four text tiers clear their
+     thresholds over ANY wallpaper. It is not a taste decision and it is not
+     negotiable downward while text sits here.
+
+     Spending the opacity HERE rather than on the panels is what buys the
+     glass back: with a stable ground underneath, every sheet above can be
+     thin (see --bg-surface). The desktop still comes through — as blur, as
+     colour, as the tint the OS lays under all of it — it just no longer
+     decides whether words are readable. */
+  --scene-surface:       rgba(16, 14, 9, 0.80);
 }
 :root[data-theme="light"] {
   --scene-key-light:     rgba(240, 168, 78, 0.20);
@@ -465,7 +642,9 @@ html.has-window-effect body { background-color: transparent; }
   --scene-fill-light:    rgba(220, 140, 196, 0.14);
   --scene-grain-opacity: 0.015;
   --scene-vignette-strength: 0.10;
-  --scene-surface:       rgba(255, 245, 238, 0.22);
+  /* 0.88, not dark's 0.80: light-mode text is dark, and a dark wallpaper
+     behind a pale pane erodes it faster. Same measured rule. */
+  --scene-surface:       rgba(255, 245, 238, 0.88);
 }
 /* ── The liquid-glass material ─────────────────────────────────────────────
    One class, so every pane is made of the same thing.
@@ -485,24 +664,81 @@ html.has-window-effect body { background-color: transparent; }
   backdrop-filter: blur(30px) saturate(150%) brightness(1.06) url(#liquid-glass);
   -webkit-backdrop-filter: blur(30px) saturate(150%) brightness(1.06) url(#liquid-glass);
 }
-/* Specular rim. Real glass catches light along its top edge and goes dark at
-   the bottom; a uniform 1px border reads as a drawn rectangle instead. */
+/* ── Specular rim ──────────────────────────────────────────────────────────
+   Real glass catches light along its top edge and goes dark at the bottom; a
+   uniform 1px border reads as a drawn rectangle instead.
+
+   The two gradient edges come from the reference recipe: a bright hairline
+   fading out along the TOP, and a second one running down the LEFT. That pair
+   is what makes a rectangle read as a cut sheet of glass with a light source
+   above and to the left, rather than as a box with a border. They are
+   pseudo-elements rather than more box-shadows because a shadow cannot fade
+   along its own length.
+
+   The reference draws them as `::before` / `::after`, which needs
+   `position: relative` and `overflow: hidden` on the card. Both of those are
+   traps here, and the first one shipped: this file is loaded AFTER
+   `@tailwind utilities`, so at equal specificity every declaration in it wins
+   on source order — `position: relative` silently overrode the `fixed` on the
+   navigation rail, which then fell into normal flow, left the top-left corner
+   and grew down the page without end. `overflow` would have taken the
+   scrolling submenu the same way.
+
+   Drawn as background layers instead: same two gradients, no positioning, no
+   clipping, no pseudo-elements to collide with a component's own. The radius
+   clips them for free, and they compose with whatever `bg-*` utility the
+   element already carries, because `background-image` and `background-color`
+   are different properties.
+
+   `background-position`/`-size` say: the top edge is the full width and one
+   pixel tall, pinned to the top; the left edge is one pixel wide and the full
+   height, pinned to the left. Both fade to transparent at their far ends, so
+   the rounded corners are empty by the time the gradient reaches them. */
 .liquid-glass-rim {
+  /* An inset ring, NOT `border`. Same reason this class stopped setting
+     `position`: at equal specificity a declaration in this file beats the
+     Tailwind utility, so a `border` here would have silently eaten the
+     composer's `focus-within:border-brand` — the ring that tells you the field
+     has focus. A ring draws the same line and leaves the border property to
+     the markup, where per-component state belongs. */
+  /* No large outer shadow. `0 18px 48px` was drawn for panels on an opaque
+     page; on glass it pools under the composer and around the rail as a dark
+     haze with no object casting it — the "glow" at the bottom of the chat. A
+     short, tight shadow still separates the sheet from the pane without
+     smearing 48px of black across it. */
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.22),
-    inset 0 -1px 0 0 rgba(0, 0, 0, 0.20),
-    0 18px 48px rgba(0, 0, 0, 0.40);
+    inset 0 0 0 1px var(--rim-border),
+    0 2px 10px rgba(0, 0, 0, 0.14),
+    inset 0 1px 0 0 var(--rim-light),
+    inset 0 -1px 0 0 var(--rim-shade);
+  background-image:
+    linear-gradient(90deg, transparent, var(--rim-gleam), transparent),
+    linear-gradient(180deg, var(--rim-gleam), transparent 60%);
+  background-repeat: no-repeat, no-repeat;
+  background-position: top left, top left;
+  background-size: 100% 1px, 1px 100%;
 }
 
 /* Glass has an edge. Without a lit rim the pane has no boundary and reads as a
    stain on the desktop rather than as a sheet lying over it — the single
-   detail that separates the reference from what we had. */
-#root > div {
+   detail that separates the reference from what we had.
+
+   `.app-pane`, not `#root > div`, which is what these three rules used to say.
+   `#root`'s children are whatever App happens to render: today that is a
+   `fixed` download banner AND the router's output, so the banner was being
+   handed the window's radius, border and drop shadow as well. Worse in the
+   other direction — one wrapper added anywhere above the shell and the entire
+   glass silently lands on the wrong element, with nothing to show for it but
+   "the effect stopped working". The element that IS the pane says so itself,
+   in AppShell.tsx. */
+.app-pane {
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  /* The same rim tokens the panels use, so the window and the sheets inside it
+     are lit by one light. */
+  border: 1px solid var(--rim-border);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.10),
-    0 24px 60px rgba(0, 0, 0, 0.45);
+    inset 0 1px 0 0 var(--rim-light),
+    0 8px 28px rgba(0, 0, 0, 0.28);
   /* Deliberately NOT `overflow: hidden`. `backdrop-filter` already makes this
      element the containing block for its `fixed` children, so clipping here
      would take the corner off the close button — window chrome is the one
@@ -592,7 +828,7 @@ body::after {
   position: relative;
   z-index: 1;
 }
-#root > div {
+.app-pane {
   background-color: var(--scene-surface);
   /* A tint alone is a coloured sheet; glass is a tint PLUS what is behind it,
      blurred. Without the backdrop filter the lights below read as flat paint
@@ -624,14 +860,56 @@ body::after {
    through surface. (The scene itself uses no backdrop-filter at all.) */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root[data-theme="dark"] {
-    --glass-1: rgba(28, 25, 22, 0.96);
-    --glass-2: rgba(37, 33, 25, 0.95);
-    --glass-3: rgba(44, 40, 32, 0.94);
+    --bg-surface:  rgba(28, 25, 22, 0.96);
+    --bg-elevated: rgba(37, 33, 25, 0.95);
+    --bg-hover:    rgba(44, 40, 32, 0.97);
+    --bg-active:   rgba(53, 48, 39, 0.98);
   }
   :root[data-theme="light"] {
-    --glass-1: rgba(255, 245, 238, 0.97);
-    --glass-2: rgba(255, 250, 244, 0.96);
-    --glass-3: rgba(255, 252, 248, 0.95);
+    --bg-surface:  rgba(245, 235, 224, 0.97);
+    --bg-elevated: rgba(255, 255, 255, 0.96);
+    --bg-hover:    rgba(235, 224, 210, 0.98);
+    --bg-active:   rgba(224, 208, 192, 0.99);
+  }
+}
+
+/* ── Transparency is a preference, and some machines cannot afford it ───────
+   Two different people arrive here. One asked their OS for less transparency —
+   Windows "Transparency effects: off", macOS "Reduce transparency", GNOME's
+   equivalent — and the browser reports it as `prefers-reduced-transparency`.
+   The other has an integrated GPU from 2018 for which a screenful of
+   `backdrop-filter` is a real cost, and no way to say so.
+
+   Both get the same app with the material turned off: solid surfaces, no
+   backdrop work anywhere, every colour and every layout identical. This is not
+   a degraded mode that has to be discovered in a settings page nobody opens —
+   it is the honest default for a machine that said it did not want this, and
+   it costs the people who do want it nothing.
+
+   ponytail: OS preference only, no in-app toggle. Add a Settings switch when
+   somebody reports wanting glass off while their OS says on. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="dark"] {
+    --bg-surface:  #1C1916;
+    --bg-elevated: #252119;
+    --bg-hover:    #2C2820;
+    --bg-active:   #353027;
+    --scene-surface: var(--bg-primary);
+  }
+  :root[data-theme="light"] {
+    --bg-surface:  #F5EBE0;
+    --bg-elevated: #FFFFFF;
+    --bg-hover:    #EBE0D2;
+    --bg-active:   #E0D0C0;
+    --scene-surface: var(--bg-primary);
+  }
+  /* The window itself stops being see-through, so the desktop is gone rather
+     than merely hidden behind a thicker pane. */
+  html.has-window-effect body { background-color: var(--scene-base); }
+  .app-pane,
+  .liquid-glass {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 
@@ -791,6 +1069,17 @@ body { overflow: hidden; }
   --badge-ok-fg:     #234A10;
   --badge-ok-bg:     rgba(35, 74, 16, 0.14);
   --badge-ok-br:     rgba(35, 74, 16, 0.34);
+  /* The text roles, restated for the one surface that does not follow the
+     theme. Everywhere else `text-success` is a light green because it lands on
+     a dark pane; here it lands on a bright orange field, so it has to be dark
+     for exactly the same reason. Without these five the accents inside a call
+     would inherit the theme's — light green on bright orange, which is the
+     original bug wearing a different colour. */
+  --brand-text:      #4A1400;
+  --error-text:      var(--error);
+  --success-text:    var(--badge-ok-fg);
+  --warning-text:    var(--badge-warn-fg);
+  --info-text:       var(--result-link);
 }
 
 :root[data-theme="dark"] {

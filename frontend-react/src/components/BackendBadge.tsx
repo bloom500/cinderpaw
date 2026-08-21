@@ -49,9 +49,9 @@ export function BackendBadge({ className }: { className?: string }) {
       title={title}
       className={cn(
         'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-micro font-medium leading-none border',
-        tone === 'gpu' && 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10',
-        tone === 'hybrid' && 'border-sky-500/30 text-sky-400 bg-sky-500/10',
-        tone === 'cpu-fallback' && 'border-amber-500/30 text-amber-400 bg-amber-500/10',
+        tone === 'gpu' && 'border-success/30 text-success bg-success/10',
+        tone === 'hybrid' && 'border-info/30 text-info bg-info/10',
+        tone === 'cpu-fallback' && 'border-warning/30 text-warning bg-warning/10',
         tone === 'cpu' && 'border-border-default text-text-muted bg-bg-hover',
         className,
       )}

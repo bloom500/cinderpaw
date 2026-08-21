@@ -40,7 +40,7 @@ export function CallArtifacts({ onClose }: { onClose: () => void }) {
             onClick={clearArtifacts}
             aria-label={t('call.artifactsClear')}
             title={t('call.artifactsClear')}
-            className="ml-auto rounded p-1 text-text-muted hover:bg-bg-hover hover:text-rose-400"
+            className="ml-auto rounded p-1 text-text-muted hover:bg-bg-hover hover:text-error"
           >
             <Trash2 size={14} />
           </button>
@@ -107,7 +107,7 @@ function Card({ a }: { a: ToolActivity }) {
       {a.facts.length > 0 && (
         <ul className="mt-2 space-y-1">
           {a.facts.map((f, i) => (
-            <li key={i} className="rounded border border-violet-400/20 bg-violet-400/5 px-2 py-1 text-micro text-text-secondary">
+            <li key={i} className="rounded border border-info/20 bg-info/5 px-2 py-1 text-micro text-text-secondary">
               {f}
             </li>
           ))}

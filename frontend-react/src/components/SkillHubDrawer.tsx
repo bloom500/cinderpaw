@@ -223,9 +223,9 @@ export function SkillHubDrawer() {
   const badgeColor: Record<string, string> = {
     local:        'bg-success/15 text-success',
     community:    'bg-brand/15 text-brand',
-    bundled:      'bg-blue-500/15 text-blue-400',
-    verified:     'bg-success/20 text-emerald-400',
-    experimental: 'bg-amber-500/15 text-amber-400',
+    bundled:      'bg-info/15 text-info',
+    verified:     'bg-success/20 text-success',
+    experimental: 'bg-warning/15 text-warning',
     unknown:      'bg-bg-hover text-text-muted',
   };
 

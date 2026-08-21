@@ -86,7 +86,7 @@ export function ConnectorAccounts() {
   return (
     <div className="space-y-3">
       {error && (
-        <p className="rounded-lg border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-sm text-rose-400">
+        <p className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
           {error}
         </p>
       )}

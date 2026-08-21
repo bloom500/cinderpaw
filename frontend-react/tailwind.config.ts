@@ -100,6 +100,7 @@ export default {
         'error':          token('error'),
         'success':        token('success'),
         'warning':        token('warning'),
+        'info':           token('info'),
 
         // ── shadcn aliases ────────────────────────────────────────────────
         // Use ONLY inside shadcn primitives. Do NOT use bg-accent/text-accent
@@ -113,9 +114,43 @@ export default {
         destructive: { DEFAULT: 'var(--destructive)', foreground: 'var(--destructive-foreground)' },
         card:        { DEFAULT: 'var(--card)',        foreground: 'var(--card-foreground)' },
         popover:     { DEFAULT: 'var(--popover)',     foreground: 'var(--popover-foreground)' },
+
+        // NOTE: `text-brand`, `text-error`, `text-success`, `text-warning` and
+        // `text-info` do NOT resolve here — see the `textColor` block below.
+
         border:      'var(--border)',
         input:       'var(--input)',
         ring:        'var(--ring)',
+      },
+
+      /**
+       * ── Where a colour changes meaning depending on the utility ─────────
+       *
+       * `extend.textColor` is merged on top of `extend.colors` for text
+       * utilities only. So these five names keep their `bg-`, `border-`,
+       * `ring-` and `fill-` behaviour from the block above and get a
+       * different value for `text-`.
+       *
+       * That is not a trick, it is the actual distinction. `bg-brand` paints
+       * a shape and supplies its own ground; the only contrast that matters
+       * is the label sitting on it, and `--brand-foreground` already handles
+       * that. `text-brand` paints a WORD onto the glass pane, where the
+       * ground is partly the user's wallpaper — measured worst case, the fill
+       * values give 3.31:1 (brand), 2.55:1 (error), 3.28:1 (success) and
+       * 4.39:1 (warning). All four are below AA and `text-error` alone is 41
+       * places where the app explains something that went wrong.
+       *
+       * Doing it here rather than in the components is the whole point: 130+
+       * call sites already say `text-brand` / `text-error`, and every one of
+       * them becomes correct without being edited — including the ones
+       * somebody writes next week.
+       */
+      textColor: {
+        'brand':   token('brand-text'),
+        'error':   token('error-text'),
+        'success': token('success-text'),
+        'warning': token('warning-text'),
+        'info':    token('info-text'),
       },
       // (the shadcn `--radius` mapping used to live here and silently won,
       // being the later key; the two-radius scale above replaces it)

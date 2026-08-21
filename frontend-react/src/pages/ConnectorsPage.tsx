@@ -73,9 +73,9 @@ export function ConnectorsPage() {
           </div>
 
           {/* Security banner */}
-          <div className="mb-8 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 flex items-start gap-2.5">
-            <ShieldAlert size={15} className="text-amber-800 dark:text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-800 dark:text-amber-200/90 leading-relaxed">
+          <div className="mb-8 rounded-xl border border-warning/30 bg-warning/10 p-3 flex items-start gap-2.5">
+            <ShieldAlert size={15} className="text-warning shrink-0 mt-0.5" />
+            <p className="text-xs text-warning leading-relaxed">
               Anyone you add to a connector's allowed list can command your assistant, and everything it can do, on this
               computer. Add only people you trust. Leave the list empty and no one but you can reach it.
             </p>
@@ -90,8 +90,8 @@ export function ConnectorsPage() {
           )}
 
           {error && !loading && (
-            <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 flex items-start gap-3">
-              <p className="text-sm text-rose-400 flex-1">{error}</p>
+            <div className="rounded-xl border border-error/30 bg-error/10 p-4 flex items-start gap-3">
+              <p className="text-sm text-error flex-1">{error}</p>
               <button
                 type="button"
                 onClick={load}
@@ -360,7 +360,7 @@ function ConnectorCard({
           {isQr ? (
             <div className="rounded-md border border-border-default bg-bg-primary px-2.5 py-2 text-2xs leading-relaxed">
               {linked ? (
-                <span className="text-emerald-400">✅ Linked to WhatsApp.</span>
+                <span className="text-success">✅ Linked to WhatsApp.</span>
               ) : enabled && waQr ? (
                 <div className="space-y-1.5">
                   <span className="text-text-muted">
@@ -377,12 +377,12 @@ function ConnectorCard({
                       ? `New code in ~${qrSecondsLeft}s. No rush, it refreshes here automatically.`
                       : 'Getting a fresh code…'}
                   </span>
-                  <span className="block text-amber-300/90">
+                  <span className="block text-warning">
                     Use a secondary number. Automation can get a number banned.
                   </span>
                 </div>
               ) : enabled && stuckPolls > 10 ? (
-                <span className="text-amber-300/90">
+                <span className="text-warning">
                   No pairing code is arriving. Turn the connector off and on to retry.
                 </span>
               ) : enabled ? (
@@ -394,7 +394,7 @@ function ConnectorCard({
                 <span className="text-text-muted">
                   Turn this on and a QR code will appear here. Scan it with{' '}
                   <span className="text-text-secondary">WhatsApp → Settings → Linked devices</span>.{' '}
-                  <span className="text-amber-300/90">Use a secondary number. Automation can get a number banned.</span>
+                  <span className="text-warning">Use a secondary number. Automation can get a number banned.</span>
                 </span>
               )}
             </div>
@@ -403,7 +403,7 @@ function ConnectorCard({
               <label key={f.key} className="block">
                 <span className="text-2xs text-text-secondary">
                   {f.label}
-                  {filled.has(f.key) && <span className="text-emerald-400/80"> · saved</span>}
+                  {filled.has(f.key) && <span className="text-success"> · saved</span>}
                 </span>
                 <input
                   type={f.secret ? 'password' : 'text'}
@@ -503,7 +503,7 @@ function ConnectorCard({
           )}
 
           {err && (
-            <p className="text-2xs text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5">
+            <p className="text-2xs text-error bg-error/10 border border-error/30 rounded px-2 py-1.5">
               {err}
             </p>
           )}
@@ -532,7 +532,7 @@ function ConnectorCard({
                 onBlur={() => setRemoveArmed(false)}
                 className={cn(
                   'inline-flex items-center gap-1 text-2xs',
-                  removeArmed ? 'text-rose-400 font-medium' : 'text-text-muted hover:text-rose-400',
+                  removeArmed ? 'text-error font-medium' : 'text-text-muted hover:text-error',
                 )}
               >
                 <Trash2 size={11} /> {removeArmed ? 'Click again to remove' : 'Remove'}

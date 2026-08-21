@@ -5,7 +5,7 @@ import { useAgent } from '@/stores/agent';
 import { useSettings } from '@/stores/settings';
 import { useNavigate } from 'react-router-dom';
 import { TOOL_LABELS } from '@/components/agents/agentUtils';
-import { cn } from '@/lib/utils';
+import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { RsiEngineStatusPanel } from './RsiEngineStatusPanel';
 import { CinderpawDreamsPanel } from './CinderpawDreamsPanel';
 
@@ -62,7 +62,7 @@ export function AgentSettingsTab() {
           type="button"
           onClick={() => void refresh()}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover disabled:opacity-50 transition-colors"
+          className={cn(SECONDARY_BUTTON, 'inline-flex items-center gap-1.5')}
         >
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           Refresh
@@ -212,7 +212,7 @@ export function AgentSettingsTab() {
               type="button"
               onClick={() => void handleConfirmDelete()}
               disabled={deleting}
-              className="px-3 py-1.5 text-sm rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
             >
               {deleting ? 'Deleting…' : 'Delete'}
             </button>

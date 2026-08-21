@@ -216,7 +216,7 @@ export function ModelPickerPopover() {
                   >
                     <span className="flex items-center gap-1.5 text-text-secondary">
                       {p.name}
-                      <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-micro text-amber-400">
+                      <span className="rounded bg-warning/15 px-1.5 py-0.5 text-micro text-warning">
                         off
                       </span>
                     </span>

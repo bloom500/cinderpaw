@@ -45,7 +45,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
     }
     if (probe.phase === 'done' && probe.up) {
       return (
-        <div className="flex items-center justify-center gap-1.5 text-xs text-green-400">
+        <div className="flex items-center justify-center gap-1.5 text-xs text-success">
           <CheckCircle size={12} />
           Cinderpaw Agent ready
         </div>

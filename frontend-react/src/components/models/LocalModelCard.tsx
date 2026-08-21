@@ -23,9 +23,9 @@ function DeleteSpinner() {
 // ── Fit level styles ──────────────────────────────────────────────────────────
 
 const FIT_STYLES: Record<FitLevel, { pill: string; bar: string; label: string }> = {
-  perfect:  { pill: 'text-emerald-400 bg-emerald-400/10', bar: 'bg-emerald-500', label: 'Perfect'   },
+  perfect:  { pill: 'text-success bg-success/10', bar: 'bg-emerald-500', label: 'Perfect'   },
   good:     { pill: 'text-brand bg-brand/10',             bar: 'bg-brand',       label: 'Good'      },
-  marginal: { pill: 'text-amber-400 bg-amber-400/10',     bar: 'bg-amber-400',   label: 'Marginal'  },
+  marginal: { pill: 'text-warning bg-warning/10',     bar: 'bg-amber-400',   label: 'Marginal'  },
   too_big:  { pill: 'text-error bg-error/10',             bar: 'bg-error',       label: 'Too large' },
 };
 
@@ -291,7 +291,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
               type="button"
               onClick={() => void handleDelete()}
               disabled={isDeleting}
-              className="px-3 py-1.5 text-sm rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
             >
               {isDeleting ? 'Deleting…' : 'Delete'}
             </button>

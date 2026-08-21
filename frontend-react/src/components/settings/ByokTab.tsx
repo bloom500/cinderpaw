@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useSettings, type ByokProviderUpdate } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
@@ -110,7 +110,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
   };
 
   const inputCls = 'w-full px-2 py-1.5 rounded-md border border-border-subtle bg-bg-surface text-sm text-text-primary';
-  const btnSecCls = 'px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50';
+  const btnSecCls = SECONDARY_BUTTON;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -118,7 +118,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
         <span className="text-sm font-medium text-text-primary">{def.name}</span>
         <span className={cn(
           'text-xs px-2 py-0.5 rounded-full shrink-0',
-          isActive ? 'bg-green-500/20 text-green-400' : 'bg-bg-hover text-text-muted',
+          isActive ? 'bg-success/20 text-success' : 'bg-bg-hover text-text-muted',
         )}>
           {isActive ? 'Active' : 'Not configured'}
         </span>
@@ -159,7 +159,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
               </button>
             </div>
             {def.keyPrefix && apiKey.startsWith(def.keyPrefix) && (
-              <p className="text-xs text-green-400 mt-1">✓ {def.name} key detected</p>
+              <p className="text-xs text-success mt-1">✓ {def.name} key detected</p>
             )}
           </div>
 
@@ -207,7 +207,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
             <button type="button" onClick={() => void handleTest()} disabled={testing || !apiKey} className={btnSecCls}>
               {testing ? 'Testing…' : 'Test'}
             </button>
-            <button type="button" onClick={() => void handleSave()} disabled={saving} className="px-3 py-1.5 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium disabled:opacity-50 transition-colors">
+            <button type="button" onClick={() => void handleSave()} disabled={saving} className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50 transition-colors">
               {saving ? 'Saving…' : 'Save'}
             </button>
             {state?.has_api_key && (
@@ -221,7 +221,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
                 Remove key
               </button>
             )}
-            {testMsg && <span className={cn('text-xs', testMsg.startsWith('✓') ? 'text-green-400' : 'text-error')}>{testMsg}</span>}
+            {testMsg && <span className={cn('text-xs', testMsg.startsWith('✓') ? 'text-success' : 'text-error')}>{testMsg}</span>}
             {saveMsg && <span className={cn('text-xs', saveMsg.startsWith('✓') ? 'text-text-muted' : 'text-error')}>{saveMsg}</span>}
           </div>
         </div>

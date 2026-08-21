@@ -45,7 +45,7 @@ function WinControls() {
         onClick={() => void getCurrentWindow().close()}
         className={cn(
           'h-8 w-10 flex items-center justify-center text-text-muted/70 transition-colors',
-          'hover:text-white hover:bg-red-500/80',
+          'hover:text-white hover:bg-error/80',
         )}
         aria-label="Close"
       >
@@ -71,7 +71,7 @@ export function AppShell() {
   }, [checkForUpdate]);
 
   return (
-    <div className="h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
+    <div className="app-pane h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
       <SideNav />
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat

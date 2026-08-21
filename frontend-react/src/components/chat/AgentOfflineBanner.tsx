@@ -70,7 +70,7 @@ export function AgentOfflineBanner() {
   return (
     <div
       role="alert"
-      className="mx-4 mt-1 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-amber-300 text-xs"
+      className="mx-4 mt-1 flex items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-2 text-warning text-xs"
     >
       {restarting ? (
         <>

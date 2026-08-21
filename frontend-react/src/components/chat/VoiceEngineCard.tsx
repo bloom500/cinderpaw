@@ -371,8 +371,8 @@ export function VoiceEngineCard({
                       className={cn(
                         'mt-1 inline-block rounded px-1.5 py-0.5 text-micro',
                         e.isLocal
-                          ? 'bg-emerald-500/15 text-emerald-400'
-                          : 'bg-amber-500/15 text-amber-400',
+                          ? 'bg-success/15 text-success'
+                          : 'bg-warning/15 text-warning',
                       )}
                     >
                       {e.isLocal ? t('call.onDevice') : t('call.leavesDevice')}
@@ -389,14 +389,14 @@ export function VoiceEngineCard({
                             identical to one with none, so confirming appeared to
                             skip the key entirely. */}
                         <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className={hasKey ? 'text-emerald-400' : 'text-amber-400'}>
+                          <span className={hasKey ? 'text-success' : 'text-warning'}>
                             {hasKey ? t('engine.keyPresent') : t('engine.keyRequired')}
                           </span>
                           {hasKey && (
                             <button
                               type="button"
                               onClick={() => void forgetKey()}
-                              className="text-text-muted underline-offset-2 hover:text-rose-400 hover:underline"
+                              className="text-text-muted underline-offset-2 hover:text-error hover:underline"
                             >
                               {t('engine.keyForget')}
                             </button>

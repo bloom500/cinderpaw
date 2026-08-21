@@ -64,10 +64,10 @@ export function CallToolScreen({ activity }: { activity: ToolActivity[] }) {
 /** Chrome per kind: the icon and the label above the body. */
 const CHROME: Record<ToolKind, { icon: typeof Globe; tint: string }> = {
   agent: { icon: Sparkles, tint: 'text-brand' },
-  browser: { icon: Globe, tint: 'text-sky-400' },
-  files: { icon: FileText, tint: 'text-amber-400' },
-  terminal: { icon: TerminalSquare, tint: 'text-emerald-400' },
-  memory: { icon: Brain, tint: 'text-violet-400' },
+  browser: { icon: Globe, tint: 'text-info' },
+  files: { icon: FileText, tint: 'text-warning' },
+  terminal: { icon: TerminalSquare, tint: 'text-success' },
+  memory: { icon: Brain, tint: 'text-info' },
   generic: { icon: Wrench, tint: 'text-text-muted' },
 };
 
@@ -324,7 +324,7 @@ function FilesBody({ a }: { a: ToolActivity }) {
             className="tw-row flex items-center gap-2"
             style={{ animationDelay: `${Math.min(i, 4) * 45}ms` }}
           >
-            <FileText size={11} className="shrink-0 text-amber-400/70" />
+            <FileText size={11} className="shrink-0 text-warning" />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-2xs text-text-secondary" title={f.path}>
                 {name}
@@ -438,7 +438,7 @@ function MemoryBody({ a }: { a: ToolActivity }) {
           {a.facts.slice(0, 4).map((f, i) => (
             <li
               key={i}
-              className="tw-row rounded-md border border-violet-400/20 bg-violet-400/5 px-2 py-1 text-2xs text-text-secondary"
+              className="tw-row rounded-md border border-info/20 bg-info/5 px-2 py-1 text-2xs text-text-secondary"
               style={{ animationDelay: `${Math.min(i, 4) * 45}ms` }}
             >
               <span className="line-clamp-2">{f}</span>

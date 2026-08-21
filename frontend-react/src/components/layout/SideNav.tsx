@@ -270,13 +270,12 @@ export function SideNav() {
           // The rail is a SECOND sheet lying on the first, so it uses the same
           // material as everything else rather than its own hand-rolled blur —
           // that is what stops the two panes looking like different substances.
-          'rounded-2xl border border-white/[0.12] bg-bg-elevated/25',
+          'rounded-2xl bg-bg-elevated',
+          // The rim carries the border, the lit top edge and the left gleam —
+          // the hairline this component used to hand-roll with `before:*`
+          // utilities is part of the material now, so every glass surface has
+          // it instead of just this one.
           'liquid-glass liquid-glass-rim',
-          // A hairline of light along the top edge. Real glass catches the
-          // light source above it; a flat border says "rectangle", and that
-          // one line is most of the difference between the two.
-          'before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px',
-          'before:bg-gradient-to-r before:from-transparent before:via-white/[0.14] before:to-transparent',
         )}
       >
         <div className="h-12 px-3 flex items-center justify-between shrink-0">

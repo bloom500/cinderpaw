@@ -205,7 +205,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
       )}
       {isTruncated && (
         <div
-          className="flex items-start gap-2 mt-1 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400"
+          className="flex items-start gap-2 mt-1 px-3 py-2 rounded-md bg-warning/10 border border-warning/30 text-warning"
           role="status"
         >
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />

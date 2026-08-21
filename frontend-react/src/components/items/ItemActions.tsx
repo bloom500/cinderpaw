@@ -102,7 +102,7 @@ function ConfirmDeleteDialog({
             type="button"
             onClick={() => void run()}
             disabled={busy}
-            className="px-3 py-1.5 text-sm rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+            className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
           >
             {busy ? 'Deleting…' : 'Delete'}
           </button>

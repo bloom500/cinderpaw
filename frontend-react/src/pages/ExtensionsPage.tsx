@@ -103,8 +103,8 @@ export function ExtensionsPage() {
           )}
 
           {error && !loading && (
-            <div className="rounded-xl border border-rose-400/30 bg-rose-400/10 p-4 flex items-start gap-3">
-              <p className="text-sm text-rose-400 flex-1">{error}</p>
+            <div className="rounded-xl border border-error/30 bg-error/10 p-4 flex items-start gap-3">
+              <p className="text-sm text-error flex-1">{error}</p>
               <button
                 type="button"
                 onClick={load}
@@ -288,7 +288,7 @@ function InstalledCard({
       </div>
 
       {err && (
-        <p className="text-2xs text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
+        <p className="text-2xs text-error bg-error/10 border border-error/30 rounded px-2 py-1.5 mt-2">
           {err}
         </p>
       )}
@@ -308,7 +308,7 @@ function InstalledCard({
           onBlur={() => setRemoveArmed(false)}
           className={cn(
             'inline-flex items-center gap-1 text-2xs',
-            removeArmed ? 'text-rose-400 font-medium' : 'text-text-muted hover:text-rose-400',
+            removeArmed ? 'text-error font-medium' : 'text-text-muted hover:text-error',
           )}
         >
           <Trash2 size={11} /> {removeArmed ? 'Click again to remove' : 'Remove'}
@@ -432,7 +432,7 @@ function CatalogCard({
       )}
 
       {err && (
-        <p className="text-2xs text-rose-400 bg-rose-400/10 border border-rose-400/30 rounded px-2 py-1.5 mt-2">
+        <p className="text-2xs text-error bg-error/10 border border-error/30 rounded px-2 py-1.5 mt-2">
           {err}
         </p>
       )}
@@ -470,7 +470,7 @@ function CatalogCard({
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldAlert size={16} className="text-amber-400" />
+              <ShieldAlert size={16} className="text-warning" />
               Add “{entry.name}”?
             </DialogTitle>
           </DialogHeader>

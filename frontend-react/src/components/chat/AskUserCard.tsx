@@ -273,7 +273,7 @@ function QuestionBlock({
       {/* Answered: compact summary */}
       {disabled && answer && (
         <div className="text-xs text-text-muted flex items-center gap-1.5">
-          <Check size={12} className="text-green-500 shrink-0" />
+          <Check size={12} className="text-success shrink-0" />
           <span>
             {answer.selected.join(', ')}
             {answer.customText ? ` (${answer.customText})` : ''}
@@ -324,7 +324,7 @@ function QuestionBlock({
                   <span className="flex items-center gap-1.5">
                     <span className="text-sm text-text-primary">{opt.label}</span>
                     {opt.recommended && (
-                      <span className="text-micro uppercase tracking-wider text-green-600 dark:text-green-400 font-medium">
+                      <span className="text-micro uppercase tracking-wider text-success font-medium">
                         recommended
                       </span>
                     )}

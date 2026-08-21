@@ -35,7 +35,7 @@ import { useCatalog } from '@/stores/catalog';
 import { recommendModel } from '@/lib/hardwareRecommendation';
 import { tauri, type DiskEncryptionStatus, type SetupCandidate, type SetupVerifyOutcome } from '@/lib/tauri';
 import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
-import { cn } from '@/lib/utils';
+import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 
 const stepVariants = {
   enter: { opacity: 0, y: 12 },
@@ -513,7 +513,7 @@ function DetectedSection() {
               </p>
             </div>
             {outcome?.ok ? (
-              <span className="flex items-center gap-1.5 text-xs text-green-400 shrink-0">
+              <span className="flex items-center gap-1.5 text-xs text-success shrink-0">
                 <Check size={13} /> ready, I'll use it ({outcome.message})
               </span>
             ) : isTesting ? (
@@ -586,7 +586,7 @@ function LocalBranch() {
       {rec && <p className="text-sm text-text-secondary leading-relaxed">{rec.rationale}</p>}
 
       {done ? (
-        <p className="flex items-center gap-2 text-sm text-green-400">
+        <p className="flex items-center gap-2 text-sm text-success">
           <Check size={16} /> {model.label} is ready, I'll use it automatically.
         </p>
       ) : isThisDownloading ? (
@@ -676,7 +676,7 @@ function CloudBranch() {
             )}
           >
             <span>{p.name}</span>
-            {p.free && <span className="text-micro px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+            {p.free && <span className="text-micro px-1.5 py-0.5 rounded-full bg-success/15 text-success shrink-0">free tier</span>}
           </button>
         ))}
         {genericOnly.map((c) => (
@@ -690,7 +690,7 @@ function CloudBranch() {
             )}
           >
             <span>{c.name}</span>
-            {c.free_tier_note && <span className="text-micro px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+            {c.free_tier_note && <span className="text-micro px-1.5 py-0.5 rounded-full bg-success/15 text-success shrink-0">free tier</span>}
           </button>
         ))}
       </div>
@@ -702,7 +702,7 @@ function CloudBranch() {
         if (!generic) return null;
         return (
           <div className="space-y-2 pt-1">
-            {generic.free_tier_note && <p className="text-xs text-green-400/80">{generic.free_tier_note}</p>}
+            {generic.free_tier_note && <p className="text-xs text-success">{generic.free_tier_note}</p>}
             {generic.console_url && (
               <a
                 href={generic.console_url}
@@ -775,7 +775,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
       <ol className="space-y-1.5 text-xs text-text-muted list-decimal list-inside">
         {def.steps.map((s, i) => <li key={i}>{s}</li>)}
       </ol>
-      <p className={cn('text-xs', def.free ? 'text-green-400/80' : 'text-amber-400/90')}>{def.note}</p>
+      <p className={cn('text-xs', def.free ? 'text-success' : 'text-warning')}>{def.note}</p>
       <a
         href={def.console}
         target="_blank"
@@ -799,7 +799,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
           type="button"
           onClick={() => void handleTest()}
           disabled={busy || !apiKey}
-          className="px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
+          className={SECONDARY_BUTTON}
         >
           Test
         </button>
@@ -811,7 +811,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
         >
           Save
         </button>
-        {msg && <span className={cn('text-xs', msg.ok ? 'text-green-400' : 'text-error')}>{msg.text}</span>}
+        {msg && <span className={cn('text-xs', msg.ok ? 'text-success' : 'text-error')}>{msg.text}</span>}
       </div>
     </div>
   );
@@ -873,15 +873,15 @@ function DiskEncryptionNotice() {
   const variant = {
     on: {
       Icon: ShieldCheck,
-      accent: 'text-emerald-500',
-      ring: 'border-emerald-500/30 bg-emerald-500/5',
+      accent: 'text-success',
+      ring: 'border-success/30 bg-success/5',
       title: 'Your data is protected at rest',
       body: 'Disk encryption is on, so your conversations and memory are safe even if this device is lost.',
     },
     off: {
       Icon: ShieldAlert,
-      accent: 'text-amber-500',
-      ring: 'border-amber-500/30 bg-amber-500/5',
+      accent: 'text-warning',
+      ring: 'border-warning/30 bg-warning/5',
       title: 'Turn on disk encryption',
       body: 'Your data lives only on this device. Enable BitLocker (Windows) or FileVault (macOS) so it stays private if the device is lost or stolen.',
     },

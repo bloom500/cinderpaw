@@ -74,7 +74,11 @@ export function SettingsPage() {
           moved while Settings is open (only ChatHeader had a drag region). */}
       <div data-tauri-drag-region className="h-8 shrink-0" />
       <div className="flex flex-1 overflow-hidden">
-      <aside className="w-44 shrink-0 border-r border-border-subtle flex flex-col py-2 overflow-y-auto">
+      {/* `border-default`, not `border-subtle`: the two columns are both glass
+          over the same wallpaper, so a hairline drawn in the faintest border
+          token disappeared and Settings read as one undivided blob. The next
+          step up is still a hairline — it just survives the material. */}
+      <aside className="w-44 shrink-0 border-r border-border-default flex flex-col py-2 overflow-y-auto">
         {CATS.map((c) => (
           <button
             key={c.id}

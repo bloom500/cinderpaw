@@ -34,7 +34,7 @@ export function AttachedFileChip({ file, onRemove }: Props) {
       className={cn(
         'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs',
         hasError
-          ? 'border-rose-400/40 bg-rose-400/10 text-rose-400'
+          ? 'border-error/40 bg-error/10 text-error'
           : 'border-border-default bg-bg-elevated text-text-secondary',
       )}
     >

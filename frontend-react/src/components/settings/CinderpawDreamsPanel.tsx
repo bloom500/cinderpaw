@@ -432,9 +432,9 @@ export function CinderpawDreamsPanel() {
       </header>
 
       {dreamsAsleep && (
-        <div className="space-y-1.5 rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-2">
+        <div className="space-y-1.5 rounded border border-warning/30 bg-warning/5 px-2.5 py-2">
           <div className="flex items-start gap-2">
-            <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
+            <AlertTriangle size={12} className="mt-0.5 shrink-0 text-warning" />
             <p className="text-2xs text-text-secondary">
               <span className="font-medium text-text-primary">Cinderpaw isn&apos;t dreaming.</span>{' '}
               Your model runs in the cloud, so every dream costs money. Cinderpaw won&apos;t
@@ -453,7 +453,7 @@ export function CinderpawDreamsPanel() {
               } catch { /* the store already rolled the toggle back */ }
               setAllowBusy(false);
             }}
-            className="ml-5 rounded border border-amber-500/40 px-2 py-0.5 text-2xs text-text-primary hover:border-amber-500 disabled:opacity-60"
+            className="ml-5 rounded border border-warning/40 px-2 py-0.5 text-2xs text-text-primary hover:border-warning disabled:opacity-60"
           >
             {allowBusy ? 'Waking Cinderpaw…' : 'Let Cinderpaw dream on this model'}
           </button>
@@ -601,7 +601,7 @@ function GovernanceCard({
             <span
               className={`inline-block h-1.5 w-1.5 rounded-full ${verify.ok ? 'bg-emerald-500' : 'bg-amber-500'}`}
             />
-            <span className={verify.ok ? 'text-text-muted' : 'text-amber-500'}>
+            <span className={verify.ok ? 'text-text-muted' : 'text-warning'}>
               {verify.ok ? 'records intact' : 'records check failed'}
             </span>
           </span>
@@ -609,7 +609,7 @@ function GovernanceCard({
       </header>
 
       {status.failClosed ? (
-        <p className="flex items-center gap-1.5 text-micro text-amber-500">
+        <p className="flex items-center gap-1.5 text-micro text-warning">
           <AlertTriangle size={10} />
           The rulebook couldn&apos;t be read, so Cinderpaw switched to its strictest built-in
           rules and paused all self-improvement until it&apos;s fixed.
@@ -630,7 +630,7 @@ function GovernanceCard({
               <li key={p.policyId} className="space-y-1 text-2xs">
                 <div className="flex items-center gap-1.5">
                   {needsOk ? (
-                    <AlertTriangle size={10} className="shrink-0 text-amber-500" />
+                    <AlertTriangle size={10} className="shrink-0 text-warning" />
                   ) : (
                     <Check size={10} className="shrink-0 text-brand" />
                   )}
@@ -755,7 +755,7 @@ function ArchitectureCard({
             return (
               <div key={m.id} className="space-y-1 text-2xs">
                 <div className="flex items-center gap-1.5">
-                  <AlertTriangle size={10} className="shrink-0 text-amber-500" />
+                  <AlertTriangle size={10} className="shrink-0 text-warning" />
                   <span className="text-text-secondary">
                     Cinderpaw built a new {chip} part ({m.displayName}) and it passed its exam
                     {m.eval?.reason ? '' : ''} Nothing changes without your OK.
@@ -922,7 +922,7 @@ function LoraReviews({
           {training ? 'Training…' : 'Train now'}
         </button>
       </div>
-      {note && <p className="text-2xs text-amber-500">{note}</p>}
+      {note && <p className="text-2xs text-warning">{note}</p>}
       {payload && payload.stats.adapters > 0 && (
         <div className="grid grid-cols-4 gap-x-4 gap-y-1.5 text-2xs">
           <Stat label="Adapters" value={String(payload.stats.adapters)} />
@@ -1022,7 +1022,7 @@ function LoraVerdictBadge({ status, verdict }: { status: string; verdict: string
     rejected: { icon: X, cls: 'text-text-muted', label: 'rejected' },
     recommend_promote: { icon: Sparkles, cls: 'text-brand', label: 'recommended' },
     reject: { icon: X, cls: 'text-text-muted', label: 'not better' },
-    insufficient_evidence: { icon: AlertTriangle, cls: 'text-amber-500', label: 'needs more evals' },
+    insufficient_evidence: { icon: AlertTriangle, cls: 'text-warning', label: 'needs more evals' },
   };
   const entry = (status !== 'pending' ? map[status] : map[verdict])
     ?? { icon: AlertTriangle, cls: 'text-text-muted', label: verdict };
@@ -1107,7 +1107,7 @@ function DecisionBadge({ action }: { action: string }) {
   const map: Record<string, { icon: typeof Check; cls: string; label: string }> = {
     accept: { icon: Check, cls: 'text-brand', label: 'promoted' },
     reject: { icon: X, cls: 'text-text-muted', label: 'no change' },
-    halt: { icon: AlertTriangle, cls: 'text-amber-500', label: 'halted' },
+    halt: { icon: AlertTriangle, cls: 'text-warning', label: 'halted' },
   };
   const { icon: Icon, cls, label } = map[action] ?? map.reject;
   return (
@@ -1207,7 +1207,7 @@ function PatchRow({
         <p className="text-text-muted">{patch.note}</p>
       )}
       {patch.error && (
-        <p className="text-amber-500">{patch.error}</p>
+        <p className="text-warning">{patch.error}</p>
       )}
       <details className="rounded border border-border-subtle">
         <summary className="cursor-pointer select-none px-2 py-1 text-text-muted hover:text-text-secondary">
@@ -1251,7 +1251,7 @@ function PatchStatusBadge({ status }: { status: CodePatchStatus | string }) {
     approved:     { icon: GitMerge,     cls: 'text-text-muted',          label: 'approved' },
     rejected:     { icon: X,            cls: 'text-text-muted',          label: 'rejected' },
     applied:      { icon: Check,        cls: 'text-brand',               label: 'applied' },
-    apply_failed: { icon: AlertTriangle, cls: 'text-amber-500',          label: 'apply failed' },
+    apply_failed: { icon: AlertTriangle, cls: 'text-warning',          label: 'apply failed' },
     reverted:     { icon: Undo2,        cls: 'text-text-muted',          label: 'reverted' },
   };
   const entry = map[status] ?? { icon: AlertTriangle, cls: 'text-text-muted', label: status };

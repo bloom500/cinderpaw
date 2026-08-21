@@ -7,7 +7,8 @@ import { useUI, type LangPref, type WhisperModel } from '@/stores/ui';
 import { useUpdater } from '@/stores/updater';
 import { useAppVersion } from '@/hooks/useAppVersion';
 import { useOnboarding } from '@/stores/onboarding';
-import { cn } from '@/lib/utils';
+import { cn, SECONDARY_BUTTON } from '@/lib/utils';
+import { APP_HOME_DIR_NAME } from '@/lib/brand';
 
 export function GeneralTab() {
   const settings    = useSettings((s) => s.settings);
@@ -36,7 +37,7 @@ export function GeneralTab() {
 
   const handleOpenLogs = async () => {
     if (!settings?.models_dir) return;
-    // Go one level up from models_dir (e.g. ~/.feral/models → ~/.feral)
+    // Go one level up from models_dir (e.g. ~/.cinderpaw/models → ~/.cinderpaw)
     const parent = settings.models_dir.replace(/[/\\][^/\\]+[/\\]?$/, '');
     await shellOpen(parent || settings.models_dir);
   };
@@ -50,7 +51,8 @@ export function GeneralTab() {
   const appVersion   = useAppVersion();
 
   const rowCls = 'flex items-center justify-between gap-4';
-  const btnCls = 'px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors shrink-0';
+  const btnCls = cn(SECONDARY_BUTTON, 'shrink-0');
+  const statusPillCls = 'flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border';
 
   return (
     <div className="space-y-6">
@@ -63,13 +65,19 @@ export function GeneralTab() {
           <p className="text-xs text-text-muted mt-0.5">{appVersion ?? '…'}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {/* Pills, not bare coloured words. Loose text takes its background
+              from whatever is behind the glass, and "Latest" in green over a
+              green wallpaper was invisible (Darius, 2026-08-22). A tinted
+              container gives the label its own ground in the same hue, so the
+              colour still carries the meaning and the wallpaper no longer
+              decides whether it can be read. */}
           {updateStatus === 'up-to-date' && (
-            <span className="flex items-center gap-1 text-xs text-emerald-400">
+            <span className={cn(statusPillCls, 'bg-success/15 border-success/30 text-success')}>
               <CheckCircle size={12} /> Latest
             </span>
           )}
           {updateStatus === 'error' && (
-            <span className="flex items-center gap-1 text-xs text-rose-400" title={updateError ?? ''}>
+            <span className={cn(statusPillCls, 'bg-error/15 border-error/30 text-error')} title={updateError ?? ''}>
               <AlertCircle size={12} /> Error
             </span>
           )}
@@ -146,7 +154,7 @@ export function GeneralTab() {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-text-primary">Data folder</p>
           <p className="text-xs text-text-muted mt-0.5 truncate">
-            {settings?.models_dir ?? '~/.feral/models'}
+            {settings?.models_dir ?? `~/${APP_HOME_DIR_NAME}/models`}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">

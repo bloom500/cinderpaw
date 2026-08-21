@@ -32,7 +32,7 @@ const COMPAT_CFG: Record<Compat, {
   },
   slow: {
     Icon: AlertTriangle,
-    iconCls: 'text-yellow-500',
+    iconCls: 'text-warning',
     dotCls:  'bg-yellow-500',
     label:   'May be slow',
     desc:    'Will run but leaves little memory headroom',

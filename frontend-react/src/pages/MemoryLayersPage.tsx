@@ -282,7 +282,7 @@ export default function MemoryLayersPage() {
     : '';
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-bg-primary text-text-primary">
+    <div className="flex h-full flex-col overflow-hidden text-text-primary">
       {/* Drag region — without it the frameless window can't be moved,
           and the scrollbar extends into the titlebar area. */}
       <div data-tauri-drag-region className="h-8 shrink-0" />
