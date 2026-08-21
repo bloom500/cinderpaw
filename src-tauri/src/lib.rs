@@ -9,6 +9,7 @@ mod events;
 mod mcp;
 mod memory_graph;
 mod memory_resume;
+mod migrate_webview;
 mod projects;
 mod rsi;
 mod skills;
@@ -285,6 +286,25 @@ pub fn run() {
         std::process::exit(1);
     }
 
+    // The webview keeps its storage in a directory named after the bundle
+    // identifier, and that identifier moved with the rename — so without this
+    // the renamed build opens an empty profile and the person loses their
+    // theme, language, onboarding state and chosen voice engines in one go.
+    // Must run before any window exists, which is why it sits here.
+    //
+    // Never fatal. Unlike the home directory, nothing here is data the person
+    // created — it is settings, and starting with default settings is a bad
+    // morning rather than a lost archive.
+    match migrate_webview::migrate() {
+        Ok(migrate_webview::Outcome::Copied { files }) => {
+            tracing::info!(files, "carried the webview profile across the rename");
+        }
+        Ok(migrate_webview::Outcome::Skipped) => {}
+        Err(e) => tracing::warn!(
+            "could not carry the webview profile across the rename ({e});              settings from before the rename may need to be set again"
+        ),
+    }
+
     // Faza 4.5 Slice 2: the runtime (token + settings + ModelManager) is
     // built by the host-agnostic `cinderpaw_core::boot::build_runtime`. The
     // headless `cinderpaw-cli` gateway calls the same function — see
@@ -336,6 +356,7 @@ pub fn run() {
             save_conversation,
             load_conversations,
             load_conversation,
+            rename_conversation,
             delete_conversation,
             clear_all_conversations,
             save_voice_blob,

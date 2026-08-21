@@ -673,6 +673,8 @@ const raw = {
     invoke<void>('save_conversation', { id, title, messages, agentId: agentId ?? null }),
   loadConversations:     ()    => invoke<ConversationSummary[]>('load_conversations'),
   loadConversation:      (id: string) => invoke<Conversation>('load_conversation', { id }),
+  renameConversation:    (id: string, title: string) =>
+    invoke<void>('rename_conversation', { id, title }),
   deleteConversation:    (id: string) => invoke<void>('delete_conversation', { id }),
   clearAllConversations: ()    => invoke<void>('clear_all_conversations'),
   loadProjects:          ()    => invoke<Project[]>('load_projects'),
@@ -921,6 +923,7 @@ export const tauri = {
     load:     async (id: string) => raw.loadConversation(id),
     save:     async (id: string, title: string, msgs: PersistedMessage[], agentId?: string | null) =>
       raw.saveConversation(id, title, msgs, agentId),
+    rename:   async (id: string, title: string) => raw.renameConversation(id, title),
     delete:   async (id: string) => raw.deleteConversation(id),
     clearAll: async () => raw.clearAllConversations(),
   },

@@ -4,6 +4,7 @@ import { useConversations } from '@/stores/conversations';
 import { useUI } from '@/stores/ui';
 import { ConversationActions } from '@/components/items/ItemActions';
 import { cn } from '@/lib/utils';
+import { groupByRecency } from '@/lib/chatGroups';
 
 /**
  * Every conversation, in the content area rather than in the rail.
@@ -58,9 +59,10 @@ export function ChatsPage() {
   const openSearch = useUI((s) => s.openSearch);
   const loading = !useConversations((s) => s.loaded);
 
-  const sorted = (list ?? [])
-    .slice()
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  // Sorting happens inside the grouping, which has to own it: a group list
+  // built from an unsorted array interleaves its own headings.
+  const groups = groupByRecency(list ?? [], (c) => c.updated_at);
+  const total = (list ?? []).length;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -69,7 +71,7 @@ export function ChatsPage() {
         <div className="max-w-3xl mx-auto px-6 pb-10">
           <div className="mb-6 flex items-baseline justify-between gap-4">
             <h1 className="text-2xl font-semibold text-text-primary tracking-tight">Chats</h1>
-            {sorted.length > 0 && (
+            {total > 0 && (
               <button
                 type="button"
                 onClick={() => openSearch()}
@@ -82,37 +84,46 @@ export function ChatsPage() {
 
           {loading ? (
             <RowSkeletons />
-          ) : sorted.length === 0 ? (
+          ) : total === 0 ? (
             <p className="text-sm text-text-muted">
               No conversations yet. Ask Cinderpaw something and it will show up here.
             </p>
           ) : (
-            <div className="space-y-1">
-              {sorted.map((c) => (
-                <div
-                  key={c.id}
-                  className={cn(
-                    'group flex items-center gap-2 rounded-xl pr-2 transition-colors',
-                    c.id === currentId ? 'bg-bg-active' : 'hover:bg-bg-hover',
-                  )}
-                >
-                  <button
-                    type="button"
-                    onClick={() => { void useConversations.getState().open(c.id); navigate('/chat'); }}
-                    className="flex-1 min-w-0 text-left px-4 py-3 cursor-pointer"
-                  >
-                    <span className="flex items-center gap-2">
-                      {streamingIds[c.id] && (
-                        <Loader2 size={12} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
-                      )}
-                      <span className="text-sm text-text-primary truncate">{c.title}</span>
-                    </span>
-                    <span className="block mt-0.5 text-2xs text-text-disabled">
-                      {relative(c.updated_at)}
-                    </span>
-                  </button>
-                  <ConversationActions conv={c} side="bottom" align="end" />
-                </div>
+            <div className="space-y-6">
+              {groups.map((group) => (
+                <section key={group.id}>
+                  <h2 className="px-4 pb-1.5 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                    {group.label}
+                  </h2>
+                  <div className="space-y-1">
+                    {group.items.map((c) => (
+                      <div
+                        key={c.id}
+                        className={cn(
+                          'group flex items-center gap-2 rounded-xl pr-2 transition-colors',
+                          c.id === currentId ? 'bg-bg-active' : 'hover:bg-bg-hover',
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => { void useConversations.getState().open(c.id); navigate('/chat'); }}
+                          className="flex-1 min-w-0 text-left px-4 py-3 cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2">
+                            {streamingIds[c.id] && (
+                              <Loader2 size={12} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
+                            )}
+                            <span className="text-sm text-text-primary truncate">{c.title}</span>
+                          </span>
+                          <span className="block mt-0.5 text-2xs text-text-disabled">
+                            {relative(c.updated_at)}
+                          </span>
+                        </button>
+                        <ConversationActions conv={c} side="bottom" align="end" />
+                      </div>
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           )}

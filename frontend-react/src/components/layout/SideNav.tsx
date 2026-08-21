@@ -11,6 +11,8 @@ import {
 import { NewProjectDialog } from '@/components/items/NewProjectDialog';
 import { useUI } from '@/stores/ui';
 import { useConversations } from '@/stores/conversations';
+import { groupByRecency } from '@/lib/chatGroups';
+import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
 import { cn } from '@/lib/utils';
 import { APP_NAME } from '@/lib/brand';
@@ -38,9 +40,15 @@ export const NAV_W = 216;
  */
 export const NAV_COLLAPSED_W = 0;
 
+/**
+ * Primary navigation is now only what the library below cannot be.
+ *
+ * "Chats" and "Projects" used to sit here as destinations. They were rows that
+ * led to a page listing the same things this rail already lists — and now that
+ * every row carries its own rename and delete, the page has nothing the rail
+ * does not. Two doors to one room, where the near one is already open.
+ */
 const NAV = [
-  { to: '/chats',    icon: MessageSquare, label: 'Chats' },
-  { to: '/projects', icon: Folder,        label: 'Projects' },
   { to: '/models',   icon: Box,           label: 'Models' },
 ] as const;
 
@@ -113,9 +121,8 @@ function Library({ collapsed }: { collapsed: boolean }) {
   const projects = useProjects((s) => s.list);
   if (collapsed) return null;
 
-  const chats = (list ?? [])
-    .slice()
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  const groups = groupByRecency(list ?? [], (c) => c.updated_at);
+  const chatCount = (list ?? []).length;
 
   const rowBase = 'w-full flex items-center gap-2 h-8 px-3 rounded-lg text-sm text-left transition-colors cursor-pointer';
 
@@ -129,15 +136,17 @@ function Library({ collapsed }: { collapsed: boolean }) {
               distinction the two kinds of row need. */}
           <div className="space-y-0.5 mb-3">
             {projects.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => navigate('/projects')}
-                className={cn(rowBase, 'text-text-muted hover:bg-bg-hover hover:text-text-secondary')}
-              >
-                <Folder size={13} className="shrink-0" aria-hidden />
-                <span className="truncate">{p.name}</span>
-              </button>
+              <div key={p.id} className="group flex items-center rounded-lg pr-1 hover:bg-bg-hover">
+                <button
+                  type="button"
+                  onClick={() => navigate('/projects')}
+                  className={cn(rowBase, 'flex-1 min-w-0 text-text-muted group-hover:text-text-secondary')}
+                >
+                  <Folder size={13} className="shrink-0" aria-hidden />
+                  <span className="truncate">{p.name}</span>
+                </button>
+                <ProjectActions project={p} side="right" align="start" />
+              </div>
             ))}
           </div>
         </>
@@ -155,30 +164,58 @@ function Library({ collapsed }: { collapsed: boolean }) {
             />
           ))}
         </div>
-      ) : chats.length === 0 ? (
+      ) : chatCount === 0 ? (
         <span className="block px-3 py-1 text-xs text-text-disabled">
           Nothing yet. Ask Cinderpaw something.
         </span>
       ) : (
-        <div className="space-y-0.5">
-          {chats.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => { void useConversations.getState().open(c.id); navigate('/chat'); }}
-              className={cn(
-                rowBase,
-                c.id === currentId
-                  ? 'bg-bg-active text-text-primary'
-                  : 'text-text-muted hover:bg-bg-hover hover:text-text-secondary',
-              )}
-            >
-              {/* A chat can be generating while you are looking at another one. */}
-              {streamingIds[c.id] && (
-                <Loader2 size={11} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
-              )}
-              <span className="truncate">{c.title}</span>
-            </button>
+        <div className="space-y-3">
+          {groups.map((group) => (
+            <section key={group.id}>
+              {/* Date headings, unlike a "Chats" heading, are not a word the
+                  navigation already says one row above — they are the only
+                  thing that makes a long column scannable instead of a wall. */}
+              {/* `text-disabled` put these at #C0B0A0 on a light background —
+                  present in the DOM and absent from the screen. A heading that
+                  has to be hunted for is not doing the one job it has. */}
+              <div className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                {group.label}
+              </div>
+              <div className="space-y-0.5">
+                {group.items.map((c) => (
+                  // The row is a container so the actions can sit beside the
+                  // button rather than inside it — a button inside a button is
+                  // invalid HTML, and the menu trigger stops working the moment
+                  // the browser reparents it.
+                  <div
+                    key={c.id}
+                    className={cn(
+                      'group flex items-center rounded-lg pr-1',
+                      c.id === currentId ? 'bg-bg-active' : 'hover:bg-bg-hover',
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => { void useConversations.getState().open(c.id); navigate('/chat'); }}
+                      className={cn(
+                        rowBase,
+                        'flex-1 min-w-0',
+                        c.id === currentId
+                          ? 'text-text-primary'
+                          : 'text-text-muted group-hover:text-text-secondary',
+                      )}
+                    >
+                      {/* A chat can be generating while you are looking at another one. */}
+                      {streamingIds[c.id] && (
+                        <Loader2 size={11} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
+                      )}
+                      <span className="truncate">{c.title}</span>
+                    </button>
+                    <ConversationActions conv={c} side="right" align="start" />
+                  </div>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}

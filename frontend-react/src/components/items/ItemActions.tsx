@@ -15,7 +15,7 @@
 
 import { useState, type ReactNode } from 'react';
 import {
-  MoreHorizontal, Trash2, FolderInput, FolderMinus, Folder, AlertCircle,
+  MoreHorizontal, Trash2, FolderInput, FolderMinus, Folder, AlertCircle, Pencil,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub,
@@ -194,6 +194,7 @@ export function ConversationActions({
 }) {
   const projects = useProjects((s) => s.list);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [renaming, setRenaming] = useState(false);
 
   const parent = projects.find((p) => p.conversation_ids.includes(conv.id)) ?? null;
 
@@ -202,6 +203,11 @@ export function ConversationActions({
       <DropdownMenu>
         <ActionsTrigger label="Chat options" className={className} />
         <DropdownMenuContent side={side} align={align}>
+          <DropdownMenuItem onClick={() => setRenaming(true)}>
+            <Pencil size={13} />
+            Rename
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {parent ? (
             <DropdownMenuItem
               onClick={() => void useProjects.getState().removeChat(parent.id, conv.id).catch(console.error)}
@@ -238,6 +244,15 @@ export function ConversationActions({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <RenameDialog
+        open={renaming}
+        onOpenChange={setRenaming}
+        title="Rename chat"
+        label="Chat name"
+        initial={conv.title}
+        onSave={(title) => useConversations.getState().rename(conv.id, title)}
+      />
 
       <ConfirmDeleteDialog
         open={confirmDelete}

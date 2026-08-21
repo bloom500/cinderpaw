@@ -36,6 +36,7 @@ interface ConversationsStore {
   open:        (id: string) => Promise<void>;
   /** `agentId` tags the conversation as agent-owned (Agents tab); omit for chat. */
   saveCurrent: (title: string, agentId?: string | null) => Promise<void>;
+  rename:      (id: string, title: string) => Promise<void>;
   delete:      (id: string) => Promise<void>;
   newChat:     () => void;
   markStreaming:   (id: string) => void;
@@ -142,6 +143,16 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       // partially-updated state we should reconcile with disk.
       await get().refresh();
     }
+  },
+
+  rename: async (id, title) => {
+    const next = title.trim();
+    if (!next) return; // An empty name is not a rename, it is a chat you cannot find.
+    await tauri.conversations.rename(id, next);
+    // Patched in place rather than re-listed: a rename does not change the
+    // order, and a full refresh would make the row the user just typed into
+    // jump out from under the cursor while the disk read lands.
+    set({ list: get().list.map((c) => (c.id === id ? { ...c, title: next } : c)) });
   },
 
   delete: async (id) => {

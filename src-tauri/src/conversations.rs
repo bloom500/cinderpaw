@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -177,6 +177,37 @@ pub fn save_to_dir(
     Ok(())
 }
 
+/// Change a conversation's title, and nothing else.
+///
+/// Deliberately not "load it and call `save_to_dir`". That path rewrites
+/// `updated_at`, which would send a chat from March to the top of the list
+/// under "Today" the moment somebody fixed a typo in its name — the list is
+/// ordered by when you last TALKED to it, and renaming is not talking.
+///
+/// Takes the same index lock as save and delete: it is another read-modify-
+/// write of the shared index, and without the lock a rename landing beside an
+/// autosave loses one of the two.
+pub fn rename_in_dir(dir: &Path, id: &str, title: &str) -> Result<()> {
+    let _guard = INDEX_WRITE.lock();
+
+    let conv_path = dir.join(format!("{}.json", id));
+    let bytes = std::fs::read(&conv_path)
+        .with_context(|| format!("no conversation to rename at {}", conv_path.display()))?;
+    let mut conv: Conversation = serde_json::from_slice(&bytes)?;
+    conv.title = title.to_string();
+    cinderpaw_core::atomic_file::write_atomic(&conv_path, &serde_json::to_vec(&conv)?)?;
+
+    // The index is what the list reads. A rename that only touched the
+    // conversation file would show the old name everywhere until something
+    // else happened to rewrite the index.
+    let mut summaries = read_index(dir)?;
+    if let Some(entry) = summaries.iter_mut().find(|s| s.id == id) {
+        entry.title = title.to_string();
+        write_index(dir, &summaries)?;
+    }
+    Ok(())
+}
+
 pub fn load_from_dir(dir: &Path, id: &str) -> Result<Conversation> {
     let bytes = std::fs::read(dir.join(format!("{}.json", id)))?;
     Ok(serde_json::from_slice(&bytes)?)
@@ -243,6 +274,11 @@ pub fn load(id: &str) -> Result<Conversation> {
     load_from_dir(&paths::conversations_dir(), id)
 }
 
+pub fn rename(id: &str, title: &str) -> Result<()> {
+    paths::ensure_dirs()?;
+    rename_in_dir(&paths::conversations_dir(), id, title)
+}
+
 pub fn delete(id: &str) -> Result<()> {
     paths::ensure_dirs()?;
     delete_from_dir(&paths::conversations_dir(), id)
@@ -284,6 +320,43 @@ mod tests {
                 voice: None,
                 scratch: None, created_at: None })
             .collect()
+    }
+
+    /// Renaming changes the name and nothing else — above all not
+    /// `updated_at`.
+    ///
+    /// The list is ordered and grouped by when you last TALKED to a
+    /// conversation. Routing a rename through `save_to_dir` would stamp it with
+    /// the current time, so correcting a typo in a chat from March would move it
+    /// to the top of the sidebar under "Today". The chat would be findable
+    /// exactly once — right after you renamed it — and then lost among the
+    /// recent ones forever.
+    #[test]
+    fn renaming_does_not_touch_when_the_chat_last_happened() {
+        let dir = tmp();
+        save_to_dir(&dir, "c1", "Old name", &msgs(4), None).unwrap();
+        let before = load_from_dir(&dir, "c1").unwrap();
+
+        rename_in_dir(&dir, "c1", "New name").unwrap();
+
+        let after = load_from_dir(&dir, "c1").unwrap();
+        assert_eq!(after.title, "New name");
+        assert_eq!(after.updated_at, before.updated_at, "a rename is not a conversation");
+        assert_eq!(after.created_at, before.created_at);
+        assert_eq!(after.messages.len(), 4, "the messages must survive a rename");
+
+        // The index is what the sidebar reads; a rename only the file knows
+        // about shows the old name everywhere.
+        let index = load_index_from_dir(&dir).unwrap();
+        assert_eq!(index.iter().find(|s| s.id == "c1").unwrap().title, "New name");
+        assert_eq!(index.iter().find(|s| s.id == "c1").unwrap().updated_at, before.updated_at);
+    }
+
+    #[test]
+    fn renaming_a_chat_that_is_not_there_is_an_error_not_a_new_file() {
+        let dir = tmp();
+        assert!(rename_in_dir(&dir, "ghost", "Name").is_err());
+        assert!(!dir.join("ghost.json").exists());
     }
 
     // ── RED tests written first ────────────────────────────────────────────────
