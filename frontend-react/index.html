@@ -224,9 +224,15 @@
       by CSS has to exist before the first paint that uses it, or the surfaces
       flash unfiltered on every cold start.
 
+      Kept small on purpose. A large displacement makes the edges undulate,
+      which reads as liquid; thick glass bends what is behind it only slightly,
+      and what makes it look ICY is the blur, not the wave. `scale` is the dial:
+      up for liquid, down for a windowpane, 0 for plain frost.
+
       ponytail: the displacement re-filters the backdrop on every frame it
-      changes, so it is applied to the PANELS and never to the full-page
-      surface. If it ever costs frames, `scale` is the dial and 0 is free.
+      changes, so it is applied to the PANELS and never to anything small and
+      repeated. If it ever costs frames, `scale` is also the dial and 0 is
+      free.
     -->
     <svg width="0" height="0" aria-hidden="true" focusable="false"
          style="position:absolute;pointer-events:none">
@@ -239,7 +245,7 @@
                      dur="18s" repeatCount="indefinite"
                      values="0.006 0.010;0.011 0.006;0.006 0.010" />
           </feTurbulence>
-          <feDisplacementMap in="SourceGraphic" in2="warp" scale="18"
+          <feDisplacementMap in="SourceGraphic" in2="warp" scale="7"
                              xChannelSelector="R" yChannelSelector="G" />
         </filter>
         <!-- A gentler one for the large pane, where a strong bend reads as a
@@ -252,7 +258,7 @@
                      dur="26s" repeatCount="indefinite"
                      values="0.004 0.007;0.008 0.004;0.004 0.007" />
           </feTurbulence>
-          <feDisplacementMap in="SourceGraphic" in2="warp" scale="9"
+          <feDisplacementMap in="SourceGraphic" in2="warp" scale="4"
                              xChannelSelector="R" yChannelSelector="G" />
         </filter>
       </defs>

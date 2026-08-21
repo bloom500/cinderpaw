@@ -477,13 +477,13 @@ html.has-window-effect body { background-color: transparent; }
    rather than no backdrop at all. That is why the blur is repeated instead of
    the filters being split across two rules. */
 .liquid-glass {
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(150%) brightness(1.06);
+  -webkit-backdrop-filter: blur(30px) saturate(150%) brightness(1.06);
   /* Second declaration, same property: a browser that cannot parse `url()`
      here drops this line and keeps the one above, so the fallback is a frosted
      pane rather than no backdrop at all. */
-  backdrop-filter: blur(22px) saturate(180%) url(#liquid-glass);
-  -webkit-backdrop-filter: blur(22px) saturate(180%) url(#liquid-glass);
+  backdrop-filter: blur(30px) saturate(150%) brightness(1.06) url(#liquid-glass);
+  -webkit-backdrop-filter: blur(30px) saturate(150%) brightness(1.06) url(#liquid-glass);
 }
 /* Specular rim. Real glass catches light along its top edge and goes dark at
    the bottom; a uniform 1px border reads as a drawn rectangle instead. */
