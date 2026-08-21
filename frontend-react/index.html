@@ -210,6 +210,53 @@
     </style>
   </head>
   <body>
+    <!--
+      The refraction half of liquid glass.
+
+      `backdrop-filter: blur()` is frost: it softens what is behind, but every
+      point stays where it was, which is why frosted plastic and glass look
+      different. Glass BENDS what is behind it. `feDisplacementMap` does exactly
+      that — it moves each pixel of the backdrop by an amount read out of a
+      noise field — and animating the noise is what makes the bend crawl, which
+      is the "liquid" part.
+
+      Inline in the document rather than rendered by React: a filter referenced
+      by CSS has to exist before the first paint that uses it, or the surfaces
+      flash unfiltered on every cold start.
+
+      ponytail: the displacement re-filters the backdrop on every frame it
+      changes, so it is applied to the PANELS and never to the full-page
+      surface. If it ever costs frames, `scale` is the dial and 0 is free.
+    -->
+    <svg width="0" height="0" aria-hidden="true" focusable="false"
+         style="position:absolute;pointer-events:none">
+      <defs>
+        <filter id="liquid-glass" x="-25%" y="-25%" width="150%" height="150%"
+                color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.006 0.010"
+                        numOctaves="2" seed="9" result="warp">
+            <animate attributeName="baseFrequency"
+                     dur="18s" repeatCount="indefinite"
+                     values="0.006 0.010;0.011 0.006;0.006 0.010" />
+          </feTurbulence>
+          <feDisplacementMap in="SourceGraphic" in2="warp" scale="18"
+                             xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+        <!-- A gentler one for the large pane, where a strong bend reads as a
+             smear rather than as thickness. -->
+        <filter id="liquid-glass-soft" x="-15%" y="-15%" width="130%" height="130%"
+                color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.004 0.007"
+                        numOctaves="2" seed="3" result="warp">
+            <animate attributeName="baseFrequency"
+                     dur="26s" repeatCount="indefinite"
+                     values="0.004 0.007;0.008 0.004;0.004 0.007" />
+          </feTurbulence>
+          <feDisplacementMap in="SourceGraphic" in2="warp" scale="9"
+                             xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </defs>
+    </svg>
     <div id="root"></div>
     <div id="feral-startup">
       <div class="feral-startup-light" aria-hidden="true"></div>

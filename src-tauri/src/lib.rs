@@ -521,6 +521,13 @@ pub fn run() {
 
     let specta_builder_for_setup = specta_builder.clone();
     tauri::Builder::default()
+        // Acrylic rather than Mica. Mica samples the wallpaper and flattens it
+        // into a near-uniform tint — by design it does NOT show what is behind
+        // the window, which is why it arrived as a flat brown wash instead of
+        // glass. Acrylic blurs the actual content behind. Its documented cost is
+        // worse performance while dragging or resizing; that is a real trade and
+        // it is the one that buys the material.
+        //
         // The page only goes see-through where the OS actually blurs what is
         // behind it. `windowEffects` is ignored on platforms that cannot honour
         // it, but `transparent: true` is not — so on Linux, where there is no
@@ -535,7 +542,6 @@ pub fn run() {
         .on_page_load(|window, _| {
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
-                use tauri::Manager as _;
                 let _ = window.eval(
                     "document.documentElement.classList.add('has-window-effect')",
                 );

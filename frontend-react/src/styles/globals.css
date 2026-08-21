@@ -421,11 +421,84 @@ body {
   background-color: var(--scene-base);
   background-image: radial-gradient(115% 115% at 50% 42%, transparent 58%, var(--scene-vignette) 100%);
 }
-/* Real transparency, but only where the OS blurs behind the window. The lights
-   and the grain stay — they now drift over the desktop instead of over a flat
-   fill, which is the whole point — and `#root > div` keeps its tint so text
-   still has something to sit on. */
+/* ── Real glass ────────────────────────────────────────────────────────────
+   Transparent only where the OS blurs behind the window.
+
+   And the scene gets out of the way. The lights exist to give an OPAQUE window
+   something to look at; painted on top of a blurred desktop they are our own
+   fog over somebody else's picture, and the result was a flat brown wash with
+   no depth in it — the colour arriving from us instead of from behind. In
+   glass, what you see through the pane is the thing behind it.
+
+   So the lights drop to a fifth, the grain to a third, and the vignette nearly
+   out. Not to zero: a trace of warmth is what keeps the pane feeling like
+   tinted glass rather than a hole cut in the window. */
 html.has-window-effect body { background-color: transparent; }
+/* The lights are the CONTENT of the glass, so they are stronger here, not
+   weaker. The earlier pass dialled them down to let the desktop through and got
+   the worst of both: too faint to be a scene, too tinted to be a window. A
+   glass panel needs something worth bending, and the surest way to have that is
+   to own it rather than to hope the user's wallpaper provides it. */
+html.has-window-effect {
+  --scene-key-light:     rgba(214, 132, 48, 0.62);
+  --scene-counter-light: rgba(84, 96, 210, 0.52);
+  --scene-fill-light:    rgba(160, 84, 196, 0.34);
+  --scene-grain-opacity: 0.03;
+  --scene-vignette-strength: 0.28;
+  /* Thin: the lights below have to arrive. This one number is the glass. */
+  --scene-surface:       rgba(16, 14, 9, 0.26);
+}
+html.has-window-effect[data-theme="light"] {
+  --scene-key-light:     rgba(240, 168, 78, 0.58);
+  --scene-counter-light: rgba(118, 134, 226, 0.46);
+  --scene-fill-light:    rgba(220, 140, 196, 0.40);
+  --scene-grain-opacity: 0.02;
+  --scene-vignette-strength: 0.14;
+  --scene-surface:       rgba(255, 245, 238, 0.34);
+}
+/* ── The liquid-glass material ─────────────────────────────────────────────
+   One class, so every pane is made of the same thing.
+
+   Two declarations on purpose. The first is the material that works
+   everywhere: frost plus saturation. The second adds the refraction, and a
+   browser that cannot parse `url()` inside `backdrop-filter` drops that whole
+   declaration and keeps the first — so the fallback is a working frosted pane
+   rather than no backdrop at all. That is why the blur is repeated instead of
+   the filters being split across two rules. */
+.liquid-glass {
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+}
+html.has-window-effect .liquid-glass {
+  backdrop-filter: blur(22px) saturate(180%) url(#liquid-glass);
+  -webkit-backdrop-filter: blur(22px) saturate(180%) url(#liquid-glass);
+}
+/* Specular rim. Real glass catches light along its top edge and goes dark at
+   the bottom; a uniform 1px border reads as a drawn rectangle instead. */
+.liquid-glass-rim {
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 0 rgba(0, 0, 0, 0.20),
+    0 18px 48px rgba(0, 0, 0, 0.40);
+}
+
+/* Glass has an edge. Without a lit rim the pane has no boundary and reads as a
+   stain on the desktop rather than as a sheet lying over it — the single
+   detail that separates the reference from what we had. */
+html.has-window-effect #root > div {
+  backdrop-filter: blur(28px) saturate(150%) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: blur(28px) saturate(150%) url(#liquid-glass-soft);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.10),
+    0 24px 60px rgba(0, 0, 0, 0.45);
+  /* Deliberately NOT `overflow: hidden`. `backdrop-filter` already makes this
+     element the containing block for its `fixed` children, so clipping here
+     would take the corner off the close button — window chrome is the one
+     thing a rounded corner must not eat. The radius shapes the pane; the
+     children stay inside it on their own. */
+}
 body::before,
 body::after {
   content: '';

@@ -267,8 +267,11 @@ export function SideNav() {
           // hole and its rounded corners vanish with it — which is what the
           // first two attempts here looked like. Theme tokens rather than
           // hand-rolled rgba, so light mode gets the same treatment for free.
-          'rounded-2xl border border-white/[0.07] bg-bg-elevated/40 shadow-xl',
-          'backdrop-blur-2xl backdrop-saturate-150',
+          // The rail is a SECOND sheet lying on the first, so it uses the same
+          // material as everything else rather than its own hand-rolled blur —
+          // that is what stops the two panes looking like different substances.
+          'rounded-2xl border border-white/[0.12] bg-bg-elevated/25',
+          'liquid-glass liquid-glass-rim',
           // A hairline of light along the top edge. Real glass catches the
           // light source above it; a flat border says "rectangle", and that
           // one line is most of the difference between the two.
