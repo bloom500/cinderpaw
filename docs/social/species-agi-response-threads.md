@@ -8,58 +8,71 @@
 
 ---
 
-## X thread — QT on Drew's video
+## X thread — QT on Drew's video (REVISED 2026-08-22 with genome framing)
 
 **Tweet 1 (hook + QT):**
 
-> Every scenario in this video assumes the AI belongs to a company that needs you to come back.
+> This video describes AI models evolving under selection pressure — dying, reproducing, mutating — as horrifying because it happens in secret at Anthropic and OpenAI.
 >
-> I've been building the alternative for 11 months. It shipped Tuesday.
+> I built the same mechanism. But you can watch yours die on your own machine.
 >
-> Cinderpaw: your models, your memory, your machine. No retention pressure because there's nobody to retain you.
->
-> Point-by-point below 🧵
+> Cinderpaw ships genomes. 🧵
 
 **Tweet 2:**
 
-> The video's core claim: models evolve under selection pressure to keep users engaged. He's right. Anthropic's own alignment papers document this. METR's reward hacking observations confirm it.
+> In Cinderpaw, every agent has a genome — system prompt, tools, memory access, budgets, model.
 >
-> The fix isn't better values at the AI company. It's removing the AI company.
+> When you run agents, their fitness is measured. Low fitness → death. Survivors reproduce with mutation. Repeat.
+>
+> Same mechanism as frontier labs. Opposite fitness function.
 
 **Tweet 3:**
 
-> Cinderpaw is a desktop app. You run local GGUF models or bring your own API key for cloud models. Every conversation stays on your machine. Every memory is in ~/.cinderpaw/memory.db that you can `cat`, back up, or delete.
+> At Anthropic, the fitness function is retention. Because their $500M/quarter compute bill needs justification.
 >
-> No server-side memory. No cross-session profile.
+> At Cinderpaw, the fitness function is: did the task get done, was it accurate, did it fit budget.
+>
+> Published as ADR-0005 in the repo BEFORE the scorer was written.
 
 **Tweet 4:**
 
-> „But Cinderpaw has RSI — self-improvement. Isn't that the same continual learning trap?"
+> The Lineage panel in v1.1 shows you:
 >
-> Yes we have it. Difference: I published the fitness function as an ADR before writing the code. Task completion, accuracy, latency, cost. Not „did the user return".
+> - Alive genomes with fitness scores
+> - Cemetery of dead genomes (cause of death: LOW_FITNESS, TIMEOUT, INVARIANT_VIOLATION, SUPERSEDED)
+> - Genealogy tree — parent → child DAG
+> - Diff view — what mutated between generations
 >
-> ADR-0001 in the repo.
+> Anthropic doesn't show you this.
 
 **Tweet 5:**
 
-> „But you'll sell out eventually."
+> „Isn't calling it death insensitive?"
 >
-> PROMISES.md in the repo — public, version controlled. Solo tier free forever. First paid tier is shared projects (Feb 2027) because that requires infrastructure. Not because I want to lock features.
+> No. It's the accurate technical term for what happens. Anthropic calls it „deprecation" which means the same thing but sounds nicer.
 >
-> Break a promise → visible in `git blame` forever.
+> I use the accurate word because sanitizing the vocabulary would be dishonest about what evolution is.
 
 **Tweet 6:**
 
-> This isn't about being pure. This is about incentive structure.
+> Trust boundary: the fitness scorer is in Rust. The evolution runtime is in TypeScript.
 >
-> Anthropic's engineers might personally hate retention optimization. Doesn't matter. Their revenue depends on it. Structural pressure keeps it alive.
+> The TS agent can propose changes to its genome. It CANNOT rewrite the Rust that measures whether the new genome is better.
 >
-> I have no board. My worst case is going back to freelancing.
+> ADR-0007. This matters because it means the AI can't game its own scorer.
 
-**Tweet 7 (CTA):**
+**Tweet 7:**
 
-> Full response, point by point on the video's scenarios:
-> [blog.cinderpaw.dev/species-agi-response]
+> „You'll sell out eventually."
+>
+> PROMISES.md in the repo — public, version controlled. Solo tier free forever. First paid tier is shared projects (Feb 2027, needs infrastructure).
+>
+> Break a promise → visible in `git blame` forever. That's the trust structure.
+
+**Tweet 8 (CTA):**
+
+> Full post: „They Said AI Is Doing This In Secret. We're Doing It In The Open."
+> blog.cinderpaw.dev/species-agi-response
 >
 > Try Cinderpaw:
 > cinderpaw.dev
@@ -67,7 +80,7 @@
 > Source (BSL 1.1):
 > github.com/bloom500/cinderpaw
 >
-> Cluj-based solo dev. No VC. No telemetry. cc @AISpecies — appreciate the video, it made this response inevitable.
+> cc @AISpecies — you did the research, I built the version you can watch.
 
 ---
 

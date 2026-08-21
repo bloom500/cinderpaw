@@ -366,7 +366,85 @@ Detaliat în ADR viitor `docs/funding-options.md` (skip pentru acum, focus launc
 
 ---
 
-## Poziționare împotriva frontier AI (adăugat 2026-08-22)
+## Poziționare împotriva frontier AI (adăugat 2026-08-22, EXTENDED 2026-08-22)
+
+### 2026-08-22 EXTENSION — „The evolution AI companies won't show you"
+
+După discuția Species AGI response, Darius a semnalat insight-ul cheie (verbatim):
+
+> „Avem un runtime de agenți bazat pe genomi, literalmente agenți vechi care mor ca să updateze următoarea generație de agenți, e literalmente ce zicea ăla în video, doar că pe AI Agents nu pe modele AI."
+
+**Realizare:** Cinderpaw NU e „the alternative to retention-optimized AI". Cinderpaw e **exact același mecanism** — genomes, generations, death, fitness pressure — dar OPEN, LOCAL, cu FITNESS FUNCTION public documented ca ADR înainte de cod.
+
+**Framing switch:** din defensiv („we're different") la ofensiv („we're what they hide").
+
+### Framing final adoptat
+
+**Tagline pitch (pentru pitch deck, YC application, high-signal moments):**
+> **Cinderpaw is the evolution AI companies won't show you.**
+
+**Alternative pentru contexte diferite:**
+- Marketing casual: „They're doing it in secret. We're doing it in the open."
+- Technical audience: „Same mechanism as frontier labs. Opposite fitness function."
+- HN comment: „What Anthropic hides in RLHF pipelines, Cinderpaw exposes as a Lineage panel."
+
+### Vocabulary permanent adoptat (ADR-0019)
+
+Rename tehnic → biologic în tot user-facing surface:
+- RSI → Evolution
+- Agent config → Genome
+- Iteration → Generation
+- Provenance graph → Lineage
+- Dead genome archive → Cemetery
+- Killing underperformer → Death
+- Spawning candidate → Birth
+- Config perturbation → Mutation
+- Two-parent inheritance → Crossover
+
+Details: `docs/adr/0019-biological-vocabulary.md`
+
+### Feature marquee — Lineage/Cemetery Panel (v1.1)
+
+Vizualizare live a evoluției genomilor: alive column cu fitness scores, cemetery cu cauze de moarte, genealogy tree DAG, diff view. **Screenshot-uri viral candidates.** Zero AI companie alta arată asta public.
+
+Spec complet: `UI-FIXES-CINDERPAW.md` Secțiunea H
+
+### Content strategy împotriva video Species AGI
+
+- **D+3 blog 002:** „They Said AI Is Doing This In Secret. We're Doing It In The Open." — introduce genome vocabulary + narativa
+- **D+10 blog 003:** „Watch Your Agents Die: The Lineage Panel" — feature launch cu screenshot-uri
+- **D+10 video 30-60s:** split-screen video Species AGI + Cinderpaw Lineage panel (`docs/social/species-agi-video-script.md`)
+- **v1.1 launch nov 2026:** major blog + demo cu Lineage panel live, fresh HN Show HN moment
+
+### Growth math cu narativa nouă
+
+Assumptions:
+- Video Species AGI la 179k views + growing → 500k+ views by nov 2026 realistic
+- Response content cu narativa „we show what they hide" → captureaza 0.3-1% din audience (500-5000 unique visitors)
+- Cinderpaw download conversion: 10-20% (foarte relevant audience)
+- Waitlist Shared Projects conversion: 20-30% dintre downloaders (they care about privacy/control)
+
+**Adiționali fata de baseline launch:** 50-1000 downloads, 100-500 waitlist signups DIRECT atribuiți narativei Species AGI response.
+
+### Success criteria pentru narativa
+
+**Confirm (adopt permanent):** dacă la 30 zile post-blog 002:
+- 1000+ page views cumulative pe cele 2 blog posts response
+- 100+ mentions Cinderpaw cu #CinderpawLineage hashtag pe X
+- 1+ QT sau video response din altă AI content creator serious (Yannic Kilcher, AI Explained, Two Minute Papers, etc.)
+- 300+ downloads directly atribuiți (via UTM tracking pe blog links)
+
+**Retract (soft framing):** dacă la 30 zile:
+- Sub 500 combined page views
+- Comunitatea react negativ (accuse of doomerism sau anti-AI stance)
+- Zero engagement din AI research community
+- Product downloads flat (no lift from narrative)
+
+Nu prevad retract-ul necesar. Dar am criteriul explicit în caz.
+
+---
+
+
 
 ### Contextul care ne-a împins la framing agresiv
 

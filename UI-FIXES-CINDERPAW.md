@@ -866,6 +866,233 @@ Ce să urmărești:
 
 ---
 
+## SECȚIUNEA H — LINEAGE / CEMETERY PANEL (feature nou v1.1)
+
+**Cerere Darius (2026-08-22):** face vizibil ce Cinderpaw deja face invisible — evoluția genomilor de agents. Aliniat cu ADR-0019 (biological vocabulary) + STRATEGY-PIVOT.md („The evolution AI companies won't show you") + blog post 003 („Watch Your Agents Die").
+
+**Prerequisite:** ADR-0019 rename vocabulary aplicat pe cel puțin panel headers.
+
+---
+
+### H1 — Route & entry point  [P1 · S · Low]
+
+**Fix:**
+- New route `/evolution` (înlocuiește vechiul `/rsi` sau adaugă alături, cu redirect)
+- Sidebar entry: „Evolution" cu iconul 🧬 (lucide `Dna` sau `GitFork`)
+- Poziție în sidebar: după „Memory Layers", înainte de „Settings"
+- Keyboard shortcut: `⌘E` (Cmd+E)
+
+**Fișier țintă:** `frontend-react/src/router.tsx`, `frontend-react/src/components/layout/Sidebar.tsx`, new `frontend-react/src/pages/EvolutionPage.tsx`
+
+---
+
+### H2 — Layout 4-column  [P1 · M · Low]
+
+**Layout:**
+
+```
+┌───────────────┬───────────────┬───────────────┬───────────────┐
+│ ALIVE GENOMES │   CEMETERY    │  GENEALOGY    │   DIFF VIEW   │
+│               │               │     TREE      │  (selectable) │
+│  6 genomes    │  47 dead      │   [DAG viz]   │  [genome A]   │
+│               │               │               │   vs          │
+│  clever-hare  │  bold-cat     │               │  [genome B]   │
+│  ⭐ 0.87       │  ⚰ Aug 21     │               │               │
+│               │  LOW_FITNESS  │               │  + prompt: …  │
+│  wise-fox     │               │               │  - tools: …   │
+│  ⭐ 0.82       │  quick-owl    │               │  ± budget:…   │
+│               │  ⚰ Aug 20     │               │               │
+│  ...          │  TIMEOUT      │               │               │
+│               │  ...          │               │               │
+└───────────────┴───────────────┴───────────────┴───────────────┘
+```
+
+**Responsive breakdown:**
+- ≥1600px: 4 columns simultaneous
+- 1200-1600px: 3 columns (Genealogy Tree collapsed to icon, expandable on click)
+- 900-1200px: 2 columns (Alive + Cemetery), Genealogy + Diff în drawer separat
+- <900px: single column tabs (Alive | Cemetery | Genealogy | Diff)
+
+**Fișier țintă:** `frontend-react/src/pages/EvolutionPage.tsx` (new)
+
+---
+
+### H3 — Alive Genomes column  [P1 · M · Low]
+
+**Per genome card:**
+- Name (auto-generated: `{adjective}-{animal}-{seq}`, ex. „clever-hare-47")
+- Fitness score (0.00-1.00) cu color (green > 0.75, yellow 0.5-0.75, orange 0.3-0.5, red < 0.3)
+- Lineage depth badge („Gen 12" — 12 generations from founding)
+- Age („Alive 3d 4h")
+- Resource footprint mini-bar (RAM/tokens/cost per turn)
+- Actions:
+  - `View config` (opens genome viewer modal)
+  - `Set as active` (make this genome the default for new chats)
+  - `Retire` (mark as USER_KILLED, moves to Cemetery)
+  - `Fork` (creates a mutated copy to try changes manually)
+
+**Sorting:** default by fitness desc. Toggles: age, lineage depth, resource footprint.
+
+**Filter chips:** by parent genome (dropdown), by tool set, by task category.
+
+**Fișier țintă:** `frontend-react/src/components/evolution/AliveGenomeCard.tsx` (new), `frontend-react/src/components/evolution/AliveColumn.tsx` (new)
+
+---
+
+### H4 — Cemetery column  [P1 · M · Low]
+
+**Per dead genome card (visually greyed):**
+- Name
+- Fitness at time of death
+- Cause of death badge — one of:
+  - `LOW_FITNESS` (red)
+  - `INVARIANT_VIOLATION` (dark red)
+  - `TIMEOUT` (orange)
+  - `SUPERSEDED` (grey — normal evolution flow)
+  - `USER_KILLED` (blue)
+- Date of death
+- Generation number when died
+- Duration alive („Lived 5d 12h")
+- Actions:
+  - `View last config`
+  - `Revive` (re-spawn from archived config; requires confirmation dialog)
+  - `View children` (jump to Genealogy Tree filtered to this ancestor's descendants)
+  - `Export genome` (JSON export)
+
+**Sorting:** by death date desc. Toggles: fitness at death, generation, duration lived.
+
+**Filter chips:** by cause of death.
+
+**Bulk actions:** „Purge older than 30 days" (deletes archives, cannot be undone).
+
+**Fișier țintă:** `frontend-react/src/components/evolution/CemeteryCard.tsx` (new), `frontend-react/src/components/evolution/CemeteryColumn.tsx` (new)
+
+---
+
+### H5 — Genealogy Tree visualization  [P1 · L · Med]
+
+**Cel mai complex component.** DAG (directed acyclic graph) — genomes pot avea 1 sau 2 parents (crossover = 2, mutation only = 1).
+
+**Recomandare:** folosește **react-flow** (10.x+, MIT license, matur). Alternativa: **d3-hierarchy** — mai mult work, mai flexibil.
+
+**Node design:**
+- Alive node: colored border by fitness (same palette ca Alive column)
+- Dead node: greyed, cause-of-death badge overlay
+- Founding genome (root): special marker („Origin, seeded manually")
+- Node click: highlights in Alive/Cemetery columns + auto-selects for Diff
+
+**Edge design:**
+- Mutation edge: solid line
+- Crossover edge: dashed line (indicates 2-parent)
+- Hover edge: shows mutation summary tooltip
+
+**Layout algorithm:**
+- Horizontal Sugiyama layout (generations as columns, ancestors left, descendants right)
+- Alternative: vertical (top-down, roots at top)
+- User can pan + zoom
+- Mini-map bottom-right for large trees (>100 nodes)
+
+**Performance:**
+- Cap render at 500 visible nodes; older generations collapse into „...N older"
+- Virtualization dacă tree exceeds 1000 total nodes
+
+**Fișier țintă:** `frontend-react/src/components/evolution/GenealogyTree.tsx` (new)
+
+**Effort:** L pentru că react-flow setup + custom node/edge rendering + layout tuning ia timp real. 6-10 ore realistic.
+
+---
+
+### H6 — Diff View  [P1 · M · Low]
+
+**User selects 2 genomes (from Alive, Cemetery, or Tree).** Diff renders side-by-side.
+
+**Sections to diff:**
+1. **System prompt** — text diff (use existing highlighting from claude-mem style)
+2. **Tools enabled** — list diff (added/removed with icons)
+3. **Model** — if different, shown as bold change
+4. **Budget** — numeric diff with delta
+5. **Memory access rules** — list diff
+6. **Custom fitness weights** — if user overrode defaults, shown
+
+**Diff format:**
+- `+ added` (green)
+- `- removed` (red)
+- `~ changed` (yellow, with before → after)
+
+**Actions:**
+- „Apply A's config to B" (mutation manual — creates new genome inheriting B's identity with A's mutations)
+- „Export both as JSON"
+- „Share this diff" (copies markdown snippet to clipboard for X/Discord posts)
+
+**Fișier țintă:** `frontend-react/src/components/evolution/DiffView.tsx` (new)
+
+---
+
+### H7 — Real-time updates  [P1 · S · Low]
+
+**Panel se actualizează live când evolution runtime spawn-uiește / retires genomes.**
+
+Backend events (already exist in RSI subsystem, expose via Tauri):
+- `cinderpaw://evolution/genome-born` `{genome_id, parent_ids, generation}`
+- `cinderpaw://evolution/genome-died` `{genome_id, cause, fitness}`
+- `cinderpaw://evolution/fitness-updated` `{genome_id, new_fitness}`
+
+**Frontend hook:**
+```typescript
+const { alive, cemetery, tree } = useEvolutionState();
+// Subscribes to events, refetches on change, keeps UI live
+```
+
+**Fișier țintă:** `frontend-react/src/hooks/useEvolutionState.ts` (new), backend Tauri command exposure în `src-tauri/src/commands/evolution.rs` (new sau add la existing rsi commands).
+
+---
+
+### H8 — Empty states + first-run  [P2 · S · Low]
+
+**Prima intrare în Evolution panel (nu există încă genomes):**
+- Illustration (mascota cu un DNA icon)
+- Text: „No genomes yet. Cinderpaw spawns your first when you start a chat with agent mode enabled."
+- CTA: „Start a chat" button → redirect la /chat cu agent mode ON
+- Learn more link → docs/adr/0001 sau blog post 003
+
+**Cemetery empty:**
+- „No genomes have died yet. The first death happens when a mutation fails 3 evals in a row."
+
+**Fișier țintă:** `frontend-react/src/components/evolution/EmptyStates.tsx` (new)
+
+---
+
+### H9 — Screenshotable moments (design la marketing în minte)  [P2 · S · Low]
+
+**Screenshot-uri viral candidates:**
+
+1. **„My agent died today"** — Cemetery card single, clean crop, tweetable
+2. **„Watch a generation cycle"** — GIF de 30s cu Alive column în timp real: fitness scores oscilează, un genome dies, replacement e born
+3. **„Family tree of my Rust coder"** — Genealogy Tree screenshot cu 20+ generations
+4. **„What I mutated to survive"** — Diff view screenshot cu concrete config change
+
+**Design pentru screenshot success:**
+- Card padding generos (screenshots au air around content)
+- Bold typography pe fitness numbers și cause-of-death badges
+- Watermark discret în corner: „cinderpaw.dev" (opt-in setting, off default)
+
+**Fișier țintă:** design consideration în toate componentele H1-H8
+
+---
+
+### H10 — Ordine de implementare (pentru Opus)
+
+**Sprint 1 (3-4h):** H1 route + H2 layout + H8 empty states (shell complet, zero data)
+**Sprint 2 (4-6h):** H3 Alive column + H4 Cemetery column + H7 real-time updates (functional MVP)
+**Sprint 3 (6-10h):** H5 Genealogy Tree (cel mai heavy, self-contained)
+**Sprint 4 (3-4h):** H6 Diff View + H9 screenshot polish
+
+**Total: 16-24h de lucru concentrat. Realistic 2-3 zile pentru un Opus experienced cu React + react-flow.**
+
+**Target ship date:** v1.1 preview în noiembrie 2026. Blog post 003 „Watch Your Agents Die" publish D+10 sept 5 dacă preview e ready.
+
+---
+
 ## Referințe
 
 - Screenshots reale: chat empty state (2026-08-20) + loading screen (2026-08-21) trimise de utilizator în conversație. Nu sunt persisted în repo.
