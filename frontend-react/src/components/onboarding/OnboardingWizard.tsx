@@ -760,8 +760,13 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
     try {
       await saveByokProvider({ providerId: def.id, enabled: true, apiKey: key, baseUrl: null, defaultModel: null });
       setMsg({ ok: true, text: `✓ ${def.name} saved` });
-    } catch {
-      setMsg({ ok: false, text: 'Save failed' });
+    } catch (e) {
+      // Surface the Rust error verbatim — bare `catch {}` swallowed the real
+      // reason (keychain locked, disk full, permission denied on
+      // ~/.feral/byok.json). The wizard is often a user's first save attempt,
+      // so a helpful reason here saves the whole session.
+      const reason = typeof e === 'string' ? e : (e as Error)?.message ?? String(e);
+      setMsg({ ok: false, text: `Save failed: ${reason}` });
     } finally { setBusy(false); }
   };
 

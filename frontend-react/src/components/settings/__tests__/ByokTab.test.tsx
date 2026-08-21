@@ -56,6 +56,9 @@ describe('ByokTab', () => {
   });
 
   it('Test button calls testByokProvider and shows ✓ Connected on success', async () => {
+    // This mocks the STORE method, which normalises Rust's
+    // { success, message } into { ok, error } — mock that shape, not the raw
+    // Tauri one, or the test drifts from what the component actually reads.
     mockTestByok.mockResolvedValue({ ok: true });
     render(<ByokTab />);
     await userEvent.click(screen.getByText('OpenAI'));
@@ -73,6 +76,21 @@ describe('ByokTab', () => {
     await userEvent.type(keyInput, 'sk-bad');
     await userEvent.click(screen.getByRole('button', { name: /^test$/i }));
     await waitFor(() => expect(screen.getByText(/Invalid API key/)).toBeInTheDocument());
+  });
+
+  it('Save button surfaces the Rust error message verbatim on failure', async () => {
+    // Previously the component swallowed the error with a bare `catch {}`
+    // and showed a generic "Save failed" — this made the "Save Failed" bug
+    // reported on OpenRouter / NVIDIA NIM (2026-08-22) undebuggable.
+    mockSaveByok.mockRejectedValue('keychain locked');
+    render(<ByokTab />);
+    await userEvent.click(screen.getByText('OpenAI'));
+    const keyInput = await screen.findByPlaceholderText('sk-...');
+    await userEvent.type(keyInput, 'sk-key');
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/Save failed: keychain locked/)).toBeInTheDocument(),
+    );
   });
 
   it('MiniMax row shows a model <select> with MiniMax-M3 preselected', async () => {
