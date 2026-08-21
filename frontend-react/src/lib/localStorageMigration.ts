@@ -8,10 +8,17 @@
  * the selected agent resets to whichever one happens to be first. Every one of
  * those reads as "the update wiped my settings".
  *
- * Copy, then remove the old key. Copying first means an interruption leaves
- * both, and the next run finishes the job; removing first would leave neither.
+ * Copy, then remove the old key — and only then. Copying first means an
+ * interruption leaves both, and the next run finishes the job; removing first
+ * would leave neither. A copy that was SKIPPED removes nothing at all.
  *
- * Runs before React mounts (see `main.tsx`). Anything that throws here is
+ * Must run before any module that reads these keys is evaluated, which is a
+ * stronger requirement than "before React mounts" and is why `main.tsx` imports
+ * `./lib/bootStorage` ahead of everything else. A zustand store rehydrating
+ * first would find the new key empty, write its defaults there, and turn this
+ * function into a no-op that had already been marked done.
+ *
+ * Anything that throws here is
  * swallowed: storage can be unavailable (private mode, a locked-down profile,
  * quota exhausted) and a settings copy is never worth refusing to start over.
  */
@@ -49,10 +56,17 @@ export function migrateLocalStorage(store: Storage = localStorage): StorageMigra
       if (value === null) continue;
       // Never overwrite a value already under the new name: if both exist, the
       // new one is the one the app has been writing to.
-      if (store.getItem(to) === null) {
-        store.setItem(to, value);
-        moved += 1;
+      if (store.getItem(to) !== null) {
+        // And in that case the old key STAYS. Removing it here is what turned a
+        // skipped copy into a permanent loss: the destination can be non-empty
+        // for a reason nobody wants — a store module that rehydrated and wrote
+        // its defaults before this ran — and then the only real copy of
+        // somebody's settings was deleted to tidy up. A few orphaned kilobytes
+        // are cheaper than that, every time.
+        continue;
       }
+      store.setItem(to, value);
+      moved += 1;
       store.removeItem(from);
     }
 

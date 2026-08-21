@@ -1,14 +1,15 @@
+// FIRST, and deliberately above every other import: the storage-key migration
+// has to run before any store module is evaluated, and an import is the only
+// thing that can get ahead of `./App`'s own import graph. Calling it further
+// down this file — which is what it used to do — runs it after every zustand
+// store has already rehydrated. See `lib/bootStorage.ts`.
+import './lib/bootStorage';
+
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/globals.css';
-import { migrateLocalStorage } from './lib/localStorageMigration';
-
-// Storage keys were named after the app, so the rename orphans them. Carry them
-// across BEFORE the theme is read below — otherwise the very first thing a
-// returning user sees is the app in the wrong theme, having "forgotten" them.
-migrateLocalStorage();
 
 // Pre-paint theme: read persisted preference before React mounts to avoid a
 // light-then-dark flash on cold start. See spec §3.2.
