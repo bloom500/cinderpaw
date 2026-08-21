@@ -173,10 +173,18 @@ const FERAL_HOME = feralHome();
 import { log, VERSION } from "./runtime-meta.ts";
 /**
  * The one line the host waits for. Mirrored by `READY_MARKER` in
- * `crates/feral-core/src/cinderpaw_agent.rs`, which matches it exactly — the two
- * halves of one protocol, in two languages, and a test on each side.
+ * `crates/cinderpaw-core/src/cinderpaw_agent.rs`, which matches it exactly — the
+ * two halves of one protocol, in two languages.
+ *
+ * The rename broke this pair: the Rust side moved to `cinderpaw-agent-ready`
+ * and this line did not, so the host waited for a sentence the sidecar never
+ * said. Nothing failed loudly — the app just never became ready, and the
+ * "waking up" banner stayed on screen for the rest of the session. Each side
+ * had a test, and each test checked its own constant against itself.
+ * `protocol_drift.rs` now reads this file and compares the two literals, which
+ * is the check that would have caught it.
  */
-const READY_MARKER = "::feral-agent-ready::";
+const READY_MARKER = "::cinderpaw-agent-ready::";
 export { VERSION, log } from "./runtime-meta.ts";
 
 /** When this sidecar process started, for uptime reports. */

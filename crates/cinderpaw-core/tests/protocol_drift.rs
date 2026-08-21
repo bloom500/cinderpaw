@@ -40,3 +40,30 @@ fn inbound_and_outbound_types_match_ts() {
     assert_eq!(ts_inbound, rs_inbound, "inbound type sets diverged");
     assert_eq!(ts_outbound, rs_outbound, "outbound type sets diverged");
 }
+
+/// The ready handshake, checked across the language boundary.
+///
+/// Both sides already had a test. Both passed. Each compared its own constant
+/// to itself, so when the rename moved the Rust marker to `cinderpaw-agent-ready`
+/// and left `boot.ts` printing `feral-agent-ready`, nothing failed: the host
+/// simply waited for a sentence the sidecar never says, `cinderpaw://agent-ready`
+/// never fired, and the app stayed "waking up" forever. A test that reads the
+/// OTHER language's source is the only kind that could have caught it.
+#[test]
+fn the_ready_marker_is_the_same_string_on_both_sides() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let boot_path = PathBuf::from(&manifest_dir).join("../../CinderpawAgent/src/boot.ts");
+    let boot = std::fs::read_to_string(&boot_path)
+        .unwrap_or_else(|e| panic!("read {boot_path:?}: {e}"));
+
+    let decl = "const READY_MARKER = \"";
+    let start = boot.find(decl).expect("READY_MARKER not declared in boot.ts") + decl.len();
+    let end = start + boot[start..].find('"').expect("unterminated READY_MARKER literal");
+    let ts_marker = &boot[start..end];
+
+    assert_eq!(
+        ts_marker,
+        cinderpaw_core::cinderpaw_agent::READY_MARKER,
+        "the sidecar prints a ready marker the host does not wait for — the app          will never leave its startup state",
+    );
+}

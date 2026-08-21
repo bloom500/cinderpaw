@@ -1374,6 +1374,15 @@ async fn handle_rsi_request(
 /// two halves of one protocol, in two languages, in two files.
 pub const READY_MARKER: &str = "::cinderpaw-agent-ready::";
 
+/// What the sidecar said before the rename.
+///
+/// Still accepted, and not only for tidiness: the sidecar is a separate binary
+/// that ships on its own cadence (npm) and can be rebuilt on its own by
+/// code-RSI, so a host can genuinely find itself beside an older one. The cost
+/// of not recognising it is the whole app never becoming ready, which is the
+/// most expensive failure in this file to have twice.
+pub const LEGACY_READY_MARKER: &str = "::feral-agent-ready::";
+
 /// Log stderr from the agent; emit `cinderpaw://agent-ready` on the ready marker.
 async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::ChildStderr) {
     let mut lines = BufReader::new(stderr).lines();
@@ -1389,7 +1398,7 @@ async fn stderr_logger(events: Arc<dyn HostEvents>, stderr: tokio::process::Chil
         // and could equally wait forever if no line happened to contain the
         // word. The sidecar prints this once, when its transport is up and its
         // tools are live.
-        if line.ends_with(READY_MARKER) {
+        if line.ends_with(READY_MARKER) || line.ends_with(LEGACY_READY_MARKER) {
             events.emit("cinderpaw://agent-ready", serde_json::json!({}));
         }
     }

@@ -806,8 +806,21 @@ body { overflow: hidden; }
 
    One rule, on `:focus-visible` only, so a mouse click never draws a ring while
    a Tab press always does. Components that want a different treatment can still
-   override it locally. */
-:where(a, button, input, select, textarea, summary, [role="button"], [role="menuitem"], [role="tab"], [tabindex]):focus-visible {
+   override it locally.
+
+   `[tabindex="-1"]` is excluded deliberately. That value means "reachable only
+   in code, never by Tab" — it is what Radix puts on the body of a dialog, a
+   dropdown and a popover so it can move focus there when the panel opens. But
+   Chromium decides `:focus-visible` from the last input MODALITY, not from how
+   focus arrived: type anything, then open a menu, and the panel is focused
+   programmatically while the browser still believes it is serving a keyboard
+   user — so a brand-coloured ring appears around a whole panel that nobody
+   tabbed to. It reads as the app highlighting things at random.
+
+   The roles keep their rings: a menu item carrying `tabindex="-1"` as part of a
+   roving-focus group still matches `[role="menuitem"]`, so keyboard users lose
+   nothing. Only containers nobody can Tab to stop drawing one. */
+:where(a, button, input, select, textarea, summary, [role="button"], [role="menuitem"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
   outline: 2px solid var(--brand, #3b69ef);
   outline-offset: 2px;
   border-radius: inherit;

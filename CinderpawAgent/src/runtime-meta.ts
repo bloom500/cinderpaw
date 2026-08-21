@@ -2,8 +2,8 @@
  * Process identity + diagnostics — the two things a short-lived invocation
  * needs before it knows whether it is booting the agent at all.
  *
- * These lived in `boot.ts`, which meant `feral-agent version` (and the
- * `--custom-tool-runner` child process, and `feral-agent help`) had to
+ * These lived in `boot.ts`, which meant `cinderpaw-agent version` (and the
+ * `--custom-tool-runner` child process, and `cinderpaw-agent help`) had to
  * evaluate the entire agent module graph to read a version string. Several
  * tool modules resolve their executable allowlists against PATH at module
  * scope, so that cost ~1.5s on Windows against a ~120ms floor for a bare
@@ -28,5 +28,5 @@ export const VERSION: string =
 
 /** Diagnostics go to stderr; stdout is reserved for the transport protocol. */
 export function log(message: string): void {
-  process.stderr.write(`[feral] ${message}\n`);
+  process.stderr.write(`[cinderpaw] ${message}\n`);
 }
