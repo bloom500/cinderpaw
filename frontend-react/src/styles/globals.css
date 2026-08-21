@@ -436,27 +436,36 @@ body {
    of it, which is what the first attempt did, meant that if the class never
    arrived nothing changed at all and the app looked untouched. */
 html.has-window-effect body { background-color: transparent; }
-/* The lights are the CONTENT of the glass, so they are stronger here, not
-   weaker. The earlier pass dialled them down to let the desktop through and got
-   the worst of both: too faint to be a scene, too tinted to be a window. A
-   glass panel needs something worth bending, and the surest way to have that is
-   to own it rather than to hope the user's wallpaper provides it. */
+/* ── The two dials, and the trade they sit on ──────────────────────────────
+   The window is genuinely transparent and Windows genuinely blurs behind it —
+   both confirmed in the log at startup. So whether you can SEE through is
+   decided entirely here, by how much we paint on top.
+
+   "Strong visible gradients" and "see-through glass" are the same pixels, and
+   at 0.62 the lights alone covered the window completely: a perfectly
+   transparent pane with an opaque picture painted over it. The reference this
+   was measured against has no gradients of its own at all — everything in it
+   is wallpaper, blurred.
+
+   These are the middle: enough to tint and animate what is behind, not enough
+   to replace it. Raise for more of us, lower for more of the desktop. */
 :root[data-theme="dark"] {
-  --scene-key-light:     rgba(214, 132, 48, 0.62);
-  --scene-counter-light: rgba(84, 96, 210, 0.52);
-  --scene-fill-light:    rgba(160, 84, 196, 0.34);
-  --scene-grain-opacity: 0.03;
-  --scene-vignette-strength: 0.28;
-  /* Thin: the lights below have to arrive. This one number is the glass. */
-  --scene-surface:       rgba(16, 14, 9, 0.26);
+  --scene-key-light:     rgba(214, 132, 48, 0.22);
+  --scene-counter-light: rgba(84, 96, 210, 0.18);
+  --scene-fill-light:    rgba(160, 84, 196, 0.12);
+  --scene-grain-opacity: 0.02;
+  --scene-vignette-strength: 0.16;
+  /* The pane text sits on. Thin enough to read the desktop through, dark
+     enough to read words on — the one number that decides both. */
+  --scene-surface:       rgba(16, 14, 9, 0.16);
 }
 :root[data-theme="light"] {
-  --scene-key-light:     rgba(240, 168, 78, 0.58);
-  --scene-counter-light: rgba(118, 134, 226, 0.46);
-  --scene-fill-light:    rgba(220, 140, 196, 0.40);
-  --scene-grain-opacity: 0.02;
-  --scene-vignette-strength: 0.14;
-  --scene-surface:       rgba(255, 245, 238, 0.34);
+  --scene-key-light:     rgba(240, 168, 78, 0.20);
+  --scene-counter-light: rgba(118, 134, 226, 0.16);
+  --scene-fill-light:    rgba(220, 140, 196, 0.14);
+  --scene-grain-opacity: 0.015;
+  --scene-vignette-strength: 0.10;
+  --scene-surface:       rgba(255, 245, 238, 0.22);
 }
 /* ── The liquid-glass material ─────────────────────────────────────────────
    One class, so every pane is made of the same thing.

@@ -564,6 +564,29 @@ pub fn run() {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
 
+            // Apply the window effect HERE as well as in tauri.conf, for one
+            // reason: this call returns a Result and the config does not.
+            // "Configured" and "applied" are different facts, and the gap
+            // between them is invisible — an effect the OS refused looks
+            // exactly like an effect nobody asked for. This says which.
+            #[cfg(target_os = "windows")]
+            {
+                use tauri::Manager as _;
+                if let Some(win) = app.get_webview_window("main") {
+                    match win.set_effects(tauri::utils::config::WindowEffectsConfig {
+                        effects: vec![tauri::utils::WindowEffect::Acrylic],
+                        state: None,
+                        radius: None,
+                        color: None,
+                    }) {
+                        Ok(()) => tracing::info!("window effect: acrylic applied"),
+                        Err(e) => tracing::warn!(
+                            "window effect: the OS refused acrylic ({e}) — the window                              stays opaque and no amount of CSS will change that"
+                        ),
+                    }
+                }
+            }
+
             // Faza 4.5 Slice 2: every runtime service (AMD-guard, RSI
             // bootstrap, env exports, API server, supervised sidecar)
             // delegates to the host-agnostic `cinderpaw_core::boot::start`.
