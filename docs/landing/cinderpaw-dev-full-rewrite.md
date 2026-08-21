@@ -1,12 +1,45 @@
 # cinderpaw.dev — Full Landing Rewrite
 
 **Base:** existing Feral landing at feral-landing.vercel.app (Aug 2026)
+**Reference:** openclaw.ai (analyzed 2026-08-22 — what to differentiate)
 **Method:** section-by-section rewrite, same structure = drop-in replace in Nuxt/Vue components
 **Voice preserved:** the „cub" / „raise your own" metaphor works PERFECTLY with genome/evolution narrative. Cinderpaw = cinder + paw. Small warm creature that grows, dies, is replaced by better versions. Doubled down.
 **New injections:** Species AGI framing (we show what they hide), Lineage panel prominent, PROMISES.md trust anchor, Teams pricing Feb 2027 with waitlist, $5000 → Apache trigger.
 **Anti-OpenClaw:** rows in comparison table are honest about where we lose, and edgy where we win. Voice is more Cluj-honest than SF-marketing.
 
+## Positioning vs OpenClaw (added 2026-08-22 after analyzing openclaw.ai)
+
+OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk, Y Combinator official), OpenAI acquisition, and a foundation. They have distribution we can't match in 2026. What we CAN match, exceed, or move away from:
+
+**Do NOT copy (they win on these):**
+- ❌ Massive social proof wall (30+ celebrity tweets) — we have none, faking them is death
+- ❌ „Foundation" corporate positioning — Peter can, we can't, doesn't fit „one guy in Cluj"
+- ❌ 29 channel integrations enumerated with logos — we have 4, listing 4 vs 29 is embarrassing
+- ❌ „What People Say" as Section 2 (right after install) — they earned that placement, we haven't
+- ❌ Companion Apps (separate macOS + Windows Hub) — we ship one app, keep it simple
+- ❌ Multiple install methods enumerated equally (npm + pnpm + one-liner + git source) — we pick ONE primary CTA
+
+**MUST have (they don't, we can — moat):**
+- ✅ Species AGI framing — Peter can't do this, OpenAI owns them now. We can.
+- ✅ Lineage/Cemetery panel prominent — no competitor has evolution transparency UI
+- ✅ PROMISES.md with $5000/mo → Apache 2.0 trigger — no competitor has public quantified trust
+- ✅ „What they hide" comparison table row — Peter can't call this out about his own acquirer
+- ✅ Direct „At Anthropic vs At Cinderpaw" two-column comparison — impossible for OpenAI-owned OpenClaw
+
+**Match with different flavor (they do, we do differently):**
+- ✅ Install tabs (Desktop / CLI / Server) — keep, industry standard
+- ✅ Trust bar sub CTA (version + open source + platforms) — keep
+- ✅ Blog listing 3-4 posts — add before footer
+- ✅ Feature grid with icons — keep, expand copy per row
+- ✅ Personal narrative honest — „one guy in Cluj" > „Peter ex-PSPDFKit now at OpenAI"
+
+**Structural moves that matter more than any single copy change:**
+1. OpenClaw front-loads authority (celebrity social proof Section 2). We front-load product (features, then proof later at Section 6).
+2. OpenClaw is „many personas endorsing one product". We are „one product with two characters (Cubby + Paw) that live independently".
+3. OpenClaw markets to enterprise now (Foundation, Microsoft partnership). We market to individuals who don't want their AI owned by enterprise.
+
 ---
+
 
 ## HERO SECTION (above the fold)
 
@@ -108,6 +141,7 @@ The others rewrite their notes and prompts. Good engineering, and it stops at th
 
 | | **Cinderpaw** | **OpenClaw** | **Hermes Agent** | **Prime Agent** |
 |---|---|---|---|---|
+| **Who owns it** | Bloom Media SRL (Darius, solo) | OpenClaw Foundation (Peter, ex-PSPDFKit, now at OpenAI) | Community, MIT-licensed | Community, MIT-licensed |
 | **License** | BSL 1.1 — source-available, Apache-in-4-years OR at $5k/mo revenue | MIT | MIT | MIT |
 | **Core stack** | Rust core + Bun/TypeScript sidecar | Node.js + TypeScript | Python | TypeScript + a persistent Python REPL |
 | **Local inference** | llama.cpp and Whisper compiled into the binary | Ollama and other providers; local GGUF for memory embeddings | Any provider endpoint you point it at | Any provider endpoint you point it at |
@@ -115,7 +149,8 @@ The others rewrite their notes and prompts. Good engineering, and it stops at th
 | **Memory** | Four layers: working, episodic, semantic, fractal tree. All on your disk, none leaves. | Memory search over local embeddings | Agent-curated memory, full-text session search, dialectic user modelling | Durable harness state — memories, skills, subagent specs |
 | **Chat channels** | WhatsApp, Telegram, Discord, Slack | WhatsApp, Telegram, Slack, Discord, Signal, iMessage and more | Telegram, Discord, Slack, WhatsApp, Signal | Terminal only — it's a coding agent, not an assistant |
 | **Runs on** | Desktop app, or headless on a VPS with the full evolution engine running | Local gateway with control UI, CLI, terminal UI, Docker | Anywhere — laptop, $5 VPS, Docker, serverless | Terminal, with daemon-backed sessions that survive disconnect |
-| **What they hide** | Nothing. Every agent's genome, fitness score, ancestors, and cause of death is in the Lineage panel. | Not applicable — no evolution. | Not applicable — no weight training. | Not applicable — no weight training. |
+| **What they hide** | Nothing. Every agent's genome, fitness score, ancestors, and cause of death is in the Lineage panel. | Not applicable — no evolution engine. Config-based updates are visible in git. | Not applicable — no weight training. | Not applicable — no weight training. |
+| **What their owner needs** | Sponsorships + Shared Projects revenue to stay indie. Publicly tracked: [$5k/mo → Apache 2.0]. | OpenAI acquisition, Foundation, corporate partnerships. Different game now. | Community goodwill. | Community goodwill. |
 
 **Footnote below table (small text):**
 
@@ -540,6 +575,49 @@ I email once at launch, plus 1-2 progress updates. Not spam.
 > [[current waitlist count]] people are waiting.
 >
 > Structural advantage: we host coordination, not intelligence. Your inference stays yours. Our costs don't grow when you work harder.
+
+---
+
+## SECTION 14b — „Latest" (NEW — blog listing pattern from OpenClaw, executed differently)
+
+**Kicker:**
+
+> Latest
+
+**Header (h2):**
+
+> Product notes with docs-level depth.
+
+**Body opener:**
+
+I write about what I'm building, why I chose it, and what broke. No influencer takes. No „5 lessons learned" listicles.
+
+**Three cards (blog post preview, image + title + short desc + date + tags):**
+
+**Card 1 (latest, largest):**
+> **They Said AI Is Doing This In Secret. We're Doing It In The Open.**
+>
+> Species | Documenting AGI described AI evolution at frontier labs as horrifying. Cinderpaw has the same mechanism, open. The Lineage panel shows every genome, dead or alive.
+>
+> `2026-08-29 · essay · evolution`
+
+**Card 2:**
+> **Watch Your Agents Die: The Lineage Panel**
+>
+> A four-column UI showing alive genomes, cemetery, genealogy tree, and diff view. Real example: my agent's fitness dropped, I found the mutation in 15 minutes.
+>
+> `2026-09-05 · feature · lineage`
+
+**Card 3:**
+> **Why BSL Instead of MIT (and how to get us to Apache faster)**
+>
+> BSL 1.1 for now, Apache 2.0 in 4 years automatically — or immediately at $5k/mo revenue. Here's why this is fairer than pure MIT for solo devs.
+>
+> `2026-09-12 · essay · license`
+
+**CTA:**
+
+> Read all → cinderpaw.dev/blog
 
 ---
 
