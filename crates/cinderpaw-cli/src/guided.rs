@@ -155,7 +155,7 @@ pub fn run(accept_risk: bool) -> i32 {
     if has_tui && confirm("\nOpen the chat now?", true) {
         crate::chat::run(); // never returns
     }
-    println!("  {META}stay wild. ↝{RESET}");
+    println!("  {META}stay feral. ↝{RESET}");
     0
 }
 

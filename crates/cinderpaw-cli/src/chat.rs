@@ -67,6 +67,6 @@ pub fn run() -> ! {
     // console back in cooked mode so the parent shell isn't left mute.
     common::reset_console_mode();
     let Palette { meta: META, reset: RESET, .. } = common::palette();
-    let _ = writeln!(std::io::stderr(), "\n  {META}stay wild. ↝{RESET}");
+    let _ = writeln!(std::io::stderr(), "\n  {META}stay feral. ↝{RESET}");
     std::process::exit(code);
 }

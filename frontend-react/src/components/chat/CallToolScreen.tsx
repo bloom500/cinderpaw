@@ -467,7 +467,7 @@ function GenericBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
  *
  * Under the threshold there is nothing to reassure anyone about and a number
  * flickering on and off is noise. Past it, the count is the difference between
- * "this is taking a while" and "this is stuck" — one `ask_feral` measured
+ * "this is taking a while" and "this is stuck" — one `ask_cinder` measured
  * anywhere from seventeen to a hundred seconds, and with no number every one of
  * them feels identical.
  */

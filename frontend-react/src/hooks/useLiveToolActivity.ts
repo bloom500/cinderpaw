@@ -43,13 +43,13 @@ export type ToolKind = 'agent' | 'browser' | 'files' | 'terminal' | 'memory' | '
 /**
  * The name the Live call's own request travels under.
  *
- * `ask_feral` is answered in Rust and never reaches the sidecar's event stream,
+ * `ask_cinder` is answered in Rust and never reaches the sidecar's event stream,
  * so it arrives here on the call's status channel instead. It matters because it
  * is the OUTER task: the agent may answer from what it already knows and run no
  * tool at all, and before this the panel was blank for that entire wait — the
  * common case was the one with no feedback.
  */
-export const AGENT_TOOL = 'ask_feral';
+export const AGENT_TOOL = 'ask_cinder';
 
 /** Tool name → widget. Prefix matching, so `web_search_news` lands correctly. */
 const KINDS: Array<[ToolKind, string[]]> = [

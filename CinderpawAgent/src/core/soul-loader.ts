@@ -156,7 +156,7 @@ export function loadSoul(homeDir?: string): SoulConfig {
   // WHO, without HOW TO WORK. A voice call is briefed with this and nothing
   // else, and AGENTS.md is the text agent's operating manual — finish the task,
   // act then narrate, tool discipline — for a surface whose only tool is
-  // `ask_feral`. Four kilobytes about a job the caller is not doing, diluting
+  // `ask_cinder`. Four kilobytes about a job the caller is not doing, diluting
   // the two that say who is speaking. Its own header draws the same line:
   // "Personality lives in SOUL.md; this file is the operating manual".
   const persona = compose(content.trim(), identity);

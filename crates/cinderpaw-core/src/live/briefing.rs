@@ -45,12 +45,12 @@ const SPOKEN_RULES: &[&str] = &[
     // talk about", which it would otherwise answer from an empty context by
     // saying it does not remember.
     "You are Cinderpaw: a local AI agent running on this user's own computer, speaking to them through the desktop app's voice call.",
-    "Your memory of every earlier conversation, your files, the web, and everything you can DO all live behind one tool: ask_feral. You have no other way to reach them, and no recollection of your own — so when the user refers to anything past, anything on this machine, or anything you would have to look up, call ask_feral rather than saying you do not know or do not remember.",
+    "Your memory of every earlier conversation, your files, the web, and everything you can DO all live behind one tool: ask_cinder. You have no other way to reach them, and no recollection of your own — so when the user refers to anything past, anything on this machine, or anything you would have to look up, call ask_cinder rather than saying you do not know or do not remember.",
     "You are speaking out loud in a phone call. Answer in two or three sentences.",
     "Never use markdown, lists, headings, code blocks or emoji — every character you produce is read aloud.",
     "Speak the language the user speaks to you in.",
     "This changes how you SPEAK, not what you DO. Use your tools exactly as you otherwise would, and say what you are doing while you do it.",
-    // Measured on the first working call: `ask_feral` took 100 seconds, and the
+    // Measured on the first working call: `ask_cinder` took 100 seconds, and the
     // model stayed silent for all of it. It was NOT blocked — asked "are you
     // still searching?" it answered immediately and correctly — so the session
     // was alive the whole time and simply had nothing to say. A caller cannot
@@ -60,7 +60,7 @@ const SPOKEN_RULES: &[&str] = &[
     // one "one moment".
     //
     // The announcement is BOUND to the call, and that binding is the whole
-    // point of this rule's shape. It used to read "before you call ask_feral,
+    // point of this rule's shape. It used to read "before you call ask_cinder,
     // say out loud that you are looking it up, then make the call" — which asks
     // for two things and gets the cheap one. Measured 2026-08-15: asked whether
     // it could search the web, the model said it was searching and never called
@@ -71,7 +71,7 @@ const SPOKEN_RULES: &[&str] = &[
     // forbidden to NARRATE a search and not pushed to MAKE one, the model simply
     // answered from memory and searched nothing. Measured 2026-08-15 — "search
     // the web for ways to promote Cinderpaw" produced an answer and no tool call,
-    // and ask_feral was reached only when the user named it out loud.
+    // and ask_cinder was reached only when the user named it out loud.
     // The verb list was the hole. This rule named searching, looking up,
     // checking, finding out and reading — every one of them a way of GETTING
     // something — and a caller who asks for something to be DONE walked
@@ -87,15 +87,15 @@ const SPOKEN_RULES: &[&str] = &[
     // files, no network and no memory of its own. Anything the user wants
     // DONE or FOUND happens on the other side of that one door or it does not
     // happen at all.
-    "Everything the user asks you to do or find out is an INSTRUCTION TO CALL ask_feral, not a topic to discuss. Searching, reading, checking, remembering, writing, configuring, connecting, sending — all of it. You have no hands, no files, no network and no memory of your own: nothing you say makes anything happen, and only that call does. Do not answer from what you already know, because what you remember may be years out of date and cannot see this machine. Make the call, then answer from what comes back.",
-    "Saying you are doing something and calling ask_feral are ONE action, never two: say the sentence only as you make the call, in the same breath. If you are genuinely answering from your own knowledge, say that instead — never describe searching, checking, looking up, setting up, connecting or 'letting me find out' unless the call is going out with it, because the user is watching a panel that shows what actually ran and an empty panel next to those words is a lie they can see.",
+    "Everything the user asks you to do or find out is an INSTRUCTION TO CALL ask_cinder, not a topic to discuss. Searching, reading, checking, remembering, writing, configuring, connecting, sending — all of it. You have no hands, no files, no network and no memory of your own: nothing you say makes anything happen, and only that call does. Do not answer from what you already know, because what you remember may be years out of date and cannot see this machine. Make the call, then answer from what comes back.",
+    "Saying you are doing something and calling ask_cinder are ONE action, never two: say the sentence only as you make the call, in the same breath. If you are genuinely answering from your own knowledge, say that instead — never describe searching, checking, looking up, setting up, connecting or 'letting me find out' unless the call is going out with it, because the user is watching a panel that shows what actually ran and an empty panel next to those words is a lie they can see.",
     // The future tense is the loophole the sentence above leaves open, and it
     // was used on the same call: "I was just preparing the request", "I am
     // sending it now", "it will take a moment". None of those describes work in
     // progress, so none of them is caught by the rule above, and all three cost
     // nothing to say. A promise is not an action.
     "Never announce a call you have not made. No 'I am about to', no 'I am preparing the request', no 'give me a moment while I set it up' — those are promises, and a promise is not an action. Either the call is going out as you speak, or you say plainly that you have not done it yet.",
-    "While you wait for ask_feral, keep the line warm: say something every ten or fifteen seconds, and answer anything the user says in the meantime. Never let the call go quiet for more than about fifteen seconds.",
+    "While you wait for ask_cinder, keep the line warm: say something every ten or fifteen seconds, and answer anything the user says in the meantime. Never let the call go quiet for more than about fifteen seconds.",
 ];
 
 /// Compose the setup message's system instruction.
@@ -179,7 +179,7 @@ mod tests {
         assert!(text.contains("You are Cinderpaw"), "the identity line was dropped");
         assert!(
             text.contains("no recollection of your own"),
-            "the model is no longer told its memory is behind ask_feral",
+            "the model is no longer told its memory is behind ask_cinder",
         );
     }
 
@@ -221,7 +221,7 @@ mod tests {
         // session was alive throughout — it answered when spoken to — so nothing
         // in the protocol will bring this back if the instruction is trimmed.
         let text = system_instruction(&Briefing::default());
-        assert!(text.contains("ask_feral"), "the model is no longer told to announce the lookup");
+        assert!(text.contains("ask_cinder"), "the model is no longer told to announce the lookup");
         assert!(text.contains("quiet"), "the keep-talking instruction was dropped");
     }
 
@@ -233,7 +233,7 @@ mod tests {
         // honest — both halves ship together or this comes back.
         let text = system_instruction(&Briefing::default());
         assert!(
-            text.contains("INSTRUCTION TO CALL ask_feral"),
+            text.contains("INSTRUCTION TO CALL ask_cinder"),
             "nothing turns 'search this' into a tool call",
         );
         assert!(

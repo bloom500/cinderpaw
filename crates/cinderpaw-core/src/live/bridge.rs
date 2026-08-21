@@ -5,7 +5,7 @@
 //! not an error message but a call that hangs — the model waits for a response
 //! that no branch produces.
 //!
-//! The model is given ONE function — `ask_feral` — rather than a catalogue.
+//! The model is given ONE function — `ask_cinder` — rather than a catalogue.
 //! Everything it might want is already behind Cinderpaw's agent, and the round trip
 //! to reach it is the same one `/runtime/chat` makes, so a door costs one
 //! declaration where a toolbox cost forty-three ports. `answer` still handles
@@ -19,7 +19,7 @@ use crate::runtime::RuntimeState;
 use crate::tools::{execute, ToolType};
 
 /// The one thing the model can ask for.
-pub const ASK_FERAL: &str = "ask_feral";
+pub const ASK_CINDER: &str = "ask_cinder";
 
 /// Everything the model is told it can do — which is one thing, on purpose.
 ///
@@ -36,7 +36,7 @@ pub const ASK_FERAL: &str = "ask_feral";
 /// not functions with arguments.
 pub fn declarations() -> Vec<FunctionDeclaration> {
     vec![FunctionDeclaration {
-        name: ASK_FERAL.to_string(),
+        name: ASK_CINDER.to_string(),
         // Written as a TRIGGER, not as an offer, and that rewrite was paid for.
         // It used to open "ask Cinderpaw to do something you cannot do yourself",
         // which asks the model to first conclude it cannot — and on "search the
@@ -90,7 +90,7 @@ pub fn declarations() -> Vec<FunctionDeclaration> {
 ///
 /// `surface: "voice"` matters. Without it the agent answers with the desktop's
 /// full markdown, and Gemini reads the asterisks out loud.
-async fn ask_feral(
+async fn ask_cinder(
     runtime: &Arc<RuntimeState>,
     session_id: &str,
     request: &str,
@@ -132,7 +132,7 @@ pub async fn answer(
     runtime: Option<&Arc<RuntimeState>>,
     session_id: &str,
 ) -> FunctionResponse {
-    let response = if call.name == ASK_FERAL {
+    let response = if call.name == ASK_CINDER {
         let request = call.args.get("request").and_then(|v| v.as_str()).unwrap_or("");
         match runtime {
             // Only a host that owns a sidecar can answer this. `None` is the
@@ -142,7 +142,7 @@ pub async fn answer(
             Some(_) if request.trim().is_empty() => {
                 serde_json::json!({ "ok": false, "output": "no request was given" })
             }
-            Some(rt) => match ask_feral(rt, session_id, request).await {
+            Some(rt) => match ask_cinder(rt, session_id, request).await {
                 Ok(text) => serde_json::json!({ "ok": true, "output": text }),
                 Err(e) => serde_json::json!({ "ok": false, "output": e }),
             },
@@ -183,7 +183,7 @@ mod tests {
         assert_eq!(names.len(), declarations().len(), "two tools share a name");
         for name in names {
             assert!(
-                name == ASK_FERAL || ToolType::from_name(&name).is_some(),
+                name == ASK_CINDER || ToolType::from_name(&name).is_some(),
                 "{name} is declared but nothing answers it",
             );
         }
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn a_declaration_carries_a_usable_schema() {
-        let ask = declarations().into_iter().find(|d| d.name == ASK_FERAL).unwrap();
+        let ask = declarations().into_iter().find(|d| d.name == ASK_CINDER).unwrap();
         assert!(!ask.description.is_empty());
         assert_eq!(ask.parameters["type"], "object");
         assert_eq!(ask.parameters["properties"]["request"]["type"], "string");
@@ -203,7 +203,7 @@ mod tests {
         // Without this the model waits, mute, for the whole agent turn — a
         // median of 25 seconds. It is the single field that makes putting an
         // agent behind a voice call viable, so it is worth a test of its own.
-        let ask = declarations().into_iter().find(|d| d.name == ASK_FERAL).unwrap();
+        let ask = declarations().into_iter().find(|d| d.name == ASK_CINDER).unwrap();
         assert_eq!(ask.behavior.as_deref(), Some("NON_BLOCKING"));
     }
 
@@ -213,7 +213,7 @@ mod tests {
         // Rust's are weaker — its web_search answers HTTP 429 while the
         // sidecar's works. Declaring both let the model pick the broken one.
         let names: Vec<_> = declarations().into_iter().map(|d| d.name).collect();
-        assert_eq!(names, vec![ASK_FERAL.to_string()]);
+        assert_eq!(names, vec![ASK_CINDER.to_string()]);
     }
 
     #[test]

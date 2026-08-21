@@ -455,7 +455,7 @@ async fn pump(
                                     .to_string(),
                             },
                         );
-                        // The runtime is what makes `ask_feral` answerable: it
+                        // The runtime is what makes `ask_cinder` answerable: it
                         // holds the sidecar's stdin and the event bus its reply
                         // comes back on. Fetched per call rather than captured,
                         // because the sidecar can restart mid-conversation and a

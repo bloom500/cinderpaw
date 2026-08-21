@@ -32,10 +32,12 @@ async function load() {
   return (await import('./chatStream')).startChatStream;
 }
 
-const args = () =>
+// Not `as const`: the tuple is spread into startChatStream, whose `messages`
+// parameter is a mutable Message[], and a readonly tuple does not satisfy it.
+const args = (): Parameters<typeof import('./chatStream').startChatStream> =>
   ['s1', [], {} as never, null, {
     onToken: vi.fn(), onDone: vi.fn(), onError: vi.fn(), onStopped: vi.fn(),
-  }] as const;
+  }];
 
 describe('ensureListeners failure handling', () => {
   beforeEach(() => { listen.mockReset(); stream.mockClear(); });
