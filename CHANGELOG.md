@@ -16,11 +16,39 @@
   settings, connectors and models are untouched, and you do not have to do
   anything.
 
-  What has NOT moved in this release, deliberately: the config folder is still
-  `~/.feral/`, the command is still `feral`, and the app still identifies itself
-  to your operating system as before. Those carry your data, so they move
-  together, in one step, with a migrator that copies rather than replaces — not
-  as a side effect of a name change. See RENAME-PLAN.md.
+  The three things that carry your data moved too, together and in one step,
+  because moving some of them and not the others is what leaves an install in
+  two halves: the config folder is now `~/.cinderpaw/`, the command is now
+  `cinderpaw`, and the app identifies itself to your operating system under its
+  new name.
+
+  Nothing is copied over you and nothing is deleted. On the first start after
+  updating, your `~/.feral/` is carried across and then left exactly where it
+  is, marked as migrated — remove it whenever you are satisfied, or never. The
+  same happens to what your browser view stored: theme, language, the voices and
+  transcription engine you picked, and the fact that you have already done the
+  onboarding. If any of it cannot be carried across, the app says so on your
+  screen and stops before changing anything, rather than starting up looking
+  like a fresh install.
+
+  The old names keep working where they can. `feral` stays as a second name for
+  the command, every `FERAL_*` environment variable is still read (the
+  `CINDERPAW_*` one wins, and the old one warns once), and a `~/.local/share/feral`
+  bundle from before the rename is still found. See RENAME-PLAN.md.
+
+### Added
+
+- **Your chats are filed under the day they happened.** Today, Yesterday,
+  Previous 7 days, Previous 30 days, then months — in the sidebar and on the
+  Chats page. By the calendar rather than by hours elapsed, so a chat from
+  eleven last night is under Yesterday and one from one this morning is under
+  Today, which is what those words mean to the person reading them.
+- **Rename and delete sit on every chat and project**, in the sidebar itself.
+  Renaming does not change where a chat sits in the list: the order is when you
+  last talked to it, and fixing a typo in a name is not talking to it.
+- **Chats and Projects left the sidebar's navigation.** They were rows leading
+  to a page that listed what the sidebar already lists, and the actions were the
+  only thing that page had that the rail did not.
 
 ### Fixed
 
@@ -39,6 +67,23 @@
   count reset on every cleanup pass, so the cleanup then decided it was cold and
   deleted it. Recording a voice message and having it fail left the microphone
   live. The progress bar for the embedding download was invisible.
+
+- **Everything your browser view remembered survives the rename.** The webview
+  keeps its storage in a folder named after the app, so renaming the app pointed
+  it at an empty one. On its own that would have reset your theme, your
+  language, the transcription and voice engines you had chosen, your enabled
+  tools, the active agent and your saved call recordings — and brought the
+  onboarding wizard back for someone who finished it months ago, with no message
+  anywhere explaining any of it. The old folder is now carried across on first
+  start, and left where it was.
+
+  The most visible symptom was the phone button offering to set up transcription
+  instead of placing a call: it had no record of the engine you already picked,
+  so it asked again.
+
+- **The date headings in the chat list are readable.** They were drawn in the
+  disabled-text colour, which on a light background is present in the page and
+  absent from the screen.
 
 ## 2026.08.15
 
