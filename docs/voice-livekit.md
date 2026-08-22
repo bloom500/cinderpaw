@@ -30,6 +30,7 @@ untouched and still works.
 | `@livekit/agents` worker registers | yes |
 | Job dispatch reaches the worker | yes |
 | Agent joins the room over WebRTC | yes — `agent-AJ_… (kind=AGENT, state=ACTIVE)` |
+| Real audio reaches the agent | yes — 50 frames / 24000 samples, first run |
 
 ---
 
@@ -127,8 +128,10 @@ too generous): it is a trained model, not a silence threshold.
 
 ## What is still unknown
 
-- **The media path under load.** The spike moves no audio. It proves the
-  peer connection establishes, not that a call sounds good.
+- **The media path under load.** The spike now moves audio — a second
+  participant publishes a 440 Hz tone and the agent receives it — but half a
+  second of one tone is not a call. Duration, jitter and concurrency are
+  untested.
 - **Cold start.** Server boot plus worker registration plus the EOT model load
   was a few seconds in the spike. Whether that is warm-started at app boot or
   paid on the first call is a Phase 2 decision.
@@ -138,8 +141,35 @@ too generous): it is a trained model, not a silence threshold.
   distributing Apache 2.0 code, so a NOTICE entry is required. Trivial, but
   not done yet.
 
+## Decisions (Darius, 2026-08-22)
+
+The spike also grew a step 6: a second participant publishes a synthetic tone
+and the agent must receive real frames. It passed first run (50 frames, 24000
+samples). Connecting and carrying audio are different claims, and only the
+second one is worth anything.
+
+Both Phase 1 gate questions are now answered. Do not re-open them without a
+new measurement.
+
+1. **macOS: build LiveKit server from Go source in CI.** One architecture on
+   every platform, no Homebrew requirement, no mac-only "different mode".
+   Implemented as `.github/workflows/livekit-macos.yml` — manual dispatch,
+   builds `darwin_amd64` + `darwin_arm64` on native runners and uploads each
+   as an artifact. Run it per LiveKit version bump. NOT yet run; nobody here
+   has a mac, so CI is the first real test of this decision.
+2. **The voice worker is its own bundled Node process.** The Bun sidecar
+   stays as it is. Cost accepted: a Node runtime plus the per-target native
+   modules in the installer.
+
 ## Next
 
-Phase 2 (feature parity) as described in `BUGS-HANDOFF-OPUS.md`, with two
-amendments from the findings above: the worker is a Node process rather than
-part of the Bun sidecar, and macOS needs a source build before it can ship.
+Phase 2 (feature parity), amended by the decisions above:
+
+- Node voice worker spawned as its own process from Tauri, not folded into
+  the Bun sidecar.
+- macOS ships once the CI workflow above has produced a binary that runs.
+- Still unknown and unchanged by these decisions: the media path under load,
+  cold-start placement, BYOK key mapping, and the Apache 2.0 NOTICE entry.
+
+Note: the Phase 2 description this doc originally pointed at
+(`BUGS-HANDOFF-OPUS.md`) is not in the repo. Phase 2 has no written plan yet.

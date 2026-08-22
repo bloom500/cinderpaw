@@ -12,12 +12,19 @@
  *   3. an Agents worker registers against it
  *   4. a dispatch reaches that worker
  *   5. the agent joins the room over WebRTC and shows up as a live participant
+ *   6. real audio published by a second participant reaches the agent
  *
- * Step 5 is the one that matters. Steps 1-4 are HTTP and a websocket, and they
+ * Step 6 is the one that matters. Step 5 proves the peer connection forms;
+ * it does not prove a single sample crosses it, and a voice engine that
+ * connects but carries no audio is the same as no voice engine. Steps 1-4 are HTTP and a websocket, and they
  * passed on the first try; the ICE handshake in step 5 did not, and the reason
  * it did not is now encoded in `serverConfig()` below. A spike that only
  * proved "the worker registered" would have reported success over a voice
  * engine that could never carry audio.
+ *
+ * No microphone, no speaker and no API key are involved: step 6 publishes a
+ * synthetic tone from a second participant and counts the frames the agent
+ * actually receives. It measures the media path, not any vendor's STT.
  *
  * Exits 0 when the whole chain works, 1 with the failing step named.
  */
@@ -78,11 +85,30 @@ logging:
   level: info
 `;
 
+const AUDIO_FRAMES = 50; // ~0.5s at 10ms frames: enough to prove flow, not a load test
+
 const AGENT_SRC = `
 import { defineAgent, cli, WorkerOptions } from '@livekit/agents';
+import { RoomEvent, TrackKind, AudioStream } from '@livekit/rtc-node';
 import { fileURLToPath } from 'node:url';
 export default defineAgent({
-  entry: async (ctx) => { await ctx.connect(); console.log('SPIKE_AGENT_IN_ROOM'); },
+  entry: async (ctx) => {
+    await ctx.connect();
+    console.log('SPIKE_AGENT_IN_ROOM');
+    ctx.room.on(RoomEvent.TrackSubscribed, async (track) => {
+      if (track.kind !== TrackKind.KIND_AUDIO) return;
+      let frames = 0;
+      let samples = 0;
+      for await (const frame of new AudioStream(track)) {
+        frames += 1;
+        samples += frame?.data?.length ?? 0;
+        if (frames >= ${AUDIO_FRAMES}) {
+          console.log('SPIKE_AUDIO_FRAMES', frames, samples);
+          break;
+        }
+      }
+    });
+  },
 });
 cli.runApp(new WorkerOptions({
   agent: fileURLToPath(import.meta.url),
@@ -91,6 +117,32 @@ cli.runApp(new WorkerOptions({
   apiKey: '${KEY}',
   apiSecret: '${SECRET}',
 }));
+`;
+
+/**
+ * A second participant that publishes a 440 Hz tone, so the agent has real
+ * audio to receive. Its own process on purpose: that is the shape a real call
+ * has, and a publisher that shares the agent's event loop can mask stalls.
+ */
+const CALLER_SRC = `
+import { AudioFrame, AudioSource, LocalAudioTrack, Room, TrackPublishOptions, TrackSource } from '@livekit/rtc-node';
+const RATE = 48000;
+const FRAME = 480; // 10 ms
+const room = new Room();
+await room.connect(process.argv[2], process.argv[3], { autoSubscribe: false });
+const source = new AudioSource(RATE, 1);
+await room.localParticipant.publishTrack(
+  LocalAudioTrack.createAudioTrack('spike-tone', source),
+  new TrackPublishOptions({ source: TrackSource.SOURCE_MICROPHONE }),
+);
+console.log('SPIKE_CALLER_PUBLISHED');
+for (let t = 0; ; ) {
+  const data = new Int16Array(FRAME);
+  for (let i = 0; i < FRAME; i += 1, t += 1) {
+    data[i] = Math.round(Math.sin((2 * Math.PI * 440 * t) / RATE) * 8000);
+  }
+  await source.captureFrame(new AudioFrame(data, RATE, 1, FRAME));
+}
 `;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -166,7 +218,7 @@ async function main() {
   // ── 3. the worker ───────────────────────────────────────────────────────
   const agentFile = join(root, 'spike-agent.mjs');
   writeFileSync(agentFile, AGENT_SRC);
-  if (!existsSync(join(root, 'node_modules', '@livekit', 'agents'))) {
+  if (!existsSync(join(root, 'node_modules', '@livekit', 'rtc-node'))) {
     writeFileSync(join(root, 'package.json'), '{"name":"lk-spike","private":true,"type":"module"}');
     log('installing @livekit/agents (first run only)...');
     // `shell: true` because on Windows npm is a .cmd shim, and spawning it
@@ -175,7 +227,14 @@ async function main() {
     // nothing about what went wrong, so both are checked and both are shown.
     const npm = spawnSync(
       'npm',
-      ['install', '--no-audit', '--no-fund', '@livekit/agents', 'livekit-server-sdk'],
+      [
+        'install',
+        '--no-audit',
+        '--no-fund',
+        '@livekit/agents',
+        '@livekit/rtc-node',
+        'livekit-server-sdk',
+      ],
       { cwd: root, encoding: 'utf8', shell: true },
     );
     if (npm.error || npm.status !== 0) {
@@ -190,7 +249,13 @@ async function main() {
   let workerLog = '';
   worker.stdout.on('data', (d) => (workerLog += d));
   worker.stderr.on('data', (d) => (workerLog += d));
+  let caller = null;
   const cleanup = () => {
+    try {
+      caller?.kill();
+    } catch {
+      /* already gone */
+    }
     try {
       worker.kill();
     } catch {
@@ -226,12 +291,46 @@ async function main() {
   }
 
   const live = await rooms.listParticipants(ROOM);
-  cleanup();
   if (!live.length) {
+    cleanup();
     fail('confirming a live participant', 'the agent connected but the room lists nobody');
   }
   log('agent is live in the room:', live.map((p) => p.identity).join(', '));
-  log('PASS - self-hosted LiveKit carries a call on this machine.');
+
+  // ── 6. audio actually flows ─────────────────────────────────────────────
+  const callerFile = join(root, 'spike-caller.mjs');
+  writeFileSync(callerFile, CALLER_SRC);
+  const at = new sdk.AccessToken(KEY, SECRET, { identity: 'spike-caller' });
+  at.addGrant({ roomJoin: true, room: ROOM, canPublish: true, canSubscribe: false });
+  caller = spawn(process.execPath, [callerFile, `ws://127.0.0.1:${HTTP_PORT}`, await at.toJwt()], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let callerLog = '';
+  caller.stdout.on('data', (d) => (callerLog += d));
+  caller.stderr.on('data', (d) => (callerLog += d));
+
+  if (!(await until(30_000, () => callerLog.includes('SPIKE_CALLER_PUBLISHED')))) {
+    cleanup();
+    fail('publishing audio from a second participant', callerLog.slice(-800));
+  }
+  log('caller is publishing a tone');
+
+  if (!(await until(30_000, () => workerLog.includes('SPIKE_AUDIO_FRAMES')))) {
+    cleanup();
+    fail(
+      'audio reaching the agent',
+      `the track was published and the agent received no frames:
+${workerLog.slice(-800)}`,
+    );
+  }
+  const [, frames, samples] = /SPIKE_AUDIO_FRAMES (\d+) (\d+)/.exec(workerLog);
+  cleanup();
+  if (Number(samples) === 0) {
+    fail('audio reaching the agent', `${frames} frames arrived carrying no samples`);
+  }
+  log(`agent received ${frames} audio frames (${samples} samples)`);
+  log('PASS - self-hosted LiveKit carries a call, with audio, on this machine.');
 }
 
 main().catch((e) => fail('the spike itself', e?.stack ?? String(e)));
