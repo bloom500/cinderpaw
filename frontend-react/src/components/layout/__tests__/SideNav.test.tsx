@@ -68,6 +68,14 @@ describe('SideNav', () => {
   });
 
   it('files chats under the day they happened', () => {
+    // The clock is frozen at midday, because "26 hours back" is only yesterday
+    // if it is already past 02:00 — run this at one in the morning and the same
+    // timestamp lands two calendar days back, in "this week". The test was
+    // fine for twenty-two hours a day, which is the worst kind of fine: it
+    // fails for whoever is still working at 1am, and passes when they check.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-08-20T12:00:00Z'));
+
     const dayAgo = 60 * 26;   // yesterday by the calendar, 26 hours back
     const weekAgo = 60 * 24 * 4;
     useConversations.setState({
@@ -80,6 +88,9 @@ describe('SideNav', () => {
     expect(screen.getByText('Previous 7 days')).toBeTruthy();
     // Headings are not a filter: every chat is still in the column.
     for (const id of ['now', 'then', 'older']) expect(screen.getByText(id)).toBeTruthy();
+    // Handed back deliberately: a frozen clock leaking into the next test is a
+    // failure that looks like it belongs to whatever runs after this.
+    vi.useRealTimers();
   });
 
   it('does not claim the list is empty before it has been read', () => {
