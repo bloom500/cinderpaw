@@ -60,7 +60,7 @@ export function AboutTab() {
 
       <div className="space-y-2">
         <a
-          href="https://github.com/bloom500/feral"
+          href="https://github.com/bloom500/cinderpaw"
           target="_blank"
           rel="noreferrer"
           className="block text-sm text-info hover:underline"
@@ -68,7 +68,7 @@ export function AboutTab() {
           View on GitHub →
         </a>
         <a
-          href="https://github.com/bloom500/feral/issues"
+          href="https://github.com/bloom500/cinderpaw/issues"
           target="_blank"
           rel="noreferrer"
           className="block text-sm text-info hover:underline"

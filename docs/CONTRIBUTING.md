@@ -177,9 +177,9 @@ send, stop mid-stream, switch tabs mid-stream, send again.
 
 ## Where to ask
 
-- [Discussions](https://github.com/bloom500/feral/discussions) — ideas, questions,
+- [Discussions](https://github.com/bloom500/cinderpaw/discussions) — ideas, questions,
   "is this a bug or am I holding it wrong"
-- [Issues](https://github.com/bloom500/feral/issues) — bugs and scoped work
+- [Issues](https://github.com/bloom500/cinderpaw/issues) — bugs and scoped work
 - Security vulnerabilities: **do not** open a public issue — see
   [SECURITY.md](../SECURITY.md)
 

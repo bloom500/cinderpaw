@@ -31,7 +31,7 @@ hardware token.
 ## One-time setup (you)
 
 1. Apply at **https://signpath.org/apply** (the *Foundation* / free OSS program —
-   not the paid signpath.io). Provide the public repo `github.com/bloom500/feral`,
+   not the paid signpath.io). Provide the public repo `github.com/bloom500/cinderpaw`,
    project name "Cinderpaw", and the license.
 2. They review that it's a genuine OSS project (a few days).
 3. After approval, the SignPath dashboard gives you:

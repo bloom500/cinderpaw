@@ -23,7 +23,7 @@ without it.
 ## Quick start
 
 ```bash
-git clone https://github.com/bloom500/feral-agent.git
+git clone https://github.com/bloom500/cinderpaw-agent.git
 cd feral-agent
 bun install
 ```
