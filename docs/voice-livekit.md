@@ -169,6 +169,25 @@ new measurement.
    stays as it is. Cost accepted: a Node runtime plus the per-target native
    modules in the installer.
 
+## Phase 2, first slice: confirmed in the app (2026-08-22)
+
+Settings → General → "Voice call self-test" runs the whole chain inside the
+shipping app: Rust boots the server on loopback, mints credentials, starts the
+agent as a Node process, and the webview joins over WebRTC. **Darius ran it on
+Windows and heard himself back.** No API key, no account, no downloaded model.
+
+What that settles: the media path works through the real app, not just through
+`scripts/livekit-spike.mjs`. WebView2 does WebRTC to a loopback server, the
+microphone permission prompt behaves, and the process lifecycle holds.
+
+What it does not settle: the far end echoes. It has no ears and no voice of its
+own yet — STT, a model and TTS are the next slice, and they plug into a pipe
+that is now proven rather than assumed.
+
+Still open from the list above: the server binary is downloaded rather than
+bundled, the agent needs Node plus one npm install on first run, BYOK key
+mapping is unwritten, and the Apache 2.0 NOTICE entry is still missing.
+
 ## Next
 
 Phase 2 (feature parity), amended by the decisions above:
