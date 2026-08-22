@@ -519,14 +519,79 @@ pub fn run() {
     //     )
     //     .expect("failed to export specta bindings");
 
+/// The window material, in one place.
+///
+/// Built by a function rather than written twice, because the second caller is
+/// the focus handler: if the two ever disagree, the window quietly changes
+/// material the first time you click away from it and back, which is a bug
+/// nobody would think to look for in a config literal.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
+    #[cfg(target_os = "windows")]
+    let effect = tauri::utils::WindowEffect::Acrylic;
+    #[cfg(target_os = "macos")]
+    let effect = tauri::utils::WindowEffect::UnderWindowBackground;
+
+    // Used only on Windows 10 and on Windows 11 below build 22523, where
+    // acrylic still goes through the legacy call that accepts a tint. Newer
+    // builds ignore it entirely. Kept rather than passing `None`, because on
+    // those older machines `None` means "whatever the crate defaults to", and a
+    // default nobody has seen is exactly the kind of thing that sits invisibly
+    // between the app and the desktop.
+    #[cfg(target_os = "windows")]
+    let color = Some(tauri::utils::config::Color(16, 14, 9, 24));
+    #[cfg(target_os = "macos")]
+    let color = None;
+
+    tauri::utils::config::WindowEffectsConfig {
+        effects: vec![effect],
+        // `Active`, not the default `FollowsWindowActiveState`. The default is
+        // literally "go opaque when the window is not the active one", which is
+        // why the glass kept collapsing the moment focus moved elsewhere. For a
+        // window somebody keeps beside their work — the whole point of a
+        // see-through app — inactive is most of the time it is on screen.
+        // macOS reads this (NSVisualEffectView's `state`); Windows ignores it,
+        // and gets the reapply-on-focus handler instead.
+        state: Some(tauri::utils::WindowEffectState::Active),
+        radius: None,
+        color,
+    }
+}
+
     let specta_builder_for_setup = specta_builder.clone();
     tauri::Builder::default()
-        // Acrylic rather than Mica. Mica samples the wallpaper and flattens it
-        // into a near-uniform tint — by design it does NOT show what is behind
-        // the window, which is why it arrived as a flat brown wash instead of
-        // glass. Acrylic blurs the actual content behind. Its documented cost is
-        // worse performance while dragging or resizing; that is a real trade and
-        // it is the one that buys the material.
+        // Acrylic, and NOT Blur. This was tried the other way round and the
+        // window became unusable, so the reason is worth writing down once.
+        //
+        // `window-vibrancy` picks a different Windows API per effect, and the
+        // APIs are not equivalent:
+        //
+        //   Blur    -> SetWindowCompositionAttribute(ACCENT_ENABLE_BLURBEHIND)
+        //              on everything past Windows 7. That is the legacy,
+        //              unaccelerated path: DWM recomposites the blur region
+        //              itself on every move, so dragging the window flickers,
+        //              tears between transparent and opaque, and drags the
+        //              whole desktop's frame rate down with it. It shows more
+        //              of what is behind — and it costs the machine.
+        //   Acrylic -> DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE,
+        //              DWMSBT_TRANSIENTWINDOW) on build 22523 and newer, which
+        //              is GPU-composited and smooth. Below that build it falls
+        //              back to the same legacy call as Blur.
+        //   Mica    -> also DwmSetWindowAttribute, also smooth, but it samples
+        //              the WALLPAPER and flattens it: by design it shows
+        //              nothing of what is actually behind the window. It
+        //              arrived as a flat brown wash.
+        //
+        // So on a current Windows 11 the honest choice is: frosted and smooth
+        // (Acrylic), or more see-through and juddering (Blur). Frosted wins —
+        // a window that stutters while you move it is not a nicer window.
+        //
+        // One consequence to know before reaching for it: on the backdrop-type
+        // path the `color` field is NOT passed to the OS at all — the crate
+        // only forwards it on the legacy branch. On a modern Windows 11 the
+        // tint belongs to DWM and nothing here can change it, so the only
+        // remaining controls over how see-through this looks are in the
+        // stylesheet: `--scene-surface`, and how much the scene paints on top.
         //
         // The page only goes see-through where the OS actually blurs what is
         // behind it. `windowEffects` is ignored on platforms that cannot honour
@@ -539,22 +604,87 @@ pub fn run() {
         // Set on page load rather than at setup: a script evaluated before the
         // document exists has nothing to add the class to, and the failure
         // looks like the effect not working.
+        //
+        // Applying the effect and marking the page happen in the same closure,
+        // in that order, on purpose. They used to be two places — the effect in
+        // `setup`, the class here — and the class went on unconditionally, so a
+        // Windows build where the OS refused the effect got a genuinely
+        // transparent window with `has-window-effect` promising a blur that was
+        // not there. Every surface in the app is translucent now, so that is no
+        // longer a slightly-too-dark titlebar: it is the whole application
+        // printed onto somebody's wallpaper. The claim and the fact are made
+        // together, and only a successful call is allowed to make the claim.
         .on_page_load(|window, _| {
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
-                // Logged, because the failure is invisible: if this does not
-                // land the window simply stays opaque and looks like the effect
-                // was never configured. One line in the log is the difference
-                // between "not supported" and "never ran".
-                match window
-                    .eval("document.documentElement.classList.add('has-window-effect')")
-                {
-                    Ok(()) => tracing::info!("window effect: page marked as blurred-behind"),
-                    Err(e) => tracing::warn!("window effect: could not mark the page ({e})"),
+                // This call returns a Result and the config does not.
+                // "Configured" and "applied" are different facts, and the gap
+                // between them is invisible — an effect the OS refused looks
+                // exactly like an effect nobody asked for. This says which.
+                // `.window()`: the effect belongs to the OS window, the `eval`
+                // to the webview inside it.
+                match window.window().set_effects(window_effects()) {
+                    Ok(()) => {
+                        // Logged, because the failure is invisible: if this does
+                        // not land the window simply stays opaque and looks like
+                        // the effect was never configured. One line in the log
+                        // is the difference between "not supported" and "never
+                        // ran".
+                        match window
+                            .eval("document.documentElement.classList.add('has-window-effect')")
+                        {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "window effect: {:?} applied, page marked as blurred-behind",
+                                    window_effects().effects,
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!("window effect: could not mark the page ({e})");
+                            }
+                        }
+                    }
+                    Err(e) => tracing::warn!(
+                        "window effect: the OS refused {:?} ({e}) — the app stays on \
+                         its own opaque background, which is the correct look for a machine \
+                         that cannot blur",
+                        window_effects().effects,
+                    ),
                 }
             }
             #[cfg(not(any(target_os = "windows", target_os = "macos")))]
             let _ = &window;
+        })
+        // Windows drops the backdrop by itself — Energy Saver switches it off,
+        // and so does toggling "Transparency effects" system-wide — and it
+        // never turns it back on. Nothing tells the app; the window simply
+        // becomes opaque and stays that way for the rest of the session, which
+        // reads as "the glass broke after a while". Reasserting the material
+        // whenever the window comes back to the front is the only hook we get,
+        // and it is cheap: one DWM call on an event that happens when a person
+        // is already looking at the window.
+        //
+        // Not gated on the previous state, because there is no way to read it.
+        // Setting the same backdrop twice is a no-op in DWM.
+        .on_window_event(|window, event| {
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            // BOTH transitions, not just regaining focus.
+            //
+            // Reasserting only on `Focused(true)` cannot fix "it is opaque
+            // while I am not using it": by the time that fires, the person is
+            // already back. The window is unfocused for most of the time it is
+            // on screen — which is the whole point of an app you keep beside
+            // your work — so the inactive state is the one that has to hold the
+            // material, and it is the only moment we get to say so.
+            if matches!(event, tauri::WindowEvent::Focused(_)) {
+                if let Err(e) = window.set_effects(window_effects()) {
+                    tracing::debug!("window effect: could not reassert on focus ({e})");
+                }
+            }
+            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+            {
+                let _ = (window, event);
+            }
         })
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -564,28 +694,9 @@ pub fn run() {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
 
-            // Apply the window effect HERE as well as in tauri.conf, for one
-            // reason: this call returns a Result and the config does not.
-            // "Configured" and "applied" are different facts, and the gap
-            // between them is invisible — an effect the OS refused looks
-            // exactly like an effect nobody asked for. This says which.
-            #[cfg(target_os = "windows")]
-            {
-                use tauri::Manager as _;
-                if let Some(win) = app.get_webview_window("main") {
-                    match win.set_effects(tauri::utils::config::WindowEffectsConfig {
-                        effects: vec![tauri::utils::WindowEffect::Acrylic],
-                        state: None,
-                        radius: None,
-                        color: None,
-                    }) {
-                        Ok(()) => tracing::info!("window effect: acrylic applied"),
-                        Err(e) => tracing::warn!(
-                            "window effect: the OS refused acrylic ({e}) — the window                              stays opaque and no amount of CSS will change that"
-                        ),
-                    }
-                }
-            }
+            // (The window effect used to be applied here, a second time and in
+            // a second place. It now lives in `on_page_load` alongside the class
+            // that depends on it — see the note there.)
 
             // Faza 4.5 Slice 2: every runtime service (AMD-guard, RSI
             // bootstrap, env exports, API server, supervised sidecar)
