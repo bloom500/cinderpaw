@@ -14,13 +14,13 @@
 
 **Headline (h1, ~72px on desktop, 42px on mobile):**
 
-> Their business model rewards another prompt.
+> AI that gets smarter.
 >
-> Cinderpaw is built to finish the job.
+> Not clingier.
 
 **Sub-headline (~22px, muted color):**
 
-> A desktop AI that runs on your machine, uses your local models or your API keys, and gets judged by completed work — not by how often it pulls you back in. Built by one person in Cluj-Napoca.
+> A local-first AI workspace with your models, your memory, and a self-improving agent that gets judged by completed work — not by how often it pulls you back in. Built by one person in Cluj-Napoca.
 
 **Primary CTA button (warm orange, 18px, prominent):**
 
@@ -343,9 +343,9 @@ Standard footer with organized links:
 ## SEO / meta
 
 ```html
-<title>Cinderpaw — The AI that finishes the job</title>
+<title>Cinderpaw — AI that gets smarter, not clingier</title>
 <meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Shared Projects are in research." />
-<meta property="og:title" content="Cinderpaw — The AI that finishes the job" />
+<meta property="og:title" content="Cinderpaw — AI that gets smarter, not clingier" />
 <meta property="og:description" content="Their business model rewards another prompt. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
