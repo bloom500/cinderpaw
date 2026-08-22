@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, Track } from 'livekit-client';
+import { useChat } from '@/stores/chat';
 import { tauri } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
 import type { CallPhase } from './useCallSession';
@@ -79,7 +80,11 @@ export function useLiveKitCallSession() {
   // already missed it.
   useEffect(() => {
     const pending = events.liveKitEvent.listen((e) => {
-      if (e.kind === 'heard' && e.text) setHeard(e.text);
+      if (e.kind === 'heard' && e.text) {
+        setHeard(e.text);
+        writeToChat('user', e.text);
+      }
+      if (e.kind === 'said' && e.text) writeToChat('assistant', e.text);
       if (e.kind === 'state') {
         const next = phaseOf(e.text ?? '');
         if (next) setPhase((p) => (p === 'idle' || p === 'ready' ? p : next));
@@ -166,6 +171,29 @@ export function useLiveKitCallSession() {
   // end transcribes continuously and never reports a gap, so claiming a moment
   // of it would be invention.
   return { phase, heard, level, notice, transcribing: false, open, begin, hangUp, interrupt, say };
+}
+
+/**
+ * A spoken turn, written into the conversation on screen.
+ *
+ * A call that leaves no trace is a call you cannot look anything up in
+ * afterwards — the one thing text has over speech is that it is still there
+ * tomorrow. Both sides go in, in the order they were spoken.
+ *
+ * The id carries a counter as well as the clock: two turns can land in the same
+ * millisecond, and React lists keyed by a duplicate id drop one of them.
+ */
+let turnSeq = 0;
+function writeToChat(role: 'user' | 'assistant', content: string) {
+  const text = content.trim();
+  if (!text) return;
+  const now = Date.now();
+  useChat.getState().addMessage({
+    id: `livekit-${role[0]}-${now}-${++turnSeq}`,
+    role,
+    content: text,
+    createdAt: now,
+  });
 }
 
 /**
