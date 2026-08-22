@@ -121,7 +121,7 @@ if (!exe) {
       "(a blocked optional dependency, an unsupported platform, or " +
       "`--ignore-optional`).\n" +
       "Reinstall with: npm install -g cinderpaw-agent\n" +
-      "Report: https://github.com/bloom500/feral/issues\n",
+      "Report: https://github.com/bloom500/cinderpaw/issues\n",
   );
   process.exit(1);
 }

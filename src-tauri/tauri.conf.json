@@ -80,7 +80,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYzRDY0OTcwRTVDNzYwOTgKUldTWVlNZmxjRW5XWXh4dEsxN2cyaUxHRFlUWGhRbkJWUE51WG9qK05mUzcrTWpmQWd2anE4b2QK",
       "endpoints": [
-        "https://github.com/bloom500/feral/releases/latest/download/latest.json"
+        "https://github.com/bloom500/cinderpaw/releases/latest/download/latest.json"
       ]
     }
   }
