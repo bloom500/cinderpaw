@@ -73,6 +73,34 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 >
 > Read the source → github.com/bloom500/cinderpaw
 
+**Hero run panel (visible above the fold, directly below the CTAs):**
+
+Use the same three tabs as the full Quick Start section: **Desktop / CLI / Server**. Keep the panel compact, copyable, and visible — not hidden behind „Install" navigation.
+
+**Desktop tab:**
+
+```bash
+$ curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash
+```
+
+> macOS / Linux desktop. Windows users use the download button above.
+
+**CLI tab:**
+
+```bash
+$ npm i -g cinderpaw-agent
+$ cinderpaw setup
+$ cinderpaw chat
+```
+
+**Server tab:**
+
+```bash
+$ cinderpaw gateway start
+```
+
+> Full setup, platform notes, and troubleshooting → see the Quick Start section below
+
 **Trust bar micro-copy (12px, muted, one line):**
 
 > No account · No telemetry · Source-available under BSL 1.1
@@ -81,7 +109,7 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 
 Use a real, current product capture: the chat UI with local model selection, the model/provider boundary visible, and the mascot on the composer. If the Lineage panel is not shipped yet, label it **Design preview — not available in this build**. Never present a roadmap screenshot as a live feature.
 
-**Conversion rule:** the hero must make the product decision obvious in three seconds: download if solo, join the beta if you need shared projects. Do not make solo users hunt for a waitlist form.
+**Conversion rule:** the hero must make the product decision obvious in three seconds: download if solo, join the research list if you want Shared Projects, or copy a run command if you live in a terminal. Do not make users hunt for the installer or CLI instructions.
 
 ---
 
@@ -421,6 +449,8 @@ Optimises the algorithm that produces those parameters.
 ---
 
 ## SECTION 10 — „Quick start" (kept, updated commands and repo URLs)
+
+**Implementation rule:** repeat the same Desktop / CLI / Server commands from the hero here, then add the explanation and five numbered steps. The hero removes friction; this section answers the questions after the visitor has decided to install. Never let the two command blocks drift.
 
 **Kicker:**
 

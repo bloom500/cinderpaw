@@ -872,6 +872,12 @@ Not on you.</h1>
   <a href="/shared-projects">Join the Shared Projects research list →</a>
 </div>
 
+<div class="hero-run-panel">
+  <div role="tablist" aria-label="Install mode">Desktop · CLI · Server</div>
+  <pre><code>$ curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash</code></pre>
+  <p>Full setup and platform notes are repeated in the Quick Start section of the canonical spec.</p>
+</div>
+
 <p class="footnote">
   No account · No telemetry · Source-available under BSL 1.1 · Windows, macOS, Linux
 </p>

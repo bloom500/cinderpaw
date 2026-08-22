@@ -34,6 +34,23 @@
 
 > No account · No telemetry · Source-available under BSL 1.1 · Windows, macOS, Linux
 
+**Hero run panel (visible above the fold):**
+
+Tabs: **Desktop / CLI / Server**. Repeat these exact commands in the separate Quick Start section; the hero is the fast path, not a replacement for documentation.
+
+```bash
+# Desktop — macOS / Linux
+$ curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash
+
+# CLI
+$ npm i -g cinderpaw-agent
+$ cinderpaw setup
+$ cinderpaw chat
+
+# Server
+$ cinderpaw gateway start
+```
+
 **Hero visual (background/right side):**
 Screenshot or short auto-playing muted video of the current Cinderpaw UI. Show the local model/provider boundary and mascot on the composer. If Lineage is not shipped, mark it **Design preview — not available in this build**.
 
