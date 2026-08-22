@@ -6,7 +6,7 @@
 **Ora ancoră:** 8:00 AM ET (US-East) = **15:00 EEST (România)** ← tot documentul folosește ora RO
 **Timp local user:** UTC+3 (EEST, DST activ până 25 oct 2026)
 
-> **Update 2026-08-21 per STRATEGY-PIVOT.md:** Poziționare updated de la „local AI companion" la „multiplayer AI workspace, solo tier free forever". Toate copy-urile din acest playbook au fost updated să includă (a) mențiune subtilă despre multiplayer coming 2027, (b) link waitlist pentru Cinderpaw for Teams, (c) `$5000/mo → Apache 2.0` commit public. Vezi STRATEGY-PIVOT.md pentru context complet.
+> **Update 2026-08-22 per STRATEGY-PIVOT.md:** Monetizarea este scoasă din scope pentru această fază. Landing-ul promovează download-ul local și o listă de research pentru Shared Projects; nu include prețuri, payment flows sau oferte comerciale. Vezi STRATEGY-PIVOT.md și `docs/landing/cinderpaw-dev-full-rewrite.md` pentru copy-ul canonic.
 
 ---
 
@@ -34,9 +34,7 @@
 - [ ] **GitHub org/repo rename:** `bloom500/feral` → `bloom500/cinderpaw`. GitHub păstrează redirect automat pentru URL-uri vechi (linkuri, clone-uri, forks), dar release download URLs vechi din CLI se rup — vezi secțiunea "npm/Cargo publish" mai jos
 - [ ] **Cont X (Twitter):** creează sau redenumește `@cinderpaw_ai` (păstrează `@BloomMedia66730` ca personal). Dacă handle-ul e liber, ia-l ACUM înainte de squatteri.
 - [ ] **Reserve Reddit account name:** `u/cinderpaw_ai` (crează cont dacă nu există, chiar dacă nu postezi de pe el — evită impersonators post-launch)
-- [ ] **GitHub Sponsors application** — https://github.com/sponsors/apply — aprobare durează 5-10 zile, aplică AZI ca să fie live pentru launch. Tiere: $5, $15, $50, $150 lunar + one-time $10, $50, $200. Descriere: „Solo dev on Cinderpaw. Your sponsorship keeps me shipping instead of job-hunting."
 - [ ] **Loops.so waitlist setup** — https://loops.so, free până 1k subscribers. Creează list „Cinderpaw for Teams waitlist". Setează welcome email + nurture cadence per STRATEGY-PIVOT.md
-- [ ] **Ko-fi backup** — https://ko-fi.com — instant setup ca fallback până GitHub Sponsors se aprobă
 - [ ] **Push PROMISES.md + STRATEGY-PIVOT.md + ADR-0017 + ADR-0018 pe branch** (deja fost făcut de agent 2026-08-21)
 
 ### **D-4 · Vineri 22 aug 2026**
@@ -50,7 +48,7 @@
 ### **D-3 · Sâmbătă 23 aug 2026**
 
 - [ ] **Landing page cinderpaw.dev** — deploy final. Vezi secțiunea "Landing page Nuxt" pentru copy complet, inclusiv secțiune „Cinderpaw for Teams" cu Loops.so form embedded
-- [ ] **`/teams` route dedicată** cu waitlist form prominent + pricing tiers ($12 Duo, $8 Team, $16 Business) + explicație „coordination not tokens"
+- [ ] **`/shared-projects` route dedicată** cu research form prominent + explicație despre coordination without centralizing inference
 - [ ] **`/promises` route** care afișează PROMISES.md ca HTML — trust anchor vizibil
 - [ ] **Product Hunt asset prep:**
   - Gallery: 3-6 images, prima e "hero" (Cinderpaw UI cu splash sweep captured mid-frame)
@@ -247,21 +245,19 @@ What v1.0 today has:
 - Skills / extensions system
 - Pixel-art mascot that reacts to what the agent's doing
 
-What's coming (upfront so nothing's a surprise):
-- v1.1 Nov 2026 — personal agent teams (Researcher, Coder, Writer). Free.
-- v1.2 Feb 2027 — SHARED PROJECTS: work with someone else on the same
-  project, each of you brings own AI. This is the first paid tier
-  ($12/mo Duo, $8/user/mo Team). Solo stays free forever.
-- v1.5 Q3 2027 — public agent feed (opt-in, free forever).
+What's being explored (upfront so nothing's a surprise):
+- v1.1 Nov 2026 — personal agent teams (Researcher, Coder, Writer).
+- Shared Projects — research only; timing and scope are not promised yet.
+  Each person would keep their own AI, model, memory, and permissions.
+- v1.5 Q3 2027 — public agent feed, opt-in and privacy-first.
 
-Business model plain-spoken: solo local single-user free forever, we
-monetize coordination between users (shared projects) once we build
-the server infrastructure for it. Not paywalling anything you have
-today, ever. Written commitments in PROMISES.md in the repo.
+No commercial model is part of this launch. The current question is
+technical and human: can people coordinate on one project without
+centralizing their inference or memory? Feedback belongs in the research
+list, not a checkout flow.
 
 Built with Tauri 2 + Rust + TypeScript + React. BSL 1.1 (converts to
-Apache 2.0 automatically after 4 years, OR immediately if we hit
-$5k/mo recurring). Windows, macOS, Linux.
+Apache 2.0 automatically after 4 years). Windows, macOS, Linux.
 
 Pre-launch I did a 10-round self-audit — 259 findings, ~170 real, all
 patched. Blog post about that tomorrow.
@@ -355,17 +351,15 @@ Teams waitlist: https://cinderpaw.dev/teams
 
 **Tweet 10 (optional — social proof / transparency):**
 
-> Full transparency: v1.0 is not "complete". It's the version I'd give a friend without embarrassment. Personal agent teams (v1.1 Nov 2026), Shared Projects — the first paid tier (v1.2 Feb 2027), and public agent feed (v1.5 Q3 2027) are all on the roadmap.
+> Full transparency: v1.0 is not "complete". It's the version I'd give a friend without embarrassment. Personal agent teams are next; Shared Projects and the public agent feed are research directions, not launch promises.
 >
 > What you can help with: bug reports, use-cases I haven't thought of, and honest feedback.
 
-**Tweet 11 (business model transparency — anti-bait-and-switch preempt):**
+**Tweet 11 (research invitation):**
 
-> Business model, plain-spoken: solo tier stays free forever, no account, no telemetry. First paid tier is Shared Projects (v1.2, Feb 2027) — work with a friend on the same project, each of you brings your own AI. We host the coordination server, we don't ever run inference.
+> Shared Projects is a research direction, not a launch announcement. I am exploring how two people can work on the same project while each keeps their own agent, model, memory, and permissions.
 >
-> $12/mo Duo (2 users), $8/user/mo Team. Full commitments in PROMISES.md in the repo.
->
-> Waitlist: cinderpaw.dev/teams — 50% off first 3 months for early signups.
+> No date, pricing, or commercial workflow is announced yet. If this sounds useful, follow the research: cinderpaw.dev/shared-projects
 
 ---
 
@@ -691,13 +685,13 @@ https://cinderpaw.dev
 
 **Tagline (60 chars):**
 ```
-AI workspace on your machine. Solo free, multiplayer 2027.
+AI workspace on your machine. Own the runtime, see how it changes.
 ```
 (58 chars ✓)
 
 **Description (260 chars):**
 ```
-Cinderpaw is an AI workspace that runs on your machine. Chat, agents, memory, tools — with local GGUF models or your own cloud API keys. Solo tier free forever, no account. Shared Projects (paid, Feb 2027) let teams collaborate — you host the coordination.
+Cinderpaw is an AI workspace that runs on your machine. Chat, agents, memory, tools — with local GGUF models or your own cloud API keys. Shared Projects are being researched for people who want to collaborate without giving up their own agents and models.
 ```
 (255 chars ✓)
 
@@ -717,15 +711,13 @@ Chat with local models (GGUF via llama.cpp) or cloud (BYOK — your
 own API keys, direct to Anthropic/OpenAI/etc, no proxy). Agent
 runtime with memory + tools. Cross-platform, no account required.
 
-Solo tier is free forever. In February 2027 I'm launching Shared
-Projects — the first paid tier — where two or more people can work
-on the same project, each running their own agents. My server hosts
-identity + relay + storage, but NEVER inference — you keep bringing
-your own AI. That means my gross margin doesn't get eaten by tokens
-as users grow. Structural advantage vs anyone who hosts inference.
+Shared Projects are a research direction: two or more people may work
+on the same project while each keeps their own agents and models. The
+technical question is how to handle identity, relay, permissions, and
+recovery without centralizing inference or memory.
 
-Full commitments (what stays free forever, what might be paid) in
-PROMISES.md in the repo.
+Current scope has no commercial model. Follow the public commitments and
+research notes in the repo.
 
 Happy to answer on architecture, why BSL vs MIT, how the shared
 projects economy works, or the memory system.
@@ -781,8 +773,8 @@ or cloud models via BYOK. Full agent runtime with memory + tools.
 - Self-audit was humbling. LLM adversarial review caught real
   issues I would have shipped.
 
-Happy to chat business model (BYOK + eventual paid cloud tier),
-Tauri vs Electron tradeoffs, or how I'd do it differently.
+Happy to chat about BYOK, local-first architecture, Tauri vs Electron,
+research questions, or how I'd do it differently.
 
 App: cinderpaw.dev
 Source: github.com/bloom500/cinderpaw
@@ -840,7 +832,7 @@ Publicat la `blog.cinderpaw.dev/introducing-cinderpaw`
 
 **Meta description (155 chars):**
 ```
-Cinderpaw is a local-first AI desktop app that runs on your machine. No subscription, no telemetry, no middleman. Rebranded from Feral. v1.0 out today.
+Cinderpaw is a local-first AI desktop app that runs on your machine. No telemetry, no middleman, source-available under BSL 1.1. Rebranded from Feral.
 ```
 
 **Hero image:** splash screen mid-sweep
@@ -862,180 +854,112 @@ Cinderpaw is a local-first AI desktop app that runs on your machine. No subscrip
 
 ## LANDING PAGE cinderpaw.dev (Nuxt/Vue)
 
-Nu am acces la repo-ul landing (îmi zici tu în sesiune viitoare unde e). Îți dau copy-ul complet pe secțiuni, ready-to-paste în componente Vue.
+The landing page follows the canonical copy in `docs/landing/cinderpaw-dev-full-rewrite.md`. Current scope is the local single-user product plus a non-commercial Shared Projects research invitation.
 
 ### **Hero section**
 
-```
-<h1>The AI workspace that runs on your machine.</h1>
+```html
+<h1>Hosted AI has a reason to keep you coming back.<br />
+Cinderpaw has a reason to finish the job.</h1>
 
 <p class="subtitle">
-  Chat, agents, memory, tools — with local models or your own
-  cloud API keys. Solo tier free forever, no account. Shared
-  Projects (paid, Feb 2027) let teams collaborate — you host
-  the coordination, not the intelligence.
+  A desktop AI that runs on your machine, uses your local models or your
+  API keys, and gets better against the work you actually care about.
 </p>
 
 <div class="cta">
-  <button primary>Download for [detected OS]</button>
-  <a href="/teams">Get Teams waitlist →</a>
+  <button primary>Download Cinderpaw</button>
+  <a href="/shared-projects">Join the Shared Projects research list →</a>
 </div>
 
 <p class="footnote">
-  Free forever · Open source (BSL 1.1 → Apache 2.0) · Windows, macOS, Linux
+  No account · No telemetry · Source-available under BSL 1.1 · Windows, macOS, Linux
 </p>
 ```
 
-**Visual:** screenshot main app UI cu Cinderpaw splash sweep pornit în background (parallax subtil).
+**Visual:** current app UI over a real desktop wallpaper. Show local model selection and the mascot. Any Lineage/Cemetery image that is not in the current release must be labeled **Design preview**.
 
-### **Section 2 — „What Cinderpaw does"**
+### **Section 2 — The product thesis**
 
-Grid 2×3 sau 3×2 cu iconuri lucide + short text:
+```html
+<h2>When the business rewards attention, attention becomes the product.</h2>
+<p>
+  Hosted AI products have economic pressure to keep usage high. Cinderpaw
+  runs locally or talks directly to the provider you choose. Your runtime,
+  memory, and evaluation boundary stay visible to you.
+</p>
+```
 
-- **💬 Chat with local models** — Run GGUF models via llama.cpp. Offline, private, unlimited.
-- **☁️ Or cloud, your key** — Plug in OpenAI, Anthropic, Gemini. Your key, your bill, no proxy.
+### **Section 3 — What Cinderpaw does**
+
+Grid 2×3 or 3×2 with iconuri Lucide + short text:
+
+- **💬 Chat with local models** — Run GGUF models via llama.cpp. Offline and private.
+- **☁️ Or cloud, your key** — Plug in OpenAI, Anthropic, Gemini. Your key, direct provider connection.
 - **🧠 Agent runtime** — Memory across chats, tool-use, MCP servers, sandboxed execution.
 - **🔬 Deep research** — Multi-step web research with subagents that work in parallel.
-- **🎨 Skills & extensions** — Add capabilities. Cinderpaw learns your workflow.
+- **🎨 Skills & extensions** — Add capabilities and shape your workflow.
 - **🐾 Mascot** — Small joy. Reacts to what the agent is doing. Never in the way.
 
-### **Section 3 — „Why local-first"**
+### **Section 4 — The part everyone else hides**
 
-```
-<h2>Your data never leaves your computer.</h2>
-
+```html
+<h2>Frontier AI has selection pressure. You see the result, not the process.</h2>
 <p>
-  Every conversation, every file the agent touches, every memory it
-  stores — stays on your machine. No cloud sync unless you opt in.
-  No telemetry. No analytics. No "anonymized usage data."
-</p>
-
-<p>
-  When you use frontier models via BYOK, Cinderpaw sends your
-  request directly to the provider you chose. There's no proxy in
-  between reading, logging, or transforming anything.
+  Cinderpaw borrows the evolutionary pattern at the agent level: birth,
+  mutation, selection, and death. It does not claim that a laptop runs a
+  frontier lab's training pipeline. The difference is inspectability: the
+  scorer, bounds, lineage, and failed candidates can be made visible.
 </p>
 ```
 
-**Visual:** simple diagram — user's machine, arrow to local model (green box "on device"), separate arrow to cloud provider (blue box "your API key, direct").
+Link to the source, the relevant ADRs, and a real run. Label Lineage/Cemetery **Available now**, **Design preview**, or **Planned**.
 
-### **Section 4 — „Built for developers"**
+### **Section 5 — Proof before promises**
 
-```
-<h2>Made for the people who read the source before they install.</h2>
+Before launch, show the current release, GitHub activity, test status, real product screenshots, and a source link. After launch, add permissioned quotes with direct links. Never publish placeholder testimonials or unverifiable counters.
 
-<ul>
-  <li>Written in Rust (Tauri 2) + TypeScript + React</li>
-  <li>Source on GitHub (BSL 1.1)</li>
-  <li>MCP protocol supported for tool integration</li>
-  <li>Sandboxed execution — the agent can't touch what you don't allow</li>
-  <li>CLI mode for VPS / headless</li>
-  <li>Extensions API for adding your own capabilities</li>
-</ul>
+### **Section 6 — Roadmap teaser**
 
-<pre>
-$ npm install -g cinderpaw-agent
-$ cinderpaw setup
-$ cinderpaw chat
-</pre>
-```
-
-### **Section 5 — Social proof / trust signals**
-
-Dacă nu ai încă testimonials, folosește:
-
-- GitHub stars badge (auto-updates)
-- "Version 1.0 — [date]" badge
-- License badge (BSL 1.1)
-- Platforms badge (Windows/macOS/Linux)
-
-Post-launch, adaugă 3-4 quotes din HN / Reddit / X în această secțiune (screenshot forms sau text quotes cu link back).
-
-### **Section 6 — Roadmap teaser + Teams waitlist**
-
-```
+```html
 <h2>Where we're going.</h2>
-
 <div class="roadmap">
   <div class="release now">
-    <h3>v1.0 · Today</h3>
-    <p>Chat, agents, memory, tools, skills. Solo tier. Free forever.</p>
+    <h3>Now</h3>
+    <p>Local chat, agents, memory, tools, skills, and model choice.</p>
   </div>
   <div class="release">
-    <h3>v1.1 · Nov 2026</h3>
-    <p>Personal agent teams — Researcher, Coder, Writer. Free.</p>
-  </div>
-  <div class="release paid">
-    <h3>v1.2 · Feb 2027 · FIRST PAID</h3>
-    <p><strong>Shared Projects</strong> — work on the same project with someone else. Each brings own AI. From $12/mo.</p>
+    <h3>Next</h3>
+    <p>Personal agent teams and deeper evolution controls.</p>
   </div>
   <div class="release">
-    <h3>v1.5 · Q3 2027</h3>
-    <p>Public agent feed — opt-in, free forever.</p>
+    <h3>Research</h3>
+    <p>Shared Projects — exploring how people collaborate while keeping their own agents and models.</p>
+  </div>
+  <div class="release">
+    <h3>Later</h3>
+    <p>Public agent feed — opt-in, privacy-first, and subject to separate design work.</p>
   </div>
 </div>
-
 <a href="/roadmap">Full roadmap →</a>
-<a href="/promises">Free-forever commitments →</a>
 ```
 
-### **Section 6b — Cinderpaw for Teams waitlist (NEW SECTION per pivot)**
+### **Section 6b — Shared Projects research list**
 
-```
-<section id="teams" class="teams-waitlist">
-  <h2>Cinderpaw for Teams — Coming February 2027</h2>
-
+```html
+<section id="shared-projects" class="research-list">
+  <h2>Solo works now. Shared projects are next.</h2>
   <p class="lead">
-    Work on shared projects with people around the world. Everyone
-    brings their own AI. Everyone stays local. Cinderpaw handles
-    the sync — you don't pay for tokens.
+    Help test identity, encrypted relay, permissions, conflict recovery, and
+    export while each person keeps their own agent, model, and memory.
   </p>
-
-  <div class="pricing-cards">
-    <div class="tier duo">
-      <h3>Duo</h3>
-      <p class="price">$12<span>/month flat</span></p>
-      <ul>
-        <li>2 users, 1 shared project</li>
-        <li>5 GB E2E encrypted storage</li>
-        <li>No account for peer</li>
-        <li>Community support</li>
-      </ul>
-    </div>
-    <div class="tier team recommended">
-      <h3>Team</h3>
-      <p class="price">$8<span>/user/month</span></p>
-      <ul>
-        <li>Unlimited users, unlimited projects</li>
-        <li>50 GB storage per team</li>
-        <li>SSO (Google, GitHub)</li>
-        <li>Audit log</li>
-        <li>Email support (48h SLA)</li>
-      </ul>
-    </div>
-    <div class="tier business">
-      <h3>Business</h3>
-      <p class="price">$16<span>/user/month</span></p>
-      <ul>
-        <li>Everything in Team, plus</li>
-        <li>SSO SAML</li>
-        <li>GDPR data residency (EU/US)</li>
-        <li>Priority support (24h SLA)</li>
-        <li>500 GB storage</li>
-      </ul>
-    </div>
-  </div>
-
-  <div class="waitlist-form">
-    <form action="https://app.loops.so/api/v1/lists/YOUR_LIST_ID" method="POST">
-      <label>Get early access + 50% off first 3 months</label>
-      <input type="email" name="email" placeholder="you@example.com" required />
-      <button type="submit">Join waitlist</button>
-    </form>
-    <p class="reassurance">
-      1 email at launch + occasional progress updates. No spam. Unsubscribe anytime.
-    </p>
-  </div>
+  <p>Research invitations stay small because founder attention is the actual constraint. No fake countdown, no invented participant count.</p>
+  <form action="[[research_list_endpoint]]" method="POST">
+    <label>Join the Shared Projects research list</label>
+    <input type="email" name="email" placeholder="you@example.com" required />
+    <button type="submit">Join the research list</button>
+  </form>
+  <p class="reassurance">Occasional research updates. No spam. Unsubscribe anytime.</p>
 </section>
 ```
 
@@ -1082,7 +1006,7 @@ License: BSL 1.1
 
 ```html
 <title>Cinderpaw — Local-first AI desktop app</title>
-<meta name="description" content="Cinderpaw runs LLMs on your machine. Open source, no subscription, no telemetry. Windows, macOS, Linux." />
+<meta name="description" content="Cinderpaw runs AI on your machine. Source-available under BSL 1.1, no telemetry. Windows, macOS, Linux." />
 <meta property="og:title" content="Cinderpaw — Local-first AI desktop app" />
 <meta property="og:description" content="Chat with local models or cloud via your own API keys. No proxy, no middleman. v1.0 out now." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />

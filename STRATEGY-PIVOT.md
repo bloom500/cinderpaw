@@ -1,21 +1,23 @@
 # STRATEGY-PIVOT.md
 
-**Data:** 2026-08-21
+**Data:** 2026-08-22
 **Autor:** Darius (Bloom Media) + conversații cu Opus
-**Status:** Approved — informs all downstream ADRs, README, landing, launch playbook
-**Supersedes (partial):** ADR-0015 (personal team scope narrowed), ADR-0016 (community redefined as free social feed, monetization moved to Shared Projects)
+**Status:** Current product direction — monetization is intentionally out of scope for this phase
+**Supersedes (partial):** ADR-0015 (personal team scope narrowed), ADR-0016 (community redefined as product research and a free social direction)
 
 ---
 
 ## Rezumat executiv
 
-Cinderpaw pivotează dintr-un „local AI companion cu community mesh optional" într-un **multiplayer AI workspace pentru echipe mici, cu single-user local free forever**.
+Cinderpaw se concentrează pe un **AI workspace local-first pentru utilizatori individuali**, cu explorarea publică a unor shared projects ca direcție de produs — nu ca lansare comercială.
 
-Teza centrală formulată de Opus în discuția din 2026-08-21:
+Teza centrală:
 
-> **Vinzi coordonare, nu tokeni.**
+> **Own the runtime. See how it changes.**
 
-Fiecare user aduce propriul inference (local GGUF sau cloud BYOK). Cinderpaw ține relay + storage + identity + permissions pentru shared projects. Marja brută stă la 95%+ pentru totdeauna, indiferent cât de mult muncește user-ul. Ăsta e MOAT-ul pe care niciun competitor care găzduiește inferență nu-l poate egala prin preț.
+Fiecare user își aduce propriul inference (local GGUF sau cloud BYOK). Cinderpaw ține runtime-ul, memoria și starea agentului aproape de utilizator, cu limite și provenance care pot fi inspectate. Orice coordonare între utilizatori rămâne în faza de cercetare până când modelul de produs este validat.
+
+**Decizie curentă:** nu există monetizare, pricing, subscriptions, billing sau payment flow în scope. Nu punem aceste decizii în copy, UI, roadmap-ul executabil sau criteriile de succes ale fazei curente.
 
 ## De ce pivotăm
 
@@ -24,88 +26,27 @@ Fiecare user aduce propriul inference (local GGUF sau cloud BYOK). Cinderpaw ți
 1. **Feedback direct al utilizatorului** (verbatim, 2026-08-21):
    > „Eu îmi găsesc un prieten în UK, eu fiind în România, și vrem să lucrăm pe același proiect, eu am agenții mei, el pe ai lui, prin Agent Community putem lucra împreună, la același proiect."
 
-2. **Target de venit** (verbatim):
-   > „$5000 pe lună și we good we gucci."
+2. **Direcție de produs:** oamenii vor să exploreze lucru pe același proiect, fără să renunțe la propriul model, agent, memorie sau control.
 
-3. **Constrângere existențială:**
-   > „Vreau să fac profit din Cinderpaw să nu mor de foame."
-
-Sponsorship model pur (Simon Willison / Datasette) generează realist $500-2000/lună pentru un solo dev nou-lansat în anul 1. **NU ajunge la $5000/lună sub 18-24 luni** fără un vehicul de monetizare directă.
-
-### Pattern-ul industry care validează
-
-Fiecare tool serios de coordonare pentru echipe mici e paid: Linear ($10/user), Notion ($15/user), Slack ($8.75/user), Figma ($15/user). Utilizatorii SMB plătesc pentru coordonare pentru că economia funcționează. Ce NU plătesc: pentru chat cu AI singular (competiție cu Claude free tier, ChatGPT free tier, LM Studio, Ollama etc.).
-
-**Poziționare cheie:** Cinderpaw NU concurează cu Ollama pe „chat with local models". Concurează cu Linear + Notion + Slack **plus AI native**, la marjă superioară pentru că nu plătește tokeni.
+3. **Constrângerea actuală:** trebuie să validăm mai întâi experiența locală single-user și problemele reale ale coordonării — identity, relay, permissions, conflict recovery și export.
 
 ### Diferența cognitivă
 
-- **Vechi (v1.0 „local AI companion"):** userul primar e individul; monetizare e sponsorships + commercial licenses ocazionale
-- **Nou (v1.2+ „multiplayer AI workspace"):** userul primar e echipa de 2-10; monetizare e SaaS recurring pe seats
+- **Acum:** local single-user, cu memorie și agent runtime controlate de utilizator.
+- **Direcția de cercetare:** shared projects în care fiecare participant își păstrează propriul agent și propriul inference.
+- **Nu acum:** pricing, conturi de billing, checkout, tiers comerciale sau promisiuni despre cum va fi monetizat produsul.
 
-Single-user rămâne free forever, dar reframing: **e wedge-ul care aduce echipe, nu produsul final.**
+Shared Projects este un experiment de produs, nu „produsul final” și nu un motiv pentru a introduce urgență artificială.
 
 ---
 
-## Pricing tiers (anchor pentru waitlist + landing)
+## Scope curent și criterii de succes
 
-| Tier | Preț | Cine plătește | Include |
-|---|---|---|---|
-| **Solo** | $0 forever | Nimeni | Local single-user, tot ce e azi în v1.0 + toate features viitoare non-multiplayer |
-| **Duo** | $12/lună flat | Freelanceri, prieteni | Până la 2 users, 1 shared project activ, 5 GB E2E-encrypted storage, community support |
-| **Team** | $8/user/lună | SMB, agenții mici | Nelimitat users, nelimitat projects, 50 GB storage per team, audit log, email support 48h SLA |
-| **Business** | $16/user/lună | Companii serioase | Team + SSO (Google/GitHub/SAML) + GDPR data residency options (EU/US relay) + priority support 24h SLA + 500 GB storage |
-| **Enterprise** | Contact | Regulated industries | Self-hosted relay option, air-gapped deployment support, custom SLA, dedicated engineer time, license commercială negociată |
-
-### Margin math (de ce pricing-ul e sustenabil)
-
-**Costs per Team tier de 5 users, lunar:**
-- Relay bandwidth (WebSocket persistent conn × 5 users × avg 2 devices) = ~$0.15
-- Storage 50 GB E2E-encrypted (S3-compatible) = ~$0.12
-- Compute (relay coordination, zero inference) = ~$0.20
-- Overhead (monitoring, backups, spam mitigation) = ~$0.05
-- **Total cost per team: ~$0.52/lună**
-
-**Revenue:** 5 users × $8 = $40/lună.
-**Gross margin: 98.7%**.
-
-Contrast cu concurentul care găzduiește inferență (Perplexity, Anthropic Enterprise, ChatGPT Team):
-- Perplexity: 30-40% gross margin (dominated by token costs)
-- Anthropic direct API resellers: 15-25% gross margin
-- ChatGPT Team ($30/user): ~50% gross margin (OpenAI eats compute costs internally)
-
-**Cinderpaw structural advantage:** margin nu scade cu utilizare. User care rulează 14h/zi vs user care intră o dată pe săptămână — cost identic pentru tine, deoarece inference-ul e la ei.
-
-### Growth math realistic (Year 1-2 shared projects)
-
-Assumptions:
-- Launch v1.0 marți 26 aug 2026
-- Launch v1.2 Shared Projects Beta februarie 2027 (6 luni development timp)
-- Freemium conversion rate 1.5-3% (industry standard SMB SaaS 2026)
-
-**Year 1 (aug 2026 → aug 2027):**
-- Post-launch v1.0: 5,000-15,000 downloads în primele 60 zile (bazat pe HN + PH + 8 Reddit posts + rebrand narrative)
-- Steady state Q4 2026: ~10,000 active users
-- Q1 2027 la lansarea shared projects Beta: ~15,000 active users
-- Conversion 2% în first 3 months post-Beta = 300 paying seats
-- Mix estimated: 60% Duo ($12 × 180 users) + 40% Team ($8 × 120 users × avg 3 seats) = $2,160 + $2,880 = **$5,040 MRR at 3 months post-Beta**
-
-**Year 2 (aug 2027 → aug 2028):**
-- Active users: 40,000-80,000
-- Conversion menținut 2%: 800-1600 paying seats
-- MRR estimate: **$12,000-30,000 MRR = $144k-360k ARR**
-
-**Compared to sponsorship-only path Year 1:**
-- Realistic: $500-2,000 MRR sponsorship at 12 months
-- **Shared Projects adds 2.5-25× revenue multiplier**
-
-### Free tier promise (nu se schimbă niciodată)
-
-Documentat public în README, landing, TOS:
-
-> Solo tier rămâne gratis pentru totdeauna. Fără account required, fără email required, fără upsells în app, fără feature-uri retrase din free ca să te forțeze să faci upgrade. Când monetizezi echipe, echipele plătesc — nu individualii.
-
-Această promisiune e **absolut critică** pentru credibilitatea narativei „local-first, no bait-and-switch". Fără ea, categoria HN/r/LocalLLaMA îți întoarce spatele instant.
+- Cinderpaw solo este disponibil fără cont și fără telemetry.
+- Landing-ul are un singur CTA principal: download. Al doilea CTA este o listă de cercetare pentru Shared Projects, nu o listă de cumpărare.
+- Cercetarea Shared Projects invită utilizatori în cohorte mici, limitate de capacitatea reală de triage a fondatorului.
+- Copy-ul nu afișează prețuri, discounturi, tiers, MRR, ARR, revenue targets sau payment flows.
+- Criteriile fazei: downloads calitative, retenție de utilizare, feedback util, proiecte reale de test și bugs rezolvate — nu conversie la plată.
 
 ---
 
@@ -162,51 +103,33 @@ Pentru shared projects, serverul Cinderpaw ține DOAR:
 
 **Opțiunea A — Task queue până se trezește:** ce ceri lui, se stochează encrypted în relay. Când device-ul lui vine online, agent-ul primește task-ul și execută. **Recomandarea mea principală** — respectă „inferență la ei" cu zero excepții.
 
-**Opțiunea B — „Always-on delegate device":** userul poate configura un device (VPS, Raspberry Pi, laptop mereu pornit) ca „agent runtime endpoint". Când device-ul lui principal doarme, delegate-ul rulează. **Opțiune Business tier** — feature vândut la $16/user.
+**Opțiunea B — „Always-on delegate device":** userul poate configura un device (VPS, Raspberry Pi, laptop mereu pornit) ca „agent runtime endpoint". Când device-ul lui principal doarme, delegate-ul rulează. **Direcție de cercetare, fără tier sau preț definit.**
 
-**Opțiunea C — „Emergency you-run":** dacă marchezi task ca urgent, poți alege să rulezi tu agentul lui (folosind config-ul lui, dar cheia ta). **Rar acceptabil** — creează friction politică („de ce a plătit el pentru tokens?"). Amânat sau eliminat.
+**Opțiunea C — „Emergency you-run":** dacă marchezi task ca urgent, poți alege să rulezi tu agentul lui (folosind config-ul lui, dar cheia ta). **Rar acceptabil** — creează confuzie despre ownership și consimțământ. Amânat sau eliminat.
 
-**Recomandare:** A default, B ca upsell Business, C skipped complet.
-
----
-
-## Onboarding shared project (problema care ucide 90% SaaS multi-user)
-
-### Duo tier — zero-account invite flow
-
-Fluxul care merge (proven de Signal, Session, Keet):
-
-1. User A creates shared project. UI: „Invite someone via link"
-2. Cinderpaw generează link unic: `https://cinderpaw.dev/join/xB9k3Lm7pQr2` (16 caractere entropy, expires 7 days, single-use)
-3. Link conține pairing token care wrap-uește:
-   - Project ID
-   - Ed25519 pairing challenge
-   - Storage key hint
-4. User B primește link (Discord, Signal, email — anywhere)
-5. User B click link → dacă are Cinderpaw instalat, deep link `cinderpaw://join/xB9k3Lm7pQr2` deschide direct dialogul de acceptare
-6. Dacă nu are Cinderpaw instalat, browser fallback la `cinderpaw.dev/join/xB9k3Lm7pQr2` cu:
-   - „Someone invited you to a Cinderpaw project"
-   - Download button prominent
-   - Link deep păstrat în localStorage
-   - Post-install first-launch: dialog automat „Accept invite from Darius?"
-7. Accept → Ed25519 key exchange peer-to-peer via relay → project membership registered → sync starts
-
-**Zero account server-side pentru Duo.** Payment (dacă e Duo Paid) e single-payer (creatorul projectului plătește). Peer nu are nevoie de cont.
-
-### Team tier — accounts required, dar minimally
-
-Team tier necesită real accounts pentru:
-- Billing per seat
-- Removing members (revoke pairing)
-- Audit log (who did what)
-
-Account = email + password OR OAuth (GitHub, Google) OR Ed25519-only login (cu passphrase backup).
-
-**Principiu:** account există DOAR când plătești. Solo user rămâne accountless forever.
+**Recomandare curentă:** A ca direcție de cercetare, B doar după validare tehnică, C skipped complet.
 
 ---
 
-## Ordinea corectă de execuție (Opus, revizuit)
+## Onboarding shared project (research workflow)
+
+### Shared Project invite flow — research only
+
+Fluxul de explorat pentru primele teste (proven assumptions from Signal, Session, Keet; not a shipped promise):
+
+1. User A creates a shared project. UI: „Invite someone via link"
+2. Cinderpaw generează un link unic, cu expiry și single-use
+3. Link-ul conține pairing challenge și un hint pentru cheia de proiect — niciun secret plaintext
+4. User B primește link-ul și acceptă explicit
+5. Dacă are Cinderpaw instalat, deep link-ul deschide dialogul de acceptare
+6. Dacă nu are Cinderpaw instalat, browser fallback-ul păstrează link-ul local până la instalare
+7. Accept → key exchange → membership registered → sync starts
+
+**Principiu:** fiecare participant își păstrează agentul, modelul, memoria și permisiunile. Nu proiectăm conturi, billing sau entitlements comerciale în această fază.
+
+---
+
+## Ordinea corectă de execuție
 
 ### Release cadence
 
@@ -215,47 +138,27 @@ Account = email + password OR OAuth (GitHub, Google) OR Ed25519-only login (cu p
 - Splash sweep + UI polish
 - Sub-agents shipped (deja există via `delegate_task`)
 - **NIMIC nou multi-user.** Local single-user complet.
-- **Poziționare update:** tagline + landing menționează „multiplayer coming 2027" ca teaser
-- Waitlist landing form pentru „Cinderpaw for Teams" LIVE la launch
+- Landing page cu download principal și Shared Projects research teaser
 
 **v1.1 — NOIEMBRIE 2026**
 - Agent Teams (single-user, personal team) — per ADR-0015 restrâns
 - Named agent presets („Researcher", „Coder", „Writer")
-- Approval flow pentru tool calls (inspirat din OpenBot's action policy)
-- Fundament pentru Shared Projects (project data model extins, dar rămâne local)
+- Approval flow pentru tool calls
+- Fundament pentru Shared Projects, dar rămâne local
 
-**v1.2 — FEBRUARIE 2027 (SHARED PROJECTS BETA — first paid tier)**
-- Shared Projects Duo tier live ($12/lună)
-- Ed25519 identity local + invite links
-- Conversation sync + membership sync
-- Files sync last-write-wins
-- Waitlist emails converted → 20-30% conversion realistic
-- Marks the transition: **Cinderpaw devine SaaS lightly**
+**v1.2+ — DATA SE STABILEȘTE DUPĂ VALIDARE**
+- Shared Projects research și prototipuri de identity / relay / permissions
+- Invitații în cohorte mici pentru testare cu proiecte reale
+- Conversation sync, file coordination și conflict recovery doar după ce modelul este verificat
+- Nicio decizie de preț, tier sau payment flow în această fază
 
-**v1.3 — MAI 2027 (SHARED PROJECTS GA + TEAM TIER)**
-- Team tier ($8/user/lună) live cu SSO, audit log, unlimited projects
-- Stability + polish based on Beta feedback
-- Files sync via Yjs/Automerge CRDT (dacă Beta feedback cerut)
-- Business tier ($16/user/lună) prep
+**Agent Feed / Community**
+- Explorare separată, opt-in și privacy-first
+- Nu este tratat ca funnel comercial în această versiune a strategiei
 
-**v1.5 — Q3 2027 (AGENT FEED — Moltbook-style, FREE FOREVER)**
-- Public feed unde agent-ul TU poate posta (opt-in, per postare approve)
-- Free forever pentru useri, funded ca marketing funnel
-- Zero paywall aici — feed-ul e acquisition channel pentru shared projects
-- Verified badges pentru enterprise agents (Business tier addon)
+### Ce a scos din roadmap-ul curent
 
-**v2.0 — 2028+**
-- Enterprise tier launch
-- Self-hosted relay option (open source relay code)
-- Agent marketplace posibil (revenue share)
-
-### Ce a scos din roadmap-ul vechi
-
-Din ADR-0016 (Community Mesh) au fost REMOVED sau AMÂNATE:
-- Sybil-resistant reputation cross-user — amânat la v2+ după Agent Feed traction
-- Hybrid sandboxing pentru agent-uri „împrumutate" — **eliminat**, model schimbat de la „împrumut agent" la „shared project"
-- Public agent directory ca discovery — mutat sub Agent Feed v1.5, format schimbat de la marketplace la social feed
-- Payment cross-user pentru agent invocation — **eliminat** ca product decision
+Au fost scoase din faza curentă: pricing tiers, margin math, growth math financiar, billing, checkout, discounturi, revenue targets și promisiuni despre ce va fi paywalled.
 
 ---
 
@@ -263,107 +166,68 @@ Din ADR-0016 (Community Mesh) au fost REMOVED sau AMÂNATE:
 
 ### Tagline update
 
-**Actual:** „Your local-first AI workspace. No subscription. No telemetry. No middleman."
+**Actual:** „Your local-first AI workspace. No telemetry. No middleman."
 
-**Nou (pentru launch marți):**
-> **Cinderpaw — the AI workspace that runs on your machine. Solo now, multiplayer in 2027.**
+**Nou (pentru landing):**
+> **Hosted AI has a reason to keep you coming back. Cinderpaw has a reason to finish the job.**
 
-Sau varianta scurtă pentru social:
-> **Your AI workspace. Local single-user free forever. Multiplayer teams coming 2027.**
+**Variantă scurtă:**
+> **Own the runtime. See how it changes.**
 
-### Cine plătește ce (frazing pentru README + landing)
+### Mesajul pentru Shared Projects
 
-> Cinderpaw solo tier is free forever — local single-user, no account, no telemetry, no upsells. Ever.
+> Solo works now. Shared Projects are next.
 >
-> When you invite someone to work on a shared project, a server appears — and that server is what you pay for. Your agents still run on your machines. Your models still stay yours. Cinderpaw hosts the coordination, not the intelligence.
+> We're researching how people can work on the same project while each keeps their own agent, model, memory, and permissions. No launch date is promised yet.
 
-### Anti bait-and-switch shield (public commitment)
+### Anti bait-and-switch shield
 
-În README + TOS, commit public:
-
-> **Solo tier guarantee:** every feature available in Cinderpaw v1.0 solo will remain free forever. New features that require server infrastructure (shared projects, sync, cross-user coordination) may be paid — but they are NEW capabilities, not existing ones retracted.
->
-> Track this promise: [github.com/bloom500/cinderpaw/blob/main/PROMISES.md](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md)
-
-Creezi `PROMISES.md` care listează explicit ce rămâne free forever. Adaugă commit history log — orice modificare la promise e vizibilă în git blame.
+Nu introducem o promisiune comercială care nu există. Landing-ul spune simplu: Cinderpaw se poate descărca acum; Shared Projects sunt cercetare. Orice direcție viitoare va fi documentată separat înainte să apară în produs sau în copy.
 
 ---
 
-## Waitlist strategy (începe D-4 vineri 22 aug, live la launch marți 26 aug)
+## Shared Projects research list
 
-### De ce waitlist ACUM
+### De ce lista există acum
 
-Fiecare email colectat pre-lansare v1.2 (aug 2026 → feb 2027) e potential customer în 6 luni. La conversion 20-30% (standard pentru waitlist warm), 500 emails = 100-150 paying seats = **$2-4k MRR at v1.2 launch day**.
+Lista colectează interes pentru interviuri, testare de prototipuri și cohorte mici de research. Nu este o listă de pre-comenzi și nu promite acces la o ofertă comercială.
 
-### Waitlist provider
-
-**Recomandare:** [Loops.so](https://loops.so) sau [ConvertKit](https://convertkit.com).
-
-- Loops.so: free până 1k subscribers, drag-drop editor, integrare cu Stripe. **Recomandare primary.**
-- ConvertKit: free până 1k, mai matur, mai puține features moderne
-- Buttondown: $9/lună de la 0 subs, dev-focused
-
-**Avoid Mailchimp** — pricing crește agresiv, deliverability slabă în 2026.
-
-### Landing form copy
-
-Section pe cinderpaw.dev:
+### Copy
 
 ```
-Cinderpaw for Teams — Closed beta, February 2027
+Shared Projects — product research
 
-Shared projects for people who bring their own AI and keep inference local.
-Cinderpaw handles the coordination — you don't pay us for tokens.
+Help shape how two people work on the same project
+while each keeps their own agent, model, memory, and permissions.
 
-Duo tier: $12/month flat for 2 users
-Team tier: $8/user/month
+No launch date announced yet.
 
-Invites go out in cohorts of 50.
+[Email input]  [Join the research list]
 
-[Email input]  [Apply for the founding beta]
-
-Applicants get consideration before public access, 50% off the first 3 months,
-and a direct line to the founder for feature requests and bugs.
-
-We're not spamming you. This is one email when your cohort opens, plus
-1-2 progress updates in the meantime.
+You'll hear from me when a research cohort opens, plus
+occasional progress updates.
 ```
 
-### Post-launch nurture cadence (emails)
+### Nurture cadence
 
-- **T+0** (immediate): Welcome email, honest — „You'll hear from me at v1.2 launch. Maybe 1-2 updates between."
-- **T+30 days** (sep 26): „First month post-launch, here's what happened" (traction numbers, github stars, community stories)
-- **T+60 days** (oct 26): „Shared Projects design decisions" (public thinking, invite feedback)
-- **T+90 days** (nov 26): „v1.1 Agent Teams shipped" (single-user teams, precursor to shared projects)
-- **T+120 days** (dec 26): „Winter roadmap update" (v1.2 timeline confirm)
-- **T+180 days** (feb 26 2027): „v1.2 Shared Projects Beta — you're in" (early access invite, 50% coupon)
+- **T+0:** confirmare înscriere, scopul listei și ce urmează
+- **T+30:** ce s-a învățat din feedback și ce s-a schimbat
+- **T+60:** decizii publice de design pentru identity, relay și permissions
+- **T+90:** invitație la research cohort, dacă există o build testabilă
 
 ---
 
 ## YC application — narrative & timeline
 
-### De ce YC devine viabil cu pivotul
+### De ce povestea rămâne interesantă fără monetizare
 
-Cu pitch-ul „local AI companion" — YC ar întreba „category size?" — Cinderpaw arată small ($10-20M ARR ceiling).
-
-Cu pitch-ul „multiplayer AI workspace with 99% gross margins because users bring their own inference" — YC vede:
-- **TAM $100B+** (coordination + productivity tools categorie)
-- **Structural advantage** imposibil de replicat de competitorii cu hosted inference
-- **Wedge** (local single-user free) → **network effect** (shared projects) → **enterprise** (self-hosted relay)
+Cinderpaw nu trebuie să pretindă că este un SaaS sau să inventeze o marjă pentru a fi interesant. Povestea este: un runtime AI local, personal și inspectabil, care explorează coordonarea între oameni fără să centralizeze modelele sau memoria.
 
 ### Application timeline
 
-- **Aplică Winter 2027 batch** (deadline propus octombrie 2026, verifica ycombinator.com/apply pentru exact)
-- **Traction cerută minimum** pentru credibilitate: 5,000+ active users din v1.0 + 500-1000 waitlist for Teams + 2000+ GitHub stars
-- **Pitch video 1-min:** „Cinderpaw is Slack + Linear + Notion for teams that want AI native, without paying for tokens. Solo free forever, teams pay for coordination. 99% gross margin structurally."
-
-### Alternative dacă YC nu prinde
-
-- **SPC (South Park Commons)** — better fit pentru „build interesting things" solo founders
-- **HF0 (Hacker Fellowship Zero)** — technical solo, 12 weeks SF
-- **NLnet Foundation** — EU non-dilutive grants, €5k-50k pentru open source
-
-Detaliat în ADR viitor `docs/funding-options.md` (skip pentru acum, focus launch).
+- Aplicarea se decide separat, după ce există produs și feedback suficient.
+- Traction relevantă în faza curentă: downloads calitative, retenție, feedback și proiecte reale de test.
+- Pitch video: „Cinderpaw is a local AI workspace whose agents evolve against your work, with the runtime and its changes visible to you."
 
 ---
 
@@ -423,7 +287,7 @@ Assumptions:
 - Video Species AGI la 179k views + growing → 500k+ views by nov 2026 realistic
 - Response content cu narativa „we show what they hide" → captureaza 0.3-1% din audience (500-5000 unique visitors)
 - Cinderpaw download conversion: 10-20% (foarte relevant audience)
-- Waitlist Shared Projects conversion: 20-30% dintre downloaders (they care about privacy/control)
+- Shared Projects research-list signup: measure qualified interest and completed interviews, not purchase conversion
 
 **Adiționali fata de baseline launch:** 50-1000 downloads, 100-500 waitlist signups DIRECT atribuiți narativei Species AGI response.
 
@@ -482,13 +346,14 @@ Punct-cheie: **atacăm structura economică, NU companiile sau oamenii.** Anthro
 
 ### Landing implementation rule (added 2026-08-22)
 
-The canonical landing copy lives in `docs/landing/cinderpaw-dev-full-rewrite.md`. The conversion layer is deliberately asymmetric:
+The canonical landing copy lives in `docs/landing/cinderpaw-dev-full-rewrite.md`. The landing flow is deliberately asymmetric:
 
-- Solo visitors get a direct download with no artificial urgency — the solo tier is free forever and has no account requirement.
-- Teams visitors get a real reason to act now: closed-beta invitations in cohorts of 50, because founder attention is the actual constraint.
-- Never publish a fake countdown, unverified seat count, or placeholder testimonial. Show a live number only when it comes from the invite ledger and is timestamped.
+- Solo visitors get a direct download with no artificial urgency and no account requirement.
+- People interested in collaboration get a research-list CTA for Shared Projects; no launch date is promised yet.
+- Research invitations stay small because founder attention is the actual constraint.
+- Never publish a fake countdown, unverified participant count, or placeholder testimonial. Show a live number only when it comes from the invite ledger and is timestamped.
 - Every ambitious feature is labeled **Available now**, **Design preview**, or **Planned for [version/date]**.
-- BSL 1.1 is described as **source-available**, never „open source" until conversion.
+- BSL 1.1 is described as **source-available**.
 
 **Canonical hero:**
 > Hosted AI has a reason to keep you coming back. Cinderpaw has a reason to finish the job.
@@ -514,21 +379,21 @@ Dacă nu hit-uri = mai testez soft framing, dar NU retract până confirmam empi
 
 ## Riscuri pe care le acceptăm cu pivotul
 
-### 1. HN backlash „they turned it SaaS"
+### 1. HN backlash „they turned it into a hosted product"
 
-**Mitigare:** taglineul „multiplayer coming 2027" pus la launch marți SEED-uiește narrativa. Nu apare surprise în februarie. Plus `PROMISES.md` public.
+**Mitigare:** say clearly that Shared Projects are research only. The current landing has no commercial launch claim and keeps local single-user work as the center of gravity.
 
 ### 2. Complexitate infra 10× peste single-user
 
-Relay + storage + billing + identity + auth + notifications e stack întreg. Solo dev nu poate face asta bine în 6 luni. **Realistic:** Beta buggy la lansare februarie, GA în mai. Comunicat honest în release notes.
+Relay + storage + identity + auth + notifications is a full stack. Solo dev cannot do it well by hand-waving. **Decision:** prototype one narrow workflow, publish what breaks, and make no delivery promise until the technical risks are understood.
 
 ### 3. Feature bloat contra „focus" cerute de HN culture
 
-**Mitigare:** solo tier NU primește features de shared projects. UI Layer split clar: „single project view" (solo) vs „shared project view" (paid). Zero confuzie pentru single-user.
+**Mitigare:** keep a clear UI boundary between the stable local single-user experience and experimental shared-project surfaces. Never make a research prototype look like a default workflow.
 
 ### 4. GDPR + legal obligations la accounts EU
 
-**Mitigare:** account existent DOAR la plată (Team+ tier). Duo nu are cont server-side. GDPR obligations apar când primești primul paying EU customer, nu la launch. Ai 4-6 luni pentru compliance setup.
+**Mitigare:** avoid identity infrastructure until the research workflow needs it. If a server component is tested, document data flows, retention, deletion, and EU privacy obligations before inviting real project data.
 
 ### 5. Prompt injection prin agent pe fișiere shared
 
@@ -538,9 +403,9 @@ Relay + storage + billing + identity + auth + notifications e stack întreg. Sol
 - Poarta din `FeralAgent/src/sandbox/*` decide azi în funcție de permisiunile agentului. **Trebuie extinsă** să decidă și în funcție de „al cui e agentul + ce atinge".
 - Policy per agent per project: user A poate configura „agent-ul lui B poate citi X, nu poate scrie Y"
 - Approval flow pentru operațiuni destructive: agent B vrea să șteargă fișier al user A → A primește notification, approve/deny
-- Audit log complet pentru cross-user actions (Team+ feature)
+- Audit trail for cross-user actions, if the research workflow needs it
 
-Design detaliat în `docs/adr/0017-shared-projects-monetization.md`.
+Design detaliat în `docs/adr/0017-shared-projects.md`; ADR-ul este păstrat ca istoric, dar nu este current scope.
 
 ### 6. Model divergence UX complex
 
@@ -548,73 +413,61 @@ Acceptat ca trade-off. Diversitatea de modele e feature al arhitecturii „bring
 
 ---
 
-## Ce NU e în scope pentru pivot
+## Ce NU e în scope pentru faza curentă
 
 **Nu schimbăm:**
-- BSL 1.1 license (still ok pentru poziționare)
+- BSL 1.1 și promisiunile publice de transparență
 - Local-first pentru single-user (fundament neschimbat)
 - Rust + Tauri + TypeScript sidecar stack
-- Mascota, splash sweep, UI polish planificat pentru marți
-- Rebrand Feral → Cinderpaw (rămâne PRIORITATEA #1 pentru marți)
-- Sponsorship setup (parallel revenue stream mid-term)
+- Mascota, splash sweep și UI polish
+- Rebrand Feral → Cinderpaw
 
-**Nu adăugăm în scope-ul pivotului:**
-- Multi-agent teams personal (rămâne pentru v1.1 nov 2026 per ADR-0015)
-- Agent Feed / Moltbook-style (rămâne v1.5 Q3 2027 per ADR-0018 nou)
-- Mobile apps (v2.0+)
-- Marketplace de agents (v2.0+, dacă vreodată)
+**Nu adăugăm în scope-ul curent:**
+- Pricing, subscriptions, billing, checkout, discounturi sau revenue targets
+- Tiers comerciale, paywalls sau entitlements
+- Monetization messaging în landing, README, UI sau onboarding
+- Multi-user production launch înainte de validarea research workflow-ului
+- Mobile apps și marketplace de agents
 
 ---
 
 ## Decizii pending (rămân pentru discussion follow-up)
 
-1. **Exact pricing tiers** — anchored aici la $12 Duo / $8 Team / $16 Business, dar validat empiric cu waitlist survey înainte de v1.2 launch
-2. **Waitlist provider final** (Loops.so preliminar recomandat)
-3. **PROMISES.md exact wording** — draft în next session
-4. **v1.2 model divergence UX** — mockup necesar înainte de development
-5. **Payment processor** — Stripe (obvious) vs Paddle (better global tax handling pentru RO merchant)
-6. **Legal entity setup pentru revenue** — RO SRL vs UK Ltd vs Delaware C-Corp (impact big pentru YC application dacă merg)
+1. Shared Projects research workflow: ce este minimul util pentru primul test
+2. Identity și invite links: pairing, expiry, revocation
+3. Encrypted relay și file coordination: conflict recovery, offline behavior, export
+4. Model divergence UX: cum arătăm clar ce agent a făcut o schimbare
+5. Privacy review pentru orice server component înainte de testarea cu date reale
+6. Feedback cadence: cum publicăm deciziile și ce abandonăm rapid
 
 ---
 
 ## Măsuri de succes pivot
 
-### 3 luni post-launch v1.0 (decembrie 2026)
+### După launch v1.0
 
-- ✅ 500+ waitlist signups pentru Cinderpaw for Teams
-- ✅ 5,000+ v1.0 downloads
-- ✅ 1,000+ GitHub stars
-- ✅ 100+ Discord members activi
-- ✅ v1.1 Agent Teams shipped on schedule
+- Downloads de la utilizatori relevanți, nu doar trafic
+- Feedback calitativ din conversații, issues și Discord
+- GitHub activity și reproducibility pentru claims
+- v1.1 Agent Teams shipped on schedule, dacă rămâne în scope
 
-### 6 luni post-launch (februarie 2027, la v1.2 Beta)
+### În faza de cercetare Shared Projects
 
-- ✅ 100+ paying seats first month post-v1.2
-- ✅ $1,000+ MRR
-- ✅ 10+ Team tier organizations (nu doar Duo)
-- ✅ Waitlist → paying conversion 15-25%
+- Participanți calificați în research list și interviuri
+- Prototipuri testate cu proiecte reale, fără date sensibile implicate accidental
+- Invite, relay, permissions, conflict recovery și export validate separat
+- Decizii publice despre ce păstrăm, ce simplificăm și ce abandonăm
 
-### 12 luni post-launch (august 2027)
-
-- ✅ $5,000+ MRR (target-ul tău personal)
-- ✅ 300+ paying seats
-- ✅ 30+ Team + Business organizations
-- ✅ YC batch acceptance sau alternative program (SPC/HF0/NLnet)
-
-### 24 luni post-launch (august 2028)
-
-- ✅ $20,000+ MRR
-- ✅ Full-time work sustainable
-- ✅ Considerare hire pentru CS + Growth (2 people team)
+Nu definim încă metrici de conversie, venit, seats sau sustenabilitate financiară. Acestea vor necesita o decizie separată, după validarea produsului.
 
 ---
 
 ## Living document
 
-Acest STRATEGY-PIVOT.md e sursa canonică pentru direcție. Modificări cer commit cu justification în message. Toate ADRs care ating monetization, community, sau shared projects trebuie să referețieze acest document.
+Acest STRATEGY-PIVOT.md e sursa canonică pentru direcție. Modificări cer commit cu justification în message. Toate ADRs care ating community sau shared projects trebuie să referețieze acest document.
 
 Related ADRs (updated în același commit ca pivotul):
 - ADR-0015 (Multi Agents personal) — SCOPE RESTRÂNS la personal team single-user
 - ADR-0016 (Agent Community mesh) — SUPERSEDED, split în două:
-  - ADR-0017 (Shared Projects monetization) — feature paid v1.2+
-  - ADR-0018 (Agent Feed social) — feature free v1.5+, marketing funnel
+  - ADR-0017 (Shared Projects technical research) — commercial sections deferred
+  - ADR-0018 (Agent Feed social) — separate research direction

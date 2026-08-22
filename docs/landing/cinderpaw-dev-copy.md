@@ -4,7 +4,7 @@
 
 **Length target:** scrollable in ~90 seconds. Every section earns its place.
 
-**Structure:** Hero → intent split → Problem → Reveal → Product → Proof → Teams beta → Community → Footer
+**Structure:** Hero → intent split → Problem → Reveal → Product → Proof → Shared Projects research → Community → Footer
 
 **Nuxt/Vue notes:** each section is a self-contained `<section>` block. Copy is HTML-agnostic — paste into components as needed. Placeholder tokens `[[X]]` mark spots where dynamic data lives (version, download link, verified counts).
 
@@ -20,15 +20,15 @@
 
 **Sub-headline (~22px, muted color):**
 
-> A desktop AI that runs on your machine, uses your local models or your API keys, and gets better against the work you actually care about. Solo is free forever. Built by one person in Cluj-Napoca.
+> A desktop AI that runs on your machine, uses your local models or your API keys, and gets better against the work you actually care about. Built by one person in Cluj-Napoca.
 
 **Primary CTA button (warm orange, 18px, prominent):**
 
-> Download Cinderpaw — free forever
+> Download Cinderpaw
 
 **Secondary CTA (smaller, deliberately separate):**
 
-> Working with someone else? Join the first Teams beta →
+> Working with someone else? Join the Shared Projects research list →
 
 **Micro-copy under buttons (12px, muted):**
 
@@ -47,17 +47,17 @@ Screenshot or short auto-playing muted video of the current Cinderpaw UI. Show t
 
 **Solo card:**
 
-> **No waitlist. No account. No Cinderpaw subscription.** Download the app and decide whether it deserves a place on your machine.
+> **No waitlist. No account. No cloud dependency.** Download the app and decide whether it deserves a place on your machine.
 >
 > [Download for [[detected OS]] →]
 
 **Teams card:**
 
-> **Closed beta · February 2027 · cohorts of 50**
+> **Shared Projects · early research · timing to be announced**
 >
-> Join if you want early access to Shared Projects, 50% off your first three months, and a direct line to the founder. The cohort is small because one person is going to read the bug reports.
+> Join if you want to help shape shared projects and talk directly to the founder. Research cohorts stay small because one person is going to read the bug reports.
 >
-> [Apply for the founding beta →]
+> [Join the research list →]
 
 **FOMO guardrail:**
 
@@ -178,9 +178,9 @@ A small pixel-art creature that lives on the composer. Reacts to what the agent 
 
 **After launch:** replace the proof strip with 3–4 permissioned quote cards (screenshots from HN / Reddit / X) and direct links to the original posts. Never render placeholder quotes as if they were testimonials.
 
-**Placeholder examples — do not publish these; replace them with real, permissioned quotes:**
+**Placeholder examples — do not publish these; replace them with real, permissioned quotes after launch:**
 
-> „Finally an AI tool that isn't trying to become a subscription service."
+> „Finally an AI tool that gives me control instead of another dashboard."
 > — HN user, [[link]]
 
 > „The Lineage panel is what I wish every AI product would ship."
@@ -195,35 +195,30 @@ A small pixel-art creature that lives on the composer. Reacts to what the agent 
 
 ---
 
-## SECTION 7 — HOW MONEY WORKS
+## SECTION 7 — SHARED PROJECTS RESEARCH
 
 **Header (h2):**
 
-> Solo is free. Forever. When teams share, we host that.
+> Solo works now. Shared projects are next.
 
-**Body (two-column comparison):**
+**Body:**
 
-**Left column — „Solo tier":**
-- Everything you've seen above
-- Runs locally on your machine
-- No account, no signup, no email
-- Full source code available
-- **Free forever. No trial. No card.**
-- [[Big download button]]
+Cinderpaw is focused on the local, single-user experience first. We are researching how two people can work on the same project while each keeps their own agent, model, memory, and permissions.
 
-**Right column — „Cinderpaw for Teams" (closed beta, Feb 2027):**
-- Work on shared projects with someone else
-- Each person brings their own AI (local or their own API key)
-- Cinderpaw hosts the sync — you don't pay for AI usage, only for coordination
-- Starts at $12/month for two people
-- $8/user/month for teams
-- **Structural advantage:** we host the coordination, not the intelligence. Our costs don't grow when you work more.
-- **Invites:** cohorts of 50, because the first teams will shape the relay
-- [[Apply for the founding beta →]]
+The early list is for people who want to test identity, encrypted relay, permissions, conflict recovery, and export with real projects.
 
-**Small print under both columns:**
+**Early-access card:**
 
-> When solo, no server exists in this transaction. When you invite someone, a server appears — and that server is what you pay for. Full commitments in [PROMISES.md →](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md)
+- Small research cohorts
+- Direct access to the founder
+- Early product notes and test invitations
+- No countdown or fake seat counter
+
+[ Email input ] [ Join the Shared Projects research list ]
+
+**Micro-copy:**
+
+> [[current research-list count, only when real and timestamped]] people are following the build. Otherwise show: **Research invites open later.**
 
 ---
 
@@ -231,47 +226,32 @@ A small pixel-art creature that lives on the composer. Reacts to what the agent 
 
 **Header (h3, smaller than main sections):**
 
-> Cinderpaw is source-available, not fully open source. Yet.
+> Cinderpaw is source-available, not fully open source.
 
 **Body:**
 
 Source code is on GitHub. You can read it, patch it, fork it for personal use, self-host it. That's the software-freedom part.
 
-You can't wrap it in a marketing site and charge $20/month for it. That's the anti-parasite part.
+You can't quietly repackage it as a hosted service and call that the original project. That's the anti-parasite part.
 
-Every version becomes fully open source (Apache 2.0) automatically four years after its release. That's in the license, it's not negotiable.
+Every version becomes Apache 2.0 automatically four years after its release. That's in the license, it's not negotiable.
 
-Or sooner. If Cinderpaw hits **$5,000/month in recurring revenue** (sponsorships + commercial licenses + shared projects), everything converts to Apache 2.0 immediately. That's my public commitment. Break it and it's visible in git blame forever.
-
-**Track progress:**
-> [[Sponsors count]] · [[MRR toward $5k goal]]
+**Track the commitment:**
+> Read [PROMISES.md](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md) and the git history.
 
 ---
 
-## SECTION 9 — WAITLIST
+## SECTION 9 — PROOF BEFORE PROMISES
 
-**Header (h2, prominent):**
+**Header (h2):**
 
-> Get into the first beta — not another endless waitlist.
+> Show the receipts.
 
-**Body (short):**
+**Body:**
 
-Cinderpaw for Teams enters closed beta in February 2027. Invites go out in cohorts of 50 because one person is going to read the bug reports. Signups get:
+Before launch, show the current release, GitHub activity, test status, real product screenshots, and a link to the source. After launch, add permissioned quotes with direct links.
 
-- Consideration before public access
-- 50% off the first 3 months
-- A direct line to the founder for feature requests and bugs
-- A chance to shape shared projects before the workflow hardens
-
-I email once when your cohort opens, plus 1–2 progress updates. Not spam. Unsubscribe with one click.
-
-**Form (single input, prominent):**
-
-Email: [ input ]  [ Apply for the founding beta ]
-
-**Micro-copy under form:**
-
-> [[current waitlist count, only when real and timestamped]] people are waiting. Otherwise show: **Next invite batch: 50 teams.**
+Do not publish placeholder testimonials, unverifiable metrics, or a feature screenshot that is not labeled **Available now**, **Design preview**, or **Planned**.
 
 ---
 
@@ -334,9 +314,9 @@ Standard footer with organized links:
 - CLI
 
 **Column 2 — Teams (2027)**
-- Pricing
-- Waitlist
-- For Enterprises (contact)
+- Shared Projects
+- Early access
+- Contact
 
 **Column 3 — Learn**
 - Blog
@@ -364,9 +344,9 @@ Standard footer with organized links:
 
 ```html
 <title>Cinderpaw — The AI that finishes the job</title>
-<meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Solo is free forever. Teams beta February 2027." />
+<meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Shared Projects are in research." />
 <meta property="og:title" content="Cinderpaw — The AI that finishes the job" />
-<meta property="og:description" content="Hosted AI has a reason to keep you coming back. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Solo is free forever. Teams beta February 2027." />
+<meta property="og:description" content="Hosted AI has a reason to keep you coming back. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@cinderpaw_ai" />
@@ -407,8 +387,8 @@ Standard footer with organized links:
 
 ## 10/10 CONVERSION GUARDRAILS
 
-- **Use one primary CTA per viewport.** Download is for solo visitors; the founding-beta application is for Teams. Do not make both look like the same action.
-- **Use real scarcity only.** The constraint is founder attention, so closed-beta invites are sent in cohorts of 50. No fake countdown, fake seat counter, or unverifiable waitlist total.
+- **Use one primary CTA per viewport.** Download is for solo visitors; the research-list signup is for Shared Projects. Do not make both look like the same action.
+- **Use real scarcity only.** The constraint is founder attention, so research invites stay small. No fake countdown, fake seat counter, or unverifiable list total.
 - **Put status beside every ambitious feature.** Label features **Available now**, **Design preview**, or **Planned for [version/date]**. Especially Lineage, Cemetery, autonomous evolution, and any screenshot that is not in the released build.
 - **Put evidence beside controversy.** Link the source, relevant ADRs, a reproducible demo, and the dated comparison snapshot. Say „incentive pressure can" instead of claiming to know a company's private objective function.
 - **Never say open source for BSL 1.1.** Use **source-available** until the documented Apache 2.0 conversion.
@@ -458,7 +438,7 @@ If you have 10 words:
 > **Hosted AI keeps you coming back. Cinderpaw helps finish the job.**
 
 If you have 20 words:
-> **Local-first desktop AI with your models, your memory, and inspectable agent evolution. Solo is free forever.**
+> **Local-first desktop AI with your models, your memory, and inspectable agent evolution. Shared Projects are in research.**
 
 If you have 40 words:
-> **Cinderpaw is a source-available desktop AI that runs on your machine. Use local models or your own cloud keys. Keep memory on disk, evaluate agents against your work, and inspect the mutations that survive. Solo is free forever. Teams beta February 2027.**
+> **Cinderpaw is a source-available desktop AI that runs on your machine. Use local models or your own cloud keys. Keep memory on disk, evaluate agents against your work, and inspect the mutations that survive. Shared Projects are in research.**

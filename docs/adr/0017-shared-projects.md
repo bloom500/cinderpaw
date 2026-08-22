@@ -1,53 +1,44 @@
-# ADR-0017: Shared Projects — first paid tier of Cinderpaw
+# ADR-0017: Shared Projects — technical research
 
-**Status:** Proposed (target v1.2, February 2027)
-**Date:** 2026-08-21
+**Status:** Deferred commercial scope; technical research only
+**Date:** 2026-08-22
 **Related:** STRATEGY-PIVOT.md (canonical), ADR-0015 (Multi Agents personal), supersedes half of ADR-0016
 **Prerequisites:** v1.0 rebrand shipped, v1.1 personal teams shipped
 
 ## Context
 
-Per STRATEGY-PIVOT.md, Cinderpaw introduces its first paid tier around **shared projects**: two or more users collaborate on the same project, each running their own agents with their own inference (local GGUF or cloud BYOK). The Cinderpaw server hosts identity, membership, event relay, and encrypted blob storage — never inference, never plaintext.
+Per STRATEGY-PIVOT.md, Shared Projects are a research direction: two or more users may collaborate on the same project, each running their own agents with their own inference (local GGUF or cloud BYOK). The Cinderpaw server, if tested, hosts only identity, membership, event relay, and encrypted blob storage — never inference, never plaintext.
 
-Thesis (Opus, verbatim from 2026-08-21):
-
-> Vinzi coordonare, nu tokeni. Marja ta stă la 95%+ pentru totdeauna, indiferent cât de mult muncește un user. Un concurent care găzduiește inferență nu poate egala prin preț.
-
-This ADR specifies the technical scope for v1.2 Shared Projects Beta.
+This ADR specifies technical questions and a narrow research prototype. It does not define a launch date, commercial model, tiers, pricing, or payment flow.
 
 ## Scope
 
-### In scope for v1.2 Beta
+### In scope for the research prototype
 
 1. **Ed25519 identity** generated locally on first shared-project use
-2. **Duo tier** ($12/lună flat) — up to 2 users, 1 shared project, 5 GB storage, single-payer billing
-3. **Invite via link** (no account required for peer)
-4. **Conversation sync** append-only log
-5. **Project membership sync** (add/remove members, permissions)
-6. **File sync** last-write-wins with visibility banner
-7. **Presence** heartbeat
-8. **Model divergence UX** — each action tagged with `model_id`, visible per message
-9. **Offline task queue** — encrypted task waits for recipient device online
+2. **Invite via link** with explicit acceptance and revocation
+3. **Conversation sync** append-only log
+4. **Project membership sync** (add/remove members, permissions)
+5. **File sync** last-write-wins with visibility banner
+6. **Presence** heartbeat
+7. **Model divergence UX** — each action tagged with `model_id`, visible per message
+8. **Offline task queue** — encrypted task waits for recipient device online
 
-### In scope for v1.2 GA (May 2027, on top of Beta)
+### Later research, only after the prototype is understood
 
-10. **Team tier** ($8/user/lună) — unlimited users/projects, SSO (Google/GitHub), audit log, 50 GB storage
-11. **Cross-user permission gate** — extend `FeralAgent/src/sandbox/*` to gate by `agent_owner + resource_owner`
-12. **Approval flow** for destructive cross-user operations
-13. **Audit log export** for Team tier compliance
+9. **Cross-user permission gate** — extend `FeralAgent/src/sandbox/*` to gate by `agent_owner + resource_owner`
+10. **Approval flow** for destructive cross-user operations
+11. **Audit trail export** for project members
+12. **CRDT sync** for files (Yjs) if real testing requires it
+13. **Always-on delegate device** as a separate technical experiment
 
-### In scope for v1.3 (post-GA)
+### OUT of scope
 
-14. **Business tier** ($16/user/lună) — SSO SAML, GDPR data residency (EU relay), priority support
-15. **CRDT sync** for files (Yjs) if Beta feedback demands
-16. **Always-on delegate device** as Business feature
-
-### OUT of scope (deferred)
-
-- ❌ Enterprise self-hosted relay (v2.0+)
-- ❌ Agent marketplace (v2.0+, if ever)
-- ❌ Payment processing cross-user (removed from vision entirely — was ADR-0016)
-- ❌ Sybil-resistant public reputation (removed — social feed is v1.5 different design)
+- ❌ Pricing, subscriptions, billing, checkout, or payment processing
+- ❌ Commercial tiers, entitlements, or discount promises
+- ❌ Enterprise self-hosted offering
+- ❌ Agent marketplace
+- ❌ Sybil-resistant public reputation
 
 ## Technical architecture
 
@@ -60,8 +51,7 @@ This ADR specifies the technical scope for v1.2 Shared Projects Beta.
 │  ├── Project membership graph (SQLite / Postgres)       │
 │  ├── WebSocket event relay (encrypted payloads)         │
 │  ├── Blob storage proxy (S3-compatible, E2E-encrypted)  │
-│  ├── Presence tracker (Redis TTL 30s)                   │
-│  └── Billing gate (Stripe webhook integration)          │
+│  └── Presence tracker (Redis TTL 30s)                   │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -138,9 +128,9 @@ Configurable per project by owner. Default template for Duo: read-all, write-app
 ### Flow 1 — Create shared project
 
 1. User A in Cinderpaw solo (existing local)
-2. Sidebar: „Upgrade to shared project" → opens Duo tier billing dialog
-3. Stripe checkout: $12/lună, single payer
-4. Post-payment: existing local project migrates to shared (data stays local + syncs to relay)
+2. Sidebar: „Explore shared project" → opens a research disclosure dialog
+3. User explicitly opts into the prototype and reviews what data would be synchronized
+4. Existing local project remains local until the user confirms the test
 5. Invite link generated
 
 ### Flow 2 — Accept invite (peer, no account)
@@ -169,17 +159,15 @@ Configurable per project by owner. Default template for Duo: read-all, write-app
 4. User A sees notification: „Andrei's Claude reviewed your qwen's work. 4 suggestions differ from qwen's original style — see comparison."
 5. Options: accept all, review one-by-one, revert
 
-## Pricing implementation
+## Current implementation boundary
 
-Handled by Stripe:
-- Duo: $12/lună subscription, one payer (project owner)
-- Team: $8/user/lună metered subscription, one admin billing
-- Free tier stays free — no Stripe touched for solo users
+There is no billing or entitlement layer in the current prototype. Solo flows must not call a server-side account or payment service.
 
-Free tier promise enforced in code:
-- Any solo-tier local feature MUST NOT check server-side entitlement
-- Solo tier local features have no `require_paid()` gate anywhere
-- Server-side entitlement only checks for shared-project actions
+Technical guardrails:
+- Any solo local feature MUST NOT check a server-side entitlement
+- No checkout, subscription, coupon, or payment provider integration
+- Shared-project research must be opt-in and visibly experimental
+- Export and deletion paths are tested before real project data is invited
 
 ## Security model
 
@@ -197,75 +185,43 @@ Free tier promise enforced in code:
 - ❌ **Malicious project member behavior** — trust is human problem; audit log is only mitigation
 - ❌ **BYOK cloud provider reading data** — outside Cinderpaw's control; user's API key with user's cloud provider
 
-## Legal & compliance
+## Privacy & compliance for research
 
-### GDPR obligations at Team+ tier
+If a server component is tested with real users, document data flows, retention, deletion, and EU privacy obligations before the invitation. End-to-end encryption does not remove the need to explain metadata and operational processing.
 
-- Right to access: user can export all data (Team+ features audit log export)
-- Right to erasure: user can delete account; membership records anonymized, encrypted blobs deleted
-- Data residency: Business tier offers EU-only relay option
-- DPA (Data Processing Agreement): template provided for Team+ customers requiring one
+Solo local mode remains the default: no account, no relay, no server-side project data.
 
-### Solo tier explicitly OUT of GDPR scope
-
-Because solo tier has no account, no server-side data, no data leaves the device. GDPR concerns don't apply — nothing to comply with.
-
-### Terms of Service updates
-
-New TOS section required for paid tiers, drafted separately in `docs/legal/`.
+Any future terms for a hosted collaboration service are a separate decision and are not part of this ADR.
 
 ## Migration path
 
-### From v1.1 (personal teams local) to v1.2 Beta
+### From v1.1 personal teams to Shared Projects research
 
 - No breaking changes for solo users — they see nothing different
-- Existing projects gain „Upgrade to shared" option in menu
-- Upgrading a local project migrates: creates Ed25519 identity, uploads encrypted snapshot to relay, marks as shared
+- Existing projects remain local by default
+- An explicit research action creates a test copy or opt-in shared view
+- No automatic upload of local memory, API keys, or unrelated files
 
-### From v1.2 Beta to GA
+### Research rollout
 
-- Duo Beta users continue on Duo tier
-- Team tier becomes available; Duo can upgrade to Team preserving all data
-- Beta users get 3 months free of GA pricing as thank-you
-
-## Rollout plan
-
-### Alpha (internal, dec 2026 — jan 2027)
-
-- Solo dev + 2-3 friends test full flow
-- Instrumentation, bug reports, iteration
-
-### Closed Beta (feb 2027)
-
-- Waitlist users invited in cohorts of 50
-- Support handled personally by Darius
-- Weekly feedback surveys
-- Public transparency updates in Discord
-
-### Open Beta (mar-apr 2027)
-
-- Public signup enabled
-- Duo tier billing goes live
-- Documentation published
-
-### GA (may 2027)
-
-- Team tier launches
-- Pricing formalized
-- Business tier waitlist opens
+- Internal test with Darius and 2–3 friends
+- Small invitation cohorts only after the prototype is stable enough to observe
+- Weekly feedback and public technical notes
+- No public production launch commitment yet
 
 ## Open questions
 
-1. **Payment processor:** Stripe vs Paddle for RO merchant of record?
-2. **Relay hosting:** self-managed VPS (cheap) vs managed (Fly.io / Railway) for reliability?
-3. **Encrypted storage backend:** S3 direct vs Cloudflare R2 (no egress fees) vs Backblaze B2?
-4. **Cross-user permission UI:** where does user configure „B's agent can/cannot"? Settings per project seems right but needs mockup.
-5. **Handoff dialog specifics:** what's the minimum viable version for v1.2 Beta? Full „diff-and-approve" or lighter „just notify"?
+1. **Relay hosting:** self-managed VPS vs managed provider for reliability
+2. **Encrypted storage backend:** S3-compatible storage vs direct peer exchange
+3. **Cross-user permission UI:** where does a project owner configure „B's agent can/cannot"?
+4. **Handoff dialog:** what is the minimum viable context for a safe takeover?
+5. **Offline behavior:** queue semantics, expiry, retry, and deletion
+6. **Export and recovery:** what must be locally recoverable if the relay disappears?
 
 ## References
 
-- STRATEGY-PIVOT.md — canonical thesis and pricing
+- STRATEGY-PIVOT.md — canonical current direction and research boundary
 - ADR-0015 — personal team primitives that shared projects build on
-- ADR-0018 — Agent Feed (separate free feature, marketing funnel)
+- ADR-0018 — Agent Feed (separate research direction)
 - LAUNCH-PLAYBOOK-CINDERPAW.md — v1.0 launch marți 26 aug
 - Opus conversation transcript 2026-08-21 (in user messages)

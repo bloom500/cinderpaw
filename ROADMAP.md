@@ -1,9 +1,9 @@
 # Cinderpaw Roadmap
 
-**Last updated:** 2026-08-21
-**Status:** Updated per STRATEGY-PIVOT.md. ADR-0016 superseded, split into ADR-0017 (Shared Projects, paid) + ADR-0018 (Agent Feed, free).
+**Last updated:** 2026-08-22
+**Status:** Updated per STRATEGY-PIVOT.md. Shared Projects is technical research only; monetization is out of scope for the current phase.
 
-> **⚠️ Major update 2026-08-21:** Cinderpaw pivots to „multiplayer AI workspace" positioning. Solo tier stays free forever, first paid tier is Shared Projects v1.2 Feb 2027. See STRATEGY-PIVOT.md for full context and PROMISES.md for public commitments.
+> **⚠️ Scope update 2026-08-22:** Cinderpaw focuses on the local-first single-user product. Shared Projects and Agent Feed are research directions. This roadmap does not define pricing, payments, or commercial tiers.
 
 
 Single-page timeline that ties together: bug backlog (~319 findings audit) + rebrand (Feral → Cinderpaw) + Brain Stack v2 + Multi Agents + Community launch.
@@ -106,14 +106,13 @@ Q3 2027 ────────────────────────
 
 Q4 2027+ ─────────────────────────────────────────────────────
   v2.0   COMMUNITY MATURE
-         + ADR-0016 C7 payments (Stripe Connect, credits, publisher payouts)
-         + KYC infrastructure
-         + Dispute resolution flow
-         Business model activated: 20% platform fee
-         Target: fin Dec 2027
+         + Moderation and discovery hardening
+         + Public transparency and export work
+         + Federation exploration if the central model proves useful
+         Target: date TBD
 
-  v2.5+  Federation exploration (ADR-0016 C9)
-         Only if central-registry scaling proves the model.
+  v2.5+  Further multi-user experiments
+         Only if research validates the model.
          Post-2027 timeframe.
 ```
 
@@ -149,26 +148,24 @@ Rebrand Faza D (public) ─── v1.0 GA
                           v1.1 Personal Agent Teams (Nov 2026)
                                       │
                                       ▼
-                          v1.2 Shared Projects Beta [FIRST PAID TIER]
-                                    (Feb 2027, Duo $12 + Team $8/user)
+                          Shared Projects research prototype
+                                    (date TBD)
                                       │
                                       ▼
-                          v1.3 Shared Projects GA + Team tier stable
-                                      │            (May 2027)
+                          Shared Projects iteration after validation
+                                      │
                                       ▼
-                          v1.5 Agent Feed public [FREE, marketing funnel]
-                                      │            (Q3 2027)
+                          Agent Feed research (opt-in, privacy-first)
+                                      │
                                       ▼
-                          v2.0 Self-hosted relay option + Enterprise tier
-                                                     (2028)
+                          Later multi-user experiments
+                                                     (date TBD)
 ```
 
-**Critical path** (longest chain that dictates timeline + revenue):
-`v1.0 launch marți 26 aug → v1.1 Agent Teams nov → v1.2 Shared Projects Beta feb 2027 (FIRST $) → v1.3 GA may 2027 → v1.5 Feed Q3 2027`
+**Critical path** (longest chain that dictates product confidence):
+`v1.0 launch → v1.1 personal Agent Teams → Shared Projects research prototype → feedback-driven iteration`
 
-Aproximativ 12 luni de la now (2026-08) până Shared Projects GA (2027-05), 14 luni până Agent Feed (2027-Q3). Realistic dacă Opus 5 continuă la ritmul actual + relay infrastructure work începe Q4 2026.
-
-**Revenue milestone target:** $5,000/mo MRR până august 2027 (12 luni post-launch v1.0). Detaliat în STRATEGY-PIVOT.md.
+No date is promised for a production multi-user launch. The next milestone is a technically safe, privacy-reviewed prototype with real feedback.
 
 ## Parallelization opportunities
 
@@ -208,7 +205,7 @@ Diferite streams pot rula concurrent cu diferite people:
 ## Non-goals în roadmap (things intentionally deferred)
 
 - **Mobile apps** — Cinderpaw is desktop-first. iOS/Android post-v2.0 dacă demand justified.
-- **Enterprise features** (SSO, audit compliance, team billing) — post-v2.0.
+- **Enterprise features** (SSO, audit compliance, organization administration) — deferred until multi-user research is validated.
 - **Training own base models** — Cinderpaw = agent layer, not model provider. Depend on BYOK + local GGUFs.
 - **Voice-first UX** — voice already integrated (Whisper + Fish TTS), but not primary interaction mode.
 - **Multi-machine sync personal** — user's own devices sync own agents. Nice-to-have, complex (E2E encryption needed). Post-v2.0.
@@ -221,13 +218,13 @@ Diferite streams pot rula concurrent cu diferite people:
 | Opus 5 slower than expected on bug fixes | Medium | Delays v1.0 | Parallel streams, reduce scope per release |
 | Rebrand breaks user data during Faza C migration | Medium | Users lose conversations | Extensive cross-platform testing + rollback docs + soft-delete never hard-delete legacy |
 | Brain Stack R9 (RSI integration) exposes new MOAT issues | Medium | Delays v0.6 | Feature flag, staged rollout, ability to disable if regressions detected |
-| Multi Agents cost pooling abused by malicious agent | Low | User bill spike | Per-agent budget caps, spending alerts, user-facing dashboard |
+| Multi Agents resource usage abused by malicious agent | Low | Local resource exhaustion | Per-agent budget caps, sandbox bounds, user-facing controls |
 | Community launch attracts bad actors immediately | High | Reputational + legal | Pre-launch: robust moderation ready, invite-only alpha, team-seeded content |
 | Legal takedown request (DMCA, hate speech, etc.) | High (any platform hits this) | Reputational | Standard takedown flow, transparency reports, designated agent |
 | Cinderpaw registry central point of failure | Medium | Community offline temporarily | Multi-region hosting, health monitoring, transparent status page |
 | SEO can't overcome Warriors fandom for "cinderpaw" | High | Brand discovery | Own the .ai domain, invest în content marketing, brand as "Cinderpaw AI" clearly |
 | Publisher liability incidents (agent gives bad advice, user acts) | Medium | Legal exposure | Clear ToS disclaimers, force-visible în UI ("output from AI, not professional advice") |
-| Cost of moderation scaling too fast | Medium | Operating expenses | Automated pre-filters, community moderators (verified tier), rate limits |
+| Cost of moderation scaling too fast | Medium | Operational load | Automated pre-filters, community moderators, rate limits |
 
 ## Success metrics per phase
 
@@ -249,10 +246,9 @@ Diferite streams pot rula concurrent cu diferite people:
 - Trust score median: 65+.
 - Moderation actions: < 1% of published agents suspended.
 
-**v2.0 (Payments)**:
-- Paid agent adoption: 10% of publishers offer paid.
-- GMV (gross merchandise value): $50k month 1 payments.
-- Platform revenue: $10k month 1 (20% fee).
+**Later phases:**
+- Define new success metrics only after the product direction is validated.
+- Do not use payment volume, paid adoption, or platform revenue as current roadmap criteria.
 
 ## Community attraction strategy (headline preview — detailed în next document)
 

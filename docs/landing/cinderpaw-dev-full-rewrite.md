@@ -4,7 +4,7 @@
 **Reference:** openclaw.ai (analyzed 2026-08-22 — what to differentiate)
 **Method:** section-by-section rewrite, same structure = drop-in replace in Nuxt/Vue components
 **Voice preserved:** the „cub" / „raise your own" metaphor works PERFECTLY with genome/evolution narrative. Cinderpaw = cinder + paw. Small warm creature that grows, dies, is replaced by better versions. Doubled down.
-**New injections:** Species AGI framing (we show what they hide), Lineage panel prominent, PROMISES.md trust anchor, Teams pricing Feb 2027 with waitlist, $5000 → Apache trigger.
+**New injections:** Species AGI framing (we show what they hide), Lineage panel prominent, PROMISES.md trust anchor, and a Shared Projects early-access teaser.
 **Anti-OpenClaw:** rows in comparison table are honest about where we lose, and edgy where we win. Voice is more Cluj-honest than SF-marketing.
 
 ## Positioning vs OpenClaw (added 2026-08-22 after analyzing openclaw.ai)
@@ -22,7 +22,7 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 **MUST have (they don't, we can — moat):**
 - ✅ Species AGI framing — Peter can't do this, OpenAI owns them now. We can.
 - ✅ Lineage/Cemetery panel prominent — no competitor has evolution transparency UI
-- ✅ PROMISES.md with $5000/mo → Apache 2.0 trigger — no competitor has public quantified trust
+- ✅ PROMISES.md with version-controlled commitments — no competitor has this level of public accountability
 - ✅ „What they hide" comparison table row — Peter can't call this out about his own acquirer
 - ✅ Direct „At Anthropic vs At Cinderpaw" two-column comparison — impossible for OpenAI-owned OpenClaw
 
@@ -61,11 +61,11 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 
 **Primary CTA button (big, orange, single call):**
 
-> Download Cinderpaw — free forever
+> Download Cinderpaw
 
 **Secondary CTA (smaller, intentionally different path):**
 
-> Working with someone else? Join the first Teams beta →
+> Working with someone else? Join the Shared Projects research list →
 
 **Below buttons (small links):**
 
@@ -75,7 +75,7 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 
 **Trust bar micro-copy (12px, muted, one line):**
 
-> Solo is free forever · No account · No telemetry · Source-available under BSL 1.1
+> No account · No telemetry · Source-available under BSL 1.1
 
 **Hero visual (right side):**
 
@@ -97,21 +97,21 @@ Use a real, current product capture: the chat UI with local model selection, the
 
 > **Solo — no waitlist**
 >
-> Everything in the desktop app stays free forever. No account, no trial, no card, no Cinderpaw subscription. Download it and see if it earns a place on your machine.
+> No account, no signup, no cloud dependency. Download it and see if it earns a place on your machine.
 >
 > **CTA:** Download for [[detected OS]] →
 
-**Card 2 — Join the founding Teams beta:**
+**Card 2 — Join the Shared Projects research list:**
 
-> **Shared Projects — closed beta, February 2027**
+> **Shared Projects — early access, timing to be announced**
 >
-> The first invites go out in cohorts of 50. Join now if you want to test shared projects before the public beta, keep 50% off your first three months, and talk directly to the person building the relay.
+> The first research invites go out in small cohorts. Join now if you want to help shape shared projects and talk directly to the person building the relay.
 >
 > **CTA:** Join the founding cohort →
 
 **Under both cards:**
 
-> No fake countdown. No invented seat counter. The beta is limited because one person is going to read the bug reports. If you want zero setup and don't care where the memory lives, use hosted AI. If you want control, this is your door.
+> No fake countdown. No invented seat counter. Early research cohorts stay small because one person is going to read the bug reports. If you want zero setup and don't care where the memory lives, use hosted AI. If you want control, this is your door.
 
 ---
 
@@ -170,15 +170,15 @@ The meaningful difference is not that Cinderpaw says „evolution" louder. It is
 | | **Cinderpaw** | **OpenClaw** | **Hermes Agent** | **Prime Agent** |
 |---|---|---|---|---|
 | **Who owns it** | Bloom Media SRL (Darius, solo) | OpenClaw Foundation (Peter, ex-PSPDFKit, now at OpenAI) | Community, MIT-licensed | Community, MIT-licensed |
-| **License** | BSL 1.1 — source-available, Apache-in-4-years OR at $5k/mo revenue | MIT | MIT | MIT |
+| **License** | BSL 1.1 — source-available, Apache 2.0 after four years | MIT | MIT | MIT |
 | **Core stack** | Rust core + Bun/TypeScript sidecar | Node.js + TypeScript | Python | TypeScript + a persistent Python REPL |
 | **Local inference** | llama.cpp and Whisper compiled into the binary | Ollama and other providers; local GGUF for memory embeddings | Any provider endpoint you point it at | Any provider endpoint you point it at |
 | **What changes when it improves** | Bounded, eval-gated changes to agent state and configuration. Changes that touch source or governance require a human. LoRA, deeper evolution, and Lineage/Cemetery UI carry an **Available / Preview / Planned** status in the release. | Nothing on its own — you write the config and the skills | Its notes. Curates memory, writes its own skills. No weight training. | Its prompts. Refines supplemental harness state from session evidence; never rewrites the base system prompt. No weight training. |
 | **Memory** | Four layers: working, episodic, semantic, fractal tree. All on your disk, none leaves. | Memory search over local embeddings | Agent-curated memory, full-text session search, dialectic user modelling | Durable harness state — memories, skills, subagent specs |
 | **Chat channels** | WhatsApp, Telegram, Discord, Slack | WhatsApp, Telegram, Slack, Discord, Signal, iMessage and more | Telegram, Discord, Slack, WhatsApp, Signal | Terminal only — it's a coding agent, not an assistant |
-| **Runs on** | Desktop app, or headless on a VPS; evolution capabilities are shown with release status | Local gateway with control UI, CLI, terminal UI, Docker | Anywhere — laptop, $5 VPS, Docker, serverless | Terminal, with daemon-backed sessions that survive disconnect |
+| **Runs on** | Desktop app, or headless on a VPS; evolution capabilities are shown with release status | Local gateway with control UI, CLI, terminal UI, Docker | Anywhere — laptop, small VPS, Docker, serverless | Terminal, with daemon-backed sessions that survive disconnect |
 | **What they hide** | Nothing by design. The Lineage/Cemetery view exposes genomes, scores, ancestors, and failures when shipped; until then, source, ADRs, and the local journal are the evidence. | Not applicable — no evolution engine. Config-based updates are visible in git. | Not applicable — no weight training. | Not applicable — no weight training. |
-| **What their owner needs** | Sponsorships + Shared Projects revenue to stay indie. Publicly tracked: [$5k/mo → Apache 2.0]. | OpenAI acquisition, Foundation, corporate partnerships. Different game now. | Community goodwill. | Community goodwill. |
+| **How it stays accountable** | Public source, version-controlled commitments, and a founder who answers for the release. | Foundation and corporate governance, documented in their own public materials. | Community governance. | Community governance. |
 
 **Footnote below table (small text):**
 
@@ -286,11 +286,11 @@ Local models, memory, and agent state stay on your machine. If you choose a clou
 
 **Header (h2):**
 
-> One app. Your models. No Cinderpaw subscription for solo.
+> One app. Your models. No middleman for solo.
 
 **Body opener:**
 
-Chat, agents, memory, research, tools, and local inference are part of the solo app. Cinderpaw stays free forever for solo use — see the [Solo Tier Guarantee](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md). Cloud providers may still charge for the keys you bring.
+Chat, agents, memory, research, tools, and local inference are part of the solo app. See the [project commitments](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md). Cloud providers may still charge for the keys you bring.
 
 **Feature grid (12 items, ~15 words each — kept most, tightened language):**
 
@@ -544,72 +544,45 @@ He forgets you between threads on purpose, and he can't reach Cubby's memory, to
 
 ---
 
-## SECTION 14 — „Cinderpaw for Teams" (NEW SECTION — first paid tier + waitlist)
+## SECTION 14 — „Shared Projects" (early access)
 
 **Kicker:**
 
-> Closed beta · February 2027
+> Product research · timeline to be announced
 
 **Header (h2):**
 
-> Solo is free forever. When teams share a project, we host that.
+> Solo works now. Shared projects are next.
 
 **Body opener:**
 
-Everything you've seen above stays free forever. That's the [Solo Tier Guarantee](/promises).
+Cinderpaw is focused on the local, single-user experience first. The next product question is how two people can work on the same project while each keeps their own agent, model, memory, and permissions.
 
-There's ONE thing we're going to charge for: sharing a project with someone else. Because that requires a server that we run and pay for. Your agents still run on your machines. Your models stay yours. We only host the coordination.
+We are researching that workflow in public. This section exists to find people who want to test the hard parts: identity, encrypted relay, permissions, conflict recovery, and what „shared" should actually mean.
 
-**Three-tier pricing cards:**
+**What early participants would help test:**
 
-**Card 1 — Duo**
-- **$12/month flat**
-- Up to 2 users
-- 1 shared project
-- 5 GB end-to-end encrypted storage
-- No account required for your peer — just an invite link
-- Community support
-- *Best for: freelancer + client, two friends coding together*
+- Shared project invites between two Cinderpaw installations
+- Each person's local or BYOK inference staying on their machine
+- Encrypted event relay and file coordination
+- Clear attribution when another person's agent changes a file
+- Export, deletion, and recovery paths before any wider release
 
-**Card 2 — Team (recommended)**
-- **$8/user/month**
-- Unlimited users, unlimited projects
-- 50 GB storage per team
-- SSO (Google, GitHub)
-- Full audit log
-- Email support, 48-hour reply guarantee
-- *Best for: small teams, agencies, indie hackers with collaborators*
+**Early-access block:**
 
-**Card 3 — Business**
-- **$16/user/month**
-- Everything in Team, plus
-- SSO SAML
-- GDPR data residency (EU or US region)
-- Priority support (24-hour SLA)
-- 500 GB storage
-- *Best for: companies with compliance needs*
+> **Small research cohorts. No fake scarcity.**
 
-**Waitlist block (below cards):**
+> Join if you want to see the work before it is polished, break the relay with real projects, and talk directly to the founder. Cohort size is limited by the amount of bug triage one person can do — not by a marketing countdown.
 
-> **Closed beta. Cohorts of 50. February 2027.**
+I email when a research cohort opens, plus occasional progress updates. Not spam. Unsubscribe with one click.
 
-This is not a newsletter pretending to be a product. I am inviting small cohorts because I need the first teams close enough to report a broken relay, confusing permission, or missing export before a public launch.
-
-Waitlist signups get:
-- Consideration for the closed beta before public access
-- 50% off the first 3 months
-- A direct line to the founder for feature requests and bug reports
-- The chance to shape shared projects before the pricing and workflow harden
-
-I email once when your cohort opens, plus 1–2 progress updates. Not spam. Unsubscribe with one click.
-
-[ Email input ] [ Apply for the founding beta ]
+[ Email input ] [ Join Shared Projects research list ]
 
 **Below form:**
 
-> [[current waitlist count, only when real and timestamped]] people are waiting. Otherwise show: **Next invite batch: 50 teams.**
->
-> Structural advantage: we host coordination, not intelligence. Your inference stays yours. Our costs don't grow when you work harder.
+> [[current research-list count, only when real and timestamped]] people are following the build. Otherwise show: **Research invites open later.**
+
+**Design note:** keep this as a research invitation, not a launch announcement.
 
 ---
 
@@ -644,9 +617,9 @@ I write about what I'm building, why I chose it, and what broke. No influencer t
 > `2026-09-05 · feature · lineage`
 
 **Card 3:**
-> **Why BSL Instead of MIT (and how to get us to Apache faster)**
+> **Why BSL instead of MIT (for now)**
 >
-> BSL 1.1 for now, Apache 2.0 in 4 years automatically — or immediately at $5k/mo revenue. Here's why this is fairer than pure MIT for solo devs.
+> BSL 1.1 for now, Apache 2.0 automatically four years after each release. Here's why the project is source-available today and how the license changes over time.
 >
 > `2026-09-12 · essay · license`
 
@@ -670,11 +643,11 @@ I write about what I'm building, why I chose it, and what broke. No influencer t
 
 Hi, I'm Darius. Not a company, not a startup, no investors, no board. One guy, one cub. Cinderpaw is early and it moves fast, so you'll hit bugs and weird edges — Cubby still chews the furniture.
 
-I'm shipping it in the open anyway. If you want a thing like this to exist, come help: break it, file issues, tell me what sucks. If it ever hits $5,000/month recurring, the whole thing goes fully open source (Apache 2.0) immediately — that's in [PROMISES.md](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md).
+I'm shipping it in the open anyway. If you want a thing like this to exist, come help: break it, file issues, tell me what sucks. The license path is documented in [PROMISES.md](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md) and version-controlled in the repository.
 
 **CTAs:**
 
-> [Contribute on GitHub] · [Report an issue] · [Sponsor on GitHub]
+> [Read the source on GitHub] · [Report an issue] · [Follow the build]
 
 **Signature:**
 
@@ -729,10 +702,10 @@ Release notes and the occasional story about what Cubby got up to. No spam.
 - API
 
 **Column 2 — Teams (Feb 2027)**
-- Pricing
-- Waitlist
-- Compare tiers
-- Enterprise (contact)
+- Shared Projects
+- Early access
+- Product research
+- Contact
 
 **Column 3 — Community**
 - Discord
@@ -765,9 +738,9 @@ Release notes and the occasional story about what Cubby got up to. No spam.
 
 ```html
 <title>Cinderpaw — The AI that finishes the job</title>
-<meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Solo is free forever. Teams beta February 2027." />
+<meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Shared Projects are in research." />
 <meta property="og:title" content="Cinderpaw — The AI that finishes the job" />
-<meta property="og:description" content="Hosted AI has a reason to keep you coming back. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Solo is free forever. Teams beta February 2027." />
+<meta property="og:description" content="Hosted AI has a reason to keep you coming back. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@cinderpaw_ai" />
@@ -786,13 +759,13 @@ These are not decorative copy notes. They are guardrails that keep the controver
 - **Teams section:** apply for the closed beta.
 - **Footer:** join the community or read the commitments.
 
-Do not put three equal orange buttons in one viewport. A free download and a paid-beta waitlist are different decisions.
+Do not put three equal orange buttons in one viewport. A direct download and a research-list signup are different decisions.
 
 ### 2. Make scarcity operational, not theatrical
 
-The genuine constraint is founder attention: closed-beta invites go out in cohorts of 50. Use that. Do not use a countdown timer, a fake „only 7 left" counter, or a permanently increasing waitlist number. Show a seat count only when it is backed by the actual invite ledger and include the timestamp.
+The genuine constraint is founder attention: research invites go out in small cohorts. Use that honestly. Do not use a countdown timer, a fake „only 7 left" counter, or a permanently increasing research-list number. Show a participant count only when it is backed by the actual invite ledger and includes the timestamp.
 
-If founding pricing is ever locked beyond the first three months, write that commitment into [PROMISES.md](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md) before advertising it. Never improvise a price guarantee in marketing copy.
+This version of the landing page only asks people to download the app or follow the Shared Projects research.
 
 ### 3. Separate shipped, preview, and roadmap
 
@@ -822,11 +795,11 @@ Before launch, show GitHub activity, release version, test count, real screensho
 **Change from current landing:**
 - Update every „Feral" → „Cinderpaw", every URL → cinderpaw.dev / bloom500/cinderpaw, every install command → `cinderpaw-agent`
 - Add new Section 4 (Species AGI framing) — this is the differentiator vs any competitor landing
-- Add new Section 14 (Teams pricing + waitlist) — first paid tier explicit
+- Add new Section 14 (Shared Projects early access) — research invitation only
 - Add PROMISES.md links in 3 places (Section 2 license row, Section 7 opener, Section 15 signature)
 - Comparison table adds a row „What they hide" — the edgy differentiator
 - L0-L6 ladder in Section 9 renamed subtly (L1 „Configuration" → „Genome") to align with bio vocabulary
-- Every CTA that used to say „join waitlist for something" now points to /teams waitlist form
+- Every CTA that used to say „join waitlist for something" now points to the Shared Projects research form
 - Add Lineage panel screenshot/video prominent in Section 4 AND Section 9
 
 **Anti-OpenClaw differentiation moves:**
@@ -834,8 +807,8 @@ Before launch, show GitHub activity, release version, test count, real screensho
 - Section 4 („Frontier AI won't show you") — literally no competitor has this framing. This is our thesis.
 - Comparison row „What they hide" — nobody else calls this out.
 - PROMISES.md as a first-class link, not buried — trust anchor visible.
-- „$5,000/month → Apache 2.0" specific number visible on landing — only with a direct PROMISES.md link.
-- Closed beta in cohorts of 50 — real founder capacity, not manufactured scarcity.
+- Version-controlled PROMISES.md commitments visible on landing — clear accountability without extra claims.
+- Small research cohorts — real founder capacity, not manufactured scarcity.
 - Cubby + Paw personalities — competitors have logos, we have characters with journal and support role. Preserve heavily.
 
 **Screenshot standards:**
@@ -858,14 +831,14 @@ Before launch, show GitHub activity, release version, test count, real screensho
    - Every download link, every issue link, every releases link
 3. **Add new sections in order:**
    - Insert Section 4 (Species AGI framing) between current „Comparison" and „Demo"
-   - Insert Section 14 (Teams pricing + waitlist) between current „Meet Paw" and „One guy made this"
+   - Insert Section 14 (Shared Projects early access) between current „Meet Paw" and „One guy made this"
 4. **Update comparison table:**
    - Add row „What they hide"
    - Update all commit hashes to current
    - Update read date
 5. **Add PROMISES.md links** in Sections 2, 7, and 15
 6. **Update L1 label** in Section 9 from „Configuration" to „Genome" (align with ADR-0019)
-7. **Set up Loops.so** form integration for Section 14 waitlist
+7. **Set up the email provider** for the Shared Projects research form
 8. **Update meta tags** with new title, description, OG image
 9. **Set up 301 redirect** from feral-landing.vercel.app → cinderpaw.dev when live
 10. **Regenerate og-image.png** with Cinderpaw wordmark + mascot instead of Feral
@@ -878,10 +851,10 @@ Before launch, show GitHub activity, release version, test count, real screensho
 > Hosted AI keeps you coming back. Cinderpaw helps finish the job.
 
 **20 words:**
-> A local-first desktop AI with your models, your memory, and inspectable agent evolution. Solo is free forever.
+> A local-first desktop AI with your models, your memory, and inspectable agent evolution. Shared Projects are in research.
 
 **40 words:**
-> Cinderpaw is a source-available desktop AI that runs on your machine. Use local models or your own cloud keys. Keep memory on disk, evaluate agents against your work, and inspect the mutations that survive. Solo is free forever. Teams beta February 2027.
+> Cinderpaw is a source-available desktop AI that runs on your machine. Use local models or your own cloud keys. Keep memory on disk, evaluate agents against your work, and inspect the mutations that survive. Shared Projects are in research.
 
 ---
 
