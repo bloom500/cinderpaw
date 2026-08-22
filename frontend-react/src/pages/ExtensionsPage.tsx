@@ -38,7 +38,15 @@ export function ExtensionsPage() {
   // calls are still in flight otherwise updated a component that no longer
   // exists, which React reports in the console on the very first visit.
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  // Re-armed on the way IN, not just cleared on the way out. React's strict
+  // mode mounts, unmounts and mounts again with the same refs, so a flag that
+  // is only ever set to false is false for the whole real lifetime of the
+  // page: the fetch lands in 8ms, every setState behind this guard is skipped,
+  // and the skeletons pulse forever with nothing in the console to say why.
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
 
   const load = () => {
     setError(null);
