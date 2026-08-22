@@ -859,8 +859,8 @@ The landing page follows the canonical copy in `docs/landing/cinderpaw-dev-full-
 ### **Hero section**
 
 ```html
-<h1>Hosted AI has a reason to keep you coming back.<br />
-Cinderpaw has a reason to finish the job.</h1>
+<h1>Their business model rewards another prompt.<br />
+Cinderpaw is built to finish the job.</h1>
 
 <p class="subtitle">
   A desktop AI that runs on your machine, uses your local models or your

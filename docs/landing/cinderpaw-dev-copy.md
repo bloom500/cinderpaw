@@ -14,9 +14,9 @@
 
 **Headline (h1, ~72px on desktop, 42px on mobile):**
 
-> Hosted AI has a reason to keep you coming back.
+> Their business model rewards another prompt.
 >
-> Cinderpaw has a reason to finish the job.
+> Cinderpaw is built to finish the job.
 
 **Sub-headline (~22px, muted color):**
 
@@ -346,7 +346,7 @@ Standard footer with organized links:
 <title>Cinderpaw — The AI that finishes the job</title>
 <meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Shared Projects are in research." />
 <meta property="og:title" content="Cinderpaw — The AI that finishes the job" />
-<meta property="og:description" content="Hosted AI has a reason to keep you coming back. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
+<meta property="og:description" content="Their business model rewards another prompt. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@cinderpaw_ai" />
@@ -413,7 +413,7 @@ Standard footer with organized links:
 
 Once launch traffic hits and you have analytics:
 
-1. **A/B test headline:** current is „Hosted AI has a reason to keep you coming back. Cinderpaw has a reason to finish the job." vs alternative „Your AI. Your machine. Your rules." — see which converts better on Download.
+1. **A/B test headline:** current is „Their business model rewards another prompt. Cinderpaw is built to finish the job." vs alternative „Your AI. Your machine. Your rules." — see which converts better on Download.
 2. **Move waitlist form higher** if downloads convert but waitlist doesn't. Section 9 → Section 3.
 3. **Add „What Cinderpaw isn't" section** if support questions cluster around expectations mismatches („isn't it Ollama?", „isn't it a Claude wrapper?").
 4. **Video testimonials** replace text quotes if any user creates a good demo video.
