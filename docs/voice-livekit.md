@@ -155,8 +155,16 @@ new measurement.
    every platform, no Homebrew requirement, no mac-only "different mode".
    Implemented as `.github/workflows/livekit-macos.yml` — manual dispatch,
    builds `darwin_amd64` + `darwin_arm64` on native runners and uploads each
-   as an artifact. Run it per LiveKit version bump. NOT yet run; nobody here
-   has a mac, so CI is the first real test of this decision.
+   as an artifact. Run it per LiveKit version bump. **Verified 2026-08-22:**
+   both architectures build from source and the binary runs — `darwin_arm64`
+   in 28s, `darwin_amd64` in 2m11s, each smoke-tested with `--version` on its
+   own architecture. macOS is no longer a risk to this plan; it is a build
+   step.
+
+   One trap, paid for once: `macos-13` is a retired runner label, and a job
+   asking for it does not fail — it queues forever. The Intel half sat
+   unscheduled for 25 minutes while arm64 finished in under two, and that gap
+   is the only signal GitHub gives. Use `macos-15-intel`.
 2. **The voice worker is its own bundled Node process.** The Bun sidecar
    stays as it is. Cost accepted: a Node runtime plus the per-target native
    modules in the installer.
