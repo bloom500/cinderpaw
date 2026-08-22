@@ -1,5 +1,8 @@
 # Cinderpaw.dev — Full Landing Copy
 
+> **Canonical implementation copy:** use `docs/landing/cinderpaw-dev-final-hype-copy.md`. This file is retained as background/compact history and should not be merged into the new landing.
+
+
 **Voice:** direct, non-technical, edgy without being cringe. Assume the reader has heard „AI is a scam / AI will kill us / AI is amazing" and is tired of all three.
 
 **Length target:** scrollable in ~90 seconds. Every section earns its place.

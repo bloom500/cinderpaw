@@ -1,5 +1,8 @@
 # cinderpaw.dev — Full Landing Rewrite
 
+> **Canonical implementation copy:** use `docs/landing/cinderpaw-dev-final-hype-copy.md`. This file is retained as background/compact history and should not be merged into the new landing.
+
+
 **Base:** existing Feral landing at feral-landing.vercel.app (Aug 2026)
 **Reference:** openclaw.ai (analyzed 2026-08-22 — what to differentiate)
 **Method:** section-by-section rewrite, same structure = drop-in replace in Nuxt/Vue components

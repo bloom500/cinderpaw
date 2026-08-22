@@ -346,7 +346,7 @@ Punct-cheie: **atacăm structura economică, NU companiile sau oamenii.** Anthro
 
 ### Landing implementation rule (added 2026-08-22)
 
-The canonical landing copy lives in `docs/landing/cinderpaw-dev-full-rewrite.md`. The landing flow is deliberately asymmetric:
+The canonical landing copy lives in `docs/landing/cinderpaw-dev-final-hype-copy.md`. The landing flow is deliberately asymmetric:
 
 - Solo visitors get a direct download with no artificial urgency and no account requirement.
 - People interested in collaboration get a research-list CTA for Shared Projects; no launch date is promised yet.

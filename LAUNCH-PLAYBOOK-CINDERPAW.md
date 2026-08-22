@@ -6,7 +6,7 @@
 **Ora ancoră:** 8:00 AM ET (US-East) = **15:00 EEST (România)** ← tot documentul folosește ora RO
 **Timp local user:** UTC+3 (EEST, DST activ până 25 oct 2026)
 
-> **Update 2026-08-22 per STRATEGY-PIVOT.md:** Monetizarea este scoasă din scope pentru această fază. Landing-ul promovează download-ul local și o listă de research pentru Shared Projects; nu include prețuri, payment flows sau oferte comerciale. Vezi STRATEGY-PIVOT.md și `docs/landing/cinderpaw-dev-full-rewrite.md` pentru copy-ul canonic.
+> **Update 2026-08-22 per STRATEGY-PIVOT.md:** Monetizarea este scoasă din scope pentru această fază. Landing-ul promovează download-ul local și o listă de research pentru Shared Projects; nu include prețuri, payment flows sau oferte comerciale. Vezi STRATEGY-PIVOT.md și `docs/landing/cinderpaw-dev-final-hype-copy.md` pentru copy-ul canonic.
 
 ---
 
@@ -854,7 +854,7 @@ Cinderpaw is a local-first AI desktop app that runs on your machine. No telemetr
 
 ## LANDING PAGE cinderpaw.dev (Nuxt/Vue)
 
-The landing page follows the canonical copy in `docs/landing/cinderpaw-dev-full-rewrite.md`. Current scope is the local single-user product plus a non-commercial Shared Projects research invitation.
+The landing page follows the canonical copy in `docs/landing/cinderpaw-dev-final-hype-copy.md`. Current scope is the local single-user product plus a non-commercial Shared Projects research invitation.
 
 ### **Hero section**
 
