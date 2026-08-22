@@ -185,11 +185,40 @@ async function assistant(ctx) {
   // resumes a dropped session on its own using a resumption handle, so this
   // reports rather than reconnects — but a quota refusal is not resumable, and
   // that is exactly the case a person needs told.
+  // What the call is DOING, so the screen can say so. The overlay has always
+  // had four states; without this it would have to guess them from audio
+  // energy, which is how a call that is thinking looks identical to one that
+  // has died.
+  session.on(AgentSessionEventTypes.AgentStateChanged, (e) => {
+    emit({ kind: 'state', text: String(e.newState ?? '') });
+  });
+
   session.on(AgentSessionEventTypes.Error, (e) => {
     const message = String(e?.error?.message ?? e?.error ?? 'unknown error');
     emit({ kind: 'error', text: message, recoverable: Boolean(e?.recoverable) });
   });
   session.on(AgentSessionEventTypes.Close, () => emit({ kind: 'closed' }));
+
+  // Commands from the window, over LiveKit's own data channel.
+  //
+  // The window is IN the room, so this needs no extra socket and no port: it
+  // is the same connection the audio already travels on. It carries the two
+  // things a person can do to a call that speech alone cannot express — cutting
+  // the assistant off mid-sentence, and typing a word dictation keeps mangling
+  // (a URL, a name, an error string).
+  ctx.room.on(RoomEvent.DataReceived, (payload) => {
+    let msg;
+    try {
+      msg = JSON.parse(new TextDecoder().decode(payload));
+    } catch {
+      return; // not ours
+    }
+    if (msg.type === 'interrupt') session.interrupt();
+    // `userInput`, not `say`: `say` would make the assistant read the text out
+    // loud in its own voice, which is the opposite of what typing into a call
+    // means.
+    if (msg.type === 'text' && msg.text) session.generateReply({ userInput: String(msg.text) });
+  });
 
   await session.start({
     agent: new voice.Agent({ instructions: INSTRUCTIONS, tools: toolsFromDeclarations() }),

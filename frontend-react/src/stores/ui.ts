@@ -70,8 +70,8 @@ interface UIStore {
    * pipeline, and it is a replacement for the pipeline. The two run on different
    * loops and only one of them has a text-to-speech engine at all.
    */
-  callEngine: 'pipeline' | 'live';
-  setCallEngine: (e: 'pipeline' | 'live') => void;
+  callEngine: 'pipeline' | 'live' | 'livekit';
+  setCallEngine: (e: 'pipeline' | 'live' | 'livekit') => void;
   /**
    * Chosen voice per engine id.
    *
@@ -130,7 +130,7 @@ export const useUI = create<UIStore>()(
       setSttProvider: (sttProvider) => set({ sttProvider }),
       ttsProvider: null,
       setTtsProvider: (ttsProvider) => set({ ttsProvider }),
-      callEngine: 'pipeline',
+      callEngine: 'livekit',
       setCallEngine: (callEngine) => set({ callEngine }),
       ttsVoice: {},
       setTtsVoice: (engineId, voiceId) =>

@@ -21,6 +21,7 @@ import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserCont
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useCallSession } from '@/hooks/useCallSession';
 import { useLiveCallSession } from '@/hooks/useLiveCallSession';
+import { useLiveKitCallSession } from '@/hooks/useLiveKitCallSession';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
 import { ensureWhisperModel } from '@/lib/voiceModel';
@@ -103,9 +104,14 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // ever calls that. The idle one drops every chunk, which is the same guard that
   // already keeps a straggler from an interrupted utterance out.
   const liveCall = useLiveCallSession();
+  const liveKitCall = useLiveKitCallSession();
   const callEngine = useUI((s) => s.callEngine);
   const setCallEngine = useUI((s) => s.setCallEngine);
-  const call = callEngine === 'live' ? liveCall : pipelineCall;
+  // Three engines, one overlay. LiveKit is the default; the other two stay
+  // reachable from the picker rather than being deleted, because the day a new
+  // engine misbehaves is the day somebody needs the old one back.
+  const call =
+    callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
   const ttsProvider = useUI((s) => s.ttsProvider);
   const [engineCardOpen, setEngineCardOpen] = useState(false);
 
@@ -118,8 +124,10 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
    * outgoing one and opening the incoming one keeps the pre-call screen on
    * screen through the change.
    */
-  const onChangeMode = (mode: 'pipeline' | 'live') => {
-    const [outgoing, incoming] = mode === 'live' ? [pipelineCall, liveCall] : [liveCall, pipelineCall];
+  const onChangeMode = (mode: 'pipeline' | 'live' | 'livekit') => {
+    const byId = { pipeline: pipelineCall, live: liveCall, livekit: liveKitCall };
+    const outgoing = byId[callEngine];
+    const incoming = byId[mode];
     const wasOpen = outgoing.phase !== 'idle';
     outgoing.hangUp();
     setCallEngine(mode);
@@ -137,7 +145,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     // Neither question applies to a speech-to-speech call: it has no transcriber
     // and no synthesiser to choose. Asking anyway would gate it behind two
     // settings it never reads.
-    if (callEngine === 'live') call.open();
+    if (callEngine === 'live' || callEngine === 'livekit') call.open();
     else if (sttProvider === null) setProviderCardOpen(true);
     else if (ttsProvider === null) setEngineCardOpen(true);
     else call.open();

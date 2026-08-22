@@ -63,7 +63,7 @@ pub struct LiveKitCall {
 /// sentence the UI can translate, not a string from Rust.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn start_livekit_selftest(
+pub(crate) async fn start_livekit_call(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<LiveKitCall, String> {
@@ -135,7 +135,7 @@ pub(crate) async fn start_livekit_selftest(
 /// exactly when it matters.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn end_livekit_selftest(
+pub(crate) async fn end_livekit_call(
     app: AppHandle,
     _state: State<'_, AppState>,
 ) -> Result<(), String> {

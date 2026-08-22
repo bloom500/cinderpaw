@@ -45,7 +45,10 @@ export interface LiveStatusEvent { sessionId: string; kind: string; text: string
  * stupidity.
  */
 export interface LiveKitAgentEvent {
-  kind: 'heard' | 'said' | 'error' | 'closed';
+  /** `state` carries the session's own idea of what it is doing —
+   *  initializing, listening, thinking, speaking — which the overlay would
+   *  otherwise have to infer from audio energy. */
+  kind: 'heard' | 'said' | 'state' | 'error' | 'closed';
   text?: string;
   recoverable?: boolean;
 }

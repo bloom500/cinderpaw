@@ -142,7 +142,7 @@ export function CallOverlay({
   /** Switching mode swaps which loop drives this screen, so the owner does it
    *  rather than the store: the outgoing call has to be hung up and the incoming
    *  one opened, or the overlay would vanish mid-choice. */
-  onChangeMode: (mode: 'pipeline' | 'live') => void;
+  onChangeMode: (mode: 'pipeline' | 'live' | 'livekit') => void;
 }) {
   const t = useT();
   const [chatOpen, setChatOpen] = useState(false);
@@ -153,7 +153,10 @@ export function CallOverlay({
   const sttProvider = useUI((s) => s.sttProvider);
   const ttsProvider = useUI((s) => s.ttsProvider);
   const callEngine = useUI((s) => s.callEngine);
-  const live = callEngine === 'live';
+  // True for BOTH speech-to-speech engines: every branch reading this asks
+  // "does one model do the whole call", not "which one". LiveKit and the
+  // previous engine differ in machinery, not in that answer.
+  const live = callEngine === 'live' || callEngine === 'livekit';
   /**
    * Can this call DO anything, or only talk?
    *
@@ -1442,13 +1445,17 @@ function ModeToggle({
   onChange,
   t,
 }: {
-  mode: 'pipeline' | 'live';
-  onChange: (mode: 'pipeline' | 'live') => void;
-  t: (key: 'call.modePipeline' | 'call.modeLive') => string;
+  mode: 'pipeline' | 'live' | 'livekit';
+  onChange: (mode: 'pipeline' | 'live' | 'livekit') => void;
+  t: (key: 'call.modePipeline' | 'call.modeLive' | 'call.modeLiveKit') => string;
 }) {
   return (
     <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
-      {(['pipeline', 'live'] as const).map((m) => (
+      {/* LiveKit first: it is the default, and the order on screen is the
+          order of intent. The previous engine stays reachable rather than
+          deleted — the day a new engine misbehaves is the day somebody needs
+          the old one back. */}
+      {(['livekit', 'live', 'pipeline'] as const).map((m) => (
         <button
           key={m}
           type="button"
@@ -1461,7 +1468,13 @@ function ModeToggle({
               : 'text-text-muted hover:text-text-primary',
           )}
         >
-          {t(m === 'live' ? 'call.modeLive' : 'call.modePipeline')}
+          {t(
+            m === 'livekit'
+              ? 'call.modeLiveKit'
+              : m === 'live'
+                ? 'call.modeLive'
+                : 'call.modePipeline',
+          )}
         </button>
       ))}
     </div>

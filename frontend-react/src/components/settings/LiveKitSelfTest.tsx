@@ -60,7 +60,7 @@ export function LiveKitSelfTest() {
   const hangUp = useCallback(async () => {
     await room.current?.disconnect();
     room.current = null;
-    await tauri.raw.endLivekitSelftest().catch(() => {});
+    await tauri.raw.endLivekitCall().catch(() => {});
     clearSinks();
     setPhase('idle');
     setDetail('');
@@ -96,7 +96,7 @@ export function LiveKitSelfTest() {
     setDetail('');
     setLines([]);
     try {
-      const call = await tauri.raw.startLivekitSelftest();
+      const call = await tauri.raw.startLivekitCall();
       const r = new Room();
       room.current = r;
 
@@ -128,7 +128,7 @@ export function LiveKitSelfTest() {
             ? 'The microphone was refused. Allow it for Cinderpaw in your system settings.'
             : raw,
       );
-      await tauri.raw.endLivekitSelftest().catch(() => {});
+      await tauri.raw.endLivekitCall().catch(() => {});
     }
   }, []);
 
