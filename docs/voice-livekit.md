@@ -181,8 +181,38 @@ What that settles: the media path works through the real app, not just through
 microphone permission prompt behaves, and the process lifecycle holds.
 
 What it does not settle: the far end echoes. It has no ears and no voice of its
-own yet — STT, a model and TTS are the next slice, and they plug into a pipe
-that is now proven rather than assumed.
+own yet — a model is the next slice, and it plugs into a pipe that is now
+proven rather than assumed.
+
+## Phase 2, second slice: the brain (2026-08-22, same evening)
+
+The far end is now Gemini's realtime API when a Google key is stored — the same
+key, model (`gemini-2.5-flash-native-audio-latest`), voice (`Kore`) and spoken
+briefing as `commands/live.rs`, which is the engine this replaces. Echo remains
+for a machine with no key, labelled as an echo.
+
+Three things learned building it:
+
+- **STT and TTS never entered the picture, and that was the point.** A local
+  pipeline was the first instinct — but `whisper` is not in the default feature
+  set (so local STT ships in no build), and the only wired cloud STT is Groq,
+  which needs a key this machine does not have. Gemini's realtime API replaces
+  the whole STT → LLM → TTS chain with one session, which is why it was chosen
+  originally and why it is still the right answer here.
+- **A worker with no `agentName` is dispatched automatically** into every room
+  that opens. That deletes the dispatch client the spike needed. The
+  consequence: the room does not exist until the webview joins, so Rust waits
+  for the worker to REGISTER rather than to be in the room.
+- **"Connected" is not evidence.** The UI said connected while the far end was
+  measured silent, and a second measurement during the greeting window was what
+  distinguished "quiet right now" from "mute". Numbers, taken over the devtools
+  protocol against the running app: remote track 9.4s after the button, first
+  sound 5.1s later, peak amplitude 125/128. The first silent reading was a
+  probe bug — a leaked `<audio>` element from a previous call — not the agent.
+
+Not yet done: the assistant has no tools (`bridge::declarations()` is not wired
+into the session), no transcripts reach the chat store, and the old engine is
+still the one the Call button in chat uses. This lives in Settings.
 
 Still open from the list above: the server binary is downloaded rather than
 bundled, the agent needs Node plus one npm install on first run, BYOK key
