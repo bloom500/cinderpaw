@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, PhoneOff, Headphones } from 'lucide-react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { tauri } from '@/lib/tauri';
+import { events, type LiveKitAgentEvent } from '@/lib/tauri/events';
 
 /**
  * Does a voice call actually work on this machine?
@@ -17,12 +18,30 @@ import { tauri } from '@/lib/tauri';
  * settings panel has a "test connection" button: when a call fails, the first
  * question is whether the pipe or the brain is broken.
  */
+/**
+ * Turn a provider's quota refusal into a sentence with a next step in it.
+ *
+ * Gemini's free tier rate-limits voice, so this is not an edge case — it is
+ * what a long conversation runs into. The raw message names an HTTP status and
+ * a quota id, which tells a person nothing about what to do, and the failure
+ * looks exactly like the app breaking.
+ */
+function rateLimited(raw: string): string | null {
+  return /429|quota|rate.?limit|RESOURCE_EXHAUSTED/i.test(raw)
+    ? 'Google cut the call off: the free Gemini tier limits how much voice you get. Wait a few minutes and call again, or add billing to that key.'
+    : null;
+}
+
 export function LiveKitSelfTest() {
   const [phase, setPhase] = useState<'idle' | 'starting' | 'live' | 'error'>('idle');
   const [detail, setDetail] = useState<string>('');
   // Which far end answered. Unknown until the call starts, and the screen must
   // not guess: an echo introduced as an assistant is a worse lie than silence.
   const [mode, setMode] = useState<'assistant' | 'echo' | null>(null);
+  /** The last few lines of the call, newest last. Capped because this is a
+   *  settings row, not a transcript viewer — and an unbounded list in a panel
+   *  nobody scrolls is a memory leak with a nice name. */
+  const [lines, setLines] = useState<LiveKitAgentEvent[]>([]);
   const room = useRef<Room | null>(null);
   /** Every element `track.attach()` handed us, so every one can be taken back
    *  down. Attaching creates a NEW element per subscribed track, so keeping a
@@ -48,6 +67,25 @@ export function LiveKitSelfTest() {
     setMode(null);
   }, [clearSinks]);
 
+  // Subscribed for the panel's whole life rather than per call: the first
+  // transcript can land before `connect` resolves, and a listener attached
+  // after that has already missed it.
+  useEffect(() => {
+    const pending = events.liveKitEvent.listen((e) => {
+      if (e.kind === 'closed') return;
+      if (e.kind === 'error') {
+        setDetail(rateLimited(e.text ?? '') ?? e.text ?? 'The call reported an error.');
+        // Recoverable errors are the plugin's business — it resumes the session
+        // itself. Saying so would be alarming the person about something being
+        // handled while they are mid-sentence.
+        if (!e.recoverable) setPhase('error');
+        return;
+      }
+      setLines((prev) => [...prev, e].slice(-6));
+    });
+    return () => { void pending.then((un) => un()); };
+  }, []);
+
   // A call must not outlive the panel that started it. Without this, closing
   // settings mid-test leaves a server, an agent and an open microphone running
   // with nothing on screen that mentions them.
@@ -56,6 +94,7 @@ export function LiveKitSelfTest() {
   const start = useCallback(async () => {
     setPhase('starting');
     setDetail('');
+    setLines([]);
     try {
       const call = await tauri.raw.startLivekitSelftest();
       const r = new Room();
@@ -153,6 +192,21 @@ export function LiveKitSelfTest() {
       )}
 
       {phase === 'error' && <p className="text-xs text-error">{detail}</p>}
+
+      {/* The readable half of the call. Shown while it runs AND after it ends,
+          because the last thing said is usually what you want to check once it
+          has stopped. */}
+      {lines.length > 0 && (
+        <div className="rounded-lg border border-border-subtle bg-bg-surface px-3 py-2 space-y-1">
+          {lines.map((l, i) => (
+            <p key={i} className="text-xs leading-relaxed">
+              <span className="text-text-muted">{l.kind === 'heard' ? 'You' : 'Assistant'}</span>
+              <span className="text-text-muted"> · </span>
+              <span className="text-text-primary">{l.text}</span>
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

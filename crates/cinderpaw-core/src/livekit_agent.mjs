@@ -21,7 +21,7 @@
 //               pretending to be an assistant, and it does not claim to be one.
 //               It exists so that a machine with nothing set up can still prove
 //               its microphone, its speakers and this whole pipe work.
-import { cli, defineAgent, voice, WorkerOptions } from '@livekit/agents';
+import { AgentSessionEventTypes, cli, defineAgent, voice, WorkerOptions } from '@livekit/agents';
 import * as google from '@livekit/agents-plugin-google';
 import {
   AudioFrame,
@@ -88,8 +88,52 @@ async function assistant(ctx) {
       // answers in a different voice tomorrow — the exact inconsistency that
       // reads as unfinished software.
       voice: VOICE,
+
+      // A Live session is bounded by its context window, not by the clock: fill
+      // it and the server ends the session mid-sentence. A sliding window drops
+      // the oldest turns instead, which is what makes "talk for an hour" a thing
+      // that can happen at all. Left off, a long conversation has a hard stop
+      // nobody warned the person about.
+      contextWindowCompression: { slidingWindow: {} },
+
+      // Both sides transcribed. Not decoration: it is the only way to see what
+      // the model actually HEARD, and mishearing is the failure that looks like
+      // stupidity. Also what a call needs to leave behind a readable trace.
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
     }),
   });
+
+  // One line per event, on stdout, for Rust to forward to the window. A prefix
+  // rather than a side channel because the pipe already exists and a second one
+  // is a second thing that can be half-connected.
+  const emit = (obj) => console.log('CINDERPAW_EVENT ' + JSON.stringify(obj));
+
+  session.on(AgentSessionEventTypes.UserInputTranscribed, (e) => {
+    // Interim results change several times a second. Forwarding them would put
+    // a flickering half-sentence on screen; the final one is the transcript.
+    if (e.isFinal && e.transcript?.trim()) emit({ kind: 'heard', text: e.transcript.trim() });
+  });
+
+  session.on(AgentSessionEventTypes.ConversationItemAdded, (e) => {
+    const item = e.item;
+    if (item?.role !== 'assistant') return;
+    const text = Array.isArray(item.content)
+      ? item.content.filter((c) => typeof c === 'string').join(' ').trim()
+      : String(item.textContent ?? '').trim();
+    if (text) emit({ kind: 'said', text });
+  });
+
+  // The free Gemini tier rate-limits voice, and a session that dies from quota
+  // is indistinguishable from a broken app unless something says so. The plugin
+  // resumes a dropped session on its own using a resumption handle, so this
+  // reports rather than reconnects — but a quota refusal is not resumable, and
+  // that is exactly the case a person needs told.
+  session.on(AgentSessionEventTypes.Error, (e) => {
+    const message = String(e?.error?.message ?? e?.error ?? 'unknown error');
+    emit({ kind: 'error', text: message, recoverable: Boolean(e?.recoverable) });
+  });
+  session.on(AgentSessionEventTypes.Close, () => emit({ kind: 'closed' }));
 
   await session.start({
     agent: new voice.Agent({ instructions: INSTRUCTIONS }),

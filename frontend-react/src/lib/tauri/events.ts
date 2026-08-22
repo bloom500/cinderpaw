@@ -37,6 +37,19 @@ export interface TtsChunkEvent { sessionId: string; pcm: string; sampleRate: num
  * anything unrecognised as ignorable rather than as an error.
  */
 export interface LiveStatusEvent { sessionId: string; kind: string; text: string }
+/**
+ * One line of a LiveKit call's readable half.
+ *
+ * `heard` is what the model understood you to say — worth showing even when it
+ * is right, because mishearing is the failure that otherwise looks like
+ * stupidity.
+ */
+export interface LiveKitAgentEvent {
+  kind: 'heard' | 'said' | 'error' | 'closed';
+  text?: string;
+  recoverable?: boolean;
+}
+
 /** Emitted right before generation starts with the real prompt token count (local models only). */
 export interface StreamStartEvent  { sessionId: string; promptTokens: number }
 /** Emitted at the end of a cloud stream when the provider returns usage stats. */
@@ -577,6 +590,20 @@ export const events = {
    * `cinderpaw://agent-output` stream for `type === "stream_progress"` lines.
    * Same `.listen(cb)` shape as every other event in this file.
    */
+  /**
+   * What the far end of a LiveKit call said, heard, or failed at.
+   *
+   * Audio never comes through here — that is WebRTC, straight to a server on
+   * loopback. This channel carries only the parts a person needs to READ: the
+   * transcript of both sides, and the reason a call stopped working. The free
+   * Gemini tier rate-limits voice, and a session that dies from quota is
+   * indistinguishable from a broken app unless something says so.
+   */
+  liveKitEvent: {
+    listen: (cb: (e: LiveKitAgentEvent) => void): Promise<UnlistenFn> =>
+      listen<LiveKitAgentEvent>('cinderpaw://livekit-event', (raw) => cb(raw.payload)),
+  },
+
   onStreamProgress: {
     listen: (cb: (e: StreamProgressEvent) => void): Promise<UnlistenFn> =>
       listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {

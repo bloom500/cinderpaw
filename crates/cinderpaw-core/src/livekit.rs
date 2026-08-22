@@ -157,6 +157,23 @@ async fn fetch_server() -> Result<PathBuf, String> {
     Ok(bin)
 }
 
+/// The line of a crash worth showing a person.
+///
+/// NOT the last line: Node ends every stack trace with its own version banner,
+/// so reporting the tail turned "Package subpath './voice' is not defined" into
+/// "Node.js v24.14.1" — a message that is both useless and confidently wrong
+/// about what happened. The first line that names an error is the one that says
+/// what broke; failing that, the first line at all.
+fn first_real_line(raw: &str) -> &str {
+    let lines: Vec<&str> = raw.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    lines
+        .iter()
+        .find(|l| l.contains("Error") || l.contains("error"))
+        .or_else(|| lines.first())
+        .copied()
+        .unwrap_or("No reason was reported.")
+}
+
 /// A random API secret, new for every call.
 ///
 /// Not derived from anything (time, pid, install id) on purpose: the server is
@@ -243,12 +260,29 @@ logging:
 pub struct Session {
     server: Child,
     agent: Child,
+    /// Kept so a second call can be admitted without restarting anything —
+    /// see `rejoin`. The chain takes about fourteen seconds to come up, and
+    /// paying that on every call is the difference between a feature and a
+    /// thing people avoid.
+    key: String,
+    secret: String,
     pub url: String,
     pub token: String,
     pub room: String,
     /// "assistant" or "echo". The UI has to say which, because the difference
     /// is the whole difference between a product and a diagnostic.
     pub mode: String,
+}
+
+impl Session {
+    /// Credentials for another call on a chain that is already running.
+    ///
+    /// A fresh token rather than the old one: tokens expire, and handing back
+    /// a stale one turns a warm start into a puzzling refusal an hour later.
+    pub fn rejoin(&mut self, identity: &str) -> String {
+        self.token = mint_token(&self.key, &self.secret, identity, &self.room, 60 * 60);
+        self.token.clone()
+    }
 }
 
 impl Drop for Session {
@@ -307,7 +341,7 @@ async fn ensure_agent(node: &Path) -> Result<PathBuf, String> {
         let why = String::from_utf8_lossy(&out.stderr);
         return Err(format!(
             "setting up the voice agent failed: {}",
-            why.trim().lines().last().unwrap_or("npm failed")
+            first_real_line(&why)
         ));
     }
     Ok(script)
@@ -338,6 +372,11 @@ pub async fn start(
     extra_bin_dirs: &[PathBuf],
     identity: &str,
     instructions: Option<String>,
+    // What the agent says while the call runs — transcripts of both sides, and
+    // the errors worth a sentence on screen. Taken as a callback rather than
+    // returned, because these arrive for as long as the call lasts and the
+    // caller is a Tauri command that returned long ago.
+    on_event: impl Fn(serde_json::Value) + Send + 'static,
 ) -> Result<Session, String> {
     let node = crate::toolchain::find_node().ok_or_else(|| "livekit-no-node".to_string())?;
 
@@ -382,7 +421,7 @@ pub async fn start(
             }
             return Err(format!(
                 "the LiveKit server stopped straight away ({status}). {}",
-                why.trim().lines().last().unwrap_or("Port 7885 may already be in use.")
+                if why.trim().is_empty() { "Port 7885 may already be in use." } else { first_real_line(&why) }
             ));
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -445,18 +484,31 @@ pub async fn start(
         let _ = server.start_kill();
         return Err(format!(
             "the voice agent never started. {}",
-            why.trim().lines().last().unwrap_or("No reason was reported.")
+            first_real_line(&why)
         ));
     }
 
-    // Keep draining, or the agent's stdout pipe fills and Node blocks on its
-    // next log line — a call that works for a minute and then freezes.
-    tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
+    // Draining is mandatory regardless of who is listening: let the agent's
+    // stdout pipe fill and Node blocks on its next log line, which reads as a
+    // call that works for a minute and then freezes.
+    tokio::spawn(async move {
+        while let Ok(Some(line)) = lines.next_line().await {
+            match line.strip_prefix("CINDERPAW_EVENT ") {
+                Some(json) => match serde_json::from_str::<serde_json::Value>(json) {
+                    Ok(v) => on_event(v),
+                    Err(e) => tracing::warn!("livekit: unreadable agent event ({e}): {json}"),
+                },
+                None => tracing::debug!("livekit agent: {line}"),
+            }
+        }
+    });
 
     tracing::info!("livekit: call up on {http}");
     Ok(Session {
         server,
         agent,
+        key: key.to_string(),
+        secret: secret.clone(),
         url: format!("ws://127.0.0.1:{HTTP_PORT}"),
         token: mint_token(key, &secret, identity, ROOM, 60 * 60),
         room: ROOM.to_string(),
@@ -502,6 +554,24 @@ mod tests {
         assert!(yaml.contains("- 127.0.0.1"), "must not bind every interface");
         assert!(yaml.contains("node_ip: 127.0.0.1"), "without this ICE never completes");
         assert!(!yaml.contains("interfaces"), "narrowing interfaces breaks ICE");
+    }
+
+    /// The reason shown to a person must be the reason, and a Node crash puts
+    /// its version banner last — which is how a missing export was reported as
+    /// "Node.js v24.14.1" for one whole debugging round.
+    #[test]
+    fn crash_reports_the_error_not_the_banner() {
+        let node_crash = "
+Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './voice' is not defined
+    at exportsNotFound (node:internal/modules/esm/resolve:314:10)
+
+Node.js v24.14.1
+";
+        assert!(first_real_line(node_crash).contains("ERR_PACKAGE_PATH_NOT_EXPORTED"));
+        assert_eq!(first_real_line("   
+  
+"), "No reason was reported.");
+        assert_eq!(first_real_line("just one line"), "just one line");
     }
 
     /// Two calls must not share a secret, or a token from a call that ended
