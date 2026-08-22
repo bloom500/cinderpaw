@@ -21,6 +21,9 @@ futures-util = "0.3"
 # CLI surface (Slice 4b): subcommands, --json/--no-color/-V, shell completion.
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
+# Arrow-key selection for lists that outgrew a numbered menu. Terminal input
+# only — no alternate screen, no frame loop, no TUI framework.
+crossterm = "0.28"
 
 [dev-dependencies]
 # `cinderpaw migrate` tests build fake OpenClaw/Hermes installs on disk.

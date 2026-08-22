@@ -21,6 +21,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 
 mod admin;
 mod providers_ui;
+mod select;
 mod chat;
 mod common;
 mod guided;
