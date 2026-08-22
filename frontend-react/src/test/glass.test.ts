@@ -290,8 +290,10 @@ describe('text stays readable on any wallpaper', () => {
   // carry labels and timestamps rather than paragraphs. That was the wrong
   // trade twice over: a timestamp nobody can read is not a smaller problem
   // than a sentence nobody can read, and "3:1 is enough here" is what every
-  // one of these tokens was originally justified with. They clear 4.5 now
-  // (dark 5.52 / 4.62, light 4.76 / 4.74), so the exemption buys nothing.
+  // one of these tokens was originally justified with. They clear 4.5 with
+  // room now — `muted` measures 8.46 dark / 8.63 light, because it turned out
+  // to carry more of the app's text than `primary` does — so the exemption
+  // buys nothing.
   // `--text-disabled` is in the list on purpose: its call sites are
   // informational text, not disabled controls, so the WCAG exemption that
   // name implies does not apply to it.

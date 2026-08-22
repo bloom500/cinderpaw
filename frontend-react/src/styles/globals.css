@@ -277,14 +277,24 @@
      disappear. A neutral white scale keeps every tier far from whatever is
      behind it, in both directions.
 
-     Hierarchy survives as luminance rather than as hue: 100 / 88 / 74 / 68
-     percent of white. Measured worst case over any wallpaper, on the bare
-     pane: 10.4, 7.9, 5.5 and 4.6. Every tier clears AA — including the two
-     that used to be held to 3:1 only because a warm brown could not do
-     better on this ground. */
+     Hierarchy survives as luminance rather than as hue, and the gap between
+     the tiers is now deliberately small: 100 / 95 / 91 percent of white.
+     Measured worst case over any wallpaper (glass.test.ts, the same model
+     that gates them): 10.37, 9.26 and 8.46 — every reading tier is nearly
+     double AA rather than sitting on it. `muted` carries 414 of the app's text classes, more than `primary`
+     does, so a tier tuned to the MINIMUM legible contrast was in practice the
+     app's default voice, and the app read as grey. Requested directly, and
+     right for the same reason the white scale was: on a pane that is partly
+     somebody's wallpaper, the dim tiers are the first thing to disappear.
+
+     `disabled` is the only tier left near the floor, at 4.62, and that is
+     the point of it. A
+     control that is off has to LOOK off — collapsing it into the rest trades
+     one legibility bug for a worse one, where every button looks pressable
+     and only some are. */
   --text-primary:    #FFFFFF;
-  --text-secondary:  #E0E0E0;
-  --text-muted:      #BDBDBD;
+  --text-secondary:  #F2F2F2;
+  --text-muted:      #E8E8E8;
   --text-disabled:   #ADADAD;
   --brand:           #C4843A;
   --brand-hover:     #D4944A;
@@ -363,13 +373,16 @@
   --border-subtle:   #E8DCC9;
   --border-default:  #D4C4B0;
   --text-primary:    #1C1610;
-  --text-secondary:  #4A3F32;
-  /* Both of these carry small text: timestamps, token counts, empty-state
-     sentences. They were tuned on the flat #FFF5EE page, where they measured
-     5.65:1 and 5.08:1 — but the page is glass now, and over a DARK wallpaper
-     the pale panel darkens under them: 3.98:1 and 3.01:1. Same hues, stepped
-     down until the worst case clears AA like the two tiers above them. */
-  --text-muted:      #6C5141;
+  /* The mirror of the dark block: these tiers carry most of the app's text,
+     so they are kept close to `primary` rather than tuned to the minimum that
+     passes. Same hue family as before — this theme is warm and stays warm —
+     just deepened until nothing on screen reads as a faded brown. Measured
+     worst case: 11.76, 9.86 and 8.63.
+
+     `disabled` is again the exception and stays where it was, at 4.74: an off
+     control must look off. */
+  --text-secondary:  #2E251C;
+  --text-muted:      #3A2E24;
   --text-disabled:   #5E5649;
   --brand:           #925E22;
   --brand-foreground: #FFFFFF;

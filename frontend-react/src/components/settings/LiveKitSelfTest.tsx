@@ -136,7 +136,7 @@ export function LiveKitSelfTest() {
         <p className="text-xs text-text-primary">Connected. Say something — you should hear it back.</p>
       )}
 
-      {phase === 'error' && <p className="text-xs text-red-400">{detail}</p>}
+      {phase === 'error' && <p className="text-xs text-error">{detail}</p>}
     </div>
   );
 }
