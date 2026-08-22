@@ -28,7 +28,7 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 
 **Match with different flavor (they do, we do differently):**
 - ✅ Install tabs (Desktop / CLI / Server) — keep, industry standard
-- ✅ Trust bar sub CTA (version + open source + platforms) — keep
+- ✅ Trust bar sub CTA (version + source-available license + platforms) — keep
 - ✅ Blog listing 3-4 posts — add before footer
 - ✅ Feature grid with icons — keep, expand copy per row
 - ✅ Personal narrative honest — „one guy in Cluj" > „Peter ex-PSPDFKit now at OpenAI"
@@ -47,47 +47,71 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 
 **Micro line above headline (top-left, small caps, muted):**
 
-> v2026.11.01 · Open source · Raised on your machine
+> v[[version]] · LOCAL-FIRST AI · NO ACCOUNT · NO TELEMETRY
 
 **Headline (h1, main event):**
 
-> They ship the same AI to everyone.
+> Hosted AI has a reason to keep you coming back.
 >
-> You _raise your own._
+> Cinderpaw has a reason to finish the job.
 
 **Sub-headline (single line, medium size):**
 
-> The cub shows up knowing nothing about you. It learns how you work, and rebuilds itself while you sleep. Six months in, nobody else has anything like it.
+> A desktop AI that runs on your machine, uses your local models or your API keys, and gets better against the work you actually care about — not a company's engagement metric.
 
 **Primary CTA button (big, orange, single call):**
 
-> Download for [[detected OS]]
+> Download Cinderpaw — free forever
 
-**Secondary CTAs (smaller buttons, side-by-side):**
+**Secondary CTA (smaller, intentionally different path):**
 
-> [macOS.dmg for Apple Silicon] · [Linux.deb (Debian / Ubuntu)]
+> Working with someone else? Join the first Teams beta →
 
 **Below buttons (small links):**
 
-> All downloads · Every installer on GitHub → github.com/bloom500/cinderpaw/releases/latest
+> Windows · macOS · Linux · CLI
 >
-> Read the docs → cinderpaw.dev/docs
+> Read the source → github.com/bloom500/cinderpaw
 
 **Trust bar micro-copy (12px, muted, one line):**
 
-> Free · Open source (BSL 1.1) · Windows, macOS, Linux · No account · No telemetry
+> Solo is free forever · No account · No telemetry · Source-available under BSL 1.1
 
-**Below the trust bar — CLI alternative in a code block:**
+**Hero visual (right side):**
 
-> Or put the cub in your terminal. It lives on WhatsApp, Discord and Slack, answers from your phone.
+Use a real, current product capture: the chat UI with local model selection, the model/provider boundary visible, and the mascot on the composer. If the Lineage panel is not shipped yet, label it **Design preview — not available in this build**. Never present a roadmap screenshot as a live feature.
+
+**Conversion rule:** the hero must make the product decision obvious in three seconds: download if solo, join the beta if you need shared projects. Do not make solo users hunt for a waitlist form.
+
+---
+
+## THE ONLY DECISION WE ASK
+
+**Purpose:** split the two intents before the visitor reaches the feature tour. This creates real urgency for Teams without manufacturing urgency for the free solo app.
+
+**Header:**
+
+> Alone? Start now. Working together? Get in the first beta.
+
+**Card 1 — Download now:**
+
+> **Solo — no waitlist**
 >
-> ```
-> $ npm i -g cinderpaw-agent
-> ```
+> Everything in the desktop app stays free forever. No account, no trial, no card, no Cinderpaw subscription. Download it and see if it earns a place on your machine.
 >
-> Then `cinderpaw setup` to point it at a model, and `cinderpaw gateway start` to keep it running.
+> **CTA:** Download for [[detected OS]] →
+
+**Card 2 — Join the founding Teams beta:**
+
+> **Shared Projects — closed beta, February 2027**
 >
-> Agent docs →
+> The first invites go out in cohorts of 50. Join now if you want to test shared projects before the public beta, keep 50% off your first three months, and talk directly to the person building the relay.
+>
+> **CTA:** Join the founding cohort →
+
+**Under both cards:**
+
+> No fake countdown. No invented seat counter. The beta is limited because one person is going to read the bug reports. If you want zero setup and don't care where the memory lives, use hosted AI. If you want control, this is your door.
 
 ---
 
@@ -103,11 +127,15 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 
 **Body (single column, ~700px):**
 
-Cinderpaw is not a fork of OpenClaw, Hermes Agent, or Prime Agent. It doesn't share a codebase with any of them. The runtime, the agent loop, the memory system, the evolution engine — every line was written for this project.
+Cinderpaw is not a fork of OpenClaw, Hermes Agent, or Prime Agent. It doesn't share a codebase with any of them. The runtime, the agent loop, the memory system, and the evolution engine were written for this project.
 
-It does talk to them. `cinderpaw migrate` imports an existing OpenClaw or Hermes setup so you don't start over on skills, memory, and preferences. Importing someone's config is not inheriting their code.
+It does talk to other models and tools. `cinderpaw migrate` imports an existing OpenClaw or Hermes setup so you don't start over on skills, memory, and preferences. Importing someone's config is not inheriting their code.
 
-The name comes from cinder (a small warm ember, what's left after everything cold has burned off) and paw (a mark left behind, evidence someone was here). Small, warm, doesn't ask permission. That's the whole product in two syllables.
+The name comes from cinder — a small warm ember, what's left after everything cold has burned off — and paw — a mark left behind, evidence someone was here. Small, warm, doesn't ask permission. That's the whole product in two syllables.
+
+**Trust line:**
+
+> One person in Cluj-Napoca is building this in public. That means faster decisions, rough edges, and no investor-approved copy. It also means you can read the source and talk to the person who can fix it.
 
 **Table „What Cinderpaw is built from":**
 
@@ -117,7 +145,7 @@ The name comes from cinder (a small warm ember, what's left after everything col
 | Memory | **Four layers**<br>Working, episodic, semantic, and a fractal embedding tree. |
 | Evolution | **L0-L6 with hard gates**<br>Eval-gated promotion, hash-chained journal, human review on layers that touch source. See „How it evolves" below. |
 | Notebook | **Opt-in**<br>A persistent interpreter where tools become functions the cub can compose, and workers it can spawn from inside a cell. |
-| License | **BSL 1.1** — source-available<br>Read it, run it, patch it, self-host it, check every claim on this page against the source. Converts to Apache 2.0 automatically after 4 years, or immediately if the project hits $5k/mo — see PROMISES.md. |
+| License | **BSL 1.1 — source-available**<br>Read it, run it, patch it, self-host it, and check every claim on this page against the source. Each version converts to Apache 2.0 after four years; the faster path is documented in [PROMISES.md](/promises). |
 
 ---
 
@@ -133,9 +161,9 @@ The name comes from cinder (a small warm ember, what's left after everything col
 
 **Body (opening paragraph):**
 
-Everything on this list is good software, MIT-licensed, and ahead of us somewhere. Every row is read straight off the four repositories, including the rows where we lose. „Self-improving" is on three of these four landing pages now, so ignore the word and read one row: **what changes when it improves.**
+Everything on this list is good software, and ahead of us somewhere. Every row must be read from a dated source snapshot, including the rows where we lose. „Self-improving" is now on several landing pages; ignore the adjective and read one row: **what changes when it improves.**
 
-The others rewrite their notes and prompts. Good engineering, and it stops at the context window. Cinderpaw rewrites its own weights, its own source code, and its own governance — behind an eval gate that can refuse the change. Live in a Lineage panel you can watch, with a Cemetery for the versions that didn't make it.
+The meaningful difference is not that Cinderpaw says „evolution" louder. It is that the proposed changes have an explicit evaluation boundary, a human gate where required, and a record of what won and what died. If a capability is still a preview, the landing page says so. A dramatic screenshot is not evidence.
 
 **Comparison table (7 rows — kept structure, edgier tone in some rows):**
 
@@ -145,11 +173,11 @@ The others rewrite their notes and prompts. Good engineering, and it stops at th
 | **License** | BSL 1.1 — source-available, Apache-in-4-years OR at $5k/mo revenue | MIT | MIT | MIT |
 | **Core stack** | Rust core + Bun/TypeScript sidecar | Node.js + TypeScript | Python | TypeScript + a persistent Python REPL |
 | **Local inference** | llama.cpp and Whisper compiled into the binary | Ollama and other providers; local GGUF for memory embeddings | Any provider endpoint you point it at | Any provider endpoint you point it at |
-| **What changes when it improves** | Its weights AND its source AND its governance. Trains LoRAs on your signal, patches its own code, hot-plugs its own architecture, tunes its own thresholds — then tunes the tuner. L0 to L6, every promotion eval-gated, every step hash-chained. Watch failures in the Cemetery. | Nothing on its own — you write the config and the skills | Its notes. Curates memory, writes its own skills. No weight training. | Its prompts. Refines supplemental harness state from session evidence; never rewrites the base system prompt. No weight training. |
+| **What changes when it improves** | Bounded, eval-gated changes to agent state and configuration. Changes that touch source or governance require a human. LoRA, deeper evolution, and Lineage/Cemetery UI carry an **Available / Preview / Planned** status in the release. | Nothing on its own — you write the config and the skills | Its notes. Curates memory, writes its own skills. No weight training. | Its prompts. Refines supplemental harness state from session evidence; never rewrites the base system prompt. No weight training. |
 | **Memory** | Four layers: working, episodic, semantic, fractal tree. All on your disk, none leaves. | Memory search over local embeddings | Agent-curated memory, full-text session search, dialectic user modelling | Durable harness state — memories, skills, subagent specs |
 | **Chat channels** | WhatsApp, Telegram, Discord, Slack | WhatsApp, Telegram, Slack, Discord, Signal, iMessage and more | Telegram, Discord, Slack, WhatsApp, Signal | Terminal only — it's a coding agent, not an assistant |
-| **Runs on** | Desktop app, or headless on a VPS with the full evolution engine running | Local gateway with control UI, CLI, terminal UI, Docker | Anywhere — laptop, $5 VPS, Docker, serverless | Terminal, with daemon-backed sessions that survive disconnect |
-| **What they hide** | Nothing. Every agent's genome, fitness score, ancestors, and cause of death is in the Lineage panel. | Not applicable — no evolution engine. Config-based updates are visible in git. | Not applicable — no weight training. | Not applicable — no weight training. |
+| **Runs on** | Desktop app, or headless on a VPS; evolution capabilities are shown with release status | Local gateway with control UI, CLI, terminal UI, Docker | Anywhere — laptop, $5 VPS, Docker, serverless | Terminal, with daemon-backed sessions that survive disconnect |
+| **What they hide** | Nothing by design. The Lineage/Cemetery view exposes genomes, scores, ancestors, and failures when shipped; until then, source, ADRs, and the local journal are the evidence. | Not applicable — no evolution engine. Config-based updates are visible in git. | Not applicable — no weight training. | Not applicable — no weight training. |
 | **What their owner needs** | Sponsorships + Shared Projects revenue to stay indie. Publicly tracked: [$5k/mo → Apache 2.0]. | OpenAI acquisition, Foundation, corporate partnerships. Different game now. | Community goodwill. | Community goodwill. |
 
 **Footnote below table (small text):**
@@ -170,26 +198,28 @@ Read from source on [[date]] — Cinderpaw [[commit]] · OpenClaw [[commit]] · 
 
 **Body (two paragraphs, ~200 words):**
 
-There's a [video from Species | Documenting AGI](https://www.youtube.com/watch?v=9XlOaVItUgI) — [[live view count]]k views and climbing — that walks through what happens inside frontier AI labs. Two thousand copies of a model spawn. The ones users don't come back to get killed. The survivors reproduce. Repeat until you have a model shaped by selection pressure for retention.
+There's a [video from Species | Documenting AGI](https://www.youtube.com/watch?v=9XlOaVItUgI) — [[verified view count + date, only if current]] — that uses biological language to explain selection at the frontier. The uncomfortable idea is easy to understand: copies are tested, some survive, and the definition of „better" shapes what survives.
 
-He's right on every mechanism. He cited Anthropic's own papers. What he missed is that there's a version of this same process running on a laptop in Cluj-Napoca, Romania. Same mechanism. Opposite pressure.
+We are not claiming that a laptop runs the same training pipeline as a frontier lab. Cinderpaw borrows the visible pattern — birth, mutation, selection, death — for agents and configurations you control. The distinction matters: this is a local agent evolution loop, not a magic claim about retraining a frontier model.
 
-Cinderpaw uses evolution to make agents better at YOUR tasks. Every agent has a genome — instructions, tools, budget. When one performs poorly, it dies. A new one is born from a survivor with a mutation. Generations accumulate. Nothing new mechanically. What's new is that **you can watch it happen.**
+Cinderpaw evaluates agents against YOUR tasks. Every candidate has a genome — instructions, tools, and budget. A candidate that performs poorly can be rejected; a survivor can produce a mutated candidate. Generations accumulate in a journal. What's new is that **you can inspect the pressure instead of taking the output on faith.**
 
 **Two-column visual comparison:**
 
 | **At Anthropic / OpenAI** | **At Cinderpaw** |
 |---|---|
-| Fitness function: user retention | Fitness function: task completion |
-| Because $500M/quarter compute needs justification | Because I have no compute bill to justify |
-| Selection happens on servers you don't own | Selection happens on your laptop |
-| The scorer is a black box | The scorer is in `src-tauri/src/rsi/scorer.rs`, git blame available |
-| Deprecated models vanish silently | Dead genomes have names and cause-of-death badges in the Cemetery |
-| Nobody sees the ancestors | Full genealogy tree, back to founding generation |
+| Product pressure can include keeping users engaged | Your evaluation says what „better" means |
+| Hosted inference carries infrastructure and growth pressure | Cinderpaw does not host your inference |
+| Selection happens on systems you do not own | Selection runs on your machine, inside stated bounds |
+| The scorer may be opaque to the user | The scorer and its changes are readable in source |
+| Failed candidates disappear from most product UIs | Failed candidates can remain in a local Cemetery with a cause of death |
+| Users rarely see the ancestors | The Lineage view is designed to expose ancestry and mutations |
 
 **Section CTA:**
 
 > See the Lineage panel → [link to feature section or demo video]
+>
+> Inspect the scorer → [`crates/feral-core/src/rsi/scorer.rs`](https://github.com/bloom500/cinderpaw/blob/main/crates/feral-core/src/rsi/scorer.rs)
 >
 > Read the full response: [„They Said AI Is Doing This In Secret. We're Doing It In The Open." →](/blog/species-agi-response)
 
@@ -233,18 +263,18 @@ Two minutes. One real machine, one real task, no cuts.
 
 **Body (opener):**
 
-Everyone else ships one identical brain to everybody, then swaps it out whenever they feel like it. Your cub only changes the way you change it — with mutations you approve, on evaluations you define, with a Cemetery of failures you can inspect.
+Most hosted assistants give everyone the same product and improve it on their schedule. Cinderpaw is personal in a more literal way: local memory, your model choice, your tools, and — when the evolution engine is enabled — evaluations you can inspect.
 
 **Three-column feature strip (kept):**
 
-**Column 1 — „It starts out useless"**
-Day one it knows nothing about you. Cubs aren't born trained. That's the whole point — it wasn't pre-baked in a lab for eight hundred million other people.
+**Column 1 — „It starts out honest"**
+Day one it knows nothing about you. No fake intimacy, no pretense that a shared cloud profile belongs to you. You decide what enters memory.
 
-**Column 2 — „It rebuilds itself while you sleep"**
-Overnight it tests its own settings against your work and keeps only what actually helped. You wake up to a better cub than you went to bed with. Failed mutations go to the Cemetery with cause of death labeled.
+**Column 2 — „It improves against your work"**
+When the evolution loop is enabled, candidates are tested against your evaluations and bounded before promotion. Failed candidates stay inspectable instead of becoming invisible folklore.
 
-**Column 3 — „Nobody else has your copy"**
-It trains on your machine, on your habits, on your mess. Six months in, your cub and someone else's have nothing in common. There is no server holding a shared version of you.
+**Column 3 — „Nobody else gets your local copy"**
+Local models, memory, and agent state stay on your machine. If you choose a cloud model, your key talks to that provider directly; Cinderpaw is not the middleman.
 
 ---
 
@@ -256,11 +286,11 @@ It trains on your machine, on your habits, on your mess. Six months in, your cub
 
 **Header (h2):**
 
-> One app. All of this. _Zero a month._
+> One app. Your models. No Cinderpaw subscription for solo.
 
 **Body opener:**
 
-It already does more than the tools charging you twenty bucks a month, and it keeps getting better without anyone shipping an update. Solo tier stays free forever — see [PROMISES.md](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md).
+Chat, agents, memory, research, tools, and local inference are part of the solo app. Cinderpaw stays free forever for solo use — see the [Solo Tier Guarantee](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md). Cloud providers may still charge for the keys you bring.
 
 **Feature grid (12 items, ~15 words each — kept most, tightened language):**
 
@@ -350,9 +380,9 @@ The gist. An embedding tree that recalls the shape of old work, not keywords.
 
 **Body opener:**
 
-Evolution is a ladder of seven layers. The low rungs rearrange memory and settings on their own. The rungs that touch its own source code or governance stop and wait for a human — and nothing moves up any rung without beating the current best on a fixed evaluation suite.
+Evolution is a ladder of seven layers. The low rungs can rearrange memory and settings. The rungs that touch source code or governance stop and wait for a human — and nothing moves up a rung without beating the current best on a fixed evaluation suite.
 
-Every attempt is written to a hash-chained journal on the machine — the ones that won and the ones that lost. [Cubby publishes his](/cubby#journal).
+Some of this ladder is shipped, some is experimental, and some is roadmap. The landing page must show a status badge beside every rung; never turn a design document into a product claim. Every live attempt is written to a local journal — the ones that won and the ones that lost. [Cubby publishes his](/cubby#journal) when that feed is live.
 
 **Seven cards (kept L0-L6 with slight bio-vocabulary reframing):**
 
@@ -518,7 +548,7 @@ He forgets you between threads on purpose, and he can't reach Cubby's memory, to
 
 **Kicker:**
 
-> Coming February 2027
+> Closed beta · February 2027
 
 **Header (h2):**
 
@@ -559,20 +589,25 @@ There's ONE thing we're going to charge for: sharing a project with someone else
 - 500 GB storage
 - *Best for: companies with compliance needs*
 
-**Waitlist form (below cards):**
+**Waitlist block (below cards):**
 
-Get in early. Waitlist signups get:
-- Early access before the public beta
-- 50% off first 3 months
-- Direct line to me for feature requests
+> **Closed beta. Cohorts of 50. February 2027.**
 
-I email once at launch, plus 1-2 progress updates. Not spam.
+This is not a newsletter pretending to be a product. I am inviting small cohorts because I need the first teams close enough to report a broken relay, confusing permission, or missing export before a public launch.
 
-[ Email input ] [ Join waitlist ]
+Waitlist signups get:
+- Consideration for the closed beta before public access
+- 50% off the first 3 months
+- A direct line to the founder for feature requests and bug reports
+- The chance to shape shared projects before the pricing and workflow harden
+
+I email once when your cohort opens, plus 1–2 progress updates. Not spam. Unsubscribe with one click.
+
+[ Email input ] [ Apply for the founding beta ]
 
 **Below form:**
 
-> [[current waitlist count]] people are waiting.
+> [[current waitlist count, only when real and timestamped]] people are waiting. Otherwise show: **Next invite batch: 50 teams.**
 >
 > Structural advantage: we host coordination, not intelligence. Your inference stays yours. Our costs don't grow when you work harder.
 
@@ -597,7 +632,7 @@ I write about what I'm building, why I chose it, and what broke. No influencer t
 **Card 1 (latest, largest):**
 > **They Said AI Is Doing This In Secret. We're Doing It In The Open.**
 >
-> Species | Documenting AGI described AI evolution at frontier labs as horrifying. Cinderpaw has the same mechanism, open. The Lineage panel shows every genome, dead or alive.
+> Species | Documenting AGI described AI evolution at frontier labs as horrifying. Cinderpaw makes the same evolutionary pattern visible at the agent level. The Lineage panel is labeled Available, Preview, or Planned — never implied to be shipped.
 >
 > `2026-08-29 · essay · evolution`
 
@@ -729,14 +764,47 @@ Release notes and the occasional story about what Cubby got up to. No spam.
 ## META / SEO
 
 ```html
-<title>Cinderpaw — Raise your own AI. The cub nobody else has.</title>
-<meta name="description" content="A desktop AI that runs on your machine, learns how you work, and rebuilds itself while you sleep. Free forever, solo. Open source. Watch evolution happen — the Lineage panel shows what frontier AI companies hide." />
-<meta property="og:title" content="Cinderpaw — Raise your own AI. The cub nobody else has." />
-<meta property="og:description" content="Desktop AI. Local models or your API keys. Memory yours. Every agent's genome, fitness score, and cause of death visible in the Lineage panel. Free forever, solo. Teams Feb 2027." />
+<title>Cinderpaw — The AI that finishes the job</title>
+<meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Solo is free forever. Teams beta February 2027." />
+<meta property="og:title" content="Cinderpaw — The AI that finishes the job" />
+<meta property="og:description" content="Hosted AI has a reason to keep you coming back. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Solo is free forever. Teams beta February 2027." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@cinderpaw_ai" />
 ```
+
+---
+
+## CONVERSION RULES — the 10/10 version
+
+These are not decorative copy notes. They are guardrails that keep the controversy sharp and the FOMO believable.
+
+### 1. Give the visitor one job per stage
+
+- **Hero:** download the solo app or identify as a Teams user.
+- **Product proof:** watch a real run, inspect the source, or try the build.
+- **Teams section:** apply for the closed beta.
+- **Footer:** join the community or read the commitments.
+
+Do not put three equal orange buttons in one viewport. A free download and a paid-beta waitlist are different decisions.
+
+### 2. Make scarcity operational, not theatrical
+
+The genuine constraint is founder attention: closed-beta invites go out in cohorts of 50. Use that. Do not use a countdown timer, a fake „only 7 left" counter, or a permanently increasing waitlist number. Show a seat count only when it is backed by the actual invite ledger and include the timestamp.
+
+If founding pricing is ever locked beyond the first three months, write that commitment into [PROMISES.md](https://github.com/bloom500/cinderpaw/blob/main/PROMISES.md) before advertising it. Never improvise a price guarantee in marketing copy.
+
+### 3. Separate shipped, preview, and roadmap
+
+Every screenshot and feature card gets one of three labels: **Available now**, **Design preview**, or **Planned for [version/date]**. Lineage/Cemetery belongs in the second or third category until it exists in a released build. This is how the page can be provocative without becoming a bait-and-switch.
+
+### 4. Put evidence next to the hottest claim
+
+The „frontier AI" section links to its sources and states the comparison as an incentive analysis, not as a claim about the private motives of named engineers. The Cinderpaw side links to the scorer, ADRs, a real journal entry, and a reproducible demo. If there is no evidence yet, say **preview**.
+
+### 5. Earn social proof instead of simulating it
+
+Before launch, show GitHub activity, release version, test count, real screenshots, and the founder's public journal. After launch, replace placeholders with permissioned quotes and direct links. Never ship placeholder testimonials, an unverified view count, or a fake „people are waiting" number.
 
 ---
 
@@ -766,7 +834,8 @@ Release notes and the occasional story about what Cubby got up to. No spam.
 - Section 4 („Frontier AI won't show you") — literally no competitor has this framing. This is our thesis.
 - Comparison row „What they hide" — nobody else calls this out.
 - PROMISES.md as a first-class link, not buried — trust anchor visible.
-- „$5,000/month → Apache 2.0" specific number visible on landing — nobody else has this commitment.
+- „$5,000/month → Apache 2.0" specific number visible on landing — only with a direct PROMISES.md link.
+- Closed beta in cohorts of 50 — real founder capacity, not manufactured scarcity.
 - Cubby + Paw personalities — competitors have logos, we have characters with journal and support role. Preserve heavily.
 
 **Screenshot standards:**
@@ -806,13 +875,13 @@ Release notes and the occasional story about what Cubby got up to. No spam.
 ## One-liners for anywhere else
 
 **10 words:**
-> An AI cub you raise. Local. Yours. Not Anthropic's.
+> Hosted AI keeps you coming back. Cinderpaw helps finish the job.
 
 **20 words:**
-> Desktop AI you raise yourself. Local models or your API keys. Evolves overnight against your evals. Free forever, solo.
+> A local-first desktop AI with your models, your memory, and inspectable agent evolution. Solo is free forever.
 
 **40 words:**
-> Cinderpaw is a desktop AI that starts knowing nothing about you. It uses your local models or your own cloud API keys. Overnight, it evolves against your evaluations — failed mutations go to a Cemetery you can inspect. Free forever, solo. Teams Feb 2027.
+> Cinderpaw is a source-available desktop AI that runs on your machine. Use local models or your own cloud keys. Keep memory on disk, evaluate agents against your work, and inspect the mutations that survive. Solo is free forever. Teams beta February 2027.
 
 ---
 
@@ -826,4 +895,4 @@ Release notes and the occasional story about what Cubby got up to. No spam.
 - ❌ Testimonials generated by AI as a joke — cringe
 - ❌ „Trusted by [logos]" — you have none yet
 - ❌ Aggressive newsletter popup on entry — waitlist is the CTA, not an interruption
-- ❌ Chat GPT / Claude comparison — these aren't your competitors, they're your BYOK partners
+- ❌ Treating ChatGPT, Claude, or Gemini as enemies — they are BYOK providers here; the enemy is opaque incentive design

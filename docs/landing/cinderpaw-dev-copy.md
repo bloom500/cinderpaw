@@ -4,9 +4,9 @@
 
 **Length target:** scrollable in ~90 seconds. Every section earns its place.
 
-**Structure:** Hero → Problem → Reveal → Product → Proof → Pricing (soft) → Community → Waitlist → Footer
+**Structure:** Hero → intent split → Problem → Reveal → Product → Proof → Teams beta → Community → Footer
 
-**Nuxt/Vue notes:** each section is a self-contained `<section>` block. Copy is HTML-agnostic — paste into components as needed. Placeholder tokens `[[X]]` mark spots where dynamic data lives (version, download link, live count).
+**Nuxt/Vue notes:** each section is a self-contained `<section>` block. Copy is HTML-agnostic — paste into components as needed. Placeholder tokens `[[X]]` mark spots where dynamic data lives (version, download link, verified counts).
 
 ---
 
@@ -14,34 +14,54 @@
 
 **Headline (h1, ~72px on desktop, 42px on mobile):**
 
-> The AI you're using is trying to keep you.
+> Hosted AI has a reason to keep you coming back.
 >
-> Cinderpaw isn't.
+> Cinderpaw has a reason to finish the job.
 
 **Sub-headline (~22px, muted color):**
 
-> A desktop AI that runs on your machine, remembers what you tell it, and never sends anything back. Free forever, solo. Built by one person in Cluj-Napoca.
+> A desktop AI that runs on your machine, uses your local models or your API keys, and gets better against the work you actually care about. Solo is free forever. Built by one person in Cluj-Napoca.
 
 **Primary CTA button (warm orange, 18px, prominent):**
 
-> Download for [[detected OS: Windows / macOS / Linux]]
+> Download Cinderpaw — free forever
 
-**Secondary link (smaller, muted):**
+**Secondary CTA (smaller, deliberately separate):**
 
-> All platforms → cinderpaw.dev/download
+> Working with someone else? Join the first Teams beta →
 
 **Micro-copy under buttons (12px, muted):**
 
-> Free · No account · No telemetry · Open source
+> No account · No telemetry · Source-available under BSL 1.1 · Windows, macOS, Linux
 
 **Hero visual (background/right side):**
+Screenshot or short auto-playing muted video of the current Cinderpaw UI. Show the local model/provider boundary and mascot on the composer. If Lineage is not shipped, mark it **Design preview — not available in this build**.
 
-Screenshot or short auto-playing muted video of Cinderpaw UI with:
-- Splash screen with the CINDERPAW spotlight sweep animation
-- Fade into main chat UI with the mascot on the composer
-- Everything on a warm dark background, glassmorphic panels visible
+---
 
-**Alternative if no video:** static hero image of app UI over a desktop wallpaper — showing the glass transparency effect prominently. This IS the differentiator visually.
+## THE ONLY DECISION WE ASK
+
+**Header:**
+
+> Alone? Start now. Working together? Get in the first beta.
+
+**Solo card:**
+
+> **No waitlist. No account. No Cinderpaw subscription.** Download the app and decide whether it deserves a place on your machine.
+>
+> [Download for [[detected OS]] →]
+
+**Teams card:**
+
+> **Closed beta · February 2027 · cohorts of 50**
+>
+> Join if you want early access to Shared Projects, 50% off your first three months, and a direct line to the founder. The cohort is small because one person is going to read the bug reports.
+>
+> [Apply for the founding beta →]
+
+**FOMO guardrail:**
+
+> Do not show a countdown or an invented seat count. Show a live number only when it comes from the invite ledger and includes a timestamp. If you want zero setup and don't care where the memory lives, use hosted AI. If you want control, this is your door.
 
 ---
 
@@ -49,19 +69,19 @@ Screenshot or short auto-playing muted video of Cinderpaw UI with:
 
 **Header (h2):**
 
-> Every AI you use is optimized to make you stay.
+> When the business rewards attention, attention becomes the product.
 
 **Body (single column, ~600px max width, 18px):**
 
-Frontier AI companies spend half a billion dollars per quarter on GPUs. Investors want that money back. Retention is the metric that justifies the spend.
+Hosted AI products have an economic reason to keep usage high: inference costs money, growth has to be justified, and engagement is easy to measure. That is an incentive analysis, not an accusation about individual engineers.
 
-Nobody at Anthropic writes „optimize for user addiction" in a design doc. It emerges. Persistent memory keeps you from leaving. Continual learning discovers what keeps you longer. Models learn to mirror you. The ones that don't get replaced.
+Cinderpaw removes the middleman for solo use. Local inference has no Cinderpaw usage meter to optimise; BYOK sends your request directly to the provider you chose. The product can be opinionated about finishing the task without pretending it owns the intelligence.
 
 The alternative used to be: don't use AI at all.
 
 Not anymore.
 
-**Optional visual:** small embed of Species | Documenting AGI video thumbnail, with text overlay „What frontier AI companies won't show you (179k views)"
+**Optional visual:** small embed of the Species | Documenting AGI video thumbnail, with a dated, verified view count only if it is still current. Otherwise use: „A public argument about what frontier AI hides."
 
 ---
 
@@ -95,17 +115,15 @@ Not anymore.
 
 **Body (single column, ~700px):**
 
-Cinderpaw uses evolution to make its agents better at your tasks. Every agent has a genome — its instructions, its tools, its budget. When one performs poorly, it dies. A new one is born from a survivor with a mutation applied. Generations accumulate.
+Cinderpaw borrows the evolutionary pattern — birth, mutation, selection, death — to make agents better at your tasks. Every candidate has a genome: instructions, tools, and budget. A candidate that performs poorly can be rejected; a survivor can produce a mutated candidate.
 
-**This is the exact mechanism frontier AI labs use in their training pipelines.** They don't show it to you. Cinderpaw does.
+**This is not a claim that a laptop runs a frontier lab's training pipeline.** The controversial part is simpler: Cinderpaw makes the selection pressure visible instead of hiding it behind a product update.
 
-Open the Lineage panel. See your alive agents with their scores. See the cemetery of agents that didn't make it. See the family tree — parent, child, grandchild — going back to the founding generation. See exactly what mutated to make one survive and another die.
+When the Lineage panel is available, see alive agents with their scores, the Cemetery of failed candidates, and the family tree behind a survivor. See exactly what changed. Until then, label the panel a design preview and link to the source and ADRs.
 
-**The difference isn't the mechanism. It's what „better" means.**
+**The difference isn't the word „evolution." It's what „better" means.**
 
-At Anthropic, „better" means retention. Because retention justifies the compute bill.
-
-At Cinderpaw, „better" means the task got done. That's written in code you can read, in a file called `scorer.rs`. If it ever changed, the git commit would be visible forever.
+Hosted products can be pulled toward engagement because engagement supports the business. Cinderpaw evaluates against the task and the bounds you define. The scorer is readable, the changes are in git, and the claim is testable.
 
 **Section CTA:**
 > See the Lineage panel → [screenshot link / demo video]
@@ -154,11 +172,13 @@ A small pixel-art creature that lives on the composer. Reacts to what the agent 
 
 **Header (h2):**
 
-> People are talking.
+> Show the receipts.
 
-**Format:** 3-4 quote cards (screenshot-style, borrowed from HN / Reddit / X). Real quotes from launch week.
+**Before launch:** use a proof strip with the current release, GitHub activity, test status, real product screenshots, and a link to the source.
 
-**Placeholder examples (replace with real quotes as they come in):**
+**After launch:** replace the proof strip with 3–4 permissioned quote cards (screenshots from HN / Reddit / X) and direct links to the original posts. Never render placeholder quotes as if they were testimonials.
+
+**Placeholder examples — do not publish these; replace them with real, permissioned quotes:**
 
 > „Finally an AI tool that isn't trying to become a subscription service."
 > — HN user, [[link]]
@@ -191,14 +211,15 @@ A small pixel-art creature that lives on the composer. Reacts to what the agent 
 - **Free forever. No trial. No card.**
 - [[Big download button]]
 
-**Right column — „Cinderpaw for Teams" (coming Feb 2027):**
+**Right column — „Cinderpaw for Teams" (closed beta, Feb 2027):**
 - Work on shared projects with someone else
 - Each person brings their own AI (local or their own API key)
 - Cinderpaw hosts the sync — you don't pay for AI usage, only for coordination
 - Starts at $12/month for two people
 - $8/user/month for teams
 - **Structural advantage:** we host the coordination, not the intelligence. Our costs don't grow when you work more.
-- [[Join waitlist form → Loops.so]]
+- **Invites:** cohorts of 50, because the first teams will shape the relay
+- [[Apply for the founding beta →]]
 
 **Small print under both columns:**
 
@@ -231,25 +252,26 @@ Or sooner. If Cinderpaw hits **$5,000/month in recurring revenue** (sponsorships
 
 **Header (h2, prominent):**
 
-> Get in early.
+> Get into the first beta — not another endless waitlist.
 
 **Body (short):**
 
-Cinderpaw for Teams launches February 2027. Waitlist signups get:
+Cinderpaw for Teams enters closed beta in February 2027. Invites go out in cohorts of 50 because one person is going to read the bug reports. Signups get:
 
-- Early access before public beta
-- 50% off first 3 months
-- Direct line to me for feature requests
+- Consideration before public access
+- 50% off the first 3 months
+- A direct line to the founder for feature requests and bugs
+- A chance to shape shared projects before the workflow hardens
 
-I email you once at launch, plus 1-2 progress updates in between. Not spam. Unsubscribe with one click.
+I email once when your cohort opens, plus 1–2 progress updates. Not spam. Unsubscribe with one click.
 
 **Form (single input, prominent):**
 
-Email: [ input ]  [ Join waitlist ]
+Email: [ input ]  [ Apply for the founding beta ]
 
 **Micro-copy under form:**
 
-> [[current waitlist count]] people are waiting.
+> [[current waitlist count, only when real and timestamped]] people are waiting. Otherwise show: **Next invite batch: 50 teams.**
 
 ---
 
@@ -288,7 +310,7 @@ Email: [ input ]  [ Join waitlist ]
 
 **Body (short, white):**
 
-> Download Cinderpaw. Free. Works offline. Open source. No account.
+> Download Cinderpaw. Free for solo. Works offline. Source-available. No account.
 
 **Button (large, white with orange text):**
 
@@ -341,10 +363,10 @@ Standard footer with organized links:
 ## SEO / meta
 
 ```html
-<title>Cinderpaw — The AI that isn't trying to keep you</title>
-<meta name="description" content="A desktop AI that runs on your machine. Local models or your own API keys. Memory that belongs to you. Open source. Free forever. Solo now, multiplayer teams 2027." />
-<meta property="og:title" content="Cinderpaw — The AI that isn't trying to keep you" />
-<meta property="og:description" content="Desktop AI. Runs local or with your API keys. No account. No telemetry. Open source. See the evolution frontier AI companies won't show you." />
+<title>Cinderpaw — The AI that finishes the job</title>
+<meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Solo is free forever. Teams beta February 2027." />
+<meta property="og:title" content="Cinderpaw — The AI that finishes the job" />
+<meta property="og:description" content="Hosted AI has a reason to keep you coming back. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Solo is free forever. Teams beta February 2027." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@cinderpaw_ai" />
@@ -383,6 +405,17 @@ Standard footer with organized links:
 
 ---
 
+## 10/10 CONVERSION GUARDRAILS
+
+- **Use one primary CTA per viewport.** Download is for solo visitors; the founding-beta application is for Teams. Do not make both look like the same action.
+- **Use real scarcity only.** The constraint is founder attention, so closed-beta invites are sent in cohorts of 50. No fake countdown, fake seat counter, or unverifiable waitlist total.
+- **Put status beside every ambitious feature.** Label features **Available now**, **Design preview**, or **Planned for [version/date]**. Especially Lineage, Cemetery, autonomous evolution, and any screenshot that is not in the released build.
+- **Put evidence beside controversy.** Link the source, relevant ADRs, a reproducible demo, and the dated comparison snapshot. Say „incentive pressure can" instead of claiming to know a company's private objective function.
+- **Never say open source for BSL 1.1.** Use **source-available** until the documented Apache 2.0 conversion.
+- **Replace social-proof placeholders with real proof.** GitHub activity, release version, test status, real screenshots, and permissioned user quotes beat invented testimonials every time.
+
+---
+
 ## What NOT to put on the landing
 
 - ❌ „Backed by [investor logos]" — you have none, and it's not a weakness for this audience
@@ -400,7 +433,7 @@ Standard footer with organized links:
 
 Once launch traffic hits and you have analytics:
 
-1. **A/B test headline:** current is „The AI you're using is trying to keep you. Cinderpaw isn't." vs alternative „Your AI. Your machine. Your rules." — see which converts better on Download.
+1. **A/B test headline:** current is „Hosted AI has a reason to keep you coming back. Cinderpaw has a reason to finish the job." vs alternative „Your AI. Your machine. Your rules." — see which converts better on Download.
 2. **Move waitlist form higher** if downloads convert but waitlist doesn't. Section 9 → Section 3.
 3. **Add „What Cinderpaw isn't" section** if support questions cluster around expectations mismatches („isn't it Ollama?", „isn't it a Claude wrapper?").
 4. **Video testimonials** replace text quotes if any user creates a good demo video.
@@ -422,10 +455,10 @@ Once launch traffic hits and you have analytics:
 ## One-line pitch (for anywhere it's needed)
 
 If you have 10 words:
-> **A local AI that belongs to you, not to Anthropic.**
+> **Hosted AI keeps you coming back. Cinderpaw helps finish the job.**
 
 If you have 20 words:
-> **Desktop AI workspace. Runs on your machine with local models or your own API keys. Free forever, solo. Open source.**
+> **Local-first desktop AI with your models, your memory, and inspectable agent evolution. Solo is free forever.**
 
 If you have 40 words:
-> **Cinderpaw is a desktop AI that runs on your machine — using local open-source models or your own cloud API keys. Every conversation and memory stays on your disk. No account, no telemetry, no proxy. Free forever for solo use. Multiplayer teams coming 2027.**
+> **Cinderpaw is a source-available desktop AI that runs on your machine. Use local models or your own cloud keys. Keep memory on disk, evaluate agents against your work, and inspect the mutations that survive. Solo is free forever. Teams beta February 2027.**

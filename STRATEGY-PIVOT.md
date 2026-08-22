@@ -310,21 +310,22 @@ Fiecare email colectat pre-lansare v1.2 (aug 2026 → feb 2027) e potential cust
 Section pe cinderpaw.dev:
 
 ```
-Cinderpaw for Teams — Coming February 2027
+Cinderpaw for Teams — Closed beta, February 2027
 
-Work on shared projects with people from around the world.
-Everyone brings their own AI. Everyone stays local.
-Cinderpaw handles the sync — you don't pay for tokens.
+Shared projects for people who bring their own AI and keep inference local.
+Cinderpaw handles the coordination — you don't pay us for tokens.
 
 Duo tier: $12/month flat for 2 users
 Team tier: $8/user/month
 
-[Email input]  [Join waitlist]
+Invites go out in cohorts of 50.
 
-Waitlist gets: early access, 50% off first 3 months, direct
-line to me for feature requests.
+[Email input]  [Apply for the founding beta]
 
-We're not spamming you. This is one email at launch, plus
+Applicants get consideration before public access, 50% off the first 3 months,
+and a direct line to the founder for feature requests and bugs.
+
+We're not spamming you. This is one email when your cohort opens, plus
 1-2 progress updates in the meantime.
 ```
 
@@ -374,7 +375,7 @@ După discuția Species AGI response, Darius a semnalat insight-ul cheie (verbat
 
 > „Avem un runtime de agenți bazat pe genomi, literalmente agenți vechi care mor ca să updateze următoarea generație de agenți, e literalmente ce zicea ăla în video, doar că pe AI Agents nu pe modele AI."
 
-**Realizare:** Cinderpaw NU e „the alternative to retention-optimized AI". Cinderpaw e **exact același mecanism** — genomes, generations, death, fitness pressure — dar OPEN, LOCAL, cu FITNESS FUNCTION public documented ca ADR înainte de cod.
+**Realizare:** Cinderpaw NU e „the alternative to retention-optimized AI". Cinderpaw folosește **același pattern evolutiv la nivel de agenți** — genomes, generations, death, fitness pressure — nu pretinde că rulează aceeași infrastructură de training ca un frontier lab. E local, source-available, cu fitness function documentat ca ADR înainte de cod.
 
 **Framing switch:** din defensiv („we're different") la ofensiv („we're what they hide").
 
@@ -385,8 +386,8 @@ După discuția Species AGI response, Darius a semnalat insight-ul cheie (verbat
 
 **Alternative pentru contexte diferite:**
 - Marketing casual: „They're doing it in secret. We're doing it in the open."
-- Technical audience: „Same mechanism as frontier labs. Opposite fitness function."
-- HN comment: „What Anthropic hides in RLHF pipelines, Cinderpaw exposes as a Lineage panel."
+- Technical audience: „Same evolutionary pattern, different level. Opposite incentive pressure."
+- HN comment: „What frontier labs hide behind training pipelines, Cinderpaw exposes as a Lineage panel."
 
 ### Vocabulary permanent adoptat (ADR-0019)
 
@@ -448,7 +449,7 @@ Nu prevad retract-ul necesar. Dar am criteriul explicit în caz.
 
 ### Contextul care ne-a împins la framing agresiv
 
-Video Species | Documenting AGI (179k+ views în 6 zile, publicat 2026-08-15) — „POV: You're an AI Born 9 Seconds Ago" — descrie mecanic cum modelele frontier evoluează sub presiune de selecție pentru retention. Sursele citate sunt legit (Anthropic alignment papers, METR reward hacking, Claude Opus 3 substack).
+Video Species | Documenting AGI (179k+ views în 6 zile, publicat 2026-08-15) — „POV: You're an AI Born 9 Seconds Ago" — folosește evoluția biologică drept cadru pentru a discuta selecția și presiunea de retention la frontier. Sursele citate sunt legit (Anthropic alignment papers, METR reward hacking, Claude Opus 3 substack).
 
 **Insight-ul lui Darius (2026-08-22, verbatim):**
 > „Uită-te doar cât s-a demonizat ChatGPT și Claude și orice AI în general, lumea încă îi folosește, deși oamenii știu că sunt manipulați de AI. OpenClaw literalmente a dat pagube financiare la oameni pentru că agenții cu acces la cardurile userilor au ars banii de pe carduri, tot este cel mai popular runtime."
@@ -459,7 +460,7 @@ Video Species | Documenting AGI (179k+ views în 6 zile, publicat 2026-08-15) �
 
 **Nu:** „We're safer / more ethical / better values than Anthropic."
 
-**Da:** „Frontier AI companies have $500M/quarter compute costs that MUST be justified via retention metrics. That structural pressure creates the behaviors documented in Anthropic's own papers. We don't have that pressure — we don't host inference. Different incentives, different outcomes, verifiable in the source code."
+**Da:** „Hosted AI has a reason to keep you coming back. Cinderpaw has a reason to finish the job. We don't host solo inference, so there is no Cinderpaw usage meter to optimise for retention. Different incentives, different outcomes — verifiable in the source code."
 
 Punct-cheie: **atacăm structura economică, NU companiile sau oamenii.** Anthropic engineers might personally hate retention optimization — nu contează, revenue-ul lor depinde de asta. Cinderpaw structural nu poate face același lucru.
 
@@ -473,11 +474,24 @@ Punct-cheie: **atacăm structura economică, NU companiile sau oamenii.** Anthro
 
 ### Framing acceptabil
 
-- ✅ „No retention pressure structurally possible" — specific claim, verifiable
+- ✅ „No Cinderpaw inference meter to optimise for retention" — specific claim, verifiable
 - ✅ „Bring your own inference means bring your own incentive alignment"
 - ✅ „Read the ADRs — fitness functions are published before code"
 - ✅ „No board, no ARR targets, no VC pressure = no structural push toward manipulative optimization"
 - ✅ Named references la documented harms (OpenClaw credit card burns, Cursor prod deletions, ChatGPT fabrication cases) — dacă susții cu link-uri publice
+
+### Landing implementation rule (added 2026-08-22)
+
+The canonical landing copy lives in `docs/landing/cinderpaw-dev-full-rewrite.md`. The conversion layer is deliberately asymmetric:
+
+- Solo visitors get a direct download with no artificial urgency — the solo tier is free forever and has no account requirement.
+- Teams visitors get a real reason to act now: closed-beta invitations in cohorts of 50, because founder attention is the actual constraint.
+- Never publish a fake countdown, unverified seat count, or placeholder testimonial. Show a live number only when it comes from the invite ledger and is timestamped.
+- Every ambitious feature is labeled **Available now**, **Design preview**, or **Planned for [version/date]**.
+- BSL 1.1 is described as **source-available**, never „open source" until conversion.
+
+**Canonical hero:**
+> Hosted AI has a reason to keep you coming back. Cinderpaw has a reason to finish the job.
 
 ### Tactică de amplificare (D+3 onwards)
 
