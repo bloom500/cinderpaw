@@ -864,7 +864,8 @@ Cinderpaw is built to finish the job.</h1>
 
 <p class="subtitle">
   A desktop AI that runs on your machine, uses your local models or your
-  API keys, and gets better against the work you actually care about.
+  API keys, and gets judged by completed work — not by how often it pulls
+  you back in.
 </p>
 
 <div class="cta">

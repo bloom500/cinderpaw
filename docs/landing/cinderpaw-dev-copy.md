@@ -20,7 +20,7 @@
 
 **Sub-headline (~22px, muted color):**
 
-> A desktop AI that runs on your machine, uses your local models or your API keys, and gets better against the work you actually care about. Built by one person in Cluj-Napoca.
+> A desktop AI that runs on your machine, uses your local models or your API keys, and gets judged by completed work — not by how often it pulls you back in. Built by one person in Cluj-Napoca.
 
 **Primary CTA button (warm orange, 18px, prominent):**
 
