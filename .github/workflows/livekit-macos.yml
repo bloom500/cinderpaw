@@ -1,0 +1,60 @@
+# LiveKit publishes no darwin server build (checked v1.13.1–v1.13.5: linux +
+# windows only). Self-hosted voice on macOS therefore needs a binary we build
+# ourselves. Decision, Darius 2026-08-22: build from Go source in CI rather
+# than splitting the product or requiring Homebrew on one platform.
+#
+# Manual dispatch, not tied to a tag: this produces an input to the release
+# (a binary we vendor), not a release artifact. Run it once per LiveKit
+# version bump and commit/attach the result.
+name: LiveKit server (macOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "LiveKit server tag to build (e.g. v1.13.5)"
+        required: true
+        default: "v1.13.5"
+
+jobs:
+  build:
+    name: livekit-server ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Built on the native runner per arch. Go cross-compiles, but any
+          # cgo-linked dependency does not, and that failure shows up as a
+          # broken binary rather than a broken build.
+          - os: macos-13      # Intel
+            arch: darwin_amd64
+          - os: macos-latest  # Apple silicon
+            arch: darwin_arm64
+
+    steps:
+      - name: Checkout livekit
+        uses: actions/checkout@v4
+        with:
+          repository: livekit/livekit
+          ref: ${{ inputs.version }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build -ldflags "-w -s" -o livekit-server ./cmd/server
+
+      # A binary that links but does not run is the failure mode worth catching
+      # here, since nobody on this team can try it by hand.
+      - name: Smoke
+        run: ./livekit-server --version
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: livekit-server-${{ matrix.arch }}-${{ inputs.version }}
+          path: livekit-server
+          if-no-files-found: error
