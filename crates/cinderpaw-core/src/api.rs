@@ -768,19 +768,109 @@ const CHAT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12
 /// `chunk`/`done` events whose `id` matches ours. Same session, same memory,
 /// same LoRA, same tools as the desktop and the connectors — this is just
 /// another face on the one brain.
+/// How long a voice tool may take before the caller is given something to say.
+///
+/// A budget for ANSWERING, not for working. The agent's own reply timeout is
+/// two minutes, and a realtime session blocks on a tool call — so without this
+/// the model announces "let me look that up" and then goes silent for up to two
+/// minutes, which is indistinguishable from the app having died. Twenty seconds
+/// is about the longest anyone holds a phone to their ear hearing nothing.
+///
+/// The same number, and the same reasoning, as the engine this replaces.
+const VOICE_TOOL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Work that outlived its deadline, keyed by the request that started it.
+///
+/// Two jobs, both only visible on a call that lasts. The model is free again
+/// the moment it gets a holding reply, and the obvious thing for it to do is
+/// ask the same question again — which without this starts a SECOND copy of a
+/// job already running, then a third. And when the slow answer does arrive,
+/// somebody has to be holding it, or the work was wasted.
+static VOICE_IN_FLIGHT: std::sync::OnceLock<
+    parking_lot::Mutex<std::collections::HashMap<String, tokio::sync::watch::Receiver<Option<String>>>>,
+> = std::sync::OnceLock::new();
+
+fn voice_in_flight(
+) -> &'static parking_lot::Mutex<std::collections::HashMap<String, tokio::sync::watch::Receiver<Option<String>>>> {
+    VOICE_IN_FLIGHT.get_or_init(|| parking_lot::Mutex::new(std::collections::HashMap::new()))
+}
+
 /// One tool call from a voice session, answered by the local agent.
 ///
 /// This grants no capability the token did not already grant — `/runtime/chat`
 /// reaches the same agent with the same tools. What it adds is the shape the
-/// realtime model needs: a single request, a single answer, and a name for the
-/// door (`ask_cinder`) rather than a chat turn.
+/// realtime model needs: a single request, a single answer, a name for the door
+/// (`ask_cinder`) rather than a chat turn, and a deadline, because the caller
+/// is a person waiting in silence rather than a script.
 async fn runtime_voice_tool(
     State(state): State<ApiState>,
     Json(call): Json<crate::live::FunctionCall>,
 ) -> Response {
-    let session = format!("voice-{}", call.id);
-    let answered = crate::live::bridge::answer(&call, Some(&state.runtime), &session).await;
-    Json(json!({ "id": answered.id, "response": answered.response })).into_response()
+    let request =
+        call.args.get("request").and_then(|v| v.as_str()).unwrap_or_default().trim().to_lowercase();
+    let started = std::time::Instant::now();
+    // Logged on the way in as well as out. A tool call used to leave no trace
+    // at all, so "did it even try to search?" had no answer anywhere — and that
+    // is the first question when a spoken answer sounds invented.
+    tracing::info!(tool = %call.name, request = %request, "voice tool: asked");
+
+    // Already running? Wait on that one rather than starting another.
+    let existing = voice_in_flight().lock().get(&request).cloned();
+    let mut rx = match existing {
+        Some(rx) => rx,
+        None => {
+            let (tx, rx) = tokio::sync::watch::channel(None);
+            voice_in_flight().lock().insert(request.clone(), rx.clone());
+            let runtime = state.runtime.clone();
+            let call = call.clone();
+            let key = request.clone();
+            tokio::spawn(async move {
+                let session = format!("voice-{}", call.id);
+                let answered =
+                    crate::live::bridge::answer(&call, Some(&runtime), &session).await;
+                let _ = tx.send(Some(answered.response.to_string()));
+                // Kept briefly after finishing so a model that asks again right
+                // away gets the answer instead of restarting the work.
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                voice_in_flight().lock().remove(&key);
+            });
+            rx
+        }
+    };
+
+    let waited = tokio::time::timeout(VOICE_TOOL_DEADLINE, async {
+        loop {
+            if let Some(done) = rx.borrow_and_update().clone() {
+                return done;
+            }
+            if rx.changed().await.is_err() {
+                return String::new();
+            }
+        }
+    })
+    .await;
+
+    let response = match waited {
+        Ok(body) if !body.is_empty() => {
+            tracing::info!(ms = started.elapsed().as_millis() as u64, "voice tool: answered");
+            serde_json::from_str::<serde_json::Value>(&body)
+                .unwrap_or_else(|_| json!({ "ok": true, "output": body }))
+        }
+        _ => {
+            // Not an error: the work is still running, and the model needs a
+            // sentence it can say out loud rather than a silence.
+            tracing::info!(
+                ms = started.elapsed().as_millis() as u64,
+                "voice tool: still running past the deadline, holding reply sent"
+            );
+            json!({
+                "ok": false,
+                "output": "Still working on that one — it is taking longer than usual.                            Tell the user you are still on it, and ask again in a moment."
+            })
+        }
+    };
+
+    Json(json!({ "id": call.id, "response": response })).into_response()
 }
 
 async fn runtime_chat(

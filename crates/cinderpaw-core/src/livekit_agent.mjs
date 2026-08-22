@@ -66,14 +66,28 @@ let nextCallId = 0;
 
 async function askRust(name, args) {
   if (!API_URL) return { ok: false, output: 'Cinderpaw is not reachable from here' };
-  const res = await fetch(`${API_URL}/runtime/voice/tool`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
-    body: JSON.stringify({ id: String(++nextCallId), name, args }),
-  });
-  if (!res.ok) return { ok: false, output: `Cinderpaw refused the request (${res.status})` };
-  const { response } = await res.json();
-  return response;
+  try {
+    const res = await fetch(`${API_URL}/runtime/voice/tool`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
+      body: JSON.stringify({ id: String(++nextCallId), name, args }),
+      // A backstop above Rust's own twenty-second budget, not a second policy.
+      // A realtime session BLOCKS on a tool call, so anything that can hang
+      // here — a dead API server, a socket that never answers — is a call that
+      // goes silent mid-sentence with no way back.
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) return { ok: false, output: `Cinderpaw refused the request (${res.status})` };
+    const { response } = await res.json();
+    return response;
+  } catch (e) {
+    // Spoken, not thrown. An exception here ends the turn with nothing said,
+    // which the person hears as the assistant simply stopping.
+    return {
+      ok: false,
+      output: `Could not reach Cinderpaw for that (${String(e?.message ?? e)}). Say so out loud.`,
+    };
+  }
 }
 
 /** Build the LiveKit tool set from what Rust declared. */
