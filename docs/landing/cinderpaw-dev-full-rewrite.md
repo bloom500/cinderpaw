@@ -57,7 +57,7 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 
 **Sub-headline (single line, medium size):**
 
-> A desktop AI that runs on your machine, uses your local models or your API keys, and gets better against the work you actually care about — not a company's engagement metric.
+> A desktop AI that runs on your machine, uses your local models or your API keys, and gets judged by completed work — not by how often it pulls you back in.
 
 **Primary CTA button (big, orange, single call):**
 
