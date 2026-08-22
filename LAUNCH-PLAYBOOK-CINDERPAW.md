@@ -859,13 +859,13 @@ The landing page follows the canonical copy in `docs/landing/cinderpaw-dev-full-
 ### **Hero section**
 
 ```html
-<h1>Their business model rewards another prompt.<br />
-Cinderpaw is built to finish the job.</h1>
+<h1>AI that gets smarter.<br />
+Not clingier.</h1>
 
 <p class="subtitle">
-  A desktop AI that runs on your machine, uses your local models or your
-  API keys, and gets judged by completed work — not by how often it pulls
-  you back in.
+  A local-first AI workspace with your models, your memory, and a
+  self-improving agent judged by completed work — not by how often it
+  pulls you back in.
 </p>
 
 <div class="cta">

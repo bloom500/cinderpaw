@@ -740,7 +740,7 @@ Release notes and the occasional story about what Cubby got up to. No spam.
 <title>Cinderpaw — AI that gets smarter, not clingier</title>
 <meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Shared Projects are in research." />
 <meta property="og:title" content="Cinderpaw — AI that gets smarter, not clingier" />
-<meta property="og:description" content="Their business model rewards another prompt. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
+<meta property="og:description" content="AI that gets smarter, not clingier. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@cinderpaw_ai" />

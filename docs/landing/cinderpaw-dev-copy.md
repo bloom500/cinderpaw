@@ -346,7 +346,7 @@ Standard footer with organized links:
 <title>Cinderpaw — AI that gets smarter, not clingier</title>
 <meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Shared Projects are in research." />
 <meta property="og:title" content="Cinderpaw — AI that gets smarter, not clingier" />
-<meta property="og:description" content="Their business model rewards another prompt. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
+<meta property="og:description" content="AI that gets smarter, not clingier. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@cinderpaw_ai" />
@@ -413,7 +413,7 @@ Standard footer with organized links:
 
 Once launch traffic hits and you have analytics:
 
-1. **A/B test headline:** current is „Their business model rewards another prompt. Cinderpaw is built to finish the job." vs alternative „Your AI. Your machine. Your rules." — see which converts better on Download.
+1. **A/B test headline:** current is „AI that gets smarter. Not clingier." vs alternative „Your AI. Your machine. Your rules." — see which converts better on Download.
 2. **Move waitlist form higher** if downloads convert but waitlist doesn't. Section 9 → Section 3.
 3. **Add „What Cinderpaw isn't" section** if support questions cluster around expectations mismatches („isn't it Ollama?", „isn't it a Claude wrapper?").
 4. **Video testimonials** replace text quotes if any user creates a good demo video.
