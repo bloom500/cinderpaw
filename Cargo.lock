@@ -1014,6 +1014,7 @@ dependencies = [
  "getrandom 0.2.17",
  "git2",
  "hkdf",
+ "hmac",
  "json5",
  "keyring",
  "llama-cpp-2",

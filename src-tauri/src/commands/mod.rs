@@ -11,6 +11,7 @@ pub mod conversations;
 pub mod cinderpaw;
 pub mod files;
 pub mod live;
+pub mod livekit;
 pub mod models;
 pub mod projects;
 pub mod settings;
@@ -25,6 +26,7 @@ pub(crate) use conversations::*;
 pub(crate) use cinderpaw::*;
 pub(crate) use files::*;
 pub(crate) use live::*;
+pub(crate) use livekit::*;
 pub(crate) use models::*;
 pub(crate) use projects::*;
 pub(crate) use settings::*;
@@ -79,7 +81,7 @@ mod command_count_test {
     // + connector_pair_poll + connector_refresh_expired. Phase 3: an account
     // is a thing with a status and a lifetime, so listing, pairing, polling
     // and renewing are four different questions rather than one flag.
-    const EXPECTED_COMMAND_COUNT: usize = 154;
+    const EXPECTED_COMMAND_COUNT: usize = 156;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

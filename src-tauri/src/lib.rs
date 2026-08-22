@@ -94,6 +94,13 @@ pub struct AppState {
     /// up means and why there is no separate "is a call running" flag to get out
     /// of step with reality.
     pub live_call: crate::commands::live::LiveCallSlot,
+    /// The self-hosted LiveKit call in progress, if any.
+    ///
+    /// Holding the session IS the call, the same way `live_call` holds a
+    /// sender: dropping it kills the server and the agent it started. That is
+    /// why there is no separate "running" flag — a flag can disagree with
+    /// reality, and the reality here is two child processes.
+    pub livekit_call: Arc<Mutex<Option<cinderpaw_core::livekit::Session>>>,
 }
 
 /// One stop flag per streaming session.
@@ -330,6 +337,7 @@ pub fn run() {
         system_info_cache,
         feral_model_config: Arc::new(Mutex::new(None)),
         live_call: Arc::new(Mutex::new(None)),
+        livekit_call: Arc::new(Mutex::new(None)),
     };
 
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -379,6 +387,8 @@ pub fn run() {
             send_live_text,
             live_voices,
             end_live_call,
+            start_livekit_selftest,
+            end_livekit_selftest,
             load_projects,
             save_project,
             delete_project,

@@ -87,6 +87,38 @@ fn on_path(name: &str) -> bool {
     matches!(cmd.status(), Ok(s) if s.success())
 }
 
+/// Locate a Node runtime, or say there is none.
+///
+/// Node rather than bun, and that is measured, not a preference: the LiveKit
+/// agent SDK forks a supervised child process per job, and under bun that fork
+/// dies with `process exited before initializing` while the worker itself
+/// registers happily. See `docs/voice-livekit.md`.
+///
+/// PATH is tried first, then the handful of places an installer actually puts
+/// it. The absolute paths are not redundancy for its own sake: a GUI app on
+/// macOS does not inherit the login shell's PATH, so the machine where a
+/// developer just ran `node --version` in a terminal is precisely the machine
+/// where PATH-only lookup fails and the report reads "Node is not installed".
+pub fn find_node() -> Option<PathBuf> {
+    if on_path("node") {
+        // Bare name: let the OS resolve it, the same way every child process
+        // spawned from this app already does.
+        return Some(PathBuf::from("node"));
+    }
+    let candidates: &[&str] = if cfg!(windows) {
+        // Forward slashes: Windows accepts them in paths, and they survive
+        // every layer of tooling that eats a backslash on the way here.
+        &["C:/Program Files/nodejs/node.exe", "C:/Program Files (x86)/nodejs/node.exe"]
+    } else {
+        &[
+            "/opt/homebrew/bin/node", // Apple silicon homebrew
+            "/usr/local/bin/node",    // Intel homebrew, and most installers
+            "/usr/bin/node",
+        ]
+    };
+    candidates.iter().map(PathBuf::from).find(|p| p.exists())
+}
+
 /// Pinned MinGit (portable git for Windows). Version bumps are a one-line
 /// change; "latest" would require GitHub API JSON + rate limits.
 #[cfg(windows)]

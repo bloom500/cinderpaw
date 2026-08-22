@@ -78,6 +78,9 @@ dirs = "5"
 # here uses the same algorithm but a separate chain so a tamper on one side
 # cannot mask a tamper on the other.
 sha2 = "0.10"
+# One HMAC-SHA256 signature, for the LiveKit access token. Same authors as
+# sha2 above; the alternative was a whole JWT crate for nine lines.
+hmac = "0.12"
 # git2 (libgit2 bindings) for the RSI git substrate at ~/.cinderpaw/rsi/.git/.
 # Vendored so we don't depend on a system libgit2 install — the spec requires
 # "fără dependență de git instalat pe sistem". The C build is heavy; only the

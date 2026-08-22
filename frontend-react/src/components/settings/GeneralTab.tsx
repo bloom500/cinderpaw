@@ -1,3 +1,4 @@
+import { LiveKitSelfTest } from './LiveKitSelfTest';
 import { useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
@@ -147,6 +148,15 @@ export function GeneralTab() {
           <option value="small">Small (~466 MB, better accuracy)</option>
           <option value="base">Base (~142 MB, lighter)</option>
         </select>
+      </div>
+
+      {/* Voice call self-test — next to the transcription model, because both
+          answer "does speech work on this machine" and a person looking for one
+          is looking for the other. */}
+      <div className={rowCls}>
+        <div className="min-w-0 flex-1">
+          <LiveKitSelfTest />
+        </div>
       </div>
 
       {/* Data folder */}

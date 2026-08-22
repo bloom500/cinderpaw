@@ -23,6 +23,7 @@ pub mod gpu_detect;
 pub mod host;
 pub mod inference;
 pub mod live;
+pub mod livekit;
 pub mod migrate;
 pub mod migrate_home;
 pub mod models;

@@ -900,6 +900,16 @@ const raw = {
   liveVoices:               () => invoke<string[]>('live_voices'),
   // Idempotent: hanging up twice is not an error.
   endLiveCall:              () => invoke<void>('end_live_call'),
+
+  // The self-hosted LiveKit call. Unlike every other engine here, no audio
+  // crosses this boundary: Rust starts a server on 127.0.0.1 and returns the
+  // credentials, and the webview then speaks WebRTC to it directly.
+  //
+  // Rejects with `livekit-no-node` when no Node runtime is installed — a code
+  // rather than a sentence, because the answer needs a link the UI can put in
+  // the user's language.
+  startLivekitSelftest:     () => invoke<{ url: string; token: string; room: string }>('start_livekit_selftest'),
+  endLivekitSelftest:       () => invoke<void>('end_livekit_selftest'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `cinderpaw://embedding-download-*`.
