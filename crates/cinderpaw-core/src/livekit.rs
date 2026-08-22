@@ -19,6 +19,8 @@ use std::process::Stdio;
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+use std::sync::Arc;
+
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
@@ -27,14 +29,57 @@ use tokio::process::{Child, Command};
 /// handshake, and a silently newer server is exactly how that gets un-learned.
 pub const SERVER_VERSION: &str = "1.13.5";
 
-/// Loopback ports. High and unusual on purpose — 7880 is LiveKit's documented
-/// default, so it is the one port a person who already self-hosts LiveKit will
-/// have taken, and colliding with their real server is a rude way to fail.
-const HTTP_PORT: u16 = 7885;
-const RTC_TCP: u16 = 7886;
-const RTC_UDP: (u16, u16) = (7896, 7906);
+/// Ports are chosen per call, from whatever the OS says is free.
+///
+/// They used to be fixed, and a fixed port is wrong here in a way that took two
+/// wrong diagnoses to see. If anything else already holds it — LiveKit's own
+/// default install, or an orphaned server from an app that was killed rather
+/// than closed — then our new server fails to bind and exits, while the HTTP
+/// probe that asks "is it up?" gets a cheerful answer from the STRANGER still
+/// listening there. Every credential then mismatches, and the symptom is a
+/// worker failing to authenticate against a server we believe we started.
+///
+/// A port nobody else is on cannot be impersonated.
+struct Ports {
+    http: u16,
+    rtc_tcp: u16,
+    rtc_udp: (u16, u16),
+}
 
-const ROOM: &str = "cinderpaw";
+/// Ask the OS for a free TCP port by binding to 0 and letting go.
+///
+/// There is a window between letting go and the server binding it, and nothing
+/// can close that window without the server accepting a socket from us. It is
+/// small, it fails loudly (the server exits, which `start` already checks for),
+/// and it is a far better failure than the silent one this replaces.
+fn free_port() -> Result<u16, String> {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.local_addr().map(|a| a.port()))
+        .map_err(|e| format!("no free port for the voice server: {e}"))
+}
+
+fn pick_ports() -> Result<Ports, String> {
+    let http = free_port()?;
+    let rtc_tcp = free_port()?;
+    // The media range is derived rather than probed: LiveKit wants a
+    // contiguous span, and asking the OS for eleven adjacent free ports is a
+    // bigger race than the one above rather than a smaller one. High offset to
+    // stay clear of both chosen ports.
+    let base = 40_000 + (http % 20_000);
+    Ok(Ports { http, rtc_tcp, rtc_udp: (base, base + 10) })
+}
+
+/// A room name nobody has used before, for every call.
+///
+/// Not a constant, and the reason is the whole reason warm calls were flaky: a
+/// worker with no agent name is dispatched when a room is CREATED, and LiveKit
+/// keeps an empty room alive for minutes after the last person leaves. Calling
+/// again inside that window rejoined a room that already existed, so no
+/// dispatch fired and nobody was on the other end — while everything else
+/// reported success. A fresh name means every call is a creation.
+fn new_room() -> String {
+    format!("cinderpaw-{}", &random_secret()[..12])
+}
 
 /// Kept identical to the engine this replaces (`commands/live.rs`), so the
 /// migration changes the machinery and not the voice a person already knows.
@@ -231,13 +276,13 @@ pub fn mint_token(key: &str, secret: &str, identity: &str, room: &str, ttl_secs:
 /// What looks right and is not: `rtc.interfaces.includes: [loopback]`. It reads
 /// like the correct way to say "local only" and it breaks ICE outright. Narrow
 /// the ADVERTISED address, never the enumerated interfaces.
-fn config_yaml(key: &str, secret: &str) -> String {
+fn config_yaml(key: &str, secret: &str, ports: &Ports) -> String {
     format!(
-        "port: {HTTP_PORT}
+        "port: {}
 bind_addresses:
   - 127.0.0.1
 rtc:
-  tcp_port: {RTC_TCP}
+  tcp_port: {}
   port_range_start: {}
   port_range_end: {}
   use_external_ip: false
@@ -247,7 +292,7 @@ keys:
 logging:
   level: warn
 ",
-        RTC_UDP.0, RTC_UDP.1
+        ports.http, ports.rtc_tcp, ports.rtc_udp.0, ports.rtc_udp.1
     )
 }
 
@@ -280,6 +325,7 @@ impl Session {
     /// A fresh token rather than the old one: tokens expire, and handing back
     /// a stale one turns a warm start into a puzzling refusal an hour later.
     pub fn rejoin(&mut self, identity: &str) -> String {
+        self.room = new_room();
         self.token = mint_token(&self.key, &self.secret, identity, &self.room, 60 * 60);
         self.token.clone()
     }
@@ -377,6 +423,11 @@ pub async fn start(
     // returned, because these arrive for as long as the call lasts and the
     // caller is a Tauri command that returned long ago.
     on_event: impl Fn(serde_json::Value) + Send + 'static,
+    // The host's runtime, which is what makes the one tool work: `ask_cinder`
+    // is a door to the local agent, and only a host that owns a sidecar can
+    // open it. `None` is honest rather than fatal — the call still happens, the
+    // model is simply told the door is shut.
+    runtime: Option<Arc<crate::runtime::RuntimeState>>,
 ) -> Result<Session, String> {
     let node = crate::toolchain::find_node().ok_or_else(|| "livekit-no-node".to_string())?;
 
@@ -389,8 +440,10 @@ pub async fn start(
     let secret = random_secret();
     let root = dir();
     std::fs::create_dir_all(&root).map_err(|e| format!("cannot create {}: {e}", root.display()))?;
+    let ports = pick_ports()?;
+    let room = new_room();
     let cfg = root.join("livekit.yaml");
-    std::fs::write(&cfg, config_yaml(key, &secret))
+    std::fs::write(&cfg, config_yaml(key, &secret, &ports))
         .map_err(|e| format!("cannot write the LiveKit config: {e}"))?;
 
     let mut server = Command::new(&server_bin)
@@ -406,7 +459,7 @@ pub async fn start(
     // immediately — a taken port is the usual reason — leaves a live `Child`
     // for a moment, and treating that as success moves the failure to a
     // confusing place three steps later.
-    let http = format!("http://127.0.0.1:{HTTP_PORT}");
+    let http = format!("http://127.0.0.1:{}", ports.http);
     let mut up = false;
     for _ in 0..60 {
         if reqwest::get(&http).await.is_ok() {
@@ -421,7 +474,7 @@ pub async fn start(
             }
             return Err(format!(
                 "the LiveKit server stopped straight away ({status}). {}",
-                if why.trim().is_empty() { "Port 7885 may already be in use." } else { first_real_line(&why) }
+                if why.trim().is_empty() { "It stopped without saying why." } else { first_real_line(&why) }
             ));
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -442,17 +495,43 @@ pub async fn start(
     cmd.arg(&script)
         .arg("dev")
         .current_dir(script.parent().unwrap_or(&root))
-        .env("LIVEKIT_URL", format!("ws://127.0.0.1:{HTTP_PORT}"))
+        .env("LIVEKIT_URL", format!("ws://127.0.0.1:{}", ports.http))
         .env("LIVEKIT_API_KEY", key)
         .env("LIVEKIT_API_SECRET", &secret)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     if let Some(k) = &google_key {
+        let brief = instructions.unwrap_or_default();
+        // Logged as a LENGTH, never as content: this is SOUL.md, and a persona
+        // in a log file is a persona in every bug report. Zero here is the
+        // difference between Cinderpaw and a stock Google assistant, and it is
+        // otherwise only audible — which is a terrible place to learn it.
+        tracing::info!("livekit: briefing the assistant with {} chars of persona", brief.len());
+        if brief.is_empty() {
+            tracing::warn!(
+                "livekit: no persona — the sidecar has not sent SOUL.md yet, so this call                  will sound like a stock assistant"
+            );
+        }
         cmd.env("GOOGLE_API_KEY", k)
             .env("CINDERPAW_LIVE_MODEL", LIVE_MODEL)
             .env("CINDERPAW_LIVE_VOICE", LIVE_VOICE)
-            .env("CINDERPAW_LIVE_INSTRUCTIONS", instructions.unwrap_or_default());
+            .env("CINDERPAW_LIVE_INSTRUCTIONS", brief)
+            // Declared once, in Rust, and handed over as JSON. Restating the
+            // tool in JavaScript would be a second description of the same door
+            // — and that description is load-bearing prose that was rewritten
+            // after a measurement, not boilerplate.
+            .env(
+                "CINDERPAW_LIVE_TOOLS",
+                serde_json::to_string(&crate::live::bridge::declarations()).unwrap_or_else(|_| "[]".into()),
+            );
+        // Where to send a tool call, and the credential for it. The API server
+        // is already listening on loopback for the sidecar; this reuses it
+        // rather than opening a second door into the same room.
+        if let Some(rt) = &runtime {
+            cmd.env("CINDERPAW_API_URL", format!("http://127.0.0.1:{}", rt.settings.api_port))
+                .env("CINDERPAW_API_TOKEN", rt.local_api_token.as_ref());
+        }
     }
     let mut agent = cmd.spawn().map_err(|e| format!("cannot start the voice agent: {e}"))?;
 
@@ -488,6 +567,25 @@ pub async fn start(
         ));
     }
 
+    // The agent's stderr, for as long as it runs.
+    //
+    // It used to be read only on the startup-failure path, which meant a crash
+    // DURING a call — the job throwing after the worker had already registered
+    // — produced nothing anywhere: no error on screen, no line in the log, just
+    // a call where nobody ever joined. That is the worst shape a failure can
+    // have, and it cost a debugging round.
+    if let Some(err) = agent.stderr.take() {
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(err).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                tracing::warn!("livekit agent: {line}");
+            }
+        });
+    }
+
     // Draining is mandatory regardless of who is listening: let the agent's
     // stdout pipe fill and Node blocks on its next log line, which reads as a
     // call that works for a minute and then freezes.
@@ -509,9 +607,9 @@ pub async fn start(
         agent,
         key: key.to_string(),
         secret: secret.clone(),
-        url: format!("ws://127.0.0.1:{HTTP_PORT}"),
-        token: mint_token(key, &secret, identity, ROOM, 60 * 60),
-        room: ROOM.to_string(),
+        url: format!("ws://127.0.0.1:{}", ports.http),
+        token: mint_token(key, &secret, identity, &room, 60 * 60),
+        room,
         mode: mode.to_string(),
     })
 }
@@ -550,7 +648,7 @@ mod tests {
     /// the lines whose absence costs an afternoon.
     #[test]
     fn config_stays_on_loopback_and_advertises_it() {
-        let yaml = config_yaml("k", "s");
+        let yaml = config_yaml("k", "s", &pick_ports().expect("a free port"));
         assert!(yaml.contains("- 127.0.0.1"), "must not bind every interface");
         assert!(yaml.contains("node_ip: 127.0.0.1"), "without this ICE never completes");
         assert!(!yaml.contains("interfaces"), "narrowing interfaces breaks ICE");
@@ -572,6 +670,29 @@ Node.js v24.14.1
   
 "), "No reason was reported.");
         assert_eq!(first_real_line("just one line"), "just one line");
+    }
+
+    /// A room that already exists gets no agent: LiveKit dispatches a nameless
+    /// worker when a room is CREATED, and it keeps an empty room alive for
+    /// minutes. Two calls sharing a name is therefore a call with nobody on the
+    /// other end, reported as success.
+    #[test]
+    fn every_call_gets_its_own_room() {
+        assert_ne!(new_room(), new_room());
+        assert!(new_room().starts_with("cinderpaw-"));
+    }
+
+    /// A fixed port let an orphaned server from a previous run answer the
+    /// "are you up?" probe, so the worker then failed to authenticate against a
+    /// server we believed we had started. Two ports that are never the same
+    /// cannot be confused for each other.
+    #[test]
+    fn every_call_picks_its_own_ports() {
+        let a = pick_ports().expect("a free port");
+        let b = pick_ports().expect("a free port");
+        assert_ne!(a.http, b.http);
+        assert_ne!(a.http, a.rtc_tcp, "signalling and media must not collide");
+        assert!(a.rtc_udp.1 > a.rtc_udp.0, "the media range must be a range");
     }
 
     /// Two calls must not share a secret, or a token from a call that ended

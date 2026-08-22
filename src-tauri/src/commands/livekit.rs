@@ -106,6 +106,9 @@ pub(crate) async fn start_livekit_selftest(
                 tracing::warn!("livekit: could not forward an agent event ({e})");
             }
         },
+        // The runtime is what makes `ask_cinder` work: it is a door to the
+        // local agent, and only a host that owns a sidecar can open it.
+        Some(state.runtime.clone()),
     )
     .await?;
 

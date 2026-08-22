@@ -33,6 +33,7 @@ import {
   TrackPublishOptions,
   TrackSource,
 } from '@livekit/rtc-node';
+import { llm } from '@livekit/agents';
 import { fileURLToPath } from 'node:url';
 
 const RATE = 48000;
@@ -43,6 +44,55 @@ const API_KEY = process.env.GOOGLE_API_KEY ?? '';
 const MODEL = process.env.CINDERPAW_LIVE_MODEL || 'gemini-2.5-flash-native-audio-latest';
 const VOICE = process.env.CINDERPAW_LIVE_VOICE || 'Kore';
 const INSTRUCTIONS = process.env.CINDERPAW_LIVE_INSTRUCTIONS || '';
+/** Declared by Rust, not here. See `live::bridge::declarations`. */
+const TOOL_DECLARATIONS = JSON.parse(process.env.CINDERPAW_LIVE_TOOLS || '[]');
+
+/**
+ * Tool calls, answered over the app's own loopback API.
+ *
+ * NOT over the pipe to the parent, which is where this started and where it
+ * failed: the Agents SDK forks a supervised child process per call, this file
+ * is loaded again inside it, and that child does not own the worker's stdin.
+ * Reading stdin there took over the channel the runner uses to start, so every
+ * job died with `runner initialization timed out` and the room stayed empty.
+ *
+ * An HTTP call works from any process, forked or not. It reaches the same agent
+ * the bearer token already reaches through `/runtime/chat`, so it grants
+ * nothing new.
+ */
+const API_URL = process.env.CINDERPAW_API_URL || '';
+const API_TOKEN = process.env.CINDERPAW_API_TOKEN || '';
+let nextCallId = 0;
+
+async function askRust(name, args) {
+  if (!API_URL) return { ok: false, output: 'Cinderpaw is not reachable from here' };
+  const res = await fetch(`${API_URL}/runtime/voice/tool`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
+    body: JSON.stringify({ id: String(++nextCallId), name, args }),
+  });
+  if (!res.ok) return { ok: false, output: `Cinderpaw refused the request (${res.status})` };
+  const { response } = await res.json();
+  return response;
+}
+
+/** Build the LiveKit tool set from what Rust declared. */
+function toolsFromDeclarations() {
+  const out = {};
+  for (const decl of TOOL_DECLARATIONS) {
+    out[decl.name] = llm.tool({
+      description: decl.description,
+      // The JSON Schema Rust already wrote. Restating it as a zod schema here
+      // would be a second definition of the same contract, free to drift.
+      parameters: decl.parameters,
+      // The agent's turn takes around twenty-five seconds, which is why the
+      // declaration tells the model to keep talking while it waits. Nothing
+      // here needs a timeout: a call that ends takes the process with it.
+      execute: async (args) => askRust(decl.name, args),
+    });
+  }
+  return out;
+}
 
 /**
  * Whatever it hears, straight back out.
@@ -101,6 +151,12 @@ async function assistant(ctx) {
       // stupidity. Also what a call needs to leave behind a readable trace.
       inputAudioTranscription: {},
       outputAudioTranscription: {},
+
+      // Also given to the model directly. `AgentSession` passes the Agent's
+      // instructions down, but this is SOUL.md — the difference between
+      // Cinderpaw and a stock assistant — and it is not the thing to leave
+      // depending on one path being wired the way the docs imply.
+      instructions: INSTRUCTIONS,
     }),
   });
 
@@ -136,11 +192,13 @@ async function assistant(ctx) {
   session.on(AgentSessionEventTypes.Close, () => emit({ kind: 'closed' }));
 
   await session.start({
-    agent: new voice.Agent({ instructions: INSTRUCTIONS }),
+    agent: new voice.Agent({ instructions: INSTRUCTIONS, tools: toolsFromDeclarations() }),
     room: ctx.room,
   });
 
-  console.log('CINDERPAW_AGENT_READY mode=assistant');
+  console.log(
+    `CINDERPAW_AGENT_READY mode=assistant persona=${INSTRUCTIONS.length} tools=${TOOL_DECLARATIONS.length}`,
+  );
 
   // Speaking first is not decoration. A person who has just pressed a button
   // and hears nothing cannot tell a working call from a broken one, and the

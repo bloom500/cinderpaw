@@ -88,6 +88,13 @@ pub fn router(state: ApiState) -> Router {
             get(runtime_connectors_list).post(runtime_connectors_save),
         )
         .route("/runtime/connectors/reload", post(runtime_connectors_reload))
+        // The one tool a voice call can reach. It lives here rather than on a
+        // pipe to the agent process because the LiveKit SDK forks a supervised
+        // child per call, and that child does not have the worker's stdin —
+        // taking it over is what made the runner time out and the call fail
+        // with nobody in the room. A loopback route with the bearer token the
+        // API already requires works from any process, including a forked one.
+        .route("/runtime/voice/tool", post(runtime_voice_tool))
         .route("/runtime/shutdown", post(runtime_shutdown))
         .route("/runtime/status", get(runtime_status))
         .route("/runtime/models", get(runtime_models))
@@ -761,6 +768,21 @@ const CHAT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12
 /// `chunk`/`done` events whose `id` matches ours. Same session, same memory,
 /// same LoRA, same tools as the desktop and the connectors — this is just
 /// another face on the one brain.
+/// One tool call from a voice session, answered by the local agent.
+///
+/// This grants no capability the token did not already grant — `/runtime/chat`
+/// reaches the same agent with the same tools. What it adds is the shape the
+/// realtime model needs: a single request, a single answer, and a name for the
+/// door (`ask_cinder`) rather than a chat turn.
+async fn runtime_voice_tool(
+    State(state): State<ApiState>,
+    Json(call): Json<crate::live::FunctionCall>,
+) -> Response {
+    let session = format!("voice-{}", call.id);
+    let answered = crate::live::bridge::answer(&call, Some(&state.runtime), &session).await;
+    Json(json!({ "id": answered.id, "response": answered.response })).into_response()
+}
+
 async fn runtime_chat(
     State(state): State<ApiState>,
     Json(req): Json<RuntimeChatReq>,
