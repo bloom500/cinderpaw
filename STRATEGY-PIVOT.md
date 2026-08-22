@@ -169,7 +169,7 @@ Au fost scoase din faza curentă: pricing tiers, margin math, growth math financ
 **Actual:** „Your local-first AI workspace. No telemetry. No middleman."
 
 **Nou (pentru landing):**
-> **AI that gets smarter. Not clingier.**
+> **AI that works on itself. Not on you.**
 
 **Variantă scurtă:**
 > **Own the runtime. See how it changes.**
@@ -324,7 +324,7 @@ Video Species | Documenting AGI (179k+ views în 6 zile, publicat 2026-08-15) �
 
 **Nu:** „We're safer / more ethical / better values than Anthropic."
 
-**Da:** „AI that gets smarter, not clingier. We don't host solo inference, so there is no Cinderpaw usage meter to optimise for retention. Different incentives, different outcomes — verifiable in the source code."
+**Da:** „AI that works on itself, not on you. We don't host solo inference, so there is no Cinderpaw usage meter to optimise for retention. Different incentives, different outcomes — verifiable in the source code."
 
 Punct-cheie: **atacăm structura economică, NU companiile sau oamenii.** Anthropic engineers might personally hate retention optimization — nu contează, revenue-ul lor depinde de asta. Cinderpaw structural nu poate face același lucru.
 
@@ -356,7 +356,7 @@ The canonical landing copy lives in `docs/landing/cinderpaw-dev-full-rewrite.md`
 - BSL 1.1 is described as **source-available**.
 
 **Canonical hero:**
-> AI that gets smarter. Not clingier.
+> AI that works on itself. Not on you.
 
 ### Tactică de amplificare (D+3 onwards)
 

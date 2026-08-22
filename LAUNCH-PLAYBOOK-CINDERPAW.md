@@ -859,13 +859,12 @@ The landing page follows the canonical copy in `docs/landing/cinderpaw-dev-full-
 ### **Hero section**
 
 ```html
-<h1>AI that gets smarter.<br />
-Not clingier.</h1>
+<h1>AI that works on itself.<br />
+Not on you.</h1>
 
 <p class="subtitle">
-  A local-first AI workspace with your models, your memory, and a
-  self-improving agent judged by completed work — not by how often it
-  pulls you back in.
+  A local-first AI workspace with your models, your memory, and an
+  agent that improves against your work — not your attention.
 </p>
 
 <div class="cta">

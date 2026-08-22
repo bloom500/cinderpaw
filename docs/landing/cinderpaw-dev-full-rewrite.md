@@ -51,13 +51,13 @@ OpenClaw has 346k stars, celebrity endorsements (Nadella, Altman, Karpathy, Musk
 
 **Headline (h1, main event):**
 
-> AI that gets smarter.
+> AI that works on itself.
 >
-> Not clingier.
+> Not on you.
 
 **Sub-headline (single line, medium size):**
 
-> A local-first AI workspace with your models, your memory, and a self-improving agent that gets judged by completed work — not by how often it pulls you back in.
+> A local-first AI workspace with your models, your memory, and an agent that improves against your work — not your attention.
 
 **Primary CTA button (big, orange, single call):**
 
@@ -737,10 +737,10 @@ Release notes and the occasional story about what Cubby got up to. No spam.
 ## META / SEO
 
 ```html
-<title>Cinderpaw — AI that gets smarter, not clingier</title>
+<title>Cinderpaw — AI that works on itself, not on you</title>
 <meta name="description" content="A source-available desktop AI that runs on your machine. Use local models or your own API keys, keep memory on disk, and inspect how agents evolve. Shared Projects are in research." />
-<meta property="og:title" content="Cinderpaw — AI that gets smarter, not clingier" />
-<meta property="og:description" content="AI that gets smarter, not clingier. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
+<meta property="og:title" content="Cinderpaw — AI that works on itself, not on you" />
+<meta property="og:description" content="AI that works on itself, not on you. Cinderpaw runs locally, keeps your memory yours, and makes agent evolution inspectable. Shared Projects are in research." />
 <meta property="og:image" content="https://cinderpaw.dev/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@cinderpaw_ai" />
