@@ -104,17 +104,17 @@ if (import.meta.main) {
           // for the canonical command path.
           console.error(
             "feral-agent setup has moved.\n" +
-              "Run \`feral setup\` instead (the Rust CLI launches the same wizard).\n" +
+              "Run \`cinderpaw setup\` instead (the Rust CLI launches the same wizard).\n" +
               "Docs: docs/superpowers/specs/2026-07-03-sp0-unify-feral-cli-design.md",
           );
           process.exit(2);
           break;
         }
         case "models":
-          console.log("Models: (not yet implemented — see feral models in S5.4)");
+          console.log("Models: (not yet implemented — see cinderpaw models in S5.4)");
           break;
         case "providers":
-          console.log("Providers: (not yet implemented — see feral providers in S5.4)");
+          console.log("Providers: (not yet implemented — see cinderpaw providers in S5.4)");
           break;
         case "brain":
           console.log("Brain: (not yet implemented — see feral brain in S5.4)");

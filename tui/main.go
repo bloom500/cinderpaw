@@ -47,7 +47,7 @@ func main() {
 		proc, err := api.StartGateway(port)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "feral: could not start gateway (%v)\n", err)
-			fmt.Fprintf(os.Stderr, "       start it manually: feral gateway start\n")
+			fmt.Fprintf(os.Stderr, "       start it manually: cinderpaw gateway start\n")
 			os.Exit(1)
 		}
 		defer proc.Release()
@@ -112,7 +112,7 @@ func runTUI(baseURL, token string, forceClassic bool) {
 		fmt.Fprintf(os.Stderr, "feral: error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stderr, "session saved · resume with: feral chat")
+	fmt.Fprintln(os.Stderr, "session saved · resume with: cinderpaw chat")
 }
 
 // runPlain runs the simplified stdout REPL for screen-reader / low-vision

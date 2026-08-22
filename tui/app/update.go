@@ -2732,7 +2732,7 @@ func (a *App) handleConnectors(args []string) tea.Cmd {
 					}
 					time.Sleep(time.Second)
 				}
-				return FlashMsg{Text: "whatsapp: no QR after 30s — check `feral logs`, then /connectors qr"}
+				return FlashMsg{Text: "whatsapp: no QR after 30s — check `cinderpaw logs`, then /connectors qr"}
 			}
 		}
 		// Parse key=value pairs from remaining args. A positional fallback

@@ -454,7 +454,7 @@ export class MetaEvolution {
   evolve(): MetaResultPayload {
     const pol = this.policy?.();
     if (pol?.frozen.l6) {
-      return { ok: false, reason: "frozen by governance (frozen.l6) — see feral governance status" };
+      return { ok: false, reason: "frozen by governance (frozen.l6) — see cinderpaw governance status" };
     }
     const { entries, excludedRows } = this.readWindowEx(this.state.deployedAt);
     // §9 row 4: with ≥ half the window unverified there is not enough
@@ -545,7 +545,7 @@ export class MetaEvolution {
    *  baseline champion. Errors when there is nothing pending. */
   rollback(): MetaResultPayload {
     if (this.policy?.().frozen.l6) {
-      return { ok: false, reason: "frozen by governance (frozen.l6) — see feral governance status" };
+      return { ok: false, reason: "frozen by governance (frozen.l6) — see cinderpaw governance status" };
     }
     if (!this.state.baseline) {
       return { ok: false, reason: "no pending candidate — nothing to roll back" };

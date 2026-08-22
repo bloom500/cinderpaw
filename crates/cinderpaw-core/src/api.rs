@@ -1978,7 +1978,7 @@ fn classify_keyring_error(e: &keyring::Error) -> (StatusCode, &'static str, Opti
             "keyring_unavailable",
             Some(
                 "Could not access the OS credential store. On a headless server, \
-                 run `feral setup --non-interactive --config=...` with \
+                 run `cinderpaw setup --non-interactive --config=...` with \
                  `api_key_source.kind: env` to source the key from an environment variable.",
             ),
         ),

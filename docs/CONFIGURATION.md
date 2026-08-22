@@ -240,8 +240,8 @@ they remain hand-maintained here and are still covered by
 | `FERAL_THOUGHTS_DAILY_CAP` | int | `3` |  | Hard cap on thoughts per user-day. |
 | `FERAL_THOUGHTS_MOOD_THRESHOLD` | string | `"0.5"` |  | Mood gate (float); thoughts fire only above this score. |
 | `FERAL_BRAIN` | bool | `false` |  | Force-enable Brain Stack; if brain.json is missing, loadBrainConfig throws (read via injected env in brain-config.ts). |
-| `FERAL_HOME` | path | `null` |  | Override the agent's profile dir (default ~/.feral/, resolved via homedir() when unset). |
-| `FERAL_DB` | path | `"data/feral.db"` |  | Override the SQLite DB path. ":memory:" is a sentinel and is not path-resolved. |
+| `FERAL_HOME` | path | `null` |  | Override the agent's profile dir (default ~/.cinderpaw/, resolved via homedir() when unset). |
+| `FERAL_DB` | path | `"data/cinderpaw.db"` |  | Override the SQLite DB path. ":memory:" is a sentinel and is not path-resolved. Falls back to a pre-rename data/feral.db when that is the file this install actually has. |
 | `FERAL_AGENT_BASE_PROMPT` | string | `null` |  | Universal operating manual injected into every model call; usually bundled. |
 | `FERAL_SUBAGENT_MAX_SUMMARY_CHARS` | int | `4000` |  | Cap on subagent summary length returned to parent (negative = unlimited). |
 | `FERAL_LORA_TRAINER_BIN` | path | `null` |  | Absolute path to the trainer binary. |
