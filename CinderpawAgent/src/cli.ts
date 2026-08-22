@@ -138,28 +138,33 @@ export function dispatch(args: ParsedArgs): DispatchResult {
 export const HELP_TEXT = `Cinderpaw — headless AI agent
 
 Usage:
-  feral                  Run the gateway daemon in the foreground.
-  feral gateway          Same, foreground. Ctrl+C to stop.
-  feral chat             Interactive terminal chat over the gateway.
-  feral setup            Set up Cinderpaw on this machine. (Headless / scripting:
-                         use 'feral setup --non-interactive --config=...'.)
-  feral models           List installed local models.
-  feral providers        List configured cloud providers.
-  feral brain            Show brain.json + the active routing policy.
-  feral help             This text.
-  feral version          Print version and exit.
+  cinderpaw              Run the gateway daemon in the foreground.
+  cinderpaw gateway      Same, foreground. Ctrl+C to stop.
+  cinderpaw chat         Interactive terminal chat over the gateway.
+  cinderpaw setup        Set up Cinderpaw on this machine. (Headless / scripting:
+                         use 'cinderpaw setup --non-interactive --config=...'.)
+  cinderpaw models       List installed local models.
+  cinderpaw providers    List configured cloud providers.
+  cinderpaw brain        Show brain.json + the active routing policy.
+  cinderpaw help         This text.
+  cinderpaw version      Print version and exit.
+
+  The command used to be called \`feral\`, and an install that predates the
+  rename still answers to it — the installer keeps that name as an alias. A
+  machine where only \`feral\` works is one that has not been reinstalled since.
 
 Environment:
-  FERAL_HOME             Feral state directory (default: ~/.feral).
-  FERAL_BRAIN=1          Force-enable Brain Stack using brain.json.
+  CINDERPAW_HOME         State directory (default: ~/.cinderpaw).
+                         FERAL_HOME is still read, for machines that set it.
+  CINDERPAW_BRAIN=1      Force-enable Brain Stack using brain.json.
   NO_COLOR               Disable ANSI colors in TUI output.
 
 First-time setup:
-  feral setup            launch the wizard (Rust CLI → Go/Bubble Tea TUI)
-  feral setup --non-interactive --config=setup.yaml
+  cinderpaw setup        launch the wizard (Rust CLI → Go/Bubble Tea TUI)
+  cinderpaw setup --non-interactive --config=setup.yaml
                          scripted setup for CI/enterprise; YAML schema in
                          docs/agents-memory/ once the Phase-3 slice lands.
-  feral chat             talk to Cinderpaw from the terminal
+  cinderpaw chat         talk to Cinderpaw from the terminal
 `;
 
 /** Pull out argv past the node + script entry — kept for tests. */

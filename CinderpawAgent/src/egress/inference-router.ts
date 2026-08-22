@@ -590,7 +590,7 @@ export class InferenceRouter {
               primaryErr,
             )}; fallback: ${String(fallbackErr)}. ` +
               `If you just added or changed a provider/key, the gateway is still ` +
-              `running with the old config — restart it: \`feral gateway restart\`.`,
+              `running with the old config — restart it: \`cinderpaw gateway restart\`.`,
           );
         }
       }

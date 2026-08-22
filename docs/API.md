@@ -56,6 +56,7 @@ the comment tags next to each `.route(` line.
 | GET  | `/runtime/connectors` | unstable | read | Redacted state (enabled, filled secret keys, allowlist, channels, mode) per persisted connector. |
 | POST | `/runtime/connectors` | unstable | govern | Upsert one connector's config, then pokes the sidecar to reload. Never echoes secret values back. |
 | POST | `/runtime/connectors/reload` | unstable | govern | Sidecar reloads the connector catalog from disk. |
+| POST | `/runtime/voice/tool` | unstable | govern | One tool call from a voice session (`{id, name, args}`), answered by the local agent. Bounded at 20s: past that it returns a holding answer and the work keeps running, so a realtime model — which blocks on a tool call — is never left silent. Grants nothing `/runtime/chat` does not. |
 | POST | `/runtime/shutdown` | unstable | govern | Fires the runtime's graceful-shutdown signal. |
 | GET  | `/runtime/status` | unstable | read | Live status snapshot. |
 | GET  | `/runtime/models` | unstable | read | Lists loaded/known models. |
@@ -197,6 +198,7 @@ GET /runtime/status
 POST /runtime/byok/save
 POST /runtime/chat
 POST /runtime/connectors/reload
+POST /runtime/voice/tool
 POST /runtime/model
 POST /runtime/models/install
 GET /runtime/setup/detect

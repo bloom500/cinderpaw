@@ -473,14 +473,14 @@ func (a *App) renderGuided() string {
 			line("")
 			if g.Skipped {
 				line(ui.MetaStyle.Render("To add AI later: set OPENAI_API_KEY or ANTHROPIC_API_KEY, download a"))
-				line(ui.MetaStyle.Render("local model in the desktop app, or run `feral setup`."))
+				line(ui.MetaStyle.Render("local model in the desktop app, or run `cinderpaw setup`."))
 			} else {
 				line(ui.OkMark.Render(ui.G.OK+" "+g.VerifiedLabel+" is ready") +
 					ui.MetaStyle.Render(" — AI check: "+g.VerifiedMsg))
 			}
 			line("")
 			line(ui.AccentStyle.Render("Next steps"))
-			line(ui.MetaStyle.Render("Add a connector:  /connectors add   (or `feral connectors set discord`)"))
+			line(ui.MetaStyle.Render("Add a connector:  /connectors add   (or `cinderpaw connectors set discord`)"))
 			line(ui.MetaStyle.Render("Desktop app:      launch Cinderpaw from the Start Menu"))
 			line(ui.MetaStyle.Render("Health check:     /doctor"))
 		}

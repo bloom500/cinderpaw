@@ -191,7 +191,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     promotion:
       "N/A — FMS is a pure retrieval store; there is no champion to promote. New tiers (Layer 4+) get added by configuration changes in `tree-builder.ts`, not by evolution.",
     rollback:
-      "The full leaf store is rebuildable from the source conversation transcripts via the migration runner (`runMigration`). Destructive operations are gated by explicit user invocation of `feral setup`, never by an autonomous agent.",
+      "The full leaf store is rebuildable from the source conversation transcripts via the migration runner (`runMigration`). Destructive operations are gated by explicit user invocation of `cinderpaw setup`, never by an autonomous agent.",
     inspect: ["self_describe", "self_memory", "recall"],
   },
   lora: {

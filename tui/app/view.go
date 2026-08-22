@@ -142,7 +142,7 @@ func (a *App) renderWelcomeContent() string {
 	}
 
 	var lines []string
-	lines = append(lines, ui.WelcomeTagline.Render(ui.G.Spark+" feral chat"))
+	lines = append(lines, ui.WelcomeTagline.Render(ui.G.Spark+" cinderpaw chat"))
 	if a.Cwd != "" {
 		lines = append(lines, ui.WelcomeValue.Render(a.Cwd))
 	}
