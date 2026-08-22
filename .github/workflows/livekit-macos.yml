@@ -27,7 +27,11 @@ jobs:
           # Built on the native runner per arch. Go cross-compiles, but any
           # cgo-linked dependency does not, and that failure shows up as a
           # broken binary rather than a broken build.
-          - os: macos-13      # Intel
+          # `macos-15-intel`, not `macos-13`: the macos-13 label is retired,
+          # and a job asking for it does not fail — it queues forever. The
+          # arm64 half of this matrix built in 1m44s while the Intel half sat
+          # unscheduled for 25 minutes, which is the whole tell.
+          - os: macos-15-intel
             arch: darwin_amd64
           - os: macos-latest  # Apple silicon
             arch: darwin_arm64
