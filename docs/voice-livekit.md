@@ -192,13 +192,15 @@ briefing as `commands/live.rs`, which is the engine this replaces. Echo remains
 for a machine with no key, labelled as an echo.
 
 Three things learned building it:
-
 - **STT and TTS never entered the picture, and that was the point.** A local
   pipeline was the first instinct — but `whisper` is not in the default feature
-  set (so local STT ships in no build), and the only wired cloud STT is Groq,
-  which needs a key this machine does not have. Gemini's realtime API replaces
-  the whole STT → LLM → TTS chain with one session, which is why it was chosen
-  originally and why it is still the right answer here.
+  set, so local STT ships in no build at all. The only wired cloud STT is Groq.
+  (An earlier version of this note said no Groq key was stored; that was wrong,
+  read off a partial dump of `byok.json` — `cinderpaw providers` lists one.) It
+  would not have changed the answer: Gemini's realtime API replaces the whole
+  STT → LLM → TTS chain with ONE session, which is why it was chosen originally,
+  and a three-vendor chain we assemble is the thing this migration exists to
+  stop maintaining.
 - **A worker with no `agentName` is dispatched automatically** into every room
   that opens. That deletes the dispatch client the spike needed. The
   consequence: the room does not exist until the webview joins, so Rust waits
