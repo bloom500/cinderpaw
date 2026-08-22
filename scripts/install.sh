@@ -2,7 +2,7 @@
 #
 # Feral universal installer — one command, OS auto-detected:
 #
-#   curl -fsSL https://raw.githubusercontent.com/bloom500/feral/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash
 #
 # What it picks per platform:
 #   Linux + display        → latest .deb / .rpm desktop app (apt/dnf)
@@ -19,7 +19,11 @@
 #
 set -euo pipefail
 
-REPO="bloom500/feral"
+# The canonical name, not the pre-rename one. GitHub redirects the old path,
+# but a redirect is only good until somebody registers the freed-up name — and
+# an installer that clones whatever now lives at the old address is an
+# installer that runs a stranger's code on a trusted machine.
+REPO="bloom500/cinderpaw"
 API="https://api.github.com/repos/${REPO}/releases/latest"
 
 say()  { printf '\033[1;32m[cinderpaw]\033[0m %s\n' "$*"; }
@@ -161,7 +165,41 @@ Run this once as root, then re-run the installer as this user:
   mkdir -p "$HOME/src"
   if [ -d "$src/.git" ]; then
     say "updating existing checkout…"
-    git -C "$src" pull --ff-only
+    # A machine that has been running the agent has a DIRTY checkout, and not by
+    # accident: code-RSI edits its own sources in place, so `agent-loop.ts` and
+    # friends are modified on exactly the installs that have been working
+    # longest. `git pull` refuses, prints git's own message about committing or
+    # stashing, and the update simply never happens again on that machine.
+    #
+    # So park the changes instead of demanding the user does. Stashed, never
+    # discarded: some of that diff is the agent's own work, and an installer
+    # that throws it away to save itself a step is an installer that eats what
+    # the product produced.
+    if [ -n "$(git -C "$src" status --porcelain)" ]; then
+      local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
+      say "local changes found — parking them in a stash before updating"
+      if git -C "$src" stash push --include-untracked -m "cinderpaw installer $stamp" >/dev/null; then
+        say "  restore later with: git -C $src stash list   (then: git -C $src stash pop)"
+      else
+        fail "could not stash local changes in $src — commit or move them, then re-run"
+      fi
+    fi
+    # An existing checkout still points at the pre-rename URL and only works
+    # through GitHub's redirect. Pin it to the canonical one, for the same
+    # reason REPO is pinned above.
+    local origin; origin="$(git -C "$src" remote get-url origin 2>/dev/null || true)"
+    case "$origin" in
+      *bloom500/feral*)
+        say "repointing origin to ${REPO} (the repo was renamed)"
+        git -C "$src" remote set-url origin "https://github.com/${REPO}"
+        ;;
+    esac
+    if ! git -C "$src" pull --ff-only; then
+      # Diverged, not merely behind: fast-forward is impossible and merging
+      # somebody's checkout from a shell script is how a repo gets mangled.
+      fail "$src has diverged from ${REPO} and cannot fast-forward.
+       Inspect it (git -C $src status), or move it aside and re-run to clone fresh."
+    fi
   else
     say "cloning ${REPO}…"
     git clone --depth 1 "https://github.com/${REPO}" "$src"

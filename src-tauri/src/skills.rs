@@ -3,11 +3,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::paths;
 
+// The canonical repo name, not the pre-rename one. GitHub redirects the old
+// path, but a redirect lasts only until somebody registers the freed-up name —
+// and this URL decides which capabilities the app offers to install and run.
+// Pointing it at an address a stranger can claim is the whole supply chain.
 const GITHUB_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/bloom500/feral/main/skills/manifest.json";
+    "https://raw.githubusercontent.com/bloom500/cinderpaw/main/skills/manifest.json";
 
 const COMMUNITY_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/bloom500/feral/main/skills/community-manifest.json";
+    "https://raw.githubusercontent.com/bloom500/cinderpaw/main/skills/community-manifest.json";
 
 const ALLOWED_CONTENT_HOSTS: &[&str] = &[
     "raw.githubusercontent.com",
@@ -804,7 +808,7 @@ Body")
     #[test]
     fn accepts_allowed_hosts() {
         assert!(validate_content_url(
-            "https://raw.githubusercontent.com/bloom500/feral/main/skills/manifest.json"
+            "https://raw.githubusercontent.com/bloom500/cinderpaw/main/skills/manifest.json"
         ).is_ok());
     }
 

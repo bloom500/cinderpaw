@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use crate::common::{api_port, palette, port_in_use, Palette};
 
 const ONE_LINER: &str =
-    "curl -fsSL https://raw.githubusercontent.com/bloom500/feral/main/scripts/install.sh | bash";
+    "curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash";
 
 /// How Cinderpaw got onto this machine.
 #[derive(Debug, PartialEq)]

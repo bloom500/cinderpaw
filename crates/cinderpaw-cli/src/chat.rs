@@ -45,7 +45,7 @@ pub fn run() -> ! {
         eprintln!("         • connect a provider:      cinderpaw setup");
         eprintln!("         • chat via Discord/Slack:  cinderpaw connectors set discord --secret TOKEN=… --enable");
         eprintln!("       Want the full interactive app? Install the desktop build:");
-        eprintln!("         https://github.com/bloom500/feral/releases/latest");
+        eprintln!("         https://github.com/bloom500/cinderpaw/releases/latest");
         std::process::exit(1);
     };
 
