@@ -24,6 +24,10 @@ pub struct LiveKitCall {
     pub url: String,
     pub token: String,
     pub room: String,
+    /// "assistant" when a Google key is stored and Gemini is on the far end,
+    /// "echo" when there is none. The UI must say which: a diagnostic that
+    /// presents itself as an assistant is worse than no assistant.
+    pub mode: String,
 }
 
 /// Start the local call and return once the far end is really in the room.
@@ -43,9 +47,25 @@ pub(crate) async fn start_livekit_selftest(
     let extra: Vec<std::path::PathBuf> =
         app.path().resource_dir().ok().into_iter().collect();
 
-    let session = cinderpaw_core::livekit::start(&extra, "you").await?;
-    let call =
-        LiveKitCall { url: session.url.clone(), token: session.token.clone(), room: session.room.clone() };
+    // The same briefing the engine being replaced sends, so the assistant on
+    // the far end is the same character with the same rules about speaking.
+    let brief = cinderpaw_core::live::Briefing {
+        current_task: None,
+        workspace: None,
+        context: None,
+    };
+    let session = cinderpaw_core::livekit::start(
+        &extra,
+        "you",
+        Some(cinderpaw_core::live::system_instruction(&brief)),
+    )
+    .await?;
+    let call = LiveKitCall {
+        url: session.url.clone(),
+        token: session.token.clone(),
+        room: session.room.clone(),
+        mode: session.mode.clone(),
+    };
 
     // Lock only after the await: a `parking_lot` guard held across one is both
     // a compile error and, if it ever compiled, a deadlock.

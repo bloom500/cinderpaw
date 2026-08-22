@@ -6,58 +6,122 @@
 // differs between `cargo tauri dev` and an installed .app, and no way for the
 // script and the Rust that spawns it to drift apart between releases.
 //
-// What it does today: echo. Whatever it hears, it sends straight back. That is
-// deliberately not an assistant — it is the smallest thing that proves the
-// whole pipe works inside the real app (server spawned, both ends joined, audio
-// travelling in BOTH directions) without an API key, a downloaded model, or a
-// vendor account. Nobody can be locked out of running it.
+// It registers as a worker with NO agent name, which is what makes LiveKit
+// dispatch it automatically to every room that opens. The alternative — a named
+// agent plus an explicit dispatch call — is the same behaviour with a REST
+// client in Rust to maintain.
 //
-// ponytail: echo, not a pipeline. The brain (STT -> LLM -> TTS, or a
-// speech-to-speech plugin) replaces the loop at the bottom and nothing else,
-// which is the point of proving the transport first.
+// Two modes, decided by whether a Google key reached us:
+//
+//   assistant — Gemini's realtime API hears the microphone directly and answers
+//               in audio. Turn detection, interruption and synthesis belong to
+//               the model, which is the entire reason for choosing it over an
+//               STT → LLM → TTS chain we assemble ourselves.
+//   echo      — no key: whatever it hears goes straight back. Not a fallback
+//               pretending to be an assistant, and it does not claim to be one.
+//               It exists so that a machine with nothing set up can still prove
+//               its microphone, its speakers and this whole pipe work.
+import { cli, defineAgent, voice, WorkerOptions } from '@livekit/agents';
+import * as google from '@livekit/agents-plugin-google';
 import {
   AudioFrame,
   AudioSource,
   AudioStream,
   LocalAudioTrack,
-  Room,
   RoomEvent,
   TrackKind,
   TrackPublishOptions,
   TrackSource,
 } from '@livekit/rtc-node';
+import { fileURLToPath } from 'node:url';
 
-const [url, token] = process.argv.slice(2);
 const RATE = 48000;
 const CHANNELS = 1;
 
-const room = new Room();
-await room.connect(url, token, { autoSubscribe: true, dynacast: false });
+/** No key ⇒ echo. Read once, so the mode cannot change mid-call. */
+const API_KEY = process.env.GOOGLE_API_KEY ?? '';
+const MODEL = process.env.CINDERPAW_LIVE_MODEL || 'gemini-2.5-flash-native-audio-latest';
+const VOICE = process.env.CINDERPAW_LIVE_VOICE || 'Kore';
+const INSTRUCTIONS = process.env.CINDERPAW_LIVE_INSTRUCTIONS || '';
 
-// Published before anyone speaks, not on first audio. A track that appears
-// mid-call has to renegotiate while the person is already talking, and the
-// first thing they say is the part that gets lost.
-const source = new AudioSource(RATE, CHANNELS);
-await room.localParticipant.publishTrack(
-  LocalAudioTrack.createAudioTrack('cinderpaw-voice', source),
-  new TrackPublishOptions({ source: TrackSource.SOURCE_MICROPHONE }),
-);
+/**
+ * Whatever it hears, straight back out.
+ *
+ * The track is published before anyone speaks rather than on first audio: a
+ * track that appears mid-call renegotiates while the person is already talking,
+ * and the first thing they say is the part that gets lost.
+ */
+async function echo(ctx) {
+  const source = new AudioSource(RATE, CHANNELS);
+  await ctx.room.localParticipant.publishTrack(
+    LocalAudioTrack.createAudioTrack('cinderpaw-voice', source),
+    new TrackPublishOptions({ source: TrackSource.SOURCE_MICROPHONE }),
+  );
+  console.log('CINDERPAW_AGENT_READY mode=echo');
 
-// Printed for Rust, which waits for this line before telling the UI the call is
-// up. Without it the webview joins a room where nothing is listening yet, and
-// the failure looks like "the first two seconds are always missing".
-console.log('CINDERPAW_AGENT_READY');
+  ctx.room.on(RoomEvent.TrackSubscribed, async (track) => {
+    if (track.kind !== TrackKind.KIND_AUDIO) return;
+    for await (const frame of new AudioStream(track, RATE, CHANNELS)) {
+      // AudioStream resamples to the rate we asked for, so the frame goes back
+      // out unmodified. If that ever stops being true, this is where the
+      // chipmunk voice comes from.
+      await source.captureFrame(
+        new AudioFrame(frame.data, RATE, CHANNELS, frame.data.length / CHANNELS),
+      );
+    }
+  });
+}
 
-room.on(RoomEvent.TrackSubscribed, async (track) => {
-  if (track.kind !== TrackKind.KIND_AUDIO) return;
-  for await (const frame of new AudioStream(track, RATE, CHANNELS)) {
-    // Resampled by AudioStream to the rate we asked for, so the frame can go
-    // back out unmodified. If that ever stops being true this is where the
-    // chipmunk voice comes from.
-    await source.captureFrame(
-      new AudioFrame(frame.data, RATE, CHANNELS, frame.data.length / CHANNELS),
-    );
-  }
+/**
+ * Gemini's realtime API, driven by the Agents session.
+ *
+ * `AgentSession` owns the microphone track, the playback track, barge-in and
+ * the end-of-turn model that loads locally at startup. None of that is ours any
+ * more, which was the point of the migration.
+ */
+async function assistant(ctx) {
+  const session = new voice.AgentSession({
+    llm: new google.beta.realtime.RealtimeModel({
+      apiKey: API_KEY,
+      model: MODEL,
+      // Pinned. Left unset the server picks per session, so the same assistant
+      // answers in a different voice tomorrow — the exact inconsistency that
+      // reads as unfinished software.
+      voice: VOICE,
+    }),
+  });
+
+  await session.start({
+    agent: new voice.Agent({ instructions: INSTRUCTIONS }),
+    room: ctx.room,
+  });
+
+  console.log('CINDERPAW_AGENT_READY mode=assistant');
+
+  // Speaking first is not decoration. A person who has just pressed a button
+  // and hears nothing cannot tell a working call from a broken one, and the
+  // usual response is to hang up during the pause before the first reply.
+  session.generateReply();
+}
+
+export default defineAgent({
+  entry: async (ctx) => {
+    await ctx.connect();
+    if (API_KEY) {
+      await assistant(ctx);
+    } else {
+      await echo(ctx);
+    }
+  },
 });
 
-room.on(RoomEvent.Disconnected, () => process.exit(0));
+cli.runApp(
+  new WorkerOptions({
+    agent: fileURLToPath(import.meta.url),
+    // No `agentName`: that is what makes LiveKit dispatch this worker into any
+    // room that opens, with no dispatch call from our side.
+    wsURL: process.env.LIVEKIT_URL,
+    apiKey: process.env.LIVEKIT_API_KEY,
+    apiSecret: process.env.LIVEKIT_API_SECRET,
+  }),
+);

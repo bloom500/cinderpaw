@@ -7,10 +7,11 @@
 //! and take all of it down again when the window closes. Everything below is
 //! that job.
 //!
-//! What is deliberately NOT here yet: speech recognition, a model, and speech
-//! synthesis. The agent this starts echoes what it hears. Proving the transport
-//! inside the real app is a separate problem from proving the brain, and doing
-//! them together means a broken call and two suspects.
+//! The far end is a Gemini realtime session when a Google key is stored, and a
+//! plain echo when there is none. That second mode is not a degraded assistant:
+//! it makes no claim to be one, and it exists so a machine with nothing set up
+//! can still answer "does a call work here at all" — which is also the first
+//! question when a real call later misbehaves.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -34,6 +35,11 @@ const RTC_TCP: u16 = 7886;
 const RTC_UDP: (u16, u16) = (7896, 7906);
 
 const ROOM: &str = "cinderpaw";
+
+/// Kept identical to the engine this replaces (`commands/live.rs`), so the
+/// migration changes the machinery and not the voice a person already knows.
+const LIVE_MODEL: &str = "gemini-2.5-flash-native-audio-latest";
+const LIVE_VOICE: &str = "Kore";
 
 /// Where a downloaded server and the agent's dependencies live.
 fn dir() -> PathBuf {
@@ -240,6 +246,9 @@ pub struct Session {
     pub url: String,
     pub token: String,
     pub room: String,
+    /// "assistant" or "echo". The UI has to say which, because the difference
+    /// is the whole difference between a product and a diagnostic.
+    pub mode: String,
 }
 
 impl Drop for Session {
@@ -269,7 +278,7 @@ async fn ensure_agent(node: &Path) -> Result<PathBuf, String> {
     std::fs::write(&script, include_str!("livekit_agent.mjs"))
         .map_err(|e| format!("cannot write the agent script: {e}"))?;
 
-    if root.join("node_modules").join("@livekit").join("rtc-node").exists() {
+    if root.join("node_modules").join("@livekit").join("agents-plugin-google").exists() {
         return Ok(script);
     }
     std::fs::write(
@@ -281,7 +290,14 @@ async fn ensure_agent(node: &Path) -> Result<PathBuf, String> {
     tracing::info!("livekit: installing the agent's dependencies (first run only)");
     let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
     let out = Command::new(npm)
-        .args(["install", "--no-audit", "--no-fund", "@livekit/rtc-node"])
+        .args([
+            "install",
+            "--no-audit",
+            "--no-fund",
+            "@livekit/agents",
+            "@livekit/agents-plugin-google",
+            "@livekit/rtc-node",
+        ])
         .current_dir(&root)
         .env("PATH", augmented_path(node))
         .output()
@@ -318,7 +334,11 @@ fn augmented_path(node: &Path) -> std::ffi::OsString {
 /// politeness: a webview that joins before the agent has published its track
 /// hears nothing for the first seconds, and the person says the first sentence
 /// twice.
-pub async fn start(extra_bin_dirs: &[PathBuf], identity: &str) -> Result<Session, String> {
+pub async fn start(
+    extra_bin_dirs: &[PathBuf],
+    identity: &str,
+    instructions: Option<String>,
+) -> Result<Session, String> {
     let node = crate::toolchain::find_node().ok_or_else(|| "livekit-no-node".to_string())?;
 
     let server_bin = match find_server(extra_bin_dirs) {
@@ -372,24 +392,41 @@ pub async fn start(extra_bin_dirs: &[PathBuf], identity: &str) -> Result<Session
     }
 
     let script = ensure_agent(&node).await?;
-    let agent_token = mint_token(key, &secret, "cinderpaw-agent", ROOM, 60 * 60);
-    let mut agent = Command::new(&node)
-        .arg(&script)
-        .arg(format!("ws://127.0.0.1:{HTTP_PORT}"))
-        .arg(&agent_token)
+
+    // The key never touches disk or a command line: it is handed to the child
+    // in its environment, which is not visible in the process list the way
+    // arguments are. Absent, the agent runs as an echo and says so.
+    let google_key = crate::byok::byok_get("google");
+    let mode = if google_key.is_some() { "assistant" } else { "echo" };
+
+    let mut cmd = Command::new(&node);
+    cmd.arg(&script)
+        .arg("dev")
         .current_dir(script.parent().unwrap_or(&root))
+        .env("LIVEKIT_URL", format!("ws://127.0.0.1:{HTTP_PORT}"))
+        .env("LIVEKIT_API_KEY", key)
+        .env("LIVEKIT_API_SECRET", &secret)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| format!("cannot start the voice agent: {e}"))?;
+        .kill_on_drop(true);
+    if let Some(k) = &google_key {
+        cmd.env("GOOGLE_API_KEY", k)
+            .env("CINDERPAW_LIVE_MODEL", LIVE_MODEL)
+            .env("CINDERPAW_LIVE_VOICE", LIVE_VOICE)
+            .env("CINDERPAW_LIVE_INSTRUCTIONS", instructions.unwrap_or_default());
+    }
+    let mut agent = cmd.spawn().map_err(|e| format!("cannot start the voice agent: {e}"))?;
 
     let stdout = agent.stdout.take().ok_or("the voice agent produced no output")?;
     let mut lines = BufReader::new(stdout).lines();
-    let ready = tokio::time::timeout(std::time::Duration::from_secs(45), async {
+    // Waiting for REGISTRATION, not for the agent to be in the room. The worker
+    // carries no agent name, so LiveKit dispatches it when a room opens — and
+    // the room does not exist until the webview joins. Waiting for a
+    // participant here would wait for something this function is upstream of.
+    let ready = tokio::time::timeout(std::time::Duration::from_secs(90), async {
         while let Ok(Some(line)) = lines.next_line().await {
             tracing::debug!("livekit agent: {line}");
-            if line.contains("CINDERPAW_AGENT_READY") {
+            if line.contains("registered worker") {
                 return true;
             }
         }
@@ -407,7 +444,7 @@ pub async fn start(extra_bin_dirs: &[PathBuf], identity: &str) -> Result<Session
         let _ = agent.start_kill();
         let _ = server.start_kill();
         return Err(format!(
-            "the voice agent never joined the call. {}",
+            "the voice agent never started. {}",
             why.trim().lines().last().unwrap_or("No reason was reported.")
         ));
     }
@@ -423,6 +460,7 @@ pub async fn start(extra_bin_dirs: &[PathBuf], identity: &str) -> Result<Session
         url: format!("ws://127.0.0.1:{HTTP_PORT}"),
         token: mint_token(key, &secret, identity, ROOM, 60 * 60),
         room: ROOM.to_string(),
+        mode: mode.to_string(),
     })
 }
 

@@ -908,7 +908,7 @@ const raw = {
   // Rejects with `livekit-no-node` when no Node runtime is installed — a code
   // rather than a sentence, because the answer needs a link the UI can put in
   // the user's language.
-  startLivekitSelftest:     () => invoke<{ url: string; token: string; room: string }>('start_livekit_selftest'),
+  startLivekitSelftest:     () => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_selftest'),
   endLivekitSelftest:       () => invoke<void>('end_livekit_selftest'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to

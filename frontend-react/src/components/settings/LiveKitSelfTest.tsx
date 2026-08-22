@@ -20,18 +20,33 @@ import { tauri } from '@/lib/tauri';
 export function LiveKitSelfTest() {
   const [phase, setPhase] = useState<'idle' | 'starting' | 'live' | 'error'>('idle');
   const [detail, setDetail] = useState<string>('');
+  // Which far end answered. Unknown until the call starts, and the screen must
+  // not guess: an echo introduced as an assistant is a worse lie than silence.
+  const [mode, setMode] = useState<'assistant' | 'echo' | null>(null);
   const room = useRef<Room | null>(null);
-  /** Where remote audio is played. Created once and reused; a fresh element per
-   *  call is how autoplay permission gets asked for twice. */
-  const sink = useRef<HTMLAudioElement | null>(null);
+  /** Every element `track.attach()` handed us, so every one can be taken back
+   *  down. Attaching creates a NEW element per subscribed track, so keeping a
+   *  single reference leaks one silent, dead `<audio>` into the page per call —
+   *  invisible, and enough to make "is anything playing?" unanswerable. */
+  const sinks = useRef<HTMLAudioElement[]>([]);
+
+  const clearSinks = useCallback(() => {
+    for (const el of sinks.current) {
+      el.srcObject = null;
+      el.remove();
+    }
+    sinks.current = [];
+  }, []);
 
   const hangUp = useCallback(async () => {
     await room.current?.disconnect();
     room.current = null;
     await tauri.raw.endLivekitSelftest().catch(() => {});
+    clearSinks();
     setPhase('idle');
     setDetail('');
-  }, []);
+    setMode(null);
+  }, [clearSinks]);
 
   // A call must not outlive the panel that started it. Without this, closing
   // settings mid-test leaves a server, an agent and an open microphone running
@@ -50,7 +65,7 @@ export function LiveKitSelfTest() {
         if (track.kind !== Track.Kind.Audio) return;
         const el = track.attach();
         el.autoplay = true;
-        sink.current = el;
+        sinks.current.push(el);
         document.body.appendChild(el);
       });
       // The far end going away is not an error the user caused, but it is the
@@ -62,6 +77,7 @@ export function LiveKitSelfTest() {
 
       await r.connect(call.url, call.token);
       await r.localParticipant.setMicrophoneEnabled(true);
+      setMode(call.mode);
       setPhase('live');
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
@@ -77,21 +93,17 @@ export function LiveKitSelfTest() {
     }
   }, []);
 
-  useEffect(
-    () => () => {
-      sink.current?.remove();
-      sink.current = null;
-    },
-    [],
-  );
+  useEffect(() => clearSinks, [clearSinks]);
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-text-primary">Voice call self-test</p>
+          <p className="text-sm font-medium text-text-primary">Voice call</p>
           <p className="text-xs text-text-muted mt-0.5">
-            Runs a real call on this machine and echoes you back. No account, no key.
+            Runs the call on this machine. With a Google key you talk to your
+            assistant; without one it echoes you back, so the microphone and
+            speakers can still be checked.
           </p>
         </div>
         {phase === 'live' ? (
@@ -116,13 +128,13 @@ export function LiveKitSelfTest() {
         )}
       </div>
 
-      {/* Said before the call, not after it howls. Echo through speakers is a
-          feedback loop, and the person who needs this warning most is the one
-          testing a microphone for the first time. */}
-      {phase !== 'error' && (
+      {/* Said before the call, not after it howls — and only for the mode that
+          howls. An assistant does not repeat you, so warning about feedback
+          there is noise that teaches people to ignore the warning. */}
+      {phase !== 'error' && mode !== 'assistant' && (
         <p className="text-xs text-text-muted flex items-center gap-1.5">
           <Headphones className="h-3 w-3 shrink-0" />
-          Use headphones — you will hear yourself, and speakers will squeal.
+          Without a key this echoes you — use headphones, or speakers will squeal.
         </p>
       )}
 
@@ -133,7 +145,11 @@ export function LiveKitSelfTest() {
       )}
 
       {phase === 'live' && (
-        <p className="text-xs text-text-primary">Connected. Say something — you should hear it back.</p>
+        <p className="text-xs text-text-primary">
+          {mode === 'assistant'
+            ? 'Connected. Say something — your assistant is listening.'
+            : 'Connected, with no key: this is an echo, not an assistant. Say something and you should hear it back.'}
+        </p>
       )}
 
       {phase === 'error' && <p className="text-xs text-error">{detail}</p>}
