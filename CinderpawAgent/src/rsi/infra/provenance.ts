@@ -71,6 +71,8 @@ export interface ArtifactEnvelope {
   data: Record<string, unknown>;
 }
 
+// INVARIANT I12: Provenance graph acyclic — git substrate + BFS seen set prevents cycles (docs/invariants.md I12).
+
 /** The provenance-graph interface. Two constructors below. */
 export interface ProvenanceGraph {
   /** Walk from `id` up the parent chain. Returns the chain in order:

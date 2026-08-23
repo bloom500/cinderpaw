@@ -23,6 +23,8 @@
  * adapter.
  */
 
+// INVARIANT I10: Personal Fitness bounded — computePersonalFitness ∈ [0,1] via clamp01 (see docs/invariants.md I10).
+
 /** A single user-facing signal. Each kind has a default weight
  *  (positive = good, negative = bad). The value is +1/-1 in the
  *  common case but the schema allows [-1, 1] continuous values for

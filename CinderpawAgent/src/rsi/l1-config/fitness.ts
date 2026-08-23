@@ -150,6 +150,8 @@ export function fitnessVector(parts: Partial<FitnessVector>): FitnessVector {
   return filled;
 }
 
+// INVARIANT I11: FitnessVector aggregate bounded — fitnessVectorAggregate ∈ [0,1] via clamp01 (docs/invariants.md I11).
+
 /** Weighted aggregate, in [0, 1]. Mirrors the Rust formula's +/- sign
  *  convention: HIGHER_BETTER components add weight × value, LOWER_BETTER
  *  components subtract weight × value. The result is clamped so a

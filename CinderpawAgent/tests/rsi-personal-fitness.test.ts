@@ -1,3 +1,5 @@
+// INVARIANT I10: Personal Fitness bounded — this file asserts computePersonalFitness ∈ [0,1] (docs/invariants.md I10).
+
 /**
  * Personal Fitness — the per-user signal that fills the
  * `userSatisfaction` component of the BRSI fitness vector (BRSI §2.10).

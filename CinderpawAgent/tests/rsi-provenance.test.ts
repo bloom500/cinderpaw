@@ -1,3 +1,5 @@
+// INVARIANT I12: Provenance graph acyclic — this file asserts BFS seen-set prevents cycles (docs/invariants.md I12).
+
 /**
  * Knowledge Provenance — queryable graph over git-backed commits (BRSI §2.6).
  *

@@ -1,3 +1,5 @@
+// INVARIANT I11: FitnessVector aggregate bounded — this file asserts fitnessVectorAggregate ∈ [0,1] (docs/invariants.md I11).
+
 /**
  * Fitness Vector — canonical 6-component shape (BRSI §2.2).
  *
