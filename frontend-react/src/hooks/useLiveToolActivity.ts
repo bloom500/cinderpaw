@@ -234,7 +234,6 @@ export function useLiveToolActivity(enabled: boolean) {
       return;
     }
     let unlisten: (() => void) | undefined;
-    let unlistenLive: (() => void) | undefined;
     let cancelled = false;
 
     /** Add or replace a row, newest of that tool wins. */
@@ -261,30 +260,59 @@ export function useLiveToolActivity(enabled: boolean) {
         ].slice(-MAX),
       );
 
-    // The Live call's own request, which never travels on the sidecar's stream.
-    void events.liveStatusEvent
-      .listen((event) => {
-        const { kind, text } = event.payload;
-        if (kind === 'toolCall') begin(AGENT_TOOL, text);
-        else if (kind === 'toolResult') {
+    /**
+     * The Live call's own request, which never travels on the sidecar's stream.
+     *
+     * Both engines report it, on their own channels and in the same shape, so
+     * this is one handler subscribed twice rather than two. It mattered: the
+     * panel was written when there was one engine, LiveKit became the default,
+     * and the panel simply went blank for every call — the tool was working and
+     * looked broken because nothing was listening where it now speaks.
+     */
+    const onTool = (kind: string, text: string) => {
+      if (kind === 'toolCall') begin(AGENT_TOOL, text);
+      else if (kind === 'toolResult') {
+        // A slow answer is not a failed one. Past its deadline the runtime
+        // returns `ok:false` carrying "Still working on that one" so the model
+        // has a sentence to say instead of a silence — but the work continues
+        // and the answer usually lands seconds later. Reading that as a
+        // failure put a red row on screen for the one case where the honest
+        // display is "still going": a web search, which is most of them.
+        if (/still working/i.test(text)) {
           setActivity((prev) =>
             prev.map((a) =>
               a.tool === AGENT_TOOL && a.status === 'running'
-                ? {
-                    ...a,
-                    status: text ? ('failed' as const) : ('done' as const),
-                    endedAt: Date.now(),
-                    error: text || null,
-                  }
+                ? { ...a, note: 'taking longer than usual' }
                 : a,
             ),
           );
+          return;
         }
-      })
-      .then((fn) => {
+        setActivity((prev) =>
+          prev.map((a) =>
+            a.tool === AGENT_TOOL && a.status === 'running'
+              ? {
+                  ...a,
+                  status: text ? ('failed' as const) : ('done' as const),
+                  endedAt: Date.now(),
+                  error: text || null,
+                }
+              : a,
+          ),
+        );
+      }
+    };
+
+    const liveOff: Array<() => void> = [];
+    const attach = (p: Promise<() => void>) =>
+      void p.then((fn) => {
         if (cancelled) fn();
-        else unlistenLive = fn;
+        else liveOff.push(fn);
       });
+
+    attach(events.liveStatusEvent.listen((e) => onTool(e.payload.kind, e.payload.text ?? '')));
+    // The LiveKit channel hands the payload over directly, not wrapped.
+    attach(events.liveKitEvent.listen((e) => onTool(e.kind, e.text ?? '')));
 
     void events.feralAgentOutputEvent
       .listen((event) => {
@@ -354,7 +382,7 @@ export function useLiveToolActivity(enabled: boolean) {
     return () => {
       cancelled = true;
       unlisten?.();
-      unlistenLive?.();
+      for (const off of liveOff) off();
       clearInterval(sweep);
     };
   }, [enabled]);

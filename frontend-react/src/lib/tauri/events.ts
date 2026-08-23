@@ -48,8 +48,16 @@ export interface LiveKitAgentEvent {
   /** `state` carries the session's own idea of what it is doing —
    *  initializing, listening, thinking, speaking — which the overlay would
    *  otherwise have to infer from audio energy. */
-  kind: 'heard' | 'said' | 'state' | 'error' | 'closed';
+  /** `toolCall`/`toolResult` bracket an `ask_cinder` request, which is answered
+   *  over the loopback API and so is invisible to the webview otherwise — a
+   *  wait of up to a hundred seconds with a still screen. `text` is the request
+   *  on the way in, and on the way out is the failure reason, or empty when it
+   *  worked. */
+  kind: 'heard' | 'said' | 'state' | 'error' | 'closed' | 'toolCall' | 'toolResult';
   text?: string;
+  /** `heard` only: this transcript is still changing. Show it, but do not
+   *  persist it — the final one carries the same sentence, settled. */
+  partial?: boolean;
   recoverable?: boolean;
 }
 

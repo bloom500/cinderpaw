@@ -53,6 +53,11 @@ export function useLiveKitCallSession() {
   /** Bumped by every open and hang-up; an async step that finds it changed
    *  gives up rather than reviving a call the person already ended. */
   const generation = useRef(0);
+  /** True from the moment `begin` is entered until its room is connected or
+   *  it has failed. `room.current` cannot cover that window on its own: it is
+   *  only assigned after an await, and the whole bug was two `begin`s racing
+   *  inside exactly that gap. */
+  const starting = useRef(false);
 
   const cleanup = useCallback(() => {
     meter.current?.();
@@ -82,8 +87,13 @@ export function useLiveKitCallSession() {
   useEffect(() => {
     const pending = events.liveKitEvent.listen((e) => {
       if (e.kind === 'heard' && e.text) {
+        // On screen immediately, whether or not it has settled — the point of
+        // a partial is that it arrives while the person is still speaking.
         setHeard(e.text);
-        writeToChat('user', e.text);
+        // Written to the conversation only once it has. A partial is the same
+        // sentence mid-revision, so persisting it would file a dozen truncated
+        // copies of every utterance in the chat history.
+        if (!e.partial) writeToChat('user', e.text);
       }
       if (e.kind === 'said' && e.text) writeToChat('assistant', e.text);
       if (e.kind === 'state') {
@@ -112,6 +122,20 @@ export function useLiveKitCallSession() {
   }, []);
 
   const begin = useCallback(async () => {
+    // One call at a time. This guard is the entire fix for two voices
+    // answering one question, so it is worth saying why it has to be here.
+    //
+    // Nothing stopped `begin` from running twice — a second tap on the call
+    // button, a re-render, a retry after a slow start. Every entry asked Rust
+    // for a call, and Rust's `rejoin` mints a NEW room; a new room dispatches
+    // a NEW agent, because the worker carries no name and LiveKit dispatches
+    // nameless workers on room creation. Meanwhile `room.current` was
+    // overwritten below, so the PREVIOUS room object was lost with its
+    // microphone still enabled and nobody left holding a reference to
+    // disconnect it. Two rooms, two agents, one person's voice reaching both,
+    // and two different answers spoken over each other.
+    if (starting.current || room.current) return;
+    starting.current = true;
     const mine = ++generation.current;
     setNotice(null);
     try {
@@ -144,7 +168,14 @@ export function useLiveKitCallSession() {
             }
           : undefined,
       );
-      if (mine !== generation.current) return; // hung up while starting
+      if (mine !== generation.current) {
+        // Hung up while starting — but Rust has ALREADY minted a room and
+        // dispatched an agent for it. Returning without saying so leaves that
+        // agent alive in a room nobody will ever join, holding a vendor
+        // session open and, on a metered key, billing for silence.
+        void tauri.raw.endLivekitCall().catch(() => {});
+        return;
+      }
       const r = new Room();
       room.current = r;
 
@@ -176,6 +207,11 @@ export function useLiveKitCallSession() {
       );
       setPhase('ready');
       void tauri.raw.endLivekitCall().catch(() => {});
+    } finally {
+      // Released on every path, success or failure. Left set after a failed
+      // start, the guard above would refuse every retry and the call button
+      // would be dead until the app restarted.
+      starting.current = false;
     }
   }, [hangUp]);
 
