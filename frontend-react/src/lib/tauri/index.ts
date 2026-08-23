@@ -908,8 +908,13 @@ const raw = {
   // Rejects with `livekit-no-node` when no Node runtime is installed — a code
   // rather than a sentence, because the answer needs a link the UI can put in
   // the user's language.
-  startLivekitCall:     () => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call'),
+  startLivekitCall:     (provider?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call', { provider: provider ?? null }),
   endLivekitCall:       () => invoke<void>('end_livekit_call'),
+  // Which speech-to-speech vendors this build can run a call on, and which of
+  // them actually have a key. Asked of Rust rather than listed here: the same
+  // table decides which npm plugin gets installed, and a second list in
+  // TypeScript would be free to offer a vendor the agent cannot load.
+  listS2sProviders:     () => invoke<{ id: string; label: string; connected: boolean }[]>('list_s2s_providers'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `cinderpaw://embedding-download-*`.

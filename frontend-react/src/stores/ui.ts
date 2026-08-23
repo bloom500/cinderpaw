@@ -13,6 +13,29 @@ export type WhisperModel = 'small' | 'base';
  *  (first mic tap opens the provider card). `groq` = cloud whisper-large-v3. */
 export type SttProvider = 'local' | 'groq';
 
+export type CallEngine = 'pipeline' | 'live' | 'livekit';
+
+/**
+ * The engines a person can actually pick, newest first.
+ *
+ * `pipeline` and `live` are retired, not deleted: the day a new engine
+ * misbehaves is the day somebody needs the old one back, and deleting the code
+ * is the one version of that decision which cannot be undone in an afternoon.
+ * They are gone from the picker and nothing selects them any more.
+ */
+export const CALL_ENGINES: readonly CallEngine[] = ['livekit'];
+
+/**
+ * Engines that still run but are no longer offered.
+ *
+ * This list is load-bearing, not documentation. Dropping the two values from
+ * the picker only stops them being CHOSEN — every machine that already picked
+ * one has it sitting in `cinderpaw-ui` and would keep running a retired engine
+ * forever, with nothing on screen saying why voice behaves differently there
+ * than everywhere else. `merge` below reads this and moves those machines over.
+ */
+export const RETIRED_CALL_ENGINES: readonly CallEngine[] = ['pipeline', 'live'];
+
 interface UIStore {
   /** Navigation chrome only. Nothing about the agent or the runtime lives
    *  here — the rail answers "where do I want to go" and nothing else. */
@@ -69,9 +92,24 @@ interface UIStore {
    * listing Gemini Live beside Piper and Fish would say it is a voice for the
    * pipeline, and it is a replacement for the pipeline. The two run on different
    * loops and only one of them has a text-to-speech engine at all.
+   *
+   * Only `livekit` is offered now — see `CALL_ENGINES`. The other two still run
+   * if something selects them, which is what makes them recoverable rather than
+   * deleted.
    */
-  callEngine: 'pipeline' | 'live' | 'livekit';
-  setCallEngine: (e: 'pipeline' | 'live' | 'livekit') => void;
+  callEngine: CallEngine;
+  setCallEngine: (e: CallEngine) => void;
+  /**
+   * Which speech-to-speech vendor the LiveKit call runs on, by BYOK id.
+   *
+   * `null` until picked, and `null` is a working state rather than a broken
+   * one: Rust falls back to whichever provider has a key stored. Someone who
+   * pastes an OpenAI key and never opens this picker still gets a talking call,
+   * which is the point — no vendor is built into the call, and the app must not
+   * require a second gesture to notice the first one.
+   */
+  s2sProvider: string | null;
+  setS2sProvider: (id: string | null) => void;
   /**
    * Chosen voice per engine id.
    *
@@ -132,6 +170,8 @@ export const useUI = create<UIStore>()(
       setTtsProvider: (ttsProvider) => set({ ttsProvider }),
       callEngine: 'livekit',
       setCallEngine: (callEngine) => set({ callEngine }),
+      s2sProvider: null,
+      setS2sProvider: (s2sProvider) => set({ s2sProvider }),
       ttsVoice: {},
       setTtsVoice: (engineId, voiceId) =>
         set((s) => ({ ttsVoice: { ...s.ttsVoice, [engineId]: voiceId } })),
@@ -156,6 +196,7 @@ export const useUI = create<UIStore>()(
         sttProvider: s.sttProvider,
         ttsProvider: s.ttsProvider,
         callEngine: s.callEngine,
+        s2sProvider: s.s2sProvider,
         ttsVoice: s.ttsVoice,
       }),
       // Dropping the two keys from `partialize` only stops them being WRITTEN.
@@ -168,7 +209,15 @@ export const useUI = create<UIStore>()(
       merge: (persisted, current) => {
         const { reasoningMode: _r, enabledTools: _t, ...rest } =
           (persisted ?? {}) as Partial<UIStore>;
-        return { ...current, ...rest };
+        const merged = { ...current, ...rest };
+        // A retired engine that is still stored is still selected. Same reason
+        // as the two keys above: rehydration merges the saved blob over the
+        // defaults, so the machine that has been using voice the longest is
+        // exactly the one that would never move to the new engine.
+        if (RETIRED_CALL_ENGINES.includes(merged.callEngine)) {
+          merged.callEngine = 'livekit';
+        }
+        return merged;
       },
       onRehydrateStorage: () => (state) => {
         if (!state) return;

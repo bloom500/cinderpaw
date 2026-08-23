@@ -11,18 +11,24 @@
 // agent plus an explicit dispatch call — is the same behaviour with a REST
 // client in Rust to maintain.
 //
-// Two modes, decided by whether a Google key reached us:
+// Two modes, decided by whether a key reached us:
 //
-//   assistant — Gemini's realtime API hears the microphone directly and answers
-//               in audio. Turn detection, interruption and synthesis belong to
-//               the model, which is the entire reason for choosing it over an
-//               STT → LLM → TTS chain we assemble ourselves.
+//   assistant — the chosen vendor's realtime API hears the microphone directly
+//               and answers in audio. Turn detection, interruption and
+//               synthesis belong to the model, which is the entire reason for
+//               choosing speech-to-speech over an STT → LLM → TTS chain we
+//               assemble ourselves.
 //   echo      — no key: whatever it hears goes straight back. Not a fallback
 //               pretending to be an assistant, and it does not claim to be one.
 //               It exists so that a machine with nothing set up can still prove
 //               its microphone, its speakers and this whole pipe work.
+//
+// No vendor is imported at the top of this file. Rust names one in
+// CINDERPAW_LIVE_PROVIDER and installs that plugin and no other, so a static
+// import of Google's would crash an OpenAI call on `ERR_MODULE_NOT_FOUND`
+// before a single line of this ran — and in a forked job process, where the
+// error goes to a log nobody has open rather than to the screen.
 import { AgentSessionEventTypes, cli, defineAgent, voice, WorkerOptions } from '@livekit/agents';
-import * as google from '@livekit/agents-plugin-google';
 import {
   AudioFrame,
   AudioSource,
@@ -40,10 +46,68 @@ const RATE = 48000;
 const CHANNELS = 1;
 
 /** No key ⇒ echo. Read once, so the mode cannot change mid-call. */
-const API_KEY = process.env.GOOGLE_API_KEY ?? '';
-const MODEL = process.env.CINDERPAW_LIVE_MODEL || 'gemini-2.5-flash-native-audio-latest';
-const VOICE = process.env.CINDERPAW_LIVE_VOICE || 'Kore';
+const API_KEY = process.env.CINDERPAW_LIVE_API_KEY ?? '';
+/** Which vendor Rust resolved. Empty is echo, and echo needs no plugin. */
+const PROVIDER = process.env.CINDERPAW_LIVE_PROVIDER ?? '';
+const MODEL = process.env.CINDERPAW_LIVE_MODEL || '';
+const VOICE = process.env.CINDERPAW_LIVE_VOICE || '';
 const INSTRUCTIONS = process.env.CINDERPAW_LIVE_INSTRUCTIONS || '';
+
+/**
+ * How each vendor's realtime model is constructed.
+ *
+ * The differences are real and not worth hiding behind an adapter: Google takes
+ * `contextWindowCompression`, OpenAI takes `turnDetection`, and the two
+ * transcription options are spelled differently on each. One function per
+ * vendor says exactly what that vendor is given, which is what somebody
+ * debugging a call at 3am actually needs to read.
+ *
+ * The import is dynamic and inside the function so that only the plugin Rust
+ * installed is ever loaded.
+ */
+const REALTIME = {
+  google: async () => {
+    const google = await import('@livekit/agents-plugin-google');
+    return new google.beta.realtime.RealtimeModel({
+      apiKey: API_KEY,
+      model: MODEL || 'gemini-2.5-flash-native-audio-latest',
+      // Pinned. Left unset the server picks per session, so the same assistant
+      // answers in a different voice tomorrow — the exact inconsistency that
+      // reads as unfinished software.
+      voice: VOICE || 'Kore',
+      // A Live session is bounded by its context window, not by the clock: fill
+      // it and the server ends the session mid-sentence. A sliding window drops
+      // the oldest turns instead, which is what makes "talk for an hour" a thing
+      // that can happen at all. Left off, a long conversation has a hard stop
+      // nobody warned the person about.
+      contextWindowCompression: { slidingWindow: {} },
+      // Both sides transcribed. Not decoration: it is the only way to see what
+      // the model actually HEARD, and mishearing is the failure that looks like
+      // stupidity. Also what a call needs to leave behind a readable trace.
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
+      instructions: INSTRUCTIONS,
+    });
+  },
+  openai: async () => {
+    const openai = await import('@livekit/agents-plugin-openai');
+    return new openai.realtime.RealtimeModel({
+      apiKey: API_KEY,
+      model: MODEL || 'gpt-realtime',
+      voice: VOICE || 'marin',
+      // The server-side voice activity detector, asked for explicitly. Left to
+      // the default this is still on, but "still on by default" is a thing that
+      // changes between API versions and takes barge-in with it when it does.
+      turnDetection: { type: 'server_vad' },
+      // Google transcribes both directions from one option each; OpenAI only
+      // transcribes the INPUT, and the output transcript arrives as part of the
+      // response. Asking for the input one is therefore not symmetry — it is
+      // the only half that has to be requested.
+      inputAudioTranscription: { model: 'whisper-1' },
+      instructions: INSTRUCTIONS,
+    });
+  },
+};
 /** Declared by Rust, not here. See `live::bridge::declarations`. */
 const TOOL_DECLARATIONS = JSON.parse(process.env.CINDERPAW_LIVE_TOOLS || '[]');
 
@@ -137,42 +201,31 @@ async function echo(ctx) {
 }
 
 /**
- * Gemini's realtime API, driven by the Agents session.
+ * The chosen vendor's realtime API, driven by the Agents session.
  *
  * `AgentSession` owns the microphone track, the playback track, barge-in and
  * the end-of-turn model that loads locally at startup. None of that is ours any
- * more, which was the point of the migration.
+ * more, which was the point of the migration — and none of it is vendor
+ * specific either, which is why swapping the vendor is one line here.
  */
 async function assistant(ctx) {
-  const session = new voice.AgentSession({
-    llm: new google.beta.realtime.RealtimeModel({
-      apiKey: API_KEY,
-      model: MODEL,
-      // Pinned. Left unset the server picks per session, so the same assistant
-      // answers in a different voice tomorrow — the exact inconsistency that
-      // reads as unfinished software.
-      voice: VOICE,
-
-      // A Live session is bounded by its context window, not by the clock: fill
-      // it and the server ends the session mid-sentence. A sliding window drops
-      // the oldest turns instead, which is what makes "talk for an hour" a thing
-      // that can happen at all. Left off, a long conversation has a hard stop
-      // nobody warned the person about.
-      contextWindowCompression: { slidingWindow: {} },
-
-      // Both sides transcribed. Not decoration: it is the only way to see what
-      // the model actually HEARD, and mishearing is the failure that looks like
-      // stupidity. Also what a call needs to leave behind a readable trace.
-      inputAudioTranscription: {},
-      outputAudioTranscription: {},
-
-      // Also given to the model directly. `AgentSession` passes the Agent's
-      // instructions down, but this is SOUL.md — the difference between
-      // Cinderpaw and a stock assistant — and it is not the thing to leave
-      // depending on one path being wired the way the docs imply.
-      instructions: INSTRUCTIONS,
-    }),
-  });
+  const build = REALTIME[PROVIDER];
+  if (!build) {
+    // Reachable only if Rust names a vendor this file does not know, i.e. after
+    // a half-applied update. Said out loud in the same channel as every other
+    // failure rather than thrown, because a throw here ends the job with an
+    // empty room and no explanation anywhere the user can see.
+    console.log(
+      'CINDERPAW_EVENT ' +
+        JSON.stringify({
+          kind: 'error',
+          text: `This build does not know the voice provider "${PROVIDER}".`,
+          recoverable: false,
+        }),
+    );
+    return echo(ctx);
+  }
+  const session = new voice.AgentSession({ llm: await build() });
 
   // One line per event, on stdout, for Rust to forward to the window. A prefix
   // rather than a side channel because the pipe already exists and a second one
@@ -240,7 +293,7 @@ async function assistant(ctx) {
   });
 
   console.log(
-    `CINDERPAW_AGENT_READY mode=assistant persona=${INSTRUCTIONS.length} tools=${TOOL_DECLARATIONS.length}`,
+    `CINDERPAW_AGENT_READY mode=assistant provider=${PROVIDER} persona=${INSTRUCTIONS.length} tools=${TOOL_DECLARATIONS.length}`,
   );
 
   // Speaking first is not decoration. A person who has just pressed a button
@@ -252,7 +305,11 @@ async function assistant(ctx) {
 export default defineAgent({
   entry: async (ctx) => {
     await ctx.connect();
-    if (API_KEY) {
+    // Both halves have to be present. A provider with no key authenticates
+    // nothing, and a key with no provider has no plugin to hand it to; either
+    // one alone used to be enough to take the assistant branch and then fail
+    // somewhere further in, which is a call that connects and never speaks.
+    if (API_KEY && PROVIDER) {
       await assistant(ctx);
     } else {
       await echo(ctx);

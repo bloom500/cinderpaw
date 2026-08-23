@@ -7,8 +7,12 @@
 //! and take all of it down again when the window closes. Everything below is
 //! that job.
 //!
-//! The far end is a Gemini realtime session when a Google key is stored, and a
-//! plain echo when there is none. That second mode is not a degraded assistant:
+//! The far end is a speech-to-speech session with whichever vendor the user
+//! connected — see `S2S_PROVIDERS` — and a plain echo when no key is stored for
+//! any of them. No vendor is built into the call: Gemini is a row in that table
+//! and nothing more, because it runs on the user's own key and a product that
+//! hard-codes one vendor's key is a product with one vendor. That second mode
+//! is not a degraded assistant:
 //! it makes no claim to be one, and it exists so a machine with nothing set up
 //! can still answer "does a call work here at all" — which is also the first
 //! question when a real call later misbehaves.
@@ -81,10 +85,92 @@ fn new_room() -> String {
     format!("cinderpaw-{}", &random_secret()[..12])
 }
 
-/// Kept identical to the engine this replaces (`commands/live.rs`), so the
-/// migration changes the machinery and not the voice a person already knows.
-const LIVE_MODEL: &str = "gemini-2.5-flash-native-audio-latest";
-const LIVE_VOICE: &str = "Kore";
+/// One vendor that can carry a speech-to-speech call.
+///
+/// A table rather than a branch per vendor, because four different things have
+/// to agree about the same choice — which npm package gets installed, which
+/// stored key is read, which model is named and which voice is pinned — and
+/// they are read from four different places in this file. When those were four
+/// separate literals, "Gemini" was hard-coded into all of them and the npm
+/// install checked for the Google plugin no matter which vendor was actually
+/// going to be used.
+pub struct S2sProvider {
+    /// Also the BYOK id. Deliberately the same string: a second mapping table
+    /// between "the provider" and "the key it needs" is a second thing that
+    /// can disagree with the first.
+    pub id: &'static str,
+    /// What the picker shows.
+    pub label: &'static str,
+    /// The LiveKit plugin that speaks this vendor's realtime protocol.
+    pub plugin: &'static str,
+    /// Pinned, not "latest". Both of these can be overridden per call, but the
+    /// default has to be a decision: left to the vendor, the same assistant
+    /// answers in a different voice next week, which reads as unfinished
+    /// software rather than as a new model.
+    pub model: &'static str,
+    pub voice: &'static str,
+}
+
+/// Every provider a call can run on.
+///
+/// Only true speech-to-speech vendors belong here: one session that hears and
+/// answers in audio. A vendor whose LiveKit plugin is STT-only or TTS-only
+/// would need a chain we assemble and then maintain, which is the thing this
+/// migration exists to stop doing — see `docs/voice-livekit.md`.
+pub const S2S_PROVIDERS: &[S2sProvider] = &[
+    S2sProvider {
+        id: "google",
+        label: "Gemini Realtime",
+        plugin: "@livekit/agents-plugin-google",
+        // Kept identical to the engine this replaces (`commands/live.rs`), so
+        // the migration changes the machinery and not the voice a person
+        // already knows.
+        model: "gemini-2.5-flash-native-audio-latest",
+        voice: "Kore",
+    },
+    S2sProvider {
+        id: "openai",
+        label: "OpenAI Realtime",
+        plugin: "@livekit/agents-plugin-openai",
+        model: "gpt-realtime",
+        voice: "marin",
+    },
+];
+
+pub fn provider_by_id(id: &str) -> Option<&'static S2sProvider> {
+    S2S_PROVIDERS.iter().find(|p| p.id == id)
+}
+
+/// The provider this call will actually run on, with its key.
+///
+/// `preferred` is what the user picked, which on a machine that has never been
+/// set up is `None` — and that is the case this function exists for. Falling
+/// straight to echo there would mean somebody who has pasted an OpenAI key and
+/// never opened the voice picker gets an echo and no explanation, because the
+/// default nobody set is still a default.
+///
+/// So: the pick, if its key is stored; otherwise the first provider that has
+/// one; otherwise nothing, and the caller runs an echo and says it is an echo.
+/// A pick whose key is missing does NOT silently borrow another vendor's — it
+/// falls through the same way an unset pick does, and the reason is reported.
+pub fn resolve_provider(preferred: Option<&str>) -> Option<(&'static S2sProvider, String)> {
+    if let Some(id) = preferred {
+        match provider_by_id(id) {
+            Some(p) => match crate::byok::byok_get(p.id) {
+                Some(key) => return Some((p, key)),
+                None => tracing::warn!(
+                    "livekit: {} is the chosen voice provider but no {} key is stored",
+                    p.label,
+                    p.id
+                ),
+            },
+            None => tracing::warn!("livekit: unknown voice provider {id:?}"),
+        }
+    }
+    S2S_PROVIDERS
+        .iter()
+        .find_map(|p| crate::byok::byok_get(p.id).map(|k| (p, k)))
+}
 
 /// Where a downloaded server and the agent's dependencies live.
 fn dir() -> PathBuf {
@@ -347,7 +433,10 @@ impl Drop for Session {
 ///
 /// ponytail: install on first use. Vendor it into the bundle when voice ships
 /// as a product feature rather than a self-test.
-async fn ensure_agent(node: &Path) -> Result<PathBuf, String> {
+async fn ensure_agent(
+    node: &Path,
+    provider: Option<&S2sProvider>,
+) -> Result<PathBuf, String> {
     let root = dir().join("agent");
     std::fs::create_dir_all(&root).map_err(|e| format!("cannot create {}: {e}", root.display()))?;
 
@@ -358,7 +447,22 @@ async fn ensure_agent(node: &Path) -> Result<PathBuf, String> {
     std::fs::write(&script, include_str!("livekit_agent.mjs"))
         .map_err(|e| format!("cannot write the agent script: {e}"))?;
 
-    if root.join("node_modules").join("@livekit").join("agents-plugin-google").exists() {
+    // What "already installed" means depends on WHICH vendor this call needs.
+    // This used to check for the Google plugin unconditionally, so a machine
+    // that had ever made a Gemini call skipped the install forever — and then
+    // ran an OpenAI call against a plugin that was never fetched. The failure
+    // landed in the agent process as a module-not-found, i.e. as "the call just
+    // does not start", with nothing on screen naming the cause.
+    let mut want: Vec<&str> = vec!["@livekit/agents", "@livekit/rtc-node"];
+    if let Some(p) = provider {
+        want.push(p.plugin);
+    }
+    let installed = |pkg: &str| {
+        pkg.split('/')
+            .fold(root.join("node_modules"), |acc, seg| acc.join(seg))
+            .exists()
+    };
+    if want.iter().all(|pkg| installed(pkg)) {
         return Ok(script);
     }
     std::fs::write(
@@ -367,17 +471,14 @@ async fn ensure_agent(node: &Path) -> Result<PathBuf, String> {
     )
     .map_err(|e| format!("cannot write the agent manifest: {e}"))?;
 
-    tracing::info!("livekit: installing the agent's dependencies (first run only)");
+    tracing::info!(
+        "livekit: installing the agent's dependencies for {} (first run for this provider)",
+        provider.map(|p| p.label).unwrap_or("echo"),
+    );
     let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
     let out = Command::new(npm)
-        .args([
-            "install",
-            "--no-audit",
-            "--no-fund",
-            "@livekit/agents",
-            "@livekit/agents-plugin-google",
-            "@livekit/rtc-node",
-        ])
+        .args(["install", "--no-audit", "--no-fund"])
+        .args(&want)
         .current_dir(&root)
         .env("PATH", augmented_path(node))
         .output()
@@ -418,6 +519,11 @@ pub async fn start(
     extra_bin_dirs: &[PathBuf],
     identity: &str,
     instructions: Option<String>,
+    // Which speech-to-speech vendor the user picked, or `None` on a machine
+    // where nobody has picked yet. See `resolve_provider`: unset is not the
+    // same as "echo", because a stored key with no pick is still a working
+    // call somebody would otherwise never get.
+    provider: Option<String>,
     // What the agent says while the call runs — transcripts of both sides, and
     // the errors worth a sentence on screen. Taken as a callback rather than
     // returned, because these arrive for as long as the call lasts and the
@@ -483,13 +589,16 @@ pub async fn start(
         return Err("the LiveKit server did not come up".into());
     }
 
-    let script = ensure_agent(&node).await?;
+    // Resolved BEFORE the install, because the install depends on it: the
+    // plugin that gets fetched is this vendor's, not whichever one was fetched
+    // the last time somebody made a call on this machine.
+    let picked = resolve_provider(provider.as_deref());
+    let script = ensure_agent(&node, picked.as_ref().map(|(p, _)| *p)).await?;
 
     // The key never touches disk or a command line: it is handed to the child
     // in its environment, which is not visible in the process list the way
     // arguments are. Absent, the agent runs as an echo and says so.
-    let google_key = crate::byok::byok_get("google");
-    let mode = if google_key.is_some() { "assistant" } else { "echo" };
+    let mode = if picked.is_some() { "assistant" } else { "echo" };
 
     let mut cmd = Command::new(&node);
     cmd.arg(&script)
@@ -501,21 +610,31 @@ pub async fn start(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    if let Some(k) = &google_key {
+    if let Some((p, k)) = &picked {
         let brief = instructions.unwrap_or_default();
         // Logged as a LENGTH, never as content: this is SOUL.md, and a persona
         // in a log file is a persona in every bug report. Zero here is the
-        // difference between Cinderpaw and a stock Google assistant, and it is
+        // difference between Cinderpaw and a stock assistant, and it is
         // otherwise only audible — which is a terrible place to learn it.
-        tracing::info!("livekit: briefing the assistant with {} chars of persona", brief.len());
+        tracing::info!(
+            "livekit: {} briefed with {} chars of persona",
+            p.label,
+            brief.len()
+        );
         if brief.is_empty() {
             tracing::warn!(
                 "livekit: no persona — the sidecar has not sent SOUL.md yet, so this call                  will sound like a stock assistant"
             );
         }
-        cmd.env("GOOGLE_API_KEY", k)
-            .env("CINDERPAW_LIVE_MODEL", LIVE_MODEL)
-            .env("CINDERPAW_LIVE_VOICE", LIVE_VOICE)
+        // One generic name, not `GOOGLE_API_KEY`. The vendor-specific name was
+        // the last place the choice of vendor was still hard-coded, and it is
+        // the one that fails silently: the agent reads whatever variable its
+        // plugin expects, so a mismatched name is an unauthenticated session,
+        // not a startup error.
+        cmd.env("CINDERPAW_LIVE_PROVIDER", p.id)
+            .env("CINDERPAW_LIVE_API_KEY", k)
+            .env("CINDERPAW_LIVE_MODEL", p.model)
+            .env("CINDERPAW_LIVE_VOICE", p.voice)
             .env("CINDERPAW_LIVE_INSTRUCTIONS", brief)
             // Declared once, in Rust, and handed over as JSON. Restating the
             // tool in JavaScript would be a second description of the same door
@@ -701,5 +820,39 @@ Node.js v24.14.1
     fn each_call_gets_its_own_secret() {
         assert_ne!(random_secret(), random_secret());
         assert_eq!(random_secret().len(), 64, "32 bytes as hex");
+    }
+
+    /// The table is what four separate pieces of the call agree about. A
+    /// duplicate id would make `provider_by_id` return the wrong row; a shared
+    /// plugin would make the install check pass for a vendor whose plugin was
+    /// never fetched, which is the exact bug this table replaced.
+    #[test]
+    fn every_provider_is_its_own_row() {
+        for (i, p) in S2S_PROVIDERS.iter().enumerate() {
+            assert!(!p.id.is_empty() && !p.model.is_empty() && !p.voice.is_empty(), "{}", p.id);
+            assert!(p.plugin.starts_with("@livekit/agents-plugin-"), "{}", p.plugin);
+            for other in &S2S_PROVIDERS[i + 1..] {
+                assert_ne!(p.id, other.id);
+                assert_ne!(p.plugin, other.plugin);
+            }
+            assert!(provider_by_id(p.id).is_some());
+        }
+        assert!(provider_by_id("nobody").is_none());
+    }
+
+    /// A scoped npm name is TWO directories under `node_modules`, not one.
+    /// Joining it whole produces a path that never exists, so the install would
+    /// re-run on every single call — an npm install in front of a person who
+    /// pressed a call button.
+    #[test]
+    fn a_scoped_package_resolves_to_a_nested_directory() {
+        let root = std::path::Path::new("root");
+        let joined = "@livekit/agents-plugin-openai"
+            .split('/')
+            .fold(root.join("node_modules"), |acc, seg| acc.join(seg));
+        assert_eq!(
+            joined,
+            root.join("node_modules").join("@livekit").join("agents-plugin-openai"),
+        );
     }
 }

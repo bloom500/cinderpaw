@@ -106,33 +106,15 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const liveCall = useLiveCallSession();
   const liveKitCall = useLiveKitCallSession();
   const callEngine = useUI((s) => s.callEngine);
-  const setCallEngine = useUI((s) => s.setCallEngine);
-  // Three engines, one overlay. LiveKit is the default; the other two stay
-  // reachable from the picker rather than being deleted, because the day a new
-  // engine misbehaves is the day somebody needs the old one back.
+  // Three engines, one overlay. LiveKit is the only one offered now; the other
+  // two are retired rather than deleted and still run if something selects
+  // them, which is what keeps the rollback a config change instead of a revert.
+  // See `RETIRED_CALL_ENGINES` — a machine that had picked one is moved over on
+  // rehydrate, so this branch resolves to LiveKit everywhere in practice.
   const call =
     callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
   const ttsProvider = useUI((s) => s.ttsProvider);
   const [engineCardOpen, setEngineCardOpen] = useState(false);
-
-  /**
-   * Switch modes without dropping the overlay.
-   *
-   * The two modes are two hooks, and the overlay is driven by whichever one the
-   * store selects — so flipping the store alone would hand the screen to a loop
-   * still sitting at `idle`, and the call would simply disappear. Hanging up the
-   * outgoing one and opening the incoming one keeps the pre-call screen on
-   * screen through the change.
-   */
-  const onChangeMode = (mode: 'pipeline' | 'live' | 'livekit') => {
-    const byId = { pipeline: pipelineCall, live: liveCall, livekit: liveKitCall };
-    const outgoing = byId[callEngine];
-    const incoming = byId[mode];
-    const wasOpen = outgoing.phase !== 'idle';
-    outgoing.hangUp();
-    setCallEngine(mode);
-    if (wasOpen) incoming.open();
-  };
 
   /**
    * Two first-use choices gate a call, and both are asked before the microphone
@@ -580,7 +562,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         onSay={call.say}
         onChangeEngine={() => setEngineCardOpen(true)}
         onChangeStt={() => setProviderCardOpen(true)}
-        onChangeMode={onChangeMode}
       />
     </TooltipProvider>
   );

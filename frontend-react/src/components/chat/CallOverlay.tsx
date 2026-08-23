@@ -125,7 +125,6 @@ export function CallOverlay({
   onSay,
   onChangeEngine,
   onChangeStt,
-  onChangeMode,
 }: {
   phase: CallPhase;
   heard: string;
@@ -142,7 +141,6 @@ export function CallOverlay({
   /** Switching mode swaps which loop drives this screen, so the owner does it
    *  rather than the store: the outgoing call has to be hung up and the incoming
    *  one opened, or the overlay would vanish mid-choice. */
-  onChangeMode: (mode: 'pipeline' | 'live' | 'livekit') => void;
 }) {
   const t = useT();
   const [chatOpen, setChatOpen] = useState(false);
@@ -153,6 +151,8 @@ export function CallOverlay({
   const sttProvider = useUI((s) => s.sttProvider);
   const ttsProvider = useUI((s) => s.ttsProvider);
   const callEngine = useUI((s) => s.callEngine);
+  const s2sProvider = useUI((s) => s.s2sProvider);
+  const setS2sProvider = useUI((s) => s.setS2sProvider);
   // True for BOTH speech-to-speech engines: every branch reading this asks
   // "does one model do the whole call", not "which one". LiveKit and the
   // previous engine differ in machinery, not in that answer.
@@ -467,10 +467,10 @@ export function CallOverlay({
 
         {phase === 'ready' && (
           <div className="relative flex flex-col items-center gap-3">
-            {/* Which KIND of call, above the engines it selects — a pipeline of
-                three or one model doing all three. Chosen before the microphone
-                opens because it decides what the disclosure below even lists. */}
-            <ModeToggle mode={callEngine} onChange={onChangeMode} t={t} />
+            {/* Who answers, chosen before the microphone opens. It runs on the
+                user's own key, so this is a connection they made — not
+                something the call has built into it. */}
+            <ProviderToggle chosen={s2sProvider} onChange={setS2sProvider} t={t} />
 
             {/* The disclosure, as two quiet lines rather than a boxed table: it has
                 to be read before the microphone opens, not filled in. */}
@@ -1433,50 +1433,82 @@ function RoundButton({
 }
 
 /**
- * Pipeline or speech to speech, before anything else on the pre-call screen.
+ * Which vendor answers, before anything else on the pre-call screen.
  *
- * A toggle rather than a row in the voice engine picker, because it is not a
- * voice: picking Live replaces the transcriber, the model and the synthesiser at
- * once. The switch is handled by the owner, not written straight to the store —
- * the two modes run on different loops, and the outgoing one has to be hung up.
+ * This replaced an engine toggle. There is one engine now, so a control that
+ * asked "which engine" was asking a question with one answer while the question
+ * a person actually has — who am I about to talk to, and is it even set up —
+ * had no control at all.
+ *
+ * The list comes from Rust because the same table decides which npm plugin gets
+ * installed for the call. A list written here would be free to offer a vendor
+ * the agent cannot load, and that failure lands inside a forked job process
+ * where nobody sees it.
  */
-function ModeToggle({
-  mode,
+function ProviderToggle({
+  chosen,
   onChange,
   t,
 }: {
-  mode: 'pipeline' | 'live' | 'livekit';
-  onChange: (mode: 'pipeline' | 'live' | 'livekit') => void;
-  t: (key: 'call.modePipeline' | 'call.modeLive' | 'call.modeLiveKit') => string;
+  chosen: string | null;
+  onChange: (id: string) => void;
+  t: (key: 'call.provider' | 'call.providerNoKey' | 'call.providerNone') => string;
 }) {
+  const [providers, setProviders] = useState<
+    { id: string; label: string; connected: boolean }[]
+  >([]);
+
+  useEffect(() => {
+    let alive = true;
+    // Re-read on every open rather than once per app launch: pasting a key is
+    // the thing a person does BETWEEN two attempts at a call, and a cached list
+    // is how the app keeps saying "no key" after they added one.
+    void tauri.raw
+      .listS2sProviders()
+      .then((list) => { if (alive) setProviders(list); })
+      .catch(() => { if (alive) setProviders([]); });
+    return () => { alive = false; };
+  }, []);
+
+  // What will ACTUALLY run, which is not the same as what is stored. Rust falls
+  // back to the first provider with a key when nothing is picked, so showing
+  // "nothing selected" here would be the screen disagreeing with the call.
+  const effective = chosen ?? providers.find((p) => p.connected)?.id ?? null;
+  const anyConnected = providers.some((p) => p.connected);
+
+  if (providers.length === 0) return null;
+
   return (
-    <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
-      {/* LiveKit first: it is the default, and the order on screen is the
-          order of intent. The previous engine stays reachable rather than
-          deleted — the day a new engine misbehaves is the day somebody needs
-          the old one back. */}
-      {(['livekit', 'live', 'pipeline'] as const).map((m) => (
-        <button
-          key={m}
-          type="button"
-          onClick={() => { if (m !== mode) onChange(m); }}
-          aria-pressed={m === mode}
-          className={cn(
-            'rounded-full px-3 py-1 text-xs transition-colors',
-            m === mode
-              ? 'bg-brand text-bg-primary'
-              : 'text-text-muted hover:text-text-primary',
-          )}
-        >
-          {t(
-            m === 'livekit'
-              ? 'call.modeLiveKit'
-              : m === 'live'
-                ? 'call.modeLive'
-                : 'call.modePipeline',
-          )}
-        </button>
-      ))}
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
+        {providers.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => { if (p.id !== effective) onChange(p.id); }}
+            aria-pressed={p.id === effective}
+            className={cn(
+              'flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors',
+              p.id === effective
+                ? 'bg-brand text-on-brand'
+                : 'text-text-muted hover:text-text-primary',
+            )}
+          >
+            {p.label}
+            {/* Said on the button itself, not only in a tooltip or a log: a
+                vendor with no key produces an echo, and "why did it just repeat
+                me" is not a question the app should make somebody research. */}
+            {!p.connected && (
+              <span className={cn('text-micro', p.id === effective ? 'opacity-80' : 'text-text-disabled')}>
+                ({t('call.providerNoKey')})
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      {!anyConnected && (
+        <p className="max-w-sm text-center text-xs text-text-muted">{t('call.providerNone')}</p>
+      )}
     </div>
   );
 }

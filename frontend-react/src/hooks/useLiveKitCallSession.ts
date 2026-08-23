@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { useChat } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
 import { tauri } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
 import type { CallPhase } from './useCallSession';
@@ -114,7 +115,10 @@ export function useLiveKitCallSession() {
     const mine = ++generation.current;
     setNotice(null);
     try {
-      const call = await tauri.raw.startLivekitCall();
+      // Read at call time, not captured in a dep: a provider picked while
+      // the pre-call screen is open has to apply to THIS call, not the
+      // next one.
+      const call = await tauri.raw.startLivekitCall(useUI.getState().s2sProvider);
       if (mine !== generation.current) return; // hung up while starting
       const r = new Room();
       room.current = r;

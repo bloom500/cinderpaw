@@ -38,6 +38,35 @@ const IDLE_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(180);
 /// the thing being cancelled is "the intent to shut down", not a task.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// One row in the voice-provider picker.
+#[derive(serde::Serialize, specta::Type)]
+pub struct S2sProviderInfo {
+    pub id: String,
+    pub label: String,
+    /// Whether a key for it is actually stored. The picker needs this to show
+    /// what a choice will DO — an option that silently produces an echo because
+    /// its key was never pasted is the shape of bug this whole change is about.
+    pub connected: bool,
+}
+
+/// The speech-to-speech vendors this build can run a call on.
+///
+/// Served from Rust rather than listed in the frontend because the same table
+/// decides which npm plugin gets installed. A second list in TypeScript would
+/// be free to offer a vendor the agent cannot load.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn list_s2s_providers() -> Vec<S2sProviderInfo> {
+    cinderpaw_core::livekit::S2S_PROVIDERS
+        .iter()
+        .map(|p| S2sProviderInfo {
+            id: p.id.to_string(),
+            label: p.label.to_string(),
+            connected: cinderpaw_core::byok::byok_get(p.id).is_some(),
+        })
+        .collect()
+}
+
 /// What the webview needs to join the room, and nothing else.
 #[derive(serde::Serialize, specta::Type)]
 pub struct LiveKitCall {
@@ -66,6 +95,11 @@ pub struct LiveKitCall {
 pub(crate) async fn start_livekit_call(
     app: AppHandle,
     state: State<'_, AppState>,
+    // The speech-to-speech vendor the user picked, or `None` when they have
+    // not. `None` is not "no assistant": Rust falls back to whichever provider
+    // has a key stored, so pasting a key is enough to get a talking call
+    // without also having to find a picker.
+    provider: Option<String>,
 ) -> Result<LiveKitCall, String> {
     GENERATION.fetch_add(1, Ordering::SeqCst);
 
@@ -99,6 +133,7 @@ pub(crate) async fn start_livekit_call(
         &extra,
         "you",
         Some(cinderpaw_core::live::system_instruction(&brief)),
+        provider,
         move |event| {
             // Failing to emit is not worth interrupting a call over: the audio
             // path is unaffected, and the person is mid-sentence.

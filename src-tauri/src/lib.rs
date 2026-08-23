@@ -389,6 +389,7 @@ pub fn run() {
             end_live_call,
             start_livekit_call,
             end_livekit_call,
+            list_s2s_providers,
             load_projects,
             save_project,
             delete_project,

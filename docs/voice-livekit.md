@@ -220,6 +220,60 @@ Still open from the list above: the server binary is downloaded rather than
 bundled, the agent needs Node plus one npm install on first run, BYOK key
 mapping is unwritten, and the Apache 2.0 NOTICE entry is still missing.
 
+## Phase 2, third slice: the vendor stops being built in (2026-08-23)
+
+Gemini was the call. It is now a row in a table.
+
+`S2S_PROVIDERS` in `livekit.rs` holds one entry per speech-to-speech vendor —
+id, label, npm plugin, model, voice — and four things that used to hard-code
+"Google" separately now read that one row: which plugin `ensure_agent` installs,
+which stored key is read, which model is named, which voice is pinned. Gemini
+and OpenAI Realtime ship; the id is deliberately the BYOK id, so there is no
+second mapping table to fall out of step. That answers the **BYOK key mapping**
+item that has been open since Phase 1.
+
+Three defects came out of doing it, and none of them was visible from the
+outside:
+
+- **The install check asked the wrong question.** `ensure_agent` returned early
+  if `@livekit/agents-plugin-google` was on disk, no matter which vendor the
+  call needed. A machine that had ever made a Gemini call would therefore skip
+  the install forever and then run an OpenAI call against a plugin that was
+  never fetched. It now checks for the plugin *this* call needs.
+- **A static import would have crashed the job before it started.** The agent
+  script imported Google's plugin at the top, so on a machine that only has
+  OpenAI's the module fails to resolve — inside the SDK's forked job process,
+  where the error reaches a log nobody has open and the room simply stays
+  empty. The import is dynamic and per-vendor now.
+- **`GOOGLE_API_KEY` was the last hard-coded choice.** The key crosses as
+  `CINDERPAW_LIVE_API_KEY` with `CINDERPAW_LIVE_PROVIDER` beside it. A
+  vendor-specific variable name fails as an *unauthenticated session*, not as a
+  startup error, which is the worst way for this to be wrong.
+
+`resolve_provider` deliberately does not require a pick. Unset falls back to
+whichever provider has a key, because the default nobody set is still a default:
+somebody who pastes a key and never opens the picker should get a talking call,
+not an echo. A pick whose key is missing falls through the same way rather than
+silently borrowing another vendor's key, and the pre-call screen says on screen
+when nothing is connected — an echo with no explanation is the failure this
+whole slice is about.
+
+**The old engines are retired, not deleted.** `pipeline` and `live` are gone
+from the picker (`CALL_ENGINES` lists only `livekit`) and their code still runs
+if something selects them. `RETIRED_CALL_ENGINES` is load-bearing rather than
+documentation: a machine that already picked one has it in `cinderpaw-ui`, and
+rehydration merges that over the defaults — so without the migration in `merge`,
+the machine that has used voice the longest is the one that would never move to
+the new engine.
+
+**What this slice does NOT do, and it is a real loss to weigh.** `pipeline` was
+the only path to local TTS: `paths.rs` ships five downloadable Romanian Piper
+voices. LiveKit has no Piper plugin and `whisper` is not in the default feature
+set, so no local STT ships either — speech-to-speech means a cloud key, full
+stop. Retiring `pipeline` from the picker therefore removes local Romanian
+speech from the product until either a Piper plugin is written or the pipeline
+is offered again.
+
 ## Next
 
 Phase 2 (feature parity), amended by the decisions above:
