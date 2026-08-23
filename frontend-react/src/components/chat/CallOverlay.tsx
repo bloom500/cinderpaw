@@ -466,12 +466,12 @@ export function CallOverlay({
             switching language mid-call work at all. */}
         {/* Nothing to pick in a Live call: the voice belongs to the model, not to
             a synthesiser we choose. */}
-        {!live && ttsProvider && <VoicePicker engineId={ttsProvider} />}
+        {currentS2s?.pipeline && ttsProvider && <VoicePicker engineId={ttsProvider} />}
         {/* A Live call has a voice too, and it is the one thing that must not be
             re-rolled per session — left unpinned, the server picks, and the same
             assistant answers in a different voice tomorrow. Eight fixed names,
             so all of them are offered rather than a shortlist. */}
-        {live && currentS2s && (
+        {currentS2s && !currentS2s.pipeline && (
           <VoicePicker
             // Keyed by PROVIDER, not by "the live engine". A voice id is only
             // meaningful to the vendor that issued it, and this used to list
@@ -513,19 +513,24 @@ export function CallOverlay({
                 <span className="text-text-muted">{t('call.mic')}</span>
                 <span className="text-text-secondary">{mic ?? t('call.micDefault')}</span>
               </span>
-              {live ? (
-                // One line, because there is one engine. Listing "speech → text"
-                // and "text → speech" here would describe steps that do not happen.
+              {!currentS2s?.pipeline ? (
+                // One line, because a realtime vendor IS the engine. Listing
+                // "speech → text" and "text → speech" here would describe steps
+                // that do not happen inside one session.
                 <EngineLine
                   label={t('call.provider')}
                   name={currentS2s?.label ?? t('call.providerNoneShort')}
-                  // The on-device pipeline and an echo both stay here. Saying
-                  // "leaves device" for either is a privacy claim about traffic
-                  // that does not exist.
-                  local={willEcho || !!currentS2s?.local}
+                  // An echo never leaves the machine, so claiming otherwise is
+                  // a privacy statement about traffic that does not exist. A
+                  // realtime vendor always does.
+                  local={willEcho}
                   t={t}
                 />
               ) : (
+                // The pipeline is three choices, so it discloses three. These
+                // two rows and their pickers already existed and went dark when
+                // the old `pipeline` engine was retired — the row brings them
+                // back rather than growing a second set.
                 <>
                   <EngineLine
                     label={t('call.stt')}

@@ -46,36 +46,17 @@ pub struct S2sProviderInfo {
     /// Every voice this vendor offers. The picker lists these and nothing else
     /// — a voice id belongs to the vendor that issued it.
     pub voices: Vec<String>,
-    /// Runs on this machine — no key, and nothing leaves the device. The picker
-    /// shows this instead of a "no key" note, because for this row that note
-    /// would be describing a requirement it does not have.
-    pub local: bool,
+    /// Assembled from the app's own STT / model / TTS choices instead of being
+    /// one vendor's session. The screen shows those choices when this row is
+    /// selected, rather than a "no key" note it does not need — and works out
+    /// whether anything leaves the device from the engines themselves.
+    pub pipeline: bool,
     /// The one used when the user has not picked.
     pub default_voice: String,
     /// Whether a key for it is actually stored. The picker needs this to show
     /// what a choice will DO — an option that silently produces an echo because
     /// its key was never pasted is the shape of bug this whole change is about.
     pub connected: bool,
-}
-
-/// Piper voices that are actually on this machine, plus the default.
-///
-/// `PIPER_EXTRA_VOICES` is the catalogue, not the inventory — the five Romanian
-/// voices are downloads. Listing all of them regardless would offer a voice that
-/// produces silence, which is the shape of bug that reads as "voice is broken".
-#[cfg(feature = "piper")]
-fn local_voices() -> Vec<String> {
-    let default = cinderpaw_core::tts::piper::DEFAULT_VOICE;
-    std::iter::once(default)
-        .chain(cinderpaw_core::paths::PIPER_EXTRA_VOICES.iter().map(|(id, _, _)| *id))
-        .filter(|v| *v == default || cinderpaw_core::tts::piper::voice_present(v))
-        .map(|v| v.to_string())
-        .collect()
-}
-
-#[cfg(not(feature = "piper"))]
-fn local_voices() -> Vec<String> {
-    Vec::new()
 }
 
 /// The speech-to-speech vendors this build can run a call on.
@@ -91,22 +72,21 @@ pub(crate) fn list_s2s_providers() -> Vec<S2sProviderInfo> {
         .map(|p| S2sProviderInfo {
             id: p.id.to_string(),
             label: p.label.to_string(),
-            // A cloud vendor publishes a fixed list; the local engine's voices
-            // are files, so they are read from what is on disk. A static list
-            // there would offer voices nobody has downloaded.
-            voices: if p.local {
-                local_voices()
+            // A realtime vendor publishes a fixed list. The pipeline's voices
+            // belong to whichever TTS engine is picked and come from that
+            // engine's own picker, so this row publishes none — a list here
+            // would be a second, smaller catalogue quietly overriding the real
+            // one, which is how this row first shipped hard-wired to Piper.
+            voices: if p.pipeline {
+                Vec::new()
             } else {
                 p.voices.iter().map(|v| v.to_string()).collect()
             },
-            default_voice: if p.local {
-                cinderpaw_core::tts::piper::DEFAULT_VOICE.to_string()
-            } else {
-                p.voice.to_string()
-            },
-            local: p.local,
-            // Local is always connected: there is nothing to connect.
-            connected: p.local || cinderpaw_core::byok::byok_get(p.id).is_some(),
+            default_voice: p.voice.to_string(),
+            pipeline: p.pipeline,
+            // The pipeline is always reachable: it holds no key of its own, and
+            // its halves answer for theirs.
+            connected: p.pipeline || cinderpaw_core::byok::byok_get(p.id).is_some(),
         })
         .collect()
 }
@@ -149,6 +129,11 @@ pub(crate) async fn start_livekit_call(
     // from a previous vendor is refused mid-session, i.e. a call that connects
     // and then dies.
     voice: Option<String>,
+    // Pipeline mode only: which engine speaks, and which transcription model
+    // listens. Both are existing product settings with their own pickers; they
+    // are passed in rather than read here so there is one source of truth.
+    tts_engine: Option<String>,
+    stt_model: Option<String>,
 ) -> Result<LiveKitCall, String> {
     GENERATION.fetch_add(1, Ordering::SeqCst);
 
@@ -184,9 +169,12 @@ pub(crate) async fn start_livekit_call(
         Some(cinderpaw_core::live::system_instruction(&brief)),
         provider,
         voice,
-        // The on-device engines, read from the settings that already own them.
-        Some(cinderpaw_core::tts::PIPER_ID.to_string()),
-        None,
+        // Whichever engines the user actually picked. Hard-coding Piper here is
+        // what made Kokoro, Fish Audio, Azure and ElevenLabs unreachable from a
+        // call while all four sat in the catalogue — the synthesis route takes
+        // any of them, so the only thing that ever excluded them was this line.
+        tts_engine,
+        stt_model,
         move |event| {
             // Failing to emit is not worth interrupting a call over: the audio
             // path is unaffected, and the person is mid-sentence.

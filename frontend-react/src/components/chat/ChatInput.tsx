@@ -127,7 +127,14 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     // Neither question applies to a speech-to-speech call: it has no transcriber
     // and no synthesiser to choose. Asking anyway would gate it behind two
     // settings it never reads.
-    if (callEngine === 'live' || callEngine === 'livekit') call.open();
+    // A realtime vendor has no transcriber and no synthesiser to choose, so
+    // asking would gate it behind two settings it never reads. The pipeline
+    // does read them — and picking the engine that speaks is not a thing to
+    // guess at, because the choice includes whether the audio leaves the
+    // machine.
+    const pipelineCallChosen =
+      callEngine === 'livekit' && useUI.getState().s2sProvider === 'pipeline';
+    if ((callEngine === 'live' || callEngine === 'livekit') && !pipelineCallChosen) call.open();
     else if (sttProvider === null) setProviderCardOpen(true);
     else if (ttsProvider === null) setEngineCardOpen(true);
     else call.open();

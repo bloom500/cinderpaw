@@ -823,12 +823,18 @@ async fn runtime_voice_speak(
     State(state): State<ApiState>,
     Json(req): Json<SpeakRequest>,
 ) -> Response {
+    // The stored endpoint and model, not just the key. Azure needs a region URL
+    // and ElevenLabs needs a voice/model id, so passing `None` for those would
+    // offer both engines in the picker and fail every call to them — the same
+    // shape as hard-coding Piper, one layer down.
+    let byok_settings = crate::byok::load(&state.runtime.settings);
+    let stored = byok_settings.get_provider(&req.provider);
     let engine = match crate::tts::from_id(
         &req.provider,
         crate::tts::EngineConfig {
             api_key: &crate::byok::byok_get(&req.provider).unwrap_or_default(),
-            base_url: None,
-            model: None,
+            base_url: stored.and_then(|c| c.base_url.as_deref()),
+            model: stored.and_then(|c| c.default_model.as_deref()),
         },
     ) {
         Ok(e) => e,

@@ -121,10 +121,18 @@ export function useLiveKitCallSession() {
       // Read at call time, not captured in a dep: a provider or voice picked
       // while the pre-call screen is open has to apply to THIS call, not the
       // next one. The voice is filed under the provider it belongs to.
-      const { s2sProvider, ttsVoice } = useUI.getState();
+      const { s2sProvider, ttsVoice, ttsProvider, whisperModel } = useUI.getState();
+      // In pipeline mode the voice belongs to the TTS ENGINE, not to the row —
+      // the row has no voices of its own. Filing it under the row would lose
+      // the choice the moment somebody switched engine, which is the same bug
+      // that made the old voice pill dead.
+      const pipeline = s2sProvider === 'pipeline';
+      const voiceKey = pipeline ? ttsProvider : s2sProvider;
       const call = await tauri.raw.startLivekitCall(
         s2sProvider,
-        s2sProvider ? (ttsVoice[s2sProvider] ?? null) : null,
+        voiceKey ? (ttsVoice[voiceKey] ?? null) : null,
+        pipeline ? ttsProvider : null,
+        pipeline ? whisperModel : null,
       );
       if (mine !== generation.current) return; // hung up while starting
       const r = new Room();

@@ -282,9 +282,9 @@ voice. That is not a migration detail, it is the product changing what it is:
 Piper ships five Romanian voices that exist nowhere else, and they had no engine
 left to run on.
 
-So the pipeline is rebuilt INSIDE LiveKit rather than kept beside it. `local` is
-a row in `S2S_PROVIDERS` like any vendor, and the worker assembles an
-`AgentSession` from three local parts instead of one remote one:
+So the pipeline is rebuilt INSIDE LiveKit rather than kept beside it. `pipeline`
+is a row in `S2S_PROVIDERS` like any vendor, and the worker assembles an
+`AgentSession` from three parts instead of one remote session:
 
 - `LocalSTT extends stt.STT` — declares `streaming: false`, because Whisper
   transcribes a finished utterance. Declaring it honestly is what makes the SDK
@@ -308,11 +308,29 @@ while Settings offered an on-device transcription model and the STT card offered
 "local". A control that could only fail, for everyone who did not compile their
 own. Cost: whisper-rs builds on every CI platform.
 
+**The row pins nothing, and that took two goes.** It first shipped hard-wired to
+Piper, which made Kokoro, Fish Audio, Azure and ElevenLabs unreachable from a
+call while all four sat in the catalogue — the synthesis route takes any of them
+via `tts::from_id`, so the only thing that ever excluded them was one literal at
+the call site. The row now publishes no engine, no voice and no model: those are
+existing product choices with their own pickers, and the pre-call screen shows
+them again. Those two `EngineLine` rows and the voice picker beside them already
+existed and went dark when the old `pipeline` engine was retired; the row brings
+them back rather than growing a second set.
+
+It is deliberately NOT called `local`. The pipeline is local when both engines
+are — Whisper and Piper — and is not when somebody picks Fish Audio or Azure to
+speak. Whether audio leaves the machine is the one claim a person has to be able
+to trust, so it is computed from the engines actually chosen and never asserted
+by the row. `/runtime/voice/speak` reads the stored base URL and model as well as
+the key, or Azure and ElevenLabs would be offered and fail every call — the same
+shape as the hard-coded Piper, one layer down.
+
 Two rules the table now carries explicitly rather than by inference:
 
-- **`local` needs no key.** It is resolved before the key check, or the option
+- **The pipeline needs no key.** It is resolved before the key check, or the option
   whose entire point is needing nothing would be told it has nothing stored.
-- **`local` is never the silent default.** It is excluded from the unset
+- **The pipeline is never the silent default.** It is excluded from the unset
   fallback. It always "has" credentials, so including it would make it
   everybody's default the moment a machine had no cloud key — and where a
   person's voice goes is not a choice to make for them in either direction.

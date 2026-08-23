@@ -68,8 +68,12 @@ export interface S2sProviderInfo {
   label: string;
   voices: string[];
   default_voice: string;
-  /** Runs on this machine — no key, and nothing leaves the device. */
-  local: boolean;
+  /**
+   * Assembled from the app's own STT / model / TTS choices rather than being one
+   * vendor's session. Whether anything leaves the device is decided by those
+   * engines, not by this flag.
+   */
+  pipeline: boolean;
   connected: boolean;
 }
 
@@ -926,7 +930,7 @@ const raw = {
   // Rejects with `livekit-no-node` when no Node runtime is installed — a code
   // rather than a sentence, because the answer needs a link the UI can put in
   // the user's language.
-  startLivekitCall:     (provider?: string | null, voice?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null }),
+  startLivekitCall:     (provider?: string | null, voice?: string | null, ttsEngine?: string | null, sttModel?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, ttsEngine: ttsEngine ?? null, sttModel: sttModel ?? null }),
   endLivekitCall:       () => invoke<void>('end_livekit_call'),
   // Which speech-to-speech vendors this build can run a call on, and which of
   // them actually have a key. Asked of Rust rather than listed here: the same
