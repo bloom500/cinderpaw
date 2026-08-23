@@ -36,3 +36,36 @@ describe('useUI: the settings that no longer have a switch', () => {
     expect(merged.theme).toBe('light');
   });
 });
+
+/**
+ * The retired call engines.
+ *
+ * `pipeline` and `live` are gone from the picker and their code still runs, so
+ * the only thing standing between a returning user and a retired engine is the
+ * migration in `merge`. Exactly the shape of the test above, and for exactly
+ * the same reason: dropping something from the UI does not drop it from the
+ * blob that rehydration merges over the defaults, so the install that has been
+ * using voice the longest is the one that would never move.
+ */
+describe('useUI: engines that are retired rather than deleted', () => {
+  const merge = () => useUI.persist.getOptions().merge!;
+  const rehydrate = (persisted: Record<string, unknown>) =>
+    merge()(persisted, useUI.getState()) as ReturnType<typeof useUI.getState>;
+
+  it('defaults a fresh install to LiveKit with no provider picked', () => {
+    expect(useUI.getState().callEngine).toBe('livekit');
+    // null is a working state, not a broken one: Rust falls back to whichever
+    // provider has a key. Asserted so nobody "fixes" it to a vendor id.
+    expect(useUI.getState().s2sProvider).toBeNull();
+  });
+
+  it.each(['pipeline', 'live'] as const)('moves a stored %s engine to livekit', (retired) => {
+    expect(rehydrate({ callEngine: retired }).callEngine).toBe('livekit');
+  });
+
+  it('leaves a stored livekit choice and the provider alone', () => {
+    const merged = rehydrate({ callEngine: 'livekit', s2sProvider: 'openai' });
+    expect(merged.callEngine).toBe('livekit');
+    expect(merged.s2sProvider).toBe('openai');
+  });
+});
