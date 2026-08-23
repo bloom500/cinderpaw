@@ -458,7 +458,12 @@ describe('no component writes text in a raw Tailwind colour', () => {
     'emerald|green|lime|teal|rose|red|pink|amber|yellow|orange|sky|blue|cyan|indigo|violet|purple|fuchsia';
   const OFFENDER = new RegExp(String.raw`(?<![\w-])(?:[a-z-]+:)*text-(?:${FAMILIES})-\d{2,3}(?:/\d{1,3})?(?![\w-])`, 'g');
 
-  test('src/**/*.tsx', async () => {
+  // Twenty seconds, not the default five. This reads every .ts/.tsx in the repo
+  // from disk, so its runtime tracks the size of the codebase and the load on
+  // the machine, not the logic it checks — it took 7.2s on a box that was also
+  // compiling. A whole-repo guard that fails at random is a guard that gets
+  // rerun until it passes, and then ignored.
+  test('src/**/*.tsx', { timeout: 20_000 }, async () => {
     const { globSync } = await import('node:fs');
     const files = globSync('src/**/*.{ts,tsx}').filter((f) => !f.includes('test'));
     const offenders = files.flatMap((file) => {
