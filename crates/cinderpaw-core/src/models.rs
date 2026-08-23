@@ -18,6 +18,12 @@ pub struct ModelInfo {
     pub ctx_len: Option<u32>,
     pub loaded: bool,
     pub modelfile: Option<Modelfile>,
+    /// True for a model that turns text into vectors and cannot hold a
+    /// conversation. Carried on the struct rather than re-derived per caller,
+    /// because there are fourteen callers and the ones that must NOT filter —
+    /// the embedder looking for its own model, a screen that lists what is on
+    /// disk to delete it — are as important as the ones that must.
+    pub is_embedding: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, specta::Type)]
@@ -53,6 +59,7 @@ pub fn scan_models_dir() -> Result<Vec<ModelInfo>> {
                 .to_string();
             let quant = parse_quant(&name);
             let modelfile = load_modelfile(&path);
+            let embedding = is_embedding_model(&name);
             out.push(ModelInfo {
                 id: name.clone(),
                 name,
@@ -62,10 +69,32 @@ pub fn scan_models_dir() -> Result<Vec<ModelInfo>> {
                 ctx_len: modelfile.as_ref().and_then(|m| m.ctx_len),
                 loaded: false,
                 modelfile,
+                is_embedding: embedding,
             });
         }
     }
     Ok(out)
+}
+
+/// Whether a GGUF on disk is an embedding model rather than something that can
+/// answer.
+///
+/// By filename, which is a heuristic, and the honest reason it is good enough:
+/// these families ship under their own names and nobody renames them, because
+/// the file arrives from a downloader that names it. The alternative — reading
+/// the GGUF header for a missing chat template — means opening every file on
+/// every scan, and the scan runs on screens that just want a list.
+///
+/// Wrong in the safe direction if it ever misses one: the load path refuses
+/// embedding models too, so a miss here costs a confusing entry in a picker,
+/// not a broken chat.
+///
+/// ponytail: name match. Read the GGUF metadata if a model ever slips through.
+pub fn is_embedding_model(name: &str) -> bool {
+    let n = name.to_lowercase();
+    ["bge", "e5-", "gte-", "embed", "minilm", "nomic-embed", "all-mpnet"]
+        .iter()
+        .any(|m| n.contains(m))
 }
 
 pub(crate) fn parse_quant(name: &str) -> Option<String> {
@@ -316,5 +345,16 @@ mod tests {
         // Q4_K_M should be found before Q4_K_S in the list
         let result = parse_quant("model.Q4_K_M.gguf");
         assert_eq!(result.as_deref(), Some("Q4_K_M"));
+    }
+
+    #[test]
+    fn embedding_models_are_not_chat_models() {
+        // The one that actually shipped on every machine and broke a session.
+        assert!(is_embedding_model("bge-m3-Q8_0.gguf"));
+        assert!(is_embedding_model("nomic-embed-text-v1.5.gguf"));
+        assert!(is_embedding_model("all-MiniLM-L6-v2.gguf"));
+        // Real chat models must survive, including one carrying a capital E.
+        assert!(!is_embedding_model("Qwen3.8-4B-Q6_K.gguf"));
+        assert!(!is_embedding_model("Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"));
     }
 }

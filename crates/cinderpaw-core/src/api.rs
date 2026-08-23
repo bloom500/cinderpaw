@@ -778,8 +778,16 @@ const CHAT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12
 /// minutes, which is indistinguishable from the app having died. Twenty seconds
 /// is about the longest anyone holds a phone to their ear hearing nothing.
 ///
-/// The same number, and the same reasoning, as the engine this replaces.
-const VOICE_TOOL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
+/// Forty-five, not the twenty this and the old engine both used, because
+/// twenty was measured against SILENCE and the caller is no longer silent: the
+/// tool declaration tells the model to keep talking while it waits. What twenty
+/// actually bought was a second round trip. Real spoken questions timed on
+/// 2026-08-24 took 10.7s, 9.8s and over 20s, so the commonest thing a call
+/// reaches for — a web search — sat right on the line. Past the deadline the
+/// model is handed "still working" and has to ask AGAIN, and the re-ask is
+/// keyed on the exact request string: rephrase one word while asking twice and
+/// the entire search starts from nothing. Waiting once beats restarting.
+const VOICE_TOOL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(45);
 
 /// Work that outlived its deadline, keyed by the request that started it.
 ///
@@ -2497,7 +2505,14 @@ async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
 async fn runtime_models(State(state): State<ApiState>) -> impl IntoResponse {
     let active = state.runtime.manager.current().map(|m| m.name);
     let local = models::scan_models_dir().unwrap_or_default();
-    let mut ids: Vec<String> = local.into_iter().map(|m| m.id).collect();
+    // Embedding models are on disk but are not answers. bge-m3 arrives on every
+    // machine automatically, because memory needs it — so on a FRESH install it
+    // sits in this list next to the real models, looking exactly like one, and
+    // picking it loads a 335M encoder with no chat template that then cannot
+    // reply to anything. That is not a hypothetical: it happened here on
+    // 2026-08-23 and read as "the app is broken".
+    let mut ids: Vec<String> =
+        local.into_iter().filter(|m| !m.is_embedding).map(|m| m.id).collect();
     // Merge BYOK cloud models. Each entry is tagged `provider:model` so the
     // /runtime/model handler can match without a separate lookup table.
     let settings = crate::settings::load();
@@ -2537,6 +2552,21 @@ struct SetModelReq {
 /// provider's `default_model`.
 async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetModelReq>) -> Response {
     let requested = req.id.trim().to_string();
+
+    // Refused here as well as hidden from the list, because the list is not the
+    // only way in: a stale `active_route` in settings.json, a saved preset, or
+    // anything calling this endpoint directly all arrive past that filter. A
+    // sentence naming the reason beats a model that loads and then answers
+    // nothing, which is what this cost on 2026-08-23.
+    if crate::models::is_embedding_model(&requested) {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!(
+                "'{requested}' is an embedding model — it turns text into vectors for memory and search, and cannot hold a conversation. Pick a chat model, or add one in Models."
+            ),
+        )
+            .into_response();
+    }
 
     // ── Cloud / BYOK path ────────────────────────────────────────────────
     // Two accepted shapes: `provider:model` (precise) or `provider` alone
@@ -3058,6 +3088,7 @@ mod tests {
             ctx_len: None,
             loaded: false,
             modelfile: None,
+            is_embedding: crate::models::is_embedding_model(id),
         }
     }
 
