@@ -134,6 +134,8 @@ pub(crate) async fn start_livekit_call(
     // are passed in rather than read here so there is one source of truth.
     tts_engine: Option<String>,
     stt_model: Option<String>,
+    stt_provider: Option<String>,
+    stt_language: Option<String>,
 ) -> Result<LiveKitCall, String> {
     GENERATION.fetch_add(1, Ordering::SeqCst);
 
@@ -175,6 +177,8 @@ pub(crate) async fn start_livekit_call(
         // any of them, so the only thing that ever excluded them was this line.
         tts_engine,
         stt_model,
+        stt_provider,
+        stt_language,
         move |event| {
             // Failing to emit is not worth interrupting a call over: the audio
             // path is unaffected, and the person is mid-sentence.

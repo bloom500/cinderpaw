@@ -597,6 +597,11 @@ pub async fn start(
     // read here so this module keeps one source of truth for them.
     tts_engine: Option<String>,
     stt_model: Option<String>,
+    // `local` or a cloud id, and the language the app already knows the user
+    // speaks. Both belong to settings that exist; they are passed rather than
+    // read here so there is one source of truth for each.
+    stt_provider: Option<String>,
+    stt_language: Option<String>,
     // What the agent says while the call runs — transcripts of both sides, and
     // the errors worth a sentence on screen. Taken as a callback rather than
     // returned, because these arrive for as long as the call lasts and the
@@ -715,7 +720,9 @@ pub async fn start(
                 );
             }
             cmd.env("CINDERPAW_LIVE_TTS_ENGINE", tts_engine.as_deref().unwrap_or("piper"))
-                .env("CINDERPAW_LIVE_STT_MODEL", stt_model.as_deref().unwrap_or("small"));
+                .env("CINDERPAW_LIVE_STT_MODEL", stt_model.as_deref().unwrap_or("small"))
+                .env("CINDERPAW_LIVE_STT_PROVIDER", stt_provider.as_deref().unwrap_or("local"))
+                .env("CINDERPAW_LIVE_STT_LANGUAGE", stt_language.as_deref().unwrap_or(""));
         }
         cmd.env("CINDERPAW_LIVE_PROVIDER", p.id)
             .env("CINDERPAW_LIVE_API_KEY", k)

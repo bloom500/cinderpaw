@@ -335,8 +335,17 @@ Two rules the table now carries explicitly rather than by inference:
   everybody's default the moment a machine had no cloud key — and where a
   person's voice goes is not a choice to make for them in either direction.
 
-Not verified end to end: a real on-device call needs a downloaded Whisper model
-and a Piper voice on the machine running it. Compilation, the provider table,
+Groq is wired for the listening half too: `/runtime/voice/transcribe` takes a
+`provider`, and the cloud branch encodes the worker's PCM into a WAV in memory —
+the existing Tauri command takes a file path, and the worker has frames. Same
+endpoint, model and vocabulary prompt as a voice message, so a call and a
+message are not transcribed by two subtly different requests. The cloud branch
+is checked FIRST: falling through to local when a key is missing would
+transcribe on the machine while the screen said Groq, which is the screen lying
+about where somebody's voice went.
+
+Not verified end to end: a real call needs a downloaded Whisper model and a
+Piper voice on the machine running it. Compilation, the provider table,
 the resolution rules and the agent's syntax are covered; the audio path is not.
 
 ## Next

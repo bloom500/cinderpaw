@@ -63,6 +63,10 @@ const VOICE = process.env.CINDERPAW_LIVE_VOICE || '';
 const INSTRUCTIONS = process.env.CINDERPAW_LIVE_INSTRUCTIONS || '';
 /** Local pipeline only: which on-device engines to use. */
 const STT_MODEL = process.env.CINDERPAW_LIVE_STT_MODEL || 'small';
+/** `local` (Whisper here) or a cloud id such as `groq`. */
+const STT_PROVIDER = process.env.CINDERPAW_LIVE_STT_PROVIDER || 'local';
+/** ISO-639-1 the app already knows the user speaks. */
+const STT_LANGUAGE = process.env.CINDERPAW_LIVE_STT_LANGUAGE || '';
 const TTS_ENGINE = process.env.CINDERPAW_LIVE_TTS_ENGINE || 'piper';
 
 /**
@@ -103,7 +107,7 @@ class LocalSTT extends stt.STT {
     super({ streaming: false, interimResults: false });
   }
   get provider() { return 'cinderpaw'; }
-  get model() { return STT_MODEL; }
+  get model() { return STT_PROVIDER === 'local' ? STT_MODEL : STT_PROVIDER; }
 
   async _recognize(buffer) {
     const { data, sampleRate } = flatten(buffer);
@@ -111,16 +115,28 @@ class LocalSTT extends stt.STT {
     const res = await fetch(`${API_URL}/runtime/voice/transcribe`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
-      body: JSON.stringify({ pcm: Array.from(pcm), model_size: STT_MODEL }),
+      body: JSON.stringify({
+        pcm: Array.from(pcm),
+        model_size: STT_MODEL,
+        provider: STT_PROVIDER,
+        language: STT_LANGUAGE || undefined,
+      }),
     });
     if (!res.ok) {
       const why = await res.text();
       // Thrown, not returned empty. An empty transcript is indistinguishable
       // from a person who said nothing, and "the model is not downloaded" is
       // exactly the failure somebody can act on if they are told.
-      throw new Error(why === 'model-missing'
-        ? 'The local transcription model is not downloaded yet (Settings → General).'
-        : `Local transcription failed: ${why}`);
+      // Each of these is something a person can act on, so each is named.
+      // A single "transcription failed" would send somebody looking at their
+      // microphone when the real answer is a missing key or a missing file.
+      if (why === 'model-missing') {
+        throw new Error('The local transcription model is not downloaded yet (Settings → General).');
+      }
+      if (why === 'stt-no-key') {
+        throw new Error(`No ${STT_PROVIDER} key is stored, so this call cannot hear you.`);
+      }
+      throw new Error(`Transcription failed: ${why}`);
     }
     const { text } = await res.json();
     return {

@@ -930,7 +930,7 @@ const raw = {
   // Rejects with `livekit-no-node` when no Node runtime is installed — a code
   // rather than a sentence, because the answer needs a link the UI can put in
   // the user's language.
-  startLivekitCall:     (provider?: string | null, voice?: string | null, ttsEngine?: string | null, sttModel?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, ttsEngine: ttsEngine ?? null, sttModel: sttModel ?? null }),
+  startLivekitCall:     (provider?: string | null, voice?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: pipeline?.sttLanguage ?? null }),
   endLivekitCall:       () => invoke<void>('end_livekit_call'),
   // Which speech-to-speech vendors this build can run a call on, and which of
   // them actually have a key. Asked of Rust rather than listed here: the same

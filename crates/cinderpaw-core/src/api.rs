@@ -870,6 +870,95 @@ async fn runtime_voice_speak(
         .into_response()
 }
 
+/// Proper nouns Whisper has never heard, biasing decoding toward the spellings
+/// this app uses. "Cinderpaw" came back as Mouth, Molaus, Paula and Mose across
+/// one evening of testing, and every miss became a message the agent had to
+/// answer as if it were a different word.
+pub const STT_PROPER_NOUNS: &str = "Cinderpaw, Cubby, Bloom, Darius, Piper, Kokoro.";
+
+/// 16-bit mono PCM wrapped in a WAV header.
+///
+/// Written by hand rather than pulled in as a dependency: it is 44 bytes of
+/// little-endian fields, and the cloud transcribers want a container rather
+/// than a naked buffer. The worker has frames, not files.
+fn wav_from_f32(pcm: &[f32], rate: u32) -> Vec<u8> {
+    let data_len = (pcm.len() * 2) as u32;
+    let mut out = Vec::with_capacity(44 + data_len as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes()); // PCM chunk size
+    out.extend_from_slice(&1u16.to_le_bytes()); // format: PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // channels
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * 2).to_le_bytes()); // byte rate
+    out.extend_from_slice(&2u16.to_le_bytes()); // block align
+    out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for s in pcm {
+        out.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+    }
+    out
+}
+
+/// Transcribe through a hosted recogniser.
+///
+/// Only Groq is wired, matching `commands::voice::transcribe_audio_cloud` — the
+/// same endpoint, model and vocabulary prompt, so a call and a voice message are
+/// not transcribed by two subtly different requests.
+async fn transcribe_cloud(provider: &str, pcm: &[f32], language: Option<&str>) -> Response {
+    let endpoint = match provider {
+        "groq" => "https://api.groq.com/openai/v1/audio/transcriptions",
+        other => {
+            return (StatusCode::BAD_REQUEST, format!("no cloud transcriber called {other:?}"))
+                .into_response()
+        }
+    };
+    let Some(key) = crate::byok::byok_get(provider) else {
+        // Named, so the worker can say which key is missing rather than
+        // reporting that the call cannot hear.
+        return (StatusCode::SERVICE_UNAVAILABLE, "stt-no-key").into_response();
+    };
+    let part = match reqwest::multipart::Part::bytes(wav_from_f32(pcm, 16_000))
+        .file_name("audio.wav")
+        .mime_str("audio/wav")
+    {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    let mut form = reqwest::multipart::Form::new()
+        .text("model", "whisper-large-v3")
+        .text("prompt", STT_PROPER_NOUNS)
+        .part("file", part);
+    if let Some(lang) = language.map(str::trim).filter(|l| !l.is_empty()) {
+        form = form.text("language", lang.to_string());
+    }
+    let res = reqwest::Client::new()
+        .post(endpoint)
+        .bearer_auth(key)
+        .multipart(form)
+        .timeout(std::time::Duration::from_secs(60))
+        .send()
+        .await;
+    match res {
+        Ok(r) if r.status().is_success() => match r.json::<serde_json::Value>().await {
+            Ok(v) => Json(serde_json::json!({
+                "text": v.get("text").and_then(|t| t.as_str()).unwrap_or_default()
+            }))
+            .into_response(),
+            Err(e) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+        },
+        Ok(r) => {
+            let code = r.status();
+            let why = r.text().await.unwrap_or_default();
+            tracing::warn!(%code, "voice transcribe: cloud refused");
+            (StatusCode::BAD_GATEWAY, format!("stt-cloud-failed: {}", why)).into_response()
+        }
+        Err(e) => (StatusCode::BAD_GATEWAY, format!("stt-cloud-failed: {e}")).into_response(),
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct TranscribeRequest {
     /// 16 kHz mono f32, which is what Whisper wants and what the worker
@@ -877,6 +966,15 @@ struct TranscribeRequest {
     pcm: Vec<f32>,
     #[serde(default)]
     model_size: Option<String>,
+    /// `local` (Whisper on this machine) or a cloud id such as `groq`.
+    #[serde(default)]
+    provider: Option<String>,
+    /// ISO-639-1 hint. Whisper treats it as an OVERRIDE, so it is only ever the
+    /// caller's explicit choice — feeding back what was detected last time made
+    /// the loop self-sealing, and a user switching language could never be
+    /// heard again.
+    #[serde(default)]
+    language: Option<String>,
 }
 
 /// Transcribe one utterance on this machine.
@@ -890,6 +988,14 @@ async fn runtime_voice_transcribe(
     State(_state): State<ApiState>,
     Json(req): Json<TranscribeRequest>,
 ) -> Response {
+    // A cloud transcriber is a different door, and it is checked first: falling
+    // through to the local branch when a key is missing would transcribe on the
+    // machine while the screen said Groq, which is the screen lying about where
+    // somebody's voice went.
+    let provider = req.provider.as_deref().unwrap_or("local");
+    if provider != "local" {
+        return transcribe_cloud(provider, &req.pcm, req.language.as_deref()).await;
+    }
     let size = req.model_size.unwrap_or_else(|| "small".into());
     let model_path = crate::paths::whisper_model_path(&size);
     if !model_path.exists() {
