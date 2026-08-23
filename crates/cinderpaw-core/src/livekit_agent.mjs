@@ -68,6 +68,17 @@ const STT_PROVIDER = process.env.CINDERPAW_LIVE_STT_PROVIDER || 'local';
 /** ISO-639-1 the app already knows the user speaks. */
 const STT_LANGUAGE = process.env.CINDERPAW_LIVE_STT_LANGUAGE || '';
 const TTS_ENGINE = process.env.CINDERPAW_LIVE_TTS_ENGINE || 'piper';
+/**
+ * Whether this call is the assembled local pipeline rather than a vendor's
+ * speech-to-speech session.
+ *
+ * Sent by Rust as a flag rather than inferred from the provider id here. The id
+ * is Rust's to name, and a second file comparing it against a hard-coded string
+ * is a second opinion that is free to be wrong — which it was: this read
+ * `'local'` while the table said `'pipeline'`, so the whole local mode was
+ * unreachable and became an echo with no explanation anywhere.
+ */
+const PIPELINE = process.env.CINDERPAW_LIVE_PIPELINE === '1';
 
 /**
  * How each vendor's realtime model is constructed.
@@ -258,9 +269,26 @@ function toFloat32(data, from, to) {
   return out;
 }
 
+/**
+ * Loading a vendor's plugin, kept separate from constructing its model.
+ *
+ * The load is the slow half — a module graph plus native bindings, seconds of
+ * it — and it is the half that can happen BEFORE anyone is in the room. See
+ * `prewarm` at the bottom: it calls these, the module system caches the result,
+ * and the `await import` inside `REALTIME` below is then free. Constructing the
+ * model early would be the wrong thing to hoist: it may open a session, and a
+ * session opened for a call nobody has started yet is a vendor bill for silence.
+ */
+const PLUGIN = {
+  google: () => import('@livekit/agents-plugin-google'),
+  openai: () => import('@livekit/agents-plugin-openai'),
+  // Not a vendor: the voice activity detector the local pipeline needs.
+  pipeline: () => import('@livekit/agents-plugin-silero'),
+};
+
 const REALTIME = {
   google: async () => {
-    const google = await import('@livekit/agents-plugin-google');
+    const google = await PLUGIN.google();
     return new google.beta.realtime.RealtimeModel({
       apiKey: API_KEY,
       model: MODEL || 'gemini-2.5-flash-native-audio-latest',
@@ -283,7 +311,7 @@ const REALTIME = {
     });
   },
   openai: async () => {
-    const openai = await import('@livekit/agents-plugin-openai');
+    const openai = await PLUGIN.openai();
     return new openai.realtime.RealtimeModel({
       apiKey: API_KEY,
       model: MODEL || 'gpt-realtime',
@@ -347,6 +375,16 @@ async function askRust(name, args) {
   }
 }
 
+/**
+ * One line per event, on stdout, for Rust to forward to the window.
+ *
+ * A prefix rather than a side channel because the pipe already exists and a
+ * second one is a second thing that can be half-connected. Module level rather
+ * than inside `assistant`, because tool calls happen there too and they were
+ * the events nobody could see.
+ */
+const emit = (obj) => console.log('CINDERPAW_EVENT ' + JSON.stringify(obj));
+
 /** Build the LiveKit tool set from what Rust declared. */
 function toolsFromDeclarations() {
   const out = {};
@@ -359,7 +397,18 @@ function toolsFromDeclarations() {
       // The agent's turn takes around twenty-five seconds, which is why the
       // declaration tells the model to keep talking while it waits. Nothing
       // here needs a timeout: a call that ends takes the process with it.
-      execute: async (args) => askRust(decl.name, args),
+      execute: async (args) => {
+        // The call screen has a panel that shows what the agent is doing, and
+        // for a LiveKit call it was always blank: `ask_cinder` is answered over
+        // the loopback API, which the webview never sees. So a person asked for
+        // something, watched nothing happen for up to a hundred seconds, and
+        // reasonably concluded the tool was broken. These two lines are the
+        // only thing that ever told them otherwise.
+        emit({ kind: 'toolCall', text: String(args?.request ?? '').trim() });
+        const out = await askRust(decl.name, args);
+        emit({ kind: 'toolResult', text: out?.ok === false ? String(out.output ?? 'failed') : '' });
+        return out;
+      },
     });
   }
   return out;
@@ -427,12 +476,24 @@ async function assistant(ctx, makeSession) {
   // One line per event, on stdout, for Rust to forward to the window. A prefix
   // rather than a side channel because the pipe already exists and a second one
   // is a second thing that can be half-connected.
-  const emit = (obj) => console.log('CINDERPAW_EVENT ' + JSON.stringify(obj));
 
   session.on(AgentSessionEventTypes.UserInputTranscribed, (e) => {
-    // Interim results change several times a second. Forwarding them would put
-    // a flickering half-sentence on screen; the final one is the transcript.
-    if (e.isFinal && e.transcript?.trim()) emit({ kind: 'heard', text: e.transcript.trim() });
+    // Interim results ARE forwarded, flagged as partial, and this is the whole
+    // difference between a call that feels alive and one that reads as broken.
+    //
+    // This used to drop everything but `isFinal`, reasoning that a flickering
+    // half-sentence is worse than a clean one. The reasoning was wrong about
+    // WHEN the final arrives: with a native-audio realtime model it lands after
+    // the turn is processed, so the screen stayed empty for five to ten seconds
+    // while somebody was still talking — and longer as the conversation grew,
+    // up to half a minute. A person watching their own words not appear
+    // concludes the microphone is dead. The first-run version of that person
+    // concludes the product is.
+    //
+    // The receiver decides what to do with a partial: show it, and write only
+    // the final into the conversation, so a sentence is not persisted ten times.
+    const text = e.transcript?.trim();
+    if (text) emit({ kind: 'heard', text, partial: !e.isFinal });
   });
 
   session.on(AgentSessionEventTypes.ConversationItemAdded, (e) => {
@@ -512,22 +573,55 @@ async function assistant(ctx, makeSession) {
  * submit all of it at once.
  */
 async function pipeline(ctx) {
-  const silero = await import('@livekit/agents-plugin-silero');
+  // Loaded during prewarm when there was one, which is the whole point of
+  // prewarm: `VAD.load()` reads a model off disk and costs seconds, and paying
+  // that after the room opens is seconds of a person waiting in silence. The
+  // fallback is not dead code — a job can land on a process that was never
+  // idled, and a call that works slowly beats a call that throws.
+  const vad = ctx.proc?.userData?.vad ?? (await PLUGIN.pipeline().then((s) => s.VAD.load()));
   const session = new voice.AgentSession({
     stt: new LocalSTT(),
     llm: new LocalLLM(),
     tts: new LocalTTS(),
-    vad: await silero.VAD.load(),
+    vad,
   });
   return session;
 }
 
 export default defineAgent({
+  /**
+   * Everything slow that can happen before anybody is in the room.
+   *
+   * The Agents SDK runs each call in a forked child, and with idle processes
+   * configured (see `WorkerOptions` below) that child is started and prewarmed
+   * while the app is still showing the call button. Without this the fork was
+   * cold: it started only once the room opened, then loaded the SDK, the vendor
+   * plugin and — for the pipeline — the VAD model, all while the person stared
+   * at a connecting screen. That was the five to ten seconds.
+   *
+   * Failure here is logged and swallowed on purpose. A prewarm that throws
+   * takes the whole process down and the call never happens; a prewarm that
+   * gives up leaves the load to `entry`, which is exactly the old behaviour.
+   */
+  prewarm: async (proc) => {
+    try {
+      if (PIPELINE) {
+        const silero = await PLUGIN.pipeline();
+        proc.userData.vad = await silero.VAD.load();
+      } else if (API_KEY && PLUGIN[PROVIDER]) {
+        await PLUGIN[PROVIDER]();
+      }
+    } catch (e) {
+      console.error(`prewarm did not finish (${String(e?.message ?? e)}); loading on first call`);
+    }
+  },
   entry: async (ctx) => {
     await ctx.connect();
-    // Local needs no key at all — that is the whole reason it exists — so it is
-    // checked before the key test rather than falling through it.
-    if (PROVIDER === 'local') {
+    // A flag from Rust, not a provider id compared against a literal. The id
+    // lived in two files and they disagreed — Rust sends `pipeline`, this read
+    // `local` — so every local call silently fell through to echo: no
+    // assistant, no tools, no ask_cinder, and nothing on screen saying why.
+    if (PIPELINE) {
       await assistant(ctx, pipeline);
     } else if (API_KEY && PROVIDER) {
       // Both halves have to be present. A provider with no key authenticates
@@ -549,5 +643,33 @@ cli.runApp(
     wsURL: process.env.LIVEKIT_URL,
     apiKey: process.env.LIVEKIT_API_KEY,
     apiSecret: process.env.LIVEKIT_API_SECRET,
+
+    // Everything below is what the SDK would otherwise decide from the CLI verb,
+    // and every one of those defaults is wrong for an app that hosts its own
+    // server for one person on one machine.
+    //
+    // One warm child, waiting. Rust runs this with `start` (production) rather
+    // than `dev` for exactly this: `dev` sets idle processes to ZERO, so the
+    // fork that runs the call began at the moment the room opened and had to
+    // load the SDK, the vendor plugin and the VAD before it could join. One is
+    // enough — this is a single call for a single person, and each idle child
+    // is a whole Node process sitting in RAM.
+    numIdleProcesses: 1,
+    // Prewarm now does real work — for the pipeline it loads a VAD model from
+    // disk, which on a cold machine is not a ten-second job. The default would
+    // kill the child mid-load and then keep retrying it.
+    initializeProcessTimeout: 60_000,
+    // Production mode otherwise refuses jobs once the machine is 70% busy. That
+    // is right for a fleet of workers with a queue behind them and wrong here:
+    // this machine is ALSO running the local model and Whisper, so the one
+    // moment a call is most wanted is the moment the worker would decline it —
+    // and a declined job is a call where nobody ever joins and nothing says why.
+    loadThreshold: Infinity,
+    // The worker's own health endpoint, which Rust polls to know the far end is
+    // registered. Given a port Rust picked from what the OS said was free, and
+    // bound to loopback: production's defaults are 0.0.0.0:8081, i.e. a fixed
+    // port anything else can already hold, listening on somebody's home network.
+    host: '127.0.0.1',
+    port: Number(process.env.CINDERPAW_WORKER_PORT) || undefined,
   }),
 );

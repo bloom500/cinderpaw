@@ -48,6 +48,13 @@ struct Ports {
     http: u16,
     rtc_tcp: u16,
     rtc_udp: (u16, u16),
+    /// The agent worker's own health endpoint, which is how we know the far end
+    /// is registered. Chosen here for the same reason as the rest: run the
+    /// worker in production mode and the SDK's default is a FIXED 8081 on every
+    /// interface — a port a second app instance, or anything else on the
+    /// machine, can already hold, and a listening socket on somebody's home
+    /// network that nothing on screen mentions.
+    worker: u16,
 }
 
 /// Ask the OS for a free TCP port by binding to 0 and letting go.
@@ -82,7 +89,8 @@ fn pick_ports() -> Result<Ports, String> {
     // bigger race than the one above rather than a smaller one. High offset to
     // stay clear of both chosen ports.
     let base = 40_000 + (http % 20_000);
-    Ok(Ports { http, rtc_tcp, rtc_udp: (base, base + 10) })
+    let worker = free_port()?;
+    Ok(Ports { http, rtc_tcp, rtc_udp: (base, base + 10), worker })
 }
 
 /// Where the running server's pid is recorded, so a leaked one can be found.
@@ -771,11 +779,23 @@ pub async fn start(
 
     let mut cmd = Command::new(&node);
     cmd.arg(&script)
-        .arg("dev")
+        // `start`, not `dev`, and this is most of the five-to-ten seconds
+        // between pressing the button and being in the call. `dev` sets the
+        // SDK's idle-process count to ZERO, so the forked child that runs the
+        // call was created at the instant the room opened and then had to load
+        // the Agents SDK, the vendor's plugin and — for the local pipeline — a
+        // voice-activity model, with the person already waiting. `start`
+        // prewarms one child while the call button is still on screen.
+        //
+        // Every default `start` brings with it that would be wrong here is
+        // overridden in the agent's own `WorkerOptions` — see the bottom of
+        // `livekit_agent.mjs`.
+        .arg("start")
         .current_dir(script.parent().unwrap_or(&root))
         .env("LIVEKIT_URL", format!("ws://127.0.0.1:{}", ports.http))
         .env("LIVEKIT_API_KEY", key)
         .env("LIVEKIT_API_SECRET", &secret)
+        .env("CINDERPAW_WORKER_PORT", ports.worker.to_string())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -810,7 +830,14 @@ pub async fn start(
                     "This voice mode needs the local runtime, which is not running.".into()
                 );
             }
-            cmd.env("CINDERPAW_LIVE_TTS_ENGINE", tts_engine.as_deref().unwrap_or("piper"))
+            // Said as a flag. The agent used to compare `CINDERPAW_LIVE_PROVIDER`
+            // against a hard-coded `"local"` while this table calls the row
+            // `"pipeline"` — so every local call fell through to the echo
+            // branch: no assistant, no tools, no `ask_cinder`, and nothing
+            // anywhere saying why. One boolean beats two files agreeing on a
+            // string.
+            cmd.env("CINDERPAW_LIVE_PIPELINE", "1")
+                .env("CINDERPAW_LIVE_TTS_ENGINE", tts_engine.as_deref().unwrap_or("piper"))
                 .env("CINDERPAW_LIVE_STT_MODEL", stt_model.as_deref().unwrap_or("small"))
                 .env("CINDERPAW_LIVE_STT_PROVIDER", stt_provider.as_deref().unwrap_or("local"))
                 .env("CINDERPAW_LIVE_STT_LANGUAGE", stt_language.as_deref().unwrap_or(""));
@@ -851,46 +878,16 @@ pub async fn start(
     }
     let mut agent = cmd.spawn().map_err(|e| format!("cannot start the voice agent: {e}"))?;
 
-    let stdout = agent.stdout.take().ok_or("the voice agent produced no output")?;
-    let mut lines = BufReader::new(stdout).lines();
-    // Waiting for REGISTRATION, not for the agent to be in the room. The worker
-    // carries no agent name, so LiveKit dispatches it when a room opens — and
-    // the room does not exist until the webview joins. Waiting for a
-    // participant here would wait for something this function is upstream of.
-    let ready = tokio::time::timeout(std::time::Duration::from_secs(90), async {
-        while let Ok(Some(line)) = lines.next_line().await {
-            tracing::debug!("livekit agent: {line}");
-            if line.contains("registered worker") {
-                return true;
-            }
-        }
-        false
-    })
-    .await
-    .unwrap_or(false);
-
-    if !ready {
-        let mut why = String::new();
-        if let Some(mut err) = agent.stderr.take() {
-            use tokio::io::AsyncReadExt as _;
-            let _ = err.read_to_string(&mut why).await;
-        }
-        let _ = agent.start_kill();
-        let _ = server.start_kill();
-        return Err(format!(
-            "the voice agent never started. {}",
-            first_real_line(&why)
-        ));
-    }
-
-    // The agent's stderr, for as long as it runs.
-    //
-    // It used to be read only on the startup-failure path, which meant a crash
-    // DURING a call — the job throwing after the worker had already registered
-    // — produced nothing anywhere: no error on screen, no line in the log, just
-    // a call where nobody ever joined. That is the worst shape a failure can
-    // have, and it cost a debugging round.
+    // Both pipes are drained from the moment the child exists, and that is a
+    // correctness requirement rather than tidiness. stderr used to be read only
+    // on the startup-failure path, which means nothing read it during the wait
+    // below — and a child whose stderr pipe fills BLOCKS on its next write.
+    // Node writes deprecation warnings there unprompted, so the failure was a
+    // worker that had gone quiet mid-startup and a message on screen quoting a
+    // deprecation notice as the reason the call did not happen.
+    let stderr_tail = Arc::new(parking_lot::Mutex::new(String::new()));
     if let Some(err) = agent.stderr.take() {
+        let tail = stderr_tail.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(err).lines();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -898,24 +895,79 @@ pub async fn start(
                     continue;
                 }
                 tracing::warn!("livekit agent: {line}");
+                // Kept so a startup failure can still be explained, bounded so
+                // a long call cannot grow it without limit.
+                let mut buf = tail.lock();
+                if buf.len() > 8_192 {
+                    buf.clear();
+                }
+                buf.push_str(&line);
+                buf.push('\n');
             }
         });
     }
 
-    // Draining is mandatory regardless of who is listening: let the agent's
-    // stdout pipe fill and Node blocks on its next log line, which reads as a
-    // call that works for a minute and then freezes.
-    tokio::spawn(async move {
-        while let Ok(Some(line)) = lines.next_line().await {
-            match line.strip_prefix("CINDERPAW_EVENT ") {
-                Some(json) => match serde_json::from_str::<serde_json::Value>(json) {
-                    Ok(v) => on_event(v),
-                    Err(e) => tracing::warn!("livekit: unreadable agent event ({e}): {json}"),
-                },
-                None => tracing::debug!("livekit agent: {line}"),
+    // Draining stdout is mandatory regardless of who is listening, for the same
+    // reason: let the pipe fill and Node blocks on its next log line, which
+    // reads as a call that works for a minute and then freezes.
+    if let Some(stdout) = agent.stdout.take() {
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                match line.strip_prefix("CINDERPAW_EVENT ") {
+                    Some(json) => match serde_json::from_str::<serde_json::Value>(json) {
+                        Ok(v) => on_event(v),
+                        Err(e) => tracing::warn!("livekit: unreadable agent event ({e}): {json}"),
+                    },
+                    None => tracing::debug!("livekit agent: {line}"),
+                }
             }
+        });
+    }
+
+    // Ready is what the worker SAYS it is, asked over its own health endpoint,
+    // which answers 200 only once its websocket to the server is open — i.e.
+    // once it is registered and can be dispatched.
+    //
+    // This used to scrape stdout for the words "registered worker". That reads
+    // a log line as an API: it depends on the SDK's phrasing, on its log level,
+    // and on that one line surviving whatever else is being printed — and when
+    // any of those changed the call did not fail, it TIMED OUT, ninety seconds
+    // later, blaming whatever happened to be last on stderr. A worker that has
+    // registered can answer a question; that is a fact, not a string.
+    let worker_health = format!("http://127.0.0.1:{}/", ports.worker);
+    let mut ready = false;
+    for _ in 0..240 {
+        if reqwest::get(&worker_health).await.map(|r| r.status().is_success()).unwrap_or(false) {
+            ready = true;
+            break;
         }
-    });
+        // A worker that has exited is not going to answer, and waiting the full
+        // minute to say so puts the real reason a minute away from the button.
+        if let Ok(Some(status)) = agent.try_wait() {
+            let why = stderr_tail.lock().clone();
+            let _ = server.start_kill();
+            return Err(format!(
+                "the voice agent stopped straight away ({status}). {}",
+                if why.trim().is_empty() { "It stopped without saying why." } else { first_real_line(&why) }
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+
+    if !ready {
+        let why = stderr_tail.lock().clone();
+        let _ = agent.start_kill();
+        let _ = server.start_kill();
+        return Err(format!(
+            "the voice agent never started. {}",
+            if why.trim().is_empty() {
+                "It is still running but never registered with the local voice server."
+            } else {
+                first_real_line(&why)
+            }
+        ));
+    }
 
     tracing::info!("livekit: call up on {http}");
     Ok(Session {
