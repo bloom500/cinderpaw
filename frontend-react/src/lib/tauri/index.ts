@@ -937,6 +937,10 @@ const raw = {
   // table decides which npm plugin gets installed, and a second list in
   // TypeScript would be free to offer a vendor the agent cannot load.
   listS2sProviders:     () => invoke<S2sProviderInfo[]>('list_s2s_providers'),
+  // Whether this BINARY can transcribe on the machine. One frontend bundle
+  // ships against builds compiled with different features, so it cannot know
+  // from its own source whether the local path exists.
+  sttLocalAvailable:    () => invoke<boolean>('stt_local_available'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `cinderpaw://embedding-download-*`.

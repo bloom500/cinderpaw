@@ -302,11 +302,24 @@ it, reached over the same loopback API and the same bearer token the tool calls
 already use: two new routes, `/runtime/voice/speak` and
 `/runtime/voice/transcribe`. No new door, no new port, no second copy of a model.
 
-**`whisper` is now a default feature.** It never was, and no CI job enabled it,
-so `transcribe_audio` returned `voice-unavailable` in every build ever shipped —
-while Settings offered an on-device transcription model and the STT card offered
-"local". A control that could only fail, for everyone who did not compile their
-own. Cost: whisper-rs builds on every CI platform.
+**Local Whisper cannot ship, and now we know why.** `transcribe_audio` returns
+`voice-unavailable` in every build, because `whisper` is not a default feature —
+while Settings offered an on-device model and the STT card offered "local". That
+looked like an oversight, so it was turned on. CI rejected it within the hour:
+
+    LNK2005: ggml_abort already defined in libwhisper_rs_sys...
+    error: linking with `link.exe` failed: exit code: 1169
+
+`whisper-rs-sys` and `llama-cpp-sys-2` each vendor their OWN copy of ggml, so
+enabling both puts two definitions of every ggml symbol into one binary. It is
+not a flag to flip. Making local transcription real needs the two crates to
+share one ggml build, or whisper to run out-of-process — a piece of work, not a
+line in `Cargo.toml`.
+
+So the honest fix went the other way: the STT picker asks the binary
+(`stt_local_available`) and does not offer a choice that can only fail. The
+pipeline transcribes through Groq today. **Speaking is unaffected** — Piper and
+Kokoro are default features and work, so the Romanian voices are reachable.
 
 **The row pins nothing, and that took two goes.** It first shipped hard-wired to
 Piper, which made Kokoro, Fish Audio, Azure and ElevenLabs unreachable from a

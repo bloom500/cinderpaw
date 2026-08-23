@@ -35,6 +35,18 @@ export function VoiceProviderCard({
   const setSttProvider = useUI((s) => s.setSttProvider);
 
   const [choice, setChoice] = useState<SttProvider>(sttProvider ?? 'local');
+  // Whether the binary can transcribe here at all. `null` while unknown, so the
+  // row is not flickered away and back on every open.
+  const [localAvailable, setLocalAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void tauri.raw.sttLocalAvailable()
+      .then((v) => { if (alive) setLocalAvailable(v); })
+      // Unknown means show it: hiding the private option because a probe failed
+      // would quietly push somebody to the cloud one.
+      .catch(() => { if (alive) setLocalAvailable(true); });
+    return () => { alive = false; };
+  }, []);
   const [groqKey, setGroqKey] = useState('');
   const [hasGroqKey, setHasGroqKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -80,13 +92,20 @@ export function VoiceProviderCard({
         </DialogHeader>
 
         <div className="flex flex-col gap-2">
-          <OptionRow
-            active={choice === 'local'}
-            onClick={() => setChoice('local')}
-            icon={<Mic size={18} />}
-            title={t('voice.provider.local.title')}
-            desc={t('voice.provider.local.desc')}
-          />
+          {/* Only when the binary actually has it. `whisper-rs` and
+              `llama-cpp-sys` each vendor their own ggml and cannot be linked
+              together, so every build we ship answers `voice-unavailable` here
+              — and this row offered it anyway, which is a choice that can only
+              fail. See the note on `default` in src-tauri/Cargo.toml. */}
+          {localAvailable !== false && (
+            <OptionRow
+              active={choice === 'local'}
+              onClick={() => setChoice('local')}
+              icon={<Mic size={18} />}
+              title={t('voice.provider.local.title')}
+              desc={t('voice.provider.local.desc')}
+            />
+          )}
           <OptionRow
             active={choice === 'groq'}
             onClick={() => setChoice('groq')}

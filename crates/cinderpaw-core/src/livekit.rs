@@ -57,7 +57,19 @@ struct Ports {
 /// small, it fails loudly (the server exits, which `start` already checks for),
 /// and it is a far better failure than the silent one this replaces.
 fn free_port() -> Result<u16, String> {
-    std::net::TcpListener::bind("127.0.0.1:0")
+    // The WILDCARD, not loopback, and this is the whole bug it fixes.
+    //
+    // We asked "is this port free on 127.0.0.1?" while LiveKit binds its RTC
+    // TCP port on every interface — `netstat` shows `0.0.0.0:<p>` and
+    // `[::]:<p>`. Windows lets a socket bind 127.0.0.1:p while another holds
+    // 0.0.0.0:p, so the probe answered "free" for a port the server could not
+    // have. The server then exited during startup and the app reported that it
+    // "stopped straight away" with no usable reason.
+    //
+    // `docs/voice-livekit.md` finding 3 wrote this down — that `rtc.tcp_port`
+    // binds `::` regardless of `bind_addresses` — and this function did not
+    // heed it. Probing the wildcard asks the same question the server will.
+    std::net::TcpListener::bind("0.0.0.0:0")
         .and_then(|l| l.local_addr().map(|a| a.port()))
         .map_err(|e| format!("no free port for the voice server: {e}"))
 }
@@ -71,6 +83,39 @@ fn pick_ports() -> Result<Ports, String> {
     // stay clear of both chosen ports.
     let base = 40_000 + (http % 20_000);
     Ok(Ports { http, rtc_tcp, rtc_udp: (base, base + 10) })
+}
+
+/// Where the running server's pid is recorded, so a leaked one can be found.
+fn pid_file() -> PathBuf {
+    dir().join("server.pid")
+}
+
+/// Kill a server this app started and then lost.
+///
+/// `kill_on_drop` covers the tidy cases. It cannot cover the untidy one: on
+/// Windows a parent's death does not take its children with it, so a crash, a
+/// force-quit or a dev rebuild leaves `livekit-server.exe` running and holding
+/// the ports it bound. They accumulate one per crash, and the user sees a call
+/// that will not start with no process they know to look for.
+///
+/// The pid is checked against the process NAME before anything is signalled. A
+/// pid file outlives the process it names and the number gets reused, so
+/// killing it unchecked means eventually killing something else on the user's
+/// machine — which is a far worse bug than the one being fixed.
+fn reap_orphan_server() {
+    let Ok(raw) = std::fs::read_to_string(pid_file()) else { return };
+    let Ok(pid) = raw.trim().parse::<u32>() else { return };
+    let mut sys = sysinfo::System::new();
+    let target = sysinfo::Pid::from_u32(pid);
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[target]), true);
+    if let Some(proc) = sys.process(target) {
+        let name = proc.name().to_string_lossy().to_ascii_lowercase();
+        if name.starts_with("livekit-server") {
+            tracing::info!(pid, "livekit: killing a server left behind by an earlier run");
+            proc.kill();
+        }
+    }
+    let _ = std::fs::remove_file(pid_file());
 }
 
 /// A room name nobody has used before, for every call.
@@ -358,22 +403,59 @@ async fn fetch_server() -> Result<PathBuf, String> {
 /// "Node.js v24.14.1" — a message that is both useless and confidently wrong
 /// about what happened. The first line that names an error is the one that says
 /// what broke; failing that, the first line at all.
+/// The line that explains why a child process stopped.
+///
+/// Neither "the first line" nor "the last" is right, and assuming the first
+/// cost a real debugging session. The two children this module starts fail in
+/// opposite shapes:
+///
+/// * **Node** puts the reason first, then `at ...` frames, then a version
+///   banner. The last line is `Node.js v24.14.1`.
+/// * **LiveKit** opens every launch on Windows with a benign
+///   `ERROR ... CPU monitoring unsupported on current platform` and a full Go
+///   stack, carries on past it, and prints the fatal reason LAST
+///   (`listen tcp :61111: bind: ...`). Taking the first line handed the user a
+///   message about CPU monitoring for what was a port collision — worse than
+///   saying nothing, because it is a confident answer pointing away from the
+///   cause.
+///
+/// So: drop stack frames and banners, then take the LAST line that reads like a
+/// cause. Last, because a process that logs a survivable complaint and then
+/// dies has said the important thing second.
 fn first_real_line(raw: &str) -> &str {
-    let lines: Vec<&str> = raw.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-    lines
+    /// Substrings that make a line an explanation rather than a location.
+    const CAUSE: [&str; 8] =
+        ["error", "bind:", "failed", "cannot", "refused", "denied", "permitted", "panic"];
+
+    let meaningful: Vec<&str> = raw
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        // A stack frame is where it happened, not what happened.
+        .filter(|l| {
+            !l.contains(".go:")
+                && !l.starts_with("at ")
+                && !l.starts_with("github.com/")
+                && !l.starts_with("runtime.")
+                && !l.starts_with("main.")
+                && !l.starts_with('/')
+                // The runtime's own version banner, printed after a crash.
+                && !l.starts_with("Node.js v")
+        })
+        .collect();
+
+    meaningful
         .iter()
-        .find(|l| l.contains("Error") || l.contains("error"))
-        .or_else(|| lines.first())
+        .rev()
+        .find(|l| {
+            let lower = l.to_ascii_lowercase();
+            CAUSE.iter().any(|c| lower.contains(c))
+        })
+        .or_else(|| meaningful.last())
         .copied()
         .unwrap_or("No reason was reported.")
 }
 
-/// A random API secret, new for every call.
-///
-/// Not derived from anything (time, pid, install id) on purpose: the server is
-/// on loopback, but "on loopback" is not a boundary on a shared machine, and a
-/// secret anybody's clock can reconstruct is the same as no secret. Rotating it
-/// per call also means a leaked token dies with the call.
 fn random_secret() -> String {
     let mut raw = [0u8; 32];
     // A failure here means the OS has no entropy source. Refusing beats
@@ -630,6 +712,11 @@ pub async fn start(
     std::fs::write(&cfg, config_yaml(key, &secret, &ports))
         .map_err(|e| format!("cannot write the LiveKit config: {e}"))?;
 
+    // Before binding anything: a server from a run that ended badly still holds
+    // its ports, and picking around it forever is how a machine ends up with
+    // six of them.
+    reap_orphan_server();
+
     let mut server = Command::new(&server_bin)
         .arg("--config")
         .arg(&cfg)
@@ -638,6 +725,10 @@ pub async fn start(
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("cannot start the LiveKit server: {e}"))?;
+    // Recorded immediately, so a crash one line later is still recoverable.
+    if let Some(pid) = server.id() {
+        let _ = std::fs::write(pid_file(), pid.to_string());
+    }
 
     // Up means "answers HTTP", not "the process is alive". A server that exits
     // immediately — a taken port is the usual reason — leaves a live `Child`
@@ -891,6 +982,23 @@ Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './voice' is not defined
 Node.js v24.14.1
 ";
         assert!(first_real_line(node_crash).contains("ERR_PACKAGE_PATH_NOT_EXPORTED"));
+
+        // The transcript that started this: LiveKit complains about CPU
+        // monitoring at ERROR level, prints a Go stack, carries on, and then
+        // dies of a port collision. The user was shown the CPU line.
+        let livekit_bind_clash = "
+2026-08-23T14:19:43.058+0300	ERROR	livekit	hwstats/cpu_null.go:38	CPU monitoring unsupported on current platform. Server capacity management will be disabled
+github.com/livekit/protocol/utils/hwstats.newPlatformCPUMonitor
+	/home/runner/go/pkg/mod/github.com/livekit/protocol@v1.50.5/utils/hwstats/cpu_null.go:38
+main.startServer
+	/home/runner/work/livekit/livekit/cmd/server/main.go:299
+runtime.main
+	/opt/hostedtoolcache/go/1.26.5/x64/src/runtime/proc.go:290
+listen tcp :61111: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
+";
+        let reported = first_real_line(livekit_bind_clash);
+        assert!(reported.contains("bind:"), "reported {reported:?}");
+        assert!(!reported.contains("CPU monitoring"), "reported the banner: {reported:?}");
         assert_eq!(first_real_line("   
   
 "), "No reason was reported.");

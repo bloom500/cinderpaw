@@ -180,6 +180,22 @@ pub(crate) async fn download_whisper_model(
     Ok(key)
 }
 
+/// Whether this build can transcribe on the machine at all.
+///
+/// It cannot, in every build we ship: `whisper-rs-sys` and `llama-cpp-sys-2`
+/// each vendor their own ggml, so the two cannot be linked into one binary —
+/// see the note on `default` in `src-tauri/Cargo.toml`. The picker offered
+/// "local" anyway, which is a choice that can only fail, so it asks first now.
+///
+/// A compile-time answer over IPC rather than a `cfg!` in the frontend: the
+/// frontend is one bundle for every build, and it cannot know which features
+/// the binary beside it was compiled with.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn stt_local_available() -> bool {
+    cfg!(feature = "whisper")
+}
+
 /// Transcribe 16 kHz mono f32 PCM. Errors: "model-missing" | "voice-unavailable".
 #[tauri::command]
 #[specta::specta]

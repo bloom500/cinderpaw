@@ -94,14 +94,23 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # and an espeak-ng C build at compile time (cmake, already required by
 # llama.cpp), so a platform whose toolchain cannot do that drops this one flag
 # and the picker reports Piper as unavailable instead of offering a mute engine.
-# `whisper` is on because the app OFFERS on-device transcription — Settings has
-# a model picker for it and the STT provider card lists "local". It was never in
-# this list, so `transcribe_audio` returned `voice-unavailable` in every build we
-# have ever shipped: a control that could only fail, for everyone who did not
-# compile their own. It also makes a LiveKit call that never leaves the machine
-# possible at all, since the voice worker transcribes through the same route.
-# Cost: whisper-rs builds on every CI platform.
-default = ["inference", "piper", "kokoro", "whisper"]
+# `whisper` is NOT here, and it cannot be until something upstream changes.
+#
+# It looks like an oversight: Settings has an on-device transcription model
+# picker and the STT card lists "local", while `transcribe_audio` returns
+# `voice-unavailable` in every build we ship — a control that can only fail for
+# anyone who did not compile their own. It was turned on for exactly that reason
+# on 2026-08-23 and CI rejected it within the hour:
+#
+#   LNK2005: ggml_abort already defined in libwhisper_rs_sys...
+#   error: linking with `link.exe` failed: exit code: 1169
+#
+# `whisper-rs-sys` and `llama-cpp-sys-2` each vendor their OWN copy of ggml, so
+# enabling both puts two definitions of every ggml symbol in one binary. This is
+# not a flag to flip; it needs the two crates to share one ggml build, or whisper
+# to run out-of-process. Until then the honest fix is the UI not offering local
+# transcription, NOT this line.
+default = ["inference", "piper", "kokoro"]
 # CPU-only baseline (works everywhere; slow for larger models).
 inference = ["cinderpaw-core/inference"]
 # GPU backends — additive on top of `inference`. Pick at most ONE per build

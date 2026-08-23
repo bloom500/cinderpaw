@@ -57,6 +57,8 @@ the comment tags next to each `.route(` line.
 | POST | `/runtime/connectors` | unstable | govern | Upsert one connector's config, then pokes the sidecar to reload. Never echoes secret values back. |
 | POST | `/runtime/connectors/reload` | unstable | govern | Sidecar reloads the connector catalog from disk. |
 | POST | `/runtime/voice/tool` | unstable | govern | One tool call from a voice session (`{id, name, args}`), answered by the local agent. Bounded at 20s: past that it returns a holding answer and the work keeps running, so a realtime model — which blocks on a tool call — is never left silent. Grants nothing `/runtime/chat` does not. |
+| POST | `/runtime/voice/speak` | unstable | govern | Synthesise one utterance (`{provider, voice?, text}`) and return raw PCM, with the engine's rate in `x-sample-rate` — Piper voices are 22.05 kHz, not the module constant. Exists so the LiveKit voice worker, a separate process, can speak in the same engines and voices as the rest of the app. |
+| POST | `/runtime/voice/transcribe` | unstable | govern | Transcribe one utterance (`{pcm, model_size?, provider?, language?}`). `provider` selects local Whisper or a hosted recogniser; the cloud branch wraps the caller's PCM in a WAV, because the worker has frames and the vendor wants a file. Returns `model-missing`, `stt-no-key` or `voice-unavailable` by name so the caller can say which. |
 | POST | `/runtime/shutdown` | unstable | govern | Fires the runtime's graceful-shutdown signal. |
 | GET  | `/runtime/status` | unstable | read | Live status snapshot. |
 | GET  | `/runtime/models` | unstable | read | Lists loaded/known models. |
@@ -199,6 +201,8 @@ POST /runtime/byok/save
 POST /runtime/chat
 POST /runtime/connectors/reload
 POST /runtime/voice/tool
+POST /runtime/voice/speak
+POST /runtime/voice/transcribe
 POST /runtime/model
 POST /runtime/models/install
 GET /runtime/setup/detect
