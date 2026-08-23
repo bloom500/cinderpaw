@@ -274,6 +274,53 @@ stop. Retiring `pipeline` from the picker therefore removes local Romanian
 speech from the product until either a Piper plugin is written or the pipeline
 is offered again.
 
+## Phase 2, fourth slice: a call that never leaves the machine (2026-08-23)
+
+Speech-to-speech needs a cloud key by definition — one vendor's session does all
+three parts — so making LiveKit the only engine made an account mandatory for
+voice. That is not a migration detail, it is the product changing what it is:
+Piper ships five Romanian voices that exist nowhere else, and they had no engine
+left to run on.
+
+So the pipeline is rebuilt INSIDE LiveKit rather than kept beside it. `local` is
+a row in `S2S_PROVIDERS` like any vendor, and the worker assembles an
+`AgentSession` from three local parts instead of one remote one:
+
+- `LocalSTT extends stt.STT` — declares `streaming: false`, because Whisper
+  transcribes a finished utterance. Declaring it honestly is what makes the SDK
+  wrap it in its own VAD-driven adapter; claiming `streaming: true` would leave
+  the framework waiting for interim results that never arrive, and the call
+  would hear nothing while looking connected. Silero supplies the VAD — Whisper
+  cannot tell when a sentence ended.
+- `LocalTTS extends tts.TTS` — reads `x-sample-rate` off the response instead of
+  assuming 24 kHz. Piper voices are 22.05 kHz and playing those at 24 makes the
+  voice fast and high while looking like a working feature.
+- `LocalLLM extends llm.LLM` — the local model over `/runtime/chat`.
+
+None of the three live in the worker. They live in the Rust binary that spawned
+it, reached over the same loopback API and the same bearer token the tool calls
+already use: two new routes, `/runtime/voice/speak` and
+`/runtime/voice/transcribe`. No new door, no new port, no second copy of a model.
+
+**`whisper` is now a default feature.** It never was, and no CI job enabled it,
+so `transcribe_audio` returned `voice-unavailable` in every build ever shipped —
+while Settings offered an on-device transcription model and the STT card offered
+"local". A control that could only fail, for everyone who did not compile their
+own. Cost: whisper-rs builds on every CI platform.
+
+Two rules the table now carries explicitly rather than by inference:
+
+- **`local` needs no key.** It is resolved before the key check, or the option
+  whose entire point is needing nothing would be told it has nothing stored.
+- **`local` is never the silent default.** It is excluded from the unset
+  fallback. It always "has" credentials, so including it would make it
+  everybody's default the moment a machine had no cloud key — and where a
+  person's voice goes is not a choice to make for them in either direction.
+
+Not verified end to end: a real on-device call needs a downloaded Whisper model
+and a Piper voice on the machine running it. Compilation, the provider table,
+the resolution rules and the agent's syntax are covered; the audio path is not.
+
 ## Next
 
 Phase 2 (feature parity), amended by the decisions above:

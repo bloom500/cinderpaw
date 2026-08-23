@@ -28,7 +28,17 @@
 // import of Google's would crash an OpenAI call on `ERR_MODULE_NOT_FOUND`
 // before a single line of this ran — and in a forked job process, where the
 // error goes to a log nobody has open rather than to the screen.
-import { AgentSessionEventTypes, cli, defineAgent, voice, WorkerOptions } from '@livekit/agents';
+import {
+  AgentSessionEventTypes,
+  cli,
+  defineAgent,
+  DEFAULT_API_CONNECT_OPTIONS,
+  llm,
+  stt,
+  tts,
+  voice,
+  WorkerOptions,
+} from '@livekit/agents';
 import {
   AudioFrame,
   AudioSource,
@@ -39,7 +49,6 @@ import {
   TrackPublishOptions,
   TrackSource,
 } from '@livekit/rtc-node';
-import { llm } from '@livekit/agents';
 import { fileURLToPath } from 'node:url';
 
 const RATE = 48000;
@@ -52,6 +61,9 @@ const PROVIDER = process.env.CINDERPAW_LIVE_PROVIDER ?? '';
 const MODEL = process.env.CINDERPAW_LIVE_MODEL || '';
 const VOICE = process.env.CINDERPAW_LIVE_VOICE || '';
 const INSTRUCTIONS = process.env.CINDERPAW_LIVE_INSTRUCTIONS || '';
+/** Local pipeline only: which on-device engines to use. */
+const STT_MODEL = process.env.CINDERPAW_LIVE_STT_MODEL || 'small';
+const TTS_ENGINE = process.env.CINDERPAW_LIVE_TTS_ENGINE || 'piper';
 
 /**
  * How each vendor's realtime model is constructed.
@@ -65,6 +77,171 @@ const INSTRUCTIONS = process.env.CINDERPAW_LIVE_INSTRUCTIONS || '';
  * The import is dynamic and inside the function so that only the plugin Rust
  * installed is ever loaded.
  */
+/**
+ * The local pipeline: this machine hears, this machine thinks, this machine
+ * speaks.
+ *
+ * Speech-to-speech needs a cloud key by definition — one vendor's session does
+ * all three parts. That is fine as an option and wrong as the only one: Piper
+ * ships five Romanian voices that exist nowhere else, Whisper runs on the CPU,
+ * and a local-first product whose voice feature requires an account has quietly
+ * stopped being local-first.
+ *
+ * None of the three pieces live in this process. They live in the Rust binary
+ * that spawned it, reached over the same loopback API and the same bearer token
+ * the tool calls already use — so this adds no new door, no new port and no
+ * second copy of a model.
+ */
+class LocalSTT extends stt.STT {
+  label = 'cinderpaw.LocalSTT';
+  constructor() {
+    // Not streaming: Whisper transcribes a finished utterance, not a live
+    // stream. Declaring it honestly is what makes the SDK wrap this in its own
+    // VAD-driven adapter — claiming `streaming: true` would have the framework
+    // wait for interim results that never arrive, and the call would hear
+    // nothing while looking connected.
+    super({ streaming: false, interimResults: false });
+  }
+  get provider() { return 'cinderpaw'; }
+  get model() { return STT_MODEL; }
+
+  async _recognize(buffer) {
+    const { data, sampleRate } = flatten(buffer);
+    const pcm = toFloat32(data, sampleRate, 16000); // what Whisper wants
+    const res = await fetch(`${API_URL}/runtime/voice/transcribe`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
+      body: JSON.stringify({ pcm: Array.from(pcm), model_size: STT_MODEL }),
+    });
+    if (!res.ok) {
+      const why = await res.text();
+      // Thrown, not returned empty. An empty transcript is indistinguishable
+      // from a person who said nothing, and "the model is not downloaded" is
+      // exactly the failure somebody can act on if they are told.
+      throw new Error(why === 'model-missing'
+        ? 'The local transcription model is not downloaded yet (Settings → General).'
+        : `Local transcription failed: ${why}`);
+    }
+    const { text } = await res.json();
+    return {
+      type: stt.SpeechEventType.FINAL_TRANSCRIPT,
+      alternatives: [{ text: text ?? '', language: '', startTime: 0, endTime: 0, confidence: 1 }],
+    };
+  }
+}
+
+/** One utterance of local synthesis, pulled as PCM and pushed as frames. */
+class LocalTTSStream extends tts.ChunkedStream {
+  label = 'cinderpaw.LocalTTSStream';
+  async run() {
+    const res = await fetch(`${API_URL}/runtime/voice/speak`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
+      body: JSON.stringify({ provider: TTS_ENGINE, voice: VOICE || null, text: this.inputText }),
+      signal: this.abortSignal,
+    });
+    if (!res.ok) throw new Error(`Local speech failed: ${await res.text()}`);
+    // The engine's rate, not a constant. Piper voices are 22.05 kHz and playing
+    // those at 24 makes the voice fast and high while looking like it works.
+    const rate = Number(res.headers.get('x-sample-rate')) || 24000;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const samples = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
+    const requestId = String(++nextCallId);
+    this.queue.put({
+      requestId,
+      segmentId: requestId,
+      frame: new AudioFrame(samples, rate, 1, samples.length),
+      final: true,
+    });
+    this.queue.close();
+  }
+}
+
+class LocalTTS extends tts.TTS {
+  label = 'cinderpaw.LocalTTS';
+  constructor() {
+    // The rate declared here is what the session resamples TO; the frames
+    // themselves carry the engine's real rate, which is why the header above
+    // is read rather than assumed.
+    super(24000, 1, { streaming: false });
+  }
+  get provider() { return 'cinderpaw'; }
+  get model() { return TTS_ENGINE; }
+  synthesize(text, connOptions, abortSignal) {
+    return new LocalTTSStream(text, this, connOptions, abortSignal);
+  }
+}
+
+/** The local model, over the same `/runtime/chat` the rest of the app uses. */
+class LocalLLMStream extends llm.LLMStream {
+  label = 'cinderpaw.LocalLLMStream';
+  async run() {
+    const messages = this.chatCtx.items
+      .filter((i) => i.type === 'message')
+      .map((i) => ({
+        role: i.role === 'assistant' ? 'assistant' : i.role === 'system' ? 'system' : 'user',
+        content: Array.isArray(i.content)
+          ? i.content.filter((c) => typeof c === 'string').join(' ')
+          : String(i.content ?? ''),
+      }));
+    const res = await fetch(`${API_URL}/runtime/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
+      body: JSON.stringify({ messages, system: INSTRUCTIONS || undefined, stream: false }),
+      signal: this.abortSignal,
+    });
+    if (!res.ok) throw new Error(`Local model failed: ${await res.text()}`);
+    const body = await res.json();
+    const text = body.content ?? body.text ?? body.message?.content ?? '';
+    this.queue.put({
+      id: String(++nextCallId),
+      delta: { role: 'assistant', content: String(text) },
+    });
+    this.queue.close();
+  }
+}
+
+class LocalLLM extends llm.LLM {
+  label() { return 'cinderpaw.LocalLLM'; }
+  get provider() { return 'cinderpaw'; }
+  chat({ chatCtx, toolCtx, connOptions }) {
+    // `connOptions` is optional on `chat` and REQUIRED by the stream. Passing
+    // it through undefined compiles and then loses every retry and timeout the
+    // framework sets, which shows up as a call that hangs instead of failing.
+    return new LocalLLMStream(this, {
+      chatCtx,
+      toolCtx,
+      connOptions: connOptions ?? DEFAULT_API_CONNECT_OPTIONS,
+    });
+  }
+}
+
+/** `AudioBuffer` is a frame or a list of them; both have to work. */
+function flatten(buffer) {
+  const frames = Array.isArray(buffer) ? buffer : [buffer];
+  const sampleRate = frames[0]?.sampleRate ?? 48000;
+  const total = frames.reduce((n, f) => n + f.data.length, 0);
+  const data = new Int16Array(total);
+  let at = 0;
+  for (const f of frames) { data.set(f.data, at); at += f.data.length; }
+  return { data, sampleRate };
+}
+
+/**
+ * Int16 at one rate → float32 at another.
+ *
+ * Nearest-sample, deliberately: this feeds a speech recogniser, the ratio is a
+ * downsample from 48k to 16k, and the artefacts a proper filter would remove
+ * sit above the band Whisper reads. A resampling library here would be a
+ * dependency for a difference the model cannot hear.
+ */
+function toFloat32(data, from, to) {
+  const ratio = from / to;
+  const out = new Float32Array(Math.floor(data.length / ratio));
+  for (let i = 0; i < out.length; i++) out[i] = data[Math.floor(i * ratio)] / 32768;
+  return out;
+}
+
 const REALTIME = {
   google: async () => {
     const google = await import('@livekit/agents-plugin-google');
@@ -208,9 +385,13 @@ async function echo(ctx) {
  * more, which was the point of the migration — and none of it is vendor
  * specific either, which is why swapping the vendor is one line here.
  */
-async function assistant(ctx) {
-  const build = REALTIME[PROVIDER];
-  if (!build) {
+async function assistant(ctx, makeSession) {
+  // The local pipeline builds its own session; every cloud vendor builds one
+  // from `REALTIME`. Everything AFTER this point — events, tools, the data
+  // channel, the greeting — is identical, which is the only reason there is one
+  // function here instead of two that drift.
+  const build = makeSession ? null : REALTIME[PROVIDER];
+  if (!makeSession && !build) {
     // Reachable only if Rust names a vendor this file does not know, i.e. after
     // a half-applied update. Said out loud in the same channel as every other
     // failure rather than thrown, because a throw here ends the job with an
@@ -225,7 +406,7 @@ async function assistant(ctx) {
     );
     return echo(ctx);
   }
-  const session = new voice.AgentSession({ llm: await build() });
+  const session = makeSession ? await makeSession(ctx) : new voice.AgentSession({ llm: await build() });
 
   // One line per event, on stdout, for Rust to forward to the window. A prefix
   // rather than a side channel because the pipe already exists and a second one
@@ -302,14 +483,41 @@ async function assistant(ctx) {
   session.generateReply();
 }
 
+/**
+ * A call that never leaves this machine.
+ *
+ * Same `AgentSession` as the realtime path — same barge-in, same turn
+ * detection, same transcripts, same tools — assembled from three local parts
+ * instead of one remote session. That symmetry is the point: the overlay, the
+ * event stream and the tool bridge below do not know which mode is running.
+ *
+ * The VAD is not optional here. A non-streaming recogniser has no idea when a
+ * sentence ended, so without it the session would either never submit audio or
+ * submit all of it at once.
+ */
+async function pipeline(ctx) {
+  const silero = await import('@livekit/agents-plugin-silero');
+  const session = new voice.AgentSession({
+    stt: new LocalSTT(),
+    llm: new LocalLLM(),
+    tts: new LocalTTS(),
+    vad: await silero.VAD.load(),
+  });
+  return session;
+}
+
 export default defineAgent({
   entry: async (ctx) => {
     await ctx.connect();
-    // Both halves have to be present. A provider with no key authenticates
-    // nothing, and a key with no provider has no plugin to hand it to; either
-    // one alone used to be enough to take the assistant branch and then fail
-    // somewhere further in, which is a call that connects and never speaks.
-    if (API_KEY && PROVIDER) {
+    // Local needs no key at all — that is the whole reason it exists — so it is
+    // checked before the key test rather than falling through it.
+    if (PROVIDER === 'local') {
+      await assistant(ctx, pipeline);
+    } else if (API_KEY && PROVIDER) {
+      // Both halves have to be present. A provider with no key authenticates
+      // nothing, and a key with no provider has no plugin to hand it to; either
+      // one alone used to be enough to take the assistant branch and then fail
+      // somewhere further in, which is a call that connects and never speaks.
       await assistant(ctx);
     } else {
       await echo(ctx);

@@ -519,9 +519,10 @@ export function CallOverlay({
                 <EngineLine
                   label={t('call.provider')}
                   name={currentS2s?.label ?? t('call.providerNoneShort')}
-                  // An echo never leaves the machine. Saying "leaves device"
-                  // there is a privacy claim about traffic that does not exist.
-                  local={willEcho}
+                  // The on-device pipeline and an echo both stay here. Saying
+                  // "leaves device" for either is a privacy claim about traffic
+                  // that does not exist.
+                  local={willEcho || !!currentS2s?.local}
                   t={t}
                 />
               ) : (

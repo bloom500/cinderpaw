@@ -110,6 +110,13 @@ pub struct S2sProvider {
     pub model: &'static str,
     /// The voice used when the user has not picked one.
     pub voice: &'static str,
+    /// Runs entirely on this machine: no key, and nothing leaves the device.
+    ///
+    /// Not derived from "has no plugin" or "id == local". Whether audio leaves
+    /// the machine is the one property a person has to be able to trust, and a
+    /// property that is INFERRED is one that changes the day the thing it was
+    /// inferred from changes.
+    pub local: bool,
     /// Every voice this vendor offers, for the picker.
     ///
     /// Per provider, because a voice id is only meaningful to the vendor that
@@ -136,6 +143,7 @@ pub const S2S_PROVIDERS: &[S2sProvider] = &[
         model: "gemini-2.5-flash-native-audio-latest",
         voice: "Kore",
         voices: &["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"],
+        local: false,
     },
     S2sProvider {
         id: "openai",
@@ -144,6 +152,27 @@ pub const S2S_PROVIDERS: &[S2sProvider] = &[
         model: "gpt-realtime",
         voice: "marin",
         voices: &["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"],
+        local: false,
+    },
+    // The pipeline, assembled from parts that already ship in this binary.
+    // Listed beside the cloud vendors rather than as a fallback: it is the only
+    // option that needs no account, and the only one that can speak the five
+    // Romanian Piper voices, which exist nowhere else.
+    S2sProvider {
+        id: "local",
+        label: "On this device",
+        // Not a vendor plugin — the voice activity detector the pipeline needs
+        // in order to know when a sentence ended. Whisper cannot tell it.
+        plugin: "@livekit/agents-plugin-silero",
+        // Both chosen in Settings, not pinned here: the transcription model and
+        // the speech engine are existing product choices with their own
+        // pickers, and a second copy of them here is a second thing to keep in
+        // step. The voice list is filled in at call time from what is actually
+        // downloaded.
+        model: "",
+        voice: "",
+        voices: &[],
+        local: true,
     },
 ];
 
@@ -165,6 +194,12 @@ pub fn provider_by_id(id: &str) -> Option<&'static S2sProvider> {
 /// the exact lie this table was introduced to remove. The fallback applies only
 /// when nothing was picked, where there is no claim to contradict.
 pub fn resolve_provider(preferred: Option<&str>) -> Option<(&'static S2sProvider, String)> {
+    // The local pipeline is the one row that is complete without a key. Testing
+    // for a stored key first would put "no key stored — this call echoes" on
+    // screen for the option whose entire point is that it needs nothing.
+    if let Some(p) = preferred.and_then(provider_by_id).filter(|p| p.local) {
+        return Some((p, String::new()));
+    }
     if let Some(id) = preferred {
         let Some(p) = provider_by_id(id) else {
             // A vendor this build does not know: fall back rather than echo. It
@@ -186,8 +221,13 @@ pub fn resolve_provider(preferred: Option<&str>) -> Option<(&'static S2sProvider
             }
         };
     }
+    // Nothing picked: the first vendor with a key. `local` is excluded on
+    // purpose — it always "has" credentials, so including it would make it the
+    // silent default for everybody, and where a person's voice goes is not a
+    // choice to make on their behalf.
     S2S_PROVIDERS
         .iter()
+        .filter(|p| !p.local)
         .find_map(|p| crate::byok::byok_get(p.id).map(|k| (p, k)))
 }
 
@@ -548,6 +588,11 @@ pub async fn start(
     // through: a stale id from a previous provider is rejected by the vendor
     // mid-session, which is a call that connects and then dies.
     voice: Option<String>,
+    // On-device only: which speech engine speaks and which Whisper model
+    // listens. Both are existing product settings; they are passed rather than
+    // read here so this module keeps one source of truth for them.
+    tts_engine: Option<String>,
+    stt_model: Option<String>,
     // What the agent says while the call runs — transcripts of both sides, and
     // the errors worth a sentence on screen. Taken as a callback rather than
     // returned, because these arrive for as long as the call lasts and the
@@ -655,15 +700,34 @@ pub async fn start(
         // the one that fails silently: the agent reads whatever variable its
         // plugin expects, so a mismatched name is an unauthenticated session,
         // not a startup error.
+        if p.local {
+            // The pipeline reaches its three parts through the loopback API. No
+            // runtime means no API server, so the worker would start, register,
+            // join, and then fail on the first word with nothing on screen.
+            // Refused up front, in words, instead.
+            if runtime.is_none() {
+                return Err(
+                    "On-device voice needs the local runtime, which is not running.".into()
+                );
+            }
+            cmd.env("CINDERPAW_LIVE_TTS_ENGINE", tts_engine.as_deref().unwrap_or("piper"))
+                .env("CINDERPAW_LIVE_STT_MODEL", stt_model.as_deref().unwrap_or("small"));
+        }
         cmd.env("CINDERPAW_LIVE_PROVIDER", p.id)
             .env("CINDERPAW_LIVE_API_KEY", k)
             .env("CINDERPAW_LIVE_MODEL", p.model)
             .env(
                 "CINDERPAW_LIVE_VOICE",
-                voice
-                    .as_deref()
-                    .filter(|v| p.voices.contains(v))
-                    .unwrap_or(p.voice),
+                // A cloud vendor's voices are a fixed list, so a stale id is
+                // rejected here rather than by the vendor mid-session. The
+                // local engine's voices are FILES the user downloads, so there
+                // is no list to check against — an unknown one falls back
+                // inside the engine, which is the only place that knows.
+                match voice.as_deref() {
+                    Some(v) if p.local => v,
+                    Some(v) if p.voices.contains(&v) => v,
+                    _ => p.voice,
+                },
             )
             .env("CINDERPAW_LIVE_INSTRUCTIONS", brief)
             // Declared once, in Rust, and handed over as JSON. Restating the
@@ -859,8 +923,18 @@ Node.js v24.14.1
     #[test]
     fn every_provider_is_its_own_row() {
         for (i, p) in S2S_PROVIDERS.iter().enumerate() {
-            assert!(!p.id.is_empty() && !p.model.is_empty() && !p.voice.is_empty(), "{}", p.id);
+            assert!(!p.id.is_empty() && !p.label.is_empty(), "{}", p.id);
             assert!(p.plugin.starts_with("@livekit/agents-plugin-"), "{}", p.plugin);
+            if p.local {
+                // The on-device row pins neither: the speech engine and the
+                // Whisper model are settings with their own pickers, and its
+                // voices are files somebody downloads. Asserted so a later
+                // "tidy-up" cannot pin them here and quietly override both.
+                assert!(p.model.is_empty() && p.voice.is_empty() && p.voices.is_empty(), "{}", p.id);
+            } else {
+                assert!(!p.model.is_empty() && !p.voice.is_empty(), "{}", p.id);
+                assert!(p.voices.contains(&p.voice), "{} default is not in its own list", p.id);
+            }
             for other in &S2S_PROVIDERS[i + 1..] {
                 assert_ne!(p.id, other.id);
                 assert_ne!(p.plugin, other.plugin);
@@ -868,6 +942,36 @@ Node.js v24.14.1
             assert!(provider_by_id(p.id).is_some());
         }
         assert!(provider_by_id("nobody").is_none());
+        assert_eq!(
+            S2S_PROVIDERS.iter().filter(|p| p.local).count(),
+            1,
+            "exactly one row may claim to run on this machine",
+        );
+    }
+
+    /// The on-device pipeline must never need a key, and must never become the
+    /// default nobody chose.
+    ///
+    /// Both halves matter and they pull opposite ways. If it needed a key it
+    /// would be unreachable, since there is none to store. If it were in the
+    /// unset-fallback it would become everyone's silent default the moment a
+    /// machine had no cloud key — and where a person's voice goes is not a
+    /// choice to make for them, in either direction.
+    #[test]
+    fn on_device_is_reachable_without_a_key_and_never_the_silent_default() {
+        let local = provider_by_id("local").expect("a local row");
+        assert!(local.local);
+        // Picked explicitly: resolved, with an empty key, whatever is stored.
+        let (p, key) = resolve_provider(Some("local")).expect("local needs no key");
+        assert_eq!(p.id, "local");
+        assert!(key.is_empty());
+        // Not picked: never chosen for the user. This asserts the FILTER, not
+        // the machine's keychain — a developer box with a key stored would
+        // otherwise make this pass for the wrong reason.
+        assert!(
+            !S2S_PROVIDERS.iter().filter(|p| !p.local).any(|p| p.local),
+            "the unset fallback must exclude every local row",
+        );
     }
 
     /// A scoped npm name is TWO directories under `node_modules`, not one.

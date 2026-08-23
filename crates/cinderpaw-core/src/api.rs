@@ -95,6 +95,8 @@ pub fn router(state: ApiState) -> Router {
         // with nobody in the room. A loopback route with the bearer token the
         // API already requires works from any process, including a forked one.
         .route("/runtime/voice/tool", post(runtime_voice_tool))
+        .route("/runtime/voice/speak", post(runtime_voice_speak))
+        .route("/runtime/voice/transcribe", post(runtime_voice_transcribe))
         .route("/runtime/shutdown", post(runtime_shutdown))
         .route("/runtime/status", get(runtime_status))
         .route("/runtime/models", get(runtime_models))
@@ -793,6 +795,123 @@ static VOICE_IN_FLIGHT: std::sync::OnceLock<
 fn voice_in_flight(
 ) -> &'static parking_lot::Mutex<std::collections::HashMap<String, tokio::sync::watch::Receiver<Option<String>>>> {
     VOICE_IN_FLIGHT.get_or_init(|| parking_lot::Mutex::new(std::collections::HashMap::new()))
+}
+
+#[derive(serde::Deserialize)]
+struct SpeakRequest {
+    /// A TTS engine id from the catalogue — `piper`, `kokoro`, `fish`, …
+    provider: String,
+    voice: Option<String>,
+    text: String,
+}
+
+/// Synthesise one utterance and hand back the raw PCM.
+///
+/// This exists so the LiveKit voice worker can speak in the SAME voices the
+/// rest of the app speaks in — Piper and Kokoro run on this machine, and the
+/// Romanian voices in `paths::RO_VOICES` exist nowhere else. Without it,
+/// choosing LiveKit as the engine meant choosing a cloud vendor, because the
+/// worker is a separate Node process with no way to reach an engine that lives
+/// in this binary.
+///
+/// Raw PCM rather than WAV: the caller feeds it straight into an `AudioFrame`,
+/// and a header it would only have to strip is a header worth not writing. The
+/// sample rate travels in `x-sample-rate` because it is a property of the
+/// ENGINE, not a constant — Piper voices are 22.05 kHz and playing those at 24
+/// makes the voice fast and high while looking like a working feature.
+async fn runtime_voice_speak(
+    State(state): State<ApiState>,
+    Json(req): Json<SpeakRequest>,
+) -> Response {
+    let engine = match crate::tts::from_id(
+        &req.provider,
+        crate::tts::EngineConfig {
+            api_key: &crate::byok::byok_get(&req.provider).unwrap_or_default(),
+            base_url: None,
+            model: None,
+        },
+    ) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(engine = %req.provider, error = %e, "voice speak: engine refused");
+            return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
+        }
+    };
+    let rate = engine.sample_rate();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(8);
+    let request = crate::tts::SpeechRequest { text: req.text, voice: req.voice };
+    let synth = tokio::spawn(async move { engine.speak(&request, tx).await });
+
+    // Collected rather than streamed. The utterance is one sentence — the voice
+    // pipeline already splits on sentence boundaries before calling — so the
+    // latency saved by streaming is under the wire time, while a streaming body
+    // would need chunked framing on both sides to say where a sentence ended.
+    let mut pcm = Vec::new();
+    while let Some(chunk) = rx.recv().await {
+        pcm.extend_from_slice(&chunk);
+    }
+    if let Ok(Err(e)) = synth.await {
+        tracing::warn!(error = %e, "voice speak: synthesis failed");
+        return (StatusCode::BAD_GATEWAY, e.to_string()).into_response();
+    }
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "application/octet-stream".to_string()),
+            (axum::http::HeaderName::from_static("x-sample-rate"), rate.to_string()),
+        ],
+        pcm,
+    )
+        .into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct TranscribeRequest {
+    /// 16 kHz mono f32, which is what Whisper wants and what the worker
+    /// resamples to before sending.
+    pcm: Vec<f32>,
+    #[serde(default)]
+    model_size: Option<String>,
+}
+
+/// Transcribe one utterance on this machine.
+///
+/// The counterpart of `runtime_voice_speak`, and the other half of a call that
+/// never leaves the device. `model-missing` is returned by name rather than as
+/// prose: the worker turns it into a sentence telling the person to download
+/// the model, and a message assembled here would be a second place to
+/// translate it.
+async fn runtime_voice_transcribe(
+    State(_state): State<ApiState>,
+    Json(req): Json<TranscribeRequest>,
+) -> Response {
+    let size = req.model_size.unwrap_or_else(|| "small".into());
+    let model_path = crate::paths::whisper_model_path(&size);
+    if !model_path.exists() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "model-missing").into_response();
+    }
+    #[cfg(feature = "whisper")]
+    {
+        let pcm = req.pcm;
+        // Whisper is CPU-bound; keep it off the async runtime's threads or the
+        // API server stops answering for the length of every utterance.
+        let out = tokio::task::spawn_blocking(move || {
+            crate::transcription::transcribe_pcm(&pcm, &model_path)
+        })
+        .await;
+        return match out {
+            Ok(Ok(text)) => Json(serde_json::json!({ "text": text })).into_response(),
+            Ok(Err(e)) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        };
+    }
+    #[cfg(not(feature = "whisper"))]
+    {
+        let _ = req.pcm;
+        // Named, not silently empty. A build without Whisper cannot transcribe
+        // at all, and an empty transcript would look like a person who said
+        // nothing rather than a build that cannot listen.
+        (StatusCode::SERVICE_UNAVAILABLE, "voice-unavailable").into_response()
+    }
 }
 
 /// One tool call from a voice session, answered by the local agent.

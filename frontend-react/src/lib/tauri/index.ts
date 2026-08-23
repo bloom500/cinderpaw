@@ -68,6 +68,8 @@ export interface S2sProviderInfo {
   label: string;
   voices: string[];
   default_voice: string;
+  /** Runs on this machine — no key, and nothing leaves the device. */
+  local: boolean;
   connected: boolean;
 }
 
