@@ -118,7 +118,14 @@ export function useLiveKitCallSession() {
       // Read at call time, not captured in a dep: a provider picked while
       // the pre-call screen is open has to apply to THIS call, not the
       // next one.
-      const call = await tauri.raw.startLivekitCall(useUI.getState().s2sProvider);
+      // Read at call time, not captured in a dep: a provider or voice picked
+      // while the pre-call screen is open has to apply to THIS call, not the
+      // next one. The voice is filed under the provider it belongs to.
+      const { s2sProvider, ttsVoice } = useUI.getState();
+      const call = await tauri.raw.startLivekitCall(
+        s2sProvider,
+        s2sProvider ? (ttsVoice[s2sProvider] ?? null) : null,
+      );
       if (mine !== generation.current) return; // hung up while starting
       const r = new Room();
       room.current = r;

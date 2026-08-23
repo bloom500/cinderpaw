@@ -108,7 +108,15 @@ pub struct S2sProvider {
     /// answers in a different voice next week, which reads as unfinished
     /// software rather than as a new model.
     pub model: &'static str,
+    /// The voice used when the user has not picked one.
     pub voice: &'static str,
+    /// Every voice this vendor offers, for the picker.
+    ///
+    /// Per provider, because a voice id is only meaningful to the vendor that
+    /// issued it — "Kore" means nothing to OpenAI. The call screen used to list
+    /// the previous engine's Gemini voices no matter what was running, which is
+    /// how a person ends up choosing a voice the session will never use.
+    pub voices: &'static [&'static str],
 }
 
 /// Every provider a call can run on.
@@ -127,6 +135,7 @@ pub const S2S_PROVIDERS: &[S2sProvider] = &[
         // already knows.
         model: "gemini-2.5-flash-native-audio-latest",
         voice: "Kore",
+        voices: &["Kore", "Puck", "Charon", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr"],
     },
     S2sProvider {
         id: "openai",
@@ -134,6 +143,7 @@ pub const S2S_PROVIDERS: &[S2sProvider] = &[
         plugin: "@livekit/agents-plugin-openai",
         model: "gpt-realtime",
         voice: "marin",
+        voices: &["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"],
     },
 ];
 
@@ -149,23 +159,32 @@ pub fn provider_by_id(id: &str) -> Option<&'static S2sProvider> {
 /// never opened the voice picker gets an echo and no explanation, because the
 /// default nobody set is still a default.
 ///
-/// So: the pick, if its key is stored; otherwise the first provider that has
-/// one; otherwise nothing, and the caller runs an echo and says it is an echo.
-/// A pick whose key is missing does NOT silently borrow another vendor's — it
-/// falls through the same way an unset pick does, and the reason is reported.
+/// So: an explicit pick is honoured or it is an echo — never quietly swapped
+/// for a different vendor. Falling back there would put "OpenAI Realtime" on
+/// the screen while Gemini did the talking, on the user's Gemini key, which is
+/// the exact lie this table was introduced to remove. The fallback applies only
+/// when nothing was picked, where there is no claim to contradict.
 pub fn resolve_provider(preferred: Option<&str>) -> Option<(&'static S2sProvider, String)> {
     if let Some(id) = preferred {
-        match provider_by_id(id) {
-            Some(p) => match crate::byok::byok_get(p.id) {
-                Some(key) => return Some((p, key)),
-                None => tracing::warn!(
-                    "livekit: {} is the chosen voice provider but no {} key is stored",
+        let Some(p) = provider_by_id(id) else {
+            // A vendor this build does not know: fall back rather than echo. It
+            // means a downgrade or a half-applied update, not a user's choice.
+            tracing::warn!("livekit: unknown voice provider {id:?} — falling back");
+            return S2S_PROVIDERS
+                .iter()
+                .find_map(|p| crate::byok::byok_get(p.id).map(|k| (p, k)));
+        };
+        return match crate::byok::byok_get(p.id) {
+            Some(key) => Some((p, key)),
+            None => {
+                tracing::warn!(
+                    "livekit: {} is the chosen voice provider but no {} key is stored — this call echoes",
                     p.label,
                     p.id
-                ),
-            },
-            None => tracing::warn!("livekit: unknown voice provider {id:?}"),
-        }
+                );
+                None
+            }
+        };
     }
     S2S_PROVIDERS
         .iter()
@@ -524,6 +543,11 @@ pub async fn start(
     // same as "echo", because a stored key with no pick is still a working
     // call somebody would otherwise never get.
     provider: Option<String>,
+    // The voice the user picked for that provider, or `None` for the pinned
+    // default. Validated against the provider's own list rather than passed
+    // through: a stale id from a previous provider is rejected by the vendor
+    // mid-session, which is a call that connects and then dies.
+    voice: Option<String>,
     // What the agent says while the call runs — transcripts of both sides, and
     // the errors worth a sentence on screen. Taken as a callback rather than
     // returned, because these arrive for as long as the call lasts and the
@@ -634,7 +658,13 @@ pub async fn start(
         cmd.env("CINDERPAW_LIVE_PROVIDER", p.id)
             .env("CINDERPAW_LIVE_API_KEY", k)
             .env("CINDERPAW_LIVE_MODEL", p.model)
-            .env("CINDERPAW_LIVE_VOICE", p.voice)
+            .env(
+                "CINDERPAW_LIVE_VOICE",
+                voice
+                    .as_deref()
+                    .filter(|v| p.voices.contains(v))
+                    .unwrap_or(p.voice),
+            )
             .env("CINDERPAW_LIVE_INSTRUCTIONS", brief)
             // Declared once, in Rust, and handed over as JSON. Restating the
             // tool in JavaScript would be a second description of the same door

@@ -29,14 +29,13 @@ import { CallArtifacts } from './CallArtifacts';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 import { speechLevel } from '@/hooks/useSpeechPlayer';
 import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
-import { tauri, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
+import { tauri, type S2sProviderInfo, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
 import { useUI } from '@/stores/ui';
 import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { CallPhase } from '@/hooks/useCallSession';
-import { LIVE_ENGINE_ID } from '@/hooks/useLiveCallSession';
 
 /**
  * The in-call screen: one orb, one line of state, two buttons.
@@ -153,6 +152,32 @@ export function CallOverlay({
   const callEngine = useUI((s) => s.callEngine);
   const s2sProvider = useUI((s) => s.s2sProvider);
   const setS2sProvider = useUI((s) => s.setS2sProvider);
+  const [s2sList, setS2sList] = useState<S2sProviderInfo[]>([]);
+  useEffect(() => {
+    let alive = true;
+    // Re-read on every mount rather than once per launch: pasting a key is the
+    // thing a person does BETWEEN two attempts at a call, and a cached list is
+    // how the app keeps saying "no key" after they added one.
+    void tauri.raw.listS2sProviders()
+      .then((l) => { if (alive) setS2sList(l); })
+      .catch(() => { if (alive) setS2sList([]); });
+    return () => { alive = false; };
+  }, []);
+  // What will ACTUALLY run. Rust falls back to the first provider with a key
+  // when nothing is picked, so the screen has to resolve it the same way or it
+  // describes a call that is not the one about to happen.
+  const effectiveS2s = s2sProvider ?? s2sList.find((p) => p.connected)?.id ?? null;
+  const currentS2s = s2sList.find((p) => p.id === effectiveS2s) ?? null;
+  // What THIS call will do. Picking a vendor with no key is an echo even when
+  // another vendor is connected, because the host refuses to quietly run the
+  // other one — so this cannot be "is anything connected".
+  const willEcho = s2sList.length > 0 && !currentS2s?.connected;
+  useEffect(() => {
+    // Write the resolved default back once it is known. Without this the voice
+    // picker below has no provider to file a choice under, and the choice is
+    // silently dropped — which is exactly the dead control this replaced.
+    if (!s2sProvider && effectiveS2s) setS2sProvider(effectiveS2s);
+  }, [s2sProvider, effectiveS2s, setS2sProvider]);
   // True for BOTH speech-to-speech engines: every branch reading this asks
   // "does one model do the whole call", not "which one". LiveKit and the
   // previous engine differ in machinery, not in that answer.
@@ -180,7 +205,10 @@ export function CallOverlay({
   const workingNow = toolActivity.some((a) => a.status === 'running');
   /** Which Gemini voice is answering — the sphere is tinted to match, so the
    *  choice is visible from across the room rather than only in a dropdown. */
-  const liveVoice = useUI((s) => s.ttsVoice[LIVE_ENGINE_ID]);
+  // The orb tints itself from the voice. Read under the PROVIDER now — under
+  // the retired engine's key it would take its colour from a choice made for
+  // an engine that no longer runs, and never change when the voice does.
+  const s2sVoice = useUI((s) => (effectiveS2s ? s.ttsVoice[effectiveS2s] : undefined));
   const [voice, setVoice] = useState<TtsProviderInfo | null>(null);
   /** Can the chosen engine actually speak? `null` until known — the Call button
    *  must not be blocked by a check that has not answered yet, nor allowed by one
@@ -428,7 +456,7 @@ export function CallOverlay({
           }}
         />
 
-        <Orb phase={phase} level={level} working={workingNow} voice={liveVoice} />
+        <Orb phase={phase} level={level} working={workingNow} voice={s2sVoice ?? currentS2s?.default_voice} />
 
         {/* Voice picker, live for the whole call. Deliberately not buried in the
             pre-call panel: which voice is talking is the one setting you want to
@@ -443,13 +471,18 @@ export function CallOverlay({
             re-rolled per session — left unpinned, the server picks, and the same
             assistant answers in a different voice tomorrow. Eight fixed names,
             so all of them are offered rather than a shortlist. */}
-        {live && (
+        {live && currentS2s && (
           <VoicePicker
-            engineId={LIVE_ENGINE_ID}
+            // Keyed by PROVIDER, not by "the live engine". A voice id is only
+            // meaningful to the vendor that issued it, and this used to list
+            // Gemini's eight names whatever was running — so picking one on an
+            // OpenAI call chose a voice that vendor has never heard of.
+            key={currentS2s.id}
+            engineId={currentS2s.id}
             limit={99}
-            defaultVoiceId="Kore"
+            defaultVoiceId={currentS2s.default_voice}
             load={async () =>
-              (await tauri.raw.liveVoices()).map((v) => ({ id: v, label: v, locale: '' }))
+              currentS2s.voices.map((v) => ({ id: v, label: v, locale: '' }))
             }
           />
         )}
@@ -470,7 +503,7 @@ export function CallOverlay({
             {/* Who answers, chosen before the microphone opens. It runs on the
                 user's own key, so this is a connection they made — not
                 something the call has built into it. */}
-            <ProviderToggle chosen={s2sProvider} onChange={setS2sProvider} t={t} />
+            <ProviderToggle providers={s2sList} effective={effectiveS2s} willEcho={willEcho} onChange={setS2sProvider} t={t} />
 
             {/* The disclosure, as two quiet lines rather than a boxed table: it has
                 to be read before the microphone opens, not filled in. */}
@@ -483,7 +516,14 @@ export function CallOverlay({
               {live ? (
                 // One line, because there is one engine. Listing "speech → text"
                 // and "text → speech" here would describe steps that do not happen.
-                <EngineLine label={t('call.modeLive')} name={t('call.liveEngine')} local={false} t={t} />
+                <EngineLine
+                  label={t('call.provider')}
+                  name={currentS2s?.label ?? t('call.providerNoneShort')}
+                  // An echo never leaves the machine. Saying "leaves device"
+                  // there is a privacy claim about traffic that does not exist.
+                  local={willEcho}
+                  t={t}
+                />
               ) : (
                 <>
                   <EngineLine
@@ -1446,38 +1486,21 @@ function RoundButton({
  * where nobody sees it.
  */
 function ProviderToggle({
-  chosen,
+  providers,
+  effective,
+  willEcho,
   onChange,
   t,
 }: {
-  chosen: string | null;
+  providers: S2sProviderInfo[];
+  /** What will run — the pick, or the fallback the host would resolve to. */
+  effective: string | null;
+  /** True when that provider has no key, so the far end will only echo. */
+  willEcho: boolean;
   onChange: (id: string) => void;
-  t: (key: 'call.provider' | 'call.providerNoKey' | 'call.providerNone') => string;
+  t: (key: 'call.providerNoKey' | 'call.providerNone') => string;
 }) {
-  const [providers, setProviders] = useState<
-    { id: string; label: string; connected: boolean }[]
-  >([]);
-
-  useEffect(() => {
-    let alive = true;
-    // Re-read on every open rather than once per app launch: pasting a key is
-    // the thing a person does BETWEEN two attempts at a call, and a cached list
-    // is how the app keeps saying "no key" after they added one.
-    void tauri.raw
-      .listS2sProviders()
-      .then((list) => { if (alive) setProviders(list); })
-      .catch(() => { if (alive) setProviders([]); });
-    return () => { alive = false; };
-  }, []);
-
-  // What will ACTUALLY run, which is not the same as what is stored. Rust falls
-  // back to the first provider with a key when nothing is picked, so showing
-  // "nothing selected" here would be the screen disagreeing with the call.
-  const effective = chosen ?? providers.find((p) => p.connected)?.id ?? null;
-  const anyConnected = providers.some((p) => p.connected);
-
   if (providers.length === 0) return null;
-
   return (
     <div className="flex flex-col items-center gap-2">
       <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
@@ -1506,8 +1529,13 @@ function ProviderToggle({
           </button>
         ))}
       </div>
-      {!anyConnected && (
-        <p className="max-w-sm text-center text-xs text-text-muted">{t('call.providerNone')}</p>
+      {willEcho && (
+        <p className="max-w-sm text-center text-xs text-text-muted">
+          {t('call.providerNone').replace(
+            '{provider}',
+            providers.find((p) => p.id === effective)?.label ?? '',
+          )}
+        </p>
       )}
     </div>
   );

@@ -43,6 +43,11 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 pub struct S2sProviderInfo {
     pub id: String,
     pub label: String,
+    /// Every voice this vendor offers. The picker lists these and nothing else
+    /// — a voice id belongs to the vendor that issued it.
+    pub voices: Vec<String>,
+    /// The one used when the user has not picked.
+    pub default_voice: String,
     /// Whether a key for it is actually stored. The picker needs this to show
     /// what a choice will DO — an option that silently produces an echo because
     /// its key was never pasted is the shape of bug this whole change is about.
@@ -62,6 +67,8 @@ pub(crate) fn list_s2s_providers() -> Vec<S2sProviderInfo> {
         .map(|p| S2sProviderInfo {
             id: p.id.to_string(),
             label: p.label.to_string(),
+            voices: p.voices.iter().map(|v| v.to_string()).collect(),
+            default_voice: p.voice.to_string(),
             connected: cinderpaw_core::byok::byok_get(p.id).is_some(),
         })
         .collect()
@@ -75,9 +82,9 @@ pub struct LiveKitCall {
     pub url: String,
     pub token: String,
     pub room: String,
-    /// "assistant" when a Google key is stored and Gemini is on the far end,
-    /// "echo" when there is none. The UI must say which: a diagnostic that
-    /// presents itself as an assistant is worse than no assistant.
+    /// "assistant" when a key is stored for some speech-to-speech provider,
+    /// "echo" when none is. The UI must say which: a diagnostic that presents
+    /// itself as an assistant is worse than no assistant.
     pub mode: String,
     /// True when this call reused machinery that was already running. Reported
     /// so the difference between a fourteen-second start and an instant one is
@@ -100,6 +107,11 @@ pub(crate) async fn start_livekit_call(
     // has a key stored, so pasting a key is enough to get a talking call
     // without also having to find a picker.
     provider: Option<String>,
+    // The voice picked for that provider, if any. Rust rejects an id that
+    // does not belong to the provider rather than forwarding it — a stale id
+    // from a previous vendor is refused mid-session, i.e. a call that connects
+    // and then dies.
+    voice: Option<String>,
 ) -> Result<LiveKitCall, String> {
     GENERATION.fetch_add(1, Ordering::SeqCst);
 
@@ -134,6 +146,7 @@ pub(crate) async fn start_livekit_call(
         "you",
         Some(cinderpaw_core::live::system_instruction(&brief)),
         provider,
+        voice,
         move |event| {
             // Failing to emit is not worth interrupting a call over: the audio
             // path is unaffected, and the person is mid-sentence.

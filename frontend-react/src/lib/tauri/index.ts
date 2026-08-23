@@ -55,6 +55,22 @@ export interface TtsProviderInfo {
  */
 export interface TtsVoice { id: string; label: string; locale: string }
 
+/**
+ * One speech-to-speech vendor a call can run on — mirrors
+ * `commands::livekit::S2sProviderInfo`.
+ *
+ * `voices` is per vendor because a voice id only means something to the vendor
+ * that issued it; `connected` is whether a key is actually stored, which is the
+ * difference between an assistant and an echo.
+ */
+export interface S2sProviderInfo {
+  id: string;
+  label: string;
+  voices: string[];
+  default_voice: string;
+  connected: boolean;
+}
+
 export interface Message       { role: string; content: string; images?: string[] }
 export interface InferParams   {
   temperature: number;
@@ -908,13 +924,13 @@ const raw = {
   // Rejects with `livekit-no-node` when no Node runtime is installed — a code
   // rather than a sentence, because the answer needs a link the UI can put in
   // the user's language.
-  startLivekitCall:     (provider?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call', { provider: provider ?? null }),
+  startLivekitCall:     (provider?: string | null, voice?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null }),
   endLivekitCall:       () => invoke<void>('end_livekit_call'),
   // Which speech-to-speech vendors this build can run a call on, and which of
   // them actually have a key. Asked of Rust rather than listed here: the same
   // table decides which npm plugin gets installed, and a second list in
   // TypeScript would be free to offer a vendor the agent cannot load.
-  listS2sProviders:     () => invoke<{ id: string; label: string; connected: boolean }[]>('list_s2s_providers'),
+  listS2sProviders:     () => invoke<S2sProviderInfo[]>('list_s2s_providers'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
   // fire on startup. Progress streams over `cinderpaw://embedding-download-*`.
