@@ -140,9 +140,9 @@ export function LiveKitSelfTest() {
         <div className="min-w-0">
           <p className="text-sm font-medium text-text-primary">Voice call</p>
           <p className="text-xs text-text-muted mt-0.5">
-            Runs the call on this machine. With a Google key you talk to your
-            assistant; without one it echoes you back, so the microphone and
-            speakers can still be checked.
+            Runs the call on this machine. With a key for one of the voice
+            providers you talk to your assistant; without one it echoes you
+            back, so the microphone and speakers can still be checked.
           </p>
         </div>
         {phase === 'live' ? (
