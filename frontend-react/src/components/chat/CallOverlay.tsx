@@ -53,11 +53,6 @@ import type { CallPhase } from '@/hooks/useCallSession';
  * a chat that was still fully visible. The portal escapes the transform, the
  * z-index stack, and the gradient on that wrapper in one move.
  */
-/**
- * Whose key the Live engine borrows. Rust reads the same slot — there is no
- * second key to enter and no way for the two to disagree about which is current.
- */
-const LIVE_KEY_PROVIDER = 'google';
 
 export function compactCallTranscript(text: string, maxChars = 280): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
@@ -248,12 +243,17 @@ export function CallOverlay({
   useEffect(() => {
     if (phase !== 'ready') return;
     setKey('');
-    if (live) {
-      // Speech to speech has no TTS engine to be ready — its one requirement is
-      // the Google key it borrows from the keychain, the same AI Studio key the
-      // chat side already uses.
+    // Branch on WHAT IS SELECTED, not on which engine drives the call. Both
+    // arms run on LiveKit now, so testing `live` here sent the pipeline down
+    // the speech-to-speech path: it never loaded the TTS engine it is made of,
+    // which is why the voice pill showed a voice while the line under it said
+    // no engine was chosen. It also checked the Google key for every call, on a
+    // screen where the vendor is the user's choice.
+    if (!currentS2s?.pipeline) {
+      // A realtime vendor has no TTS engine to be ready — its one requirement
+      // is a key, and the provider list already reports whether that is stored.
       setVoice(null);
-      tauri.voice.ttsHasKey(LIVE_KEY_PROVIDER).then(setReady).catch(() => setReady(null));
+      setReady(currentS2s ? currentS2s.connected : null);
       return;
     }
     tauri.voice
@@ -270,10 +270,15 @@ export function CallOverlay({
         setVoice(null);
         setReady(null);
       });
-  }, [phase, ttsProvider, live]);
+  }, [phase, ttsProvider, currentS2s]);
 
   const saveKey = async () => {
-    const target = live ? LIVE_KEY_PROVIDER : voice?.id;
+    // The vendor that is SELECTED, not a constant. This said `google` for every
+    // realtime call, so pasting an OpenAI key here wrote it into the Google
+    // keychain entry — a key stored under the wrong name is worse than one that
+    // failed to store, because nothing reports it and the real entry is now
+    // wrong too.
+    const target = currentS2s?.pipeline ? voice?.id : currentS2s?.id;
     if (!target || !key.trim()) return;
     setSaving(true);
     try {
@@ -544,8 +549,8 @@ export function CallOverlay({
                   />
                   <EngineLine
                     label={t('call.tts')}
-                    name={voice?.label ?? '-'}
-                    local={voice?.isLocal ?? false}
+                    name={voice?.label ?? t('call.engineUnset')}
+                    local={voice ? voice.isLocal : null}
                     t={t}
                     onChange={onChangeEngine}
                   />
@@ -1556,7 +1561,14 @@ function EngineLine({
 }: {
   label: string;
   name: string;
-  local: boolean;
+  /**
+   * Where this engine's audio goes — or `null` when no engine is chosen yet.
+   *
+   * `null` is not `false`. An unchosen engine printed "leaves device", which is
+   * a claim about traffic that has no destination, on the one line of this
+   * screen whose whole job is to be trustworthy about exactly that.
+   */
+  local: boolean | null;
   t: (key: 'call.onDevice' | 'call.leavesDevice' | 'engine.change') => string;
   /** Omitted for an engine with nothing to configure from here. */
   onChange?: () => void;
@@ -1571,6 +1583,7 @@ function EngineLine({
           at 10px the shared `--warning` gives about 2.9:1 on cream — readable
           only if you already know what it says. A tinted fill with no edge also
           vanishes on a light background; the edge is what keeps it a badge. */}
+      {local !== null && (
       <span
         className={cn(
           'flex items-center gap-1 rounded border px-1.5 py-0.5 text-micro font-medium',
@@ -1582,6 +1595,7 @@ function EngineLine({
         {local ? <Laptop size={10} /> : <Cloud size={10} />}
         {local ? t('call.onDevice') : t('call.leavesDevice')}
       </span>
+      )}
       {onChange && (
         <button
           type="button"
