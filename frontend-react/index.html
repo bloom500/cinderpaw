@@ -70,46 +70,47 @@
         opacity: 0.05;
       }
       html[data-theme="light"] #feral-startup::after { opacity: 0.04; }
-      /* One large amber key light: a slow one-shot breath/sweep while loading
-         (transform/opacity only), resting warm when it finishes. */
+      /* One large amber key light, anchored RIGHT like the reference: it
+         settles once (one-shot, 4s) and then rests as a static directional
+         glow. The drama is in the composition — letters fading across the
+         frame — not in a light that keeps moving. */
       .feral-startup-light {
         position: absolute;
-        top: -10%;
-        left: -10%;
-        width: 120%;
-        height: 120%;
+        top: -15%;
+        left: 25%;
+        width: 130%;
+        height: 130%;
         z-index: 2;
         pointer-events: none;
-        background: radial-gradient(closest-side, rgba(196, 132, 58, 0.22), transparent 70%);
-        animation: feral-startup-sweep 7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        background: radial-gradient(closest-side, rgba(196, 132, 58, 0.26), transparent 68%);
+        animation: feral-startup-settle 4s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
         will-change: transform, opacity;
       }
       html[data-theme="light"] .feral-startup-light {
-        background: radial-gradient(closest-side, rgba(160, 104, 40, 0.18), transparent 70%);
+        background: radial-gradient(closest-side, rgba(160, 104, 40, 0.2), transparent 68%);
       }
-      @keyframes feral-startup-sweep {
-        0%   { transform: translate3d(-30%, 0, 0) scale(0.96); opacity: 0; }
-        18%  { opacity: 1; }
-        70%  { transform: translate3d(22%, 0, 0) scale(1.05); opacity: 0.85; }
-        100% { transform: translate3d(32%, 0, 0) scale(1.07); opacity: 0.55; }
+      @keyframes feral-startup-settle {
+        0%   { transform: translate3d(-16%, 0, 0) scale(1.02); opacity: 0; }
+        40%  { opacity: 1; }
+        100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.9; }
       }
-      /* Hero wordmark: --watermark size (globals.css token, mirrored), low
-         graphite-on-graphite contrast with a faint top edge light, offset and
-         cropped by the container's overflow for drama. */
+      /* Hero wordmark: sized to BLEED off both edges — the crop is the
+         composition. The reference (xAI's Grok landing) makes the wordmark a
+         piece of architecture: too big to read as a logo, letters cut by the
+         frame, fading across the glow. Fitting the word inside the screen is
+         what made the old version read as "logo on a page". nowrap + the
+         container's overflow:hidden make the bleed deliberate. */
       .feral-startup-wordmark {
         position: relative;
         z-index: 4;
         font-family: 'Geist Variable', Geist, system-ui, sans-serif;
-        /* Sized for NINE letters, not five. CINDERPAW at the old 22vw ran off
-           both edges — the crop here is meant to read as deliberate framing,
-           and a word that simply does not fit reads as a bug. Scaled by 5/9 so
-           the wordmark occupies the same share of the screen it always did. */
-        font-size: clamp(64px, 12.2vw, 168px);
+        font-size: clamp(96px, 21vw, 340px);
         font-weight: 600;
         line-height: 0.9;
-        letter-spacing: 0.14em;
-        text-indent: 0.14em;
-        color: rgba(240, 230, 211, 0.05);
+        letter-spacing: 0.1em;
+        text-indent: 0.1em;
+        white-space: nowrap;
+        color: rgba(240, 230, 211, 0.055);
         /* A hairline of light on the top edge is what makes the letters read
            as CUT OUT of the surface rather than printed on it. */
         text-shadow: 0 -1px 0 rgba(255, 250, 240, 0.07);
