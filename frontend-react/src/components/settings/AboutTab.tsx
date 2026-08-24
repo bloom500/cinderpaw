@@ -47,7 +47,7 @@ export function AboutTab() {
         </Button>
 
         {status === 'up-to-date' && (
-          <span className="flex items-center gap-1 text-xs text-success">
+          <span className="flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-1 bg-success text-white shadow-sm">
             <CheckCircle size={13} /> You're on the latest version
           </span>
         )}

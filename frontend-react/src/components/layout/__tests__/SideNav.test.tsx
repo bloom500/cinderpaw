@@ -139,10 +139,13 @@ describe('SideNav', () => {
     expect(useUI.getState().navCollapsed).toBe(true);
 
     view.rerender(<MemoryRouter><SideNav /></MemoryRouter>);
-    // Not an icon rail: an unlabelled column of glyphs still costs width and
-    // still has to be decoded. Gone means gone.
-    expect(screen.queryByRole('navigation')).toBeNull();
-    expect(screen.queryByText('Chats')).toBeNull();
+    // The rail ANIMATES shut now (~220ms) instead of being cut between frames —
+    // the abrupt unmount this test used to pin was exactly the bug. Gone means
+    // gone once the motion lands; waitFor is the honest way to say that.
+    await vi.waitFor(() => {
+      expect(screen.queryByRole('navigation')).toBeNull();
+      expect(screen.queryByText('Chats')).toBeNull();
+    });
     // ...but never a dead end: something has to bring it back.
     expect(screen.getByLabelText('Expand navigation')).toBeTruthy();
   });

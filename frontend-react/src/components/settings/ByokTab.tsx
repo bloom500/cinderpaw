@@ -117,8 +117,10 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
       <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-border-subtle hover:bg-bg-hover transition-colors text-left">
         <span className="text-sm font-medium text-text-primary">{def.name}</span>
         <span className={cn(
-          'text-xs px-2 py-0.5 rounded-full shrink-0',
-          isActive ? 'bg-success/20 text-success' : 'bg-bg-hover text-text-muted',
+          'text-xs px-2 py-0.5 rounded-full shrink-0 border',
+          isActive
+            ? 'bg-success/25 border-success/40 text-success-text'
+            : 'bg-black/40 border-white/10 text-text-secondary',
         )}>
           {isActive ? 'Active' : 'Not configured'}
         </span>
@@ -133,7 +135,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
               role="switch"
               aria-checked={enabled}
               onClick={() => setEnabled(!enabled)}
-              className={cn('w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden', enabled ? 'bg-blue-500' : 'bg-neutral-600')}
+              className={cn('w-10 h-6 rounded-full transition-colors duration-200 relative shrink-0 overflow-hidden', enabled ? 'bg-blue-500' : 'bg-border-default')}
             >
               <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
             </button>

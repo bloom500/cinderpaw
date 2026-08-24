@@ -236,33 +236,42 @@ export function SideNav() {
     window.dispatchEvent(new CustomEvent('feral:new-chat'));
   };
 
-  // Gone entirely, with one way back. Rendering it at width 0 would leave a
-  // focusable, screen-reader-visible navigation nobody can see.
-  if (collapsed) {
-    return (
-      <>
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label="Expand navigation"
-          title="Expand navigation"
-          className="fixed left-3 top-3 z-30 h-9 w-9 grid place-items-center rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer shadow-md"
-        >
-          <PanelLeftOpen size={19} />
-        </button>
-        <NewProjectDialog open={projectOpen} onOpenChange={setProjectOpen} />
-      </>
-    );
-  }
-
+  // Gone entirely, with one way back — but GONE ANIMATED. The collapse used
+  // to early-return here, unmounting the rail between one frame and the next;
+  // the "close" was a cut and the "open" slid out of nowhere. AnimatePresence
+  // owns both directions now: the rail shrinks and fades as one motion, and
+  // the expand button waits for it to be nearly gone before it fades in.
+  //
+  // The fixed-width inner wrapper is what keeps the shrink clean: without it,
+  // the rail's children reflow at every width between 216 and 0 and the labels
+  // wrap into jittering towers mid-animation.
   return (
     <>
-      <motion.nav
-        aria-label="Main"
-        animate={{ width: collapsed ? NAV_COLLAPSED_W : NAV_W }}
-        transition={{ duration: 0.22, ease: 'easeInOut' }}
-        className={cn(
-          'fixed left-3 top-3 bottom-3 z-30 flex flex-col overflow-hidden',
+      <AnimatePresence initial={false}>
+        {collapsed ? (
+          <motion.button
+            key="sidenav-expand"
+            type="button"
+            onClick={toggle}
+            aria-label="Expand navigation"
+            title="Expand navigation"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1, transition: { delay: 0.16, duration: 0.12 } }}
+            exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.08 } }}
+            className="fixed left-3 top-3 z-30 h-9 w-9 grid place-items-center rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer shadow-md"
+          >
+            <PanelLeftOpen size={19} />
+          </motion.button>
+        ) : (
+          <motion.nav
+            key="sidenav"
+            aria-label="Main"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: NAV_W, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: 'easeInOut' }}
+          className={cn(
+            'fixed left-3 top-3 bottom-3 z-30 flex flex-col overflow-hidden',
           // Lifted, not sunken. A panel a shade DARKER than the page reads as a
           // hole and its rounded corners vanish with it — which is what the
           // first two attempts here looked like. Theme tokens rather than
@@ -278,6 +287,13 @@ export function SideNav() {
           'liquid-glass liquid-glass-rim',
         )}
       >
+        {/* Fixed-width stage: the rail animates its own width, but everything
+            inside stays laid out at full width so nothing reflows mid-shrink.
+            The stage itself unmounts the instant collapse flips — what slides
+            shut is the empty frame, which is both cleaner to watch and keeps
+            every word out of the tree the moment "gone" was asked for. */}
+        {!collapsed && (
+        <div style={{ width: NAV_W }} className="h-full flex flex-col overflow-hidden">
         <div className="h-12 px-3 flex items-center justify-between shrink-0">
           {!collapsed && (
             <span className="font-semibold text-sm text-text-primary tracking-wide select-none">
@@ -335,8 +351,11 @@ export function SideNav() {
         <div className="flex-1 min-h-0 px-2 flex flex-col">
           <Library collapsed={collapsed} />
         </div>
-
+        </div>
+        )}
       </motion.nav>
+        )}
+      </AnimatePresence>
 
       <NewProjectDialog open={projectOpen} onOpenChange={setProjectOpen} />
     </>
