@@ -142,8 +142,13 @@ export class LeafStore {
    */
   #persist(): void {
     if (this.#inMemory) return;
-    mkdirSync(dirname(this.#path), { recursive: true });
-    const body = this.all().map((r) => JSON.stringify(r)).join("\n");
-    atomicWriteFileSync(this.#path, body.length ? body + "\n" : "");
+    try {
+      mkdirSync(dirname(this.#path), { recursive: true });
+      const body = this.all().map((r) => JSON.stringify(r)).join("\n");
+      atomicWriteFileSync(this.#path, body.length ? body + "\n" : "");
+    } catch {
+      // Best-effort persist: disk-full / permission errors must not crash the turn.
+      // The in-memory map stays correct; next boot will retry the write.
+    }
   }
 }

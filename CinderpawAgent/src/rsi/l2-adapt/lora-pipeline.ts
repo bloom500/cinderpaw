@@ -22,8 +22,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { atomicWriteFileSync } from "../../atomic-write.ts";
 import type { PairedSample } from "../infra/confidence.ts";
 import { evaluateLoraGate, type LoraGateResult, type Tier0Result } from "./lora-eval-gate.ts";
 import { paths } from "../infra/instance-paths.ts";
@@ -96,9 +97,12 @@ export class LoraReviewStore {
   }
 
   #save(): void {
-    mkdirSync(dirname(this.file), { recursive: true });
-    const envelope: Envelope = { version: 1, cards: this.#cards };
-    writeFileSync(this.file, JSON.stringify(envelope, null, 2));
+    try {
+      const envelope: Envelope = { version: 1, cards: this.#cards };
+      atomicWriteFileSync(this.file, JSON.stringify(envelope, null, 2));
+    } catch {
+      // Best-effort: review inbox is resolvable state, registry is durable. Corruption handled on load.
+    }
   }
 
   /** Idempotent per adapterId, like every other store on this substrate. */

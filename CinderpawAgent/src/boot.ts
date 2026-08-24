@@ -1063,14 +1063,27 @@ export async function boot(transportOverride?: Transport) {
   // `loadBrainConfig()` returns null for BOTH "no file" and "file says
   // enabled: false". Only the first may fall through to derivation — the
   // second is a decision the user made and we do not overrule it.
-  const brainCfg =
-    loadBrainConfig() ??
-    (brainConfigFileExists()
-      ? null
-      : deriveDefaultConfig([
-          config.inference.primary,
-          config.inference.fallback,
-        ]));
+  // SAFE: malformed brain.json must not crash boot — log and fall back to derived or disabled.
+  let brainCfg: import("./brain/brain-config.ts").BrainConfig | null = null;
+  try {
+    brainCfg =
+      loadBrainConfig() ??
+      (brainConfigFileExists()
+        ? null
+        : deriveDefaultConfig([
+            config.inference.primary,
+            config.inference.fallback,
+          ]));
+  } catch (e) {
+    log(`brain: invalid brain.json — using derived config if available (${String(e)})`);
+    try {
+      brainCfg = brainConfigFileExists()
+        ? null
+        : deriveDefaultConfig([config.inference.primary, config.inference.fallback]);
+    } catch {
+      brainCfg = null;
+    }
+  }
   // Whether the config came from us or from the user. A model switch may
   // rebuild a DERIVED brain (see rebuildDerivedBrain); a hand-written
   // brain.json is a deliberate choice of models and is never overwritten.
@@ -2096,7 +2109,7 @@ export async function boot(transportOverride?: Transport) {
     brainDerived, brainBreaker,
   };
   transport.onMessage((msg) => {
-    void dispatchMessage(ctx, msg);
+    void dispatchMessage(ctx, msg).catch((e) => log(`dispatch: unhandled error: ${String(e)}`));
   });
 
 
