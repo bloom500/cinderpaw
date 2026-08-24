@@ -580,8 +580,10 @@ html.has-window-effect body { background-color: transparent; }
    rather than a plain sheet of frost, and on every machine WITHOUT a real
    window effect they are still the entire visual environment. They are simply
    turned down to a trace once there is something real behind them: 0.08 in
-   dark, because at 0.16 the amber wash was exactly what stopped the pane
-   reading as BLACK glass and left it looking grey-brown instead. */
+   light, and 0 in dark — the user asked for BLACK glass, and even a trace of
+   amber was what kept the pane reading warm-grey instead. Light keeps its
+   trace: on a pale pane a hint of warmth reads as daylight, not as mud. */
+html.has-window-effect[data-theme="dark"] body::before { opacity: 0; }
 html.has-window-effect body::before { opacity: 0.08; }
 /* The grain carries its own opacity from a token (0.02, not 1), so this halves
    it rather than setting it — writing a flat number here would have turned a
@@ -643,7 +645,7 @@ html.has-window-effect[data-theme="light"] .app-pane {
    palette blocks on specificity rather than on where it happens to sit in
    the file — the palette is declared both above and below this point, and
    source order alone would pick the wrong one. */
-html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(16, 14, 9, 0.48); }
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(10, 10, 12, 0.48); }
 html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238, 0.02); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —
