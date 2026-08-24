@@ -263,9 +263,31 @@ pub struct DownloadProgress {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Logs go to a FILE, not stdout. A GUI process on Windows has no visible
+    // stdout, which meant every tracing line — including everything the
+    // sidecar prints ([cinderpaw-agent] …) — vanished into the void. When the
+    // memory capture pipeline went quiet for four days (2026-08-20..24) there
+    // was literally nowhere to look for why. The file lives next to the rest
+    // of the app's state so support starts and ends in one folder.
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")))
+        .with_ansi(false)
+        .with_writer(move || -> Box<dyn std::io::Write> {
+            if let Some(home) = std::env::var_os("USERPROFILE") {
+                let dir = std::path::Path::new(&home).join(".cinderpaw").join("logs");
+                if std::fs::create_dir_all(&dir).is_ok() {
+                    if let Ok(f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(dir.join("cinderpaw.log"))
+                    {
+                        return Box::new(f);
+                    }
+                }
+            }
+            Box::new(std::io::stdout())
+        })
         .init();
 
     // The rename moves `~/.feral` to `~/.cinderpaw` on the first start after
