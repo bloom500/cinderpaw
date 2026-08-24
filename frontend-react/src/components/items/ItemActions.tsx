@@ -200,7 +200,15 @@ export function ConversationActions({
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          // The projects store is only refreshed by Chat/Projects pages; a
+          // menu opened from the sidebar before visiting either saw an empty
+          // list and a disabled "Add to project" (Darius, 2026-08-24).
+          // Refresh on every open — cheap, and the submenu is always live.
+          if (open) void useProjects.getState().refresh().catch(console.error);
+        }}
+      >
         <ActionsTrigger label="Chat options" className={className} />
         <DropdownMenuContent side={side} align={align}>
           <DropdownMenuItem onClick={() => setRenaming(true)}>
