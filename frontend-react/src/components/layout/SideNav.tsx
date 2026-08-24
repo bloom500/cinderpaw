@@ -4,14 +4,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, Search, MessageSquare, Folder, Box, Settings,
   PanelLeftClose, PanelLeftOpen, Loader2, FolderPlus,
+  ChevronDown, ChevronRight,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { NewProjectDialog } from '@/components/items/NewProjectDialog';
 import { useUI } from '@/stores/ui';
-import { useConversations } from '@/stores/conversations';
-import { groupByRecency } from '@/lib/chatGroups';
+import { useConversations, type ConversationSummary } from '@/stores/conversations';
+import { groupByRecency, type DatedGroup } from '@/lib/chatGroups';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
 import { cn } from '@/lib/utils';
@@ -125,6 +126,10 @@ function Library({ collapsed }: { collapsed: boolean }) {
   // `dragOverProject` highlights the row under the cursor.
   const [draggingChat, setDraggingChat] = useState<string | null>(null);
   const [dragOverProject, setDragOverProject] = useState<string | null>(null);
+  // Project accordion: clicking a project expands ITS chats in place,
+  // grouped by date — a dropdown inside the rail, not a page and not a
+  // view swap. One project open at a time keeps the column calm.
+  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
   // The projects store is refreshed by Chat/Projects pages; the rail must
   // not depend on having visited them first.
   useEffect(() => {
@@ -137,73 +142,159 @@ function Library({ collapsed }: { collapsed: boolean }) {
 
   const rowBase = 'w-full flex items-center gap-2 h-8 px-3 rounded-lg text-sm text-left transition-colors cursor-pointer';
 
+  // Chat rows are identical in the all-chats view and inside a project's
+  // drill-down — one renderer, so behavior can never drift between them.
+  const renderChatRows = (items: typeof list) => (
+    <div className="space-y-0.5">
+      {items.map((c) => (
+        // The row is a container so the actions can sit beside the
+        // button rather than inside it — a button inside a button is
+        // invalid HTML, and the menu trigger stops working the moment
+        // the browser reparents it.
+        <div
+          key={c.id}
+          draggable
+          onDragStart={(e) => {
+            // 'text/plain' as fallback: some engines refuse custom
+            // MIME types when deciding whether a drop is allowed.
+            e.dataTransfer.setData('text/cinderpaw-chat-id', c.id);
+            e.dataTransfer.setData('text/plain', c.id);
+            e.dataTransfer.effectAllowed = 'copyMove';
+            setDraggingChat(c.id);
+          }}
+          onDragEnd={() => {
+            setDraggingChat(null);
+            setDragOverProject(null);
+          }}
+          className={cn(
+            'group flex items-center rounded-lg pr-1 transition-opacity duration-150',
+            c.id === currentId ? 'bg-bg-active' : 'hover:bg-bg-hover',
+            // While any chat is dragged, the other rows step back
+            // so the target section reads as the destination.
+            draggingChat && draggingChat !== c.id && 'opacity-40',
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => { void useConversations.getState().open(c.id); navigate('/chat'); }}
+            className={cn(
+              rowBase,
+              'flex-1 min-w-0',
+              c.id === currentId
+                ? 'text-text-primary'
+                : 'text-text-muted group-hover:text-text-secondary',
+            )}
+          >
+            {/* A chat can be generating while you are looking at another one. */}
+            {streamingIds[c.id] && (
+              <Loader2 size={11} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
+            )}
+            <span className="truncate">{c.title}</span>
+          </button>
+          <ConversationActions conv={c} side="right" align="start" />
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderGroupedChats = (grouped: DatedGroup<ConversationSummary>[]) => (
+    <div className="space-y-3">
+      {grouped.map((group) => (
+        <section key={group.id}>
+          {/* Date headings, unlike a "Chats" heading, are not a word the
+              navigation already says one row above — they are the only
+              thing that makes a long column scannable instead of a wall. */}
+          <div className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+            {group.label}
+          </div>
+          {renderChatRows(group.items)}
+        </section>
+      ))}
+    </div>
+  );
+
   return (
     <div className="mt-4 min-h-0 flex-1 overflow-y-auto scrollbar-hide pb-2">
       {projects.length > 0 && (
-        <>
-          {/* No section headings. "Projects" and "Chats" are already two of the
-              navigation rows just above, and a 216px column that says each word
-              twice reads as a form, not as a list. The folder icon is the only
-              distinction the two kinds of row need. */}
-          <div className="space-y-0.5 mb-3">
-            {projects.map((p) => (
-              <div
-                key={p.id}
-                className={cn(
-                  'group flex items-center rounded-lg pr-1 hover:bg-bg-hover transition-all duration-150',
-                  // While a chat is being dragged, every project row advertises
-                  // itself as a target (dashed ring); the row under the cursor
-                  // lights up solid and lifts slightly.
-                  draggingChat && 'outline outline-1 outline-dashed outline-brand/40',
-                  dragOverProject === p.id &&
-                    'ring-1 ring-brand bg-bg-active scale-[1.02]',
-                )}
-                onDragEnter={(e) => {
-                  e.preventDefault();
-                  setDragOverProject(p.id);
-                }}
-                onDragOver={(e) => {
-                  // preventDefault on dragover is what flips the browser's
-                  // 🚫 into a copy cursor; dropEffect must agree with the
-                  // source's effectAllowed ('copy') or Chromium shows the
-                  // slashed circle anyway.
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'copy';
-                  setDragOverProject(p.id);
-                }}
-                onDragLeave={(e) => {
-                  e.preventDefault();
-                  setDragOverProject((id) => (id === p.id ? null : id));
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const convId =
-                    e.dataTransfer.getData('text/cinderpaw-chat-id') ||
-                    e.dataTransfer.getData('text/plain');
-                  if (convId) {
-                    void useProjects.getState().addChat(p.id, convId).catch(console.error);
-                  }
-                  setDragOverProject(null);
-                  setDraggingChat(null);
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => navigate('/projects')}
-                  className={cn(rowBase, 'flex-1 min-w-0 text-text-muted group-hover:text-text-secondary')}
+        <div className="space-y-0.5 mb-3">
+          {projects.map((p) => {
+            const expanded = expandedProjectId === p.id;
+            const convs = (list ?? []).filter((c) => p.conversation_ids.includes(c.id));
+            const pGroups = groupByRecency(convs, (c) => c.updated_at);
+            return (
+              <div key={p.id}>
+                <div
+                  className={cn(
+                    'group flex items-center rounded-lg pr-1 hover:bg-bg-hover transition-all duration-150',
+                    // While a chat is being dragged, every project row advertises
+                    // itself as a target (dashed outline); the row under the cursor
+                    // lights up solid and lifts slightly.
+                    draggingChat && 'outline outline-1 outline-dashed outline-brand/40',
+                    dragOverProject === p.id &&
+                      'ring-1 ring-brand bg-bg-active scale-[1.02]',
+                  )}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    setDragOverProject(p.id);
+                  }}
+                  onDragOver={(e) => {
+                    // preventDefault on dragover is what flips the browser's
+                    // slashed-circle into a copy cursor; dropEffect must agree
+                    // with the source's effectAllowed or Chromium shows it
+                    // anyway.
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'copy';
+                    setDragOverProject(p.id);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setDragOverProject((id) => (id === p.id ? null : id));
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const convId =
+                      e.dataTransfer.getData('text/cinderpaw-chat-id') ||
+                      e.dataTransfer.getData('text/plain');
+                    if (convId) {
+                      void useProjects.getState().addChat(p.id, convId).catch(console.error);
+                    }
+                    setDragOverProject(null);
+                    setDraggingChat(null);
+                  }}
                 >
-                  <Folder
-                    size={13}
-                    className={cn('shrink-0 aria-hidden', dragOverProject === p.id && 'animate-bounce text-brand')}
-                    aria-hidden
-                  />
-                  <span className="truncate">{p.name}</span>
-                </button>
-                <ProjectActions project={p} side="right" align="start" />
+                  <button
+                    type="button"
+                    onClick={() => setExpandedProjectId(expanded ? null : p.id)}
+                    aria-expanded={expanded}
+                    className={cn(rowBase, 'flex-1 min-w-0 text-text-muted group-hover:text-text-secondary')}
+                  >
+                    {expanded ? (
+                      <ChevronDown size={12} className="shrink-0" aria-hidden />
+                    ) : (
+                      <ChevronRight size={12} className="shrink-0" aria-hidden />
+                    )}
+                    <Folder size={13} className="shrink-0" aria-hidden />
+                    <span className="truncate">{p.name}</span>
+                  </button>
+                  <ProjectActions project={p} side="right" align="start" />
+                </div>
+                {/* The accordion body: the project's chats, grouped by date,
+                    indented under the row. Everything stays in the rail. */}
+                {expanded && (
+                  <div className="ml-5 pl-2 border-l border-border-subtle space-y-3 my-1">
+                    {convs.length === 0 ? (
+                      <span className="block px-2 py-1 text-2xs text-text-disabled">
+                        No chats yet — drag one onto the project.
+                      </span>
+                    ) : (
+                      renderGroupedChats(pGroups)
+                    )}
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
-        </>
+            );
+          })}
+        </div>
       )}
 
       {!loaded ? (
@@ -223,71 +314,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
           Nothing yet. Ask Cinderpaw something.
         </span>
       ) : (
-        <div className="space-y-3">
-          {groups.map((group) => (
-            <section key={group.id}>
-              {/* Date headings, unlike a "Chats" heading, are not a word the
-                  navigation already says one row above — they are the only
-                  thing that makes a long column scannable instead of a wall. */}
-              {/* `text-disabled` put these at #C0B0A0 on a light background —
-                  present in the DOM and absent from the screen. A heading that
-                  has to be hunted for is not doing the one job it has. */}
-              <div className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                {group.label}
-              </div>
-              <div className="space-y-0.5">
-                {group.items.map((c) => (
-                  // The row is a container so the actions can sit beside the
-                  // button rather than inside it — a button inside a button is
-                  // invalid HTML, and the menu trigger stops working the moment
-                  // the browser reparents it.
-                  <div
-                    key={c.id}
-                    draggable
-                    onDragStart={(e) => {
-                      // 'text/plain' as fallback: some engines refuse custom
-                      // MIME types when deciding whether a drop is allowed.
-                      e.dataTransfer.setData('text/cinderpaw-chat-id', c.id);
-                      e.dataTransfer.setData('text/plain', c.id);
-                      e.dataTransfer.effectAllowed = 'copyMove';
-                      setDraggingChat(c.id);
-                    }}
-                    onDragEnd={() => {
-                      setDraggingChat(null);
-                      setDragOverProject(null);
-                    }}
-                    className={cn(
-                      'group flex items-center rounded-lg pr-1 transition-opacity duration-150',
-                      c.id === currentId ? 'bg-bg-active' : 'hover:bg-bg-hover',
-                      // While any chat is dragged, the other rows step back
-                      // so the target section reads as the destination.
-                      draggingChat && draggingChat !== c.id && 'opacity-40',
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => { void useConversations.getState().open(c.id); navigate('/chat'); }}
-                      className={cn(
-                        rowBase,
-                        'flex-1 min-w-0',
-                        c.id === currentId
-                          ? 'text-text-primary'
-                          : 'text-text-muted group-hover:text-text-secondary',
-                      )}
-                    >
-                      {/* A chat can be generating while you are looking at another one. */}
-                      {streamingIds[c.id] && (
-                        <Loader2 size={11} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
-                      )}
-                      <span className="truncate">{c.title}</span>
-                    </button>
-                    <ConversationActions conv={c} side="right" align="start" />
-                  </div>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+        renderGroupedChats(groups)
       )}
     </div>
   );
