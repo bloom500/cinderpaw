@@ -310,6 +310,45 @@ fn trip_deadline(
     );
 }
 
+/// Resolves as soon as the session's stop flag is tripped. Polled at a
+/// 100 ms cadence — responsive enough that a Stop click feels immediate,
+/// cheap enough not to matter next to the tool call itself.
+async fn stop_watcher(stop: Arc<AtomicBool>) {
+    let mut ticker = tokio::time::interval(Duration::from_millis(100));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    ticker.tick().await; // consume the immediate first tick (instant zero)
+    while !stop.load(Ordering::SeqCst) {
+        ticker.tick().await;
+    }
+}
+
+/// Run one cloud-path tool call, aborting it when the user trips the
+/// session's stop flag. Dropping the tool future IS the abort mechanism:
+/// reqwest futures cancel their in-flight request on drop, and
+/// `code_execute` marks its child process `kill_on_drop`, so nothing is
+/// left running behind the cancelled turn.
+///
+/// Before this existed, the agentic loop only observed the stop flag at
+/// the top of each iteration, so a Stop press during a long-running tool
+/// (web search retry chain, python script) appeared to do nothing until
+/// the tool ran to completion.
+async fn execute_with_stop(
+    tool: tools::ToolType,
+    args: serde_json::Value,
+    stop: Arc<AtomicBool>,
+) -> tools::ToolResult {
+    let name = tool.name().to_string();
+    tokio::select! {
+        biased;
+        _ = stop_watcher(stop) => tools::ToolResult {
+            name,
+            ok: false,
+            output: "stopped by user".to_string(),
+        },
+        result = tools::execute(tool, args) => result,
+    }
+}
+
 /// tok/s over the window between first token and now. Returns 0.0
 /// during prefill (`ft_ms == 0`) or when the elapsed-since-first
 /// window is zero (avoid div-by-zero). Pure helper — exposed as a
@@ -923,23 +962,23 @@ pub(crate) async fn chat_cloud_stream(
                 "content": tool_use_blocks,
             }));
 
-            // Execute each tool and append ALL results to a single user turn.
-            let mut tool_results: Vec<serde_json::Value> = Vec::new();
-            for (_, (id, name, args_str)) in &sorted {
-                let args: serde_json::Value = serde_json::from_str(args_str)
-                    .unwrap_or(serde_json::json!({}));
-                let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
-                    tools::execute(tool_type, args).await
-                } else {
-                    tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
-                };
-                tool_results.push(serde_json::json!({
-                    "type": "tool_result",
-                    "tool_use_id": id,
-                    "content": result.output,
-                    "is_error": !result.ok,
-                }));
-            }
+        // Execute each tool and append ALL results to a single user turn.
+        let mut tool_results: Vec<serde_json::Value> = Vec::new();
+        for (_, (id, name, args_str)) in &sorted {
+            let args: serde_json::Value = serde_json::from_str(args_str)
+                .unwrap_or(serde_json::json!({}));
+            let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
+                execute_with_stop(tool_type, args, stop.clone()).await
+            } else {
+                tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
+            };
+            tool_results.push(serde_json::json!({
+                "type": "tool_result",
+                "tool_use_id": id,
+                "content": result.output,
+                "is_error": !result.ok,
+            }));
+        }
             ctx.push(serde_json::json!({
                 "role": "user",
                 "content": tool_results,
@@ -965,7 +1004,7 @@ pub(crate) async fn chat_cloud_stream(
                 let args: serde_json::Value = serde_json::from_str(args_str)
                     .unwrap_or(serde_json::json!({}));
                 let result = if let Some(tool_type) = tools::ToolType::from_name(name) {
-                    tools::execute(tool_type, args).await
+                    execute_with_stop(tool_type, args, stop.clone()).await
                 } else {
                     tools::ToolResult { name: name.clone(), ok: false, output: format!("Unknown tool: {}", name) }
                 };
