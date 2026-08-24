@@ -30,10 +30,10 @@
       html[data-theme="light"].has-window-effect,
       html[data-theme="light"].has-window-effect body { background-color: transparent; }
 
-      /* Startup surface: hero wordmark + amber key light + shimmer line, all
-         rendered statically so the first paint is the product, not a blank
-         page. Layer order mirrors the app scene (globals.css): vignette →
-         key light → grain → content. */
+      /* Startup surface: sleepy bear + amber pool + pulsing status line, all
+          rendered statically so the first paint is the product, not a blank
+          page. Layer order mirrors the app scene (globals.css): vignette →
+          key light → grain → content. */
       #feral-startup {
         position: fixed;
         inset: 0;
@@ -70,98 +70,56 @@
         opacity: 0.05;
       }
       html[data-theme="light"] #feral-startup::after { opacity: 0.04; }
-      /* One large amber key light, anchored RIGHT like the reference: it
-         settles once (one-shot, 4s) and then rests as a static directional
-         glow. The drama is in the composition — letters fading across the
-         frame — not in a light that keeps moving. */
+      /* Sleepy bear — the loading animoji (Darius, 2026-08-24; reference:
+         Apple's bear Animoji). Inline SVG, no assets: radial gradients fake
+         the volume, CSS breathes the head and floats the Zzz. The old
+         wordmark composition was cinematic but the startup finishes too fast
+         to read it; a single character with one gag is the right budget for
+         a screen that lives ~2 seconds. */
+      .feral-startup-bear {
+        width: clamp(120px, 16vw, 190px);
+        height: auto;
+        z-index: 4;
+        filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35));
+      }
+      .feral-startup-bear .bear-head {
+        transform-origin: 100px 130px;
+        animation: bear-breathe 3.2s ease-in-out infinite;
+      }
+      @keyframes bear-breathe {
+        0%, 100% { transform: scale(1); }
+        50%      { transform: scale(1.025); }
+      }
+      .feral-startup-bear .zz {
+        opacity: 0;
+        animation: zzz-float 2.7s ease-in-out infinite;
+      }
+      .feral-startup-bear .zz2 { animation-delay: 0.9s; }
+      .feral-startup-bear .zz3 { animation-delay: 1.8s; }
+      @keyframes zzz-float {
+        0%   { opacity: 0; transform: translate(6px, 8px) rotate(0deg); }
+        25%  { opacity: 0.95; }
+        100% { opacity: 0; transform: translate(-4px, -16px) rotate(-6deg); }
+      }
+      /* Soft warm pool behind the bear — static; the bear owns the motion. */
       .feral-startup-light {
         position: absolute;
-        top: -15%;
-        left: 25%;
-        width: 130%;
-        height: 130%;
+        top: 50%;
+        left: 50%;
+        width: 90vmin;
+        height: 90vmin;
+        transform: translate(-50%, -52%);
         z-index: 2;
         pointer-events: none;
-        background: radial-gradient(closest-side, rgba(196, 132, 58, 0.26), transparent 68%);
-        animation: feral-startup-settle 4s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
-        will-change: transform, opacity;
+        background: radial-gradient(closest-side, rgba(196, 132, 58, 0.16), transparent 70%);
       }
       html[data-theme="light"] .feral-startup-light {
-        background: radial-gradient(closest-side, rgba(160, 104, 40, 0.2), transparent 68%);
-      }
-      @keyframes feral-startup-settle {
-        0%   { transform: translate3d(-16%, 0, 0) scale(1.02); opacity: 0; }
-        40%  { opacity: 1; }
-        100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.9; }
-      }
-      /* Hero wordmark: sized to BLEED off both edges — the crop is the
-         composition. The reference (xAI's Grok landing) makes the wordmark a
-         piece of architecture: too big to read as a logo, letters cut by the
-         frame, fading across the glow. Fitting the word inside the screen is
-         what made the old version read as "logo on a page". nowrap + the
-         container's overflow:hidden make the bleed deliberate. */
-      .feral-startup-wordmark {
-        position: relative;
-        z-index: 4;
-        font-family: 'Geist Variable', Geist, system-ui, sans-serif;
-        font-size: clamp(96px, 21vw, 340px);
-        font-weight: 600;
-        line-height: 0.9;
-        letter-spacing: 0.1em;
-        text-indent: 0.1em;
-        white-space: nowrap;
-        color: rgba(240, 230, 211, 0.055);
-        /* A hairline of light on the top edge is what makes the letters read
-           as CUT OUT of the surface rather than printed on it. */
-        text-shadow: 0 -1px 0 rgba(255, 250, 240, 0.07);
-      }
-      html[data-theme="light"] .feral-startup-wordmark {
-        color: rgba(28, 22, 16, 0.06);
-        text-shadow: 0 -1px 0 rgba(255, 255, 255, 0.6);
-      }
-      /* The spotlight. A second copy of the word sits exactly on top of the
-         first, painted with a narrow moving highlight and clipped to the
-         glyphs — so the light rakes ACROSS the letters instead of washing the
-         whole screen. Only background-position animates, which the compositor
-         handles without a repaint of the text itself. */
-      .feral-startup-wordmark::after {
-        content: attr(data-word);
-        position: absolute;
-        inset: 0;
-        background-image: linear-gradient(
-          105deg,
-          transparent 38%,
-          rgba(255, 238, 210, 0.34) 47%,
-          rgba(255, 246, 228, 0.66) 50%,
-          rgba(255, 238, 210, 0.34) 53%,
-          transparent 62%
-        );
-        background-size: 260% 100%;
-        background-repeat: no-repeat;
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        animation: feral-startup-sweep-light 3.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-      }
-      html[data-theme="light"] .feral-startup-wordmark::after {
-        background-image: linear-gradient(
-          105deg,
-          transparent 38%,
-          rgba(120, 78, 30, 0.22) 47%,
-          rgba(96, 60, 20, 0.42) 50%,
-          rgba(120, 78, 30, 0.22) 53%,
-          transparent 62%
-        );
-      }
-      @keyframes feral-startup-sweep-light {
-        0%        { background-position: 175% 0; }
-        /* Rest between passes so it reads as a sweep, not a strobe. */
-        55%, 100% { background-position: -75% 0; }
+        background: radial-gradient(closest-side, rgba(160, 104, 40, 0.12), transparent 70%);
       }
       /* Visible, and announced. This was screen-reader-only, which left the
          startup screen saying nothing at all to someone looking at it — and on
          a large workspace that silence lasts long enough to read as a hang.
-         The wordmark alone cannot distinguish "loading" from "stuck".
+         The bear alone cannot distinguish "loading" from "stuck".
          One quiet line, pulsing, is the whole difference. */
       .feral-startup-status {
         position: relative;
@@ -191,17 +149,11 @@
         transform: scale(1.02);
         pointer-events: none;
       }
-      /* Reduced motion: full static composition — no sweep, no shimmer; the
-         handoff keeps a plain opacity fade (no scale). */
+      /* Reduced motion: the bear holds still (no breathing, Zzz parked
+         visible), the handoff keeps a plain opacity fade (no scale). */
       @media (prefers-reduced-motion: reduce) {
-        /* Full static composition: the key light rests warm and the
-           spotlight parks mid-word, so the letters still read as lit rather
-           than flat. No motion at all. */
-        .feral-startup-light { animation: none; opacity: 0.55; }
-        .feral-startup-wordmark::after {
-          animation: none;
-          background-position: 50% 0;
-        }
+        .feral-startup-bear .bear-head { animation: none; }
+        .feral-startup-bear .zz { animation: none; opacity: 0.9; }
         /* Legible and still, not hidden: the line is the only thing on screen
            telling the person anything. */
         .feral-startup-status { animation: none; opacity: 1; }
@@ -267,11 +219,67 @@
     <div id="root"></div>
     <div id="feral-startup">
       <div class="feral-startup-light" aria-hidden="true"></div>
-      <!-- data-word feeds the ::after copy that carries the moving spotlight;
-           both layers must show the same letters. -->
-      <div class="feral-startup-wordmark" data-word="CINDERPAW" aria-hidden="true">CINDERPAW</div>
-      <!-- Deliberately not "Starting Cinderpaw": the wordmark directly above
-           already says the name, and repeating it spends the one line the
+      <!-- The loading animoji: a sleepy bear, drawn inline (no assets — the
+           CSP allows only same-origin + data:). Radial gradients fake the
+           Apple-Animoji volume; CSS breathes the head and floats the Zzz.
+           Deliberately not "Starting Cinderpaw": the status line below is the
+           only text, so the bear carries the identity. -->
+      <svg class="feral-startup-bear" viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <radialGradient id="bearHead" cx="38%" cy="28%" r="85%">
+            <stop offset="0%" stop-color="#c08a52"/>
+            <stop offset="55%" stop-color="#96633a"/>
+            <stop offset="100%" stop-color="#6b421f"/>
+          </radialGradient>
+          <radialGradient id="bearEar" cx="40%" cy="35%" r="80%">
+            <stop offset="0%" stop-color="#a9713f"/>
+            <stop offset="100%" stop-color="#7a4c24"/>
+          </radialGradient>
+          <radialGradient id="bearInnerEar" cx="45%" cy="40%" r="75%">
+            <stop offset="0%" stop-color="#c99563"/>
+            <stop offset="100%" stop-color="#9a6a3c"/>
+          </radialGradient>
+          <radialGradient id="bearMuzzle" cx="45%" cy="30%" r="80%">
+            <stop offset="0%" stop-color="#efd0a4"/>
+            <stop offset="100%" stop-color="#d3ab77"/>
+          </radialGradient>
+          <radialGradient id="bearNose" cx="38%" cy="30%" r="80%">
+            <stop offset="0%" stop-color="#4a3226"/>
+            <stop offset="100%" stop-color="#1d120b"/>
+          </radialGradient>
+        </defs>
+        <g class="bear-head">
+          <!-- ears -->
+          <circle cx="52" cy="54" r="30" fill="url(#bearEar)"/>
+          <circle cx="148" cy="54" r="30" fill="url(#bearEar)"/>
+          <circle cx="52" cy="56" r="16" fill="url(#bearInnerEar)"/>
+          <circle cx="148" cy="56" r="16" fill="url(#bearInnerEar)"/>
+          <!-- head -->
+          <rect x="22" y="34" width="156" height="132" rx="64" fill="url(#bearHead)"/>
+          <!-- sleepy closed eyes -->
+          <path d="M58 100 q 13 11 26 0" fill="none" stroke="#3a2413" stroke-width="4.5" stroke-linecap="round"/>
+          <path d="M116 100 q 13 11 26 0" fill="none" stroke="#3a2413" stroke-width="4.5" stroke-linecap="round"/>
+          <!-- muzzle -->
+          <ellipse cx="100" cy="140" rx="43" ry="34" fill="url(#bearMuzzle)"/>
+          <!-- nose -->
+          <ellipse cx="100" cy="126" rx="17" ry="12" fill="url(#bearNose)"/>
+          <ellipse cx="94" cy="122" rx="5" ry="3" fill="#6b5142" opacity="0.7"/>
+          <!-- sleepy open mouth -->
+          <path d="M100 138 L100 148" stroke="#4a3226" stroke-width="3.5" stroke-linecap="round"/>
+          <path d="M84 150 q 16 14 32 0 q -16 8 -32 0" fill="#3a2413"/>
+          <!-- cheeks -->
+          <ellipse cx="58" cy="126" rx="12" ry="8" fill="#8a5a2e" opacity="0.5"/>
+          <ellipse cx="142" cy="126" rx="12" ry="8" fill="#8a5a2e" opacity="0.5"/>
+        </g>
+        <!-- floating Zzz -->
+        <g fill="#4a90e2" font-family="'Geist Variable', Geist, system-ui, sans-serif" font-weight="800">
+          <text class="zz"  x="128" y="128" font-size="20">z</text>
+          <text class="zz zz2" x="146" y="102" font-size="27">z</text>
+          <text class="zz zz3" x="168" y="70" font-size="36">z</text>
+        </g>
+      </svg>
+      <!-- Deliberately not "Starting Cinderpaw": the bear above
+           already carries the identity, and repeating it spends the one line the
            startup screen has on something the eye has just read. -->
       <div class="feral-startup-status" role="status">Starting</div>
     </div>

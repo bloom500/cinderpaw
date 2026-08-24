@@ -31,6 +31,14 @@
   var FALLBACK_THEME = 'dark';
   /* Must stay >= the `transition: opacity` duration in index.html. */
   var FADE_MS = 500;
+  /* Minimum time the startup surface stays visible. The app on this machine
+   * mounts in well under a second, which meant the loading screen flashed by
+   * unreadable — nobody could ever see what was on it (Darius, 2026-08-24).
+   * One hold window is enough for the bear to breathe once and the Zzz to
+   * float; the app underneath is ready either way, so this is presentation
+   * floor, not artificial waiting on work. */
+  var MIN_HOLD_MS = 1600;
+  var SEEN_AT = Date.now();
   /* Safety-net poll interval; the MutationObserver normally wins long
    * before the first tick. */
   var POLL_MS = 250;
@@ -87,10 +95,15 @@
       dismissed = true;
       if (poll) window.clearInterval(poll);
       startup.setAttribute('aria-hidden', 'true');
-      rootEl.classList.add('feral-ready');
+      /* Hold the surface for MIN_HOLD_MS from first script run, whatever the
+       * mount speed — the fade itself stays FADE_MS. */
+      var wait = Math.max(0, MIN_HOLD_MS - (Date.now() - SEEN_AT));
       window.setTimeout(function () {
-        if (startup.parentNode) startup.parentNode.removeChild(startup);
-      }, FADE_MS);
+        rootEl.classList.add('feral-ready');
+        window.setTimeout(function () {
+          if (startup.parentNode) startup.parentNode.removeChild(startup);
+        }, FADE_MS);
+      }, wait);
     }
 
     function mounted() {
