@@ -599,34 +599,36 @@ html.has-window-effect body::after  { opacity: calc(var(--scene-grain-opacity) *
    window converges on one colour, which is why the app kept looking like a
    sheet of paint rather than like glass.
 
-   `brightness()` in the backdrop filter does the same job multiplicatively.
-   Pure white behind the window arrives bounded from ABOVE — which is the only
-   thing contrast actually needs — while gradation survives.
+   `brightness()` in the backdrop filter bounds the backdrop from ABOVE — the
+   only direction contrast actually needs. But there are TWO legitimate black
+   materials, and 2026-08-24 ended on the second after a screenshot review
+   loop with Darius:
 
-   Dark no longer uses brightness alone, and the reason is the complaint that
-   prompted this round: at a plain brightness(0.30) the whole desktop landed in
-   the bottom 76 levels, and a dark wallpaper was INDISTINGUISHABLE FROM THE
-   VOID — matte glass showing nothing. contrast(0.42) compresses toward mid-
- grey FIRST (lifting the floor), then brightness(0.62) sets the level. Black
-   wallpaper now arrives at ~rgb(30) instead of rgb(3): you can see what is
-   behind the glass everywhere, not only where it was bright. Highlights are
-   pinned at the same ceiling as before — the text floors below set that
-   ceiling, and it did not move.
+   1. See-through glass: thin tint, wallpaper structure clearly visible. Its
+      ceiling is mathematically pinned at ~rgb(66) over a white wallpaper by
+      the text floors — it can NEVER read as pure black, only as dark grey.
+   2. Windows-11-style dark acrylic (shipped): heavy tint (alpha 0.78) does
+      the darkening, brightness(0.80) on top. The wallpaper only ghosts
+      through — the pane is near-uniform black with a whisper of depth, band
+      rgb(8)…rgb(53), worst-case text contrast 5.59:1.
 
-   Light cannot use compression alone in reverse: multiplying cannot lift
-   blacks. `contrast(0.35)` pulls both ends toward the middle first, and
-   brightness(2.5) carries the result up into the pale band the theme is drawn
-   against.
+   The trade is explicit: #2 gives up "see the desktop clearly" for "actually
+   black". That is the trade Darius picked, twice.
+
+   Light cannot work this way: multiplying cannot lift blacks, and dark text
+   needs a bright ground. `contrast(0.35)` pulls both ends toward the middle
+   first, and brightness(2.5) carries the result up into the pale band the
+   theme is drawn against.
 
    `saturate()` stays at or below 1 in both. Desaturating moves a colour toward
    its own luminance, so it can never push the backdrop brighter than the
    solver assumed; a saturate above 1 would quietly invalidate every number
    above. */
 html.has-window-effect[data-theme="dark"] .app-pane {
-  backdrop-filter: saturate(1) contrast(0.35) brightness(0.36);
-  -webkit-backdrop-filter: saturate(1) contrast(0.35) brightness(0.36);
-  backdrop-filter: saturate(1) contrast(0.35) brightness(0.36) url(#liquid-glass-soft);
-  -webkit-backdrop-filter: saturate(1) contrast(0.35) brightness(0.36) url(#liquid-glass-soft);
+  backdrop-filter: saturate(1) brightness(0.80);
+  -webkit-backdrop-filter: saturate(1) brightness(0.80);
+  backdrop-filter: saturate(1) brightness(0.80) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: saturate(1) brightness(0.80) url(#liquid-glass-soft);
 }
 html.has-window-effect[data-theme="light"] .app-pane {
   backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5);
@@ -645,7 +647,7 @@ html.has-window-effect[data-theme="light"] .app-pane {
    palette blocks on specificity rather than on where it happens to sit in
    the file — the palette is declared both above and below this point, and
    source order alone would pick the wrong one. */
-html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(10, 10, 12, 0.48); }
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(10, 10, 12, 0.78); }
 html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238, 0.02); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —
