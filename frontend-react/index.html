@@ -44,7 +44,14 @@
         justify-content: center;
         overflow: hidden;
         transition: opacity 0.45s ease, transform 0.45s ease;
+        /* Own opaque ground, MANDATORY in glass mode. The body goes
+           transparent when the window effect is active, so without this the
+           mounted app showed THROUGH the overlay during the hold — the bear
+           floating over the live UI for the whole minimum-hold window
+           (Darius, 2026-08-24). The loading scene is its own scene. */
+        background-color: #100E09;
       }
+      html[data-theme="light"] #feral-startup { background-color: #FFF5EE; }
       /* Vignette + grain mirror the shell tokens (globals.css --scene-vignette,
          --scene-grain-opacity) — hardcoded here because this style block is
          parsed before that stylesheet exists. */
