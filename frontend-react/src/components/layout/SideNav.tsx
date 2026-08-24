@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -120,6 +120,13 @@ function Library({ collapsed }: { collapsed: boolean }) {
   const currentId = useConversations((s) => s.currentId);
   const streamingIds = useConversations((s) => s.streamingIds);
   const projects = useProjects((s) => s.list);
+  // Drag-and-drop: a chat row dragged onto a project row moves it there.
+  const [dragOverProject, setDragOverProject] = useState<string | null>(null);
+  // The projects store is refreshed by Chat/Projects pages; the rail must
+  // not depend on having visited them first.
+  useEffect(() => {
+    void useProjects.getState().refresh().catch(console.error);
+  }, []);
   if (collapsed) return null;
 
   const groups = groupByRecency(list ?? [], (c) => c.updated_at);
@@ -137,7 +144,28 @@ function Library({ collapsed }: { collapsed: boolean }) {
               distinction the two kinds of row need. */}
           <div className="space-y-0.5 mb-3">
             {projects.map((p) => (
-              <div key={p.id} className="group flex items-center rounded-lg pr-1 hover:bg-bg-hover">
+              <div
+                key={p.id}
+                className={cn(
+                  'group flex items-center rounded-lg pr-1 hover:bg-bg-hover',
+                  // Drop target feedback: the row lights up while a chat
+                  // hovers over it, so the affordance is visible mid-drag.
+                  dragOverProject === p.id && 'ring-1 ring-brand bg-bg-active',
+                )}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOverProject(p.id);
+                }}
+                onDragLeave={() => setDragOverProject((id) => (id === p.id ? null : id))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const convId = e.dataTransfer.getData('text/cinderpaw-chat-id');
+                  if (convId) {
+                    void useProjects.getState().addChat(p.id, convId).catch(console.error);
+                  }
+                  setDragOverProject(null);
+                }}
+              >
                 <button
                   type="button"
                   onClick={() => navigate('/projects')}
@@ -190,6 +218,11 @@ function Library({ collapsed }: { collapsed: boolean }) {
                   // the browser reparents it.
                   <div
                     key={c.id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/cinderpaw-chat-id', c.id);
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }}
                     className={cn(
                       'group flex items-center rounded-lg pr-1',
                       c.id === currentId ? 'bg-bg-active' : 'hover:bg-bg-hover',
