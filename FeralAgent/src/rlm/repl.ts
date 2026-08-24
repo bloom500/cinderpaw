@@ -51,6 +51,7 @@ import { createContext, runInContext } from "node:vm";
 import type { ToolRegistry } from "../tools/registry.ts";
 import type { ToolResult } from "../types.ts";
 import type { ChildRegistry } from "./children.ts";
+import { DSL_PRIMITIVES } from "./dsl/primitives.js";
 
 /** How long one cell may run before it is abandoned. */
 export const DEFAULT_CELL_TIMEOUT_MS = 120_000;
@@ -150,6 +151,7 @@ export class Notebook {
         error: severed((...a: unknown[]) => write(a)),
         warn: severed((...a: unknown[]) => write(a)),
       }),
+      DSL: severed({ ...DSL_PRIMITIVES }),
     };
 
     // One async function per tool. `registry.call` never throws, so a bad tool
