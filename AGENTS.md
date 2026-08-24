@@ -95,6 +95,11 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   split it — needs a sidecar fix (`CinderpawAgent/src/sandbox/inference-providers.ts`
   local path) or a host-side `delta.reasoning_content` forward. **Read
   before touching chat reasoning rendering or the local Ollama path.**
+- **`project_arc_agi3_campaign.md`** — ARC-AGI-3 public demo campaign: test
+  plan (4 models × 4 harness stages on vast.ai RTX PRO 6000 WS 96GB), score
+  targets anchored to NVIDIA AVO's verified 100% public-set result, budget
+  (~$15-35), and the foundation branch (`feat/arc-perception-dsl`). **Read
+  before any work on ARC modules or the campaign.**
 - **`project_voice_mode_followups.md`** — open voice-mode regressions queued for
   2026-08-17: the user's new turn can take 15–30 seconds to appear after the
   agent finishes speaking, long prompts overwhelm the transcript beneath the

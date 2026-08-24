@@ -121,6 +121,9 @@ function Library({ collapsed }: { collapsed: boolean }) {
   const streamingIds = useConversations((s) => s.streamingIds);
   const projects = useProjects((s) => s.list);
   // Drag-and-drop: a chat row dragged onto a project row moves it there.
+  // `draggingChat` drives the rail-wide affordances while a drag is alive;
+  // `dragOverProject` highlights the row under the cursor.
+  const [draggingChat, setDraggingChat] = useState<string | null>(null);
   const [dragOverProject, setDragOverProject] = useState<string | null>(null);
   // The projects store is refreshed by Chat/Projects pages; the rail must
   // not depend on having visited them first.
@@ -147,23 +150,41 @@ function Library({ collapsed }: { collapsed: boolean }) {
               <div
                 key={p.id}
                 className={cn(
-                  'group flex items-center rounded-lg pr-1 hover:bg-bg-hover',
-                  // Drop target feedback: the row lights up while a chat
-                  // hovers over it, so the affordance is visible mid-drag.
-                  dragOverProject === p.id && 'ring-1 ring-brand bg-bg-active',
+                  'group flex items-center rounded-lg pr-1 hover:bg-bg-hover transition-all duration-150',
+                  // While a chat is being dragged, every project row advertises
+                  // itself as a target (dashed ring); the row under the cursor
+                  // lights up solid and lifts slightly.
+                  draggingChat && 'outline outline-1 outline-dashed outline-brand/40',
+                  dragOverProject === p.id &&
+                    'ring-1 ring-brand bg-bg-active scale-[1.02]',
                 )}
-                onDragOver={(e) => {
+                onDragEnter={(e) => {
                   e.preventDefault();
                   setDragOverProject(p.id);
                 }}
-                onDragLeave={() => setDragOverProject((id) => (id === p.id ? null : id))}
+                onDragOver={(e) => {
+                  // preventDefault on dragover is what flips the browser's
+                  // 🚫 into a copy cursor; dropEffect must agree with the
+                  // source's effectAllowed ('copy') or Chromium shows the
+                  // slashed circle anyway.
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'copy';
+                  setDragOverProject(p.id);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  setDragOverProject((id) => (id === p.id ? null : id));
+                }}
                 onDrop={(e) => {
                   e.preventDefault();
-                  const convId = e.dataTransfer.getData('text/cinderpaw-chat-id');
+                  const convId =
+                    e.dataTransfer.getData('text/cinderpaw-chat-id') ||
+                    e.dataTransfer.getData('text/plain');
                   if (convId) {
                     void useProjects.getState().addChat(p.id, convId).catch(console.error);
                   }
                   setDragOverProject(null);
+                  setDraggingChat(null);
                 }}
               >
                 <button
@@ -171,7 +192,11 @@ function Library({ collapsed }: { collapsed: boolean }) {
                   onClick={() => navigate('/projects')}
                   className={cn(rowBase, 'flex-1 min-w-0 text-text-muted group-hover:text-text-secondary')}
                 >
-                  <Folder size={13} className="shrink-0" aria-hidden />
+                  <Folder
+                    size={13}
+                    className={cn('shrink-0 aria-hidden', dragOverProject === p.id && 'animate-bounce text-brand')}
+                    aria-hidden
+                  />
                   <span className="truncate">{p.name}</span>
                 </button>
                 <ProjectActions project={p} side="right" align="start" />
@@ -220,12 +245,23 @@ function Library({ collapsed }: { collapsed: boolean }) {
                     key={c.id}
                     draggable
                     onDragStart={(e) => {
+                      // 'text/plain' as fallback: some engines refuse custom
+                      // MIME types when deciding whether a drop is allowed.
                       e.dataTransfer.setData('text/cinderpaw-chat-id', c.id);
-                      e.dataTransfer.effectAllowed = 'copy';
+                      e.dataTransfer.setData('text/plain', c.id);
+                      e.dataTransfer.effectAllowed = 'copyMove';
+                      setDraggingChat(c.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingChat(null);
+                      setDragOverProject(null);
                     }}
                     className={cn(
-                      'group flex items-center rounded-lg pr-1',
+                      'group flex items-center rounded-lg pr-1 transition-opacity duration-150',
                       c.id === currentId ? 'bg-bg-active' : 'hover:bg-bg-hover',
+                      // While any chat is dragged, the other rows step back
+                      // so the target section reads as the destination.
+                      draggingChat && draggingChat !== c.id && 'opacity-40',
                     )}
                   >
                     <button
