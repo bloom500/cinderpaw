@@ -647,7 +647,7 @@ html.has-window-effect[data-theme="light"] .app-pane {
    palette blocks on specificity rather than on where it happens to sit in
    the file — the palette is declared both above and below this point, and
    source order alone would pick the wrong one. */
-html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(10, 10, 12, 0.78); }
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(10, 10, 12, 0.73); }
 html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238, 0.02); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —
