@@ -36,7 +36,8 @@ const sample = {
   desktop_control_yolo: false,
   token_budget_conversation: null,
   rsi_max_cost_usd: 0,
-  rsi_allow_cloud_dreams: false,
+  rsi_allow_cloud_dreams: false,  dreams_enabled: false,
+
   active_route: null,
 };
 
@@ -120,3 +121,4 @@ describe('useSettings', () => {
     expect(useSettings.getState().settings?.rsi_max_cost_usd).toBe(2.5);
   });
 });
+

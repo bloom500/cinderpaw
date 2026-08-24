@@ -48,7 +48,7 @@ function withSettings(route: string | null, allowCloudDreams: boolean) {
       models_dir: '', default_gpu_layers: -1, api_server_enabled: false, api_port: 11435,
       version: 'test', desktop_control_enabled: false, desktop_control_yolo: false,
       token_budget_conversation: null, rsi_max_cost_usd: 5,
-      rsi_allow_cloud_dreams: allowCloudDreams, active_route: route,
+      rsi_allow_cloud_dreams: allowCloudDreams, dreams_enabled: true, active_route: route,
     },
   });
 }
@@ -598,3 +598,4 @@ describe('CinderpawDreamsPanel — Meta Evolution (Faza 6)', () => {
     await waitFor(() => expect(metaSpy).toHaveBeenCalledWith('evolve'));
   });
 });
+

@@ -83,7 +83,8 @@ mod command_count_test {
     // and renewing are four different questions rather than one flag.
     // 156 → 160 = + start_livekit_call + end_livekit_call
     // + list_s2s_providers + stt_local_available (LiveKit call engine).
-    const EXPECTED_COMMAND_COUNT: usize = 160;
+    // 160 → 161 = + set_dreams_enabled (master Dream Cycle opt-in).
+    const EXPECTED_COMMAND_COUNT: usize = 161;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

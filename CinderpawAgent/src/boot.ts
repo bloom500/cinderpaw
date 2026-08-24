@@ -2196,12 +2196,22 @@ export async function boot(transportOverride?: Transport) {
     // guessing with a timer.
     void connectors.reload().then(() => resumeInterrupted());
 
-    // Dream Cycle: arm the event-driven scheduler when a real model is
-    // configured. Off when FERAL_RSI_PASSIVE=false or only a placeholder
-    // model is present (avoids spinning on empty responses). On a cloud
-    // (non-loopback) endpoint, dreaming is additionally refused unless
-    // FERAL_RSI_ALLOW_CLOUD is explicitly set (anti-burn). `start()` only
-    // arms the trigger poll — it does NOT launch an episode immediately.
+    // Dream Cycle: arm the event-driven scheduler ONLY when the user opted
+    // in (CINDERPAW_DREAMS_ENABLED=true, the master switch from Settings)
+    // AND a real model is configured. Off when FERAL_RSI_PASSIVE=false or
+    // only a placeholder model is present (avoids spinning on empty
+    // responses). On a cloud (non-loopback) endpoint, dreaming is
+    // additionally refused unless FERAL_RSI_ALLOW_CLOUD is explicitly set
+    // (anti-burn). `start()` only arms the trigger poll — it does NOT
+    // launch an episode immediately.
+    //
+    // The master switch is new and DEFAULTS OFF: dreaming used to arm on
+    // every machine with a model configured, which is a background engine
+    // most people did not know existed, running unasked. Opt-in, local or
+    // cloud alike.
+    if (process.env.CINDERPAW_DREAMS_ENABLED !== "true") {
+      log("rsi dream: not arming scheduler (dreaming is opt-in — enable it in Settings → Agent → Cinderpaw's Dreams)");
+    } else {
     const decision = shouldAutostartPassive(process.env);
     if (!decision.enabled) {
       log(`rsi dream: not arming scheduler (${decision.reason})`);
@@ -2222,6 +2232,7 @@ export async function boot(transportOverride?: Transport) {
         log(`rsi dream: arming event-driven scheduler (${decision.reason}; ${gate.reason})`);
         dream?.start();
       }
+    }
     }
   });
 

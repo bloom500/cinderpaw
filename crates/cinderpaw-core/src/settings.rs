@@ -51,6 +51,17 @@ pub struct Settings {
     /// the switch; the spend stays bounded by `rsi_max_cost_usd`.
     #[serde(default)]
     pub rsi_allow_cloud_dreams: bool,
+    /// MASTER opt-in for the Dream Cycle, exported as
+    /// `CINDERPAW_DREAMS_ENABLED`. False by default: dreaming never starts
+    /// unless the user asked for it — local or cloud alike. This sits ABOVE
+    /// the passive/cloud gates: without it they are never even consulted.
+    /// The previous default armed dreaming on every machine with a model
+    /// configured, which is the "default nobody set" failure shape — a
+    /// background engine most people did not know existed, running on their
+    /// machine (or their money) unasked. `#[serde(default)]` keeps older
+    /// settings.json files loading cleanly.
+    #[serde(default)]
+    pub dreams_enabled: bool,
     /// One-time security acknowledgement (guided setup, OpenClaw parity):
     /// ISO timestamp of when the user confirmed the personal-by-default
     /// disclaimer. `Some(_)` = never re-prompt. Set via
@@ -83,6 +94,7 @@ impl Default for Settings {
             token_budget_conversation: None,
             rsi_max_cost_usd: Some(0.0),
             rsi_allow_cloud_dreams: false,
+            dreams_enabled: false,
             security_acknowledged_at: None,
             active_route: None,
         }

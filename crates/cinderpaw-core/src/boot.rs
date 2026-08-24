@@ -326,6 +326,14 @@ fn export_settings_env(settings: &Settings) {
         None => if settings.rsi_allow_cloud_dreams { "true" } else { "false" }.to_string(),
     };
     std::env::set_var("FERAL_RSI_ALLOW_CLOUD", value);
+    // MASTER dream switch, always written both ways (same reasoning as the
+    // cloud toggle above). Off by default: the sidecar's arm decision refuses
+    // to start the scheduler unless this is explicitly "true" — dreaming is
+    // opt-in now, local or cloud alike.
+    std::env::set_var(
+        "CINDERPAW_DREAMS_ENABLED",
+        if settings.dreams_enabled { "true" } else { "false" },
+    );
 }
 
 /// Spawn the OpenAI-compatible API server on `runtime.settings.api_port`.

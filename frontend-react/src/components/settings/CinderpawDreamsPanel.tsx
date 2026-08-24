@@ -4,6 +4,7 @@ import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRo
 import { events, type LoraReviewsLine, type MetaResultLine, type GovernanceResultLine, type ModulesResultLine } from '@/lib/tauri/events';
 import { useDream, type DreamStage } from '@/stores/dream';
 import { useSettings } from '@/stores/settings';
+import { cn } from '@/lib/utils';
 
 /** The §2.8 stages the sidecar actually emits (dream/mutate are subsumed by the
  *  opaque engine episode in Faza 1). The live indicator walks these in order. */
@@ -89,7 +90,9 @@ export function CinderpawDreamsPanel() {
   const stage = useDream((s) => s.stage);
   const settings = useSettings((s) => s.settings);
   const setAllowCloudDreams = useSettings((s) => s.setRsiAllowCloudDreams);
+  const setDreamsEnabled = useSettings((s) => s.setDreamsEnabled);
   const [allowBusy, setAllowBusy] = useState(false);
+  const [dreamsBusy, setDreamsBusy] = useState(false);
 
   // Why the panel can be empty forever. Dreaming on a cloud model spends real
   // money in the background, so it is off unless the user says yes — and on a
@@ -430,6 +433,42 @@ export function CinderpawDreamsPanel() {
           {dreaming ? 'Dreaming…' : requested ? 'Queued, starts after the current cycle' : 'Dream now'}
         </button>
       </header>
+
+      {/* MASTER switch — dreaming is opt-in, full stop. Off means nothing
+          runs in the background, local or cloud alike; the cloud toggle and
+          the spend cap below only matter once this is on. */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-text-primary">Dreaming enabled</p>
+          <p className="text-2xs text-text-muted">
+            Master opt-in. While off, nothing runs in the background — no exceptions.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={settings?.dreams_enabled === true}
+          disabled={dreamsBusy}
+          onClick={async () => {
+            setDreamsBusy(true);
+            try {
+              await setDreamsEnabled(settings?.dreams_enabled !== true);
+            } catch { /* the store already rolled the toggle back */ }
+            setDreamsBusy(false);
+          }}
+          className={cn(
+            'w-10 h-6 rounded-full transition-colors duration-200 relative shrink-0',
+            settings?.dreams_enabled ? 'bg-success' : 'bg-border-default',
+          )}
+        >
+          <span
+            className={cn(
+              'absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform duration-200',
+              settings?.dreams_enabled ? 'translate-x-5' : 'translate-x-1',
+            )}
+          />
+        </button>
+      </div>
 
       {dreamsAsleep && (
         <div className="space-y-1.5 rounded border border-warning/30 bg-warning/5 px-2.5 py-2">

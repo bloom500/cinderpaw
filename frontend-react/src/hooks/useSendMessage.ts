@@ -168,6 +168,19 @@ export function useSendMessage() {
       const { loaded, cloudModel } = useModel.getState();
       const modelName = cloudModel?.modelId ?? loaded?.name ?? '';
 
+      // Retry after a provider switch can land here with BOTH slots briefly
+      // empty — the picker clears its selection while it reconfigures. The
+      // code below would then fall into the LOCAL pipeline and the user got
+      // the misleading "No local model is loaded" for a cloud-only setup.
+      // Say what is true instead: nothing is selected yet.
+      if (!cloudModel && !loaded) {
+        chat.setStreamStatus(
+          'error',
+          'No model selected yet — pick a model from the picker above, then retry.',
+        );
+        return;
+      }
+
       const content = buildUserContent(text, files);
       const images = files
         .filter((f) => f.kind === 'image' && f.dataUrl)

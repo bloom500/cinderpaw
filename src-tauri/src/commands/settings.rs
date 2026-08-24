@@ -115,6 +115,25 @@ pub(crate) fn set_rsi_allow_cloud_dreams(
     Ok(())
 }
 
+/// MASTER switch for the Dream Cycle. Off by default: dreaming (local OR
+/// cloud) never starts unless the user flipped this on. Persists to Settings
+/// and restarts the sidecar, which re-reads the gate at arm time — the same
+/// contract as `set_rsi_allow_cloud_dreams`, one level above it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn set_dreams_enabled(
+    enabled: bool,
+    state: tauri::State<AppState>,
+) -> Result<(), String> {
+    let mut s = settings::load();
+    s.dreams_enabled = enabled;
+    settings::save(&s).map_err(|e| e.to_string())?;
+
+    std::env::set_var("CINDERPAW_DREAMS_ENABLED", if enabled { "true" } else { "false" });
+    restart_sidecar(&state);
+    Ok(())
+}
+
 /// Toggle desktop-control "YOLO mode" (no per-action confirmation) at runtime.
 ///
 /// The confirmation gate lives in the SIDECAR (it reads

@@ -297,6 +297,9 @@ export interface Settings {
    *  dreaming on a paid route spends money while the user is away. Without it,
    *  a machine with no local model never dreams at all. */
   rsi_allow_cloud_dreams: boolean;
+  /** MASTER opt-in for the dream cycle. Off by default: dreaming (local or
+   *  cloud) never starts unless the user flipped this on. */
+  dreams_enabled: boolean;
   /** The chosen inference route: `"<provider>:<model>"` (cloud) or
    *  `"local:<file>"`. null = the bundled local default. */
   active_route: string | null;
@@ -716,6 +719,8 @@ const raw = {
     invoke<void>('set_rsi_budget', { budget }),
   setRsiAllowCloudDreams: (enabled: boolean) =>
     invoke<void>('set_rsi_allow_cloud_dreams', { enabled }),
+  setDreamsEnabled: (enabled: boolean) =>
+    invoke<void>('set_dreams_enabled', { enabled }),
   searchHfModels:        (query: string, cursor?: string | null) =>
     invoke<HfSearchPage>('search_hf_models', { query, cursor }),
   getHfModelDetail:      (repoId: string) =>
@@ -994,6 +999,7 @@ export const tauri = {
     setTokenBudget: async (budget: number | null) => raw.setTokenBudgetConversation(budget),
     setRsiBudget: async (budget: number | null) => raw.setRsiBudget(budget),
     setRsiAllowCloudDreams: async (enabled: boolean) => raw.setRsiAllowCloudDreams(enabled),
+    setDreamsEnabled: async (enabled: boolean) => raw.setDreamsEnabled(enabled),
   },
 
   hf: {

@@ -423,6 +423,7 @@ pub fn run() {
             set_token_budget_conversation,
             set_rsi_budget,
             set_rsi_allow_cloud_dreams,
+            set_dreams_enabled,
             search_hf_models,
             get_hf_model_detail,
             get_model_size_info,
