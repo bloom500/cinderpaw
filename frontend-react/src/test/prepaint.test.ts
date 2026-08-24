@@ -13,6 +13,12 @@
  * It shipped across three commits and was only found by running the app.
  * These tests reproduce the real execution order — script first, DOM after —
  * so that ordering can never silently regress again.
+ *
+ * EVERY test here runs under fake timers. The script schedules REAL
+ * setTimeouts (the MIN_HOLD_MS presentation floor), and a pending one from a
+ * previous test fires mid-way through the next one's assertions — a leaked
+ * `feral-ready` class that looks exactly like the hold being broken. Fake
+ * clocks per test make the hold deterministic and leak-free.
  */
 
 import { describe, test, expect, beforeEach, vi } from 'vitest';
@@ -37,7 +43,7 @@ function mountReact(): void {
 function writeStartupMarkup(): void {
   document.body.innerHTML = `
     <div id="root"></div>
-    <div id="feral-startup"><div class="feral-startup-wordmark">FERAL</div></div>
+    <div id="feral-startup"><div class="feral-startup-bear"></div></div>
   `;
 }
 
@@ -47,7 +53,7 @@ describe('feral-prepaint', () => {
     document.documentElement.removeAttribute('data-theme');
     document.body.innerHTML = '';
     localStorage.clear();
-    vi.useRealTimers();
+    vi.useFakeTimers();
   });
 
   test('stamps the theme before the DOM exists', () => {
@@ -76,21 +82,24 @@ describe('feral-prepaint', () => {
     expect(document.documentElement.classList.contains('feral-ready')).toBe(false);
 
     mountReact();
-    await vi.waitFor(() =>
-      expect(document.documentElement.classList.contains('feral-ready')).toBe(true),
-    );
+    await vi.advanceTimersByTimeAsync(500);
+    // Still inside MIN_HOLD_MS — the presentation floor, not a bug.
+    expect(document.documentElement.classList.contains('feral-ready')).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(document.documentElement.classList.contains('feral-ready')).toBe(true);
   });
 
-  test('dismisses immediately when React already mounted', async () => {
-    // A fast mount can beat DOMContentLoaded; the surface must not linger.
+  test('dismisses when React already mounted, after the hold', async () => {
+    // A fast mount can beat DOMContentLoaded; the surface must not linger
+    // beyond the hold window.
     writeStartupMarkup();
     mountReact();
     runPrepaint();
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
-    await vi.waitFor(() =>
-      expect(document.documentElement.classList.contains('feral-ready')).toBe(true),
-    );
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(document.documentElement.classList.contains('feral-ready')).toBe(true);
   });
 
   test('removes the surface from the DOM once the fade is done', async () => {
@@ -99,10 +108,9 @@ describe('feral-prepaint', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'));
     mountReact();
 
-    await vi.waitFor(
-      () => expect(document.getElementById('feral-startup')).toBeNull(),
-      { timeout: 3000 },
-    );
+    // Hold (1600) + fade (500) + slack.
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(document.getElementById('feral-startup')).toBeNull();
   });
 
   test('keeps the surface up when React never mounts', async () => {
@@ -113,7 +121,7 @@ describe('feral-prepaint', () => {
     writeStartupMarkup();
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
-    await new Promise((r) => setTimeout(r, 800));
+    await vi.advanceTimersByTimeAsync(5000);
     expect(document.documentElement.classList.contains('feral-ready')).toBe(false);
     expect(document.getElementById('feral-startup')).not.toBeNull();
   });
