@@ -73,7 +73,7 @@ export function GeneralTab() {
               colour still carries the meaning and the wallpaper no longer
               decides whether it can be read. */}
           {updateStatus === 'up-to-date' && (
-            <span className={cn(statusPillCls, 'bg-success/15 border-success/30 text-success')}>
+            <span className="flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-1 bg-success text-white shadow-sm">
               <CheckCircle size={12} /> Latest
             </span>
           )}

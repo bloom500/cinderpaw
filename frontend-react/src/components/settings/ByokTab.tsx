@@ -114,7 +114,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-border-subtle hover:bg-bg-hover transition-colors text-left">
+      <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur-md hover:bg-bg-hover transition-colors text-left">
         <span className="text-sm font-medium text-text-primary">{def.name}</span>
         <span className={cn(
           'text-xs px-2 py-0.5 rounded-full shrink-0 border',
@@ -127,7 +127,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        <div className="px-4 pt-3 pb-4 border border-t-0 border-border-subtle rounded-b-lg space-y-4">
+        <div className="px-4 pt-3 pb-4 border border-t-0 border-border-subtle rounded-b-lg space-y-4 bg-bg-elevated/80 backdrop-blur-md">
           <div className="flex items-center justify-between">
             <span className="text-sm text-text-secondary">Enabled</span>
             <button

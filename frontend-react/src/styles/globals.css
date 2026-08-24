@@ -578,8 +578,10 @@ html.has-window-effect body { background-color: transparent; }
    The lights are not deleted — a trace of them is what keeps the window ours
    rather than a plain sheet of frost, and on every machine WITHOUT a real
    window effect they are still the entire visual environment. They are simply
-   turned down to a hint once there is something real behind them. */
-html.has-window-effect body::before { opacity: 0.16; }
+   turned down to a trace once there is something real behind them: 0.08 in
+   dark, because at 0.16 the amber wash was exactly what stopped the pane
+   reading as BLACK glass and left it looking grey-brown instead. */
+html.has-window-effect body::before { opacity: 0.08; }
 /* The grain carries its own opacity from a token (0.02, not 1), so this halves
    it rather than setting it — writing a flat number here would have turned a
    barely-there texture into a twenty-times-stronger one, which is the sort of
@@ -618,10 +620,10 @@ html.has-window-effect body::after  { opacity: calc(var(--scene-grain-opacity) *
    solver assumed; a saturate above 1 would quietly invalidate every number
    above. */
 html.has-window-effect[data-theme="dark"] .app-pane {
-  backdrop-filter: saturate(1) contrast(0.38) brightness(0.45);
-  -webkit-backdrop-filter: saturate(1) contrast(0.38) brightness(0.45);
-  backdrop-filter: saturate(1) contrast(0.38) brightness(0.45) url(#liquid-glass-soft);
-  -webkit-backdrop-filter: saturate(1) contrast(0.38) brightness(0.45) url(#liquid-glass-soft);
+  backdrop-filter: saturate(1) contrast(0.35) brightness(0.36);
+  -webkit-backdrop-filter: saturate(1) contrast(0.35) brightness(0.36);
+  backdrop-filter: saturate(1) contrast(0.35) brightness(0.36) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: saturate(1) contrast(0.35) brightness(0.36) url(#liquid-glass-soft);
 }
 html.has-window-effect[data-theme="light"] .app-pane {
   backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5);
@@ -640,7 +642,7 @@ html.has-window-effect[data-theme="light"] .app-pane {
    palette blocks on specificity rather than on where it happens to sit in
    the file — the palette is declared both above and below this point, and
    source order alone would pick the wrong one. */
-html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(16, 14, 9, 0.35); }
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(16, 14, 9, 0.48); }
 html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238, 0.02); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —
