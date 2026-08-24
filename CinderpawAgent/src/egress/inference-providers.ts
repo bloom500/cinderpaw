@@ -657,10 +657,22 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         try { chunk = JSON.parse(data); } catch { return; }
 
         const delta = (chunk as {
-          choices?: { delta?: { content?: string; reasoning_content?: string } }[];
+          choices?: {
+            delta?: {
+              content?: string;
+              reasoning_content?: string;
+              // OpenRouter's normalized field: it maps every provider's
+              // reasoning channel (DeepSeek's reasoning_content, Solar,
+              // Anthropic thinking, …) onto `delta.reasoning`. Ignoring it
+              // meant reasoning models reached through OpenRouter either
+              // showed no thinking at all or leaked raw chain-of-thought
+              // into the answer as apparent gibberish (Darius, 2026-08-24).
+              reasoning?: string;
+            };
+          }[];
         }).choices?.[0]?.delta;
 
-        const reasoningTok = delta?.reasoning_content ?? "";
+        const reasoningTok = delta?.reasoning_content ?? delta?.reasoning ?? "";
         if (reasoningTok) {
           if (!inReasoning) {
             inReasoning = true;
