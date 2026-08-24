@@ -81,7 +81,9 @@ mod command_count_test {
     // + connector_pair_poll + connector_refresh_expired. Phase 3: an account
     // is a thing with a status and a lifetime, so listing, pairing, polling
     // and renewing are four different questions rather than one flag.
-    const EXPECTED_COMMAND_COUNT: usize = 156;
+    // 156 → 160 = + start_livekit_call + end_livekit_call
+    // + list_s2s_providers + stt_local_available (LiveKit call engine).
+    const EXPECTED_COMMAND_COUNT: usize = 160;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
