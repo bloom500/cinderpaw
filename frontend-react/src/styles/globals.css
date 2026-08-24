@@ -434,18 +434,19 @@
 /* ── Text outline — the seatbelt under every word ──────────────────────────
    Glass is a variable ground: whatever the wallpaper is doing arrives dimmed
    through the pane, but it ARRIVES, and low-contrast structure behind a word
-   is how text gets buried. A one-pixel halo in the opposite direction gives
-   every glyph its own local contrast, independent of what drifts behind it.
+   is how text gets buried. A same-centre halo gives glyphs their own local
+   contrast without moving any edge — the earlier 1px OFFSET shadow read as
+   faux-bold on small input text (Darius, 2026-08-24), so the halo is centred
+   and tight now: protection without thickening.
 
    Dark theme: dark halo around light text. Light theme: pale halo around dark
    text. Inherited from `html`, so it reaches everything — labels, inputs, the
-   composer, markdown output — without touching a component. Radius stays at
-   1–2px and alpha below 0.5: this is a seatbelt, not a glow. */
+   composer, markdown output — without touching a component. */
 :root[data-theme="dark"] {
-  --text-outline: 0 1px 2px rgba(0, 0, 0, 0.45), 0 0 1px rgba(0, 0, 0, 0.35);
+  --text-outline: 0 0 1px rgba(0, 0, 0, 0.38);
 }
 :root[data-theme="light"] {
-  --text-outline: 0 1px 2px rgba(255, 252, 246, 0.55), 0 0 1px rgba(255, 252, 246, 0.45);
+  --text-outline: 0 0 1px rgba(255, 252, 246, 0.45);
 }
 html {
   text-shadow: var(--text-outline);

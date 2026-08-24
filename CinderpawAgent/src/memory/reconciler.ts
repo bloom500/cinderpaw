@@ -129,12 +129,24 @@ export class Reconciler {
       embedding = await this.#deps.embed([text]);
     } catch (e) {
       // Embedder threw — degrade to no-op. The capture pipeline must
-      // never crash because the embedding model is unavailable.
-      console.debug(`[reconciler] embed() threw for "${text}": ${String(e)}`);
+      // never crash because the embedding model is unavailable. But it
+      // must not degrade SILENTLY either: this exact quiet path is how a
+      // box can go days without a single new leaf while conversations
+      // keep happening (2026-08-20..24, found via file mtimes). A warn
+      // on stderr is the operator's only signal.
+      console.warn(
+        `[reconciler] leaf NOT saved — embed() threw for "${text.slice(0, 80)}": ${String(e)}`,
+      );
       return;
     }
     const vec = embedding[0];
-    if (!vec || vec.length === 0) return; // model missing
+    if (!vec || vec.length === 0) {
+      console.warn(
+        `[reconciler] leaf NOT saved — embedder returned no vector for "${text.slice(0, 80)}" ` +
+          `(embedding model missing or failed to load); fact stays in SemanticMemory (FTS5 path)`,
+      );
+      return;
+    }
 
     await this.#deps.fractal.upsertLeaf({
       text,
