@@ -45,8 +45,15 @@ func (a *App) View() string {
 		if chatH < 10 {
 			chatH = 10
 		}
-		a.ChatVP.Height = chatH
-		a.ChatVP.Width = a.Width - 2
+		// Write only on change: View() must be idempotent. Unconditional
+		// stores here made every repaint mutate model state, which fed
+		// back into the next frame's layout decisions.
+		vpW := a.Width - 2
+		if a.ChatVP.Height != chatH || a.ChatVP.Width != vpW {
+			a.ChatVP.Height = chatH
+			a.ChatVP.Width = vpW
+			a.needsRebuild = true
+		}
 		if a.needsRebuild {
 			a.rebuildViewport()
 		}
@@ -79,13 +86,19 @@ func (a *App) View() string {
 		chatH = 4
 	}
 
-	// Always set dimensions so the viewport renders at the correct size.
-	a.ChatVP.Height = chatH
-	a.ChatVP.Width = a.Width - 2
+	// Set dimensions only when they actually changed — View() must be
+	// idempotent (same reasoning as the wizard branch above).
+	vpW := a.Width - 2
+	widthChanged := a.ChatVP.Width != vpW
+	if a.ChatVP.Height != chatH || widthChanged {
+		a.ChatVP.Height = chatH
+		a.ChatVP.Width = vpW
+	}
 
 	// Detect auxH changes (streaming start/stop, completion popup) that
 	// affect viewport height — force a rebuild when the layout shifts.
-	if chatH != a.prevChatH {
+	// Width changes need the same treatment; prevChatH only covers height.
+	if chatH != a.prevChatH || widthChanged {
 		a.needsRebuild = true
 	}
 	a.prevChatH = chatH
