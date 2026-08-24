@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import type { MemoryGraphNodeView, DreamEpisode } from '@/lib/tauri';
@@ -217,7 +217,10 @@ export default function MemoryLayersPage() {
   const [bestScore, setBestScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const rsiSnapRef = useRef<RsiSnapshot>(rsiState.snapshot());
+  // State, not a ref: mutating a ref never triggers a render and
+  // `setNow(n => n)` bails on Object.is, so the HUD pill froze on its
+  // initial phase until some unrelated state happened to change.
+  const [rsiSnap, setRsiSnap] = useState<RsiSnapshot>(() => rsiState.snapshot());
 
   // Tick the clock so "Xs ago" stays accurate without prop drilling.
   useEffect(() => {
@@ -226,11 +229,12 @@ export default function MemoryLayersPage() {
   }, []);
 
   // One subscription covers live RSI phase + drives the HUD pill re-render.
+  // The store hands out a fresh snapshot object per update, so this
+  // always re-renders when something actually changed.
   useEffect(() => {
     return rsiState.subscribe((snap) => {
-      rsiSnapRef.current = snap;
+      setRsiSnap(snap);
       if (snap.lastRatchetScore !== undefined) setBestScore(snap.lastRatchetScore);
-      setNow((n) => n); // touch to trigger re-render
     });
   }, []);
 
@@ -275,7 +279,7 @@ export default function MemoryLayersPage() {
     return { total, today, week, month };
   }, [nodes, tiers]);
 
-  const rsiPhase: RsiPhase = rsiSnapRef.current.phase;
+  const rsiPhase: RsiPhase = rsiSnap.phase;
   const panelGlow =
     rsiPhase === 'dreaming' ? 'shadow-[0_0_24px_-4px_rgba(232,115,28,0.6)]'
     : rsiPhase === 'ratcheted' ? 'shadow-[0_0_24px_-4px_rgba(245,158,11,0.5)]'
@@ -303,7 +307,7 @@ export default function MemoryLayersPage() {
             stay searchable so Cinderpaw can recall them when context demands.
           </p>
           <div className="mt-2 flex items-center gap-3">
-            <RsiHud snapshot={rsiSnapRef.current} />
+            <RsiHud snapshot={rsiSnap} />
             <button
               type="button"
               onClick={() => void refresh()}
