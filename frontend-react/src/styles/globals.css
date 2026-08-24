@@ -570,34 +570,33 @@ html.has-window-effect body::after  { opacity: calc(var(--scene-grain-opacity) *
    sheet of paint rather than like glass.
 
    `brightness()` in the backdrop filter does the same job multiplicatively.
-   Pure white behind the window arrives as 30% of pure white; a dark wallpaper
-   stays dark. The luminance is bounded from ABOVE — which is the only thing
-   contrast actually needs — while every gradation in between survives, scaled.
-   That is why the reference shows the ocean and the cliff through the window,
-   just much darker: it is the whole picture, turned down, not a lid over it.
+   Pure white behind the window arrives bounded from ABOVE — which is the only
+   thing contrast actually needs — while gradation survives.
 
-   The numbers are solved rather than picked. Search over contrast/brightness/
-   tint alpha, maximising how much of the desktop survives, subject to all four
-   text tiers clearing their thresholds against BOTH a white and a black
-   wallpaper. Dark lands at brightness(0.30) with a 0.20 tint: the backdrop is
-   confined to rgb(3,3,2)…rgb(64,64,63), a visible range of 61 levels — wider
-   than the flat 0.80 tint it replaces, and with a far lower floor, which is
-   where the sense of depth comes from.
+   Dark no longer uses brightness alone, and the reason is the complaint that
+   prompted this round: at a plain brightness(0.30) the whole desktop landed in
+   the bottom 76 levels, and a dark wallpaper was INDISTINGUISHABLE FROM THE
+   VOID — matte glass showing nothing. contrast(0.42) compresses toward mid-
+ grey FIRST (lifting the floor), then brightness(0.62) sets the level. Black
+   wallpaper now arrives at ~rgb(30) instead of rgb(3): you can see what is
+   behind the glass everywhere, not only where it was bright. Highlights are
+   pinned at the same ceiling as before — the text floors below set that
+   ceiling, and it did not move.
 
-   Light cannot use brightness alone: multiplying a black wallpaper by anything
-   leaves it black, and dark text needs a bright ground. `contrast(0.35)` pulls
-   both ends toward the middle first — lifting the floor — and brightness(2.5)
-   carries the result up into the pale band the theme is drawn against.
+   Light cannot use compression alone in reverse: multiplying cannot lift
+   blacks. `contrast(0.35)` pulls both ends toward the middle first, and
+   brightness(2.5) carries the result up into the pale band the theme is drawn
+   against.
 
    `saturate()` stays at or below 1 in both. Desaturating moves a colour toward
    its own luminance, so it can never push the backdrop brighter than the
    solver assumed; a saturate above 1 would quietly invalidate every number
    above. */
 html.has-window-effect[data-theme="dark"] .app-pane {
-  backdrop-filter: saturate(0.85) brightness(0.30);
-  -webkit-backdrop-filter: saturate(0.85) brightness(0.30);
-  backdrop-filter: saturate(0.85) brightness(0.30) url(#liquid-glass-soft);
-  -webkit-backdrop-filter: saturate(0.85) brightness(0.30) url(#liquid-glass-soft);
+  backdrop-filter: saturate(0.85) contrast(0.42) brightness(0.62);
+  -webkit-backdrop-filter: saturate(0.85) contrast(0.42) brightness(0.62);
+  backdrop-filter: saturate(0.85) contrast(0.42) brightness(0.62) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: saturate(0.85) contrast(0.42) brightness(0.62) url(#liquid-glass-soft);
 }
 html.has-window-effect[data-theme="light"] .app-pane {
   backdrop-filter: saturate(0.6) contrast(0.35) brightness(2.5);
@@ -607,11 +606,16 @@ html.has-window-effect[data-theme="light"] .app-pane {
 }
 
 /* The pane's own tint drops to a whisper, because the filter above is now
-   doing the work the tint used to do badly. Written with the theme attribute
-   in the selector so it beats the palette blocks on specificity rather than on
-   where it happens to sit in the file — the palette is declared both above and
-   below this point, and source order alone would pick the wrong one. */
-html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(16, 14, 9, 0.20); }
+   doing the work the tint used to do badly. Dark's alpha is higher than it
+   used to be (0.49 vs 0.20) and that is the trade the new curve makes: the
+   tint is what lets contrast(0.42) exist — a heavier near-black veil under a
+   gentler, floor-lifting compression. Every wallpaper tone except pure white
+   arrives BRIGHTER than it did at brightness(0.30); pure white arrives at the
+   same ceiling, which the text floors set. Written with the theme attribute
+   in the selector so it beats the palette blocks on specificity rather than
+   on where it happens to sit in the file — the palette is declared both above
+   and below this point, and source order alone would pick the wrong one. */
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(16, 14, 9, 0.49); }
 html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238, 0.05); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —
