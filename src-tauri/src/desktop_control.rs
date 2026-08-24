@@ -153,6 +153,9 @@ pub mod security {
     /// and additive — when in doubt, block.
     pub const HARD_DENY: &[&str] = &[
         // Cinderpaw itself — no confused-deputy / self-manipulation.
+        // "cinderpaw" is the current binary stem; "feral" stays so old
+        // builds on disk keep their guard too.
+        "cinderpaw",
         "feral",
         // Windows UAC / consent / credential surfaces.
         "consent",
