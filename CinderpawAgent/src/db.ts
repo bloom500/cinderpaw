@@ -820,6 +820,26 @@ function migrate(db: Database): void {
       ON workspaces (last_active_at DESC);
   `);
 
+  // ── Cowork agents (Agent Cowork S1) ─────────────────────────────────────────
+  //
+  // One row per persistent named cowork agent (Grok Bot-style "Bots").
+  // Pure identity + configuration: name, role, standing instructions,
+  // optional Brain-model pin (`null` ⇒ the Brain Stack routes per task).
+  // Runtime state (mailboxes, handoffs, threads) gets its own tables in
+  // later slices (S2+) — they were deliberately NOT crammed in here.
+  // Written only by the sidecar, per the writer contract.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT '',
+      instructions TEXT NOT NULL DEFAULT '',
+      model_pin TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+
   // Stamp the schema version after every successful migration. Done last so
   // a partial migration (one that throws halfway) leaves `schema_version`
   // pointing at the previous value — the next startup retries from there.
