@@ -626,7 +626,24 @@ export type CinderpawAgentEvent =
   | { type: 'usage'; id: string; sessionId: string; promptTokens: number; completionTokens: number }
   // X3: scheduled-job results and failures, surfaced as toasts.
   | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
-  | { type: 'cron_error'; jobId: string; jobName: string; message: string };
+  | { type: 'cron_error'; jobId: string; jobName: string; message: string }
+  // Agent Cowork (S3.5): one agent-to-agent occurrence, rendered as an
+  // activity bubble on the mascot strip. `title` is the human-readable
+  // line; `data` carries ids/detail for the expandable preview.
+  | {
+      type: 'cowork_event';
+      eventType:
+        | 'message_received'
+        | 'message_processed'
+        | 'message_rejected'
+        | 'handoff_received'
+        | 'handoff_completed'
+        | 'handoff_failed';
+      agentId: string;
+      threadId?: string;
+      title: string;
+      data: Record<string, unknown>;
+    };
 
 /** Display-safe snapshot of the Cinderpaw Agent's active LLM — no API keys. */
 export interface CinderpawModelConfigView {

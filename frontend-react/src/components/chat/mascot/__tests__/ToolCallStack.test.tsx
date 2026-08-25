@@ -57,4 +57,20 @@ describe('ToolCallStack', () => {
     // 10 tool bubbles + 10 status nodes? actually each bubble has role="status" so 10.
     expect(screen.getAllByRole('status').length).toBeGreaterThanOrEqual(10);
   });
+
+  test('renders a cowork A2A bubble with its title and detail', () => {
+    const event: Extract<ToolCallEvent, { kind: 'cowork' }> = {
+      id: 'msg:m1',
+      kind: 'cowork',
+      title: 'Alice → Bob',
+      detail: 'Fixed in commit abc123; tests pass.',
+      status: 'done',
+      startedAt: Date.now(),
+      endedAt: Date.now(),
+    };
+    render(<ToolCallStack events={[event]} active={true} />);
+    expect(screen.getByText(/Alice → Bob/)).toBeInTheDocument();
+    // Detail is collapsed until clicked, but the bubble itself is visible.
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
 });

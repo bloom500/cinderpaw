@@ -60,6 +60,21 @@ export function ToolCallStack({ events, active }: ToolCallStackProps) {
             >
               {e.label}
             </div>
+          ) : e.kind === 'cowork' ? (
+            // One agent-to-agent exchange (Agent Cowork). Reads like a tool
+            // call — started, took time, ended — but the label is the A2A
+            // conversation line and the preview is the agent's answer.
+            <ToolCallBubble
+              key={e.id}
+              emoji="🤝"
+              label={e.title}
+              mainArg={null}
+              status={e.status}
+              startedAt={e.startedAt}
+              endedAt={e.endedAt}
+              resultPreview={e.detail}
+              errorMessage={e.status === 'error' ? e.detail : null}
+            />
           ) : (
             <ToolCallBubble
               key={e.id}

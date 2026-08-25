@@ -166,6 +166,17 @@ interface ChatStore {
     status: 'running' | 'completed' | 'error' | 'cancelled';
     detail?: string;
   }) => void;
+  /**
+   * Create or update an agent-to-agent activity bubble from a
+   * `cowork_event`. Keyed by the mailbox message / handoff id so a
+   * received→processed pair is ONE bubble that changes state, never two.
+   */
+  upsertCoworkEvent: (e: {
+    key: string;
+    title: string;
+    status: 'running' | 'done' | 'error';
+    detail?: string | null;
+  }) => void;
   clearToolCallStream: () => void;
 }
 
@@ -211,6 +222,22 @@ export type ToolCallEvent =
       /** What it is doing right now, or why it ended. */
       detail: string | null;
       status: 'running' | 'done' | 'error' | 'cancelled';
+      startedAt: number;
+      endedAt: number | null;
+    }
+  | {
+      /**
+       * One agent-to-agent exchange (Agent Cowork S3.5). Keyed by the
+       * mailbox message / handoff id, so `message_received` creates the
+       * bubble and its terminal sibling (`processed`/`rejected`) UPDATES
+       * it instead of stacking a second one — same upsert contract as a
+       * worker bubble.
+       */
+      id: string;
+      kind: 'cowork';
+      title: string;
+      detail: string | null;
+      status: 'running' | 'done' | 'error';
       startedAt: number;
       endedAt: number | null;
     };
@@ -451,6 +478,37 @@ export const useChat = create<ChatStore>((set) => ({
       window.setTimeout(() => {
         set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== childId) }));
       }, TOOL_CALL_LINGER_MS);
+    }
+  },
+
+  upsertCoworkEvent: ({ key, title, status, detail }) => {
+    const done = status !== 'running';
+    set((s) => {
+      const existing = s.toolCallStream.find((e) => e.id === key && e.kind === 'cowork');
+      const entry: ToolCallEvent = {
+        id: key,
+        kind: 'cowork',
+        title,
+        detail: detail ?? null,
+        status,
+        startedAt: existing?.startedAt ?? Date.now(),
+        endedAt: done ? Date.now() : null,
+      };
+      const next = existing
+        ? s.toolCallStream.map((e) => (e.id === key ? entry : e))
+        : [...s.toolCallStream, entry];
+      return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
+    });
+    // A settled A2A exchange lingers longer than a tool call — it is the
+    // conversation the user was promised they'd see, not housekeeping noise.
+    if (done) {
+      window.setTimeout(() => {
+        set((s) => ({
+          toolCallStream: s.toolCallStream.filter(
+            (e) => !(e.id === key && e.kind === 'cowork'),
+          ),
+        }));
+      }, TOOL_CALL_LINGER_MS * 2);
     }
   },
 
