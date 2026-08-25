@@ -1452,6 +1452,32 @@ export type OutboundEvent =
   // silent gap of several seconds is indistinguishable from a hung agent.
   | { type: "rate_limited"; sessionId: string; waitMs: number; limitRpm: number; baseUrl: string; traceId?: string }
   /**
+   * One cowork A2A occurrence (Agent Cowork S3). HARD RULE (locked design
+   * conversation 2026-08-25): agent-to-agent conversation must be VISIBLE in
+   * the user's chat surface — a widget/event, never sidecar-log-only.
+   *
+   * `title` is the human-readable one-liner the widget renders verbatim;
+   * `data` carries the structured detail (ids, senders, summaries) for
+   * progressive disclosure. `eventType` is an enumerated union, not a bare
+   * string, so consumers can switch exhaustively.
+   */
+  | {
+      type: "cowork_event";
+      eventType:
+        | "message_received"
+        | "message_processed"
+        | "message_rejected"
+        | "handoff_received"
+        | "handoff_completed"
+        | "handoff_failed";
+      /** The agent whose turn it was, or `"human"` when escalated. */
+      agentId: string;
+      threadId?: string;
+      title: string;
+      data: Record<string, unknown>;
+      traceId?: string;
+    }
+  /**
    * A background worker spawned by the notebook's `rlm()`.
    *
    * Deliberately NOT `tool_start`/`tool_done`: those belong to a tool call
