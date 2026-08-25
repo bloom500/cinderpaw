@@ -100,6 +100,10 @@ import { CoworkAgentRepo } from "./cowork/agent-store.ts";
 import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
 import { CoworkHandoffService } from "./cowork/handoff.ts";
 import { CoworkRuntime } from "./cowork/runtime.ts";
+import {
+  CoworkApprovalRepo,
+  CoworkApprovalService,
+} from "./cowork/approval.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
 // Imported for the side effect: each transport module registers itself with
@@ -1551,8 +1555,21 @@ export async function boot(transportOverride?: Transport) {
   // roster ⇒ zero behavior (fresh-install contract). The turn seam mirrors
   // cron's unattended-run shape minus durability extras: cowork threads are
   // conversational, one persistent session per agent so context compounds.
+  const coworkAgents = new CoworkAgentRepo(db.raw);
+  // S4 — deterministic approval gate on the tool-call path. Registered on
+  // the shared hook registry: it passes every non-cowork session through
+  // untouched and every unclassifiable call through, so with zero cowork
+  // agents this is a no-op for the whole product.
+  const coworkApprovalService = new CoworkApprovalService({
+    approvals: new CoworkApprovalRepo(db.raw),
+    agents: coworkAgents,
+    emitEvent: (event) => transport.send(event),
+    timeoutMs: Number(process.env.FERAL_CRON_JOB_TIMEOUT_MS ?? 5 * 60_000),
+    log,
+  });
+  hooks.on("before_tool_call", coworkApprovalService.gate);
   const coworkRuntime = new CoworkRuntime({
-    agents: new CoworkAgentRepo(db.raw),
+    agents: coworkAgents,
     mailbox: new CoworkMailboxRepo(db.raw),
     handoffs: new CoworkHandoffService(db.raw),
     emitEvent: (event) => transport.send(event),
@@ -2121,6 +2138,9 @@ export async function boot(transportOverride?: Transport) {
   // value on the other side.
   const ctx = {
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
+    // `cowork_approval_resolve` here).
+    coworkApprovals: coworkApprovalService,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path

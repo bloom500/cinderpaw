@@ -98,7 +98,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals,
     runHooks,
     brainDerived, brainBreaker,
   } = ctx;
@@ -707,6 +707,23 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             ack("error", err instanceof Error ? err.message : String(err));
           }
         })();
+        break;
+      }
+
+      // Agent Cowork S4 — the user's answer to a cowork approval request
+      // rendered in chat. Unknown or already-terminal ids are a logged
+      // no-op: a late double-click must never surface as an error.
+      case "cowork_approval_resolve": {
+        const requestId = msg.id ?? "";
+        const action = msg.approvalAction;
+        if (!requestId || (action !== "approve" && action !== "reject")) {
+          log(`cowork_approval_resolve: missing id or approvalAction — ignored`);
+          break;
+        }
+        const resolved = coworkApprovals.resolveExternal(requestId, action === "approve");
+        if (!resolved) {
+          log(`cowork_approval_resolve: unknown or already-resolved request ${requestId}`);
+        }
         break;
       }
 

@@ -890,6 +890,29 @@ function migrate(db: Database): void {
       ON cowork_handoffs (to_agent_id, status);
   `);
 
+  // cowork_approvals (S4) — deterministic approval gate for consequential
+  // actions a cowork agent is about to take (send/publish/delete/purchase/
+  // prod_change). One row per gate hit; status lifecycle pending →
+  // approved|denied|expired is enforced by the repo (terminal states are
+  // never rewritten) and every row is the durable audit trail of a decision.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_approvals (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      approval_class TEXT NOT NULL,
+      description TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      resolved_at INTEGER
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cowork_approvals_pending
+      ON cowork_approvals (status, created_at DESC);
+  `);
+
   // Stamp the schema version after every successful migration. Done last so
   // a partial migration (one that throws halfway) leaves `schema_version`
   // pointing at the previous value — the next startup retries from there.
