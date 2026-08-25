@@ -40,13 +40,66 @@ export interface MCTSOptions {
 /**
  * Deterministic FNV-1a 32-bit hash function for failed example digests.
  */
-function fnv1aHash(text: string): string {
+export function fnv1aHash(text: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     hash ^= text.charCodeAt(i);
     hash = (hash * 0x01000193) >>> 0;
   }
   return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * Dynamically generates data-driven candidate program mutations for expansion.
+ */
+export function generateCandidateMutations(
+  currentNode: MCTSNode,
+  taskPairs: Array<{ input: any; output: any }>
+): string[] {
+  const mutations: string[] = [];
+
+  // Extract unique colors in inputs and outputs to derive data-driven recolor rules
+  const inputColors = new Set<number | string>();
+  const outputColors = new Set<number | string>();
+
+  for (const pair of taskPairs) {
+    if (Array.isArray(pair.input)) {
+      pair.input.flat(2).forEach((c) => inputColors.add(c));
+    }
+    if (Array.isArray(pair.output)) {
+      pair.output.flat(2).forEach((c) => outputColors.add(c));
+    }
+  }
+
+  // Geometric mutations
+  mutations.push("function solve(I) { return DSL.rotate(I, 90); }");
+  mutations.push("function solve(I) { return DSL.rotate(I, 180); }");
+  mutations.push("function solve(I) { return DSL.rotate(I, 270); }");
+  mutations.push("function solve(I) { return DSL.mirror(I, 'horizontal'); }");
+  mutations.push("function solve(I) { return DSL.mirror(I, 'vertical'); }");
+  mutations.push("function solve(I) { return DSL.applyGravity(I, 'down'); }");
+
+  // Data-driven color recoloring mutations
+  for (const inCol of inputColors) {
+    for (const outCol of outputColors) {
+      if (inCol !== outCol) {
+        mutations.push(
+          `function solve(I) { return DSL.recolor(I, ${JSON.stringify(
+            inCol
+          )}, ${JSON.stringify(outCol)}); }`
+        );
+      }
+    }
+  }
+
+  // Compose mutation on top of parent program if parent isn't root
+  if (currentNode.programCode && currentNode.programCode !== "function solve(I) { return I; }") {
+    mutations.push(
+      `function solve(I) { const temp = (${currentNode.programCode})(I); return DSL.rotate(temp, 90); }`
+    );
+  }
+
+  return mutations.slice(0, 32); // Capped at 32 candidate mutations
 }
 
 /**
@@ -86,13 +139,12 @@ export function verifyProgram(
   for (let i = 0; i < taskPairs.length; i++) {
     const pair = taskPairs[i];
     try {
-      // Execute candidate code in a sandbox function with DSL primitives in scope
       const solverFn = new Function(
         "I",
         "DSL",
         `
         const { rotate, mirror, recolor, floodFill, crop, applyGravity } = DSL;
-        ${programCode}
+        const solve = (${programCode});
         return solve(I);
       `
       );
@@ -151,7 +203,6 @@ export async function runMCTSVerification(
 
   const nodes = new Map<string, MCTSNode>();
 
-  // Root node: identity transformation
   const rootNode: MCTSNode = {
     id: "node_0",
     parentId: null,
@@ -163,18 +214,6 @@ export async function runMCTSVerification(
 
   nodes.set(rootNode.id, rootNode);
   let nodeCounter = 1;
-
-  // Pre-candidate mutation rules for expansion
-  const candidateMutations = [
-    "function solve(I) { return DSL.rotate(I, 90); }",
-    "function solve(I) { return DSL.rotate(I, 180); }",
-    "function solve(I) { return DSL.rotate(I, 270); }",
-    "function solve(I) { return DSL.mirror(I, 'horizontal'); }",
-    "function solve(I) { return DSL.mirror(I, 'vertical'); }",
-    "function solve(I) { return DSL.applyGravity(I, 'down'); }",
-    "function solve(I) { return DSL.recolor(I, 1, 2); }",
-    "function solve(I) { return DSL.recolor(I, 0, 3); }",
-  ];
 
   let bestNode = rootNode;
   let bestVerification = verifyProgram(rootNode.programCode, taskPairs);
@@ -209,9 +248,10 @@ export async function runMCTSVerification(
       curr = bestChild;
     }
 
-    // 2. Expansion
+    // 2. Dynamic Expansion
     if (curr.visits > 0 && curr.childrenIds.length === 0) {
-      for (const mutCode of candidateMutations) {
+      const mutations = generateCandidateMutations(curr, taskPairs);
+      for (const mutCode of mutations) {
         const childId = `node_${nodeCounter++}`;
         const childNode: MCTSNode = {
           id: childId,
