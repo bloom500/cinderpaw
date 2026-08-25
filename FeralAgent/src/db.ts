@@ -612,6 +612,37 @@ function migrate(db: Database): void {
     );
   `);
 
+  // Cowork Mailbox & Handoffs — S2 inter-agent messaging and handoff protocol.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_mailbox (
+      id TEXT PRIMARY KEY,
+      from_agent_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body TEXT NOT NULL,
+      payload_json TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      read_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_cowork_mailbox_inbox
+      ON cowork_mailbox (to_agent_id, status);
+
+    CREATE TABLE IF NOT EXISTS cowork_handoffs (
+      id TEXT PRIMARY KEY,
+      from_agent_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      task_description TEXT NOT NULL,
+      context_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'initiated',
+      result_json TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_cowork_handoffs_agents
+      ON cowork_handoffs (to_agent_id, status);
+  `);
+
   // Skill log (P0-2). Append-only record of skill create/refine events.
   // Drives the "self-improving" loop and gives the user a single place
   // to see why a skill was created or refined.
