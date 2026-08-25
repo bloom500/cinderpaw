@@ -17,6 +17,7 @@ describe("Cowork S2: Mailbox Messaging & Handoff Protocol", () => {
           }
           return storedMessages;
         },
+        get: (id: string) => storedMessages.find((m) => m.id === id) ?? null,
         run: (...args: any[]) => {
           if (sql.includes("INSERT INTO cowork_mailbox")) {
             storedMessages.push({
@@ -62,6 +63,7 @@ describe("Cowork S2: Mailbox Messaging & Handoff Protocol", () => {
     const fakeDb = {
       query: (sql: string) => ({
         all: (...args: any[]) => [handoffState].filter(Boolean),
+        get: (id: string) => (handoffState && handoffState.id === id ? handoffState : null),
         run: (...args: any[]) => {
           if (sql.includes("INSERT INTO cowork_handoffs")) {
             handoffState = {

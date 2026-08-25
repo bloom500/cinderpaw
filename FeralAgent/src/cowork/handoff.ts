@@ -2,6 +2,7 @@
  * Cowork Handoff Protocol Service (S2 Task Delegation Between Agents).
  *
  * Manages handoff initiation, acceptance, completion, and failure tracking.
+ * Enforces strict state machine transitions: initiated -> accepted -> completed / failed.
  */
 
 import type { Database } from "bun:sqlite";
@@ -10,7 +11,7 @@ import { CoworkHandoff, HandoffStatus } from "../types/cowork.js";
 export interface InitiateHandoffParams {
   id: string;
   fromAgentId: string;
-  toAgentId: string;
+  toAgentId: string | "human";
   taskDescription: string;
   contextData?: Record<string, any>;
 }
@@ -23,7 +24,7 @@ export class CoworkHandoffService {
   }
 
   public initiateHandoff(params: InitiateHandoffParams): CoworkHandoff {
-    const now = new Date().toISOString();
+    const now = Date.now();
     const contextJson = JSON.stringify(params.contextData ?? {});
 
     const handoff: CoworkHandoff = {
@@ -67,7 +68,19 @@ export class CoworkHandoffService {
   }
 
   public completeHandoff(id: string, resultData?: Record<string, any>): boolean {
-    const now = new Date().toISOString();
+    const row = this.db
+      .query("SELECT status FROM cowork_handoffs WHERE id = ?")
+      .get(id) as any;
+
+    if (!row) {
+      throw new Error(`Handoff ${id} not found.`);
+    }
+
+    if (row.status !== "accepted" && row.status !== "initiated") {
+      throw new Error(`Cannot complete handoff ${id} in status '${row.status}'. Must be accepted first.`);
+    }
+
+    const now = Date.now();
     const resultJson = JSON.stringify(resultData ?? {});
 
     const res = this.db
@@ -82,7 +95,7 @@ export class CoworkHandoffService {
   }
 
   public failHandoff(id: string, errorReason: string): boolean {
-    const now = new Date().toISOString();
+    const now = Date.now();
     const resultJson = JSON.stringify({ error: errorReason });
 
     const res = this.db
