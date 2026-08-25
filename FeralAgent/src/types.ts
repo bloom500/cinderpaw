@@ -1328,6 +1328,7 @@ export type OutboundEvent =
   | { type: "error"; id?: string; message: string; traceId?: string }
   | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }
   | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string; traceId?: string }
+  | { type: "cowork_event"; eventType: string; agentId: string; data: Record<string, unknown>; traceId?: string }
   | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string }
   | { type: "budget_warning"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; percent: number; traceId?: string }
   | { type: "budget_exceeded"; sessionId: string; kind: BudgetExhaustedReason; usage: number; limit: number; message: string; traceId?: string }
