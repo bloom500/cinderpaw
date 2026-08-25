@@ -96,6 +96,10 @@ import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
+import { CoworkAgentRepo } from "./cowork/agent-store.ts";
+import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
+import { CoworkHandoffService } from "./cowork/handoff.ts";
+import { CoworkRuntime } from "./cowork/runtime.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
 // Imported for the side effect: each transport module registers itself with
@@ -1542,6 +1546,37 @@ export async function boot(transportOverride?: Transport) {
   fractalActivitySink.current = (a) =>
     transport.send({ type: "fractal_activity", ...a });
 
+  // ── Agent Cowork runtime (S3.5) ───────────────────────────────────────────
+  // Reactive A2A workers. Zero agents configured ⇒ the tick walks an empty
+  // roster ⇒ zero behavior (fresh-install contract). The turn seam mirrors
+  // cron's unattended-run shape minus durability extras: cowork threads are
+  // conversational, one persistent session per agent so context compounds.
+  const coworkRuntime = new CoworkRuntime({
+    agents: new CoworkAgentRepo(db.raw),
+    mailbox: new CoworkMailboxRepo(db.raw),
+    handoffs: new CoworkHandoffService(db.raw),
+    emitEvent: (event) => transport.send(event),
+    runTurn: async (_agentRec, prompt, sessionId) => {
+      // `handleTurn()` never throws — it emits `error` events instead
+      // (same contract cron relies on). Capture and rethrow so the worker
+      // loop records a rejection rather than delivering an error string
+      // as if it were the agent's answer.
+      let runError: string | null = null;
+      const run = await runUnattended(
+        (text, messageId) =>
+          agent.handleTurn(sessionId, text, messageId, (event) => {
+            if (event.type === "error") runError = event.message;
+          }),
+        prompt,
+        `${sessionId}-${Date.now()}`,
+        { deadlineMs: Number(process.env.FERAL_CRON_JOB_TIMEOUT_MS ?? 5 * 60_000) },
+      );
+      if (runError) throw new Error(runError);
+      return { text: run.text, finished: run.finished };
+    },
+    log,
+  });
+
   // --- RSI sidecar (Faza 1) ---
   // The bridge writes `rsi_request` lines via transport.send; the
   // `onMessage` switch routes `rsi_response` lines back to
@@ -2156,6 +2191,14 @@ export async function boot(transportOverride?: Transport) {
     // deliver through the transport.
     cronScheduler.start();
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
+
+    // Agent Cowork (S3.5): start the reactive worker loop after the
+    // transport is up, same pattern as cron. Silent when no agents exist.
+    coworkRuntime.start();
+    const coworkCount = new CoworkAgentRepo(db.raw).list().length;
+    if (coworkCount > 0) {
+      log(`cowork runtime enabled (${coworkCount} agent(s) active)`);
+    }
 
     // The one line the host waits for.
     //
