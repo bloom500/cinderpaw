@@ -599,6 +599,19 @@ function migrate(db: Database): void {
       ON cron_jobs (enabled, next_run_ms);
   `);
 
+  // Cowork Agents — S1 agent entity store.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      instructions TEXT NOT NULL,
+      model_pin TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
   // Skill log (P0-2). Append-only record of skill create/refine events.
   // Drives the "self-improving" loop and gives the user a single place
   // to see why a skill was created or refined.
