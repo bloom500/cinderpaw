@@ -629,7 +629,9 @@ export type CinderpawAgentEvent =
   | { type: 'cron_error'; jobId: string; jobName: string; message: string }
   // Agent Cowork (S3.5): one agent-to-agent occurrence, rendered as an
   // activity bubble on the mascot strip. `title` is the human-readable
-  // line; `data` carries ids/detail for the expandable preview.
+  // line; `data` carries ids/detail for the expandable preview. S4 adds
+  // the approval kinds: `approval_requested` asks the human to decide in
+  // chat; the three terminal kinds close the same bubble.
   | {
       type: 'cowork_event';
       eventType:
@@ -638,7 +640,11 @@ export type CinderpawAgentEvent =
         | 'message_rejected'
         | 'handoff_received'
         | 'handoff_completed'
-        | 'handoff_failed';
+        | 'handoff_failed'
+        | 'approval_requested'
+        | 'approval_approved'
+        | 'approval_denied'
+        | 'approval_expired';
       agentId: string;
       threadId?: string;
       title: string;
@@ -847,6 +853,11 @@ const raw = {
   feralLoraReviewsList:   () => invoke<void>('feral_lora_reviews_list'),
   feralLoraReviewResolve: (cardId: string, action: 'approve' | 'reject') =>
     invoke<void>('feral_lora_review_resolve', { card_id: cardId, action }),
+  // Agent Cowork S4 — approval gate. Fire-and-forget; the sidecar acks by
+  // emitting the terminal cowork_event (approval_approved / approval_denied),
+  // which is also what closes the chat bubble.
+  feralCoworkApprovalResolve: (requestId: string, action: 'approve' | 'reject') =>
+    invoke<void>('feral_cowork_approval_resolve', { request_id: requestId, action }),
   feralLoraTrain:         (domain?: string) =>
     invoke<void>('feral_lora_train', { domain: domain ?? null }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
@@ -1069,6 +1080,10 @@ export const tauri = {
       raw.feralSendMessage(content, sessionId, images, inferParams),
     status:      async () => raw.feralAgentStatus(),
     stop:        async (sessionId?: string) => raw.feralStopGeneration(sessionId ?? null),
+    /** Agent Cowork S4 — answer an approval request rendered in chat. The
+     *  sidecar acks via the terminal cowork_event for that requestId. */
+    coworkApprovalResolve: async (requestId: string, approve: boolean) =>
+      raw.feralCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
   },
 
   rsi: {

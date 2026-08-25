@@ -429,6 +429,7 @@ pub fn run() {
             feral_modules,
             feral_code_patches_list,
             feral_code_patch_resolve,
+            feral_cowork_approval_resolve,
             feral_lora_reviews_list,
             feral_lora_review_resolve,
             feral_lora_train,

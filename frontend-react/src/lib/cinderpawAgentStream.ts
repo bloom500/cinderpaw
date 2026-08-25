@@ -151,8 +151,12 @@ export function ensureFeralListener(): Promise<void> {
         // / handoff id so received→processed is ONE bubble changing state.
         // Like rlm_child this arrives with no in-flight stream attached —
         // cowork turns run on their own schedule, not the user's.
-        const key =
-          typeof parsed.data.messageId === 'string'
+        // S4: approval events are keyed by requestId and carry an ask the
+        // human answers with buttons right on the bubble.
+        const isApproval = parsed.eventType.startsWith('approval_');
+        const key = isApproval && typeof parsed.data.requestId === 'string'
+          ? `approval:${parsed.data.requestId}`
+          : typeof parsed.data.messageId === 'string'
             ? `msg:${parsed.data.messageId}`
             : typeof parsed.data.handoffId === 'string'
               ? `handoff:${parsed.data.handoffId}`
@@ -166,17 +170,30 @@ export function ensureFeralListener(): Promise<void> {
                 ? parsed.data.reason
                 : typeof parsed.data.body === 'string'
                   ? parsed.data.body
-                  : null;
+                  : typeof parsed.data.detail === 'string'
+                    ? parsed.data.detail
+                    : null;
+        const status =
+          parsed.eventType === 'message_received' || parsed.eventType === 'handoff_received' || parsed.eventType === 'approval_requested'
+            ? 'running'
+            : parsed.eventType === 'message_rejected' || parsed.eventType === 'handoff_failed' || parsed.eventType === 'approval_denied' || parsed.eventType === 'approval_expired'
+              ? 'error'
+              : 'done';
         useChat.getState().upsertCoworkEvent({
           key,
           title: parsed.title,
-          status:
-            parsed.eventType === 'message_received' || parsed.eventType === 'handoff_received'
-              ? 'running'
-              : parsed.eventType === 'message_rejected' || parsed.eventType === 'handoff_failed'
-                ? 'error'
-                : 'done',
+          status,
           detail,
+          approval:
+            isApproval && typeof parsed.data.requestId === 'string'
+              ? {
+                  requestId: parsed.data.requestId,
+                  approvalClass:
+                    typeof parsed.data.approvalClass === 'string' ? parsed.data.approvalClass : 'unknown',
+                  description:
+                    typeof parsed.data.description === 'string' ? parsed.data.description : parsed.title,
+                }
+              : undefined,
         });
         break;
       }

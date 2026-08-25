@@ -457,7 +457,12 @@ describe('no component writes text in a raw Tailwind colour', () => {
   const OFFENDER = new RegExp(String.raw`(?<![\w-])(?:[a-z-]+:)*text-(?:${FAMILIES})-\d{2,3}(?:/\d{1,3})?(?![\w-])`, 'g');
 
   test('src/**/*.tsx', async () => {
-    const { globSync } = await import('node:fs');
+    // No @types/node here, so the dynamic import's inferred type is narrow.
+    // The assertion states the contract this test already relies on at
+    // runtime (Node >= 22 exposes fs.globSync); it changes nothing at runtime.
+    const { globSync } = (await import('node:fs')) as unknown as {
+      globSync: (pattern: string) => string[];
+    };
     const files = globSync('src/**/*.{ts,tsx}').filter((f) => !f.includes('test'));
     const offenders = files.flatMap((file) => {
       const hits = readFileSync(file, 'utf8').match(OFFENDER) ?? [];

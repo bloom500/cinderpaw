@@ -1,5 +1,22 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useChat } from '@/stores/chat';
+
+// The approval verdict must reach the sidecar; in tests there is no Tauri
+// runtime, so stub the one call this suite exercises and let everything
+// else through untouched.
+vi.mock('@/lib/tauri', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/tauri')>();
+  return {
+    ...actual,
+    tauri: {
+      ...actual.tauri,
+      feralAgent: {
+        ...actual.tauri.feralAgent,
+        coworkApprovalResolve: vi.fn().mockResolvedValue(undefined),
+      },
+    },
+  };
+});
 
 const reset = () =>
   useChat.setState({
@@ -177,6 +194,52 @@ describe('useChat', () => {
       expect((useChat.getState().toolCallStream[0] as { status: string }).status).toBe('cancelled');
       s.upsertWorker(ev({ childId: 'sa-2', status: 'error' }));
       expect((useChat.getState().toolCallStream[1] as { status: string }).status).toBe('error');
+    });
+  });
+
+  describe('cowork approval bubbles (S4)', () => {
+    type CoworkUpsert = Parameters<ReturnType<typeof useChat.getState>['upsertCoworkEvent']>[0];
+    const approvalEvent = (over: Partial<CoworkUpsert> = {}): CoworkUpsert => ({
+      key: 'approval:r1',
+      title: '🔐 Shipper: Run command: rm -rf dist/',
+      status: 'running',
+      detail: 'Run command: rm -rf dist/',
+      approval: {
+        requestId: 'r1',
+        approvalClass: 'delete',
+        description: 'Run command: rm -rf dist/',
+      },
+      ...over,
+    });
+    const coworkBubble = () => {
+      const stream = useChat.getState().toolCallStream;
+      expect(stream).toHaveLength(1);
+      return stream[0] as Extract<(typeof stream)[0], { kind: 'cowork' }>;
+    };
+
+    it('requested → approved is ONE bubble whose ask clears on terminal state', () => {
+      useChat.getState().upsertCoworkEvent(approvalEvent());
+      expect(coworkBubble().status).toBe('running');
+      expect(coworkBubble().approval?.requestId).toBe('r1');
+
+      useChat.getState().upsertCoworkEvent(approvalEvent({ status: 'done', detail: undefined, approval: undefined }));
+      const b = coworkBubble();
+      expect(b.status).toBe('done');
+      // The buttons must not survive their own answer.
+      expect(b.approval).toBeUndefined();
+    });
+
+    it('resolveCoworkApproval detaches the ask immediately and sends the verdict', async () => {
+      const { tauri } = await import('@/lib/tauri');
+      useChat.getState().upsertCoworkEvent(approvalEvent());
+
+      useChat.getState().resolveCoworkApproval('r1', true);
+      // Buttons are gone BEFORE any event round-trip — no double-click window.
+      expect(coworkBubble().approval).toBeUndefined();
+      expect(tauri.feralAgent.coworkApprovalResolve).toHaveBeenCalledWith('r1', true);
+
+      useChat.getState().resolveCoworkApproval('r2', false);
+      expect(tauri.feralAgent.coworkApprovalResolve).toHaveBeenCalledWith('r2', false);
     });
   });
 });

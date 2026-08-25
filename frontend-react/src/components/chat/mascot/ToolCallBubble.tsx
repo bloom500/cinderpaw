@@ -9,7 +9,7 @@
  * progress/retry notes from `tool_progress` events.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +23,12 @@ export interface ToolCallBubbleProps {
   resultPreview?: string | null;
   errorMessage?: string | null;
   progressNote?: string | null;
+  /**
+   * Optional interactive slot rendered under the label (S4 approval
+   * Approve/Deny). The stack container is pointer-events-none, so the slot
+   * must re-enable pointer events itself.
+   */
+  actions?: ReactNode;
 }
 
 const STATUS_BORDER: Record<ToolCallBubbleProps['status'], string> = {
@@ -59,6 +65,7 @@ export function ToolCallBubble({
   resultPreview,
   errorMessage,
   progressNote,
+  actions,
 }: ToolCallBubbleProps) {
   const elapsed = useElapsedMs(startedAt, endedAt);
   const [expanded, setExpanded] = useState(false);
@@ -104,6 +111,9 @@ export function ToolCallBubble({
           {progressNote}
         </span>
       )}
+      {/* S4: interactive slot (approval Approve/Deny). Rendered even while
+          running — that is exactly when an answer is owed. */}
+      {actions}
       {expanded && detail && (
         <pre
           className={cn(

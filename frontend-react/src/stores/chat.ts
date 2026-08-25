@@ -176,7 +176,19 @@ interface ChatStore {
     title: string;
     status: 'running' | 'done' | 'error';
     detail?: string | null;
+    approval?: {
+      requestId: string;
+      approvalClass: string;
+      description: string;
+    };
   }) => void;
+  /**
+   * S4 — the user answered an approval bubble from chat. Sends the verdict
+   * to the sidecar and optimistically detaches the buttons (the bubble
+   * stays "running" until the sidecar's terminal event reconciles it, so a
+   * dropped reply is visible as a stuck request instead of a silent lie).
+   */
+  resolveCoworkApproval: (requestId: string, approve: boolean) => void;
   clearToolCallStream: () => void;
 }
 
@@ -240,6 +252,16 @@ export type ToolCallEvent =
       status: 'running' | 'done' | 'error';
       startedAt: number;
       endedAt: number | null;
+      /**
+       * S4 approval gate — present only while the human still owes an
+       * answer. The bubble then renders Approve/Deny; the sidecar's
+       * terminal event clears this via upsert and closes the bubble.
+       */
+      approval?: {
+        requestId: string;
+        approvalClass: string;
+        description: string;
+      };
     };
 
 /** Hard cap on the number of bubbles the mascot renders at once. */
@@ -481,10 +503,13 @@ export const useChat = create<ChatStore>((set) => ({
     }
   },
 
-  upsertCoworkEvent: ({ key, title, status, detail }) => {
+  upsertCoworkEvent: ({ key, title, status, detail, approval }) => {
     const done = status !== 'running';
     set((s) => {
-      const existing = s.toolCallStream.find((e) => e.id === key && e.kind === 'cowork');
+      const existing = s.toolCallStream.find(
+        (e): e is Extract<ToolCallEvent, { kind: 'cowork' }> =>
+          e.id === key && e.kind === 'cowork',
+      );
       const entry: ToolCallEvent = {
         id: key,
         kind: 'cowork',
@@ -493,6 +518,8 @@ export const useChat = create<ChatStore>((set) => ({
         status,
         startedAt: existing?.startedAt ?? Date.now(),
         endedAt: done ? Date.now() : null,
+        // Terminal events clear the ask; only a running request carries it.
+        approval: done ? undefined : (approval ?? existing?.approval),
       };
       const next = existing
         ? s.toolCallStream.map((e) => (e.id === key ? entry : e))
@@ -510,6 +537,34 @@ export const useChat = create<ChatStore>((set) => ({
         }));
       }, TOOL_CALL_LINGER_MS * 2);
     }
+  },
+
+  resolveCoworkApproval: (requestId, approve) => {
+    // Detach the buttons FIRST so a double-click is impossible even before
+    // the sidecar answers; the terminal cowork_event then closes the bubble.
+    set((s) => ({
+      toolCallStream: s.toolCallStream.map((e) =>
+        e.id === `approval:${requestId}` && e.kind === 'cowork'
+          ? { ...e, approval: undefined }
+          : e,
+      ),
+    }));
+    void tauri.feralAgent
+      .coworkApprovalResolve(requestId, approve)
+      .catch(() =>
+        // The verdict never reached the sidecar — put the ask back so the
+        // user can retry instead of staring at buttons that do nothing.
+        set((s) => ({
+          toolCallStream: s.toolCallStream.map((e) => {
+            if (e.id !== `approval:${requestId}` || e.kind !== 'cowork') return e;
+            const description = e.detail ?? '';
+            return {
+              ...e,
+              approval: { requestId, approvalClass: 'unknown', description },
+            };
+          }),
+        })),
+      );
   },
 
   // A running worker SURVIVES the clear. The stream is wiped 5s after the turn
