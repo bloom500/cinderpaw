@@ -95,6 +95,13 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   split it — needs a sidecar fix (`CinderpawAgent/src/sandbox/inference-providers.ts`
   local path) or a host-side `delta.reasoning_content` forward. **Read
   before touching chat reasoning rendering or the local Ollama path.**
+- **`project_agent_cowork.md`** — Agent Cowork research baseline (Grok Bot /
+  Claude Cowork / ChatGPT Work, Aug 2026) + design sketch: persistent named
+  agents, shared workspace with ownership locks, A2A handoff protocol,
+  approval-gated escalation, routines. Slice plan S1–S5 inside; design
+  decisions locked 2026-08-25 (SQLite storage, TUI-first surface, v1
+  strictly reactive). **Read before any work on cowork agents,
+  mailboxes/handoffs, or worker loops.**
 - **`project_voice_mode_followups.md`** — open voice-mode regressions queued for
   2026-08-17: the user's new turn can take 15–30 seconds to appear after the
   agent finishes speaking, long prompts overwhelm the transcript beneath the
