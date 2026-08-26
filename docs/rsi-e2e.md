@@ -155,10 +155,10 @@ Add a note to the HANDOFF / PLAN.md with:
   may take ~500ms while the Rust dispatcher warms up. The
   adapter uses `ack-with-timeout` (500ms default) and retries
   once; transient failures resolve without surfacing to the user.
-- **Stale git substrate** — if `~/.feral/rsi/` was created by
+- **Stale git substrate** — if `~/.cinderpaw/rsi/` was created by
   an old build (pre-bounds-fix), `rsi_start` may fail with a
   bounds mismatch. Clear with
-  `Remove-Item -Recurse -Force "$env:USERPROFILE\.feral\rsi"`.
+  `Remove-Item -Recurse -Force "$env:USERPROFILE\.cinderpaw\rsi"`.
 - **First eval is slow** — the model's KV cache cold-starts on
   the first prompt. Expect the first eval to take 2-3× longer
   than subsequent ones.

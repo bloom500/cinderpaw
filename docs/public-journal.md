@@ -9,7 +9,7 @@ public page, and why it is built the way it is.
 
 ```
 Cinderpaw instance (private)
-  ~/.feral/rsi/journal/journal-YYYY-MM-DD.jsonl     hash-chained, complete, local
+  ~/.cinderpaw/rsi/journal/journal-YYYY-MM-DD.jsonl     hash-chained, complete, local
         │
         │  read-only, one direction
         ▼
@@ -141,9 +141,9 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/root/.feral/self-src/CinderpawAgent
+WorkingDirectory=/root/.cinderpaw/self-src/CinderpawAgent
 Environment=FERAL_PUBLIC_JOURNAL_URL=https://your-site/api/public-journal/ingest
-EnvironmentFile=/root/.feral/public-journal.env
+EnvironmentFile=/root/.cinderpaw/public-journal.env
 ExecStart=/root/.bun/bin/bun scripts/publish-public-journal.ts --watch
 Restart=on-failure
 RestartSec=30
@@ -157,7 +157,7 @@ are world-readable.
 
 ### Resumption
 
-The cursor lives at `~/.feral/public-journal/cursor.json`. It is an optimisation,
+The cursor lives at `~/.cinderpaw/public-journal/cursor.json`. It is an optimisation,
 not a correctness mechanism: deleting it causes a re-send that the store dedupes.
 If you want to republish history, delete it.
 

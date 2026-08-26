@@ -36,9 +36,9 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   { name: "FERAL_DB_KEY", type: "string", default: null,
     description: "32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB.", security: true },
   { name: "FERAL_WORKSPACE", type: "list", default: null,
-    description: "TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.feral, ~/.ssh and FERAL_FS_DENY regardless of roots.", security: true },
+    description: "TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.cinderpaw, ~/.ssh and FERAL_FS_DENY regardless of roots.", security: true },
   { name: "FERAL_FS_DENY", type: "list", default: null,
-    description: "Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.feral + ~/.ssh deny wall.", security: true },
+    description: "Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.cinderpaw + ~/.ssh deny wall.", security: true },
   { name: "FERAL_ENABLE_SHELL_EXEC", type: "bool", default: true,
     description: "Registers shell_exec (argv-only, whitelisted). On by default; set to \"false\" to disable. Doc note: an earlier draft of this doc said default off — the code's actual default is ON.", security: true },
   { name: "FERAL_ENABLE_NOTEBOOK", type: "bool", default: true,
@@ -52,7 +52,7 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   { name: "FERAL_FORGE_NO_PROMPT_OK", type: "bool", default: false,
     description: "Sidecar-internal escape hatch: when true, tool_forge may create/update a tool on a transport with no askUser bridge instead of failing closed. This approves running agent-written code unattended — headless deployments only.", security: true },
   { name: "FERAL_PERMISSION_MODE", type: "string", default: null,
-    description: "What the agent is allowed to change: \"read_only\" (reads anything, writes nothing — no file writes, no destructive/machine-level commands; the mode for audits and for surfaces where the speaker is not the owner), \"workspace_write\" (default: writes inside the workspace roots, where the safety point can undo them), or \"full_access\" (guards that prevent mistakes step aside; the catastrophic denylist still applies). Resolution order: this var, then FERAL_SHELL_WHITELIST=\"*\" (which still means full access), then `permission_mode` in ~/.feral/settings.json, then the default. The settings.json route is the only one that needs no relaunch — the sidecar reads it per command, so a change applies to the next one; an unknown value or an unparseable file means \"not configured\", never \"deny everything\".", security: true },
+    description: "What the agent is allowed to change: \"read_only\" (reads anything, writes nothing — no file writes, no destructive/machine-level commands; the mode for audits and for surfaces where the speaker is not the owner), \"workspace_write\" (default: writes inside the workspace roots, where the safety point can undo them), or \"full_access\" (guards that prevent mistakes step aside; the catastrophic denylist still applies). Resolution order: this var, then FERAL_SHELL_WHITELIST=\"*\" (which still means full access), then `permission_mode` in ~/.cinderpaw/settings.json, then the default. The settings.json route is the only one that needs no relaunch — the sidecar reads it per command, so a change applies to the next one; an unknown value or an unparseable file means \"not configured\", never \"deny everything\".", security: true },
   { name: "FERAL_AUTONOMOUS", type: "bool", default: false,
     description: "Walk-away mode: ask_user does not block for a human. It takes the recommended option (or the first) immediately and logs the decision, so a long task runs unattended. The end-of-turn summary reports every auto-decision. Off by default.", security: true },
   { name: "FERAL_DESKTOP_CONTROL_ALLOWED_APPS", type: "list", default: null,
@@ -222,7 +222,7 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   { name: "FERAL_RSI_STOP_ON_ACTIVITY", type: "bool", default: false,
     description: "Pause RSI when the user is active.", security: false },
   { name: "FERAL_RSI_TELEMETRY", type: "path", default: null,
-    description: "Telemetry JSONL file path override (default ~/.feral/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch.", security: false },
+    description: "Telemetry JSONL file path override (default ~/.cinderpaw/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch.", security: false },
   { name: "FERAL_CODE_RSI_REPO", type: "path", default: null,
     description: "Source repo for code-RSI to propose/apply against; without it, code-RSI rounds and live-apply are unavailable.", security: false },
 
@@ -498,7 +498,7 @@ export function benchmarkRunId(): string | null {
  * The agent's scratchpad — where it may write freely without touching anything
  * of the user's.
  *
- * It is the ONE writable path under `~/.feral`; `loadWorkspaceRoots` creates it
+ * It is the ONE writable path under the profile dir; `loadWorkspaceRoots` creates it
  * at boot and exempts it from the wall that refuses every other root inside the
  * agent's own home. Resolved here, next to `feralHome`, for the same reason that
  * one exists: two callers deriving it separately is how an isolated profile ends
