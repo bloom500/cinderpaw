@@ -24,6 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { BubbleTail } from './BubbleTail';
+import { Markdown } from '@/lib/markdown';
 import {
   useCoworkTranscript,
   type CoworkExchange,
@@ -191,17 +192,24 @@ function Bubble({ m, showAuthor }: { m: TranscriptMessage; showAuthor: boolean }
                 : 'left-[-11px] -scale-x-100 text-bg-surface',
             )}
           />
+          {/* The same renderer the chat uses. Agents answer in markdown -
+              they are the same models - so a raw \"**\" on screen is the panel
+              failing to read what was sent, not the agent misbehaving. */}
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
             title={expanded ? 'collapse' : 'expand'}
             className={cn(
-              'block w-full text-left text-xs leading-relaxed whitespace-pre-wrap break-words cursor-pointer',
+              'block w-full text-left text-xs leading-relaxed break-words cursor-pointer',
+              // prose-invert on the brand bubble: its ground is the brand fill,
+              // not the page, so the default prose colours read wrong on it.
+              'prose prose-xs max-w-none prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1',
+              right ? 'prose-invert' : 'prose-neutral dark:prose-invert',
               !expanded && 'line-clamp-6',
             )}
           >
-            {m.text}
+            <Markdown>{m.text}</Markdown>
           </button>
         </div>
         <span className="px-1 text-2xs text-text-muted tabular-nums select-none">
