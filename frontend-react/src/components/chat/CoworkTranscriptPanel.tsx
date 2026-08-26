@@ -168,6 +168,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
   };
   return (
     <motion.li
+      id={`cowork-msg-${m.key}`}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.16 }}
@@ -608,6 +609,11 @@ export function CoworkTranscriptPanel() {
     () => filteredMessages.filter((m) => !pinnedIds.has(m.key)),
     [filteredMessages, pinnedIds],
   );
+  const scrollToIdx = (idx: number) => {
+    const key = displayMessages[idx]?.key;
+    if (!key) return;
+    document.getElementById(`cowork-msg-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   // Resize handles persistence (width from left edge, height from bottom edge).
   useEffect(() => {
@@ -844,13 +850,14 @@ export function CoworkTranscriptPanel() {
           )}
         </div>
       )}
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        data-testid="cowork-transcript-scroll"
-        style={{ height: `${height}px`, maxHeight: '65vh' }}
-        className="overflow-y-auto px-2.5 pb-2.5"
-      >
+      <div className="relative flex">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          data-testid="cowork-transcript-scroll"
+          style={{ height: `${height}px`, maxHeight: '65vh' }}
+          className="flex-1 overflow-y-auto px-2.5 pb-2.5 pr-4"
+        >
           {pinnedMessages.length > 0 && (
             <div className="mb-2 rounded-lg border border-warning/20 bg-warning/5 p-2">
               <div className="text-2xs font-medium text-warning mb-1.5 flex items-center gap-1">
@@ -885,6 +892,20 @@ export function CoworkTranscriptPanel() {
               <TypingRow key={`typing:${e.id}`} e={e} />
             ))}
           </ul>
+        </div>
+        {displayMessages.length > 12 && (
+          <div className="absolute right-1 top-2 bottom-2 w-1 flex flex-col gap-0.5 py-1">
+            {displayMessages.map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => scrollToIdx(i)}
+                className="w-1 flex-1 min-h-1 rounded-full bg-border-subtle hover:bg-brand transition-colors cursor-pointer"
+                aria-label={`Jump to message ${i + 1}`}
+              />
+            ))}
+          </div>
+        )}
       </div>
       {participants.length > 0 && (
         <Composer
