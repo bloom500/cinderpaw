@@ -213,6 +213,9 @@ const INBOUND_TYPES = [
   "mcp_status",
   "mcp_list_tools",
   "mcp_call_tool",
+  // Agent Cowork S4 — the user's approve/deny answer to a cowork approval
+  // request (requestId on `id`, verdict on `approvalAction`).
+  "cowork_approval_resolve",
 ] as const satisfies readonly InboundMessage["type"][];
 
 /**

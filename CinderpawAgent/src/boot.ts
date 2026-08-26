@@ -96,6 +96,14 @@ import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
 import { CronJobsRepo, CronScheduler, deliverCron } from "./cron/index.ts";
+import { CoworkAgentRepo } from "./cowork/agent-store.ts";
+import { CoworkMailboxRepo } from "./cowork/mailbox.ts";
+import { CoworkHandoffService } from "./cowork/handoff.ts";
+import { CoworkRuntime } from "./cowork/runtime.ts";
+import {
+  CoworkApprovalRepo,
+  CoworkApprovalService,
+} from "./cowork/approval.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
 // Imported for the side effect: each transport module registers itself with
@@ -1555,6 +1563,50 @@ export async function boot(transportOverride?: Transport) {
   fractalActivitySink.current = (a) =>
     transport.send({ type: "fractal_activity", ...a });
 
+  // ── Agent Cowork runtime (S3.5) ───────────────────────────────────────────
+  // Reactive A2A workers. Zero agents configured ⇒ the tick walks an empty
+  // roster ⇒ zero behavior (fresh-install contract). The turn seam mirrors
+  // cron's unattended-run shape minus durability extras: cowork threads are
+  // conversational, one persistent session per agent so context compounds.
+  const coworkAgents = new CoworkAgentRepo(db.raw);
+  // S4 — deterministic approval gate on the tool-call path. Registered on
+  // the shared hook registry: it passes every non-cowork session through
+  // untouched and every unclassifiable call through, so with zero cowork
+  // agents this is a no-op for the whole product.
+  const coworkApprovalService = new CoworkApprovalService({
+    approvals: new CoworkApprovalRepo(db.raw),
+    agents: coworkAgents,
+    emitEvent: (event) => transport.send(event),
+    timeoutMs: Number(process.env.FERAL_CRON_JOB_TIMEOUT_MS ?? 5 * 60_000),
+    log,
+  });
+  hooks.on("before_tool_call", coworkApprovalService.gate);
+  const coworkRuntime = new CoworkRuntime({
+    agents: coworkAgents,
+    mailbox: new CoworkMailboxRepo(db.raw),
+    handoffs: new CoworkHandoffService(db.raw),
+    emitEvent: (event) => transport.send(event),
+    runTurn: async (_agentRec, prompt, sessionId) => {
+      // `handleTurn()` never throws — it emits `error` events instead
+      // (same contract cron relies on). Capture and rethrow so the worker
+      // loop records a rejection rather than delivering an error string
+      // as if it were the agent's answer.
+      let runError: string | null = null;
+      const run = await runUnattended(
+        (text, messageId) =>
+          agent.handleTurn(sessionId, text, messageId, (event) => {
+            if (event.type === "error") runError = event.message;
+          }),
+        prompt,
+        `${sessionId}-${Date.now()}`,
+        { deadlineMs: Number(process.env.FERAL_CRON_JOB_TIMEOUT_MS ?? 5 * 60_000) },
+      );
+      if (runError) throw new Error(runError);
+      return { text: run.text, finished: run.finished };
+    },
+    log,
+  });
+
   // --- RSI sidecar (Faza 1) ---
   // The bridge writes `rsi_request` lines via transport.send; the
   // `onMessage` switch routes `rsi_response` lines back to
@@ -2099,6 +2151,9 @@ export async function boot(transportOverride?: Transport) {
   // value on the other side.
   const ctx = {
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
+    // `cowork_approval_resolve` here).
+    coworkApprovals: coworkApprovalService,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path
@@ -2169,6 +2224,14 @@ export async function boot(transportOverride?: Transport) {
     // deliver through the transport.
     cronScheduler.start();
     log(`cron scheduler enabled (${cronRepo.list().length} job(s) loaded)`);
+
+    // Agent Cowork (S3.5): start the reactive worker loop after the
+    // transport is up, same pattern as cron. Silent when no agents exist.
+    coworkRuntime.start();
+    const coworkCount = new CoworkAgentRepo(db.raw).list().length;
+    if (coworkCount > 0) {
+      log(`cowork runtime enabled (${coworkCount} agent(s) active)`);
+    }
 
     // The one line the host waits for.
     //

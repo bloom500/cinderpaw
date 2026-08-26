@@ -28,6 +28,7 @@ export const INBOUND_TYPES = [
   "resume_get", "compact_session", "rsi_response", "start_onboarding",
   "tool_confirmation_response", "feedback",
   "mcp_reload", "mcp_status", "mcp_list_tools", "mcp_call_tool",
+  "cowork_approval_resolve",
 ] as const;
 
 export const OUTBOUND_TYPES = [

@@ -1163,6 +1163,11 @@ export interface InboundMessage {
     // `id` (payload `loraAction`) — an approval promotes the adapter to
     // domain champion and applies it to the loaded model live.
     | "rsi_lora_train" | "rsi_lora_reviews_list" | "rsi_lora_review_resolve"
+    // Agent Cowork S4 — the user's answer to a cowork approval request.
+    // `id` carries the requestId from the `approval_requested` event;
+    // `approvalAction` is the verdict. Unknown/already-resolved ids are a
+    // harmless no-op in the handler (late double-click must not error).
+    | "cowork_approval_resolve"
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
@@ -1242,6 +1247,9 @@ export interface InboundMessage {
   /** Approval-gate payload (type === "rsi_code_patch_resolve"); the patch
    *  id rides the plain `id` field. */
   patchAction?: "approve" | "reject";
+  /** Cowork approval payload (type === "cowork_approval_resolve"); the
+   *  request id rides the plain `id` field. */
+  approvalAction?: "approve" | "reject";
   /** LoRA gate payloads. `loraAction` rides "rsi_lora_review_resolve" (the
    *  card id on the plain `id` field); `loraDomain` optionally scopes
    *  "rsi_lora_train" (default "general"). */
@@ -1451,6 +1459,40 @@ export type OutboundEvent =
   // it is being held back for `waitMs`. Emitted so the pause is legible: a
   // silent gap of several seconds is indistinguishable from a hung agent.
   | { type: "rate_limited"; sessionId: string; waitMs: number; limitRpm: number; baseUrl: string; traceId?: string }
+  /**
+   * One cowork A2A occurrence (Agent Cowork S3). HARD RULE (locked design
+   * conversation 2026-08-25): agent-to-agent conversation must be VISIBLE in
+   * the user's chat surface — a widget/event, never sidecar-log-only.
+   *
+   * `title` is the human-readable one-liner the widget renders verbatim;
+   * `data` carries the structured detail (ids, senders, summaries) for
+   * progressive disclosure. `eventType` is an enumerated union, not a bare
+   * string, so consumers can switch exhaustively.
+   */
+  | {
+      type: "cowork_event";
+      eventType:
+        | "message_received"
+        | "message_processed"
+        | "message_rejected"
+        | "handoff_received"
+        | "handoff_completed"
+        | "handoff_failed"
+        // S4 approval gates. `approval_requested` carries data.requestId +
+        // data.approvalClass + data.description — the human answers it from
+        // chat with a `cowork_approval_resolve` inbound message; the three
+        // terminal kinds close the SAME bubble (upsert keyed by requestId).
+        | "approval_requested"
+        | "approval_approved"
+        | "approval_denied"
+        | "approval_expired";
+      /** The agent whose turn it was, or `"human"` when escalated. */
+      agentId: string;
+      threadId?: string;
+      title: string;
+      data: Record<string, unknown>;
+      traceId?: string;
+    }
   /**
    * A background worker spawned by the notebook's `rlm()`.
    *

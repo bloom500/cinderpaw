@@ -464,7 +464,12 @@ describe('no component writes text in a raw Tailwind colour', () => {
   // compiling. A whole-repo guard that fails at random is a guard that gets
   // rerun until it passes, and then ignored.
   test('src/**/*.tsx', { timeout: 20_000 }, async () => {
-    const { globSync } = await import('node:fs');
+    // No @types/node here, so the dynamic import's inferred type is narrow.
+    // The assertion states the contract this test already relies on at
+    // runtime (Node >= 22 exposes fs.globSync); it changes nothing at runtime.
+    const { globSync } = (await import('node:fs')) as unknown as {
+      globSync: (pattern: string) => string[];
+    };
     const files = globSync('src/**/*.{ts,tsx}').filter((f) => !f.includes('test'));
     const offenders = files.flatMap((file) => {
       const hits = readFileSync(file, 'utf8').match(OFFENDER) ?? [];

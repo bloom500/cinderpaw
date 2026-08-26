@@ -166,6 +166,29 @@ interface ChatStore {
     status: 'running' | 'completed' | 'error' | 'cancelled';
     detail?: string;
   }) => void;
+  /**
+   * Create or update an agent-to-agent activity bubble from a
+   * `cowork_event`. Keyed by the mailbox message / handoff id so a
+   * received→processed pair is ONE bubble that changes state, never two.
+   */
+  upsertCoworkEvent: (e: {
+    key: string;
+    title: string;
+    status: 'running' | 'done' | 'error';
+    detail?: string | null;
+    approval?: {
+      requestId: string;
+      approvalClass: string;
+      description: string;
+    };
+  }) => void;
+  /**
+   * S4 — the user answered an approval bubble from chat. Sends the verdict
+   * to the sidecar and optimistically detaches the buttons (the bubble
+   * stays "running" until the sidecar's terminal event reconciles it, so a
+   * dropped reply is visible as a stuck request instead of a silent lie).
+   */
+  resolveCoworkApproval: (requestId: string, approve: boolean) => void;
   clearToolCallStream: () => void;
 }
 
@@ -213,6 +236,32 @@ export type ToolCallEvent =
       status: 'running' | 'done' | 'error' | 'cancelled';
       startedAt: number;
       endedAt: number | null;
+    }
+  | {
+      /**
+       * One agent-to-agent exchange (Agent Cowork S3.5). Keyed by the
+       * mailbox message / handoff id, so `message_received` creates the
+       * bubble and its terminal sibling (`processed`/`rejected`) UPDATES
+       * it instead of stacking a second one — same upsert contract as a
+       * worker bubble.
+       */
+      id: string;
+      kind: 'cowork';
+      title: string;
+      detail: string | null;
+      status: 'running' | 'done' | 'error';
+      startedAt: number;
+      endedAt: number | null;
+      /**
+       * S4 approval gate — present only while the human still owes an
+       * answer. The bubble then renders Approve/Deny; the sidecar's
+       * terminal event clears this via upsert and closes the bubble.
+       */
+      approval?: {
+        requestId: string;
+        approvalClass: string;
+        description: string;
+      };
     };
 
 /** Hard cap on the number of bubbles the mascot renders at once. */
@@ -452,6 +501,70 @@ export const useChat = create<ChatStore>((set) => ({
         set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== childId) }));
       }, TOOL_CALL_LINGER_MS);
     }
+  },
+
+  upsertCoworkEvent: ({ key, title, status, detail, approval }) => {
+    const done = status !== 'running';
+    set((s) => {
+      const existing = s.toolCallStream.find(
+        (e): e is Extract<ToolCallEvent, { kind: 'cowork' }> =>
+          e.id === key && e.kind === 'cowork',
+      );
+      const entry: ToolCallEvent = {
+        id: key,
+        kind: 'cowork',
+        title,
+        detail: detail ?? null,
+        status,
+        startedAt: existing?.startedAt ?? Date.now(),
+        endedAt: done ? Date.now() : null,
+        // Terminal events clear the ask; only a running request carries it.
+        approval: done ? undefined : (approval ?? existing?.approval),
+      };
+      const next = existing
+        ? s.toolCallStream.map((e) => (e.id === key ? entry : e))
+        : [...s.toolCallStream, entry];
+      return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
+    });
+    // A settled A2A exchange lingers longer than a tool call — it is the
+    // conversation the user was promised they'd see, not housekeeping noise.
+    if (done) {
+      window.setTimeout(() => {
+        set((s) => ({
+          toolCallStream: s.toolCallStream.filter(
+            (e) => !(e.id === key && e.kind === 'cowork'),
+          ),
+        }));
+      }, TOOL_CALL_LINGER_MS * 2);
+    }
+  },
+
+  resolveCoworkApproval: (requestId, approve) => {
+    // Detach the buttons FIRST so a double-click is impossible even before
+    // the sidecar answers; the terminal cowork_event then closes the bubble.
+    set((s) => ({
+      toolCallStream: s.toolCallStream.map((e) =>
+        e.id === `approval:${requestId}` && e.kind === 'cowork'
+          ? { ...e, approval: undefined }
+          : e,
+      ),
+    }));
+    void tauri.feralAgent
+      .coworkApprovalResolve(requestId, approve)
+      .catch(() =>
+        // The verdict never reached the sidecar — put the ask back so the
+        // user can retry instead of staring at buttons that do nothing.
+        set((s) => ({
+          toolCallStream: s.toolCallStream.map((e) => {
+            if (e.id !== `approval:${requestId}` || e.kind !== 'cowork') return e;
+            const description = e.detail ?? '';
+            return {
+              ...e,
+              approval: { requestId, approvalClass: 'unknown', description },
+            };
+          }),
+        })),
+      );
   },
 
   // A running worker SURVIVES the clear. The stream is wiped 5s after the turn

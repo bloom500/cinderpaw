@@ -359,6 +359,38 @@ pub(crate) async fn feral_code_patch_resolve(
     Ok(())
 }
 
+/// Agent Cowork S4 — approval gate: forward the user's approve/deny answer
+/// for one cowork approval request to the sidecar. `action` is validated HERE
+/// so a compromised webview cannot smuggle another verb. Fire-and-forget; the
+/// sidecar acks through the `cowork_event` stream (approval_approved /
+/// approval_denied), which also closes the chat bubble.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn feral_cowork_approval_resolve(
+    state: State<'_, AppState>,
+    request_id: String,
+    action: String,
+) -> Result<(), String> {
+    if action != "approve" && action != "reject" {
+        return Err(format!("invalid action '{action}' — approve|reject"));
+    }
+    let msg = serde_json::json!({
+        "type": "cowork_approval_resolve",
+        "id": request_id,
+        "approvalAction": action,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Faza 4 (L2 LoRA) — personal-adaptation gate: ask the sidecar for the LoRA
 /// review inbox + per-domain champions. Fire-and-forget; the sidecar replies
 /// with one `lora_reviews` line forwarded over `cinderpaw://agent-output`.

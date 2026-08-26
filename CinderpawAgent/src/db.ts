@@ -820,6 +820,99 @@ function migrate(db: Database): void {
       ON workspaces (last_active_at DESC);
   `);
 
+  // ── Cowork agents (Agent Cowork S1) ─────────────────────────────────────────
+  //
+  // One row per persistent named cowork agent (Grok Bot-style "Bots").
+  // Pure identity + configuration: name, role, standing instructions,
+  // optional Brain-model pin (`null` ⇒ the Brain Stack routes per task).
+  // Runtime state (mailboxes, handoffs, threads) gets its own tables in
+  // later slices (S2+) — they were deliberately NOT crammed in here.
+  // Written only by the sidecar, per the writer contract.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT '',
+      instructions TEXT NOT NULL DEFAULT '',
+      model_pin TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+
+  // cowork_mailbox (S2) — A2A asynchronous messages. One row per message;
+  // `from_agent_id` / `to_agent_id` hold agent ids or the literal "human".
+  // `payload_json` is optional structured content (pointers, not blobs).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_mailbox (
+      id TEXT PRIMARY KEY,
+      from_agent_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      thread_id TEXT,
+      body TEXT NOT NULL,
+      payload_json TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      read_at INTEGER
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cowork_mailbox_inbox
+      ON cowork_mailbox (to_agent_id, status, created_at DESC);
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cowork_mailbox_outbox
+      ON cowork_mailbox (from_agent_id, created_at DESC);
+  `);
+
+  // cowork_handoffs (S2) — structured task ownership transfers. TeamOlimpo
+  // rule: a handoff with no terminal status means the task is NOT done, so
+  // every row must be drivable to completed|failed; the handoff service
+  // enforces the transitions. `artifact_refs_json` is a JSON array of
+  // pointers into memory/workspace.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_handoffs (
+      id TEXT PRIMARY KEY,
+      from_agent_id TEXT NOT NULL,
+      to_agent_id TEXT NOT NULL,
+      thread_id TEXT,
+      status TEXT NOT NULL DEFAULT 'initiated',
+      summary TEXT NOT NULL,
+      artifact_refs_json TEXT NOT NULL DEFAULT '[]',
+      result_summary TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      closed_at INTEGER
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cowork_handoffs_to
+      ON cowork_handoffs (to_agent_id, status);
+  `);
+
+  // cowork_approvals (S4) — deterministic approval gate for consequential
+  // actions a cowork agent is about to take (send/publish/delete/purchase/
+  // prod_change). One row per gate hit; status lifecycle pending →
+  // approved|denied|expired is enforced by the repo (terminal states are
+  // never rewritten) and every row is the durable audit trail of a decision.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cowork_approvals (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      approval_class TEXT NOT NULL,
+      description TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      resolved_at INTEGER
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cowork_approvals_pending
+      ON cowork_approvals (status, created_at DESC);
+  `);
+
   // Stamp the schema version after every successful migration. Done last so
   // a partial migration (one that throws halfway) leaves `schema_version`
   // pointing at the previous value — the next startup retries from there.
