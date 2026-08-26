@@ -15,7 +15,8 @@ run "CinderpawAgent typecheck" bash -c "cd \"$ROOT/CinderpawAgent\" && bunx tsc 
 run "React tests" bash -c "cd \"$ROOT/frontend-react\" && bunx vitest run --pool=threads --maxWorkers=1"
 run "React typecheck" bash -c "cd \"$ROOT/frontend-react\" && bunx tsc --noEmit"
 run "Rust check" bash -c "cd \"$ROOT\" && cargo check"
-run "Rust tests" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw-core"
+run "Rust tests (host)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw"
+run "Rust tests (core)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw-core"
 run "TUI tests" bash -c "cd \"$ROOT/tui\" && go test ./..."
 run "TUI build" bash -c "cd \"$ROOT/tui\" && go build ./..."
 
