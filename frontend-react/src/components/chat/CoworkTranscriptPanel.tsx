@@ -22,7 +22,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Star } from 'lucide-react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { cn } from '@/lib/utils';
 import { BubbleTail } from './BubbleTail';
@@ -155,7 +155,7 @@ export function toMessages(exchanges: CoworkExchange[]): TranscriptMessage[] {
   return out;
 }
 
-function Bubble({ m, showAuthor }: { m: TranscriptMessage; showAuthor: boolean }) {
+function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; showAuthor: boolean; pinned?: boolean; onTogglePin?: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const right = m.side === 'right';
@@ -209,11 +209,26 @@ function Bubble({ m, showAuthor }: { m: TranscriptMessage; showAuthor: boolean }
             onClick={onCopy}
             aria-label="Copy message"
             className="absolute -top-1 -right-1 p-1 rounded-md bg-bg-elevated border border-border-subtle shadow
-                       opacity-0 group-hover/bubble:opacity-100 group-hover:opacity-100
+                       opacity-0 group-hover/bubble:opacity-100
                        transition-opacity text-text-muted hover:text-text-secondary cursor-pointer"
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
           </button>
+          {onTogglePin && (
+            <button
+              type="button"
+              onClick={onTogglePin}
+              aria-label={pinned ? 'Unpin' : 'Pin'}
+              className={cn(
+                'absolute -top-1 p-1 rounded-md border shadow transition-opacity cursor-pointer',
+                pinned
+                  ? 'right-7 bg-warning/20 border-warning/30 text-warning opacity-100'
+                  : 'right-7 bg-bg-elevated border-border-subtle text-text-muted opacity-0 group-hover/bubble:opacity-100 hover:text-warning',
+              )}
+            >
+              <Star size={12} fill={pinned ? 'currentColor' : 'none'} />
+            </button>
+          )}
           {/* Selectable text: the whole bubble no longer swallows mouse
               selection. Click the "expand" control to toggle line-clamp. */}
           <div
@@ -459,6 +474,7 @@ const PANEL_HEIGHT_KEY = 'cowork-panel-height';
 const PANEL_MIN_H = 200;
 const PANEL_MAX_H = 720;
 const PANEL_DEFAULT_H = 440;
+const PINNED_KEY = 'cowork-pinned-ids';
 
 /** Reading site data THROWS in a private window or with storage blocked —
  *  a remembered panel state is not worth taking the whole panel down. */
@@ -555,6 +571,27 @@ export function CoworkTranscriptPanel() {
     [exchanges],
   );
 
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(PINNED_KEY);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(PINNED_KEY, JSON.stringify([...pinnedIds]));
+    } catch {}
+  }, [pinnedIds]);
+  const togglePin = (key: string) =>
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   const [filterText, setFilterText] = useState('');
   const [filterAgent, setFilterAgent] = useState<string | null>(null);
   const filteredMessages = useMemo(() => {
@@ -566,6 +603,11 @@ export function CoworkTranscriptPanel() {
     }
     return m;
   }, [messages, filterText, filterAgent]);
+  const pinnedMessages = useMemo(() => messages.filter((m) => pinnedIds.has(m.key)), [messages, pinnedIds]);
+  const displayMessages = useMemo(
+    () => filteredMessages.filter((m) => !pinnedIds.has(m.key)),
+    [filteredMessages, pinnedIds],
+  );
 
   // Resize handles persistence (width from left edge, height from bottom edge).
   useEffect(() => {
@@ -809,16 +851,30 @@ export function CoworkTranscriptPanel() {
         style={{ height: `${height}px`, maxHeight: '65vh' }}
         className="overflow-y-auto px-2.5 pb-2.5"
       >
+          {pinnedMessages.length > 0 && (
+            <div className="mb-2 rounded-lg border border-warning/20 bg-warning/5 p-2">
+              <div className="text-2xs font-medium text-warning mb-1.5 flex items-center gap-1">
+                <Star size={10} fill="currentColor" /> Pinned
+              </div>
+              {pinnedMessages.map((m) => (
+                <div key={`pinned:${m.key}`} className="mb-1.5 last:mb-0">
+                  <Bubble m={m} showAuthor pinned onTogglePin={() => togglePin(m.key)} />
+                </div>
+              ))}
+            </div>
+          )}
           <ul className="flex flex-col gap-2">
             <AnimatePresence initial={false}>
-              {filteredMessages.map((m, i) => (
+              {displayMessages.map((m, i) => (
                 <Bubble
                   key={m.key}
                   m={m}
+                  pinned={pinnedIds.has(m.key)}
+                  onTogglePin={() => togglePin(m.key)}
                   // Group-chat convention: the name appears once per run of
                   // consecutive messages from the same speaker, not on every
                   // bubble — repeating it turns a conversation into a table.
-                  showAuthor={i === 0 || filteredMessages[i - 1]?.authorId !== m.authorId}
+                  showAuthor={i === 0 || displayMessages[i - 1]?.authorId !== m.authorId}
                 />
               ))}
             </AnimatePresence>
