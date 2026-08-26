@@ -76,6 +76,7 @@ import { NOTEBOOK_TOOL_NAME } from "../tools/builtin/notebook.ts";
 import { buildNotebookSection, WORKER_BRIEF } from "../rlm/prompt.ts";
 import { toIdentifier } from "../rlm/repl.ts";
 import { isConnectorTool, isCoreTool, isOwnerOnlyTool } from "../tools/tiers.ts";
+import { selectTools } from "../tools/tool-intent.ts";
 // Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
 import {
   parseStandalonePlainTextToolCallBlocks,
@@ -483,6 +484,18 @@ export class AgentLoop {
    * registered in the constructor.
    */
   readonly #loadedTools = new Map<string, Set<string>>();
+
+  /**
+   * Tool-intent selection pinned on the first real message of a session.
+   * `null` = no narrowing (full core set, today's behaviour). Non-null =
+   * the subset `selectTools` chose for this session's lifetime. Kept here
+   * and NOT in #syncTools so the tool prefix stays cache-stable: selecting
+   * once per session keeps the cached prompt prefix byte-identical across
+   * turns. Selecting per turn would invalidate the 41.9% cache measured in
+   * OPUS_CHECKPOINT_20260826_TOKENS.md on every iteration.
+   * Evicted together with the session (LRU/TTL and /new).
+   */
+  readonly #toolIntentSelection = new Map<string, Set<string> | null>();
 
   /**
    * Called with the cleaned text of each owner user turn. Set by boot to
@@ -1012,6 +1025,7 @@ export class AgentLoop {
 
   resetSession(sessionId: string): void {
     this.#sessions.delete(sessionId);
+    this.#toolIntentSelection.delete(sessionId);
     this.#checkpoints?.markDone(sessionId);
     this.#episodic.record(sessionId, "system", SESSION_RESET_MARK);
   }
@@ -1157,6 +1171,34 @@ export class AgentLoop {
     if (isReplayableSession(sessionId) && !this.#profileFor(sessionId)) {
       this.#onUserTurn?.(sessionId, userTextClean);
     }
+    // Tool-intent: pin the advertised tool subset once, on the first real
+    // message of this session. Owner sessions only — connector profiles
+    // already carry an explicit allow-list, workers are scoped elsewhere,
+    // and background sessions (cron/RSI/dream) are not user intent.
+    // `#syncTools` is deliberately NOT the place: it runs on registry
+    // version bumps (MCP connect), not on user input, and re-selecting
+    // there would churn the cached prefix every time a tool registers.
+    if (
+      !this.#toolIntentSelection.has(sessionId) &&
+      isReplayableSession(sessionId) &&
+      !this.#profileFor(sessionId) &&
+      !isWorkerSession(sessionId)
+    ) {
+      try {
+        const coreNames = this.#registry.list().map((t) => t.manifest.name).filter(isCoreTool);
+        const selected = selectTools({ text: userTextClean, coreTools: coreNames });
+        // `selectTools` returns the full core set when it has no signal or
+        // the saving is too small to be worth the miss risk. Store `null`
+        // for that case so per-turn filtering stays a single branch.
+        const narrowed = selected.length < coreNames.length ? new Set(selected) : null;
+        this.#toolIntentSelection.set(sessionId, narrowed);
+      } catch {
+        // Classifier is pure but the failure mode is the same as no signal:
+        // fall open, advertise everything.
+        this.#toolIntentSelection.set(sessionId, null);
+      }
+    }
+
     const userWriteTs = Date.now();
     const userLeafId = this.#episodic.record(sessionId, "user", userTextClean);
     if (userLeafId !== null) {
@@ -2078,13 +2120,25 @@ export class AgentLoop {
     // is reachable instead of being permanently invisible.
     // A restricted profile advertises exactly its allow-list; a persona-only
     // profile (allowed = null) and the owner both see core + drawer-loaded.
+    // Tool-intent is the per-session narrowing from selectTools, pinned on
+    // the first user message. `null` / absent = no narrowing. A non-null set
+    // is the subset for this session; drawer-loaded tools are still allowed
+    // through so a bad guess is recoverable via `load_tool`.
+    const intentSelection = this.#toolIntentSelection.get(sessionId) ?? null;
     const advertise = (name: string): boolean => {
       // Owner-only tools are withheld from every profiled session, including a
       // persona-only one whose `allowed` is null — see OWNER_ONLY_TOOLS. The
       // test is the PRESENCE of a profile, not the contents of its allow-list,
       // because a null allow-list is exactly the case that used to pass.
       if (profile && isOwnerOnlyTool(name)) return false;
-      return profile?.allowed ? profile.allowed.has(name) : isCoreTool(name) || !!loaded?.has(name);
+      if (profile?.allowed) return profile.allowed.has(name);
+      // Drawer escape hatch: a tool the model explicitly pulled in is always
+      // advertised, even if intent selection would have withheld it. Without
+      // this the drawer and the intent router would fight, and the drawer —
+      // the recovery path for a wrong guess — would lose.
+      if (loaded?.has(name)) return true;
+      if (intentSelection !== null && !intentSelection.has(name)) return false;
+      return isCoreTool(name);
     };
     const nativeTools = this.#nativeTools.filter((t) => advertise(t.name));
     const openAITools = this.#openAITools.filter((t) => advertise(t.function.name));
@@ -2451,6 +2505,7 @@ export class AgentLoop {
         if (oldest === undefined) break; // defensive: empty map
         this.#sessions.delete(oldest);
         this.#sessionProfile.delete(oldest);
+        this.#toolIntentSelection.delete(oldest);
       }
       // A profiled session (connector surface) runs under the profile's own
       // system prompt; the owner default uses the full prompt. Resolved at
@@ -2577,6 +2632,7 @@ export class AgentLoop {
       if (entry.lastAccess < cutoff) {
         this.#sessions.delete(sessionId);
         this.#sessionProfile.delete(sessionId);
+        this.#toolIntentSelection.delete(sessionId);
       }
     }
   }
