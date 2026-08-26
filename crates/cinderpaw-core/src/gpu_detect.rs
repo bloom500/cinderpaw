@@ -36,8 +36,8 @@ pub fn detect() -> GpuInfo {
     }
 }
 
-/// Conservative AMD GPU fingerprint used to auto-force CPU offload for the
-/// embedding path on hosts with known driver-level issues.
+/// Should the embedding path be pinned to CPU on this host? Covers known-
+/// fragile AMD cards AND any GPU we failed to identify (see below).
 ///
 /// Background: on RX 580 / Polaris / early-Vega AMD cards, llama.cpp's
 /// Vulkan embed (bge-small, ~130 MB) crashes at model load with
@@ -49,13 +49,30 @@ pub fn detect() -> GpuInfo {
 /// The heuristic matches the names that have crashed in this dev env plus
 /// the broader AMD/ATI families that share the legacy AMDVLK/Mesa RADV
 /// drivers. NVIDIA and Intel GPUs are never flagged — the issue is
-/// AMD-specific. Unknown names are NOT flagged (conservative: better to
-/// attempt GPU and let the user set `FERAL_EMBED_GPU_LAYERS=0` themselves
-/// than to silently disable a working GPU).
-pub fn looks_like_fragile_amd_gpu(info: &GpuInfo) -> bool {
+/// AMD-specific.
+///
+/// UNIDENTIFIED GPUs ARE FLAGGED. This reverses the earlier reading that it
+/// is "conservative" to attempt the GPU and let the user set
+/// `FERAL_EMBED_GPU_LAYERS=0` themselves. That is only conservative for
+/// someone who already knows the variable exists. The two ways to be wrong
+/// are not comparable:
+///
+///   - Wrong toward CPU: embeddings run on the CPU for a card we could not
+///     name. bge-small is ~130 MB; the cost is some latency, it is visible,
+///     and one env var undoes it.
+///   - Wrong toward GPU: llama.cpp aborts the process at first embed. The
+///     whole sidecar dies, memory capture stops, and chat keeps working —
+///     so nobody notices. That is not hypothetical: it ran for two days on
+///     the dev box (see OPUS_CHECKPOINT_20260824.md) and the only sign was
+///     a leaf store that quietly stopped growing.
+///
+/// A name we cannot read means detection failed, not that the hardware is
+/// fine. This only ever runs on a Vulkan build, so CUDA/Metal/CPU builds —
+/// where a healthy NVIDIA card would live — are untouched.
+pub fn should_force_cpu_embed(info: &GpuInfo) -> bool {
     let n = info.name.to_ascii_lowercase();
     if n.is_empty() || n == "unknown gpu" {
-        return false;
+        return true;
     }
     // The exact names confirmed to crash on this dev box.
     let confirmed_crashes = [
@@ -241,4 +258,57 @@ fn detect_gpu_linux() -> (String, u64) {
     };
 
     (best_name, vram_mb)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gpu(name: &str) -> GpuInfo {
+        GpuInfo { name: name.into(), vram_mb: 8192, supports_vulkan: true }
+    }
+
+    #[test]
+    fn confirmed_crashers_are_pinned_to_cpu() {
+        for name in [
+            "AMD Radeon RX 580",
+            "Radeon RX 570 Series",
+            "AMD Polaris",
+            "gfx803",
+            "AMD Radeon Vega 8 Graphics",
+        ] {
+            assert!(should_force_cpu_embed(&gpu(name)), "{name} should pin to CPU");
+        }
+    }
+
+    #[test]
+    fn healthy_non_amd_gpus_keep_the_gpu_path() {
+        for name in [
+            "NVIDIA GeForce RTX 4090",
+            "NVIDIA RTX A6000",
+            "Intel(R) Arc(TM) A770 Graphics",
+            "Intel(R) UHD Graphics 770",
+        ] {
+            assert!(!should_force_cpu_embed(&gpu(name)), "{name} should keep the GPU");
+        }
+    }
+
+    /// The regression this module exists for. An unreadable GPU name means
+    /// detection failed; guessing "GPU is fine" aborts the whole sidecar at
+    /// first embed and memory capture stops silently. Guessing "use the CPU"
+    /// costs latency and nothing else.
+    #[test]
+    fn an_unidentified_gpu_is_pinned_to_cpu_not_gambled_on() {
+        assert!(should_force_cpu_embed(&gpu("Unknown GPU")));
+        assert!(should_force_cpu_embed(&gpu("unknown gpu")));
+        assert!(should_force_cpu_embed(&gpu("")));
+    }
+
+    #[test]
+    fn an_amd_vendor_string_without_a_known_arch_is_not_flagged_by_arch_rule() {
+        // "AMD" alone is not an architecture; only the vendor+arch pair or a
+        // confirmed name trips the AMD branch. Guards against the substring
+        // rule quietly widening to every AMD product ever made.
+        assert!(!should_force_cpu_embed(&gpu("AMD Ryzen 7 Graphics")));
+    }
 }
