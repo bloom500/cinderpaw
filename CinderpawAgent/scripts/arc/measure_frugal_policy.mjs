@@ -57,7 +57,7 @@ function asArcEnvironment(maze) {
   let started = false;
   const view = () => ({
     grid: render(),
-    state: won() ? "WIN" : started ? "NOT_FINISHED" : "NOT_STARTED",
+    state: won() ? "WIN" : started ? "NOT_FINISHED" : "NOT_PLAYED",
   });
   return {
     actions: ACTIONS,

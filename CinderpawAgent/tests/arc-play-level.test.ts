@@ -16,7 +16,7 @@ function env(opts: { winAfter?: number; actions?: string[]; startState?: ArcObse
   const actions = opts.actions ?? ["ACTION1", "ACTION2"];
   const calls: string[] = [];
   let count = 0;
-  let state: ArcObservation["state"] = opts.startState ?? "NOT_STARTED";
+  let state: ArcObservation["state"] = opts.startState ?? "NOT_PLAYED";
   const e: ArcEnvironment = {
     actions,
     observe: () => ({ grid: [[count]], state }),
@@ -179,7 +179,7 @@ describe("isTerminal", () => {
   test("only WIN and GAME_OVER end a level", () => {
     expect(isTerminal("WIN")).toBe(true);
     expect(isTerminal("GAME_OVER")).toBe(true);
-    expect(isTerminal("NOT_STARTED")).toBe(false);
+    expect(isTerminal("NOT_PLAYED")).toBe(false);
     expect(isTerminal("NOT_FINISHED")).toBe(false);
   });
 });

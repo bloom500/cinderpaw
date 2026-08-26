@@ -19,7 +19,7 @@ function corridor(length = 3) {
   let at = 0;
   const view = (): ArcObservation => ({
     grid: [[at]],
-    state: at >= length ? "WIN" : at === 0 ? "NOT_STARTED" : "NOT_FINISHED",
+    state: at >= length ? "WIN" : at === 0 ? "NOT_PLAYED" : "NOT_FINISHED",
   });
   const env: ArcEnvironment = {
     actions: ["ACTION1", "ACTION2"],

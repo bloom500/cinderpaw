@@ -26,7 +26,7 @@ export type ArcGrid = number[][];
  * boolean, because "not started" and "in progress" are different things to a
  * loop that must not act twice on a finished level.
  */
-export type ArcLevelState = "NOT_STARTED" | "NOT_FINISHED" | "WIN" | "GAME_OVER";
+export type ArcLevelState = "NOT_PLAYED" | "NOT_FINISHED" | "WIN" | "GAME_OVER";
 
 export interface ArcObservation {
   /** The grid as the environment renders it. Text-only, per the benchmark. */
