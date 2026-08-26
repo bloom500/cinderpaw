@@ -9,6 +9,7 @@
  * stderr so the host never has to parse mixed output.
  */
 
+import { INBOUND_TYPES as PROTOCOL_INBOUND_TYPES } from "../protocol.ts";
 import type {
   InboundMessage,
   OutboundEvent,
@@ -138,85 +139,12 @@ export class TauriTransport implements Transport {
  * ever saw it). The exhaustive test in
  * `tests/tauri-transport-isinbound.test.ts` pins this surface.
  */
-const INBOUND_TYPES = [
-  "message",
-  "record_turn",
-  "ping",
-  "shutdown",
-  "set_model",
-  "stop",
-  "ask_user_response",
-  "ask_user_cancel",
-  "cron_add",
-  "cron_remove",
-  "cron_toggle",
-  "cron_list",
-  "desktop_control_response",
-  "capability_response",
-  "admin_response",
-  "connectors_reload",
-  // PROVISIONAL — temporary Settings button for the benchmark gate.
-  "fractal_benchmark",
-  "fractal_cluster_leaves",
-  "rsi_start",
-  "rsi_stop",
-  "rsi_set_concurrency",
-  "rsi_dream_now",
-  "rsi_code_patches_list",
-  "rsi_code_patch_resolve",
-  "rsi_lora_train",
-  "rsi_lora_reviews_list",
-  "rsi_lora_review_resolve",
-  "meta_status",
-  "meta_evolve",
-  "meta_rollback",
-  "meta_history",
-  // Slice A5 (L5 Governance) — host drives the policy FSM through
-  // `GovernanceLifecycle`. Replies with one `governance_result` paired by
-  // `id`; payload fields (`document`, `policyId`, `documentHash`, `layers`,
-  // `note`, `reason`, `limit`) are flattened onto the inbound message.
-  "governance_status",
-  "governance_propose",
-  "governance_approve",
-  "governance_reject",
-  "governance_rollback",
-  "governance_freeze",
-  "governance_unfreeze",
-  "governance_verify",
-  "governance_history",
-  // Phase B (L4 Architecture Evolution) — modules surface. Sidecar replies
-  // with one `modules_result` event paired by `id` (op list/resolve/evaluate).
-  "modules_list",
-  "module_resolve",
-  "module_evaluate",
-  "module_propose",
-  // Sprint 1.6 — Memory Resume. Host asks the sidecar for the persisted
-  // `current_task` + active workspace + last-active timestamp. Sidecar replies
-  // with one `resume_get_result` event paired by `id`. See
-  // `CinderpawAgent/src/memory/resume.ts` for the read-side helpers.
-  "resume_get",
-  // /compact (OpenClaw slash parity) — summarize the older portion of one
-  // session's transcript now; replies with one `compact_result` paired by `id`.
-  "compact_session",
-  "provider_conformance",
-  "rsi_response",
-  // AI-Guided Onboarding (Etapa 1, ADR-0013). `start_onboarding` prepares the
-  // onboarding profile + session; `tool_confirmation_response` carries the
-  // user's approve/deny reply to a `confirmation_required` event.
-  "start_onboarding",
-  "tool_confirmation_response",
-  // Thumbs 👍/👎 on an assistant message → audit "feedback" row (the §2.10
-  // `acceptance` personal-fitness signal). Fire-and-forget.
-  "feedback",
-  // R5 — MCP over stdin (host manages config, sidecar owns connections).
-  "mcp_reload",
-  "mcp_status",
-  "mcp_list_tools",
-  "mcp_call_tool",
-  // Agent Cowork S4 — the user's approve/deny answer to a cowork approval
-  // request (requestId on `id`, verdict on `approvalAction`).
-  "cowork_approval_resolve", "cowork_user_message",
-] as const satisfies readonly InboundMessage["type"][];
+// The list itself lives in ../protocol.ts, which is also what the Rust
+// mirror is checked against. It used to be duplicated here, so the allow-list
+// and the protocol could disagree and only ONE of them was compile-checked:
+// adding `cowork_user_message` to protocol.ts left this copy behind, and the
+// assertion below is what caught it. One list cannot drift from itself.
+const INBOUND_TYPES = PROTOCOL_INBOUND_TYPES satisfies readonly InboundMessage["type"][];
 
 /**
  * Exhaustiveness check: if a new variant is added to `InboundMessage["type"]`

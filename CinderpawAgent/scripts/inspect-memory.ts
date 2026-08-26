@@ -1,8 +1,13 @@
 // One-off inspection: dump tables and any memory rows mentioning "fable"
 // or junk keys (leading "- ", etc). Read-only.
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
+import { feralHome } from "../src/config.ts";
 
-const db = new Database(`${process.env.USERPROFILE}/.feral/agent/feral.db`, {
+// feralHome() rather than USERPROFILE + ".feral": that path is the
+// pre-rename home, empty or stale on any machine the host has migrated,
+// and it was not even portable off Windows.
+const db = new Database(join(feralHome(), "agent", "feral.db"), {
   readonly: true,
 });
 

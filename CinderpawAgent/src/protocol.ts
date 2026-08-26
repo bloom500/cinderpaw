@@ -11,6 +11,14 @@
 
 export const SIDECAR_PROTOCOL = 1;
 
+// NOTE: keep this array free of comments. `protocol_drift.rs` extracts it by
+// slicing between the brackets and splitting on commas, so any prose in here
+// parses as type names.
+//
+// `admin_response`, `capability_response` and `provider_conformance` were
+// missing from this list (and so from the Rust mirror) until 2026-08-26 — the
+// allow-list was duplicated inside transports/tauri.ts and only that copy was
+// compile-checked, so the canonical one fell behind in silence.
 export const INBOUND_TYPES = [
   "message", "record_turn", "ping", "shutdown", "set_model", "stop",
   "ask_user_response", "ask_user_cancel",
@@ -29,6 +37,7 @@ export const INBOUND_TYPES = [
   "tool_confirmation_response", "feedback",
   "mcp_reload", "mcp_status", "mcp_list_tools", "mcp_call_tool",
   "cowork_approval_resolve", "cowork_user_message",
+  "admin_response", "capability_response", "provider_conformance",
 ] as const;
 
 export const OUTBOUND_TYPES = [

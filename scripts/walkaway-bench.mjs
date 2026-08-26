@@ -152,12 +152,12 @@ function resolveRoute() {
     return {
       error: [
         "no model configured. Either set FERAL_BASE_URL + FERAL_MODEL (+ FERAL_API_KEY),",
-        "  or set FERAL_BYOK_PROVIDER=<id> to read the route from ~/.feral/byok.json.",
+        "  or set FERAL_BYOK_PROVIDER=<id> to read the route from <profile>/byok.json.",
         `  known providers: ${Object.keys(PROVIDER_BASE_URL).join(", ")}`,
       ].join(String.fromCharCode(10)),
     };
   }
-  const file = join(homedir(), ".feral", "byok.json");
+  const file = join(agentHome(), "byok.json");
   if (!existsSync(file)) return { error: `FERAL_BYOK_PROVIDER=${id} but ${file} does not exist` };
   let cfg;
   try {
@@ -254,9 +254,33 @@ async function preflight(routeEnv) {
  * Copy ONLY the files that describe how to reach a model. Memory, sessions,
  * RSI state and the journal are deliberately left behind.
  */
+/**
+ * The agent's profile dir on THIS machine.
+ *
+ * Duplicated deliberately: this script runs under plain node (see the shebang)
+ * and cannot import the sidecar's TypeScript config. Keep it in step with
+ * CinderpawAgent/src/config.ts::defaultHomeDir, tui/api/home.go::Home and
+ * crates/cinderpaw-core/src/paths.rs - four copies of one rule is the cost of
+ * four runtimes, and the rule is: the new name when it exists, the old one
+ * only when it is all there is.
+ *
+ * It read ~/.feral outright until 2026-08-26, which on a migrated machine is a
+ * directory the app stopped writing to - so the bench read a byok.json that
+ * had not been updated in weeks, or none at all.
+ */
+function agentHome() {
+  const override = process.env.CINDERPAW_HOME || process.env.FERAL_HOME;
+  if (override) return override;
+  const modern = join(homedir(), ".cinderpaw");
+  const legacy = join(homedir(), ".feral");
+  if (existsSync(modern)) return modern;
+  if (existsSync(legacy)) return legacy;
+  return modern;
+}
+
 function seedProviderConfig(benchHome) {
   mkdirSync(benchHome, { recursive: true });
-  const real = join(homedir(), ".feral");
+  const real = agentHome();
   let copied = 0;
   for (const f of ["byok.json", "byok.keys", "brain.json", "onboarding.json"]) {
     const src = join(real, f);

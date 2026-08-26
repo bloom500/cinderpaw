@@ -21,7 +21,12 @@ pub const INBOUND_TYPES: &[&str] = &[
     "resume_get", "compact_session", "rsi_response", "start_onboarding",
     "tool_confirmation_response", "feedback",
     "mcp_reload", "mcp_status", "mcp_list_tools", "mcp_call_tool",
-    "cowork_approval_resolve",
+    "cowork_approval_resolve", "cowork_user_message",
+    // Accepted by the sidecar transport all along, but absent from both this
+    // mirror and protocol.ts until 2026-08-26 — the TS allow-list was
+    // duplicated inside transports/tauri.ts and only that copy was
+    // compile-checked, so the canonical list could fall behind in silence.
+    "admin_response", "capability_response", "provider_conformance",
 ];
 
 pub const OUTBOUND_TYPES: &[&str] = &[

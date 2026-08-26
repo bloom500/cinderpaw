@@ -12,6 +12,18 @@ fn extract_ts_array(source: &str, const_name: &str) -> HashSet<String> {
     let open = source[start..].find('[').unwrap() + start;
     let close = source[open..].find(']').unwrap() + open;
     let body = &source[open + 1..close];
+    // Drop `//` comment tails before splitting. Without this a comment inside
+    // the array parses as type names — its words become phantom entries and
+    // the drift assertion fails for a reason that has nothing to do with
+    // drift. Cost one confused debugging round on 2026-08-26.
+    let body: String = body
+        .lines()
+        .map(|l| match l.find("//") {
+            Some(i) => &l[..i],
+            None => l,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     body.split(',')
         .filter_map(|s| {
             let s = s.trim();
