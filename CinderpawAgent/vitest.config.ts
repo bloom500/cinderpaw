@@ -27,7 +27,7 @@ export default defineConfig({
     include: [
       "tests/mcts-verifier.test.ts",
       "tests/causal-explorer.test.ts",
-      "tests/arc-baseline-runner.test.ts",
+      "tests/maze-selftest-runner.test.ts",
       "tests/test-time-adaptation.test.ts",
       "tests/goal-backward-planner.test.ts",
       "tests/metacognitive-auditor.test.ts",

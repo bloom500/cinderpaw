@@ -1,5 +1,5 @@
 /**
- * arc-baseline-runner.test.ts — offline ARC-AGI-3 baseline harness.
+ * maze-selftest-runner.test.ts - synthetic maze self-test harness.
  *
  * Covers the exported simulation helpers AND the CLI contract (writes the
  * JSON log, exit code 0 on completion). Runner-agnostic (bun:test →
@@ -38,7 +38,7 @@ import {
   makeGreedyPolicy,
   runBaseline,
   step,
-} from "../scripts/arc/run_arc_agi3_baseline.mjs";
+} from "../scripts/arc/run_maze_selftest.mjs";
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -124,23 +124,43 @@ describe("runBaseline + scoring", () => {
     expect(() => runBaseline({ maxActions: 0 })).toThrow(/maxActions/);
   });
 
-  test("CLI writes baseline_results.json and exits 0", () => {
+  test("CLI writes the result log, disclaims ARC, and exits 0", () => {
     const scriptPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "../scripts/arc/run_arc_agi3_baseline.mjs",
+      "../scripts/arc/run_maze_selftest.mjs",
     );
-    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "arc-baseline-"));
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "maze-selftest-"));
     const outPath = path.join(outDir, "nested", "results.json");
     const stdout = execFileSync(process.execPath, [scriptPath, "--out", outPath, "--max-actions", "80"], {
       encoding: "utf8",
       timeout: 30000,
     });
-    expect(stdout).toContain("[arc-baseline]");
+    expect(stdout).toContain("[maze-selftest]");
     const payload = JSON.parse(fs.readFileSync(outPath, "utf8"));
-    expect(payload.game).toBe("arc-agi-3-sim-baseline");
+    expect(payload.game).toBe("synthetic-maze-selftest");
     expect(payload.seed).toBe(42);
     expect(payload.completed).toBe(true);
-    expect(payload.harnessVersion).toBe("baseline-v1");
+    expect(payload.harnessVersion).toBe("maze-selftest-v1");
     expect(Array.isArray(payload.actionLog)).toBe(true);
+    // The disclaimer must travel WITH the data, not only in a receipt file.
+    expect(payload.notAnArcScore).toBe(true);
+    expect(payload.scoreKind).toBe("proxy");
+    expect(payload.policyIsOracle).toBe(true);
+    expect(stdout).toContain("NOT an ARC-AGI-3 score");
+    // No artifact may carry the ARC name anywhere in it.
+    expect(JSON.stringify(payload).toLowerCase()).not.toContain("arc-agi");
   }, 45000);
+
+  test("a caller-supplied policy is never reported as the oracle", () => {
+    // Always walk right: reaches nothing on a walled board, but proves the
+    // seam exists and that policyIsOracle tracks who actually decided.
+    const r = runBaseline({ seed: 7, size: 8, maxActions: 5, policy: () => () => "ACTION4" });
+    expect(r.policyIsOracle).toBe(false);
+    expect(r.notAnArcScore).toBe(true);
+  });
+
+  test("loud when the policy seam is misused", () => {
+    expect(() => runBaseline({ policy: 42 })).toThrow(/policy/);
+    expect(() => runBaseline({ policy: () => "not-a-function" })).toThrow(/policy/);
+  });
 });

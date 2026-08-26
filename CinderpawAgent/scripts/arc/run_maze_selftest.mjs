@@ -1,22 +1,28 @@
 #!/usr/bin/env node
 /**
- * run_arc_agi3_baseline.mjs — ARC-AGI-3 interactive baseline harness.
+ * run_maze_selftest.mjs - synthetic maze self-test for the interactive
+ * agent loop. THIS IS NOT AN ARC-AGI-3 BENCHMARK AND ITS SCORE IS NOT RHAE.
  *
- * Simulates ONE interactive ARC-AGI-3-style environment offline (no
- * network, no API keys — runs green on a fresh machine): a grid world where
- * the agent walks from spawn to target using the ACTION1..ACTION4
- * vocabulary while avoiding walls. A greedy BFS policy drives the agent;
- * this is the slot where the MCTS+verifier loop plugs in later.
+ * What it actually is: a deterministic, offline grid world (no network, no
+ * API keys - green on a fresh machine) used to exercise the ACTION1..ACTION4
+ * loop plumbing end to end. The default policy is an ORACLE: it is handed
+ * the environment, runs BFS over the true wall layout, and descends the true
+ * distance field to the goal. An oracle cannot be wrong, so the default run
+ * scores 100 by construction. That number measures the harness, not an agent.
  *
- * Measures: actions taken, wall time, and a score proxy:
- *   score = completed ? round(100 * optimalActions / actionsTaken) : 0
- * (100 = optimal play; RHAE counts environment actions, so fewer is better.)
+ * The score is a PROXY: score = round(100 * optimalActions / actionsTaken).
+ * It is meaningful ONLY when comparing two non-oracle policies on the same
+ * seed. Every artifact this script writes carries `notAnArcScore: true` and
+ * `policyIsOracle` so a JSON log can never be mistaken for an ARC result on
+ * its own - the disclaimer travels with the data, not just with this comment.
+ *
+ * The `policy` option is the seam where a real agent plugs in (MCTS, model
+ * driven, anything): pass `{ policy: (env) => () => "ACTION1" }`. A policy
+ * supplied by the caller is assumed NON-oracle and is reported as such.
  *
  * Usage:
- *   node scripts/arc/run_arc_agi3_baseline.mjs [--seed 42] [--size 16]
- *        [--max-actions 200] [--out scripts/arc/logs/baseline_results.json]
- *
- * Always writes the JSON log (dir auto-created) and prints a human summary.
+ *   node scripts/arc/run_maze_selftest.mjs [--seed 42] [--size 16]
+ *        [--max-actions 200] [--out scripts/arc/logs/maze_selftest_results.json]
  */
 
 import fs from "node:fs";
@@ -166,16 +172,28 @@ export function computeScore(completed, optimalActions, actionsTaken) {
 }
 
 /** Run the full baseline: build env → drive policy → measure → report. */
-export function runBaseline({ seed = 42, size = 16, maxActions = 200 } = {}) {
+export function runBaseline({ seed = 42, size = 16, maxActions = 200, policy: makePolicy } = {}) {
   if (!Number.isInteger(seed) || seed < 0) {
     throw new Error(`runBaseline: seed must be a non-negative integer, got ${String(seed)}`);
   }
   if (!Number.isInteger(maxActions) || maxActions < 1) {
     throw new Error(`runBaseline: maxActions must be an integer ≥ 1, got ${String(maxActions)}`);
   }
+  if (makePolicy !== undefined && typeof makePolicy !== "function") {
+    throw new Error(
+      `runBaseline: policy must be a function (env) => () => action, got ${typeof makePolicy}`,
+    );
+  }
   const rng = mulberry32(seed);
   const env = createEnvironment(rng, size);
-  const policy = makeGreedyPolicy(env);
+  // No caller policy = the built-in ORACLE (BFS over the true layout). It
+  // cannot lose, so its score is a property of the harness, not of an agent.
+  // This flag is what stops a JSON log from reading as a real result.
+  const policyIsOracle = makePolicy === undefined;
+  const policy = policyIsOracle ? makeGreedyPolicy(env) : makePolicy(env);
+  if (typeof policy !== "function") {
+    throw new Error("runBaseline: policy(env) must return a function () => action | null");
+  }
 
   const actionLog = [];
   const startedAt = performance.now();
@@ -193,7 +211,12 @@ export function runBaseline({ seed = 42, size = 16, maxActions = 200 } = {}) {
   const wallTimeMs = Math.round((performance.now() - startedAt) * 100) / 100;
 
   return {
-    game: "arc-agi-3-sim-baseline",
+    game: "synthetic-maze-selftest",
+    // These three travel with every artifact on purpose. A reader who has
+    // only the JSON must still be unable to mistake it for an ARC result.
+    notAnArcScore: true,
+    scoreKind: "proxy",
+    policyIsOracle,
     seed,
     gridSize: `${size}x${size}`,
     completed,
@@ -216,7 +239,7 @@ function parseArgs(argv) {
     else if (key === "--size") out.size = Number.parseInt(value, 10);
     else if (key === "--max-actions") out.maxActions = Number.parseInt(value, 10);
     else if (key === "--out") out.out = value;
-    else throw new Error(`run_arc_agi3_baseline: unknown argument "${key}"`);
+    else throw new Error(`run_maze_selftest: unknown argument "${key}"`);
   }
   return out;
 }
@@ -230,24 +253,30 @@ function main() {
   });
 
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const outPath = path.resolve(scriptDir, args.out ?? "logs/baseline_results.json");
+  const outPath = path.resolve(scriptDir, args.out ?? "logs/maze_selftest_results.json");
   const logPayload = {
     generatedAt: new Date().toISOString(),
-    harnessVersion: "baseline-v1",
+    harnessVersion: "maze-selftest-v1",
     ...result,
   };
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, `${JSON.stringify(logPayload, null, 2)}\n`, "utf8");
 
   // Human summary — visible on the caller's screen, not just in the log.
-  console.log(`[arc-baseline] game=${result.game} seed=${result.seed} grid=${result.gridSize}`);
+  console.log(`[maze-selftest] game=${result.game} seed=${result.seed} grid=${result.gridSize}`);
   console.log(
-    `[arc-baseline] ${result.completed ? "COMPLETED" : "NOT completed"} in ${result.actionsTaken} actions ` +
+    `[maze-selftest] ${result.completed ? "COMPLETED" : "NOT completed"} in ${result.actionsTaken} actions ` +
       `(optimal: ${result.optimalActions}) — score ${result.score}, ${result.wallTimeMs} ms`,
   );
-  console.log(`[arc-baseline] log written to ${outPath}`);
+  console.log(
+    "[maze-selftest] NOT an ARC-AGI-3 score. " +
+      (result.policyIsOracle
+        ? "Policy was the built-in ORACLE (it sees the solved maze), so 100 is expected and means nothing about agent quality."
+        : "Policy was caller-supplied; the score is a proxy, comparable only against another policy on the same seed."),
+  );
+  console.log(`[maze-selftest] log written to ${outPath}`);
   if (!result.completed) {
-    console.error(`[arc-baseline] FAILED to reach target within budget — inspect ${outPath}`);
+    console.error(`[maze-selftest] FAILED to reach target within budget - inspect ${outPath}`);
     process.exitCode = 1;
   }
 }
