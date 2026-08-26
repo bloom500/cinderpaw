@@ -7,10 +7,22 @@
  * accepted — the verifier guarantees task correctness upstream, this module
  * guarantees runnability downstream.
  *
- * Storage: append-only JSONL under ~/.cinderpaw/agent/raptor-skills.jsonl
- * (same convention as fractal-leaves.jsonl). The sink is injectable for
- * tests and alternative stores. Identical (code, description) pairs are
- * deduplicated by content hash, never written twice.
+ * Storage: append-only JSONL under
+ * ~/.cinderpaw/agent/runs/<runId>/raptor-skills.jsonl. The sink is
+ * injectable for tests and alternative stores. Identical (code,
+ * description) pairs are deduplicated by content hash, never written twice.
+ *
+ * ISOLATION CONTRACT (INV-F). `runId` is REQUIRED and there is no unscoped
+ * default. A skill induced while solving task N must not be silently
+ * present while solving task N+1 - that is benchmark contamination, and it
+ * is invisible after the fact: a scorecard cannot tell you which episodes
+ * were tainted. Scoping by run makes carry-over a deliberate act (copy the
+ * file, or point two runs at one sink on purpose) instead of the default.
+ *
+ * Interactive, non-benchmark use is not special-cased: it passes a stable
+ * runId such as "interactive" and gets accumulation. The scope is then
+ * visible in the path on disk, which is the point - you can see what a
+ * given run was allowed to remember by looking at where it wrote.
  */
 
 import fs from "node:fs";
@@ -19,6 +31,11 @@ import os from "node:os";
 import path from "node:path";
 
 import { compileProgram } from "../../core/mcts-verifier.ts";
+import { assertValidRunId } from "../../core/run-id.ts";
+
+// Re-exported: this module was the original home of the check, and
+// callers/tests import it from here.
+export { assertValidRunId };
 
 export interface ReusableSkill {
   /** Content-hash id: `skill-<fnv1a32(code::description)>`. */
@@ -29,7 +46,32 @@ export interface ReusableSkill {
   description: string;
   inducedAt: string;
   source: "mcts-verifier";
-  verificationStatus: "fully-verified";
+  /**
+   * What the evidence ACTUALLY supports, never a constant.
+   *
+   * - `held-out-verified` — reproduced pairs the search never saw.
+   * - `train-only` — fits the examples it was fitted to. That is the
+   *   definition of the claim being circular, so it is named as such
+   *   rather than dressed up as verification.
+   */
+  verificationStatus: "held-out-verified" | "train-only";
+  /** The counts behind the status, so a reader can audit the claim. */
+  evidence: { trainPairs: number; heldOutPairs: number };
+  /** The run that induced it. Provenance travels with the record, so a
+   *  merged file still says which episode each skill came from. */
+  runId: string;
+}
+
+/**
+ * Evidence the caller must hand over. Mirrors what `runMCTSVerification`
+ * returns: search-set size, held-out size, and whether the held-out set
+ * passed. There is no default — a caller that has not measured
+ * generalization has to say so in the record.
+ */
+export interface SkillEvidence {
+  trainPairs: number;
+  heldOutPairs: number;
+  heldOutPassed: boolean;
 }
 
 /** Persistence seam — implement to store skills somewhere else. */
@@ -68,9 +110,10 @@ export class JsonlSkillSink implements SkillSink {
   }
 }
 
-/** Default persistence location (matches the fractal-leaves convention). */
-export function defaultSinkPath(): string {
-  return path.join(os.homedir(), ".cinderpaw", "agent", "raptor-skills.jsonl");
+/** Per-run persistence location (fractal-leaves convention, run-scoped). */
+export function defaultSinkPath(runId: string): string {
+  assertValidRunId(runId);
+  return path.join(os.homedir(), ".cinderpaw", "agent", "runs", runId, "raptor-skills.jsonl");
 }
 
 function fnv1a32(text: string): string {
@@ -92,8 +135,54 @@ function slugify(description: string): string {
 }
 
 export interface InduceSkillOptions {
+  /** REQUIRED. The episode/run this skill belongs to. See ISOLATION CONTRACT. */
+  runId: string;
+  /** REQUIRED. See SkillEvidence — the claim must carry its proof. */
+  evidence: SkillEvidence;
   sink?: SkillSink;
   now?: Date;
+}
+
+/**
+ * Refuse evidence that cannot support any claim.
+ *
+ * The load-bearing rule is the last one: a program that was measured
+ * against held-out data and FAILED must never be persisted. Writing it
+ * anyway is how a wrong rule becomes a reusable tool, and how the memory
+ * tree starts teaching the agent something false with a "verified" label
+ * on it. Failing generalization is a result; it is not a skill.
+ */
+export function assertUsableEvidence(evidence: unknown): asserts evidence is SkillEvidence {
+  const e = evidence as SkillEvidence | undefined;
+  if (!e || typeof e !== "object") {
+    throw new Error(
+      "induceReusableSkill: evidence is required — { trainPairs, heldOutPairs, heldOutPassed }",
+    );
+  }
+  for (const key of ["trainPairs", "heldOutPairs"] as const) {
+    const v = e[key];
+    if (!Number.isInteger(v) || (v as number) < 0) {
+      throw new Error(
+        `induceReusableSkill: evidence.${key} must be a non-negative integer, got ${String(v)}`,
+      );
+    }
+  }
+  if (e.trainPairs < 1) {
+    throw new Error(
+      "induceReusableSkill: evidence.trainPairs must be ≥ 1 — a skill verified against nothing is not verified",
+    );
+  }
+  if (typeof e.heldOutPassed !== "boolean") {
+    throw new Error(
+      `induceReusableSkill: evidence.heldOutPassed must be a boolean, got ${String(e.heldOutPassed)}`,
+    );
+  }
+  if (e.heldOutPairs > 0 && !e.heldOutPassed) {
+    throw new Error(
+      "induceReusableSkill: refusing to induce a skill that FAILED held-out verification — " +
+        "a program that does not generalize is a result to log, never a tool to reuse",
+    );
+  }
 }
 
 /**
@@ -107,8 +196,12 @@ export interface InduceSkillOptions {
 export async function induceReusableSkill(
   verifiedProgramCode: string,
   taskDescription: string,
-  options: InduceSkillOptions = {},
+  options: InduceSkillOptions,
 ): Promise<{ skill: ReusableSkill; savedTo: string; duplicated: boolean }> {
+  // Checked FIRST: an unscoped induction must fail before it can write
+  // anywhere, not after the compile check has already spent work.
+  assertValidRunId(options?.runId);
+  assertUsableEvidence(options?.evidence);
   if (typeof verifiedProgramCode !== "string" || verifiedProgramCode.trim() === "") {
     throw new Error("induceReusableSkill: verifiedProgramCode must be a non-empty string");
   }
@@ -131,10 +224,16 @@ export async function induceReusableSkill(
     description: taskDescription,
     inducedAt: (options.now ?? new Date()).toISOString(),
     source: "mcts-verifier",
-    verificationStatus: "fully-verified",
+    verificationStatus:
+      options.evidence.heldOutPairs > 0 ? "held-out-verified" : "train-only",
+    evidence: {
+      trainPairs: options.evidence.trainPairs,
+      heldOutPairs: options.evidence.heldOutPairs,
+    },
+    runId: options.runId,
   };
 
-  const sink = options.sink ?? new JsonlSkillSink(defaultSinkPath());
+  const sink = options.sink ?? new JsonlSkillSink(defaultSinkPath(options.runId));
   const duplicated = (await sink.has?.(id)) ?? false;
   if (!duplicated) {
     await sink.append(skill);
