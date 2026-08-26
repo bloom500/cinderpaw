@@ -49,9 +49,13 @@ export function MessageList() {
             />
           </div>
         ))}
-        {status === 'streaming' && messages[messages.length - 1]?.content === '' && (
-          <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} />
-        )}
+        {(() => {
+          const last = messages[messages.length - 1];
+          const hasActiveThinking = Boolean(last?.thinking && !last.thinkingComplete);
+          return status === 'streaming' && last?.content === '' && !hasActiveThinking ? (
+            <StreamingIndicator phase={agentPhase ?? 'thinking'} tool={agentTool} />
+          ) : null;
+        })()}
       </div>
     </div>
   );

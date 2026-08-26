@@ -569,20 +569,17 @@ export function CoworkTranscriptPanel() {
                  bg-bg-elevated/80 backdrop-blur-md shadow-lg overflow-hidden"
       aria-label="Agent Cowork transcript"
     >
-      {/* Resize handle — diagonal corner (bottom-left) */}
+      {/* Resize handle — left edge */}
       <div
         onMouseDown={(e) => {
           resizing.current = true;
-          document.body.style.cursor = 'nwse-resize';
+          document.body.style.cursor = 'ew-resize';
           document.body.style.userSelect = 'none';
           e.preventDefault();
         }}
-        className="absolute bottom-0 left-0 w-5 h-5 cursor-nwse-resize flex items-start justify-start p-1 hover:bg-brand/10 rounded-tr"
-        title="Drag to resize"
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-brand/20"
         aria-hidden
-      >
-        <div className="w-3 h-3 border-l-2 border-b-2 border-border-subtle rounded-bl-[2px] opacity-60" />
-      </div>
+      />
       <button
         type="button"
         onClick={toggleCollapsed}
