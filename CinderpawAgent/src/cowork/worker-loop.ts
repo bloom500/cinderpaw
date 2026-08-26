@@ -42,6 +42,18 @@ export interface CoworkWorkerDeps {
    * the handoff with `output` as the reason.
    */
   onHandoff: (handoff: CoworkHandoff) => Promise<CoworkTurnOutcome>;
+  /**
+   * Agent id → the name its owner gave it. Optional, and it falls back to
+   * the id, because the loop must keep working for an id the roster no
+   * longer holds (a teammate removed mid-thread).
+   *
+   * A resolver rather than the agent repo: the loop needs one string, and
+   * taking the whole repo would couple message draining to roster storage
+   * for the sake of a label. The UI showed raw ids like
+   * "demo-agent-atlas" until this existed - machine selectors on a surface
+   * whose entire job is telling a person who is talking to whom.
+   */
+  nameOf?: (agentId: string) => string;
 }
 
 export interface CoworkTickResult {
@@ -69,13 +81,14 @@ export class CoworkWorkerLoop {
     const pending = this.#deps.mailbox.inbox(agentId, "pending");
     let processed = 0;
     for (const msg of pending) {
-      const title =
-        msg.fromAgentId === "human"
-          ? `Human → ${agentId}`
-          : `${msg.fromAgentId} → ${agentId}`;
+      const fromName = msg.fromAgentId === "human" ? "Human" : this.#nameOf(msg.fromAgentId);
+      const toName = this.#nameOf(agentId);
+      const title = `${fromName} → ${toName}`;
       this.#emit(msg, agentId, "message_received", title, {
         messageId: msg.id,
         fromAgentId: msg.fromAgentId,
+        fromAgentName: fromName,
+        agentName: toName,
         body: msg.body,
       });
       try {
@@ -107,10 +120,12 @@ export class CoworkWorkerLoop {
       .filter((h) => h.toAgentId === agentId && h.status === "initiated");
     let handled = 0;
     for (const offer of open) {
-      const title = `${offer.fromAgentId} ⇢ ${agentId}: ${offer.summary}`;
+      const fromName = this.#nameOf(offer.fromAgentId);
+      const title = `${fromName} ⇢ ${this.#nameOf(agentId)}: ${offer.summary}`;
       this.#emit(offer, agentId, "handoff_received", title, {
         handoffId: offer.id,
         fromAgentId: offer.fromAgentId,
+        fromAgentName: fromName,
         summary: offer.summary,
       });
       // Claim BEFORE running — the audit record must show an owner even if
@@ -138,6 +153,12 @@ export class CoworkWorkerLoop {
     return handled;
   }
 
+  /** The roster name for an id, or the id when the roster does not know it. */
+  #nameOf(agentId: string): string {
+    const n = this.#deps.nameOf?.(agentId);
+    return n && n.trim() ? n : agentId;
+  }
+
   #emit(
     item: CoworkMessage | CoworkHandoff,
     agentId: string,
@@ -154,7 +175,9 @@ export class CoworkWorkerLoop {
       agentId,
       threadId: item.threadId ?? undefined,
       title,
-      data,
+      // agentName on EVERY kind, not just messages: the panel must be able to
+      // name whoever the event is about without knowing which kind it got.
+      data: { agentName: this.#nameOf(agentId), ...data },
     });
   }
 }

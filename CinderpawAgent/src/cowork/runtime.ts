@@ -124,6 +124,9 @@ export class CoworkRuntime {
           handoffs: this.#deps.handoffs,
           onMessage: (msg) => this.#onMessage(msg),
           onHandoff: (h) => this.#onHandoff(h),
+          // Names, not ids, in everything the person reads. The roster is
+          // already loaded above; this is a lookup, not a second query.
+          nameOf: (id) => this.#deps.agents.get(id)?.name ?? id,
         },
         this.#deps.emitEvent,
       );

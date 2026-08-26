@@ -32,6 +32,15 @@ export interface CoworkExchange {
   /** Approval events only: send/publish/delete/purchase/prod_change. */
   approvalClass?: string;
   at: number;
+  /** Roster names, when the sidecar knew them. The panel falls back to the
+   *  id, but a person should never have to read "demo-agent-atlas". */
+  fromName?: string;
+  toName?: string;
+  /** When this exchange STARTED running, for the elapsed clock. Distinct
+   *  from `at`, which is the exchange's own creation time and does not move:
+   *  a card that was already running when the panel mounted still needs an
+   *  honest "since when". */
+  startedAt?: number;
 }
 
 /** The subset of the sidecar's `cowork_event` the transcript needs. */
@@ -99,15 +108,23 @@ export function applyCoworkEvent(
     status,
     at: Date.now(),
   };
+  const fromName = str(evt.data.fromAgentName) ?? prev?.fromName;
+  const toName = str(evt.data.agentName) ?? prev?.toName;
+  // Set once, on the transition into `running`, and never overwritten - the
+  // clock must measure the wait, not the time since the last event.
+  const startedAt =
+    prev?.startedAt ?? (status === 'running' ? Date.now() : undefined);
   // The first sight of an exchange may be its terminal half (e.g. the panel
   // mounted mid-flow). Rebuild from the event instead of trusting `prev`.
   const at = prev?.at ?? Date.now();
 
+  const named = { fromName, toName, startedAt };
   let next: CoworkExchange;
   switch (evt.eventType) {
     case 'message_received':
       next = {
         ...base,
+        ...named,
         kind,
         threadId,
         fromAgentId: str(evt.data.fromAgentId) ?? 'human',
@@ -118,14 +135,15 @@ export function applyCoworkEvent(
       };
       break;
     case 'message_processed':
-      next = { ...base, kind, threadId, responseText: str(evt.data.output) ?? null, status, at };
+      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.output) ?? null, status, at };
       break;
     case 'message_rejected':
-      next = { ...base, kind, threadId, responseText: str(evt.data.reason) ?? null, status, at };
+      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.reason) ?? null, status, at };
       break;
     case 'handoff_received':
       next = {
         ...base,
+        ...named,
         kind,
         threadId,
         fromAgentId: str(evt.data.fromAgentId) ?? 'human',
@@ -136,14 +154,15 @@ export function applyCoworkEvent(
       };
       break;
     case 'handoff_completed':
-      next = { ...base, kind, threadId, responseText: str(evt.data.result) ?? null, status, at };
+      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.result) ?? null, status, at };
       break;
     case 'handoff_failed':
-      next = { ...base, kind, threadId, responseText: str(evt.data.reason) ?? null, status, at };
+      next = { ...base, ...named, kind, threadId, responseText: str(evt.data.reason) ?? null, status, at };
       break;
     case 'approval_requested':
       next = {
         ...base,
+        ...named,
         kind,
         threadId,
         fromAgentId: evt.agentId,
@@ -156,7 +175,7 @@ export function applyCoworkEvent(
       break;
     default:
       // approval_approved / denied / expired: terminal state on the open ask.
-      next = { ...base, kind, threadId, status, approvalClass: base.approvalClass ?? str(evt.data.approvalClass), at };
+      next = { ...base, ...named, kind, threadId, status, approvalClass: base.approvalClass ?? str(evt.data.approvalClass), at };
       break;
   }
 
