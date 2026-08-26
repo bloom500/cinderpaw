@@ -22,7 +22,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Copy, Check, Star } from 'lucide-react';
+import { Copy, Check, Star, GripVertical } from 'lucide-react';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { cn } from '@/lib/utils';
 import { BubbleTail } from './BubbleTail';
@@ -476,6 +476,8 @@ const PANEL_MIN_H = 200;
 const PANEL_MAX_H = 720;
 const PANEL_DEFAULT_H = 440;
 const PINNED_KEY = 'cowork-pinned-ids';
+const PANEL_POS_KEY = 'cowork-panel-pos';
+const PANEL_DEFAULT_POS = { top: 12, right: 12 };
 
 /** Reading site data THROWS in a private window or with storage blocked —
  *  a remembered panel state is not worth taking the whole panel down. */
@@ -502,6 +504,16 @@ function readHeight(): number {
     return PANEL_DEFAULT_H;
   }
 }
+function readPos(): { top: number; right: number } {
+  try {
+    const raw = localStorage.getItem(PANEL_POS_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as { top: number; right: number };
+      if (Number.isFinite(p.top) && Number.isFinite(p.right)) return p;
+    }
+  } catch {}
+  return PANEL_DEFAULT_POS;
+}
 
 /** How close to the bottom still counts as "following the live feed". */
 const FOLLOW_SLACK_PX = 48;
@@ -511,10 +523,14 @@ export function CoworkTranscriptPanel() {
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [width, setWidth] = useState(readWidth);
   const [height, setHeight] = useState(readHeight);
+  const [pos, setPos] = useState(readPos);
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const resizingWidth = useRef(false);
   const resizingHeight = useRef(false);
+  const draggingPos = useRef(false);
+  const dragStart = useRef<{ x: number; y: number; top: number; right: number } | null>(null);
+  const didDrag = useRef(false);
   const [unread, setUnread] = useState(0);
   const prevLenRef = useRef(0);
   // Per-thread hydrate: panel appears only in threads that used cowork.
@@ -659,6 +675,40 @@ export function CoworkTranscriptPanel() {
     };
   }, []);
 
+  // Drag to reposition — header grip, persisted, snap to edges.
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingPos.current || !dragStart.current) return;
+      const dx = e.clientX - dragStart.current.x;
+      const dy = e.clientY - dragStart.current.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true;
+      const newRight = Math.max(4, dragStart.current.right - dx);
+      const newTop = Math.max(4, dragStart.current.top + dy);
+      const maxRight = window.innerWidth - 80;
+      const maxTop = window.innerHeight - 80;
+      const clamped = { right: Math.min(newRight, maxRight), top: Math.min(newTop, maxTop) };
+      setPos(clamped);
+    };
+    const onUp = () => {
+      if (!draggingPos.current) return;
+      draggingPos.current = false;
+      dragStart.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      try {
+        localStorage.setItem(PANEL_POS_KEY, JSON.stringify(pos));
+      } catch {}
+      // Keep didDrag true for the click that follows mouseup; toggle will clear it.
+      if (didDrag.current) setTimeout(() => { didDrag.current = false; }, 0);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [pos]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (el && following.current) el.scrollTop = el.scrollHeight;
@@ -672,6 +722,7 @@ export function CoworkTranscriptPanel() {
   };
 
   const toggleCollapsed = () => {
+    if (didDrag.current) { didDrag.current = false; return; }
     // Persist OUTSIDE the updater: React may invoke an updater more than once
     // (StrictMode does, in dev) and it is contracted to be pure.
     const next = !collapsed;
@@ -718,6 +769,13 @@ export function CoworkTranscriptPanel() {
         ref={panelRef as any}
         type="button"
         onClick={toggleCollapsed}
+        onMouseDown={(e) => {
+          didDrag.current = false;
+          draggingPos.current = true;
+          dragStart.current = { x: e.clientX, y: e.clientY, top: pos.top, right: pos.right };
+          document.body.style.cursor = 'move';
+          e.preventDefault();
+        }}
         data-testid="cowork-bubble"
         aria-label="Open cowork transcript"
         aria-expanded={false}
@@ -726,7 +784,8 @@ export function CoworkTranscriptPanel() {
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.85, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 420, damping: 28 }}
-        className="absolute right-3 top-3 z-20 w-12 h-12 rounded-full bg-brand shadow-lg
+        style={{ top: pos.top, right: pos.right }}
+        className="absolute z-20 w-12 h-12 rounded-full bg-brand shadow-lg
                    flex items-center justify-center border border-brand/20
                    hover:scale-105 active:scale-95 cursor-pointer"
       >
@@ -754,12 +813,12 @@ export function CoworkTranscriptPanel() {
       ref={panelRef as any}
       layoutId="cowork-panel"
       data-testid="cowork-transcript-panel"
-      style={{ width: `${width}px`, maxWidth: '42%' }}
+      style={{ width: `${width}px`, maxWidth: '42%', top: pos.top, right: pos.right }}
       initial={{ scale: 0.92, opacity: 0, borderRadius: 999 }}
       animate={{ scale: 1, opacity: 1, borderRadius: 16 }}
       exit={{ scale: 0.92, opacity: 0, borderRadius: 999 }}
       transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-      className="absolute right-3 top-3 z-20
+      className="absolute z-20
                  flex flex-col rounded-2xl border border-border-default
                  bg-bg-elevated/80 backdrop-blur-md shadow-lg overflow-hidden"
       aria-label="Agent Cowork transcript"
@@ -792,6 +851,22 @@ export function CoworkTranscriptPanel() {
         className="flex items-center gap-2 px-3 py-2 text-2xs font-medium text-text-muted
                    hover:bg-bg-elevated cursor-pointer select-none"
       >
+        <span
+          onMouseDown={(e) => {
+            didDrag.current = false;
+            draggingPos.current = true;
+            dragStart.current = { x: e.clientX, y: e.clientY, top: pos.top, right: pos.right };
+            document.body.style.cursor = 'move';
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          className="cursor-move p-1 -ml-1 text-text-muted hover:text-text-primary"
+          title="Drag to move"
+          aria-hidden
+        >
+          <GripVertical size={12} />
+        </span>
         {/* Faces first, like any group chat header. */}
         <span className="flex -space-x-1.5">
           {participants.slice(0, 3).map(([id, name]) => (
