@@ -92,6 +92,7 @@ import { createRecallTool } from "./tools/builtin/recall.ts";
 import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/remember.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
 import { createCoworkTeamTool, createCoworkSendTool } from "./tools/builtin/cowork.ts";
+import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
@@ -1602,11 +1603,18 @@ export async function boot(transportOverride?: Transport) {
     log,
   });
   hooks.on("before_tool_call", coworkApprovalService.gate);
+  // The one cowork tool that is ALWAYS present: without it a roster could
+  // only be created by a seed script or by hand-editing SQLite, so nobody who
+  // installed Cinderpaw could reach the feature at all. It registers the two
+  // below itself once the roster stops being empty, which is what removes the
+  // "requires a restart" caveat that used to live in this comment.
+  registry.register(
+    createCoworkCreateTool({ agents: coworkAgents, mailbox: coworkMailbox, registry, log }),
+  );
   // S4.5 — the door from ordinary chat INTO the mailbox. Without these the
   // reactive runtime can never fire: nothing user-facing could write the
   // first message. Registered ONLY when teammates exist, so an install with
-  // zero cowork agents gains zero tools (fresh-install contract). Note this
-  // means creating your first teammate requires a restart to gain the tools.
+  // zero cowork agents gains no way to message one (fresh-install contract).
   if (coworkAgents.list().length > 0) {
     registry.register(createCoworkTeamTool(coworkAgents));
     registry.register(createCoworkSendTool(coworkAgents, coworkMailbox));
@@ -1617,7 +1625,38 @@ export async function boot(transportOverride?: Transport) {
     mailbox: coworkMailbox,
     handoffs: new CoworkHandoffService(db.raw),
     emitEvent: (event) => transport.send(event),
-    runTurn: async (_agentRec, prompt, sessionId) => {
+    runTurn: async (agentRec, prompt, sessionId) => {
+      // Each teammate runs under its OWN operating profile: its standing
+      // instructions as the system prompt, and only the tools it was created
+      // with. This reuses the connector-profile seam rather than inventing a
+      // second scoping mechanism — same restricted prompt + tool set, same
+      // enforcement in the exec loop.
+      //
+      // It is also the speed fix. Unscoped, every teammate advertised the
+      // whole registry, so each completion re-sent ~16.5k tokens of schema to
+      // produce ~600 and spent 13-55 seconds in prefill before the first
+      // token. A teammate created with four tools carries four tools.
+      //
+      // Registered per turn, not once: the roster is editable at runtime, and
+      // a profile compiled at boot would pin an agent to whatever it was when
+      // the app started. registerProfile only stores the allow-list, so this
+      // is cheap and always current.
+      const profileId = `cowork:${agentRec.id}`;
+      agent.registerProfile(profileId, {
+        systemPrompt: [
+          `You are ${agentRec.name}${agentRec.role ? `, ${agentRec.role}` : ""}.`,
+          agentRec.instructions,
+          "You are a teammate inside someone's Cinderpaw install. You answer " +
+            "the message you were sent and stop; you do not invent follow-up work.",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        // undefined ⇒ the owner's full toolset, which is the pre-scoping
+        // behaviour and stays the fallback for teammates created before the
+        // column existed.
+        allowedTools: agentRec.tools,
+      });
+      agent.setSessionProfile(sessionId, profileId);
       // `handleTurn()` never throws — it emits `error` events instead
       // (same contract cron relies on). Capture and rethrow so the worker
       // loop records a rejection rather than delivering an error string

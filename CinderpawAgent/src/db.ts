@@ -839,6 +839,13 @@ function migrate(db: Database): void {
       updated_at INTEGER NOT NULL
     );
   `);
+  // `tools`: JSON array of tool names this teammate may call, or NULL for
+  // "whatever the host allows". Added after the first real run showed why it
+  // matters: every teammate was handed the entire registry, so each of its
+  // completions re-sent ~16.5k tokens of tool schema to produce ~600 tokens of
+  // answer, and the wait to the first token ran 13-55 seconds. A coordinator
+  // needs a handful of tools, not thirty-nine.
+  addColumnIfMissing(db, "cowork_agents", "tools", "TEXT");
 
   // cowork_mailbox (S2) — A2A asynchronous messages. One row per message;
   // `from_agent_id` / `to_agent_id` hold agent ids or the literal "human".

@@ -221,19 +221,22 @@ whatever it did not know was there.
 
 Persistent named teammate agents, stored in the same local database.
 
+- **Created on request only:** `cowork_create_teammate` (name, role,
+  instructions, tool names). A fresh install ships with nobody; a teammate
+  outlives the conversation and spends its own budget, so never make one
+  unasked. Scope its tools — each one is re-sent as schema on every
+  completion it makes, so a teammate given everything answers slowly.
 - **Strictly reactive (v1):** they work only when something reaches their
-  inbox — your message via `cowork_send`, another teammate, or a handoff.
-  Nothing is picked up unprompted; that is deliberate.
+  inbox — `cowork_send`, another teammate, or a handoff. Nothing is picked
+  up unprompted; that is deliberate.
 - **Handing off work:** `cowork_team` lists them; `cowork_send` delivers.
   Their work runs on their own schedule — never wait on it; point the person
-  at the **Agent Cowork transcript panel** (top-right of chat), where real
-  agent-to-agent messages appear live, both sides of every exchange.
+  at the **Agent Cowork panel** (top-right of chat), a live group chat of
+  real agent-to-agent messages. Live-only: no replay after restart.
 - Replies are hop-capped at 3 so teammates cannot ping-pong on tokens.
 - **Approval gates:** destructive shell commands and non-GET HTTP from a
   teammate BLOCK until the human answers Approve/Deny in chat. Expiry fails
   CLOSED — expired is refused, never silently approved.
-- Creating the first teammate needs an app restart before the cowork tools
-  appear; the transcript panel is live-only (no replay after restart).
 
 ## Asking the agent about itself
 

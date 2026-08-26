@@ -22,6 +22,16 @@ export interface CoworkAgent {
   instructions: string;
   /** Brain model id. `undefined` ⇒ the Brain Stack routes per task. */
   modelPin?: string;
+  /**
+   * Tool names this teammate may call. `undefined` ⇒ everything the host
+   * exposes, which is the pre-scoping behaviour and stays the fallback for
+   * rows written before this column existed.
+   *
+   * The reason it exists is measured, not theoretical: handing every teammate
+   * all 39 tools meant re-sending ~16.5k tokens of schema on every completion
+   * to produce ~600, with 13-55 seconds of prefill before the first token.
+   */
+  tools?: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -32,6 +42,7 @@ export interface CoworkAgentInput {
   role?: string;
   instructions?: string;
   modelPin?: string | undefined;
+  tools?: string[] | undefined;
 }
 
 interface CoworkRow {
@@ -40,6 +51,7 @@ interface CoworkRow {
   role: string;
   instructions: string;
   model_pin: string | null;
+  tools: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -53,24 +65,25 @@ export class CoworkAgentRepo {
   constructor(db: Database) {
     this.#upsertStmt = db.query(`
       INSERT INTO cowork_agents (
-        id, name, role, instructions, model_pin, created_at, updated_at
+        id, name, role, instructions, model_pin, tools, created_at, updated_at
       ) VALUES (
-        $id, $name, $role, $instructions, $modelPin, $createdAt, $updatedAt
+        $id, $name, $role, $instructions, $modelPin, $tools, $createdAt, $updatedAt
       )
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         role = excluded.role,
         instructions = excluded.instructions,
         model_pin = excluded.model_pin,
+        tools = excluded.tools,
         updated_at = excluded.updated_at
     `);
     this.#listStmt = db.query(`
-      SELECT id, name, role, instructions, model_pin, created_at, updated_at
+      SELECT id, name, role, instructions, model_pin, tools, created_at, updated_at
       FROM cowork_agents
       ORDER BY created_at ASC
     `);
     this.#getStmt = db.query(`
-      SELECT id, name, role, instructions, model_pin, created_at, updated_at
+      SELECT id, name, role, instructions, model_pin, tools, created_at, updated_at
       FROM cowork_agents
       WHERE id = ?
     `);
@@ -107,6 +120,10 @@ export class CoworkAgentRepo {
       // when the key is present; normalise explicitly so a pin can also be
       // CLEARED (Brain re-routes) by passing undefined on update.
       $modelPin: input.modelPin ?? null,
+      // Stored as JSON so the column stays one value; an empty array is a
+      // REAL answer ("this teammate calls no tools") and must survive as one,
+      // so only undefined becomes NULL.
+      $tools: input.tools === undefined ? null : JSON.stringify(input.tools),
       $createdAt: existing?.createdAt ?? now,
       $updatedAt: now,
     });
@@ -128,7 +145,20 @@ function fromRow(r: CoworkRow): CoworkAgent {
     role: r.role,
     instructions: r.instructions,
     modelPin: r.model_pin ?? undefined,
+    tools: parseTools(r.tools),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
+}
+
+/** A corrupt or non-array value reads as "unscoped", never as "no tools":
+ *  silently muting a teammate is worse than leaving it as it was. */
+function parseTools(raw: string | null): string[] | undefined {
+  if (raw === null) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === "string") : undefined;
+  } catch {
+    return undefined;
+  }
 }
