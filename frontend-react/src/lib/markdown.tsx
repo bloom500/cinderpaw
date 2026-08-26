@@ -26,6 +26,11 @@ export function Markdown({ children, animateWords }: { children: string; animate
         components={{
           pre:  CodeBlock as React.ComponentType<React.HTMLAttributes<HTMLPreElement>>,
           a:    ExternalLink as React.ComponentType<React.AnchorHTMLAttributes<HTMLAnchorElement>>,
+          table: (({ children, ...props }) => (
+            <div className="overflow-x-auto -mx-1">
+              <table {...props}>{children}</table>
+            </div>
+          )) as React.ComponentType<React.HTMLAttributes<HTMLTableElement>>,
           code: (({ className, children, ...props }) => {
             // Fenced code blocks are handled by CodeBlock via the `pre` component.
             // Only render inline code here (no language class on the element).

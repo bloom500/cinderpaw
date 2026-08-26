@@ -48,10 +48,10 @@ export function ThinkingBlock({ id, content, duration, active }: Props) {
       <AnimatePresence>
         {expanded && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14 }}
             className="overflow-hidden"
           >
             {/* Capped and scrollable. A reasoning model can emit tens of

@@ -156,7 +156,6 @@ function Bubble({ m, showAuthor }: { m: TranscriptMessage; showAuthor: boolean }
   const right = m.side === 'right';
   return (
     <motion.li
-      layout="position"
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.16 }}
@@ -193,24 +192,26 @@ function Bubble({ m, showAuthor }: { m: TranscriptMessage; showAuthor: boolean }
                 : 'left-[-11px] -scale-x-100 text-bg-surface',
             )}
           />
-          {/* The same renderer the chat uses. Agents answer in markdown -
-              they are the same models - so a raw \"**\" on screen is the panel
-              failing to read what was sent, not the agent misbehaving. */}
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-            title={expanded ? 'collapse' : 'expand'}
+          {/* Selectable text: the whole bubble no longer swallows mouse
+              selection. Click the "expand" control to toggle line-clamp. */}
+          <div
             className={cn(
-              'block w-full text-left text-xs leading-relaxed break-words cursor-pointer',
-              // prose-invert on the brand bubble: its ground is the brand fill,
-              // not the page, so the default prose colours read wrong on it.
-              'prose prose-xs max-w-none prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1',
+              'w-full text-xs leading-relaxed break-words select-text',
+              'prose prose-xs max-w-none prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1 prose-table:text-xs',
+              'prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap',
               right ? 'prose-invert' : 'prose-neutral dark:prose-invert',
               !expanded && 'line-clamp-6',
             )}
           >
             <Markdown>{m.text}</Markdown>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            className="self-start text-2xs text-text-muted hover:text-text-secondary underline decoration-dotted cursor-pointer"
+          >
+            {expanded ? 'show less' : 'show more'}
           </button>
         </div>
         <span className="px-1 text-2xs text-text-muted tabular-nums select-none">
@@ -425,6 +426,10 @@ function Composer({
 }
 
 const COLLAPSED_KEY = 'cowork-panel-collapsed';
+const PANEL_WIDTH_KEY = 'cowork-panel-width';
+const PANEL_MIN_W = 280;
+const PANEL_MAX_W = 640;
+const PANEL_DEFAULT_W = 360;
 
 /** Reading site data THROWS in a private window or with storage blocked —
  *  a remembered panel state is not worth taking the whole panel down. */
@@ -435,6 +440,14 @@ function readCollapsed(): boolean {
     return false;
   }
 }
+function readWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(PANEL_WIDTH_KEY));
+    return Number.isFinite(v) && v >= PANEL_MIN_W && v <= PANEL_MAX_W ? v : PANEL_DEFAULT_W;
+  } catch {
+    return PANEL_DEFAULT_W;
+  }
+}
 
 /** How close to the bottom still counts as "following the live feed". */
 const FOLLOW_SLACK_PX = 48;
@@ -442,7 +455,9 @@ const FOLLOW_SLACK_PX = 48;
 export function CoworkTranscriptPanel() {
   const exchanges = useCoworkTranscript((s) => s.exchanges);
   const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [width, setWidth] = useState(readWidth);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const resizing = useRef(false);
   // Hydrate from disk on mount so re-entering the chat after a reload
   // restores the transcript. Without this Atlas' research vanished on
   // navigation because the store is in-memory only.
@@ -469,6 +484,32 @@ export function CoworkTranscriptPanel() {
       ),
     [exchanges],
   );
+
+  // Resize handle persistence.
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!resizing.current) return;
+      const newW = window.innerWidth - e.clientX - 12;
+      const clamped = Math.min(PANEL_MAX_W, Math.max(PANEL_MIN_W, newW));
+      setWidth(clamped);
+    };
+    const onUp = () => {
+      if (!resizing.current) return;
+      resizing.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      try {
+        const w = (document.querySelector('[data-testid="cowork-transcript-panel"]') as HTMLElement)?.offsetWidth;
+        if (w) localStorage.setItem(PANEL_WIDTH_KEY, String(w));
+      } catch {}
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -522,11 +563,23 @@ export function CoworkTranscriptPanel() {
   return (
     <aside
       data-testid="cowork-transcript-panel"
-      className="absolute right-3 top-3 z-20 w-[360px] max-w-[42%]
+      style={{ width: `${width}px`, maxWidth: '42%' }}
+      className="absolute right-3 top-3 z-20
                  flex flex-col rounded-2xl border border-border-default
                  bg-bg-elevated/80 backdrop-blur-md shadow-lg overflow-hidden"
       aria-label="Agent Cowork transcript"
     >
+      {/* Resize handle — left edge */}
+      <div
+        onMouseDown={(e) => {
+          resizing.current = true;
+          document.body.style.cursor = 'ew-resize';
+          document.body.style.userSelect = 'none';
+          e.preventDefault();
+        }}
+        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-brand/20"
+        aria-hidden
+      />
       <button
         type="button"
         onClick={toggleCollapsed}
