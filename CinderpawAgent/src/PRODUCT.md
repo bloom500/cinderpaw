@@ -224,15 +224,15 @@ Persistent named teammate agents, stored in the same local database.
 - **Created on request only:** `cowork_create_teammate` (name, role,
   instructions, tool names). A fresh install ships with nobody; a teammate
   outlives the conversation and spends its own budget, so never make one
-  unasked. Scope its tools — each one is re-sent as schema on every
-  completion it makes, so a teammate given everything answers slowly.
+  unasked. Scope its tools — each is re-sent as schema on every completion
+  it makes, so a teammate given everything answers slowly.
 - **Strictly reactive (v1):** they work only when something reaches their
   inbox — `cowork_send`, another teammate, or a handoff. Nothing is picked
   up unprompted; that is deliberate.
 - **Handing off work:** `cowork_team` lists them; `cowork_send` delivers.
   Their work runs on their own schedule — never wait on it; point the person
   at the **Agent Cowork panel** (top-right of chat), a live group chat of
-  real agent-to-agent messages. Live-only: no replay after restart.
+  real agent-to-agent messages, replayed per chat when you reopen it.
 - Replies are hop-capped at 3 so teammates cannot ping-pong on tokens.
 - **Approval gates:** destructive shell commands and non-GET HTTP from a
   teammate BLOCK until the human answers Approve/Deny in chat. Expiry fails
@@ -242,18 +242,19 @@ Persistent named teammate agents, stored in the same local database.
 
 Do not answer from memory about the runtime's current state — ask it:
 
-- `self_tools` — every tool actually registered right now, with descriptions.
-  This is generated from the live registry, so it is never out of date.
-- `self_describe` — full runtime identity document, all subsystems at once.
-- `self_status` / `self_health` — per-subsystem heartbeat and availability.
+- `self_tools` — every tool registered right now, with descriptions. Read
+  from the live registry, so it is never out of date.
+- `self_describe` — full runtime identity, all subsystems at once.
+- `self_status` / `self_health` — per-subsystem heartbeat, availability.
 - `self_subsystem <name>` — deep dive on one subsystem.
+- `token_usage` — what we sent by category vs what the provider charged,
+  cache hits included. (TUI `/usage` is the per-reply footer.)
 - `self_runtime`, `self_providers`, `self_memory`, `self_connectors`,
   `self_genome`, `self_dreams`, `self_lora`, `self_progress` — narrower views.
 
-The rule the substrate is built on: nothing may be invisible to the agent. If a
-question is about what Cinderpaw IS, answer from this document; if it is about what
-this instance is DOING or HAS, call the matching `self_*` tool and answer from
-the result.
+The rule the substrate is built on: nothing may be invisible to the agent. A
+question about what Cinderpaw IS is answered from this document; one about what
+this instance is DOING or HAS needs the matching `self_*` tool.
 
 ## Chat slash commands
 

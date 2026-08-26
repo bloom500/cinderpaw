@@ -93,6 +93,7 @@ import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/r
 import { createSelfTools } from "./tools/builtin/self.ts";
 import { createCoworkTeamTool, createCoworkSendTool } from "./tools/builtin/cowork.ts";
 import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
+import { createTokenUsageTool } from "./tools/builtin/token-usage.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
@@ -1611,6 +1612,10 @@ export async function boot(transportOverride?: Transport) {
   registry.register(
     createCoworkCreateTool({ agents: coworkAgents, mailbox: coworkMailbox, registry, log }),
   );
+  // The glass over the cost meter. buildCostReport/renderCostReport and the
+  // router method that renders them had existed with no caller anywhere in the
+  // product, so neither the person nor the agent could see the bill.
+  registry.register(createTokenUsageTool({ costReport: () => agent.costReport() }));
   // S4.5 — the door from ordinary chat INTO the mailbox. Without these the
   // reactive runtime can never fire: nothing user-facing could write the
   // first message. Registered ONLY when teammates exist, so an install with
