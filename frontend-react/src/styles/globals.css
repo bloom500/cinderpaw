@@ -1044,7 +1044,14 @@ body { overflow: hidden; }
 .word-fade {
   display: inline-block;
   animation: fadeInWord 0.28s cubic-bezier(0.35, 0.35, 0, 1) both;
-  will-change: opacity, transform;
+  /* NO `will-change` here, deliberately. It used to hint opacity+transform,
+     which promotes EVERY word span to its own compositor layer — thousands of
+     them in a long conversation, kept for the life of the message rather than
+     the 0.28s of the animation. The hint is meant to be added just before an
+     animation and removed after; left on permanently it makes the compositor
+     re-rasterise a layer per word while scrolling, which reads as text that
+     jitters instead of holding still. Both animated properties are already
+     compositor-friendly, so the hint bought nothing and cost that. */
 }
 @media (prefers-reduced-motion: reduce) {
   .word-fade { animation: none; }
