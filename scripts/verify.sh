@@ -14,6 +14,7 @@ run "CinderpawAgent tests" bash -c "cd \"$ROOT/CinderpawAgent\" && bun test --ti
 run "CinderpawAgent typecheck" bash -c "cd \"$ROOT/CinderpawAgent\" && bunx tsc --noEmit"
 run "React tests" bash -c "cd \"$ROOT/frontend-react\" && bunx vitest run --pool=threads --maxWorkers=1"
 run "React typecheck" bash -c "cd \"$ROOT/frontend-react\" && bunx tsc --noEmit"
+run "Sidecar build" bash -c "cd \"$ROOT/src-tauri\" && node scripts/build-sidecar.mjs"
 run "Rust check" bash -c "cd \"$ROOT\" && cargo check"
 run "Rust tests (host)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw"
 run "Rust tests (core)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw-core"

@@ -81,6 +81,14 @@ Invoke-Step 'React tests'              $react { bunx vitest run --pool=threads -
 Invoke-Step 'React typecheck'          $react { bunx tsc --noEmit }
 
 if (-not $SkipRust) {
+  # The Tauri host crate's build script needs the compiled sidecar to exist at
+  # src-tauri/binaries/cinderpaw-agent-<triple>.exe — it is a gitignored build
+  # artifact, so on a fresh clone or a fresh worktree it is absent and
+  # `cargo check` dies with "resource path ... doesn't exist", which reads like
+  # a code failure and is not one. Tauri runs this same script from
+  # beforeDevCommand; the gate has to run it too or it only works on a machine
+  # that has already run the app. It self-skips when the binary is current.
+  Invoke-Step 'Sidecar build'          (Join-Path $Root 'src-tauri') { node scripts/build-sidecar.mjs }
   Invoke-Step 'Rust check'             $Root { cargo check }
   Invoke-Step 'Rust tests (host)'      $Root { cargo test -p cinderpaw }
   Invoke-Step 'Rust tests (core)'      $Root { cargo test -p cinderpaw-core }
