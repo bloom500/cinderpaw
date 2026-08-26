@@ -22,6 +22,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Copy, Check } from 'lucide-react';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { cn } from '@/lib/utils';
 import { BubbleTail } from './BubbleTail';
 import { Markdown } from '@/lib/markdown';
@@ -155,13 +157,21 @@ export function toMessages(exchanges: CoworkExchange[]): TranscriptMessage[] {
 
 function Bubble({ m, showAuthor }: { m: TranscriptMessage; showAuthor: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const right = m.side === 'right';
+  const onCopy = async () => {
+    try {
+      await writeText(m.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
   return (
     <motion.li
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.16 }}
-      className={cn('flex w-full gap-1.5', right ? 'justify-end' : 'justify-start')}
+      className={cn('group/bubble flex w-full gap-1.5', right ? 'justify-end' : 'justify-start')}
     >
       {/* The avatar column keeps its width on a continued run, so consecutive
           bubbles from one speaker stay aligned instead of stepping sideways. */}
@@ -178,7 +188,7 @@ function Bubble({ m, showAuthor }: { m: TranscriptMessage; showAuthor: boolean }
         )}
         <div
           className={cn(
-            'relative rounded-2xl px-3 py-2 shadow-sm',
+            'relative rounded-2xl px-3 py-2 shadow-sm group',
             right
               ? 'rounded-br-none bg-brand text-bg-primary'
               : m.failed
@@ -194,6 +204,16 @@ function Bubble({ m, showAuthor }: { m: TranscriptMessage; showAuthor: boolean }
                 : 'left-[-11px] -scale-x-100 text-bg-surface',
             )}
           />
+          <button
+            type="button"
+            onClick={onCopy}
+            aria-label="Copy message"
+            className="absolute -top-1 -right-1 p-1 rounded-md bg-bg-elevated border border-border-subtle shadow
+                       opacity-0 group-hover/bubble:opacity-100 group-hover:opacity-100
+                       transition-opacity text-text-muted hover:text-text-secondary cursor-pointer"
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </button>
           {/* Selectable text: the whole bubble no longer swallows mouse
               selection. Click the "expand" control to toggle line-clamp. */}
           <div
@@ -216,7 +236,10 @@ function Bubble({ m, showAuthor }: { m: TranscriptMessage; showAuthor: boolean }
             {expanded ? 'show less' : 'show more'}
           </button>
         </div>
-        <span className="px-1 text-2xs text-text-muted tabular-nums select-none">
+        <span
+          title={hhmmss(m.at)}
+          className="px-1 text-2xs text-text-muted tabular-nums select-none opacity-0 group-hover/bubble:opacity-100 transition-opacity"
+        >
           {hhmmss(m.at)}
         </span>
       </div>
@@ -472,8 +495,11 @@ export function CoworkTranscriptPanel() {
   const [width, setWidth] = useState(readWidth);
   const [height, setHeight] = useState(readHeight);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const resizingWidth = useRef(false);
   const resizingHeight = useRef(false);
+  const [unread, setUnread] = useState(0);
+  const prevLenRef = useRef(0);
   // Per-thread hydrate: panel appears only in threads that used cowork.
   // When switching threads, fetch that thread's mailbox rows; empty = hide.
   const currentId = useConversations((s) => s.currentId) ?? useChat((s) => s.sessionId);
@@ -481,6 +507,35 @@ export function CoworkTranscriptPanel() {
     if (!currentId) return;
     void tauri.feralAgent.coworkHistory(currentId).catch(() => {});
   }, [currentId]);
+  // Unread badge: when collapsed, new exchanges bump the count; expanding clears it.
+  useEffect(() => {
+    const len = exchanges.length;
+    const prev = prevLenRef.current;
+    if (len > prev && collapsed) {
+      setUnread((n) => n + (len - prev));
+    }
+    if (!collapsed) setUnread(0);
+    prevLenRef.current = len;
+  }, [exchanges.length, collapsed]);
+
+  // ESC to collapse + click outside to collapse when expanded.
+  useEffect(() => {
+    if (collapsed) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCollapsed(true);
+    };
+    const onDown = (e: MouseEvent) => {
+      const el = panelRef.current;
+      if (el && !el.contains(e.target as Node)) setCollapsed(true);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mousedown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('mousedown', onDown);
+    };
+  }, [collapsed]);
+
   /** Whether the reader is still pinned to the newest message. Scrolling up
    *  to read an older one means they are not, and yanking them back down
    *  every time an agent speaks makes the history unreadable on exactly the
@@ -597,6 +652,8 @@ export function CoworkTranscriptPanel() {
   if (collapsed) {
     return (
       <motion.button
+        // @ts-ignore — motion ref type
+        ref={panelRef as any}
         type="button"
         onClick={toggleCollapsed}
         data-testid="cowork-bubble"
@@ -620,12 +677,19 @@ export function CoworkTranscriptPanel() {
         {working.length > 0 && (
           <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full bg-brand border-2 border-white animate-pulse" />
         )}
+        {unread > 0 && (
+          <span className="absolute -bottom-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-error text-white text-2xs font-semibold flex items-center justify-center border-2 border-white">
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
       </motion.button>
     );
   }
 
   return (
     <motion.aside
+      // @ts-ignore — motion ref type
+      ref={panelRef as any}
       layoutId="cowork-panel"
       data-testid="cowork-transcript-panel"
       style={{ width: `${width}px`, maxWidth: '42%' }}
