@@ -39,6 +39,7 @@ export class CoworkMailboxRepo {
   readonly #get: ReturnType<Database["query"]>;
   readonly #lastInThread: ReturnType<Database["query"]>;
   readonly #byThread: ReturnType<Database["query"]>;
+  readonly #recent: ReturnType<Database["query"]>;
 
   constructor(db: Database) {
     this.#insert = db.query(`
@@ -64,6 +65,11 @@ export class CoworkMailboxRepo {
       SELECT * FROM cowork_mailbox
       WHERE thread_id = ?
       ORDER BY created_at ASC, rowid ASC
+    `);
+    this.#recent = db.query(`
+      SELECT * FROM cowork_mailbox
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT ?
     `);
     // Same deterministic tiebreak as the inbox queries.
     this.#lastInThread = db.query(`
@@ -139,6 +145,11 @@ export class CoworkMailboxRepo {
   updateStatus(id: string, status: CoworkMessageStatus): boolean {
     const result = this.#updateStatus.run(status, status, Date.now(), id);
     return result.changes > 0;
+  }
+
+  /** Most recent messages across all threads, newest first — for panel hydrate on mount. */
+  recent(limit = 50): CoworkMessage[] {
+    return (this.#recent.all(limit) as MailboxRow[]).map(fromRow).reverse();
   }
 
   /** Look up one message by id, or `undefined`. */

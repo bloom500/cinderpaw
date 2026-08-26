@@ -909,8 +909,8 @@ const raw = {
    *  without asking the main agent to retype what the person already wrote. */
   /** Agent Cowork S6 — replay one chat's teammate traffic. The answer
    *  arrives as a `cowork_history_result` event, paired by thread id. */
-  feralCoworkHistory: (threadId: string) =>
-    invoke<void>('feral_cowork_history', { threadId }),
+  feralCoworkHistory: (threadId?: string | null) =>
+    invoke<void>('feral_cowork_history', { threadId: threadId ?? null }),
   feralCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
     invoke<void>('feral_cowork_send_message', {
       toAgentId,
@@ -1163,7 +1163,7 @@ export const tauri = {
      *  sidecar acks via the terminal cowork_event for that requestId. */
     coworkApprovalResolve: async (requestId: string, approve: boolean) =>
       raw.feralCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
-    coworkHistory: async (threadId: string) => raw.feralCoworkHistory(threadId),
+    coworkHistory: async (threadId?: string | null) => raw.feralCoworkHistory(threadId ?? null),
     coworkSendMessage: async (toAgentId: string, body: string, threadId?: string) =>
       raw.feralCoworkSendMessage(toAgentId, body, threadId),
     /** Abort a teammate's in-flight turn. A cowork turn runs under the session

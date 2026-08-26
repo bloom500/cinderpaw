@@ -443,6 +443,14 @@ export function CoworkTranscriptPanel() {
   const exchanges = useCoworkTranscript((s) => s.exchanges);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Hydrate from disk on mount so re-entering the chat after a reload
+  // restores the transcript. Without this Atlas' research vanished on
+  // navigation because the store is in-memory only.
+  useEffect(() => {
+    if (exchanges.length === 0) {
+      void tauri.feralAgent.coworkHistory(undefined).catch(() => {});
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   /** Whether the reader is still pinned to the newest message. Scrolling up
    *  to read an older one means they are not, and yanking them back down
    *  every time an agent speaks makes the history unreadable on exactly the
@@ -509,8 +517,7 @@ export function CoworkTranscriptPanel() {
       : (participants[0]?.[0] ?? '');
   const lastThreadId = last?.threadId && last.threadId !== 'direct' ? last.threadId : null;
 
-  // Fresh install / no cowork traffic ⇒ no surface at all.
-  if (exchanges.length === 0) return null;
+  const isEmpty = exchanges.length === 0;
 
   return (
     <aside
@@ -554,26 +561,30 @@ export function CoworkTranscriptPanel() {
           onScroll={onScroll}
           className="max-h-[440px] overflow-y-auto px-2.5 pb-2.5"
         >
-          <ul className="flex flex-col gap-2">
-            <AnimatePresence initial={false}>
-              {messages.map((m, i) => (
-                <Bubble
-                  key={m.key}
-                  m={m}
-                  // Group-chat convention: the name appears once per run of
-                  // consecutive messages from the same speaker, not on every
-                  // bubble — repeating it turns a conversation into a table.
-                  showAuthor={i === 0 || messages[i - 1]?.authorId !== m.authorId}
-                />
+          {isEmpty ? (
+            <p className="py-6 text-center text-2xs text-text-muted">No cowork activity yet — past threads will appear here and persist across reloads.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              <AnimatePresence initial={false}>
+                {messages.map((m, i) => (
+                  <Bubble
+                    key={m.key}
+                    m={m}
+                    // Group-chat convention: the name appears once per run of
+                    // consecutive messages from the same speaker, not on every
+                    // bubble — repeating it turns a conversation into a table.
+                    showAuthor={i === 0 || messages[i - 1]?.authorId !== m.authorId}
+                  />
+                ))}
+              </AnimatePresence>
+              {approvals.map((e) => (
+                <ApprovalRow key={e.id} e={e} />
               ))}
-            </AnimatePresence>
-            {approvals.map((e) => (
-              <ApprovalRow key={e.id} e={e} />
-            ))}
-            {working.map((e) => (
-              <TypingRow key={`typing:${e.id}`} e={e} />
-            ))}
-          </ul>
+              {working.map((e) => (
+                <TypingRow key={`typing:${e.id}`} e={e} />
+              ))}
+            </ul>
+          )}
         </div>
       )}
       {!collapsed && participants.length > 0 && (

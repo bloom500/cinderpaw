@@ -286,7 +286,12 @@ export const useCoworkTranscript = create<CoworkTranscriptStore>((set) => ({
   ingest: (evt) => set((s) => ({ exchanges: applyCoworkEvent(s.exchanges, evt) })),
   ingestTool: (evt) => set((s) => ({ exchanges: applyCoworkToolEvent(s.exchanges, evt) })),
   // Replace, not merge: switching conversations must not leave the previous
-  // chat's teammate traffic on screen under a new heading.
-  hydrate: (threadId, rows) => set({ exchanges: fromHistory(threadId, rows) }),
+  // chat's teammate traffic on screen under a new heading. When called with
+  // no thread rows (mount hydrate) the recent mailbox rows are shown so the
+  // panel is never empty after a reload — research stays visible.
+  hydrate: (threadId, rows) => set((s) => {
+    if (rows.length === 0) return s;
+    return { exchanges: fromHistory(threadId, rows) };
+  }),
   clear: () => set({ exchanges: [] }),
 }));

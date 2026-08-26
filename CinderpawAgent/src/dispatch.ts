@@ -767,8 +767,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // sidebar to the teammates who worked in it.
       case "cowork_history": {
         const threadId = (msg.threadId ?? "").trim();
-        if (!threadId) break;
-        const rows = coworkMailbox.byThread(threadId);
+        const rows = threadId ? coworkMailbox.byThread(threadId) : coworkMailbox.recent(50);
         transport.send({
           type: "cowork_history_result",
           threadId,

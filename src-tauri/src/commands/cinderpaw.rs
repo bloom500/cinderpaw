@@ -369,14 +369,12 @@ pub(crate) async fn feral_code_patch_resolve(
 #[specta::specta]
 pub(crate) async fn feral_cowork_history(
     state: State<'_, AppState>,
-    thread_id: String,
+    thread_id: Option<String>,
 ) -> Result<(), String> {
-    if thread_id.trim().is_empty() {
-        return Err("no thread".to_string());
-    }
+    let tid = thread_id.as_deref().unwrap_or("").trim().to_string();
     let msg = serde_json::json!({
         "type": "cowork_history",
-        "threadId": thread_id,
+        "threadId": tid,
     })
     .to_string();
     let tx = {
