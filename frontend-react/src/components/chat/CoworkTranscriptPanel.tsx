@@ -432,6 +432,10 @@ const PANEL_WIDTH_KEY = 'cowork-panel-width';
 const PANEL_MIN_W = 280;
 const PANEL_MAX_W = 640;
 const PANEL_DEFAULT_W = 360;
+const PANEL_HEIGHT_KEY = 'cowork-panel-height';
+const PANEL_MIN_H = 200;
+const PANEL_MAX_H = 720;
+const PANEL_DEFAULT_H = 440;
 
 /** Reading site data THROWS in a private window or with storage blocked —
  *  a remembered panel state is not worth taking the whole panel down. */
@@ -450,6 +454,14 @@ function readWidth(): number {
     return PANEL_DEFAULT_W;
   }
 }
+function readHeight(): number {
+  try {
+    const v = Number(localStorage.getItem(PANEL_HEIGHT_KEY));
+    return Number.isFinite(v) && v >= PANEL_MIN_H && v <= PANEL_MAX_H ? v : PANEL_DEFAULT_H;
+  } catch {
+    return PANEL_DEFAULT_H;
+  }
+}
 
 /** How close to the bottom still counts as "following the live feed". */
 const FOLLOW_SLACK_PX = 48;
@@ -458,8 +470,10 @@ export function CoworkTranscriptPanel() {
   const exchanges = useCoworkTranscript((s) => s.exchanges);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [width, setWidth] = useState(readWidth);
+  const [height, setHeight] = useState(readHeight);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const resizing = useRef(false);
+  const resizingWidth = useRef(false);
+  const resizingHeight = useRef(false);
   // Per-thread hydrate: panel appears only in threads that used cowork.
   // When switching threads, fetch that thread's mailbox rows; empty = hide.
   const currentId = useConversations((s) => s.currentId) ?? useChat((s) => s.sessionId);
@@ -486,22 +500,38 @@ export function CoworkTranscriptPanel() {
     [exchanges],
   );
 
-  // Resize handle persistence.
+  // Resize handles persistence (width from left edge, height from bottom edge).
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
-      if (!resizing.current) return;
-      const newW = window.innerWidth - e.clientX - 12;
-      const clamped = Math.min(PANEL_MAX_W, Math.max(PANEL_MIN_W, newW));
-      setWidth(clamped);
+      if (resizingWidth.current) {
+        const newW = window.innerWidth - e.clientX - 12;
+        const clamped = Math.min(PANEL_MAX_W, Math.max(PANEL_MIN_W, newW));
+        setWidth(clamped);
+      }
+      if (resizingHeight.current) {
+        const panel = document.querySelector('[data-testid="cowork-transcript-panel"]') as HTMLElement | null;
+        if (panel) {
+          const top = panel.getBoundingClientRect().top;
+          const newH = e.clientY - top - 36; // ~header height
+          const clampedH = Math.min(PANEL_MAX_H, Math.max(PANEL_MIN_H, newH));
+          setHeight(clampedH);
+        }
+      }
     };
     const onUp = () => {
-      if (!resizing.current) return;
-      resizing.current = false;
+      const wasResizing = resizingWidth.current || resizingHeight.current;
+      if (!wasResizing) return;
+      resizingWidth.current = false;
+      resizingHeight.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       try {
-        const w = (document.querySelector('[data-testid="cowork-transcript-panel"]') as HTMLElement)?.offsetWidth;
-        if (w) localStorage.setItem(PANEL_WIDTH_KEY, String(w));
+        const el = document.querySelector('[data-testid="cowork-transcript-panel"]') as HTMLElement | null;
+        if (el) {
+          localStorage.setItem(PANEL_WIDTH_KEY, String(el.offsetWidth));
+          const inner = el.querySelector('[data-testid="cowork-transcript-scroll"]') as HTMLElement | null;
+          if (inner) localStorage.setItem(PANEL_HEIGHT_KEY, String(inner.offsetHeight));
+        }
       } catch {}
     };
     window.addEventListener('mousemove', onMove);
@@ -571,15 +601,25 @@ export function CoworkTranscriptPanel() {
                  bg-bg-elevated/80 backdrop-blur-md shadow-lg overflow-hidden"
       aria-label="Agent Cowork transcript"
     >
-      {/* Resize handle — left edge */}
+      {/* Resize handles — left edge (width) and bottom edge (height) */}
       <div
         onMouseDown={(e) => {
-          resizing.current = true;
+          resizingWidth.current = true;
           document.body.style.cursor = 'ew-resize';
           document.body.style.userSelect = 'none';
           e.preventDefault();
         }}
         className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-brand/20"
+        aria-hidden
+      />
+      <div
+        onMouseDown={(e) => {
+          resizingHeight.current = true;
+          document.body.style.cursor = 'ns-resize';
+          document.body.style.userSelect = 'none';
+          e.preventDefault();
+        }}
+        className="absolute left-0 right-0 bottom-0 h-1.5 cursor-ns-resize hover:bg-brand/20"
         aria-hidden
       />
       <button
@@ -614,7 +654,9 @@ export function CoworkTranscriptPanel() {
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="max-h-[440px] overflow-y-auto px-2.5 pb-2.5"
+          data-testid="cowork-transcript-scroll"
+          style={{ height: `${height}px`, maxHeight: '65vh' }}
+          className="overflow-y-auto px-2.5 pb-2.5"
         >
           <ul className="flex flex-col gap-2">
             <AnimatePresence initial={false}>
