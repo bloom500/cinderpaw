@@ -38,6 +38,7 @@ export class CoworkMailboxRepo {
   readonly #updateStatus: ReturnType<Database["query"]>;
   readonly #get: ReturnType<Database["query"]>;
   readonly #lastInThread: ReturnType<Database["query"]>;
+  readonly #byThread: ReturnType<Database["query"]>;
 
   constructor(db: Database) {
     this.#insert = db.query(`
@@ -57,6 +58,12 @@ export class CoworkMailboxRepo {
       SELECT * FROM cowork_mailbox
       WHERE to_agent_id = ? AND status = ?
       ORDER BY created_at DESC, rowid DESC
+    `);
+    // Oldest first: this is read back as a conversation, not an inbox.
+    this.#byThread = db.query(`
+      SELECT * FROM cowork_mailbox
+      WHERE thread_id = ?
+      ORDER BY created_at ASC, rowid ASC
     `);
     // Same deterministic tiebreak as the inbox queries.
     this.#lastInThread = db.query(`
@@ -135,6 +142,17 @@ export class CoworkMailboxRepo {
   }
 
   /** Look up one message by id, or `undefined`. */
+  /**
+   * Every message in a thread, oldest first — the transcript, from disk.
+   *
+   * The panel was live-only: it accumulated `cowork_event`s in memory and lost
+   * the lot on restart, so reopening a chat where teammates had worked showed
+   * nothing. The rows were on disk the whole time; nothing read them back.
+   */
+  byThread(threadId: string): CoworkMessage[] {
+    return (this.#byThread.all(threadId) as MailboxRow[]).map(fromRow);
+  }
+
   /**
    * The hop count of the most recent message in a thread, or 0 for a thread
    * that does not exist yet.

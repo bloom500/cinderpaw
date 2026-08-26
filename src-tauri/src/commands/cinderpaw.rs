@@ -359,6 +359,37 @@ pub(crate) async fn feral_code_patch_resolve(
     Ok(())
 }
 
+/// Agent Cowork S6 — ask the sidecar to replay one thread's cowork messages.
+///
+/// Fire-and-forget: the answer arrives as a `cowork_history_result` event on
+/// the normal stream, paired by thread id. The panel is otherwise live-only,
+/// so reopening a chat where teammates had worked showed nothing at all even
+/// though every row was still in the mailbox.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn feral_cowork_history(
+    state: State<'_, AppState>,
+    thread_id: String,
+) -> Result<(), String> {
+    if thread_id.trim().is_empty() {
+        return Err("no thread".to_string());
+    }
+    let msg = serde_json::json!({
+        "type": "cowork_history",
+        "threadId": thread_id,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Agent Cowork S6 — send a message the person typed in the Agent Cowork
 /// panel straight to one teammate's inbox.
 ///

@@ -101,9 +101,19 @@ export function createCoworkSendTool(agents: CoworkAgentRepo, mailbox: CoworkMai
     async execute(args, ctx) {
       const to = typeof args.to === "string" ? args.to.trim() : "";
       const body = typeof args.message === "string" ? args.message.trim() : "";
+      // Default the thread to the CHAT this was sent from. The frontend uses
+      // the conversation id as its session id, so this is what ties a cowork
+      // exchange to the conversation in the sidebar - without it every message
+      // was thread-less and a reopened chat could never find its own history.
+      // A cowork session's own id would be the wrong anchor (it names the
+      // teammate, not the conversation), so it is left thread-less as before.
+      const fromChat =
+        typeof ctx.sessionId === "string" && !rootSessionId(ctx.sessionId).startsWith("cowork:")
+          ? ctx.sessionId
+          : null;
       const threadId = typeof args.thread_id === "string" && args.thread_id.trim()
         ? args.thread_id.trim()
-        : null;
+        : fromChat;
       if (!to || !body) {
         return { ok: false, content: "cowork_send needs 'to' (teammate) and 'message'.", error: "bad_args" };
       }

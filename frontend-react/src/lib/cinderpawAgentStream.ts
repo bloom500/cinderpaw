@@ -161,6 +161,13 @@ export function ensureFeralListener(): Promise<void> {
           inflight.get(parsed.id)?.onSpawning?.(parsed.count ?? 1);
         }
         break;
+      // Agent Cowork S6 — one chat's teammate traffic, replayed from the
+      // mailbox when the conversation opens. Replaces whatever the panel was
+      // showing: switching chats must not leave the previous one's exchanges
+      // on screen under a new heading.
+      case 'cowork_history_result':
+        useCoworkTranscript.getState().hydrate(parsed.threadId, parsed.messages);
+        break;
       case 'cowork_event': {
         // Agent Cowork (S3.5): one A2A exchange, upserted by mailbox message
         // / handoff id so received→processed is ONE bubble changing state.

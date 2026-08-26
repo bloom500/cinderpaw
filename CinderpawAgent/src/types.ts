@@ -1174,6 +1174,10 @@ export interface InboundMessage {
     // dictate to the main agent what to retype to a teammate: that
     // costs a full model turn and lets the message be paraphrased.
     | "cowork_user_message"
+    // S6 — replay one thread's cowork messages from disk. The panel is
+    // otherwise live-only, so reopening a chat where teammates worked
+    // showed nothing even though every row was still in the mailbox.
+    | "cowork_history"
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
@@ -1482,6 +1486,27 @@ export type OutboundEvent =
    * progressive disclosure. `eventType` is an enumerated union, not a bare
    * string, so consumers can switch exhaustively.
    */
+  /**
+   * One thread's cowork messages, replayed from the mailbox.
+   *
+   * Answers a `cowork_history` request, paired by `threadId`. Empty `messages`
+   * is a real answer ("no teammate traffic in this chat"), not a failure — the
+   * panel uses it to stay hidden.
+   */
+  | {
+      type: "cowork_history_result";
+      threadId: string;
+      messages: {
+        id: string;
+        fromAgentId: string;
+        toAgentId: string;
+        fromAgentName?: string;
+        toAgentName?: string;
+        body: string;
+        status: string;
+        createdAt: number;
+      }[];
+    }
   | {
       type: "cowork_event";
       eventType:

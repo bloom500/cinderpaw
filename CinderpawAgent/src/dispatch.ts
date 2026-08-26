@@ -759,6 +759,36 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
+      // Agent Cowork S6 — replay one thread from the mailbox. The panel is
+      // otherwise live-only: it accumulates events in memory and loses them on
+      // restart, so reopening a chat where teammates had worked showed nothing
+      // even though every row was still on disk. The thread id IS the chat's
+      // session id (see cowork_send), which is what ties a conversation in the
+      // sidebar to the teammates who worked in it.
+      case "cowork_history": {
+        const threadId = (msg.threadId ?? "").trim();
+        if (!threadId) break;
+        const rows = coworkMailbox.byThread(threadId);
+        transport.send({
+          type: "cowork_history_result",
+          threadId,
+          messages: rows.map((m) => ({
+            id: m.id,
+            fromAgentId: m.fromAgentId,
+            toAgentId: m.toAgentId,
+            // Names resolved HERE, where the roster is: the stored row keeps
+            // ids, and a panel that had to guess would be back to rendering
+            // "demo-agent-atlas" at the person.
+            fromAgentName: coworkAgents.get(m.fromAgentId)?.name,
+            toAgentName: coworkAgents.get(m.toAgentId)?.name,
+            body: m.body,
+            status: m.status,
+            createdAt: m.createdAt,
+          })),
+        });
+        break;
+      }
+
       // Faza 4 (L2 LoRA) — the personal-adaptation gate IPC.
       case "rsi_lora_reviews_list": {
         void (async () => {

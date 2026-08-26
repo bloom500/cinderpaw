@@ -88,7 +88,9 @@ mod command_count_test {
     // the chat surface answers a blocked tool call through this command).
     // 162 → 163 = + feral_cowork_send_message (cowork S6: the panel writes to
     // a teammate's inbox directly, instead of dictating to the main agent).
-    const EXPECTED_COMMAND_COUNT: usize = 163;
+    // 163 -> 164 = + feral_cowork_history (replay one chat's teammate
+    // traffic from the mailbox; the panel was live-only until then).
+    const EXPECTED_COMMAND_COUNT: usize = 164;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

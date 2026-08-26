@@ -616,6 +616,22 @@ export type CinderpawAgentEvent =
   // #18: live progress/retry notes from long-running tools (sidecar emits
   // these with a sessionId, not a message id).
   | { type: 'tool_progress'; sessionId: string; tool: string; stage: string; progress: number | null; message: string }
+  // Agent Cowork S6 — one thread replayed from the mailbox. An empty list
+  // is a real answer ("no teammate traffic in this chat"), not a failure.
+  | {
+      type: 'cowork_history_result';
+      threadId: string;
+      messages: {
+        id: string;
+        fromAgentId: string;
+        toAgentId: string;
+        fromAgentName?: string;
+        toAgentName?: string;
+        body: string;
+        status: string;
+        createdAt: number;
+      }[];
+    }
   // A background worker spawned by the notebook's `rlm()`. Carries a
   // sessionId and no message id, and unlike every other event here it usually
   // arrives AFTER the turn that caused it has finished — `rlm()` returns the
@@ -891,6 +907,10 @@ const raw = {
     invoke<void>('feral_cowork_approval_resolve', { request_id: requestId, action }),
   /** Agent Cowork S6 — write straight to a teammate's inbox from the panel,
    *  without asking the main agent to retype what the person already wrote. */
+  /** Agent Cowork S6 — replay one chat's teammate traffic. The answer
+   *  arrives as a `cowork_history_result` event, paired by thread id. */
+  feralCoworkHistory: (threadId: string) =>
+    invoke<void>('feral_cowork_history', { thread_id: threadId }),
   feralCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
     invoke<void>('feral_cowork_send_message', {
       to_agent_id: toAgentId,
@@ -1143,6 +1163,7 @@ export const tauri = {
      *  sidecar acks via the terminal cowork_event for that requestId. */
     coworkApprovalResolve: async (requestId: string, approve: boolean) =>
       raw.feralCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
+    coworkHistory: async (threadId: string) => raw.feralCoworkHistory(threadId),
     coworkSendMessage: async (toAgentId: string, body: string, threadId?: string) =>
       raw.feralCoworkSendMessage(toAgentId, body, threadId),
     /** Abort a teammate's in-flight turn. A cowork turn runs under the session

@@ -225,10 +225,59 @@ export function applyCoworkEvent(
   return [...withoutPrev, next].slice(-COWORK_TRANSCRIPT_MAX);
 }
 
+/** One persisted mailbox row, as `cowork_history_result` delivers it. */
+export interface CoworkHistoryRow {
+  id: string;
+  fromAgentId: string;
+  toAgentId: string;
+  fromAgentName?: string;
+  toAgentName?: string;
+  body: string;
+  status: string;
+  createdAt: number;
+}
+
+/**
+ * Rebuild a transcript from the mailbox.
+ *
+ * A stored row is ONE message, where a live exchange is a request plus its
+ * reply — so each row becomes an exchange carrying only `requestText`, and the
+ * reply is simply the next row (its sender is the previous recipient). That is
+ * how the conversation reads on screen either way, and it avoids inventing a
+ * pairing the mailbox never recorded.
+ *
+ * Status maps honestly: `rejected` is an error, `pending` is still running (a
+ * teammate that never got to it before the app closed), anything else is done.
+ * A restart cannot resume a turn, so `startedAt` is deliberately absent — an
+ * elapsed clock counting from a run that ended yesterday would be a lie.
+ */
+export function fromHistory(threadId: string, rows: CoworkHistoryRow[]): CoworkExchange[] {
+  return rows.map((r) => ({
+    id: `msg:${r.id}`,
+    threadId,
+    kind: 'message' as const,
+    fromAgentId: r.fromAgentId,
+    toAgentId: r.toAgentId,
+    fromName: r.fromAgentName,
+    toName: r.toAgentName,
+    requestText: r.body,
+    responseText: null,
+    status:
+      r.status === 'rejected'
+        ? ('error' as const)
+        : r.status === 'pending'
+          ? ('running' as const)
+          : ('done' as const),
+    at: r.createdAt,
+  }));
+}
+
 interface CoworkTranscriptStore {
   exchanges: CoworkExchange[];
   ingest: (evt: CoworkEventInput) => void;
   ingestTool: (evt: { sessionId?: string; tool: string; done: boolean }) => void;
+  /** Replace the transcript with one thread replayed from disk. */
+  hydrate: (threadId: string, rows: CoworkHistoryRow[]) => void;
   clear: () => void;
 }
 
@@ -236,5 +285,8 @@ export const useCoworkTranscript = create<CoworkTranscriptStore>((set) => ({
   exchanges: [],
   ingest: (evt) => set((s) => ({ exchanges: applyCoworkEvent(s.exchanges, evt) })),
   ingestTool: (evt) => set((s) => ({ exchanges: applyCoworkToolEvent(s.exchanges, evt) })),
+  // Replace, not merge: switching conversations must not leave the previous
+  // chat's teammate traffic on screen under a new heading.
+  hydrate: (threadId, rows) => set({ exchanges: fromHistory(threadId, rows) }),
   clear: () => set({ exchanges: [] }),
 }));

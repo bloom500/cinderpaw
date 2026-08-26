@@ -2,6 +2,8 @@ import { describe, expect, test } from 'vitest';
 import {
   applyCoworkEvent,
   COWORK_TRANSCRIPT_MAX,
+  fromHistory,
+  useCoworkTranscript,
   type CoworkExchange,
 } from '../coworkTranscript';
 
@@ -153,5 +155,71 @@ describe('applyCoworkEvent (A2A transcript reducer)', () => {
     expect(out).toHaveLength(COWORK_TRANSCRIPT_MAX);
     expect(out.at(-1)!.id).toBe(`msg:m${COWORK_TRANSCRIPT_MAX + 9}`);
     expect(out[0].id).toBe('msg:m10');
+  });
+});
+
+describe('fromHistory — the transcript rebuilt from the mailbox', () => {
+  const rows = [
+    {
+      id: 'r1',
+      fromAgentId: 'human',
+      toAgentId: 'atlas',
+      toAgentName: 'Atlas',
+      body: 'summarise perception',
+      status: 'processed',
+      createdAt: 1000,
+    },
+    {
+      id: 'r2',
+      fromAgentId: 'atlas',
+      fromAgentName: 'Atlas',
+      toAgentId: 'bolt',
+      toAgentName: 'Bolt',
+      body: 'check the tests',
+      status: 'pending',
+      createdAt: 2000,
+    },
+  ];
+
+  test('every stored row becomes one message, in order', () => {
+    const out = fromHistory('conv-1', rows);
+    expect(out.map((e) => e.requestText)).toEqual(['summarise perception', 'check the tests']);
+    expect(out.every((e) => e.threadId === 'conv-1')).toBe(true);
+  });
+
+  test('names survive the round trip, so the panel never shows raw ids', () => {
+    const out = fromHistory('conv-1', rows);
+    expect(out[0]?.toName).toBe('Atlas');
+    expect(out[1]?.fromName).toBe('Atlas');
+  });
+
+  test('status maps honestly: pending is still running, rejected is an error', () => {
+    const out = fromHistory('c', [
+      { ...rows[0]!, id: 'a', status: 'processed' },
+      { ...rows[0]!, id: 'b', status: 'pending' },
+      { ...rows[0]!, id: 'c', status: 'rejected' },
+    ]);
+    expect(out.map((e) => e.status)).toEqual(['done', 'running', 'error']);
+  });
+
+  test('no elapsed clock on replayed rows', () => {
+    // A timer counting from a turn that ended yesterday would be a lie, and a
+    // restart cannot resume one.
+    expect(fromHistory('c', rows).every((e) => e.startedAt === undefined)).toBe(true);
+  });
+
+  test('hydrate REPLACES, so switching chats does not leak the previous one', () => {
+    useCoworkTranscript.setState({
+      exchanges: fromHistory('old-chat', [{ ...rows[0]!, id: 'old', body: 'from another chat' }]),
+    });
+    useCoworkTranscript.getState().hydrate('conv-1', rows);
+    const texts = useCoworkTranscript.getState().exchanges.map((e) => e.requestText);
+    expect(texts).not.toContain('from another chat');
+    expect(texts).toContain('summarise perception');
+  });
+
+  test('an empty thread clears the panel rather than leaving stale traffic', () => {
+    useCoworkTranscript.getState().hydrate('conv-2', []);
+    expect(useCoworkTranscript.getState().exchanges).toEqual([]);
   });
 });

@@ -466,6 +466,7 @@ pub fn run() {
             feral_code_patch_resolve,
             feral_cowork_approval_resolve,
             feral_cowork_send_message,
+            feral_cowork_history,
             feral_lora_reviews_list,
             feral_lora_review_resolve,
             feral_lora_train,

@@ -27,6 +27,7 @@ pub const INBOUND_TYPES: &[&str] = &[
     // duplicated inside transports/tauri.ts and only that copy was
     // compile-checked, so the canonical list could fall behind in silence.
     "admin_response", "capability_response", "provider_conformance",
+    "cowork_history",
 ];
 
 pub const OUTBOUND_TYPES: &[&str] = &[
@@ -36,6 +37,7 @@ pub const OUTBOUND_TYPES: &[&str] = &[
     "heartbeat", "stream_progress", "cron_fired", "cron_error",
     "desktop_control_request", "rsi_engine_event", "rsi_request",
     "meta_result", "governance_result", "modules_result", "mcp_result",
+    "cowork_history_result",
     "resume_get_result", "compact_result", "fractal_bench_progress", "fractal_bench_result",
     "code_patches", "code_patch_resolved", "lora_reviews",
     "lora_review_resolved", "lora_train_result", "fractal_activity", "rlm_child",
