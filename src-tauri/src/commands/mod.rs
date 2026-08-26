@@ -84,7 +84,9 @@ mod command_count_test {
     // 156 → 160 = + start_livekit_call + end_livekit_call
     // + list_s2s_providers + stt_local_available (LiveKit call engine).
     // 160 → 161 = + set_dreams_enabled (master Dream Cycle opt-in).
-    const EXPECTED_COMMAND_COUNT: usize = 161;
+    // 161 → 162 = + feral_cowork_approval_resolve (cowork S4 approval gate;
+    // the chat surface answers a blocked tool call through this command).
+    const EXPECTED_COMMAND_COUNT: usize = 162;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
