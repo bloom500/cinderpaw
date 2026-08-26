@@ -13,6 +13,7 @@
  */
 
 import { lookup } from "node:dns/promises";
+import { benchmarkRunId, cfgList } from "../config.ts";
 import type {
   AuditLogger,
   FeralFetch,
@@ -293,6 +294,11 @@ export class EgressProxy {
       if (!hostMatchesWhitelist(host, allowed)) {
         block(`host "${host}" not in allowedDomains for "${manifest.name}"`);
       }
+      // Benchmark mode narrows every tool's allowlist to one shared list.
+      // Last, so an ordinary session pays nothing for it, and so a host that
+      // was already going to be refused is refused for its own reason.
+      const benchRefusal = benchmarkHostRefusal(host, `tool "${manifest.name}"`);
+      if (benchRefusal !== null) block(benchRefusal);
       return parsed;
     };
 
@@ -694,4 +700,42 @@ export function hostMatchesWhitelist(host: string, whitelist: string[]): boolean
     const e = entry.toLowerCase().replace(/^\*\./, "");
     return host === e || host.endsWith(`.${e}`);
   });
+}
+
+/**
+ * The benchmark-mode network kill-switch.
+ *
+ * A measured run is only worth reporting if you can say where its data came
+ * from. Every tool allowlist in this repo is written for ordinary use — some
+ * are `"*"` — so during a benchmark the agent can reach a search engine, a
+ * forum, or a page containing the answer, and nothing in the results would
+ * show it. Benchmark mode replaces all of that with one list: while
+ * `FERAL_BENCHMARK_RUN_ID` is set, these are the only hosts that exist.
+ *
+ * It is a NARROWING, never a widening. Everything the normal path refuses —
+ * the SSRF guard, the per-tool allowlist, the rate limit — still refuses.
+ * This only takes reachable hosts away.
+ *
+ * Called from BOTH network exits: `EgressProxy` (all tool traffic, and every
+ * redirect hop) and `InferenceRouter.#callTarget` (all model traffic, which
+ * uses the global `fetch` and never touches this proxy). A guard on only one
+ * of the two would be a kill-switch with a hole the size of the model API.
+ *
+ * Empty allowlist with the mode on = nothing is reachable. That is deliberate:
+ * the alternative is a run that quietly had full network access because a
+ * second variable was forgotten. The message names the variable to set.
+ */
+export function benchmarkHostRefusal(host: string, who: string): string | null {
+  const runId = benchmarkRunId();
+  if (runId === null) return null;
+  const allowed = cfgList("FERAL_BENCHMARK_ALLOW_HOSTS");
+  if (hostMatchesWhitelist(host.toLowerCase(), allowed)) return null;
+  return (
+    `benchmark mode (run "${runId}") allows no network except ` +
+    `FERAL_BENCHMARK_ALLOW_HOSTS; ${who} tried to reach "${host}". ` +
+    (allowed.length === 0
+      ? "FERAL_BENCHMARK_ALLOW_HOSTS is empty, so every host is refused — " +
+        "set it to the hosts this run legitimately needs (model API, scorecard API)."
+      : `Currently allowed: ${allowed.join(", ")}.`)
+  );
 }

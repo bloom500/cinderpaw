@@ -241,6 +241,8 @@ they remain hand-maintained here and are still covered by
 | `FERAL_THOUGHTS_MOOD_THRESHOLD` | string | `"0.5"` |  | Mood gate (float); thoughts fire only above this score. |
 | `FERAL_BRAIN` | bool | `false` |  | Force-enable Brain Stack; if brain.json is missing, loadBrainConfig throws (read via injected env in brain-config.ts). |
 | `FERAL_HOME` | path | `null` |  | Override the agent's profile dir (default ~/.cinderpaw/, resolved via homedir() when unset). |
+| `FERAL_BENCHMARK_RUN_ID` | string | `null` | yes | Turns on BENCHMARK MODE for this process. Two effects, both about keeping one measured run from contaminating the next: (1) the profile dir moves to <home>/runs/<runId>/, so skills, memory, journals and DB from run N are invisible to run N+1 (invariant I13); (2) the network is restricted to FERAL_BENCHMARK_ALLOW_HOSTS and nothing else — every other destination is refused at both network exits (tool egress proxy and inference router). Unset = off, normal behaviour. Must be path-safe (letters, digits, dot, underscore, hyphen). |
+| `FERAL_BENCHMARK_ALLOW_HOSTS` | list | `null` | yes | The ONLY hosts reachable while benchmark mode is on. Comma/semicolon separated, matched like a domain allowlist ("api.example.com" matches that host and its subdomains). Ignored when FERAL_BENCHMARK_RUN_ID is unset. Empty while benchmark mode is on means NOTHING is reachable — deliberately fail-closed, and every refusal names this variable so the fix is on screen rather than in a log. |
 | `FERAL_DB` | path | `"data/cinderpaw.db"` |  | Override the SQLite DB path. ":memory:" is a sentinel and is not path-resolved. Falls back to a pre-rename data/feral.db when that is the file this install actually has. |
 | `FERAL_AGENT_BASE_PROMPT` | string | `null` |  | Universal operating manual injected into every model call; usually bundled. |
 | `FERAL_SUBAGENT_MAX_SUMMARY_CHARS` | int | `4000` |  | Cap on subagent summary length returned to parent (negative = unlimited). |
@@ -297,6 +299,8 @@ FERAL_API_KEY
 FERAL_ATTACHMENT_MAX_CHARS
 FERAL_AUTONOMOUS
 FERAL_BASE_URL
+FERAL_BENCHMARK_ALLOW_HOSTS
+FERAL_BENCHMARK_RUN_ID
 FERAL_BRAIN
 FERAL_BUDGET_CONVERSATION
 FERAL_BUDGET_DAY

@@ -20,6 +20,8 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { assertValidRunId } from "./core/run-id.ts";
+
 export interface ConfigEntry {
   name: string;
   type: "bool" | "int" | "path" | "list" | "string";
@@ -255,6 +257,10 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   // ---- Workspace / paths / state -----------------------------------------------------
   { name: "FERAL_HOME", type: "path", default: null,
     description: "Override the agent's profile dir (default ~/.cinderpaw/, resolved via homedir() when unset).", security: false },
+  { name: "FERAL_BENCHMARK_RUN_ID", type: "string", default: null,
+    description: "Turns on BENCHMARK MODE for this process. Two effects, both about keeping one measured run from contaminating the next: (1) the profile dir moves to <home>/runs/<runId>/, so skills, memory, journals and DB from run N are invisible to run N+1 (invariant I13); (2) the network is restricted to FERAL_BENCHMARK_ALLOW_HOSTS and nothing else — every other destination is refused at both network exits (tool egress proxy and inference router). Unset = off, normal behaviour. Must be path-safe (letters, digits, dot, underscore, hyphen).", security: true },
+  { name: "FERAL_BENCHMARK_ALLOW_HOSTS", type: "list", default: null,
+    description: "The ONLY hosts reachable while benchmark mode is on. Comma/semicolon separated, matched like a domain allowlist (\"api.example.com\" matches that host and its subdomains). Ignored when FERAL_BENCHMARK_RUN_ID is unset. Empty while benchmark mode is on means NOTHING is reachable — deliberately fail-closed, and every refusal names this variable so the fix is on screen rather than in a log.", security: true },
   { name: "FERAL_DB", type: "path", default: "data/cinderpaw.db",
     description: "Override the SQLite DB path. \":memory:\" is a sentinel and is not path-resolved. Falls back to a pre-rename data/feral.db when that is the file this install actually has.", security: false },
   { name: "FERAL_AGENT_BASE_PROMPT", type: "string", default: null,
@@ -355,7 +361,29 @@ export function cfgList(name: string): string[] {
  * re-deriving the path.
  */
 export function feralHome(): string {
-  return resolve(cfgPath("FERAL_HOME") ?? join(homedir(), ".feral"));
+  const base = resolve(cfgPath("FERAL_HOME") ?? join(homedir(), ".feral"));
+  const run = benchmarkRunId();
+  // INVARIANT I13: a benchmark run gets its own profile dir, so nothing it
+  // learns can be read by the next run. Scoping HERE and not at the twenty
+  // call sites is the point — `paths()`, the DB, the journal, the skill sink
+  // and the connector store all derive from this one function, so they all
+  // move together or none of them do.
+  return run ? join(base, "runs", run) : base;
+}
+
+/**
+ * The active benchmark run id, or null when this is an ordinary session.
+ *
+ * Read from the environment every time rather than memoized: tests set and
+ * clear the variable between cases, and a cached "off" from the first import
+ * would make every later case silently unscoped — which is exactly the
+ * contamination this is here to prevent.
+ */
+export function benchmarkRunId(): string | null {
+  const raw = cfgPath("FERAL_BENCHMARK_RUN_ID");
+  if (raw === null || raw.trim() === "") return null;
+  assertValidRunId(raw);
+  return raw;
 }
 
 /**

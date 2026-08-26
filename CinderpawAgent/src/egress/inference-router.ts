@@ -31,6 +31,7 @@ import type {
   TokenBudgetConfig,
 } from "../types.ts";
 import type { PromptBreakdown } from "../memory/working.ts";
+import { benchmarkHostRefusal } from "./egress-proxy.ts";
 import {
   AnthropicProvider,
   OllamaProvider,
@@ -909,6 +910,18 @@ export class InferenceRouter {
       );
     }
 
+    // Model traffic uses the global fetch, not the egress proxy — so the
+    // benchmark kill-switch has to be applied here too, or it is a network
+    // lockdown with the model API left wide open. Same function, same list.
+    const benchRefusal = benchmarkHostRefusal(
+      hostOf(target.baseUrl),
+      `inference target "${target.baseUrl}"`,
+    );
+    if (benchRefusal !== null) {
+      this.#auditBlocked(req.sessionId, benchRefusal);
+      throw new InferenceError(benchRefusal);
+    }
+
     const provider: InferenceProvider =
       this.#providers[target.provider] ??
       // Treat unknown providers as OpenAI-compatible (openai, deepseek, …).
@@ -1095,6 +1108,19 @@ function defaultPortFor(scheme: string): string {
  * The exact same function is used for allowlist construction and request-time
  * validation, so there is no asymmetry between the two checks.
  */
+/**
+ * The hostname a base URL points at. A malformed URL yields the raw string,
+ * which no allowlist entry matches — so it stays refused rather than
+ * accidentally passing an empty host through the benchmark check.
+ */
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return url.trim().toLowerCase();
+  }
+}
+
 export function normalizeBaseUrl(url: string): string {
   try {
     const u = new URL(url);

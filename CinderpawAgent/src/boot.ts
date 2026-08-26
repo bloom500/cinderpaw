@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { cfgBool, cfgInt, cfgList, cfgPath, feralHome, scratchRoot, searxngOrigin } from "./config.ts";
+import { benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, feralHome, scratchRoot, searxngOrigin } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -494,6 +494,20 @@ export async function boot(transportOverride?: Transport) {
   });
   if (cfgBool("FERAL_DRY_RUN")) {
     log("egress: DRY RUN — state-changing requests will be logged, not sent");
+  }
+  // Benchmark mode changes two things a stranger would otherwise discover as
+  // "why is the network broken" and "why did it forget everything". Say both
+  // out loud, at the top, every time.
+  const benchRun = benchmarkRunId();
+  if (benchRun !== null) {
+    const benchHosts = cfgList("FERAL_BENCHMARK_ALLOW_HOSTS");
+    log(`BENCHMARK MODE: run "${benchRun}"`);
+    log(`  data dir: ${feralHome()}  (isolated from other runs — invariant I13)`);
+    log(
+      benchHosts.length === 0
+        ? "  network: NOTHING is reachable — FERAL_BENCHMARK_ALLOW_HOSTS is empty"
+        : `  network: only ${benchHosts.join(", ")}`,
+    );
   }
   if (declaredLocal.length > 0) {
     log(`egress: ${declaredLocal.length} operator-declared local origin(s) trusted`);

@@ -402,22 +402,34 @@ BFS has a `seen` set as the runtime safety net.
 
 ---
 
-### Invariant I13 — Per-instance data isolation (PENDING)
+### Invariant I13 — Per-instance data isolation
 
 **Statement:** Each tenant (`~/.feral/instances/<tenant>/`) has its
 own genomes, adapters, demos, eval suites, journal, audit log.
 Cross-tenant reads are not permitted. Tier 0 specs are the only
 shared data.
 
+**Per-run isolation (ACTIVE).** The benchmark half of this invariant
+landed first, because a benchmark campaign is where cross-run leakage
+turns into a wrong published number. With `FERAL_BENCHMARK_RUN_ID` set,
+`feralHome()` returns `<home>/runs/<runId>`, and every profile-dir
+consumer — the DB, journal, skill sink, connector store, `paths()` —
+derives from that one function, so they all move together. Run N's
+learned skills are not on run N+1's disk to be read.
+
 **Owner:**
+- Per run: `CinderpawAgent/src/config.ts::feralHome` + `benchmarkRunId`
 - Path layout: `src-tauri/src/rsi/paths.rs`
 - Per-instance split: BRSI §3.3 in `continual-personal-adaptation-plan.md`
 
 **Verified By:**
 - Documentation: this entry
-- Test: `paths.rs::tests::require_under` (path-containment)
+- Test: `paths.rs::tests::require_under` (path-containment);
+  `CinderpawAgent/tests/benchmark-mode.test.ts` (two runs never share a
+  profile dir; a non-path-safe run id is refused, not sanitized)
 - Runtime Assert: `paths.rs::is_under` rejects paths outside the
-  tenant root
+  tenant root; `assertValidRunId` refuses a traversing run id before it
+  can become a directory
 - Audit: every IO op logs the tenant id
 
 **Failure Mode:** HALT — a path outside the tenant root fails the
