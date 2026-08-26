@@ -893,29 +893,29 @@ const raw = {
   // and rejects anything else.
   feralCodePatchesList:   () => invoke<void>('feral_code_patches_list'),
   feralCodePatchResolve:  (patchId: string, action: 'approve' | 'reject') =>
-    invoke<void>('feral_code_patch_resolve', { patch_id: patchId, action }),
+    invoke<void>('feral_code_patch_resolve', { patchId, action }),
   // Faza 4 (L2 LoRA) — personal-adaptation gate. All fire-and-forget; the
   // sidecar replies via `lora_reviews` / `lora_review_resolved` /
   // `lora_train_result` events (see events.ts).
   feralLoraReviewsList:   () => invoke<void>('feral_lora_reviews_list'),
   feralLoraReviewResolve: (cardId: string, action: 'approve' | 'reject') =>
-    invoke<void>('feral_lora_review_resolve', { card_id: cardId, action }),
+    invoke<void>('feral_lora_review_resolve', { cardId, action }),
   // Agent Cowork S4 — approval gate. Fire-and-forget; the sidecar acks by
   // emitting the terminal cowork_event (approval_approved / approval_denied),
   // which is also what closes the chat bubble.
   feralCoworkApprovalResolve: (requestId: string, action: 'approve' | 'reject') =>
-    invoke<void>('feral_cowork_approval_resolve', { request_id: requestId, action }),
+    invoke<void>('feral_cowork_approval_resolve', { requestId, action }),
   /** Agent Cowork S6 — write straight to a teammate's inbox from the panel,
    *  without asking the main agent to retype what the person already wrote. */
   /** Agent Cowork S6 — replay one chat's teammate traffic. The answer
    *  arrives as a `cowork_history_result` event, paired by thread id. */
   feralCoworkHistory: (threadId: string) =>
-    invoke<void>('feral_cowork_history', { thread_id: threadId }),
+    invoke<void>('feral_cowork_history', { threadId }),
   feralCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
     invoke<void>('feral_cowork_send_message', {
-      to_agent_id: toAgentId,
+      toAgentId,
       body,
-      thread_id: threadId ?? null,
+      threadId: threadId ?? null,
     }),
   feralLoraTrain:         (domain?: string) =>
     invoke<void>('feral_lora_train', { domain: domain ?? null }),
