@@ -212,8 +212,8 @@ export class PopulationManager {
    * on the behavioral fingerprint. Called on every population change.
    */
   recomputeSharedFitness(): void {
-    const scored = this.alive().filter(
-      (g) => g.fitnessScore !== null && g.behavioralFingerprint !== null,
+    const scored = comparableByFingerprint(
+      this.alive().filter((g) => g.fitnessScore !== null),
     );
     for (const g of scored) {
       let nicheCount = 0;
@@ -237,9 +237,7 @@ export class PopulationManager {
    * monoculture can exist and extinction must never trigger.
    */
   meanFingerprintSimilarity(): number {
-    const scored = this.alive().filter(
-      (g) => g.behavioralFingerprint !== null,
-    );
+    const scored = comparableByFingerprint(this.alive());
     if (scored.length < 2) return 0;
     let sum = 0;
     let pairs = 0;
@@ -384,6 +382,74 @@ export class PopulationManager {
     }
   }
 }
+
+/**
+ * The genomes whose fingerprints can honestly be compared to each other.
+ *
+ * WHY THIS EXISTS. Both callers used to filter on `behavioralFingerprint !==
+ * null` and hand the survivors straight to `cosineSimilarity`, which THROWS on
+ * a length mismatch — deliberately, because comparing genomes evaluated on
+ * different task sets produces a plausible, meaningless number that the
+ * extinction handler then culls on. But two kinds of genome slipped through
+ * that null check:
+ *
+ *   - an EMPTY fingerprint (`[]`), which is not null and means exactly what
+ *     null means: never evaluated. This was most of them.
+ *   - a genome evaluated on a different number of tasks than its peers, which
+ *     is the real inconsistency the throw was written for.
+ *
+ * Either one took the whole computation down. `extinction-handler.ts` calls
+ * `meanFingerprintSimilarity()` with no try/catch on every eval, so this was
+ * not merely noisy — monoculture detection stopped running whenever it fired,
+ * and the failure was invisible because the numbers it produces are advisory.
+ * A clean test run printed sixteen of these, which is how a real RSI error
+ * would have been camouflaged during a benchmark campaign.
+ *
+ * So: unevaluated genomes are dropped, and the majority task-set wins. A
+ * minority evaluated on some other task set is skipped rather than compared,
+ * and skipping is reported ONCE per call with a count — the fact is worth
+ * knowing and was never worth sixteen stack traces.
+ */
+function comparableByFingerprint<T extends { behavioralFingerprint: number[] | null }>(
+  genomes: T[],
+): T[] {
+  const evaluated = genomes.filter(
+    (g) => g.behavioralFingerprint !== null && g.behavioralFingerprint.length > 0,
+  );
+  if (evaluated.length < 2) return evaluated;
+
+  const byLength = new Map<number, T[]>();
+  for (const g of evaluated) {
+    const len = g.behavioralFingerprint!.length;
+    const bucket = byLength.get(len);
+    if (bucket) bucket.push(g);
+    else byLength.set(len, [g]);
+  }
+  if (byLength.size === 1) return evaluated;
+
+  let majority: T[] = [];
+  for (const bucket of byLength.values()) {
+    if (bucket.length > majority.length) majority = bucket;
+  }
+  // Once per distinct set of lengths, not once per call: `recomputeSharedFitness`
+  // runs on every population change, and a warning that repeats on a timer is a
+  // warning people learn to scroll past — which is the failure this whole change
+  // is about. Same pattern as config.ts's legacy-name notice.
+  const lengths = [...byLength.keys()].sort((a, b) => a - b);
+  const signature = lengths.join(",");
+  if (!warnedFingerprintShapes.has(signature)) {
+    warnedFingerprintShapes.add(signature);
+    console.warn(
+      `[cinderpaw] population: ${evaluated.length - majority.length} of ${evaluated.length} ` +
+        "genomes were evaluated on a different task set and are excluded from the similarity " +
+        `metric (fingerprint lengths seen: ${signature}). The metric still runs on the rest.`,
+    );
+  }
+  return majority;
+}
+
+/** Length-signatures already reported. See `comparableByFingerprint`. */
+const warnedFingerprintShapes = new Set<string>();
 
 /**
  * Cosine similarity of two equal-length vectors, in [-1, 1]. Returns 0
