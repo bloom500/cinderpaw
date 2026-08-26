@@ -1,0 +1,8 @@
+# Test runner configuration.
+#
+# preload runs before any test file is imported. `_preload-test-home.ts` gives
+# the suite its own temp profile dir so `bun test` cannot write into the
+# developer's real ~/.cinderpaw — which it was doing until 2026-08-26, at the
+# cost of one real connector allowlist.
+[test]
+preload = ["./tests/_preload-test-home.ts"]
