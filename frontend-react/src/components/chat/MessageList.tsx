@@ -34,7 +34,7 @@ export function MessageList() {
     // No `scroll-smooth` on the container: the autoscroll effect sets
     // scrollTop on every streamed frame, and CSS smooth scrolling turns each
     // of those into an overlapping animation — visible jank on long chats.
-    <div ref={containerRef} className="h-full overflow-y-auto scrollbar-hide">
+    <div ref={containerRef} className="h-full overflow-y-auto thin-scrollbar">
       <div className="max-w-3xl mx-auto px-6 py-6 pb-48 space-y-6">
         {messages.map((m, i) => (
           // A message arrives, it does not blink into existence. 200ms and two

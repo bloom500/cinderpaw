@@ -59,7 +59,7 @@ export function ThinkingBlock({ id, content, duration, active }: Props) {
                 the answer — the part the user actually wants — miles below the
                 fold, with the scrollbar suggesting the reply itself was that
                 long. */}
-            <div className="mt-2 pl-3 border-l border-border-subtle text-sm text-text-muted whitespace-pre-wrap font-mono max-h-80 overflow-y-auto scrollbar-hide">
+            <div className="mt-2 pl-3 border-l border-border-subtle text-sm text-text-muted whitespace-pre-wrap font-mono max-h-80 overflow-y-auto thin-scrollbar">
               {content}
             </div>
           </motion.div>

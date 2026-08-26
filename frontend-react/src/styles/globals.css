@@ -174,6 +174,38 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+  /* ChatGPT/Qwen-style thin interactive scrollbar — faint line, expands on hover */
+  .thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    scrollbar-gutter: stable;
+  }
+  .thin-scrollbar:hover {
+    scrollbar-color: var(--border-default) transparent;
+  }
+  .thin-scrollbar::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+  .thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .thin-scrollbar::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+  .thin-scrollbar:hover::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--border-default) 70%, transparent);
+  }
+  .thin-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-muted);
+  }
+  .thin-scrollbar:hover::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
 }
 
 /*

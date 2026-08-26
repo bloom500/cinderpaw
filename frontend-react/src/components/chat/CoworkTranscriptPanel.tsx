@@ -856,7 +856,7 @@ export function CoworkTranscriptPanel() {
           onScroll={onScroll}
           data-testid="cowork-transcript-scroll"
           style={{ height: `${height}px`, maxHeight: '65vh' }}
-          className="flex-1 overflow-y-auto px-2.5 pb-2.5 pr-4"
+          className="flex-1 overflow-y-auto thin-scrollbar px-2.5 pb-2.5 pr-4"
         >
           {pinnedMessages.length > 0 && (
             <div className="mb-2 rounded-lg border border-warning/20 bg-warning/5 p-2">
