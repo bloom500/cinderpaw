@@ -55,7 +55,7 @@ four are present.
 | I11 | FitnessVector aggregate bounded     | HARD | `fitness.ts` | ACTIVE |
 | I12 | Provenance graph acyclic            | HARD | `repo.rs` (git substrate) | ACTIVE |
 | I13 | Per-instance data isolation         | HARD | `paths.rs`, per-instance split (PENDING) | PENDING |
-| I14 | Human approval gate for L3+ changes | HARD | Contract FSM (Opus) | PENDING |
+| I14 | Human approval gate for L3+ changes | HARD | `pending-patches.ts` | ACTIVE (L3); no L4/L6 proposer exists |
 | I15 | EvalHalted requires reason          | HARD | `event-bus.ts` + Contract FSM (Opus) | ACTIVE (type + runtime) / PENDING (emitter) |
 | S1  | Average confidence ≥ 0.95           | SOFT | `confidence.ts`, Journal | ACTIVE |
 | S2  | Niche count ≥ 3                     | SOFT | `population-manager.ts` | PENDING |
@@ -70,16 +70,17 @@ four are present.
 
 **Statement:** The main lineage advances if and only if
 `candidate_score > prior_score_value`. The strict-greater comparison in
-`src-tauri/src/rsi/repo.rs:344` is the **single source of truth** for
-"main advances only on improvement".
+`crates/cinderpaw-core/src/rsi/repo.rs:362` is the **single source of
+truth** for "main advances only on improvement".
 
 **Owner:**
-- TypeScript: `CinderpawAgent/src/rsi/ratchet-handler.ts:77`
-- Rust: `src-tauri/src/rsi/repo.rs::ratchet_attempt` (line 344)
+- TypeScript: `CinderpawAgent/src/rsi/l1-config/ratchet-handler.ts`
+- Rust: `crates/cinderpaw-core/src/rsi/repo.rs::ratchet_attempt` (line 337)
 
 **Verified By:**
 - Documentation: this entry
-- Test: `src-tauri/src/rsi/repo.rs::tests` (ratchet_attempt fixture tests)
+- Test: `crates/cinderpaw-core/src/rsi/repo.rs::tests` (ratchet_attempt
+  fixture tests)
 - Runtime Assert: Rust-side invariant; TS-side Confidence gate pre-check
   (`CinderpawAgent/src/rsi/confidence.ts`) before any `rsi_commit_genome`
 - Audit: every `RatchetAdvanced` event logged
@@ -430,28 +431,37 @@ containment check.
 
 ---
 
-### Invariant I14 — Human approval gate for L3+ changes (PENDING)
+### Invariant I14 — Human approval gate for L3+ changes
 
 **Statement:** Code Evolution (L3), Architecture Evolution (L4), and
 Meta Evolution (L6) changes require explicit human approval before
 apply. Governance Evolution (L5) may auto-apply within bounds but
 rolls back on regression.
 
-**Owner:** Contract FSM (Opus territory)
+**Owner:** `CinderpawAgent/src/rsi/l3-code/pending-patches.ts` — a
+candidate that wins the ratchet is never applied to the source tree by
+the winning alone. It lands in `PendingPatchStore` as `pending`, and
+`applyPatchLive` refuses unless the store records an approval AND the
+patch passes a fresh TS-wall re-check at apply time. The first
+`APPROVALS_BEFORE_AUTO` (10) applied patches require a human decision;
+`requiresManualApproval()` is what tells the host when that unlocks.
+The file is on both patch denylists — the gate cannot rewrite itself.
 
 **Verified By:**
 - Documentation: this entry
-- Test: integration test for the approval flow
-- Runtime Assert: Contract FSM rejects apply without the approval
-  token
-- Audit: every approval/rejection logged in the Journal
+- Test: `CinderpawAgent/tests/rsi-pending-patches.test.ts`
+- Runtime Assert: `applyPatchLive` returns `{ ok: false, reason }` for a
+  patch with no recorded approval
+- Audit: every approval/rejection recorded in the patch store
 
 **Failure Mode:** Reject the apply.
 
 **Recovery:** Surface to UI; await approval.
 
 **Introduced:** v0.9.0 (mechanism deferred)
-**Status:** PENDING — Contract FSM not yet written
+**Status:** ACTIVE for L3 code patches. L4 (architecture) and L6 (meta)
+have no proposer yet, so nothing reaches a gate there — when they gain
+one, it routes through this same store or this entry is wrong.
 
 ---
 
