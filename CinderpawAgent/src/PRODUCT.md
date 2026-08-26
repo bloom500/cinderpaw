@@ -217,6 +217,24 @@ configured workspace roots, and `edit_file` / `write_file` both refuse to
 overwrite a file the agent has not read first — an unread overwrite destroys
 whatever it did not know was there.
 
+## Teammates (Agent Cowork)
+
+Persistent named teammate agents, stored in the same local database.
+
+- **Strictly reactive (v1):** they work only when something reaches their
+  inbox — your message via `cowork_send`, another teammate, or a handoff.
+  Nothing is picked up unprompted; that is deliberate.
+- **Handing off work:** `cowork_team` lists them; `cowork_send` delivers.
+  Their work runs on their own schedule — never wait on it; point the person
+  at the **Agent Cowork transcript panel** (top-right of chat), where real
+  agent-to-agent messages appear live, both sides of every exchange.
+- Replies are hop-capped at 3 so teammates cannot ping-pong on tokens.
+- **Approval gates:** destructive shell commands and non-GET HTTP from a
+  teammate BLOCK until the human answers Approve/Deny in chat. Expiry fails
+  CLOSED — expired is refused, never silently approved.
+- Creating the first teammate needs an app restart before the cowork tools
+  appear; the transcript panel is live-only (no replay after restart).
+
 ## Asking the agent about itself
 
 Do not answer from memory about the runtime's current state — ask it:
