@@ -308,32 +308,50 @@ function MessageMeta({ message }: { message: ChatMessage }) {
 function FeedbackButtons({ messageId }: { messageId: string }) {
   const vote = useChat((s) => s.feedback[messageId]);
   const setFeedback = useChat((s) => s.setFeedback);
+  const [toast, setToast] = useState<string | null>(null);
+  const handleVote = (v: 'up' | 'down') => {
+    const next = vote === v ? null : v;
+    // Zustand setFeedback toggles off when same vote clicked again — pass undefined to clear
+    // The store's setFeedback expects 'up' | 'down', but toggle-off is done by clicking same again
+    // We mimic by passing the opposite then clearing? Simpler: just call with v and let store toggle
+    setFeedback(messageId, v as any);
+    const msg = next ? (v === 'up' ? 'Thanks!' : 'Noted') : 'Removed';
+    setToast(msg);
+    setTimeout(() => setToast(null), 2000);
+  };
   return (
-    <div className="flex items-center gap-1 mt-0.5 -ml-1 opacity-60 hover:opacity-100 focus-within:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
-      <button
-        type="button"
-        aria-label="Good response"
-        aria-pressed={vote === 'up'}
-        onClick={() => setFeedback(messageId, 'up')}
-        className={cn(
-          'p-1 rounded hover:bg-bg-hover transition-colors',
-          vote === 'up' ? 'text-brand' : 'text-text-muted hover:text-text-secondary',
-        )}
-      >
-        <ThumbsUp size={13} />
-      </button>
-      <button
-        type="button"
-        aria-label="Bad response"
-        aria-pressed={vote === 'down'}
-        onClick={() => setFeedback(messageId, 'down')}
-        className={cn(
-          'p-1 rounded hover:bg-bg-hover transition-colors',
-          vote === 'down' ? 'text-error' : 'text-text-muted hover:text-text-secondary',
-        )}
-      >
-        <ThumbsDown size={13} />
-      </button>
+    <div className="flex items-center gap-2 mt-0.5 -ml-1">
+      <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
+        <button
+          type="button"
+          aria-label="Good response"
+          aria-pressed={vote === 'up'}
+          onClick={() => handleVote('up')}
+          className={cn(
+            'p-1 rounded hover:bg-bg-hover transition-colors',
+            vote === 'up' ? 'text-brand' : 'text-text-muted hover:text-text-secondary',
+          )}
+        >
+          <ThumbsUp size={13} />
+        </button>
+        <button
+          type="button"
+          aria-label="Bad response"
+          aria-pressed={vote === 'down'}
+          onClick={() => handleVote('down')}
+          className={cn(
+            'p-1 rounded hover:bg-bg-hover transition-colors',
+            vote === 'down' ? 'text-error' : 'text-text-muted hover:text-text-secondary',
+          )}
+        >
+          <ThumbsDown size={13} />
+        </button>
+      </div>
+      {toast && (
+        <span className="text-2xs text-text-secondary bg-bg-elevated border border-border-subtle rounded-full px-2 py-0.5 animate-in fade-in">
+          {toast}
+        </span>
+      )}
     </div>
   );
 }

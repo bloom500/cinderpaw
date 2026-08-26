@@ -189,7 +189,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
         )}
         <div
           className={cn(
-            'relative rounded-2xl px-3 py-2 shadow-sm group',
+            'relative rounded-2xl px-3 py-2 shadow-sm',
             right
               ? 'rounded-br-none bg-brand text-bg-primary'
               : m.failed
@@ -205,31 +205,6 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
                 : 'left-[-11px] -scale-x-100 text-bg-surface',
             )}
           />
-          <button
-            type="button"
-            onClick={onCopy}
-            aria-label="Copy message"
-            className="absolute -top-1 -right-1 p-1 rounded-md bg-bg-elevated border border-border-subtle shadow
-                       opacity-0 group-hover/bubble:opacity-100
-                       transition-opacity text-text-muted hover:text-text-secondary cursor-pointer"
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
-          {onTogglePin && (
-            <button
-              type="button"
-              onClick={onTogglePin}
-              aria-label={pinned ? 'Unpin' : 'Pin'}
-              className={cn(
-                'absolute -top-1 p-1 rounded-md border shadow transition-opacity cursor-pointer',
-                pinned
-                  ? 'right-7 bg-warning/20 border-warning/30 text-warning opacity-100'
-                  : 'right-7 bg-bg-elevated border-border-subtle text-text-muted opacity-0 group-hover/bubble:opacity-100 hover:text-warning',
-              )}
-            >
-              <Star size={12} fill={pinned ? 'currentColor' : 'none'} />
-            </button>
-          )}
           {/* Selectable text: the whole bubble no longer swallows mouse
               selection. Click the "expand" control to toggle line-clamp. */}
           <div
@@ -252,12 +227,41 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
             {expanded ? 'show less' : 'show more'}
           </button>
         </div>
-        <span
-          title={hhmmss(m.at)}
-          className="px-1 text-2xs text-text-muted tabular-nums select-none opacity-0 group-hover/bubble:opacity-100 transition-opacity"
-        >
-          {hhmmss(m.at)}
-        </span>
+        <div className="flex items-center gap-1.5 mt-1 px-1">
+          <button
+            type="button"
+            onClick={onCopy}
+            aria-label="Copy message"
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs transition-colors cursor-pointer',
+              copied
+                ? 'bg-success/20 border-success/30 text-success'
+                : 'bg-bg-elevated border-border-subtle text-text-muted hover:text-text-secondary hover:border-brand/30',
+            )}
+          >
+            {copied ? <Check size={10} /> : <Copy size={10} />}
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+          {onTogglePin && (
+            <button
+              type="button"
+              onClick={onTogglePin}
+              aria-label={pinned ? 'Unpin' : 'Pin'}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs transition-colors cursor-pointer',
+                pinned
+                  ? 'bg-warning/20 border-warning/30 text-warning'
+                  : 'bg-bg-elevated border-border-subtle text-text-muted hover:text-warning hover:border-warning/30',
+              )}
+            >
+              <Star size={10} fill={pinned ? 'currentColor' : 'none'} />
+              {pinned ? 'Pinned' : 'Pin'}
+            </button>
+          )}
+          <span className="text-2xs text-text-muted tabular-nums select-none" title={hhmmss(m.at)}>
+            {hhmmss(m.at)}
+          </span>
+        </div>
       </div>
       {right && <span className="w-6 shrink-0" />}
     </motion.li>
@@ -645,8 +649,9 @@ export function CoworkTranscriptPanel() {
         const panel = document.querySelector('[data-testid="cowork-transcript-panel"]') as HTMLElement | null;
         if (panel) {
           const top = panel.getBoundingClientRect().top;
+          const maxByViewport = window.innerHeight - top - 88; // keep 88px above typing bar
           const newH = e.clientY - top - 36; // ~header height
-          const clampedH = Math.min(PANEL_MAX_H, Math.max(PANEL_MIN_H, newH));
+          const clampedH = Math.min(PANEL_MAX_H, maxByViewport, Math.max(PANEL_MIN_H, newH));
           setHeight(clampedH);
         }
       }
@@ -817,7 +822,7 @@ export function CoworkTranscriptPanel() {
       initial={{ scale: 0.92, opacity: 0, borderRadius: 999 }}
       animate={{ scale: 1, opacity: 1, borderRadius: 16 }}
       exit={{ scale: 0.92, opacity: 0, borderRadius: 999 }}
-      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 30, layout: { duration: 0 } }}
       className="absolute z-20
                  flex flex-col rounded-2xl border border-border-default
                  bg-bg-elevated/80 backdrop-blur-md shadow-lg overflow-hidden"
