@@ -349,3 +349,69 @@ describe("generateCandidateMutations (dynamic candidate generation)", () => {
     expect(result.bestNode.programCode).toContain("recolor");
   }, 20000);
 });
+
+describe("held-out generalization (R1)", () => {
+  // The search set: consistent with recolor(3 → 7).
+  const TRAIN: TaskPair[] = [
+    { input: G([3, 3, 3]), output: G([7, 7, 7]) },
+    { input: G([3, 0]), output: G([7, 0]) },
+  ];
+
+  test("omitting holdOutPairs reports checked:false — absence of proof, not proof", async () => {
+    const r = await runMCTSVerification(TRAIN, { iterations: 120 });
+    expect(r.verification.passed).toBe(true);
+    expect(r.generalization.checked).toBe(false);
+    // The trap this guards: `passed` defaulting to true would let a caller
+    // read "not checked" as "verified".
+    expect(r.generalization.passed).toBe(false);
+    expect(r.generalization.report).toBe(null);
+  }, 20000);
+
+  test("a program that learned the rule passes data the search never saw", async () => {
+    const r = await runMCTSVerification(TRAIN, {
+      iterations: 120,
+      holdOutPairs: [{ input: G([3, 3, 0, 3]), output: G([7, 7, 0, 7]) }],
+    });
+    expect(r.verification.passed).toBe(true);
+    expect(r.generalization.checked).toBe(true);
+    expect(r.generalization.passed).toBe(true);
+    expect(r.generalization.report?.failedExamplesDigest).toBe(null);
+  }, 20000);
+
+  test("fits the search set, fails the held-out set — the case the split exists for", async () => {
+    // Held-out contradicts the training rule (3 → 5, not 3 → 7). The search
+    // still finds a program that perfectly fits TRAIN; only the untouched
+    // set reveals it did not learn what the held-out data requires.
+    const r = await runMCTSVerification(TRAIN, {
+      iterations: 120,
+      holdOutPairs: [{ input: G([3, 3]), output: G([5, 5]) }],
+    });
+    expect(r.verification.passed).toBe(true); // fits what it was shown
+    expect(r.generalization.checked).toBe(true);
+    expect(r.generalization.passed).toBe(false); // and is still wrong
+    expect(r.generalization.report?.failedExamplesDigest).not.toBe(null);
+  }, 20000);
+
+  test("the held-out set never leaks into the search", async () => {
+    // Same seed of inputs, same options: adding holdOutPairs must not change
+    // which program the tree selects. If it did, the set would be training
+    // data wearing a different name.
+    const withOut = await runMCTSVerification(TRAIN, { iterations: 120 });
+    const withHeld = await runMCTSVerification(TRAIN, {
+      iterations: 120,
+      holdOutPairs: [{ input: G([3, 3]), output: G([5, 5]) }],
+    });
+    expect(withHeld.bestNode.programCode).toBe(withOut.bestNode.programCode);
+    expect(withHeld.treeSize).toBe(withOut.treeSize);
+  }, 30000);
+
+  test("loud on a malformed held-out set", async () => {
+    await expect(
+      runMCTSVerification(TRAIN, { iterations: 5, holdOutPairs: [] }),
+    ).rejects.toThrow(/holdOutPairs/);
+    await expect(
+      // biome-ignore lint/suspicious/noExplicitAny: deliberate bad input
+      runMCTSVerification(TRAIN, { iterations: 5, holdOutPairs: [{ input: G([1]) } as any] }),
+    ).rejects.toThrow(/holdOutPairs\[0\]/);
+  }, 20000);
+});

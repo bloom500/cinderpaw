@@ -323,11 +323,41 @@ export interface MCTSVerificationOptions {
   compileProgram?: (code: string) => GridTransform;
   /** Per-iteration observability hook. */
   onIteration?: (info: { iteration: number; treeSize: number; bestRewardSoFar: number }) => void;
+  /**
+   * Pairs the search NEVER sees. The tree is grown and scored against
+   * `taskPairs` only; the winner is then re-verified against these, once.
+   *
+   * Why this exists: without it, "passed" means "reproduces the very
+   * examples it was fitted to", which is the definition of overfitting the
+   * verifier and is not evidence of anything. A program that passes the
+   * search set and fails here is exactly the case worth catching, and it is
+   * invisible when both sets are the same set.
+   *
+   * Optional, because a caller with 2 demo pairs has none to spare. Omitting
+   * it is honest as long as the result is read as `generalization.checked
+   * === false` and not reported as verified — see MCTSVerificationResult.
+   */
+  holdOutPairs?: readonly TaskPair[];
+}
+
+/**
+ * Did the winning program survive data the search never touched?
+ *
+ * `checked: false` is NOT a pass. It means nobody asked, and a caller that
+ * persists a skill on that basis is claiming evidence it does not have.
+ */
+export interface GeneralizationReport {
+  checked: boolean;
+  passed: boolean;
+  report: VerificationReport | null;
 }
 
 export interface MCTSVerificationResult {
   bestNode: MCTSNode;
+  /** Against the SEARCH set. Fitting this is necessary, never sufficient. */
   verification: VerificationReport;
+  /** Against `holdOutPairs`. See GeneralizationReport. */
+  generalization: GeneralizationReport;
   treeSize: number;
 }
 
@@ -363,8 +393,13 @@ function checkTaskPairs(taskPairs: readonly TaskPair[]): void {
  * direct verification against `taskPairs`. Fully deterministic: same inputs
  * and options → identical trees, rewards and digests.
  *
- * Returns the best-scoring node together with its full verification report
- * (failedExamplesDigest set when anything fails) and the final tree size.
+ * Returns the best-scoring node with its verification report against the
+ * SEARCH set (failedExamplesDigest set when anything fails), a separate
+ * generalization report against `options.holdOutPairs` (untouched by the
+ * search), and the final tree size.
+ *
+ * Read the two apart: `verification.passed` says the program fits what it
+ * was shown. Only `generalization.passed` is evidence it learned the rule.
  */
 export async function runMCTSVerification(
   taskPairs: readonly TaskPair[],
@@ -385,6 +420,23 @@ export async function runMCTSVerification(
   }
   if (!Number.isInteger(maxDepth) || maxDepth < 1) {
     throw new Error(`runMCTSVerification: maxDepth must be an integer ≥ 1, got ${String(maxDepth)}`);
+  }
+
+  const holdOut = options.holdOutPairs;
+  if (holdOut !== undefined) {
+    if (!Array.isArray(holdOut) || holdOut.length === 0) {
+      throw new Error(
+        "runMCTSVerification: holdOutPairs, when supplied, must be a non-empty array of { input, output } pairs",
+      );
+    }
+    for (let i = 0; i < holdOut.length; i++) {
+      const pair = holdOut[i];
+      if (!pair || typeof pair !== "object" || !("input" in pair) || !("output" in pair)) {
+        throw new Error(
+          `runMCTSVerification: holdOutPairs[${i}] must be an object with both "input" and "output"`,
+        );
+      }
+    }
   }
 
   const customCandidates = options.candidates;
@@ -511,9 +563,33 @@ export async function runMCTSVerification(
   }
 
   const bestState = states.get(bestId)!;
+  // The winner meets the untouched data ONCE, after the search is over.
+  // Running it earlier (or per iteration) would leak the held-out set back
+  // into the search and destroy the only independent signal available.
+  let generalization: GeneralizationReport = { checked: false, passed: false, report: null };
+  if (holdOut !== undefined) {
+    const code = bestState.node.programCode ?? IDENTITY_PROGRAM;
+    let report: VerificationReport;
+    try {
+      report = verifyTransform(compile(code), holdOut);
+    } catch (e) {
+      // A winner that will not even compile here fails generalization; it
+      // never throws out of this function, same contract as the search.
+      report = {
+        passed: false,
+        totalExamples: holdOut.length,
+        passedExamples: 0,
+        failures: [{ exampleIndex: -1, reason: `compile failed: ${(e as Error).message}` }],
+        failedExamplesDigest: `compile:0/${holdOut.length}`,
+      };
+    }
+    generalization = { checked: true, passed: report.passed, report };
+  }
+
   return {
     bestNode: { ...bestState.node },
     verification: bestState.report!,
+    generalization,
     treeSize: states.size,
   };
 }
