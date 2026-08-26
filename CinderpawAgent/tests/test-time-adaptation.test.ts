@@ -59,10 +59,12 @@ describe("buildTttRecords", () => {
   });
 });
 
+const RUN = "ttt-test-run";
+
 describe("writeTttDataset", () => {
   test("writes trainer-ready JSONL + inspectable JSON mirror", () => {
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "ttt-"));
-    const result = writeTttDataset({ taskName: "task-07", pairs: PAIRS, outDir });
+    const result = writeTttDataset({ taskName: "task-07", runId: RUN, pairs: PAIRS, outDir });
     expect(result.recordCount).toBe(2);
     expect(fs.existsSync(result.jsonlPath)).toBe(true);
     expect(fs.existsSync(result.jsonPath)).toBe(true);
@@ -76,19 +78,58 @@ describe("writeTttDataset", () => {
     expect(mirror).toEqual(parsed);
   });
 
-  test("different tasks do not collide inside the same dir (fresh files each call)", () => {
+  test("two tasks in one run keep SEPARATE files", () => {
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "ttt-"));
-    const a = writeTttDataset({ taskName: "a", pairs: [PAIRS[0] as never], outDir });
-    const b = writeTttDataset({ taskName: "b", pairs: [PAIRS[1] as never], outDir });
-    expect(a.recordCount).toBe(1);
-    expect(b.taskName).toBe("b");
-    const lines = fs.readFileSync(b.jsonlPath, "utf8").trim().split("\n");
-    expect(lines.length).toBe(1);
+    const a = writeTttDataset({ taskName: "a", runId: RUN, pairs: [PAIRS[0] as never], outDir });
+    const b = writeTttDataset({ taskName: "b", runId: RUN, pairs: [PAIRS[1] as never], outDir });
+    // The old code wrote both to one fixed ttt_dataset.jsonl, so b silently
+    // replaced a — and the previous version of this test still passed because
+    // it only ever read b back. Assert BOTH survive.
+    expect(a.jsonlPath).not.toBe(b.jsonlPath);
+    expect(fs.existsSync(a.jsonlPath)).toBe(true);
+    expect(fs.existsSync(b.jsonlPath)).toBe(true);
+    expect(fs.readFileSync(a.jsonlPath, "utf8")).not.toBe(fs.readFileSync(b.jsonlPath, "utf8"));
   });
 
   test("loud when pairs are missing", () => {
-    expect(() => writeTttDataset({ taskName: "x", pairs: [], outDir: os.tmpdir() })).toThrow(
-      /non-empty array/,
+    expect(() =>
+      writeTttDataset({ taskName: "x", runId: RUN, pairs: [], outDir: os.tmpdir() }),
+    ).toThrow(/non-empty array/);
+  });
+
+  // ---- RUN SCOPING (INV-F) ------------------------------------------------
+
+  test("requires a runId — there is no unscoped default", () => {
+    // @ts-expect-error deliberately omitting the required runId
+    expect(() => writeTttDataset({ taskName: "x", pairs: PAIRS, outDir: os.tmpdir() })).toThrow(
+      /runId/,
     );
+  });
+
+  test("refuses a runId that would escape the run directory", () => {
+    expect(() => writeTttDataset({ taskName: "x", runId: "../../etc", pairs: PAIRS })).toThrow(
+      /path-safe/,
+    );
+  });
+
+  test("the default output directory is isolated per run", () => {
+    const a = writeTttDataset({ taskName: "same-task", runId: "ttt-ep-1", pairs: PAIRS });
+    const b = writeTttDataset({ taskName: "same-task", runId: "ttt-ep-2", pairs: PAIRS });
+    expect(a.jsonlPath).not.toBe(b.jsonlPath);
+    expect(path.dirname(a.jsonlPath)).not.toBe(path.dirname(b.jsonlPath));
+    fs.rmSync(path.dirname(a.jsonlPath), { recursive: true, force: true });
+    fs.rmSync(path.dirname(b.jsonlPath), { recursive: true, force: true });
+  });
+
+  test("never silently replaces an existing dataset for the same run+task", () => {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "ttt-"));
+    writeTttDataset({ taskName: "dup", runId: RUN, pairs: PAIRS, outDir });
+    expect(() => writeTttDataset({ taskName: "dup", runId: RUN, pairs: PAIRS, outDir })).toThrow(
+      /refusing to overwrite/,
+    );
+    // Replacing it stays possible, but only when asked for explicitly.
+    expect(() =>
+      writeTttDataset({ taskName: "dup", runId: RUN, pairs: PAIRS, outDir, overwrite: true }),
+    ).not.toThrow();
   });
 });

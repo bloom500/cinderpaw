@@ -1,16 +1,29 @@
 /**
- * test_time_adaptation.ts — Test-Time Training (TTT) dataset builder.
+ * test_time_adaptation.ts — TTT DATASET BUILDER. It builds a file; it does
+ * not train anything.
  *
- * Takes the demonstration pairs of the CURRENT task and materializes a
- * fine-tuning dataset ready for local LoRA training. Format follows the
- * authoritative trainer contract (docs/LORA_TRAINER.md): JSONL, one
- * {"prompt", "response"} pair per line, consumed by
- * `FERAL_LORA_TRAINER_BIN finetune --data <file>` (bundled trainer install:
- * scripts/setup-lora-trainer.sh / .ps1).
+ * Say the scope out loud, because the name does not: there is no training
+ * loop here, no optimizer state, no checkpoints, no rollback, no eval gate
+ * and no GPU handling. Test-Time Training as a capability is NOT
+ * implemented. What this does is take the demonstration pairs of one task
+ * and materialize a fine-tuning dataset in the authoritative trainer
+ * contract format (docs/LORA_TRAINER.md): JSONL, one {"prompt","response"}
+ * per line, consumed by `FERAL_LORA_TRAINER_BIN finetune --data <file>`
+ * (bundled trainer install: scripts/setup-lora-trainer.sh / .ps1).
  *
- * Outputs (OS temp dir unless --out-dir):
- *   - ttt_dataset.jsonl  trainer-ready dataset (the contract format)
- *   - ttt_dataset.json   human-inspectable mirror of the same records
+ * Anyone planning a "+TTT" benchmark column should read the paragraph above
+ * first: that column cannot be produced from this file alone.
+ *
+ * RUN SCOPING (INV-F). `runId` is required and datasets land under
+ * <tmp>/cinderpaw-ttt/<runId>/. The previous default wrote every task to
+ * one fixed `ttt_dataset.jsonl` in the OS temp dir, so two episodes
+ * silently overwrote each other and a trainer pointed at a stale path would
+ * fine-tune episode N+1 on episode N's data — contamination with no error
+ * and no trace. Existing files are never replaced unless the caller says so.
+ *
+ * Outputs (per run, per task):
+ *   - ttt_<task>.jsonl  trainer-ready dataset (the contract format)
+ *   - ttt_<task>.json   human-inspectable mirror of the same records
  *
  * Pure Node/Bun APIs, no network, works on a fresh machine.
  */
@@ -19,6 +32,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+import { assertValidRunId } from "../../src/core/run-id.ts";
 
 export interface TttPair {
   input: unknown;
@@ -78,16 +93,41 @@ export function buildTttRecords(
  */
 export function writeTttDataset(options: {
   taskName: string;
+  /** REQUIRED. The episode this dataset belongs to. See RUN SCOPING. */
+  runId: string;
   pairs: readonly TttPair[];
   description?: string;
   outDir?: string;
+  /** Allow replacing an existing dataset for this run+task. Default false. */
+  overwrite?: boolean;
 }): TttDatasetResult {
+  assertValidRunId(options?.runId);
   const records = buildTttRecords(options.taskName, options.pairs, options.description);
-  const outDir = options.outDir ?? os.tmpdir();
+  const outDir = options.outDir ?? path.join(os.tmpdir(), "cinderpaw-ttt", options.runId);
   fs.mkdirSync(outDir, { recursive: true });
 
-  const jsonlPath = path.join(outDir, "ttt_dataset.jsonl");
-  const jsonPath = path.join(outDir, "ttt_dataset.json");
+  // The task name is in the FILENAME too: one run can hold many tasks, and
+  // they must not overwrite one another either.
+  const slug =
+    options.taskName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "task";
+  const jsonlPath = path.join(outDir, `ttt_${slug}.jsonl`);
+  const jsonPath = path.join(outDir, `ttt_${slug}.json`);
+
+  if (options.overwrite !== true) {
+    for (const existing of [jsonlPath, jsonPath]) {
+      if (fs.existsSync(existing)) {
+        throw new Error(
+          `test_time_adaptation: ${existing} already exists for run "${options.runId}" — ` +
+            "refusing to overwrite a dataset another step may already be training on; " +
+            "pass overwrite:true (or --overwrite) if replacing it is what you mean",
+        );
+      }
+    }
+  }
 
   fs.writeFileSync(jsonlPath, records.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
   fs.writeFileSync(jsonPath, `${JSON.stringify(records, null, 2)}\n`, "utf8");
@@ -95,23 +135,42 @@ export function writeTttDataset(options: {
   return { jsonlPath, jsonPath, recordCount: records.length, taskName: options.taskName };
 }
 
-function parseArgs(argv: readonly string[]): { task?: string; outDir?: string } {
-  const out: { task?: string; outDir?: string } = {};
-  for (let i = 2; i < argv.length; i += 2) {
+interface TttArgs {
+  task?: string;
+  outDir?: string;
+  runId?: string;
+  overwrite?: boolean;
+}
+
+function parseArgs(argv: readonly string[]): TttArgs {
+  const out: TttArgs = {};
+  for (let i = 2; i < argv.length; i++) {
     const key = argv[i];
+    // `--overwrite` is a flag, so the old fixed 2-step stride would have
+    // swallowed the following argument as its value.
+    if (key === "--overwrite") {
+      out.overwrite = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (key === "--task") out.task = value;
     else if (key === "--out-dir") out.outDir = value;
+    else if (key === "--run-id") out.runId = value;
     else throw new Error(`test_time_adaptation: unknown argument "${String(key)}"`);
+    i++;
   }
   return out;
 }
 
 function main(): void {
   const args = parseArgs(process.argv);
-  if (!args.task) {
-    console.error("[ttt] usage: bun scripts/lora-trainer/test_time_adaptation.ts --task <task.json> [--out-dir DIR]");
+  if (!args.task || !args.runId) {
+    console.error(
+      "[ttt] usage: bun scripts/lora-trainer/test_time_adaptation.ts --task <task.json> --run-id <id> [--out-dir DIR] [--overwrite]",
+    );
     console.error('[ttt]   task file shape: { "taskName": "...", "description": "...?", "pairs": [{ "input": ..., "output": ... }] }');
+    console.error("[ttt]   --run-id names the episode; datasets are isolated per run so two episodes cannot overwrite each other.");
+    console.error("[ttt] NOTE: this builds a dataset. It does not train, checkpoint or roll anything back.");
     process.exitCode = 1;
     return;
   }
@@ -133,9 +192,11 @@ function main(): void {
   try {
     const result = writeTttDataset({
       taskName,
+      runId: args.runId,
       pairs: parsed.pairs ?? [],
       description: parsed.description,
       outDir: args.outDir,
+      overwrite: args.overwrite === true,
     });
     console.log(`[ttt] task "${result.taskName}": ${result.recordCount} demonstration pairs`);
     console.log(`[ttt] trainer-ready dataset (contract JSONL): ${result.jsonlPath}`);
