@@ -23,12 +23,25 @@
  * Usage:
  *   node scripts/arc/run_maze_selftest.mjs [--seed 42] [--size 16]
  *        [--max-actions 200] [--out scripts/arc/logs/maze_selftest_results.json]
+ *        [--run-id <id>] [--strict]
+ *
+ * A run-manifest.json is written beside the results (INVARIANT G) so the
+ * commit, seed, budgets and environment behind a number are recoverable.
+ * --strict turns "this run is not reproducible" from a warning into a
+ * non-zero exit.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import {
+  assertReportable,
+  createRunManifest,
+  reportabilityProblems,
+  writeRunManifest,
+} from "../../src/core/run-manifest.ts";
 
 const ACTION_VOCABULARY = ["ACTION1", "ACTION2", "ACTION3", "ACTION4"];
 // ACTION1=up, ACTION2=down, ACTION3=left, ACTION4=right (ARC-AGI-3 style ids)
@@ -231,15 +244,23 @@ export function runBaseline({ seed = 42, size = 16, maxActions = 200, policy: ma
 
 function parseArgs(argv) {
   const out = {};
-  for (let i = 2; i < argv.length; i += 2) {
+  for (let i = 2; i < argv.length; i++) {
     const key = argv[i];
+    // `--strict` takes no value; the old fixed 2-step stride would have
+    // swallowed whatever followed it as its argument.
+    if (key === "--strict") {
+      out.strict = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (key === undefined || value === undefined) break;
     if (key === "--seed") out.seed = Number.parseInt(value, 10);
     else if (key === "--size") out.size = Number.parseInt(value, 10);
     else if (key === "--max-actions") out.maxActions = Number.parseInt(value, 10);
     else if (key === "--out") out.out = value;
+    else if (key === "--run-id") out.runId = value;
     else throw new Error(`run_maze_selftest: unknown argument "${key}"`);
+    i++;
   }
   return out;
 }
@@ -262,6 +283,30 @@ function main() {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, `${JSON.stringify(logPayload, null, 2)}\n`, "utf8");
 
+  // INVARIANT G — the receipt ships with the result, always. Even here,
+  // where the result is explicitly not a benchmark: the manifest is what
+  // lets someone months from now tell which commit and which environment
+  // produced the JSON sitting next to it.
+  const manifest = createRunManifest({
+    runId: args.runId ?? "maze-selftest",
+    harness: { name: "synthetic-maze-selftest", version: logPayload.harnessVersion },
+    // An oracle is still a policy, and naming it is what stops the manifest
+    // from looking like a run whose model someone forgot to write down.
+    models: { policy: result.policyIsOracle ? "oracle-bfs" : "caller-supplied" },
+    seed: result.seed,
+    budgets: { maxActions: Number.isFinite(args.maxActions) ? args.maxActions : 200 },
+    tools: [],
+    config: { size: result.gridSize, seed: result.seed },
+    notes: [
+      "Synthetic maze self-test. The score is a proxy and is NOT an ARC-AGI-3 RHAE result.",
+      ...(result.policyIsOracle
+        ? ["Policy was the built-in oracle: 100 is expected and measures the harness, not an agent."]
+        : []),
+    ],
+    repoRoot: path.resolve(scriptDir, "..", ".."),
+  });
+  const manifestPath = writeRunManifest(manifest, path.dirname(outPath));
+
   // Human summary — visible on the caller's screen, not just in the log.
   console.log(`[maze-selftest] game=${result.game} seed=${result.seed} grid=${result.gridSize}`);
   console.log(
@@ -275,6 +320,27 @@ function main() {
         : "Policy was caller-supplied; the score is a proxy, comparable only against another policy on the same seed."),
   );
   console.log(`[maze-selftest] log written to ${outPath}`);
+  console.log(`[maze-selftest] run manifest: ${manifestPath}`);
+  // Surfaced on the screen, not buried in the JSON: a run nobody could
+  // reproduce is worth knowing about BEFORE the number gets quoted.
+  const problems = reportabilityProblems(manifest);
+  if (problems.length > 0) {
+    console.warn(`[maze-selftest] this run is NOT reproducible as recorded:`);
+    for (const p of problems) console.warn(`[maze-selftest]   - ${p}`);
+    if (args.strict) {
+      // A stack trace here would bury the one line the operator needs.
+      try {
+        assertReportable(manifest);
+      } catch (e) {
+        console.error(`[maze-selftest] --strict: ${(e instanceof Error ? e.message : String(e))}`);
+        process.exitCode = 1;
+        return;
+      }
+    } else {
+      console.warn("[maze-selftest] pass --strict to make this an error instead of a warning.");
+    }
+  }
+
   if (!result.completed) {
     console.error(`[maze-selftest] FAILED to reach target within budget - inspect ${outPath}`);
     process.exitCode = 1;

@@ -163,4 +163,28 @@ describe("runBaseline + scoring", () => {
     expect(() => runBaseline({ policy: 42 })).toThrow(/policy/);
     expect(() => runBaseline({ policy: () => "not-a-function" })).toThrow(/policy/);
   });
+
+  test("CLI writes a run manifest beside the results (INVARIANT G)", () => {
+    const scriptPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../scripts/arc/run_maze_selftest.mjs",
+    );
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "maze-manifest-"));
+    const outPath = path.join(outDir, "r.json");
+    execFileSync(process.execPath, [scriptPath, "--out", outPath, "--max-actions", "80"], {
+      encoding: "utf8",
+      timeout: 30000,
+    });
+    const manifestPath = path.join(outDir, "run-manifest.json");
+    expect(fs.existsSync(manifestPath)).toBe(true);
+    const m = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    expect(m.manifestVersion).toBe(1);
+    expect(m.seed).toBe(42);
+    // An oracle is a policy and must be named as one, or the manifest looks
+    // like a run whose model someone forgot to record.
+    expect(m.models.policy).toBe("oracle-bfs");
+    expect(m.notes.join(" ")).toContain("NOT an ARC-AGI-3");
+    // A manifest is published next to a scorecard — it must never carry a key.
+    expect(m.config.env.FERAL_DB_KEY).toMatch(/^<redacted:/);
+  }, 45000);
 });

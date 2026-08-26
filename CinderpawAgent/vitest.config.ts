@@ -32,6 +32,7 @@ export default defineConfig({
       "tests/goal-backward-planner.test.ts",
       "tests/metacognitive-auditor.test.ts",
       "tests/skill-induction.test.ts",
+      "tests/run-manifest.test.ts",
     ],
   },
 });
