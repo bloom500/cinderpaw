@@ -25,11 +25,11 @@ type Settings struct {
 }
 
 func LoadSettings() (*Settings, error) {
-	home, err := os.UserHomeDir()
+	home, err := Home()
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".feral", "settings.json"))
+	data, err := os.ReadFile(filepath.Join(home, "settings.json"))
 	if err != nil {
 		return &Settings{APIPort: DefaultPort}, nil
 	}
@@ -194,11 +194,11 @@ type rawStatus struct {
 }
 
 func ReadToken() (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := Home()
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".feral", "api-token"))
+	data, err := os.ReadFile(filepath.Join(home, "api-token"))
 	if err != nil {
 		return "", err
 	}
@@ -220,11 +220,10 @@ func EnsureToken(seed []byte) (string, error) {
 	if existing, err := ReadToken(); err == nil && existing != "" {
 		return existing, nil
 	}
-	home, err := os.UserHomeDir()
+	dir, err := Home()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".feral")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -1092,11 +1091,10 @@ type ConnectorFileEntry struct {
 // will be deleted then; the file-shape type and the reload call survive
 // in a narrower form.
 func SaveConnectorConfig(id string, secrets map[string]string, enable bool) error {
-	home, err := os.UserHomeDir()
+	dir, err := Home()
 	if err != nil {
 		return fmt.Errorf("cannot find home directory: %w", err)
 	}
-	dir := filepath.Join(home, ".feral")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("cannot create %s: %w", dir, err)
 	}

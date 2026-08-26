@@ -29,8 +29,8 @@ func TestEnsureTokenCreatesAndReuses(t *testing.T) {
 		t.Fatalf("token too short: %d chars", len(tok1))
 	}
 	// Verify the file landed on disk with 0600 perms (skipped on Windows
-// where POSIX bits are not enforced — Windows ACL is a separate surface).
-	path := filepath.Join(dir, ".feral", "api-token")
+	// where POSIX bits are not enforced — Windows ACL is a separate surface).
+	path := filepath.Join(testHomeDir(t), "api-token")
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("token file missing: %v", err)

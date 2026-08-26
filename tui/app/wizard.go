@@ -209,19 +209,15 @@ func feralHomeDir() string {
 	return dir
 }
 
-// feralHome returns ~/.feral/ and ensures the directory exists.
-// Uses os.UserHomeDir() instead of os.ExpandEnv("~") because the
-// latter does NOT expand ~ on Windows (ONB-001 fix).
+// feralHome returns the agent's profile dir and ensures it exists.
+//
+// The name is kept because a dozen call sites use it; the ".feral" literal is
+// not. This used to MkdirAll ~/.feral unconditionally, which meant running the
+// TUI on a migrated machine recreated the legacy directory — unmarked — and
+// the Rust host then refused to boot because both directories existed and the
+// older one carried no migration marker. See api.Home for the whole story.
 func feralHome() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot find home directory: %w", err)
-	}
-	dir := filepath.Join(home, ".feral")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", fmt.Errorf("cannot create %s: %w", dir, err)
-	}
-	return dir, nil
+	return api.HomeEnsure()
 }
 
 // wizardProgressPath returns the absolute path to the wizard progress file.

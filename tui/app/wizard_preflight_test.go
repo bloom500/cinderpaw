@@ -36,10 +36,10 @@ func TestPreflightFreshInstall(t *testing.T) {
 
 func TestPreflightByokFileEmpty(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
-	mustWrite(t, filepath.Join(dir, ".feral", "byok.json"), "")
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	mustMkdir(t, testHomeDir(t))
+	mustWrite(t, filepath.Join(testHomeDir(t), "byok.json"), "")
 
 	n := checkByokFile()
 	if n == nil {
@@ -55,10 +55,10 @@ func TestPreflightByokFileEmpty(t *testing.T) {
 
 func TestPreflightByokFileInvalidJSON(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
-	mustWrite(t, filepath.Join(dir, ".feral", "byok.json"), `{ not json `)
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	mustMkdir(t, testHomeDir(t))
+	mustWrite(t, filepath.Join(testHomeDir(t), "byok.json"), `{ not json `)
 
 	n := checkByokFile()
 	if n == nil {
@@ -80,14 +80,14 @@ func TestPreflightByokFileInvalidJSON(t *testing.T) {
 
 func TestPreflightByokFileUnknownProvider(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	mustMkdir(t, testHomeDir(t))
 	// `nonesuch` is not in CloudProviders today; this matches the
 	// contract that Phase 1 catalog sync catches when byok::CATALOG_VERSION
 	// bumps and a removed provider surfaces here.
 	byok := `{"providers":{"nonesuch":{"api_key":"abc","enabled":true}}}`
-	mustWrite(t, filepath.Join(dir, ".feral", "byok.json"), byok)
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
+	mustWrite(t, filepath.Join(testHomeDir(t), "byok.json"), byok)
 
 	n := checkByokFile()
 	if n == nil {
@@ -106,11 +106,11 @@ func TestPreflightByokFileKnownProvider(t *testing.T) {
 	// surface a notice. The catalog surface (`hasExistingConfig`) is
 	// what gates the WizConfigHandling screen, not the preflight.
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
-	byok := `{"providers":{"openai":{"api_key":"abc","enabled":true}}}`
-	mustWrite(t, filepath.Join(dir, ".feral", "byok.json"), byok)
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	mustMkdir(t, testHomeDir(t))
+	byok := `{"providers":{"openai":{"api_key":"abc","enabled":true}}}`
+	mustWrite(t, filepath.Join(testHomeDir(t), "byok.json"), byok)
 
 	if n := checkByokFile(); n != nil {
 		t.Errorf("known-provider byok.json should not surface a notice; got %+v", n)
@@ -119,12 +119,12 @@ func TestPreflightByokFileKnownProvider(t *testing.T) {
 
 func TestPreflightProgressVersionStale(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
-	// wizardProgressVersion is currently 3; write v2 — older, must
-	// surface as warn so the user knows why their progress reset.
-	mustWrite(t, filepath.Join(dir, ".feral", wizardProgressFile), "v2:1")
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	mustMkdir(t, testHomeDir(t))
+	// wizardProgressVersion is currently 3; write v2 — older, must
+	// surface as warn so the user knows why their progress reset.
+	mustWrite(t, filepath.Join(testHomeDir(t), wizardProgressFile), "v2:1")
 
 	n := checkProgressVersion()
 	if n == nil {
@@ -140,10 +140,10 @@ func TestPreflightProgressVersionStale(t *testing.T) {
 
 func TestPreflightProgressVersionFuture(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
-	mustWrite(t, filepath.Join(dir, ".feral", wizardProgressFile), "v999:7")
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	mustMkdir(t, testHomeDir(t))
+	mustWrite(t, filepath.Join(testHomeDir(t), wizardProgressFile), "v999:7")
 
 	n := checkProgressVersion()
 	if n == nil {
@@ -159,11 +159,11 @@ func TestPreflightProgressVersionFuture(t *testing.T) {
 
 func TestPreflightProgressVersionMatch(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
-	// Match the current version; no notice expected.
-	mustWrite(t, filepath.Join(dir, ".feral", wizardProgressFile), "v"+intToStr(wizardProgressVersion)+":1")
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+	mustMkdir(t, testHomeDir(t))
+	// Match the current version; no notice expected.
+	mustWrite(t, filepath.Join(testHomeDir(t), wizardProgressFile), "v"+intToStr(wizardProgressVersion)+":1")
 
 	if n := checkProgressVersion(); n != nil {
 		t.Errorf("matching-version progress should not surface a notice; got %+v", n)

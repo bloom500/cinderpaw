@@ -25,6 +25,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"feral-tui/api"
 )
 
 // preflightNotice is a single off-disk anomaly the wizard should
@@ -45,11 +47,11 @@ type preflightNotice struct {
 // was found on disk (active provider or provider ids from byok.json when
 // parseable), for the Welcome "Use existing config" option (P1).
 func existingConfigSummary() string {
-	home, err := os.UserHomeDir()
+	home, err := api.Home()
 	if err != nil {
 		return "reuse the configuration on disk"
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".feral", "byok.json"))
+	data, err := os.ReadFile(filepath.Join(home, "byok.json"))
 	if err != nil {
 		return "reuse the configuration on disk"
 	}
