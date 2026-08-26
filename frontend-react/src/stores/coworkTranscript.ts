@@ -41,6 +41,48 @@ export interface CoworkExchange {
    *  a card that was already running when the panel mounted still needs an
    *  honest "since when". */
   startedAt?: number;
+  /** Tools this agent has called during the turn, oldest first, with the
+   *  running one last. "Atlas is working" answers whether anything is
+   *  happening; this answers what. Capped so a long turn cannot grow the
+   *  row without bound. */
+  tools?: { name: string; done: boolean }[];
+}
+
+/** Enough to see the shape of a turn without turning the row into a log. */
+export const COWORK_TOOLS_PER_EXCHANGE = 8;
+
+/**
+ * Record a tool call against whichever exchange that cowork agent is running.
+ *
+ * Attribution is by AGENT, not by exchange id: tool events know the session
+ * (`cowork:<agentId>`) but nothing about the mailbox row being processed, and
+ * the worker drains one message at a time per agent — so the open exchange for
+ * that agent is the one that called it.
+ */
+export function applyCoworkToolEvent(
+  exchanges: CoworkExchange[],
+  evt: { sessionId?: string; tool: string; done: boolean },
+): CoworkExchange[] {
+  const prefix = 'cowork:';
+  if (!evt.sessionId?.startsWith(prefix)) return exchanges;
+  const agentId = evt.sessionId.slice(prefix.length);
+  // Last open exchange addressed to that agent: the one being worked on now.
+  let idx = -1;
+  for (let i = exchanges.length - 1; i >= 0; i--) {
+    const e = exchanges[i]!;
+    if (e.toAgentId === agentId && e.status === 'running') {
+      idx = i;
+      break;
+    }
+  }
+  if (idx === -1) return exchanges;
+  const target = exchanges[idx]!;
+  const tools = [...(target.tools ?? [])];
+  const open = tools.findIndex((t) => t.name === evt.tool && !t.done);
+  if (evt.done && open !== -1) tools[open] = { name: evt.tool, done: true };
+  else if (!evt.done) tools.push({ name: evt.tool, done: false });
+  const next = { ...target, tools: tools.slice(-COWORK_TOOLS_PER_EXCHANGE) };
+  return exchanges.map((e, i) => (i === idx ? next : e));
 }
 
 /** The subset of the sidecar's `cowork_event` the transcript needs. */
@@ -186,11 +228,13 @@ export function applyCoworkEvent(
 interface CoworkTranscriptStore {
   exchanges: CoworkExchange[];
   ingest: (evt: CoworkEventInput) => void;
+  ingestTool: (evt: { sessionId?: string; tool: string; done: boolean }) => void;
   clear: () => void;
 }
 
 export const useCoworkTranscript = create<CoworkTranscriptStore>((set) => ({
   exchanges: [],
   ingest: (evt) => set((s) => ({ exchanges: applyCoworkEvent(s.exchanges, evt) })),
+  ingestTool: (evt) => set((s) => ({ exchanges: applyCoworkToolEvent(s.exchanges, evt) })),
   clear: () => set({ exchanges: [] }),
 }));

@@ -1414,9 +1414,12 @@ export type OutboundEvent =
        */
       runSummary?: boolean;
     }
-  | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string }
+  /** `sessionId` is what lets a surface attribute a tool call to WHO ran it.
+   *  Without it the cowork panel could show that a teammate was working but
+   *  never what they were doing - the tool events carried no owner. */
+  | { type: "tool_start"; id: string; tool: string; args: Record<string, unknown>; traceId: string; sessionId?: string }
   | { type: "tool_progress"; sessionId: string; tool: string; stage: string; progress: number | null; message: string; data?: unknown; traceId?: string }
-  | { type: "tool_done"; id: string; tool: string; result: unknown; traceId?: string }
+  | { type: "tool_done"; id: string; tool: string; result: unknown; traceId?: string; sessionId?: string }
   | { type: "proactive"; content: string; traceId?: string }
   | { type: "model_set"; provider: string; model: string }
   | { type: "model_error"; message: string; traceId?: string }

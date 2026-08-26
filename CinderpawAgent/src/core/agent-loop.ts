@@ -1777,7 +1777,7 @@ export class AgentLoop {
         const toolSignal = this.#sessionToolSignals.get(sessionId)?.signal;
         for (const call of parsed.toolCalls) {
           toolCallCount++;
-          ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId });
+          ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId, sessionId });
         }
         const results = await Promise.all(
           parsed.toolCalls.map((call) =>
@@ -1790,7 +1790,7 @@ export class AgentLoop {
         for (let i = 0; i < parsed.toolCalls.length; i++) {
           const call = parsed.toolCalls[i]!;
           const result = results[i]!;
-          ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId });
+          ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId, sessionId });
           if (result.error === "cancelled") ctx.stopped = true;
           const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
           memory.addToolResult(call.name, rendered);
@@ -1807,10 +1807,10 @@ export class AgentLoop {
 
       for (const call of parsed.toolCalls) {
         toolCallCount++;
-        ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId });
+        ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId, sessionId });
         if (profile?.allowed && !profile.allowed.has(call.name)) {
           const denied = `Tool "${call.name}" is not available in this conversation.`;
-          ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result: { ok: false, content: denied, error: "not_available" }, traceId });
+          ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result: { ok: false, content: denied, error: "not_available" }, traceId, sessionId });
           memory.addToolResult(call.name, `ERROR: ${denied}`);
           continue;
         }
@@ -1821,7 +1821,7 @@ export class AgentLoop {
           ...(toolSignal ? { signal: toolSignal } : {}),
           onProgress: ctx.emit,
         });
-        ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId });
+        ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId, sessionId });
 
         // P0-#3: a `cancelled` result means the user invoked stop() during
         // this tool. Exit the iteration loop cleanly so the user's intent

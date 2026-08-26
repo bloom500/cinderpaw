@@ -130,16 +130,28 @@ export class CoworkRuntime {
         },
         this.#deps.emitEvent,
       );
-      for (const agent of roster) {
-        try {
-          await worker.tick(agent.id);
-        } catch (err) {
-          // One broken agent must not starve the rest of the roster.
-          this.#log(
-            `cowork: agent ${agent.name} tick failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
+      // Teammates drain CONCURRENTLY. Serially, an agent's inbox could not be
+      // touched until every agent before it in the roster had finished a full
+      // model turn — so Bolt's reply to Atlas waited out Atlas's entire turn
+      // before its own even started. Measured on this box: Atlas ~4 minutes,
+      // Bolt 10-15, for the same one-line task. Their turns are independent by
+      // construction (separate sessions, separate inboxes); the only thing the
+      // serial walk bought was a queue nobody asked for.
+      //
+      // allSettled, not all: one agent throwing must not cancel the rest, which
+      // is what the per-agent catch was already there to guarantee.
+      await Promise.allSettled(
+        roster.map(async (agent) => {
+          try {
+            await worker.tick(agent.id);
+          } catch (err) {
+            // One broken agent must not starve the rest of the roster.
+            this.#log(
+              `cowork: agent ${agent.name} tick failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }),
+      );
     } finally {
       this.#inflight = false;
     }

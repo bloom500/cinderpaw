@@ -234,13 +234,35 @@ function TypingRow({ e }: { e: CoworkExchange }) {
             />
           ))}
         </span>
-        <span className="text-2xs text-text-muted">
-          {who} is working
-          {e.startedAt !== undefined && (
-            <>
-              {' · '}
-              <Elapsed since={e.startedAt} />
-            </>
+        <span className="flex flex-col gap-0.5 text-2xs text-text-muted">
+          <span>
+            {who} is working
+            {e.startedAt !== undefined && (
+              <>
+                {' · '}
+                <Elapsed since={e.startedAt} />
+              </>
+            )}
+          </span>
+          {/* What they are actually doing. "Working" answers whether anything
+              is happening; the tool names answer what — which is the half a
+              person needs to tell a slow turn from a stuck one. */}
+          {e.tools && e.tools.length > 0 && (
+            <span className="flex flex-wrap gap-1">
+              {e.tools.map((t, i) => (
+                <span
+                  key={`${t.name}:${i}`}
+                  className={cn(
+                    'rounded px-1 py-px border tabular-nums',
+                    t.done
+                      ? 'border-border-subtle text-text-muted'
+                      : 'border-brand/40 bg-brand/10 text-text-secondary',
+                  )}
+                >
+                  {t.name.replace(/_/g, ' ')}
+                </span>
+              ))}
+            </span>
           )}
         </span>
       </span>

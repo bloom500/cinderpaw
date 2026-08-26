@@ -117,9 +117,23 @@ export function ensureFeralListener(): Promise<void> {
         break;
       case 'tool_start':
         if (parsed.id) inflight.get(parsed.id)?.onToolStart?.(parsed.callId, parsed.tool, parsed.args ?? {});
+        // A teammate's tool calls belong to the cowork transcript, not to a
+        // chat bubble: `inflight` is keyed by the USER's message id and a
+        // cowork turn has none, so without this the calls were dropped and
+        // the panel could say an agent was working but never what it did.
+        useCoworkTranscript.getState().ingestTool({
+          sessionId: parsed.sessionId,
+          tool: parsed.tool,
+          done: false,
+        });
         break;
       case 'tool_done':
         if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.callId, parsed.tool, parsed.result);
+        useCoworkTranscript.getState().ingestTool({
+          sessionId: parsed.sessionId,
+          tool: parsed.tool,
+          done: true,
+        });
         break;
       case 'usage':
         if (parsed.id) inflight.get(parsed.id)?.onUsage?.(parsed.promptTokens, parsed.completionTokens);

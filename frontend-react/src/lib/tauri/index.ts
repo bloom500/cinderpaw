@@ -607,8 +607,12 @@ export interface AgentConfig {
 export type CinderpawAgentEvent =
   | { type: 'chunk';       id: string; content: string }
   | { type: 'done';        id: string; content: string; stopped: boolean }
-  | { type: 'tool_start';  id: string; callId: string; tool: string; args: Record<string, unknown> }
-  | { type: 'tool_done';   id: string; callId: string; tool: string; result: unknown }
+  // `sessionId` is optional and only present on newer sidecars. It is what
+  // lets a surface attribute a call to WHO ran it — the cowork panel uses it
+  // to show which tools a teammate is using, which the events could not say
+  // before because they carried no owner.
+  | { type: 'tool_start';  id: string; callId: string; tool: string; args: Record<string, unknown>; sessionId?: string }
+  | { type: 'tool_done';   id: string; callId: string; tool: string; result: unknown; sessionId?: string }
   // #18: live progress/retry notes from long-running tools (sidecar emits
   // these with a sessionId, not a message id).
   | { type: 'tool_progress'; sessionId: string; tool: string; stage: string; progress: number | null; message: string }
