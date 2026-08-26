@@ -519,7 +519,9 @@ export function CoworkTranscriptPanel() {
   const prevLenRef = useRef(0);
   // Per-thread hydrate: panel appears only in threads that used cowork.
   // When switching threads, fetch that thread's mailbox rows; empty = hide.
-  const currentId = useConversations((s) => s.currentId) ?? useChat((s) => s.sessionId);
+  const convId = useConversations((s) => s.currentId);
+  const chatSid = useChat((s) => s.sessionId);
+  const currentId = convId ?? chatSid;
   useEffect(() => {
     if (!currentId) return;
     void tauri.feralAgent.coworkHistory(currentId).catch(() => {});
