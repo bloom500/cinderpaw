@@ -40,9 +40,12 @@ function shortName(id: string): string {
   return tail.length > 18 ? `${tail.slice(0, 17)}…` : tail;
 }
 
-function hhmm(at: number): string {
+/** Seconds included on purpose: several A2A exchanges land inside one
+ *  minute, and without them every card in a burst reads as the same time. */
+function hhmmss(at: number): string {
   const d = new Date(at);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 function StatusGlyph({ status }: { status: CoworkExchange['status'] }) {
@@ -73,7 +76,7 @@ function Avatar({ id }: { id: string }) {
       )}
       title={id}
     >
-      {(id[0] ?? '?').toUpperCase()}
+      {(shortName(id)[0] ?? '?').toUpperCase()}
     </span>
   );
 }
@@ -100,6 +103,7 @@ function ExchangeBubble({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
           title={expanded ? 'collapse' : 'expand'}
           className={cn(
             'text-left text-micro leading-snug whitespace-pre-wrap break-words rounded-lg px-2 py-1.5 border cursor-pointer',
@@ -129,7 +133,7 @@ function ExchangeCard({ e }: { e: CoworkExchange }) {
       className={cn(
         'rounded-xl border p-2.5 flex flex-col gap-1.5',
         e.status === 'error'
-          ? 'border-red-500/30 bg-red-500/5'
+          ? 'border-error/30 bg-error/5'
           : 'border-border-default bg-bg-elevated/60',
       )}
       data-testid={`cowork-exchange-${e.kind}`}
@@ -141,11 +145,11 @@ function ExchangeCard({ e }: { e: CoworkExchange }) {
         <Avatar id={e.toAgentId} />
         <span className="font-medium text-text-primary truncate">{shortName(e.toAgentId)}</span>
         {e.approvalClass && (
-          <span className="rounded bg-amber-500/15 border border-amber-500/40 px-1 text-micro">
+          <span className="rounded bg-warning/15 border border-warning/40 px-1 text-micro">
             {e.approvalClass}
           </span>
         )}
-        <span className="ml-auto tabular-nums">{hhmm(e.at)}</span>
+        <span className="ml-auto tabular-nums">{hhmmss(e.at)}</span>
         <StatusGlyph status={e.status} />
       </div>
       {e.requestText && (
@@ -158,22 +162,55 @@ function ExchangeCard({ e }: { e: CoworkExchange }) {
   );
 }
 
+const COLLAPSED_KEY = 'cowork-panel-collapsed';
+
+/** Reading site data THROWS in a private window or with storage blocked —
+ *  a remembered panel state is not worth taking the whole panel down. */
+function readCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** How close to the bottom still counts as "following the live feed". */
+const FOLLOW_SLACK_PX = 48;
+
 export function CoworkTranscriptPanel() {
   const exchanges = useCoworkTranscript((s) => s.exchanges);
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('cowork-panel-collapsed') === '1');
+  const [collapsed, setCollapsed] = useState(readCollapsed);
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** Whether the reader is still pinned to the newest exchange. Scrolling up
+   *  to read an older one means they are not, and yanking them back down
+   *  every time an agent speaks makes the history unreadable on exactly the
+   *  traffic this panel exists to show. */
+  const following = useRef(true);
 
-  // Keep the newest exchange visible as traffic streams in.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && following.current) el.scrollTop = el.scrollHeight;
   }, [exchanges.length, collapsed]);
 
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    following.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_SLACK_PX;
+  };
+
   const toggleCollapsed = () => {
-    setCollapsed((v) => {
-      localStorage.setItem('cowork-panel-collapsed', v ? '0' : '1');
-      return !v;
-    });
+    // Persist OUTSIDE the updater: React may invoke an updater more than once
+    // (StrictMode does, in dev), and a state updater that writes to storage is
+    // a side effect in a function contracted to be pure.
+    const next = !collapsed;
+    setCollapsed(next);
+    try {
+      localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0');
+    } catch {
+      // Storage unavailable — the panel still toggles, it just will not
+      // remember. Never a reason to fail the interaction.
+    }
   };
 
   // Fresh install / no cowork traffic ⇒ no surface at all. (After the hooks:
@@ -208,7 +245,11 @@ export function CoworkTranscriptPanel() {
         <span className="ml-auto" aria-hidden>{collapsed ? '▸' : '▾'}</span>
       </button>
       {!collapsed && (
-        <div ref={scrollRef} className="max-h-[420px] overflow-y-auto px-2 pb-2">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="max-h-[420px] overflow-y-auto px-2 pb-2"
+        >
           <ul className="flex flex-col gap-1.5">
             <AnimatePresence initial={false}>
               {exchanges.map((e) => (
