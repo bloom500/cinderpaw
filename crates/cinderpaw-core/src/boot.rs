@@ -205,12 +205,14 @@ fn build_and_persist_api_token() -> Arc<str> {
 fn fragile_amd_embed_guard() {
     if std::env::var_os("FERAL_EMBED_GPU_LAYERS").is_none() {
         let info = crate::gpu_detect::detect();
-        if crate::gpu_detect::looks_like_fragile_amd_gpu(&info) {
+        if crate::gpu_detect::should_force_cpu_embed(&info) {
             std::env::set_var("FERAL_EMBED_GPU_LAYERS", "0");
             tracing::info!(
                 gpu = %info.name,
-                "fragile AMD GPU detected — forcing CPU offload for embeddings \
-                 (FERAL_EMBED_GPU_LAYERS=0); chat inference still uses GPU"
+                "pinning embeddings to CPU (FERAL_EMBED_GPU_LAYERS=0) — this GPU is \
+                 either known-fragile for the Vulkan embed path or could not be \
+                 identified; chat inference still uses the GPU. Set the variable \
+                 yourself to override."
             );
         }
     }
