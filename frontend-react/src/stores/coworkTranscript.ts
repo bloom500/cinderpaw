@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 /**
  * Live transcript of REAL agent-to-agent traffic (Agent Cowork).
@@ -281,13 +282,26 @@ interface CoworkTranscriptStore {
   clear: () => void;
 }
 
-export const useCoworkTranscript = create<CoworkTranscriptStore>((set) => ({
-  exchanges: [],
-  ingest: (evt) => set((s) => ({ exchanges: applyCoworkEvent(s.exchanges, evt) })),
-  ingestTool: (evt) => set((s) => ({ exchanges: applyCoworkToolEvent(s.exchanges, evt) })),
-  // Replace, not merge: switching conversations must not leave the previous
-  // chat's teammate traffic on screen under a new heading. Empty rows = no
-  // history for this thread, so clear (panel hides per-thread).
-  hydrate: (threadId, rows) => set({ exchanges: fromHistory(threadId, rows) }),
-  clear: () => set({ exchanges: [] }),
-}));
+export const useCoworkTranscript = create<CoworkTranscriptStore>()(
+  persist(
+    (set) => ({
+      exchanges: [],
+      ingest: (evt) => set((s) => ({ exchanges: applyCoworkEvent(s.exchanges, evt) })),
+      ingestTool: (evt) => set((s) => ({ exchanges: applyCoworkToolEvent(s.exchanges, evt) })),
+      // Replace, not merge: switching conversations must not leave the previous
+      // chat's teammate traffic on screen under a new heading. Empty rows = no
+      // history for this thread, so clear (panel hides per-thread).
+      hydrate: (threadId, rows) => set({ exchanges: fromHistory(threadId, rows) }),
+      clear: () => set({ exchanges: [] }),
+    }),
+    {
+      name: 'cowork-transcript',
+      storage: createJSONStorage(() => localStorage),
+      // Only persist the exchanges array — not the methods. Versioned so a
+      // future shape change can migrate or drop the cache without wiping
+      // unrelated localStorage keys.
+      partialize: (state) => ({ exchanges: state.exchanges }),
+      version: 1,
+    },
+  ),
+);
