@@ -123,14 +123,29 @@ describe("subsystem catalog", () => {
 
   test("healthNotebook calls a deliberately-off notebook fine, not broken", () => {
     // `available: false` here would flip self_health's banner to "some
-    // subsystems not yet persisted" on every install that never wanted a
-    // notebook — a diagnostic that always complains stops being read.
+    // subsystems not yet persisted" on every install that turned the notebook
+    // off — a diagnostic that always complains stops being read.
+    //
+    // Set explicitly rather than deleted: the notebook is ON by default as of
+    // 2026-08-26 (it is the largest lever on token cost), so "unset" no longer
+    // means "off" and deleting the variable would test the wrong branch.
     const before = process.env.FERAL_ENABLE_NOTEBOOK;
-    delete process.env.FERAL_ENABLE_NOTEBOOK;
+    process.env.FERAL_ENABLE_NOTEBOOK = "false";
     try {
       const h = healthNotebook();
       expect(h.available).toBe(true);
       expect(h.detail).toContain("disabled");
+    } finally {
+      if (before === undefined) delete process.env.FERAL_ENABLE_NOTEBOOK;
+      else process.env.FERAL_ENABLE_NOTEBOOK = before;
+    }
+  });
+
+  test("unset means ENABLED — the default that ships", () => {
+    const before = process.env.FERAL_ENABLE_NOTEBOOK;
+    delete process.env.FERAL_ENABLE_NOTEBOOK;
+    try {
+      expect(healthNotebook().detail).toContain("enabled");
     } finally {
       if (before !== undefined) process.env.FERAL_ENABLE_NOTEBOOK = before;
     }

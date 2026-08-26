@@ -75,7 +75,7 @@ import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
 import { NOTEBOOK_TOOL_NAME } from "../tools/builtin/notebook.ts";
 import { buildNotebookSection, WORKER_BRIEF } from "../rlm/prompt.ts";
 import { toIdentifier } from "../rlm/repl.ts";
-import { isConnectorTool, isCoreTool } from "../tools/tiers.ts";
+import { isConnectorTool, isCoreTool, isOwnerOnlyTool } from "../tools/tiers.ts";
 // Vendored from OpenClaw (MIT) — see src/vendor/tool-call-repair/README.md.
 import {
   parseStandalonePlainTextToolCallBlocks,
@@ -1808,7 +1808,13 @@ export class AgentLoop {
       for (const call of parsed.toolCalls) {
         toolCallCount++;
         ctx.emit({ type: "tool_start", id: messageId, tool: call.name, args: call.args, traceId, sessionId });
-        if (profile?.allowed && !profile.allowed.has(call.name)) {
+        // Advertising is not enforcement: a model can name a tool it was never
+        // shown. Both conditions are checked here, and the owner-only one tests
+        // the profile's presence rather than its allow-list.
+        const deniedByProfile =
+          (profile && isOwnerOnlyTool(call.name)) ||
+          (profile?.allowed && !profile.allowed.has(call.name));
+        if (deniedByProfile) {
           const denied = `Tool "${call.name}" is not available in this conversation.`;
           ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result: { ok: false, content: denied, error: "not_available" }, traceId, sessionId });
           memory.addToolResult(call.name, `ERROR: ${denied}`);
@@ -2072,8 +2078,14 @@ export class AgentLoop {
     // is reachable instead of being permanently invisible.
     // A restricted profile advertises exactly its allow-list; a persona-only
     // profile (allowed = null) and the owner both see core + drawer-loaded.
-    const advertise = (name: string): boolean =>
-      profile?.allowed ? profile.allowed.has(name) : isCoreTool(name) || !!loaded?.has(name);
+    const advertise = (name: string): boolean => {
+      // Owner-only tools are withheld from every profiled session, including a
+      // persona-only one whose `allowed` is null — see OWNER_ONLY_TOOLS. The
+      // test is the PRESENCE of a profile, not the contents of its allow-list,
+      // because a null allow-list is exactly the case that used to pass.
+      if (profile && isOwnerOnlyTool(name)) return false;
+      return profile?.allowed ? profile.allowed.has(name) : isCoreTool(name) || !!loaded?.has(name);
+    };
     const nativeTools = this.#nativeTools.filter((t) => advertise(t.name));
     const openAITools = this.#openAITools.filter((t) => advertise(t.function.name));
     // A turn that advertises nothing is indistinguishable, from the outside,

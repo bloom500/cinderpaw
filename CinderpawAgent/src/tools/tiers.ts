@@ -87,6 +87,37 @@ export const CONNECTOR_TOOLS = new Set<string>([
   "schedule_meeting",
 ]);
 
+/**
+ * The OTHER direction: tools that must never reach a session that is not the
+ * owner's, whatever that session's profile says.
+ *
+ * `CONNECTOR_TOOLS` marks tools only connectors get. Nothing marked the
+ * reverse, and the gap was load-bearing: a connector persona with no
+ * `personaTools` list compiles to `allowed = null`, and BOTH checks in the
+ * agent loop read `profile?.allowed && …` — so a null allow-list skipped the
+ * check entirely and the session ran with the owner's full surface. The
+ * connector log line says so out loud: "persona profile registered (full
+ * toolset)".
+ *
+ * `notebook` is the first entry because of what it is: a persistent JavaScript
+ * interpreter with every other tool bound as a function. Its sandbox is real —
+ * verified by running it: no `fetch`, no `process`, no `require`, and every
+ * capability still goes through the registry's permission checks — but the
+ * config's own words are "a hardened context, not a jail against hostile
+ * input". Someone messaging a Discord bot is hostile input by default. The
+ * owner typing in their own chat is not the same person, and this is where
+ * that distinction gets enforced instead of being left to whoever configures
+ * the connector.
+ *
+ * Fail-closed by design: the rule is "ANY profile means not the owner", not
+ * "an allow-list that omits it". A session gets these only when it has no
+ * profile at all.
+ */
+export const OWNER_ONLY_TOOLS = new Set<string>(["notebook"]);
+
+/** True when this tool must be withheld from any profiled (non-owner) session. */
+export const isOwnerOnlyTool = (name: string): boolean => OWNER_ONLY_TOOLS.has(name);
+
 export const isExtendedTool = (name: string): boolean =>
   // MCP tools (dynamic, registered by sandbox/mcp-manager.ts as `mcp_<tool>`)
   // always live in the drawer: a user with several extensions installed
