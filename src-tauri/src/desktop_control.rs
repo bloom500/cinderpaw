@@ -153,6 +153,8 @@ pub mod security {
     /// and additive — when in doubt, block.
     pub const HARD_DENY: &[&str] = &[
         // Cinderpaw itself — no confused-deputy / self-manipulation.
+        // "feral" kept for pre-rename binaries still on disk.
+        "cinderpaw",
         "feral",
         // Windows UAC / consent / credential surfaces.
         "consent",

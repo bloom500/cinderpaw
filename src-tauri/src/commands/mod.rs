@@ -79,7 +79,10 @@ mod command_count_test {
     // + connector_pair_poll + connector_refresh_expired. Phase 3: an account
     // is a thing with a status and a lifetime, so listing, pairing, polling
     // and renewing are four different questions rather than one flag.
-    const EXPECTED_COMMAND_COUNT: usize = 154;
+    // 157 (re-baselined 2026-08-25): the baseline had gone stale across the
+    // rename window (+3 commands, incl. feral_cowork_approval_resolve) and
+    // nothing was running this test because verify.sh still said `-p feral`.
+    const EXPECTED_COMMAND_COUNT: usize = 157;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
