@@ -18,6 +18,7 @@ import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboardin
 import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
 import { useOnboarding } from '@/stores/onboarding';
 import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
+import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 
@@ -200,6 +201,11 @@ export function ChatPage() {
         ) : (
           <NewChatEmptyState isEmpty={isEmpty} />
         )}
+
+        {/* Live agent-to-agent transcript (Agent Cowork). Self-hiding: with
+            zero cowork traffic it renders nothing, so a fresh install sees
+            no new surface. */}
+        <CoworkTranscriptPanel />
 
         {/* Input — always visible so the toggle is accessible even without a
             model. ChatInput handles the disabled state internally. */}
