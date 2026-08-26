@@ -264,12 +264,25 @@ export function ByokTab() {
   const byok = useSettings((s) => s.byok);
   const providerCatalog = useCatalog((s) => s.providerCatalog);
   const loadProvider = useCatalog((s) => s.loadProvider);
+  const [q, setQ] = useState('');
+  const [onlyConfigured, setOnlyConfigured] = useState(false);
 
   useEffect(() => {
     void loadProvider();
   }, [loadProvider]);
 
   const defs = mergeProviderDefs(providerCatalog);
+  const filtered = defs.filter((d) => {
+    if (onlyConfigured) {
+      const s = byok.find((b) => b.id === d.id);
+      if (!s?.has_api_key) return false;
+    }
+    if (q.trim()) {
+      const needle = q.toLowerCase();
+      if (!d.name.toLowerCase().includes(needle) && !d.id.toLowerCase().includes(needle)) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -277,10 +290,26 @@ export function ByokTab() {
         <h2 className="text-lg font-semibold text-text-primary">Cloud Keys</h2>
         <p className="text-xs text-text-muted mt-1">Add API keys to use cloud AI providers alongside local models.</p>
       </div>
+      <div className="flex items-center gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search providers…"
+          className="flex-1 min-w-0 rounded-md border border-border-subtle bg-bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-brand"
+        />
+        <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer select-none shrink-0">
+          <input type="checkbox" checked={onlyConfigured} onChange={(e) => setOnlyConfigured(e.target.checked)} className="rounded" />
+          Configured only
+        </label>
+      </div>
       <div className="space-y-2">
-        {defs.map((def) => (
-          <ProviderRow key={def.id} def={def} state={byok.find((b) => b.id === def.id)} />
-        ))}
+        {filtered.length === 0 ? (
+          <p className="text-sm text-text-muted py-4 text-center">No providers match.</p>
+        ) : (
+          filtered.map((def) => (
+            <ProviderRow key={def.id} def={def} state={byok.find((b) => b.id === def.id)} />
+          ))
+        )}
       </div>
     </div>
   );

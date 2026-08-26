@@ -56,10 +56,15 @@ export function LocalModelsTab({ onBrowse }: Props) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-text-muted px-6 gap-4">
         <p className="text-center">
-          No models installed yet.<br />
-          Switch to Browse HuggingFace to download your first model.
+          No models installed yet.
         </p>
-        <Button variant="outline" onClick={onBrowse}>Browse HuggingFace →</Button>
+        <div className="flex flex-wrap gap-2 justify-center">
+          <Button variant="default" onClick={onBrowse}>Browse HuggingFace →</Button>
+          <Button variant="outline" onClick={() => window.location.hash = '#settings?cat=byok'}>Use cloud key →</Button>
+        </div>
+        <p className="text-2xs text-text-disabled text-center max-w-sm">
+          Local needs download (1–16GB) · Cloud is instant with an API key
+        </p>
       </div>
     );
   }
