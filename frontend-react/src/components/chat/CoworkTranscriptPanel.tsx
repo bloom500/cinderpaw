@@ -592,10 +592,47 @@ export function CoworkTranscriptPanel() {
   const isEmpty = exchanges.length === 0;
   if (isEmpty) return null;
 
+  // Collapsed = tiny liquid bubble, not a bar. Saves visual field; click to
+  // morph into the full panel with a spring (border-radius 999→16).
+  if (collapsed) {
+    return (
+      <motion.button
+        type="button"
+        onClick={toggleCollapsed}
+        data-testid="cowork-bubble"
+        aria-label="Open cowork transcript"
+        aria-expanded={false}
+        layoutId="cowork-panel"
+        initial={{ scale: 0.85, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.85, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+        className="absolute right-3 top-3 z-20 w-12 h-12 rounded-full bg-brand shadow-lg
+                   flex items-center justify-center border border-brand/20
+                   hover:scale-105 active:scale-95 cursor-pointer"
+      >
+        <span className="flex -space-x-1">
+          {participants.slice(0, 2).map(([id, name]) => (
+            <Avatar key={id} id={id} name={name} />
+          ))}
+          {participants.length === 0 && <span className="text-sm text-white font-semibold">◈</span>}
+        </span>
+        {working.length > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full bg-brand border-2 border-white animate-pulse" />
+        )}
+      </motion.button>
+    );
+  }
+
   return (
-    <aside
+    <motion.aside
+      layoutId="cowork-panel"
       data-testid="cowork-transcript-panel"
       style={{ width: `${width}px`, maxWidth: '42%' }}
+      initial={{ scale: 0.92, opacity: 0, borderRadius: 999 }}
+      animate={{ scale: 1, opacity: 1, borderRadius: 16 }}
+      exit={{ scale: 0.92, opacity: 0, borderRadius: 999 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
       className="absolute right-3 top-3 z-20
                  flex flex-col rounded-2xl border border-border-default
                  bg-bg-elevated/80 backdrop-blur-md shadow-lg overflow-hidden"
@@ -625,7 +662,7 @@ export function CoworkTranscriptPanel() {
       <button
         type="button"
         onClick={toggleCollapsed}
-        aria-expanded={!collapsed}
+        aria-expanded={true}
         className="flex items-center gap-2 px-3 py-2 text-2xs font-medium text-text-muted
                    hover:bg-bg-elevated cursor-pointer select-none"
       >
@@ -646,18 +683,17 @@ export function CoworkTranscriptPanel() {
             title="working"
           />
         )}
-        <span className="ml-auto" aria-hidden>
-          {collapsed ? '▸' : '▾'}
+        <span className="ml-auto text-xs" aria-hidden>
+          ✕
         </span>
       </button>
-      {!collapsed && (
-        <div
-          ref={scrollRef}
-          onScroll={onScroll}
-          data-testid="cowork-transcript-scroll"
-          style={{ height: `${height}px`, maxHeight: '65vh' }}
-          className="overflow-y-auto px-2.5 pb-2.5"
-        >
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        data-testid="cowork-transcript-scroll"
+        style={{ height: `${height}px`, maxHeight: '65vh' }}
+        className="overflow-y-auto px-2.5 pb-2.5"
+      >
           <ul className="flex flex-col gap-2">
             <AnimatePresence initial={false}>
               {messages.map((m, i) => (
@@ -678,15 +714,14 @@ export function CoworkTranscriptPanel() {
               <TypingRow key={`typing:${e.id}`} e={e} />
             ))}
           </ul>
-        </div>
-      )}
-      {!collapsed && participants.length > 0 && (
+      </div>
+      {participants.length > 0 && (
         <Composer
           participants={participants}
           defaultTo={lastSpoken}
           threadId={lastThreadId}
         />
       )}
-    </aside>
+    </motion.aside>
   );
 }
