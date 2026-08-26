@@ -293,8 +293,9 @@ function MessageMeta({ message }: { message: ChatMessage }) {
   if (message.tokensPerSec) parts.push(`${message.tokensPerSec} tok/s`);
   const scratch = scratchLabel(message.scratch);
   if (scratch) parts.push(scratch);
+  const fullDate = new Date(at).toLocaleString();
   return (
-    <div className="text-2xs text-text-muted tabular-nums select-none">{parts.join(' · ')}</div>
+    <div className="text-xs text-text-muted tabular-nums select-text cursor-text" title={fullDate}>{parts.join(' · ')}</div>
   );
 }
 
@@ -308,7 +309,7 @@ function FeedbackButtons({ messageId }: { messageId: string }) {
   const vote = useChat((s) => s.feedback[messageId]);
   const setFeedback = useChat((s) => s.setFeedback);
   return (
-    <div className="flex items-center gap-1 mt-0.5 -ml-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+    <div className="flex items-center gap-1 mt-0.5 -ml-1 opacity-60 hover:opacity-100 focus-within:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
       <button
         type="button"
         aria-label="Good response"

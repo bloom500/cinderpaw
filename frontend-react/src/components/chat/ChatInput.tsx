@@ -230,12 +230,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     };
   }, []);
 
-  // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Plain text
-  // pastes fall through to the textarea untouched.
+  // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Keep text.
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items || !Array.from(items).some((i) => i.kind === 'file')) return;
-    e.preventDefault();
+    // Don't preventDefault — text+image paste should keep the text in the textarea
+    // while also attaching the image. Preventing drops the text.
     void attachmentsFromClipboard(e.clipboardData).then(addFiles);
   };
 
@@ -378,6 +378,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.nativeEvent as any).isComposing) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void trySend();
@@ -405,6 +406,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             dragOver ? 'border-brand border-dashed' : 'border-border-default',
           )}
         >
+          {dragOver && (
+            <div className="absolute inset-0 z-10 rounded-2xl bg-brand/10 backdrop-blur-sm border-2 border-dashed border-brand flex items-center justify-center pointer-events-none">
+              <span className="text-sm font-medium text-brand">Drop to attach</span>
+            </div>
+          )}
           {/* Always. The perch is not decoration: it walks the composer's edge
               and carries the tool-call stack, so it is how a person sees WHAT
               is running. Hiding it on Home removed a working feature to fix a
@@ -449,9 +455,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             // single row (min-h-11) that grows, not a tall empty box with the
             // placeholder stranded at the top of it.
             className={cn(
-              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-4 pt-3 text-base min-h-11 scrollbar-hide',
+              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-4 pt-3 text-base min-h-11 thin-scrollbar',
             )}
           />
+          <div className="px-4 pb-1 text-right">
+            <span className="text-2xs text-text-muted select-none">Shift+Enter for newline</span>
+          </div>
           <div className="flex items-center justify-between px-2.5 pb-2.5 pt-1">
             <div className="flex items-center gap-1">
               <ModelPill />
