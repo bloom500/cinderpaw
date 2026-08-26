@@ -14,8 +14,12 @@ import { homedir } from "node:os";
 // but that static re-export forced every short-lived invocation to evaluate
 // the whole agent module graph — see the note in index.ts.
 import { loadWorkspaceRoots } from "../src/boot.ts";
+import { agentProfileDirs, feralHome } from "../src/config.ts";
 
-const FERAL_HOME = resolve(homedir(), ".feral");
+// The profile dir the code actually uses, not a second hardcoded copy of
+// it: this test asserted ".feral" while the app had moved to ".cinderpaw",
+// which is the same drift the deny wall was suffering from.
+const FERAL_HOME = feralHome();
 const SCRATCH = resolve(FERAL_HOME, "workspace");
 
 test("explicit FERAL_WORKSPACE list is honored and scratch is always added", () => {
@@ -56,6 +60,20 @@ test("a root INSIDE ~/.feral is still dropped (brain exposure at registration)",
   expect(roots).not.toContain(agentDir);
   expect(roots).toContain(realProject); // a legit sibling root still survives
   expect(roots).toContain(SCRATCH); // the one allowed ~/.feral subtree
+});
+
+test("a root inside EITHER profile dir is dropped, not just the current one", () => {
+  // The rename migration copies ~/.feral to ~/.cinderpaw and never deletes the
+  // source, so both hold agent state on a migrated machine. When this guard
+  // tracked only the live one, the day the host migrated silently flipped
+  // which directory was protected and which was handed to the fs tools.
+  const dirs = agentProfileDirs();
+  expect(dirs.length).toBeGreaterThan(1);
+  for (const dir of dirs) {
+    const inside = resolve(dir, "rsi");
+    const roots = loadWorkspaceRoots({ FERAL_WORKSPACE: inside } as NodeJS.ProcessEnv);
+    expect(roots).not.toContain(inside);
+  }
 });
 
 test("empty/whitespace segments never resolve to a root escape", () => {

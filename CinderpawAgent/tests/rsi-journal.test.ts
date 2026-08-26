@@ -20,6 +20,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
+import { feralHome } from "../src/config.ts";
 import {
   appendJournal,
   defaultJournalDir,
@@ -273,8 +274,8 @@ describe("path helpers", () => {
     expect(path.endsWith(`journal${sep}journal-2026-07-14.jsonl`)).toBe(true);
   });
 
-  test("defaultJournalDir sits under ~/.feral/rsi/journal/", () => {
-    expect(defaultJournalDir().endsWith(join(".feral", "rsi", "journal"))).toBe(true);
+  test("defaultJournalDir sits under <profile dir>/rsi/journal/", () => {
+    expect(defaultJournalDir()).toBe(join(feralHome(), "rsi", "journal"));
   });
 });
 

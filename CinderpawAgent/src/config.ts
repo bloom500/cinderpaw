@@ -17,6 +17,7 @@
 // scripts/gen-config-docs.mjs — do not hand-edit the table between the
 // <!-- TS-SCHEMA-TABLE --> markers.
 
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -361,7 +362,7 @@ export function cfgList(name: string): string[] {
  * re-deriving the path.
  */
 export function feralHome(): string {
-  const base = resolve(cfgPath("FERAL_HOME") ?? join(homedir(), ".feral"));
+  const base = resolve(cfgPath("FERAL_HOME") ?? defaultHomeDir());
   const run = benchmarkRunId();
   // INVARIANT I13: a benchmark run gets its own profile dir, so nothing it
   // learns can be read by the next run. Scoping HERE and not at the twenty
@@ -369,6 +370,113 @@ export function feralHome(): string {
   // and the connector store all derive from this one function, so they all
   // move together or none of them do.
   return run ? join(base, "runs", run) : base;
+}
+
+/** Brand names for the profile dir. Mirrors `crates/cinderpaw-core/src/brand.rs`. */
+const APP_HOME_DIR_NAME = ".cinderpaw";
+const LEGACY_HOME_DIR_NAME = ".feral";
+/** Written into the OLD dir by the Rust migration once it has copied it. */
+const MIGRATION_MARKER = ".migrated-to-cinderpaw";
+
+let cachedDefaultHome: string | undefined;
+
+/**
+ * Where the profile dir lives when nothing overrides it.
+ *
+ * This function exists because the sidecar did not follow the rename and the
+ * two halves of the app ended up on two different directories. The Rust host
+ * migrates `~/.feral` to `~/.cinderpaw` on boot (`migrate_home.rs`, which
+ * copies and then marks the source — it never deletes) and reads
+ * `~/.cinderpaw` from then on. The sidecar kept `join(homedir(), ".feral")`
+ * hardcoded, so after any migrated boot the host and the sidecar were reading
+ * and writing two different profiles: on this dev box `~/.feral/connectors.json`
+ * had gained two connectors that `~/.cinderpaw/connectors.json` had never
+ * heard of. Nothing errored. The person just sees settings that do not stick.
+ *
+ * Resolution mirrors the Rust side:
+ *   1. `~/.cinderpaw` if it exists — the post-rename home, and what the host uses.
+ *   2. `~/.feral` if only that exists — a pre-migration install, or the sidecar
+ *      running standalone (CLI/TUI) before the host has ever booted. Reading
+ *      the legacy dir is right here: it is where that machine's data actually is.
+ *   3. `~/.cinderpaw` on a fresh machine, where neither exists.
+ *
+ * The migration itself stays the Rust side's job — one implementation that
+ * copies, verifies and marks, not two that race each other.
+ */
+function defaultHomeDir(): string {
+  if (cachedDefaultHome !== undefined) return cachedDefaultHome;
+  const modern = join(homedir(), APP_HOME_DIR_NAME);
+  const legacy = join(homedir(), LEGACY_HOME_DIR_NAME);
+  const modernExists = existsSync(modern);
+  const legacyExists = existsSync(legacy);
+
+  if (modernExists && legacyExists && existsSync(join(legacy, MIGRATION_MARKER))) {
+    // Both dirs, and the old one was migrated — so anything written into it
+    // AFTER the marker was written by something that never learned the new
+    // name. Say so on screen: the symptom otherwise is "my connectors/settings
+    // reverted", with nothing anywhere explaining it.
+    warnIfLegacyDivergedFrom(legacy);
+  }
+  cachedDefaultHome = pickHomeDir(modern, legacy, modernExists, legacyExists);
+  return cachedDefaultHome;
+}
+
+/**
+ * Every directory that is the agent's own profile on this machine.
+ *
+ * More than one, because the rename migration (`migrate_home.rs`) copies
+ * `~/.feral` into `~/.cinderpaw` and never deletes the source: on a migrated
+ * machine the old directory keeps a full copy of the connector tokens, the
+ * byok.json API keys and the conversations, indefinitely. Anything that walls
+ * off "the agent's home" has to wall off both, or it protects whichever one
+ * the app happens to be using and leaves the user's keys in the other.
+ *
+ * Includes `feralHome()` first so an explicit CINDERPAW_HOME/FERAL_HOME
+ * override is covered too. Duplicates are removed; a directory that does not
+ * exist is harmless in a deny list.
+ */
+export function agentProfileDirs(): string[] {
+  return [
+    ...new Set([
+      feralHome(),
+      resolve(join(homedir(), APP_HOME_DIR_NAME)),
+      resolve(join(homedir(), LEGACY_HOME_DIR_NAME)),
+    ]),
+  ];
+}
+
+/** The choice itself, pure so it can be tested without a home directory. */
+export function pickHomeDir(
+  modern: string,
+  legacy: string,
+  modernExists: boolean,
+  legacyExists: boolean,
+): string {
+  return modernExists || !legacyExists ? modern : legacy;
+}
+
+function warnIfLegacyDivergedFrom(legacy: string): void {
+  try {
+    const markerAt = statSync(join(legacy, MIGRATION_MARKER)).mtimeMs;
+    const newer = readdirSync(legacy).filter((name) => {
+      if (name === MIGRATION_MARKER) return false;
+      try {
+        return statSync(join(legacy, name)).mtimeMs > markerAt;
+      } catch {
+        return false;
+      }
+    });
+    if (newer.length === 0) return;
+    console.error(
+      `[cinderpaw] ${legacy} was migrated to ${join(homedir(), APP_HOME_DIR_NAME)}, ` +
+        `but ${newer.length} entr${newer.length === 1 ? "y has" : "ies have"} been written ` +
+        `there since: ${newer.slice(0, 6).join(", ")}${newer.length > 6 ? ", …" : ""}. ` +
+        "Those changes are NOT in the directory the app now uses. Nothing has been " +
+        "deleted — copy across what you still want, then remove the old directory.",
+    );
+  } catch {
+    // Diagnostics must never be the reason boot fails.
+  }
 }
 
 /**

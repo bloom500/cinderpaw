@@ -18,7 +18,7 @@
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { cfgList, feralHome } from "../config.ts";
+import { agentProfileDirs, cfgList } from "../config.ts";
 import { permissionMode } from "../core/permission-mode.ts";
 
 /**
@@ -212,21 +212,31 @@ function modePermits(
  * the self-protection guarantee ("the agent can't modify its own brain") and
  * the credential guard live HERE, at call time, instead of restricting which
  * roots may exist:
- *   - ~/.feral (RSI repo, db, SOUL, connector secrets) — except the scratch
- *     subtree ~/.feral/workspace, which the agent fully owns
+ *   - the agent's profile dir (RSI repo, db, SOUL, connector secrets) — except
+ *     the scratch subtree `<profile>/workspace`, which the agent fully owns.
+ *     BOTH ~/.cinderpaw and ~/.feral are walled off, because the rename
+ *     migration never deletes the old one.
  *   - ~/.ssh (private keys)
  *   - anything listed in FERAL_FS_DENY (path-list, same separator as PATH)
  * Privileged built-ins that must write inside ~/.feral (e.g. connectors_manage)
  * do NOT route through resolveAllowedPath — they own their fixed path.
  */
 function deniedPaths(): { deny: string[]; exempt: string[] } {
-  const home = realpathBestEffort(feralHome());
+  // BOTH profile dirs, always. The rename migration (migrate_home.rs) copies
+  // ~/.feral into ~/.cinderpaw and deliberately NEVER deletes the source — so
+  // on every migrated machine the old directory keeps a full copy of the
+  // connector tokens, byok.json API keys and conversations, forever. Walling
+  // off only the current one leaves the other readable by the agent's own fs
+  // tools, and which one that is flipped silently the day the host migrated.
+  // Denying a directory that does not exist costs nothing; denying only one
+  // costs the user their keys.
+  const homes = agentProfileDirs().map((h) => realpathBestEffort(h));
   const deny = [
-    home,
+    ...homes,
     realpathBestEffort(resolve(homedir(), ".ssh")),
     ...cfgList("FERAL_FS_DENY").map((p) => realpathBestEffort(p)),
   ];
-  return { deny, exempt: [join(home, "workspace")] };
+  return { deny, exempt: homes.map((h) => join(h, "workspace")) };
 }
 
 /**

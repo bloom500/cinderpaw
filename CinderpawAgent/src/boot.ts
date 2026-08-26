@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, feralHome, scratchRoot, searxngOrigin } from "./config.ts";
+import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, feralHome, scratchRoot, searxngOrigin } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -258,9 +258,14 @@ export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
     // resolveAllowedPath, so registering them just produces confusing tools.
     // Ancestors of ~/.feral (home, drive root) are ALLOWED — the deny wall
     // guards the brain per-access, not per-root.
-    if (isWithin(r, FERAL_HOME)) {
+    // Both profile dirs: the rename migration never deletes ~/.feral, so on a
+    // migrated machine it still holds agent state and the call-time deny wall
+    // refuses it. Warning about only the current one meant a root under the
+    // other registered fine and then failed on every single access.
+    const home = agentProfileDirs().find((h) => isWithin(r, h));
+    if (home !== undefined) {
       console.warn(
-        `[config] dropping workspace root "${r}" — it is inside ${FERAL_HOME} ` +
+        `[config] dropping workspace root "${r}" — it is inside ${home} ` +
           `(agent state/identity). Point FERAL_WORKSPACE at a project dir instead.`,
       );
       return false;

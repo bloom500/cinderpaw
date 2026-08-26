@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { benchmarkRunId, feralHome } from "../src/config.ts";
+import { benchmarkRunId, feralHome, pickHomeDir } from "../src/config.ts";
 import { EgressProxy, benchmarkHostRefusal } from "../src/egress/egress-proxy.ts";
 import { hostOf } from "../src/egress/inference-router.ts";
 import type { ToolManifest } from "../src/types.ts";
@@ -103,6 +103,27 @@ describe("2.3 — the network kill-switch", () => {
   test("a bad run id is refused loudly rather than mapped onto some directory", () => {
     process.env.FERAL_BENCHMARK_RUN_ID = "../escape";
     expect(() => benchmarkRunId()).toThrow(/path-safe/);
+  });
+});
+
+describe("the profile dir the sidecar picks agrees with the Rust host", () => {
+  // The host migrates ~/.feral to ~/.cinderpaw on boot and reads the new one
+  // from then on. The sidecar had ".feral" hardcoded, so after any migrated
+  // boot the two halves read and wrote two different profiles — connectors
+  // saved in one, invisible in the other, with no error anywhere.
+  const MODERN = "/home/u/.cinderpaw";
+  const LEGACY = "/home/u/.feral";
+
+  test("both present (post-migration): the new one, same as the host", () => {
+    expect(pickHomeDir(MODERN, LEGACY, true, true)).toBe(MODERN);
+  });
+
+  test("only the legacy one: use it — that is where this machine's data is", () => {
+    expect(pickHomeDir(MODERN, LEGACY, false, true)).toBe(LEGACY);
+  });
+
+  test("fresh machine, neither exists: the new one", () => {
+    expect(pickHomeDir(MODERN, LEGACY, false, false)).toBe(MODERN);
   });
 });
 
