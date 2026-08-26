@@ -555,6 +555,18 @@ export function CoworkTranscriptPanel() {
     [exchanges],
   );
 
+  const [filterText, setFilterText] = useState('');
+  const [filterAgent, setFilterAgent] = useState<string | null>(null);
+  const filteredMessages = useMemo(() => {
+    let m = messages;
+    if (filterAgent) m = m.filter((x) => x.authorId === filterAgent);
+    if (filterText.trim()) {
+      const q = filterText.toLowerCase();
+      m = m.filter((x) => x.text.toLowerCase().includes(q));
+    }
+    return m;
+  }, [messages, filterText, filterAgent]);
+
   // Resize handles persistence (width from left edge, height from bottom edge).
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -751,6 +763,45 @@ export function CoworkTranscriptPanel() {
           ✕
         </span>
       </button>
+      {(participants.length > 1 || messages.length > 5) && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-border-subtle bg-bg-surface/50">
+          <input
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Search…"
+            className="flex-1 min-w-0 rounded-md border border-border-subtle bg-bg-elevated px-2 py-1 text-2xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-brand"
+          />
+          {participants.length > 1 && (
+            <div className="flex gap-1 shrink-0">
+              {participants.map(([id, name]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setFilterAgent((v) => (v === id ? null : id))}
+                  className={cn(
+                    'rounded-full px-2 py-0.5 text-2xs border cursor-pointer',
+                    filterAgent === id
+                      ? 'bg-brand text-white border-brand'
+                      : 'bg-bg-elevated text-text-muted border-border-subtle hover:border-brand/30',
+                  )}
+                  title={name ?? id}
+                >
+                  {displayName(id, name)}
+                </button>
+              ))}
+            </div>
+          )}
+          {(filterText || filterAgent) && (
+            <button
+              type="button"
+              onClick={() => { setFilterText(''); setFilterAgent(null); }}
+              className="text-2xs text-text-muted hover:text-text-secondary cursor-pointer"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
       <div
         ref={scrollRef}
         onScroll={onScroll}
@@ -760,14 +811,14 @@ export function CoworkTranscriptPanel() {
       >
           <ul className="flex flex-col gap-2">
             <AnimatePresence initial={false}>
-              {messages.map((m, i) => (
+              {filteredMessages.map((m, i) => (
                 <Bubble
                   key={m.key}
                   m={m}
                   // Group-chat convention: the name appears once per run of
                   // consecutive messages from the same speaker, not on every
                   // bubble — repeating it turns a conversation into a table.
-                  showAuthor={i === 0 || messages[i - 1]?.authorId !== m.authorId}
+                  showAuthor={i === 0 || filteredMessages[i - 1]?.authorId !== m.authorId}
                 />
               ))}
             </AnimatePresence>
