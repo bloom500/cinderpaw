@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 0.6 seconds
+Output:
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -12,7 +15,6 @@ export type WhisperModel = 'small' | 'base';
 /** Speech-to-text backend for voice messages. `null` = user hasn't chosen yet
  *  (first mic tap opens the provider card). `groq` = cloud whisper-large-v3. */
 export type SttProvider = 'local' | 'groq';
-const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
 
 interface UIStore {
   /** Navigation chrome only. Nothing about the agent or the runtime lives
@@ -22,13 +24,15 @@ interface UIStore {
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
   language: LangPref;
+  /** Read-only, and neither persisted nor settable. The composer controls that
+   *  used to write these are gone, so the setters went with them rather than
+   *  staying as an API nothing calls. `useSendMessage` and `MessageItem` still
+   *  read them — at their defaults, which is the only value they ever had that
+   *  was right for everybody. */
   reasoningMode: ReasoningMode;
   enabledTools: ToolId[];
   setTheme: (t: ThemePref) => void;
   setLanguage: (l: LangPref) => void;
-  cycleReasoningMode: () => void;
-  setReasoningMode: (m: ReasoningMode) => void;
-  toggleTool: (id: ToolId) => void;
   searchOpen:  boolean;
   /**
    * Project the search should open narrowed to, when it was opened from
@@ -112,18 +116,6 @@ export const useUI = create<UIStore>()(
         applyTheme(resolved);
         set({ theme, resolvedTheme: resolved });
       },
-      cycleReasoningMode: () =>
-        set((s) => {
-          const idx = REASONING_CYCLE.indexOf(s.reasoningMode);
-          return { reasoningMode: REASONING_CYCLE[(idx + 1) % REASONING_CYCLE.length] };
-        }),
-      setReasoningMode: (reasoningMode) => set({ reasoningMode }),
-      toggleTool: (id) =>
-        set((s) => ({
-          enabledTools: s.enabledTools.includes(id)
-            ? s.enabledTools.filter((t) => t !== id)
-            : [...s.enabledTools, id],
-        })),
       searchOpen: false,
       searchScopeId: null,
       openSearch:  (projectId) => set({ searchOpen: true, searchScopeId: projectId ?? null }),
@@ -153,8 +145,14 @@ export const useUI = create<UIStore>()(
         navCollapsed: s.navCollapsed,
         theme: s.theme,
         language: s.language,
-        reasoningMode: s.reasoningMode,
-        enabledTools: s.enabledTools,
+        // `reasoningMode` and `enabledTools` are deliberately NOT persisted any
+        // more. The composer controls that set them are gone, so a saved value
+        // would be a setting with no way back: someone who once picked
+        // "Off: suppress thinking blocks", or ticked File Write, would carry
+        // that choice forever with nothing on screen explaining it or offering
+        // to undo it. Unpersisted, they start every launch at the defaults the
+        // app is designed around — `auto`, and an empty tool list that agent
+        // mode overrides with the agent's own tools.
         inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
         whisperModel: s.whisperModel,
@@ -163,6 +161,18 @@ export const useUI = create<UIStore>()(
         callEngine: s.callEngine,
         ttsVoice: s.ttsVoice,
       }),
+      // Dropping the two keys from `partialize` only stops them being WRITTEN.
+      // Every machine that already ran an older build still has them sitting in
+      // `cinderpaw-ui`, and rehydration merges that blob over the defaults — so
+      // without this the person the change was made for is the one person it
+      // does not reach, and "Off" stays off forever. `merge` runs before the
+      // store exists, which is the only point where the stale value can be
+      // removed rather than reapplied.
+      merge: (persisted, current) => {
+        const { reasoningMode: _r, enabledTools: _t, ...rest } =
+          (persisted ?? {}) as Partial<UIStore>;
+        return { ...current, ...rest };
+      },
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         const resolved = resolveTheme(state.theme);
@@ -188,3 +198,4 @@ export function useSystemThemeSync() {
     return () => mq.removeEventListener('change', handler);
   }, [theme]);
 }
+

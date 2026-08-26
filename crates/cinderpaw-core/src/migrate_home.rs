@@ -30,6 +30,7 @@ use anyhow::{bail, Context, Result};
 
 /// Written into the OLD directory once its contents are safely copied.
 pub const MIGRATION_MARKER: &str = ".migrated-to-cinderpaw";
+const MIGRATION_LOG: &str = "migration.log";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum MigrationOutcome {
@@ -130,6 +131,16 @@ pub fn migrate_between(old: &Path, new: &Path) -> Result<MigrationOutcome> {
             expected.1
         );
     }
+
+    std::fs::write(
+        staging.join(MIGRATION_LOG),
+        format!(
+            "Cinderpaw migrated data from {} to {}. The legacy directory was preserved.\n",
+            old.display(),
+            new.display(),
+        ),
+    )
+    .with_context(|| format!("writing migration log for {}", new.display()))?;
 
     std::fs::rename(&staging, new).with_context(|| {
         format!("moving {} into place at {}", staging.display(), new.display())
@@ -295,6 +306,9 @@ mod tests {
         assert_eq!(std::fs::read(new.join("models/m.gguf")).unwrap().len(), 4096);
         assert!(old.join("conversations/a.json").exists(), "source must survive");
         assert!(old.join(MIGRATION_MARKER).exists(), "source must be marked");
+        let log = std::fs::read_to_string(new.join("migration.log")).unwrap();
+        assert!(log.contains(".feral"));
+        assert!(log.contains(".cinderpaw"));
     }
 
     #[test]

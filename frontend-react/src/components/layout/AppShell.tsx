@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 0.7 seconds
+Output:
 import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -71,7 +74,7 @@ export function AppShell() {
   }, [checkForUpdate]);
 
   return (
-    <div className="h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
+    <div className="app-pane h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
       <SideNav />
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat
@@ -140,3 +143,4 @@ export function AppShell() {
     </div>
   );
 }
+

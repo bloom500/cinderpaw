@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 0.6 seconds
+Output:
 import { useState } from 'react';
 import { Settings2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -14,6 +17,7 @@ function ParamRow({
   step,
   decimals,
   onChange,
+  warning,
 }: {
   label: string;
   value: number;
@@ -22,6 +26,9 @@ function ParamRow({
   step: number;
   decimals: number;
   onChange: (v: number) => void;
+  /** Shown under the slider when the current value is in a range that
+   *  degrades output. Absent means the value is fine. */
+  warning?: string | null;
 }) {
   // Free-typing draft: the field accepts any intermediate text ("", "0.",
   // "20") and commits the clamped value on blur or Enter. The previous
@@ -64,6 +71,9 @@ function ParamRow({
         }}
         className="w-full h-1 rounded-full appearance-none bg-border-subtle cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text-secondary [&::-webkit-slider-thumb]:cursor-pointer"
       />
+      {warning && (
+        <p className="mt-1.5 text-micro leading-snug text-warning">{warning}</p>
+      )}
     </div>
   );
 }
@@ -78,8 +88,24 @@ const ROWS: Array<{
   /** Local-only: cloud models expose temperature alone (their sampling stack is
    *  provider-fixed), so Top-P is hidden when the active target is cloud. */
   localOnly?: boolean;
+  /** Returns the note to show under the slider at this value, or null. */
+  warn?: (v: number) => string | null;
 }> = [
-  { key: 'temperature', label: 'Temperature', min: 0,    max: 2,    step: 0.01,  decimals: 2 },
+  {
+    key: 'temperature', label: 'Temperature', min: 0, max: 2, step: 0.01, decimals: 2,
+    // 2.0 is the highest value the OpenAI-compatible APIs accept, so the slider
+    // offers it — but anything past roughly 1.2 does not read as "more
+    // creative", it reads as broken: fluent-shaped sentences made of words that
+    // do not exist, stray letters from other alphabets, whole replies that look
+    // like the model is malfunctioning. This value is PERSISTED, so one curious
+    // drag follows the person across every restart and every rebuild, and
+    // nothing on screen connects the garbled answers to a slider they touched
+    // once. The warning is the connection.
+    warn: (v: number) =>
+      v > 1.2
+        ? 'Above ~1.2 most models start producing invented words and stray characters. 0.7–1.0 is the usable range.'
+        : null,
+  },
   { key: 'top_p',       label: 'Top-P',        min: 0.01, max: 1,    step: 0.01,  decimals: 2, localOnly: true },
 ];
 
@@ -180,7 +206,7 @@ export function ControlsPopover() {
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={8} className="w-60">
         <p className="text-xs font-medium text-text-secondary mb-3">Controls</p>
-        {rows.map(({ key, label, min, max, step, decimals }) => (
+        {rows.map(({ key, label, min, max, step, decimals, warn }) => (
           <ParamRow
             key={key}
             label={label}
@@ -189,6 +215,7 @@ export function ControlsPopover() {
             max={max}
             step={step}
             decimals={decimals}
+            warning={warn?.(inferParams[key]) ?? null}
             onChange={(v) => setInferParams({ [key]: v })}
           />
         ))}
@@ -197,3 +224,4 @@ export function ControlsPopover() {
     </Popover>
   );
 }
+

@@ -50,7 +50,7 @@ export function GeneralTab() {
   const appVersion   = useAppVersion();
 
   const rowCls = 'flex items-center justify-between gap-4';
-  const btnCls = 'px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors shrink-0';
+  const btnCls = 'px-3 py-1.5 rounded-md border border-border-default bg-bg-elevated shadow-sm text-sm text-text-primary hover:bg-bg-hover transition-colors shrink-0';
 
   return (
     <div className="space-y-6">
@@ -64,7 +64,7 @@ export function GeneralTab() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {updateStatus === 'up-to-date' && (
-            <span className="flex items-center gap-1 text-xs text-emerald-400">
+            <span className="flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">
               <CheckCircle size={12} /> Latest
             </span>
           )}
@@ -146,7 +146,7 @@ export function GeneralTab() {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-text-primary">Data folder</p>
           <p className="text-xs text-text-muted mt-0.5 truncate">
-            {settings?.models_dir ?? '~/.feral/models'}
+            {settings?.models_dir ?? '~/.cinderpaw/models'}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">

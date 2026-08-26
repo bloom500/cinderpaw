@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 0.6 seconds
+Output:
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useChat } from '@/stores/chat';
@@ -184,12 +187,12 @@ export function ChatPage() {
 
       {/* Positioning context for absolute children */}
       <div ref={containerRef} className="relative flex-1 overflow-hidden">
-        {/* The transcript scrolls under the header, and without this the top
-            line is sliced clean in half against the banner above it. A short
-            fade says "there is more up there" instead. */}
-        {messages.length > 0 && (
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-6 z-10 bg-gradient-to-b from-bg-primary/90 to-transparent" />
-        )}
+        {/* The top fade is gone. It faded to `--bg-primary`, the app's opaque
+            base — which was the right colour back when the page behind it was
+            that colour too. On glass it is a dark band painted across the top
+            of a see-through pane: a shadow with nothing casting it, and the
+            only hard edge in the whole window. The transcript scrolling under
+            the header reads fine without it now that the header is glass. */}
         {loadingConversation && (
           <div className="absolute inset-x-0 top-0 h-0.5 bg-brand animate-pulse z-10" />
         )}
@@ -237,3 +240,4 @@ export function ChatPage() {
     </div>
   );
 }
+

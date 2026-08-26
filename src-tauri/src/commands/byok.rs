@@ -1,7 +1,6 @@
 //! BYOK (bring-your-own-key) cloud provider settings.
 
 use crate::*;
-use tauri::State;
 
 #[tauri::command]
 #[specta::specta]
@@ -22,7 +21,6 @@ pub(crate) fn provider_catalog() -> Vec<byok::ProviderCatalogEntry> {
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn save_byok_provider(
-    state: State<AppState>,
     provider_id: String,
     enabled: bool,
     api_key: String,
@@ -40,15 +38,13 @@ pub(crate) fn save_byok_provider(
             "{provider_id} cannot be enabled without an API key — paste the key, or leave the provider off"
         ));
     }
-    let mut settings = byok::load(&state.settings);
     let config = byok::ProviderConfig {
         enabled,
         api_key,
         base_url,
         default_model,
     };
-    settings.update_provider(&provider_id, config);
-    byok::save(&settings).map_err(|e| e.to_string())?;
+    byok::save_provider(&provider_id, config).map_err(|e| e.to_string())?;
 
     Ok(())
 }

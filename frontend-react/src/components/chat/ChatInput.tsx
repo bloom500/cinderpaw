@@ -1,18 +1,12 @@
+Exit code: 0
+Wall time: 0.8 seconds
+Output:
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { Brain, ArrowUp, Square, Mic, Phone } from 'lucide-react';
+import { ArrowUp, Square, Mic, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
@@ -20,13 +14,12 @@ import { VoiceProviderCard } from './VoiceProviderCard';
 import { VoiceEngineCard } from './VoiceEngineCard';
 import { CallOverlay } from './CallOverlay';
 import { ModelPill } from './ModelPill';
-import { ToolsPopover } from './ToolsPopover';
 import { ContextRing } from './ContextRing';
 import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
 import { useChat, type ChatMessage } from '@/stores/chat';
-import { useUI, type ReasoningMode } from '@/stores/ui';
+import { useUI } from '@/stores/ui';
 import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useCallSession } from '@/hooks/useCallSession';
@@ -38,18 +31,6 @@ import { stopActiveStream } from '@/lib/streamControl';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-
-const REASONING_CONFIG: Record<ReasoningMode, {
-  label: string;
-  iconClass: string;
-  badgeClass: string;
-  dot: string;
-  description: string;
-}> = {
-  auto: { label: 'A',   iconClass: 'text-sky-400',     badgeClass: 'bg-gray-500/20 text-gray-400',      dot: 'bg-sky-400',     description: 'Auto: detect from model name' },
-  on:   { label: 'ON',  iconClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400', dot: 'bg-emerald-400', description: 'On: always enable thinking' },
-  off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400',       dot: 'bg-rose-400',    description: 'Off: suppress thinking blocks' },
-};
 
 export interface ChatInputHandle {
   setText: (text: string) => void;
@@ -90,8 +71,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const loaded      = useModel((s) => s.loaded);
   const cloudModel  = useModel((s) => s.cloudModel);
   const status = useChat((s) => s.streamStatus);
-  const reasoningMode = useUI((s) => s.reasoningMode);
-  const setReasoningMode = useUI((s) => s.setReasoningMode);
   const inputMode    = useUI((s) => s.inputMode);
   const setInputMode = useUI((s) => s.setInputMode);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -414,7 +393,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const removeFile = (path: string) =>
     setAttachedFiles((prev) => prev.filter((f) => f.path !== path));
 
-  const rc = REASONING_CONFIG[reasoningMode];
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -425,8 +403,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       )}>
         <div
           className={cn(
-            'relative rounded-2xl border bg-bg-surface focus-within:border-brand transition-colors',
-            dragOver ? 'border-brand border-dashed bg-bg-hover' : 'border-border-default',
+            'relative rounded-2xl border bg-[var(--surface-typing)] focus-within:border-brand transition-colors',
+            // Same material as the rail and the popovers. Without these two it
+            // was the only piece of chrome in the app that was merely tinted:
+            // a flat rectangle sitting beside a sidebar made of glass.
+            'liquid-glass liquid-glass-rim',
+            dragOver ? 'border-brand border-dashed' : 'border-border-default',
           )}
         >
           {/* Always. The perch is not decoration: it walks the composer's edge
@@ -493,41 +475,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   {rec.state === 'recording' ? <Square size={16} /> : <Mic size={16} />}
                 </button>
               )}
-              <ToolsPopover />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn('relative p-1.5 rounded hover:bg-bg-hover', rc.iconClass)}
-                    aria-label={`Reasoning: ${reasoningMode}`}
-                  >
-                    <Brain size={16} />
-                    <span
-                      className={cn(
-                        'absolute -bottom-0.5 -right-0.5 rounded px-[3px] text-micro font-bold leading-[11px]',
-                        rc.badgeClass,
-                      )}
-                    >
-                      {rc.label}
-                    </span>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="top" align="start" className="w-52">
-                  <DropdownMenuLabel className="text-xs text-text-muted">Reasoning mode</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuRadioGroup
-                    value={reasoningMode}
-                    onValueChange={(v) => setReasoningMode(v as ReasoningMode)}
-                  >
-                    {(Object.entries(REASONING_CONFIG) as [ReasoningMode, typeof REASONING_CONFIG[ReasoningMode]][]).map(([mode, cfg]) => (
-                      <DropdownMenuRadioItem key={mode} value={mode} className="gap-2 text-sm">
-                        <span className={cn('h-2 w-2 rounded-full shrink-0', cfg.dot)} />
-                        <span>{cfg.description}</span>
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* The tools checklist and the reasoning-mode picker used to sit
+                  here. Both asked the person to configure something the app
+                  already decides better than they can: reasoning is inferred
+                  from the model, and in agent mode the tool list comes from the
+                  agent, not from these checkboxes. Two controls that were only
+                  ever correct at their defaults. */}
             </div>
             <div className="flex items-center gap-2">
               {/* Live context-usage ring, left of the mode toggle */}
@@ -627,3 +580,4 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     </TooltipProvider>
   );
 });
+

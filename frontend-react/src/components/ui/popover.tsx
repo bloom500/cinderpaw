@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 0.6 seconds
+Output:
 import * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import { cn } from '@/lib/utils';
@@ -15,7 +18,10 @@ export const PopoverContent = React.forwardRef<
       align={align}
       sideOffset={sideOffset}
       className={cn(
-        'z-50 rounded-md border bg-popover p-3 text-popover-foreground shadow-md outline-none',
+        'z-50 rounded-md bg-popover p-3 text-popover-foreground shadow-md outline-none',
+        // Over content, not over the pane: without a backdrop of its own the
+        // text underneath reads through the panel.
+        'liquid-glass liquid-glass-rim',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -27,3 +33,4 @@ export const PopoverContent = React.forwardRef<
   </PopoverPrimitive.Portal>
 ));
 PopoverContent.displayName = PopoverPrimitive.Content.displayName;
+

@@ -1,3 +1,6 @@
+Exit code: 0
+Wall time: 0.6 seconds
+Output:
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
@@ -282,7 +285,7 @@ export default function MemoryLayersPage() {
     : '';
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-bg-primary text-text-primary">
+    <div className="flex h-full flex-col overflow-hidden text-text-primary">
       {/* Drag region — without it the frameless window can't be moved,
           and the scrollbar extends into the titlebar area. */}
       <div data-tauri-drag-region className="h-8 shrink-0" />
@@ -384,3 +387,4 @@ export default function MemoryLayersPage() {
     </div>
   );
 }
+
