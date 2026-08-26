@@ -21,6 +21,7 @@
 import type { Tool, ToolManifest } from "../../types.ts";
 import type { CoworkAgent, CoworkAgentRepo } from "../../cowork/agent-store.ts";
 import type { CoworkMailboxRepo } from "../../cowork/mailbox.ts";
+import { rootSessionId } from "../../cowork/approval.ts";
 
 /** Resolve a teammate by id or case-insensitive name; `null` when absent. */
 function findTeammate(repo: CoworkAgentRepo, q: string): CoworkAgent | null {
@@ -121,16 +122,23 @@ export function createCoworkSendTool(agents: CoworkAgentRepo, mailbox: CoworkMai
         };
       }
       // Honest sender: inside a cowork session the speaker IS that agent;
-      // anywhere else the request ultimately comes from the person.
-      const sender =
-        typeof ctx.sessionId === "string" && ctx.sessionId.startsWith("cowork:")
-          ? ctx.sessionId.slice("cowork:".length)
-          : "human";
+      // anywhere else the request ultimately comes from the person. The ROOT
+      // session, so a subagent a teammate spawned is still attributed to that
+      // teammate rather than being recorded as the human.
+      const root =
+        typeof ctx.sessionId === "string" ? rootSessionId(ctx.sessionId) : "";
+      const sender = root.startsWith("cowork:") ? root.slice("cowork:".length) : "human";
+      // Carry the thread's hop count forward. Without this the automatic reply
+      // path was capped but this tool was not: a message sent here had no
+      // payload, so the next reader saw hop 0 and two teammates could
+      // ping-pong for as long as the budget lasted.
+      const hops = mailbox.lastHopsInThread(threadId) + 1;
       const msg = mailbox.send({
         fromAgentId: sender,
         toAgentId: target.id,
         threadId,
         body,
+        payloadJson: JSON.stringify({ coworkHops: hops }),
       });
       return {
         ok: true,
