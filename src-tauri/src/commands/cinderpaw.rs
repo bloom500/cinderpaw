@@ -359,6 +359,46 @@ pub(crate) async fn feral_code_patch_resolve(
     Ok(())
 }
 
+/// Agent Cowork S6 — send a message the person typed in the Agent Cowork
+/// panel straight to one teammate's inbox.
+///
+/// Direct on purpose. Asking the main agent to pass it along costs a whole
+/// model turn to retype something the human already wrote, and lets the
+/// wording drift on the way — the telephone game Darius named. The sidecar
+/// validates the teammate id against the roster; empty bodies are rejected
+/// here so a stray Enter cannot wake an agent for nothing.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn feral_cowork_send_message(
+    state: State<'_, AppState>,
+    to_agent_id: String,
+    body: String,
+    thread_id: Option<String>,
+) -> Result<(), String> {
+    if to_agent_id.trim().is_empty() {
+        return Err("no teammate selected".to_string());
+    }
+    if body.trim().is_empty() {
+        return Err("message is empty".to_string());
+    }
+    let msg = serde_json::json!({
+        "type": "cowork_user_message",
+        "toAgentId": to_agent_id,
+        "body": body,
+        "threadId": thread_id,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Agent Cowork S4 — approval gate: forward the user's approve/deny answer
 /// for one cowork approval request to the sidecar. `action` is validated HERE
 /// so a compromised webview cannot smuggle another verb. Fire-and-forget; the

@@ -2224,6 +2224,11 @@ export async function boot(transportOverride?: Transport) {
     // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
     // `cowork_approval_resolve` here).
     coworkApprovals: coworkApprovalService,
+    // S6 — the panel talks to teammates DIRECTLY (`cowork_user_message`).
+    // Routing a message the person already typed through the main agent costs
+    // a whole model turn to retype it, and lets it be paraphrased on the way.
+    coworkMailbox,
+    coworkAgents,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path

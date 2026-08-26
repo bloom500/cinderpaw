@@ -1,8 +1,18 @@
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CoworkTranscriptPanel, toMessages } from '../CoworkTranscriptPanel';
 import { useCoworkTranscript, type CoworkExchange } from '@/stores/coworkTranscript';
+import { tauri } from '@/lib/tauri';
+
+vi.mock('@/lib/tauri', () => ({
+  tauri: {
+    feralAgent: {
+      coworkSendMessage: vi.fn().mockResolvedValue(undefined),
+      coworkStop: vi.fn().mockResolvedValue(undefined),
+    },
+  },
+}));
 
 /**
  * The panel is a group chat, not a list of exchange cards, so these pin what a
@@ -31,6 +41,9 @@ function exchange(overrides: Partial<CoworkExchange>): CoworkExchange {
 afterEach(() => {
   useCoworkTranscript.setState({ exchanges: [] });
   localStorage.removeItem('cowork-panel-collapsed');
+  // Without this a "was not called" assertion passes or fails depending on
+  // what the previous test did — the exact way a negative assertion rots.
+  vi.clearAllMocks();
 });
 
 describe('toMessages — exchanges flattened into a conversation', () => {
@@ -175,5 +188,56 @@ describe('CoworkTranscriptPanel', () => {
     render(<CoworkTranscriptPanel />);
     expect(screen.getByText('delete')).toBeInTheDocument();
     expect(screen.getByText(/Bolt needs your approval/)).toBeInTheDocument();
+  });
+});
+
+describe('talking to a teammate directly', () => {
+  test('sends to the teammate who spoke last, in the same thread', async () => {
+    useCoworkTranscript.setState({
+      exchanges: [exchange({ id: 'm1', responseText: 'done', status: 'done' })],
+    });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'thanks');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(tauri.feralAgent.coworkSendMessage).toHaveBeenCalledWith(
+      'demo-agent-atlas',
+      'thanks',
+      't1',
+    );
+  });
+
+  test('Enter sends; the box empties', async () => {
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(<CoworkTranscriptPanel />);
+    const box = screen.getByPlaceholderText(/Message Atlas/);
+    await userEvent.type(box, 'hello{Enter}');
+    expect(tauri.feralAgent.coworkSendMessage).toHaveBeenCalled();
+    expect((box as HTMLInputElement).value).toBe('');
+  });
+
+  test('whitespace is not a message', async () => {
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), '   {Enter}');
+    expect(tauri.feralAgent.coworkSendMessage).not.toHaveBeenCalled();
+  });
+
+  test('a failed send is reported ON SCREEN, not swallowed', async () => {
+    vi.mocked(tauri.feralAgent.coworkSendMessage).mockRejectedValueOnce(
+      new Error('feral-agent is not running'),
+    );
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'hi{Enter}');
+    expect(await screen.findByText(/feral-agent is not running/)).toBeInTheDocument();
+  });
+
+  test('Stop aborts that teammate, not the whole app', async () => {
+    useCoworkTranscript.setState({
+      exchanges: [exchange({ id: 'live', status: 'running', responseText: null })],
+    });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(tauri.feralAgent.coworkStop).toHaveBeenCalledWith('demo-agent-atlas');
   });
 });

@@ -25,6 +25,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { BubbleTail } from './BubbleTail';
 import { Markdown } from '@/lib/markdown';
+import { tauri } from '@/lib/tauri';
 import {
   useCoworkTranscript,
   type CoworkExchange,
@@ -274,6 +275,19 @@ function TypingRow({ e }: { e: CoworkExchange }) {
           )}
         </span>
       </span>
+      {/* Stop reaches exactly this teammate: a cowork turn runs under the
+          session `cowork:<agentId>`, so the existing stop path already
+          addresses it. With turns running minutes long, "I misspoke, stop"
+          had no answer at all before this. */}
+      <button
+        type="button"
+        onClick={() => void tauri.feralAgent.coworkStop(e.toAgentId).catch(() => {})}
+        className="self-center rounded-full border border-border-default px-2 py-0.5 text-2xs
+                   text-text-muted hover:text-error hover:border-error/40 cursor-pointer"
+        title={`Stop ${who}`}
+      >
+        Stop
+      </button>
     </li>
   );
 }
@@ -309,6 +323,104 @@ function ApprovalRow({ e }: { e: CoworkExchange }) {
         )}
       </span>
     </li>
+  );
+}
+
+
+/**
+ * Write to a teammate without going through the main agent.
+ *
+ * Darius: "sa vorbesc si eu direct cu ei, sa nu facem telefonul fara fir prin
+ * agentul principal." He is right about the cost as well as the feel — routing
+ * a message the person already typed through the main agent spends a whole
+ * model turn retyping it, and lets the wording drift on the way.
+ *
+ * The recipient defaults to whoever spoke last, which is what a reply means in
+ * a group chat; the picker is there for when it is not.
+ */
+function Composer({
+  participants,
+  defaultTo,
+  threadId,
+}: {
+  participants: (readonly [string, string | undefined])[];
+  defaultTo: string;
+  threadId: string | null;
+}) {
+  const [to, setTo] = useState(defaultTo);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Follow the conversation when the user has not overridden the target.
+  const touched = useRef(false);
+  useEffect(() => {
+    if (!touched.current) setTo(defaultTo);
+  }, [defaultTo]);
+
+  const send = async () => {
+    const body = text.trim();
+    if (!body || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await tauri.feralAgent.coworkSendMessage(to, body, threadId ?? undefined);
+      setText('');
+    } catch (err) {
+      // On screen, not in a console: the message did not go, and the person
+      // needs to know before they walk away expecting an answer.
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-border-default px-2.5 py-2 flex flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
+        {participants.length > 1 && (
+          <select
+            value={to}
+            onChange={(ev) => {
+              touched.current = true;
+              setTo(ev.target.value);
+            }}
+            aria-label="Send to"
+            className="rounded-md border border-border-default bg-bg-surface px-1.5 py-1
+                       text-2xs text-text-secondary cursor-pointer"
+          >
+            {participants.map(([id, name]) => (
+              <option key={id} value={id}>
+                {displayName(id, name)}
+              </option>
+            ))}
+          </select>
+        )}
+        <input
+          value={text}
+          onChange={(ev) => setText(ev.target.value)}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Enter' && !ev.shiftKey) {
+              ev.preventDefault();
+              void send();
+            }
+          }}
+          placeholder={`Message ${displayName(to, participants.find(([id]) => id === to)?.[1])}…`}
+          className="flex-1 min-w-0 rounded-md border border-border-default bg-bg-surface px-2 py-1
+                     text-xs text-text-primary placeholder:text-text-muted
+                     focus:outline-none focus:ring-1 focus:ring-brand"
+        />
+        <button
+          type="button"
+          onClick={() => void send()}
+          disabled={!text.trim() || sending}
+          className="rounded-md bg-brand px-2 py-1 text-2xs font-medium text-bg-primary
+                     disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          {sending ? '…' : 'Send'}
+        </button>
+      </div>
+      {error && <span className="text-2xs text-error">{error}</span>}
+    </div>
   );
 }
 
@@ -388,6 +500,15 @@ export function CoworkTranscriptPanel() {
     ),
   );
 
+  // Reply targets the last teammate who spoke — what a reply means in a group
+  // chat — and stays in the thread the conversation is already in.
+  const last = exchanges[exchanges.length - 1];
+  const lastSpoken =
+    last && last.toAgentId !== 'human' && last.toAgentId !== 'unknown'
+      ? last.toAgentId
+      : (participants[0]?.[0] ?? '');
+  const lastThreadId = last?.threadId && last.threadId !== 'direct' ? last.threadId : null;
+
   // Fresh install / no cowork traffic ⇒ no surface at all.
   if (exchanges.length === 0) return null;
 
@@ -454,6 +575,13 @@ export function CoworkTranscriptPanel() {
             ))}
           </ul>
         </div>
+      )}
+      {!collapsed && participants.length > 0 && (
+        <Composer
+          participants={participants}
+          defaultTo={lastSpoken}
+          threadId={lastThreadId}
+        />
       )}
     </aside>
   );

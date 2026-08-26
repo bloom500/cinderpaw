@@ -889,6 +889,14 @@ const raw = {
   // which is also what closes the chat bubble.
   feralCoworkApprovalResolve: (requestId: string, action: 'approve' | 'reject') =>
     invoke<void>('feral_cowork_approval_resolve', { request_id: requestId, action }),
+  /** Agent Cowork S6 — write straight to a teammate's inbox from the panel,
+   *  without asking the main agent to retype what the person already wrote. */
+  feralCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
+    invoke<void>('feral_cowork_send_message', {
+      to_agent_id: toAgentId,
+      body,
+      thread_id: threadId ?? null,
+    }),
   feralLoraTrain:         (domain?: string) =>
     invoke<void>('feral_lora_train', { domain: domain ?? null }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
@@ -1135,6 +1143,13 @@ export const tauri = {
      *  sidecar acks via the terminal cowork_event for that requestId. */
     coworkApprovalResolve: async (requestId: string, approve: boolean) =>
       raw.feralCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
+    coworkSendMessage: async (toAgentId: string, body: string, threadId?: string) =>
+      raw.feralCoworkSendMessage(toAgentId, body, threadId),
+    /** Abort a teammate's in-flight turn. A cowork turn runs under the session
+     *  `cowork:<agentId>`, so the existing stop path already reaches it — no
+     *  second mechanism, and it stops exactly one teammate rather than the
+     *  user's own chat. */
+    coworkStop: async (agentId: string) => raw.feralStopGeneration(`cowork:${agentId}`),
   },
 
   rsi: {

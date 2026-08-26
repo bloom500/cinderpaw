@@ -1168,6 +1168,12 @@ export interface InboundMessage {
     // `approvalAction` is the verdict. Unknown/already-resolved ids are a
     // harmless no-op in the handler (late double-click must not error).
     | "cowork_approval_resolve"
+    // S6 — a message the person typed straight into the Agent Cowork
+    // panel, addressed to one teammate. Carries `toAgentId` + `body`
+    // (+ optional `threadId`). It exists so the human does not have to
+    // dictate to the main agent what to retype to a teammate: that
+    // costs a full model turn and lets the message be paraphrased.
+    | "cowork_user_message"
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
@@ -1247,6 +1253,10 @@ export interface InboundMessage {
   /** Approval-gate payload (type === "rsi_code_patch_resolve"); the patch
    *  id rides the plain `id` field. */
   patchAction?: "approve" | "reject";
+  /** Cowork direct-message payload (type === "cowork_user_message"). */
+  toAgentId?: string;
+  body?: string;
+  threadId?: string;
   /** Cowork approval payload (type === "cowork_approval_resolve"); the
    *  request id rides the plain `id` field. */
   approvalAction?: "approve" | "reject";

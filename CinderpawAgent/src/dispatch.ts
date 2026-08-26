@@ -98,7 +98,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents,
     runHooks,
     brainDerived, brainBreaker,
   } = ctx;
@@ -724,6 +724,38 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         if (!resolved) {
           log(`cowork_approval_resolve: unknown or already-resolved request ${requestId}`);
         }
+        break;
+      }
+
+      // Agent Cowork S6 — the person writes to a teammate DIRECTLY from the
+      // panel. Deliberately not routed through the main agent: making it
+      // retype a message the human already wrote costs a whole model turn and
+      // lets the wording drift on the way. The mailbox already accepts
+      // `from: "human"`; this is the door the UI needed.
+      case "cowork_user_message": {
+        const to = (msg.toAgentId ?? "").trim();
+        const body = (msg.body ?? "").trim();
+        if (!to || !body) {
+          log("cowork_user_message: missing toAgentId or body — ignored");
+          break;
+        }
+        const target = coworkAgents.get(to);
+        if (!target) {
+          log(`cowork_user_message: unknown teammate ${to} — ignored`);
+          break;
+        }
+        const threadId = msg.threadId?.trim() || null;
+        // Same hop accounting as cowork_send, so a human reply inside a thread
+        // advances the chain instead of resetting the cap.
+        const hops = coworkMailbox.lastHopsInThread(threadId) + 1;
+        coworkMailbox.send({
+          fromAgentId: "human",
+          toAgentId: target.id,
+          threadId,
+          body,
+          payloadJson: JSON.stringify({ coworkHops: hops }),
+        });
+        log(`cowork: direct message to "${target.name}" (${body.length} chars, hop ${hops})`);
         break;
       }
 
