@@ -67,6 +67,39 @@ export const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60_000;
 
 /** Cowork sessions are exactly `cowork:<agentId>` (see runtime.sessionIdFor). */
 const COWORK_SESSION_PREFIX = "cowork:";
+/** A subagent's session is `subagent:<parentSessionId>:<subagentId>`
+ *  (see core/subagent.ts). Each nesting level adds this prefix AND one
+ *  trailing `:<id>` segment. */
+const SUBAGENT_SESSION_PREFIX = "subagent:";
+
+/**
+ * The session a call ultimately belongs to, with any subagent wrapping undone.
+ *
+ * The gate used to test `sessionId.startsWith("cowork:")` on the raw id. A
+ * teammate that was refused a destructive `shell_exec` could hand the same
+ * command to `delegate_task`: the child runs as
+ * `subagent:cowork:<agentId>:<saId>`, which fails that test, so the gate
+ * returned `block: false` and the command ran with no second question. The
+ * gate was one `delegate_task` wide.
+ *
+ * Unwinding is exact rather than a guess about the shape of an agent id: each
+ * level contributed one prefix and one trailing segment, so the same number of
+ * trailing segments come back off. Nesting works at any depth.
+ */
+export function rootSessionId(sessionId: string): string {
+  let id = sessionId;
+  let depth = 0;
+  while (id.startsWith(SUBAGENT_SESSION_PREFIX)) {
+    id = id.slice(SUBAGENT_SESSION_PREFIX.length);
+    depth++;
+  }
+  for (let i = 0; i < depth; i++) {
+    const cut = id.lastIndexOf(":");
+    if (cut === -1) break;
+    id = id.slice(0, cut);
+  }
+  return id;
+}
 
 interface ApprovalRow {
   id: string;
@@ -254,11 +287,14 @@ export class CoworkApprovalService {
    * the tool until the human decides or the wait expires (deny).
    */
   readonly gate = async (payload: BeforeToolCallPayload): Promise<HookResult> => {
-    if (!payload.sessionId.startsWith(COWORK_SESSION_PREFIX)) return { block: false };
+    // The ROOT session, so a subagent spawned by a teammate is still that
+    // teammate as far as the gate is concerned. See rootSessionId.
+    const root = rootSessionId(payload.sessionId);
+    if (!root.startsWith(COWORK_SESSION_PREFIX)) return { block: false };
     const cls = classifyToolCall(payload.tool, payload.args);
     if (!cls) return { block: false };
 
-    const agentId = payload.sessionId.slice(COWORK_SESSION_PREFIX.length);
+    const agentId = root.slice(COWORK_SESSION_PREFIX.length);
     const agentName = this.#deps.agents.get(agentId)?.name ?? agentId;
     const approval = this.#deps.approvals.create({
       agentId,

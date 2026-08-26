@@ -12,8 +12,20 @@ REM    under Common7\IDE\, not the VC root, so it has to be prepended to PATH).
 set "PATH=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;%PATH%"
 set "CMAKE_GENERATOR=Ninja"
 REM 3. FERAL_* knobs — the actual reason this launcher exists.
-REM 4. cargo tauri dev (with optional --features).
+REM 4. cd to the repo, RELATIVE to this file, then cargo tauri dev.
+cd /d "%~dp0src-tauri"
+cargo tauri dev
 ```
+
+> **Paths below are historical.** The repo was `D:\FeralLocalAI` before the
+> rename and every launcher hardcoded it, so after the move the documented way
+> to start the app `cd`'d into a directory that no longer exists — the app
+> simply would not launch, with a `cmd` error and nothing else to go on.
+> The launchers themselves are gitignored (`run-*.bat`), which is why this file
+> is the only committed record of them and why the stale path survived here.
+> When reconstructing any recipe below, use `cd /d "%~dp0src-tauri"` (`%~dp0`
+> is the launcher's own folder, trailing backslash included) instead of the
+> absolute path shown.
 
 Status legend:
 

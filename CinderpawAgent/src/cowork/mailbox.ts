@@ -37,6 +37,7 @@ export class CoworkMailboxRepo {
   readonly #outbox: ReturnType<Database["query"]>;
   readonly #updateStatus: ReturnType<Database["query"]>;
   readonly #get: ReturnType<Database["query"]>;
+  readonly #lastInThread: ReturnType<Database["query"]>;
 
   constructor(db: Database) {
     this.#insert = db.query(`
@@ -56,6 +57,13 @@ export class CoworkMailboxRepo {
       SELECT * FROM cowork_mailbox
       WHERE to_agent_id = ? AND status = ?
       ORDER BY created_at DESC, rowid DESC
+    `);
+    // Same deterministic tiebreak as the inbox queries.
+    this.#lastInThread = db.query(`
+      SELECT payload_json FROM cowork_mailbox
+      WHERE thread_id = ?
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT 1
     `);
     this.#outbox = db.query(`
       SELECT * FROM cowork_mailbox
@@ -127,6 +135,32 @@ export class CoworkMailboxRepo {
   }
 
   /** Look up one message by id, or `undefined`. */
+  /**
+   * The hop count of the most recent message in a thread, or 0 for a thread
+   * that does not exist yet.
+   *
+   * The hop cap lives on the THREAD, not on a session: the automatic reply
+   * path in `runtime.ts` increments `coworkHops` in the payload, but a
+   * teammate that answers by calling `cowork_send` instead was starting a
+   * message with no payload at all — `readHops(null)` is 0, so the counter
+   * reset and two agents could ping-pong without limit, each round costing a
+   * full model turn. Reading the chain's current depth from the thread is
+   * what makes the cap hold no matter which path sends the message.
+   */
+  lastHopsInThread(threadId: string | null): number {
+    if (!threadId) return 0;
+    const row = this.#lastInThread.get(threadId) as { payload_json: string | null } | null;
+    if (!row?.payload_json) return 0;
+    try {
+      const parsed = JSON.parse(row.payload_json) as { coworkHops?: number };
+      return typeof parsed.coworkHops === "number" && parsed.coworkHops >= 0
+        ? Math.floor(parsed.coworkHops)
+        : 0;
+    } catch {
+      return 0;
+    }
+  }
+
   get(id: string): CoworkMessage | undefined {
     const row = this.#get.get(id) as MailboxRow | null;
     return row ? fromRow(row) : undefined;

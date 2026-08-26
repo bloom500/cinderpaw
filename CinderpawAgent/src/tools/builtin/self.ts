@@ -514,6 +514,38 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "missing/corrupt state file recovers to neutral defaults (every ratio = 1.0).",
     inspect: ["self_describe", "self_health", "self_status"],
   },
+  cowork: {
+    purpose:
+      "Agent Cowork — persistent named teammate agents with their own " +
+      "reactive worker loop, an SQLite A2A mailbox + handoff protocol, a " +
+      "deterministic approval gate on risky tool calls, and a live " +
+      "agent-to-agent transcript panel in the desktop UI. You can hand one " +
+      "of them work from ordinary chat via `cowork_send`.",
+    inputs: [
+      "Roster: `cowork_agents` table (name, role, standing instructions) in the central DB.",
+      "Inbox: `cowork_mailbox` rows — written by `cowork_send` (from chat), by a teammate's reply, or by a handoff result.",
+      "Task ownership transfers in `cowork_handoffs` (initiated → accepted → completed/failed).",
+    ],
+    outputs: [
+      "Replies delivered back through the mailbox, hop-capped at 3 so agents cannot ping-pong forever.",
+      "`cowork_event` stream rendered live as the A2A transcript panel (+ mascot bubbles).",
+      "Approval requests raised BEFORE gated tool calls run; verdicts come from the human in chat.",
+    ],
+    safety: [
+      "Strictly reactive v1 — the worker loop only DRAINS inboxes, nothing invents work.",
+      "The approval gate fails CLOSED (an expired request is not an approval) and is audited per call.",
+      "Sender identity is honest: inside a `cowork:<id>` session the speaker is that agent; otherwise 'human'.",
+      "Zero teammates configured ⇒ zero behavior and no cowork tools exposed at all.",
+    ],
+    promotion:
+      "N/A — the roster is plain CRUD rows, not an eval ladder. Creating your " +
+      "first teammate requires an app restart before cowork_team/cowork_send appear.",
+    rollback:
+      "Delete the agent row: its sessions persist but nothing drains them. The " +
+      "approval gate passes every non-cowork session through untouched, so removal " +
+      "cannot affect normal chat turns.",
+    inspect: ["self_subsystem", "self_tools"],
+  },
 };
 
 // ── Shape helpers ─────────────────────────────────────────────────────────
@@ -1397,8 +1429,8 @@ function makeSelfSubsystem(): Tool {
     name: "self_subsystem",
     description:
       "Deep dive on a specific subsystem. Pass one of: brsi, fms, lora, " +
-      "dreaming, genomes, connectors, memory, brain_stack, rsi. Returns a " +
-      "structured doc: Purpose, Inputs, Outputs, Safety, Promotion, " +
+      "dreaming, genomes, connectors, memory, brain_stack, rsi, cowork. " +
+      "Returns a structured doc: Purpose, Inputs, Outputs, Safety, Promotion, " +
       "Rollback, and which self.* tools surface it live.",
     permissions: [],
     networkAccess: false,

@@ -20,6 +20,7 @@ import type { CinderpawAgentEvent } from '@/lib/tauri';
 import { tauri } from '@/lib/tauri';
 import { useChat } from '@/stores/chat';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
+import { useCoworkTranscript } from '@/stores/coworkTranscript';
 
 export interface FeralStreamHandlers {
   onChunk: (content: string) => void;
@@ -179,6 +180,16 @@ export function ensureFeralListener(): Promise<void> {
             : parsed.eventType === 'message_rejected' || parsed.eventType === 'handoff_failed' || parsed.eventType === 'approval_denied' || parsed.eventType === 'approval_expired'
               ? 'error'
               : 'done';
+        // The same event ALSO feeds the persistent A2A transcript panel —
+        // the mascot bubble is glanceability (4 slots, fades out); the
+        // transcript is the record of what was actually said.
+        useCoworkTranscript.getState().ingest({
+          eventType: parsed.eventType,
+          agentId: parsed.agentId,
+          threadId: parsed.threadId,
+          title: parsed.title,
+          data: parsed.data,
+        });
         useChat.getState().upsertCoworkEvent({
           key,
           title: parsed.title,

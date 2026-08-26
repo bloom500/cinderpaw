@@ -91,6 +91,7 @@ import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
 import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/remember.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
+import { createCoworkTeamTool, createCoworkSendTool } from "./tools/builtin/cowork.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
@@ -1569,6 +1570,7 @@ export async function boot(transportOverride?: Transport) {
   // cron's unattended-run shape minus durability extras: cowork threads are
   // conversational, one persistent session per agent so context compounds.
   const coworkAgents = new CoworkAgentRepo(db.raw);
+  const coworkMailbox = new CoworkMailboxRepo(db.raw);
   // S4 — deterministic approval gate on the tool-call path. Registered on
   // the shared hook registry: it passes every non-cowork session through
   // untouched and every unclassifiable call through, so with zero cowork
@@ -1581,9 +1583,19 @@ export async function boot(transportOverride?: Transport) {
     log,
   });
   hooks.on("before_tool_call", coworkApprovalService.gate);
+  // S4.5 — the door from ordinary chat INTO the mailbox. Without these the
+  // reactive runtime can never fire: nothing user-facing could write the
+  // first message. Registered ONLY when teammates exist, so an install with
+  // zero cowork agents gains zero tools (fresh-install contract). Note this
+  // means creating your first teammate requires a restart to gain the tools.
+  if (coworkAgents.list().length > 0) {
+    registry.register(createCoworkTeamTool(coworkAgents));
+    registry.register(createCoworkSendTool(coworkAgents, coworkMailbox));
+    log(`cowork: ${coworkAgents.list().length} teammate(s) configured — cowork_team/cowork_send exposed`);
+  }
   const coworkRuntime = new CoworkRuntime({
     agents: coworkAgents,
-    mailbox: new CoworkMailboxRepo(db.raw),
+    mailbox: coworkMailbox,
     handoffs: new CoworkHandoffService(db.raw),
     emitEvent: (event) => transport.send(event),
     runTurn: async (_agentRec, prompt, sessionId) => {
