@@ -402,7 +402,7 @@ budget_remaining:
 
 This is **the audit trail the user reads**. It is also the dataset for
 the meta-evolution layer (Layer 5) to learn from. Format: append-only
-JSONL (`~/.feral/instances/<tenant>/journal/<yyyy-mm-dd>.jsonl`).
+JSONL (`~/.cinderpaw/instances/<tenant>/journal/<yyyy-mm-dd>.jsonl`).
 
 ### 2.10 Personal Fitness Function (per-user signal)
 
@@ -544,7 +544,7 @@ reframings of what is already in `rsi-evolution-spec.md` or
 
 - New file: `CinderpawAgent/src/rsi/journal.ts` — append-only JSONL writer,
   per-day file rotation, integrity check.
-- Path: `~/.feral/instances/<tenant>/journal/<yyyy-mm-dd>.jsonl`.
+- Path: `~/.cinderpaw/instances/<tenant>/journal/<yyyy-mm-dd>.jsonl`.
 - UI: journal viewer with filters (cycle / species / rejected-only).
 - This is **the data source** for Layer 5 meta-evolution.
 

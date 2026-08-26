@@ -133,7 +133,7 @@ the comment tags next to each `.route(` line.
 
 Every request must present
 `Authorization: Bearer <token>` where `<token>` is read from
-`~/.feral/api-token` (per-launch, file mode `0o600` on Unix). The
+`~/.cinderpaw/api-token` (per-launch, file mode `0o600` on Unix). The
 token rotates on every launch; the in-app sidecar receives it via
 the host's env, not via the request.
 

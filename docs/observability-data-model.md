@@ -11,8 +11,8 @@
 
 Today, Cinderpaw has three near-overlapping observability surfaces:
 
-- `~/.feral/rsi/dream.jsonl` (per-episode telemetry, `dream-telemetry.ts`)
-- `~/.feral/rsi/sandbox_bounds.audit.log` (SandboxBounds mutations)
+- `~/.cinderpaw/rsi/dream.jsonl` (per-episode telemetry, `dream-telemetry.ts`)
+- `~/.cinderpaw/rsi/sandbox_bounds.audit.log` (SandboxBounds mutations)
 - The forthcoming Evolution Journal (per-cycle structured log)
 
 That's three formats, three consumers, three places a developer has

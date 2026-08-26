@@ -32,7 +32,7 @@ runner, or anything that handles untrusted input.**
 | `FERAL_DESKTOP_CONTROL_NO_PROMPT_OK` | off | Sidecar-internal kill-switch that the desktop host uses to remember "user already approved this exact action"; see `control-app.ts`. | Not a security boundary; remains a UX shortcut only. |
 | `FERAL_DB_KEY` | unset (no encryption at rest) | 32-byte key for the agent's SQLite DB. **Anyone who can read this value can read the DB.** Treat it as a root secret. | Generate once per install; persist in OS keychain, not dotfiles. |
 | `FERAL_AGENT_WORKSPACE` | unset (deny all tool access to host FS) | Sidecar-internal Rust tools accept absolute paths under this value. Set to `/` on Unix or `C:\` on Windows to grant full disk access to code-exec and shell. | Always absolute, never `/`, never `C:\`. |
-| `FERAL_WORKSPACE` | (TS list — see trap below) | Agent FS roots. Anything in this list, plus any child, is exposed to write tools. Unset = launch cwd + the user's home dir. | The call-time deny wall (`tool-permissions.ts`) refuses `~/.feral` (except scratch), `~/.ssh`, and `FERAL_FS_DENY` targets on every access, whatever the roots. |
+| `FERAL_WORKSPACE` | (TS list — see trap below) | Agent FS roots. Anything in this list, plus any child, is exposed to write tools. Unset = launch cwd + the user's home dir. | The call-time deny wall (`tool-permissions.ts`) refuses `~/.cinderpaw` (except scratch), `~/.ssh`, and `FERAL_FS_DENY` targets on every access, whatever the roots. |
 | `FERAL_FETCH_DOMAINS` | empty | Comma-separated URL allowlist for the `fetch_url` tool. Empty = tool fails closed. With this set, the agent can pull arbitrary HTML from each listed origin. | Add only origins you trust to serve benign HTML. |
 | `FERAL_HTTP_DOMAINS` | empty | Same shape, for the lower-level `http_request` tool. | Same advice. |
 | `FERAL_TRUSTED_BASE_URLS` | empty | Comma-separated base URLs the inference router may call beyond the loopback default. Bypasses the egression posture in `inference-router.ts`. | List one provider base URL per entry; never `*`. |
@@ -101,14 +101,14 @@ There are **two** env vars with confusingly similar names. They are
 | Var | Runtime | Type | Default | Effect |
 |---|---|---|---|---|
 | `FERAL_AGENT_WORKSPACE` | Rust host (`crates/feral-core`) | single absolute path | unset | Sidecar-internal Rust tools (e.g. raw FS access) accept absolute paths only under this single root. |
-| `FERAL_WORKSPACE` | TS sidecar (`CinderpawAgent/src/boot.ts` `loadWorkspaceRoots`) | path-list | launch cwd + home + scratch | Write tools and the agent's filesystem exposure are rooted at this list, plus an automatic scratch dir. `~/.feral`/`~/.ssh`/`FERAL_FS_DENY` are denied at call time regardless. |
+| `FERAL_WORKSPACE` | TS sidecar (`CinderpawAgent/src/boot.ts` `loadWorkspaceRoots`) | path-list | launch cwd + home + scratch | Write tools and the agent's filesystem exposure are rooted at this list, plus an automatic scratch dir. `~/.cinderpaw`/`~/.ssh`/`FERAL_FS_DENY` are denied at call time regardless. |
 
 If you set one and meant the other, the agent will fail in confusing
 ways (Rust tools will deny paths the TS sidecar allowed, or vice versa).
 Set both deliberately.
 
 The TS loader **refuses to include any path that would expose
-`~/.feral/`** (and a few other self-protection walls). See
+`~/.cinderpaw/`** (and a few other self-protection walls). See
 `CinderpawAgent/src/workspace-roots.ts` for the canonical list of dropped
 roots.
 
@@ -141,15 +141,15 @@ they remain hand-maintained here and are still covered by
 | Var | Type | Default | Security | Description |
 |---|---|---|---|---|
 | `FERAL_DB_KEY` | string | `null` | yes | 32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB. |
-| `FERAL_WORKSPACE` | list | `null` | yes | TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.feral, ~/.ssh and FERAL_FS_DENY regardless of roots. |
-| `FERAL_FS_DENY` | list | `null` | yes | Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.feral + ~/.ssh deny wall. |
+| `FERAL_WORKSPACE` | list | `null` | yes | TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.cinderpaw, ~/.ssh and FERAL_FS_DENY regardless of roots. |
+| `FERAL_FS_DENY` | list | `null` | yes | Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.cinderpaw + ~/.ssh deny wall. |
 | `FERAL_ENABLE_SHELL_EXEC` | bool | `true` | yes | Registers shell_exec (argv-only, whitelisted). On by default; set to "false" to disable. Doc note: an earlier draft of this doc said default off — the code's actual default is ON. |
 | `FERAL_ENABLE_NOTEBOOK` | bool | `true` | yes | Registers `notebook`, a persistent JavaScript interpreter with every other tool bound as an async function, so the agent can compose tool calls in code instead of one per turn. ON by default since 2026-08-26: it is the largest measured lever on token cost, because two tool calls in one cell is ONE completion instead of two, and every completion re-sends ~10.7k tokens of schema + system prompt. Set to "false" to disable. Cells run in an isolated vm context with no ambient fetch/process/require, and every capability still goes through the tool registry and its permission checks — but it is a hardened context, not a jail against hostile input, which is why it is OWNER-ONLY: any session running under a profile (connector persona, WhatsApp public mode, a cowork teammate) is refused it at both the advertise and the execute gate. See tools/tiers.ts::OWNER_ONLY_TOOLS. |
 | `FERAL_ENABLE_DESKTOP_CONTROL` | bool | `false` | yes | Registers control_app (OS accessibility-tree control). Off by default; set to "true" to enable. |
 | `FERAL_DESKTOP_CONTROL_CONFIRM` | bool | `true` | yes | Per-action confirmation dialog for control_app writes. On by default; set to "false" to disable (inverse-toggle var — see report for why this call site is not migrated to cfgBool). |
 | `FERAL_DESKTOP_CONTROL_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, a transport with no askUser bridge may proceed without confirmation instead of failing closed. |
 | `FERAL_FORGE_NO_PROMPT_OK` | bool | `false` | yes | Sidecar-internal escape hatch: when true, tool_forge may create/update a tool on a transport with no askUser bridge instead of failing closed. This approves running agent-written code unattended — headless deployments only. |
-| `FERAL_PERMISSION_MODE` | string | `null` | yes | What the agent is allowed to change: "read_only" (reads anything, writes nothing — no file writes, no destructive/machine-level commands; the mode for audits and for surfaces where the speaker is not the owner), "workspace_write" (default: writes inside the workspace roots, where the safety point can undo them), or "full_access" (guards that prevent mistakes step aside; the catastrophic denylist still applies). Resolution order: this var, then FERAL_SHELL_WHITELIST="*" (which still means full access), then `permission_mode` in ~/.feral/settings.json, then the default. The settings.json route is the only one that needs no relaunch — the sidecar reads it per command, so a change applies to the next one; an unknown value or an unparseable file means "not configured", never "deny everything". |
+| `FERAL_PERMISSION_MODE` | string | `null` | yes | What the agent is allowed to change: "read_only" (reads anything, writes nothing — no file writes, no destructive/machine-level commands; the mode for audits and for surfaces where the speaker is not the owner), "workspace_write" (default: writes inside the workspace roots, where the safety point can undo them), or "full_access" (guards that prevent mistakes step aside; the catastrophic denylist still applies). Resolution order: this var, then FERAL_SHELL_WHITELIST="*" (which still means full access), then `permission_mode` in ~/.cinderpaw/settings.json, then the default. The settings.json route is the only one that needs no relaunch — the sidecar reads it per command, so a change applies to the next one; an unknown value or an unparseable file means "not configured", never "deny everything". |
 | `FERAL_AUTONOMOUS` | bool | `false` | yes | Walk-away mode: ask_user does not block for a human. It takes the recommended option (or the first) immediately and logs the decision, so a long task runs unattended. The end-of-turn summary reports every auto-decision. Off by default. |
 | `FERAL_DESKTOP_CONTROL_ALLOWED_APPS` | list | `null` | yes | Comma-separated allowlist of app names control_app may target. Empty = fail closed. (Read by the Rust host, not CinderpawAgent/src.) |
 | `FERAL_FETCH_DOMAINS` | list | `null` | yes | Comma-separated domain allowlist for fetch_url. Unset = all public hosts (SSRF guard, rate limit and audit still apply); set to RESTRICT. |
@@ -228,7 +228,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_RSI_SCHEDULE_MS` | int | `null` |  | Force a fixed schedule (e.g. weekly wake). |
 | `FERAL_RSI_STAGNATION_THRESHOLD` | int | `null` |  | Hard stagnation threshold. |
 | `FERAL_RSI_STOP_ON_ACTIVITY` | bool | `false` |  | Pause RSI when the user is active. |
-| `FERAL_RSI_TELEMETRY` | path | `null` |  | Telemetry JSONL file path override (default ~/.feral/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch. |
+| `FERAL_RSI_TELEMETRY` | path | `null` |  | Telemetry JSONL file path override (default ~/.cinderpaw/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch. |
 | `FERAL_CODE_RSI_REPO` | path | `null` |  | Source repo for code-RSI to propose/apply against; without it, code-RSI rounds and live-apply are unavailable. |
 | `FERAL_MODULE_SEED` | int | `1` |  | Deterministic seed for module selection (module-host.ts). |
 | `FERAL_CRON_TICK_MS` | int | `30_000` |  | Tick interval for the cron scheduler. |

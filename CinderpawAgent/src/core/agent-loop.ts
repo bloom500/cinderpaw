@@ -2817,6 +2817,20 @@ export function buildCapabilityIndex(registry: ToolRegistry): string {
     return `- \`${m.name}\` — ${gist.length > 140 ? `${gist.slice(0, 137)}…` : gist}`;
   };
 
+  // Extension (MCP) tools are listed by NAME ONLY, and the reason is that they
+  // are the one group whose size the user controls. Built-in drawer tools are a
+  // fixed set we chose; MCP tools arrive with whatever servers someone installs,
+  // and each description line costs ~40 tokens on EVERY completion, forever.
+  // Measured on this machine: three servers, 41 tools, ~2.6K tokens per
+  // completion — a person who installs ten servers would pay several thousand
+  // for a menu they read once. Names survive because the name is what
+  // `load_tool` takes and MCP tool names are verbose enough to be self-
+  // describing (`mcp_send_discord_message`); the descriptions survive too, in
+  // `list_tools`, one call away. Awareness is preserved; the per-turn rent is
+  // not.
+  const extensions = hidden.filter((m) => m.name.startsWith("mcp_"));
+  const builtin = hidden.filter((m) => !m.name.startsWith("mcp_"));
+
   return [
     "## Your full capability index (load before use)",
     "These tools are installed and available to you RIGHT NOW, but their schemas",
@@ -2825,7 +2839,14 @@ export function buildCapabilityIndex(registry: ToolRegistry): string {
     "then call the tool normally on the next turn. NEVER tell the user you lack a",
     "capability that appears in this list — load it and do the work.",
     "",
-    ...hidden.map(line),
+    ...builtin.map(line),
+    ...(extensions.length > 0
+      ? [
+          "",
+          `From your installed extensions (${extensions.length}) — names only; call \`list_tools\` for what each one does:`,
+          extensions.map((m) => `\`${m.name}\``).join(", "),
+        ]
+      : []),
   ].join("\n");
 }
 

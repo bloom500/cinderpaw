@@ -25,7 +25,7 @@ registers it:
 
 Requirements: NVIDIA GPU (8 GB+ VRAM for a 7B base), CUDA driver, Python
 3.10–3.12, git, network, and a few GB of disk for the venv
-(`~/.feral/lora-trainer/`).
+(`~/.cinderpaw/lora-trainer/`).
 
 **Base model resolution**: Cinderpaw passes the loaded GGUF as `--base`, but
 training happens on the original Hugging Face weights. The trainer reads

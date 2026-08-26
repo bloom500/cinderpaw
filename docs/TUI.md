@@ -2,7 +2,7 @@
 
 The TUI is the full-screen terminal chat client (Go + Bubble Tea). It talks to
 the same gateway, sessions, memory and models as the desktop app — installing
-one after the other adopts your existing `~/.feral` config with zero re-setup.
+one after the other adopts your existing `~/.cinderpaw` config with zero re-setup.
 
 ## Launching
 
@@ -90,7 +90,7 @@ wizard / skip), never a dead end. The classic step-by-step wizard stays
 behind `/setup classic` and `--wizard`.
 
 The classic wizard is resumable — progress persists in
-`~/.feral/.wizard-progress`, so quitting mid-setup continues where you left
+`~/.cinderpaw/.wizard-progress`, so quitting mid-setup continues where you left
 off.
 
 ## Building from source

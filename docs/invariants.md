@@ -32,7 +32,7 @@ Every invariant, regardless of class, must have all four:
 | **Documentation** | The Statement field below — precise, testable, complete | This file |
 | **Test** | A unit / property test that fails when the invariant breaks | `CinderpawAgent/tests/` or `src-tauri/src/**/tests.rs` |
 | **Runtime Assert** | A check inside the engine that fails fast (throws / panics / returns error) | The module that "owns" the invariant |
-| **Audit** | A row in `~/.feral/rsi/sandbox_bounds.audit.log` when the invariant is checked OR breached | `audit.rs` |
+| **Audit** | A row in `~/.cinderpaw/rsi/sandbox_bounds.audit.log` when the invariant is checked OR breached | `audit.rs` |
 
 If any pillar is missing, the invariant is **incomplete**. The Status
 field below carries "PENDING RUNTIME ENFORCEMENT" or similar until all
@@ -404,7 +404,7 @@ BFS has a `seen` set as the runtime safety net.
 
 ### Invariant I13 — Per-instance data isolation
 
-**Statement:** Each tenant (`~/.feral/instances/<tenant>/`) has its
+**Statement:** Each tenant (`~/.cinderpaw/instances/<tenant>/`) has its
 own genomes, adapters, demos, eval suites, journal, audit log.
 Cross-tenant reads are not permitted. Tier 0 specs are the only
 shared data.
