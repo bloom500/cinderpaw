@@ -140,6 +140,38 @@ async function fetchPricing(model) {
   return { inPer, outPer };
 }
 
+/**
+ * A PIN THAT DOES NOT SERVE THE MODEL IS A 100% FAILURE, NOT A PREFERENCE.
+ *
+ * `--provider` defaults to Z.AI because the GLM run wants one upstream and no
+ * fallback: OpenRouter routes per request, so an unpinned run is not one
+ * measurement. But that default is silently wrong for every model Z.AI does
+ * not serve. Pointed at deepseek/deepseek-v4-pro it failed all 50 calls, and
+ * because a failed call degrades to an arbitrary press, the run still produced
+ * 50 actions and a scorecard — a whole probe that measured nothing.
+ *
+ * Checked before the first call, like the price is, and for the same reason:
+ * refusing to start is the correct failure. The message names the providers
+ * that do serve the model, because the person hitting this has no other way to
+ * find out.
+ */
+async function assertProviderServes(model, provider) {
+  const res = await fetch(`https://openrouter.ai/api/v1/models/${model}/endpoints`);
+  if (!res.ok) throw new Error(`cannot read providers for "${model}": HTTP ${res.status}`);
+  const endpoints = (await res.json())?.data?.endpoints ?? [];
+  const names = endpoints.map((e) => e.provider_name).filter(Boolean);
+  if (names.length === 0) throw new Error(`OpenRouter lists no providers for "${model}"`);
+  if (!names.includes(provider)) {
+    throw new Error(
+      `provider "${provider}" does not serve "${model}" — every model call would fail.
+` +
+        `  providers that do: ${names.join(", ")}
+` +
+        `  pass --provider <one of those>, or --any-provider to let OpenRouter route (not for a scored run)`,
+    );
+  }
+}
+
 /** Tries after the first, for a model call. */
 // Above this share of failed model calls the run is the fallback policy, not
 // the model, whatever the scorecard says. A fifth is already far past noise.
@@ -284,6 +316,7 @@ if (problems.length > 0) {
 }
 
 const pricing = args.dryRun ? null : await fetchPricing(args.model);
+if (!args.dryRun && args.provider) await assertProviderServes(args.model, args.provider);
 const complete = args.dryRun
   ? null
   : makeComplete(args.model, args.reasoningEffort, args.provider ? [args.provider] : undefined, pricing);
