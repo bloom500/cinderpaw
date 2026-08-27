@@ -43,8 +43,25 @@ export interface MoveRule {
   colours: number[];
   /** What is left behind where the sprite was: the floor it walks on. */
   leaves: number;
-  /** How many cells the sprite is, used to tell it from its own colours elsewhere. */
+  /** How many cells the sprite is. */
   size: number;
+  /**
+   * The sprite's exact shape: every cell as an offset from its top-left corner,
+   * with its colour, sorted. This is what picks it out of a board where its
+   * colours also appear elsewhere — matching by size alone found the wrong
+   * group and called every press dead.
+   */
+  shape: string;
+  /** Where the sprite's corner was after the last press we watched. */
+  lastAt: { x: number; y: number };
+  /**
+   * What the sprite has been seen to move ONTO, and what has been seen to stop
+   * it. Learned, not assumed: this board lets the sprite cross colour 5 freely,
+   * and a model where only the floor is walkable called two thirds of its
+   * working presses dead.
+   */
+  passable: number[];
+  blocking: number[];
   /** Share of this action's presses the offset explains, 0..1. */
   confidence: number;
   pairsSeen: number;
@@ -85,7 +102,15 @@ export function moveBetween(
   input: Grid,
   output: Grid,
   noiseAllowance = 0.25,
-): { dx: number; dy: number; colours: number[]; leaves: number; size: number } | null {
+): {
+  dx: number;
+  dy: number;
+  colours: number[];
+  leaves: number;
+  size: number;
+  shape: string;
+  lastAt: { x: number; y: number };
+} | null {
   if (input.length !== output.length || input[0]?.length !== output[0]?.length) return null;
 
   const lost = new Map<number, { x: number; y: number }[]>();
@@ -191,8 +216,85 @@ export function moveBetween(
     // The whole sprite, not just the part that vacated: when it overlaps itself
     // the untouched middle is still the sprite, and the group we look for at
     // prediction time is the whole shape.
-    size: spriteSize(input, moved.map((m) => m.colour), moved.flatMap((m) => m.cells)),
+    ...spriteOf(input, moved.map((m) => m.colour), moved.flatMap((m) => m.cells), dx, dy),
   };
+}
+
+/**
+ * The whole sprite on the board before the press, and where it ended up.
+ *
+ * The changed cells are only the part that did not overlap itself — a shape
+ * five tall moving four rows shows one row of change. The group those cells
+ * belong to is the sprite, and its corner after the move is where to start
+ * looking next time.
+ */
+function spriteOf(
+  input: Grid,
+  colours: readonly number[],
+  movedCells: readonly { x: number; y: number }[],
+  dx: number,
+  dy: number,
+): { size: number; shape: string; lastAt: { x: number; y: number } } {
+  const keys = new Set(movedCells.map((p) => `${p.x},${p.y}`));
+  const group =
+    componentsOf(input, colours).find((g) => g.some((p) => keys.has(`${p.x},${p.y}`))) ??
+    movedCells.map((p) => ({ ...p, c: input[p.y]![p.x]! }));
+  const minX = Math.min(...group.map((p) => p.x));
+  const minY = Math.min(...group.map((p) => p.y));
+  return {
+    size: group.length,
+    shape: shapeKey(group),
+    lastAt: { x: minX + dx, y: minY + dy },
+  };
+}
+
+/** Where the sprite's top-left corner is on this board, or null. */
+export function spritePosition(
+  grid: Grid,
+  rule: Pick<MoveRule, "colours" | "size" | "shape" | "lastAt">,
+): { x: number; y: number } | null {
+  const cells = spriteIn(grid, rule);
+  if (cells === null) return null;
+  return { x: Math.min(...cells.map((p) => p.x)), y: Math.min(...cells.map((p) => p.y)) };
+}
+
+/**
+ * The sprite on this board, or null when it cannot be picked out.
+ *
+ * Shape and colours first — the sprite's colours also appear elsewhere, and
+ * matching by size alone found the wrong group. When two identical shapes are
+ * on the board, the one nearest to where it was last seen is it, and a tie
+ * means silence rather than a coin flip.
+ */
+function spriteIn(
+  grid: Grid,
+  rule: Pick<MoveRule, "colours" | "size" | "shape" | "lastAt">,
+): { x: number; y: number; c: number }[] | null {
+  const groups = componentsOf(grid, rule.colours).filter(
+    (g) => g.length === rule.size && shapeKey(g) === rule.shape,
+  );
+  if (groups.length === 0) return null;
+  const corner = (g: { x: number; y: number }[]) => ({
+    x: Math.min(...g.map((p) => p.x)),
+    y: Math.min(...g.map((p) => p.y)),
+  });
+  const distance = (g: { x: number; y: number }[]) => {
+    const c = corner(g);
+    return Math.abs(c.x - rule.lastAt.x) + Math.abs(c.y - rule.lastAt.y);
+  };
+  const ranked = [...groups].sort((a, b) => distance(a) - distance(b));
+  if (ranked.length > 1 && distance(ranked[0]!) === distance(ranked[1]!)) return null;
+  return ranked[0]!;
+}
+
+/** A shape as text: cells relative to the top-left corner, with their colours. */
+function shapeKey(cells: readonly { x: number; y: number; c: number }[]): string {
+  const minX = Math.min(...cells.map((p) => p.x));
+  const minY = Math.min(...cells.map((p) => p.y));
+  return cells
+    .map((p) => `${p.x - minX},${p.y - minY},${p.c}`)
+    .sort()
+    .join(" ");
 }
 
 /**
@@ -209,32 +311,37 @@ export function moveBetween(
  */
 export function applyMove(
   grid: Grid,
-  rule: Pick<MoveRule, "dx" | "dy" | "colours" | "leaves" | "size">,
+  rule: Pick<
+    MoveRule,
+    "dx" | "dy" | "colours" | "leaves" | "size" | "shape" | "lastAt" | "passable" | "blocking"
+  >,
 ): Grid | null {
-  // NOT every cell of those colours — the sprite's colours also appear
-  // elsewhere on the board (a goal marker, a legend), and moving those too put
-  // some part of the board against a wall on every single press, so the rule
-  // predicted "nothing happens" 30 times out of 30. The sprite is the connected
-  // group that is the size the move was learned from, and when two groups could
-  // both be it, this says nothing rather than picking one.
-  //
-  // AMBIGUITY IS NOT A NO-OP. Returning the board unchanged here would tell the
-  // policy "this press does nothing" with full confidence, which is the one
-  // wrong answer that costs a level: it demotes a press that would have worked.
-  // Not knowing which group is the sprite returns null — no belief — and the
-  // policy goes back to reading the board itself.
-  const groups = componentsOf(grid, rule.colours).filter((g) => g.length === rule.size);
-  if (groups.length !== 1) return null;
-  const cells = groups[0]!;
+  // AMBIGUITY IS NOT A NO-OP. Returning the board unchanged when the sprite
+  // cannot be found would tell the policy "this press does nothing" with full
+  // confidence, which is the one wrong answer that costs a level: it demotes a
+  // press that would have worked. Not knowing returns null, and the policy goes
+  // back to reading the board itself.
+  const cells = spriteIn(grid, rule);
+  if (cells === null) return null;
 
   const own = new Set(cells.map((p) => `${p.x},${p.y}`));
+  const ahead: number[] = [];
   for (const p of cells) {
     const nx = p.x + rule.dx;
     const ny = p.y + rule.dy;
-    if (ny < 0 || ny >= grid.length || nx < 0 || nx >= grid[ny]!.length) return grid; // the edge
-    if (own.has(`${nx},${ny}`)) continue; // its own tail
-    if (grid[ny]![nx] !== rule.leaves) return grid; // something is in the way
+    // The edge stops everything, and needs no evidence to be believed.
+    if (ny < 0 || ny >= grid.length || nx < 0 || nx >= grid[ny]!.length) return grid;
+    if (own.has(`${nx},${ny}`)) continue;
+    ahead.push(grid[ny]![nx]!);
   }
+  // Only what has been WATCHED stopping it counts as a wall. A colour never
+  // seen ahead of this action is not a wall and not a floor — it is unknown,
+  // and the honest answer is to say nothing rather than guess in either
+  // direction. Assuming "not floor means wall" called two thirds of the
+  // working presses dead on the game this was measured against.
+  if (ahead.some((c) => rule.blocking.includes(c))) return grid;
+  if (!ahead.every((c) => rule.passable.includes(c))) return null;
+
   const out = grid.map((row) => [...row]);
   for (const p of cells) out[p.y]![p.x] = rule.leaves;
   for (const p of cells) out[p.y + rule.dy]![p.x + rule.dx] = p.c;
@@ -255,7 +362,7 @@ export function learnMoveRules(
   const rules: MoveRule[] = [];
   for (const entry of history) {
     if (!entry?.pairs?.length) continue;
-    let found: { dx: number; dy: number; colours: number[]; leaves: number; size: number } | null = null;
+    let found: NonNullable<ReturnType<typeof moveBetween>> | null = null;
     let agreed = 0;
     let blocked = 0;
     let contradicted = false;
@@ -277,6 +384,9 @@ export function learnMoveRules(
         m.dy === found.dy &&
         String(m.colours) === String(found.colours)
       ) {
+        // Keep the LATEST sighting: where the sprite is now is what the next
+        // prediction has to start from, not where it was ten presses ago.
+        found = { ...m };
         agreed++;
       } else {
         contradicted = true;
@@ -284,6 +394,54 @@ export function learnMoveRules(
       }
     }
     if (contradicted || !found) continue;
+
+    // WHAT STOPS IT, FROM EVIDENCE. Second pass, now that the offset and the
+    // shape are known: for every press, find the sprite and look at the squares
+    // it was trying to enter. A press that landed proves those colours are
+    // walkable. A press that did nothing proves one of them is not — which one
+    // is unknown, so nothing is condemned on a single sighting; a colour is
+    // called blocking only once it has been in the way of a failure and never
+    // under a success.
+    const passable = new Set<number>();
+    const suspect = new Map<number, number>();
+    for (const pair of entry.pairs) {
+      const cells = spriteIn(pair.input, found);
+      if (!cells) continue;
+      const own = new Set(cells.map((p) => `${p.x},${p.y}`));
+      const ahead: number[] = [];
+      let offBoard = false;
+      for (const p of cells) {
+        const nx = p.x + found.dx;
+        const ny = p.y + found.dy;
+        if (ny < 0 || ny >= pair.input.length || nx < 0 || nx >= pair.input[ny]!.length) {
+          offBoard = true;
+          break;
+        }
+        if (own.has(`${nx},${ny}`)) continue;
+        ahead.push(pair.input[ny]![nx]!);
+      }
+      if (offBoard) continue; // the edge, which needs no colour to explain it
+      // Did the SPRITE move? Not "did anything change" — a counter ticking in
+      // the corner changes the board without the press having bought anything,
+      // and treating that as a successful move taught the rule that walls are
+      // walkable.
+      const landed = spritePosition(pair.output, found);
+      const started = { x: Math.min(...cells.map((p) => p.x)), y: Math.min(...cells.map((p) => p.y)) };
+      const moved = landed !== null && (landed.x !== started.x || landed.y !== started.y);
+      if (!moved) {
+        // Once per PRESS, not once per cell: a sprite four cells wide facing a
+        // wall indicts that colour four times over, and "twice before you call
+        // it a wall" then means nothing.
+        for (const c of new Set(ahead)) suspect.set(c, (suspect.get(c) ?? 0) + 1);
+      } else for (const c of ahead) passable.add(c);
+    }
+    // Twice, not once. A failed press indicts every colour ahead of the sprite
+    // and only one of them is the wall, so a single sighting convicts
+    // bystanders — measured: one colour condemned on one failure produced the
+    // only wrong "this press is dead" in ten games. Two independent failures
+    // with the same colour ahead is cheap to wait for and much harder to get
+    // by accident.
+    const blocking = [...suspect].filter(([c, n]) => n >= 2 && !passable.has(c)).map(([c]) => c);
     // Blocked presses count in the denominator on purpose: a rule that has seen
     // the move fail more often than land does not understand this board yet,
     // and saying so costs less than acting on it.
@@ -294,6 +452,10 @@ export function learnMoveRules(
       colours: found.colours,
       leaves: found.leaves,
       size: found.size,
+      shape: found.shape,
+      lastAt: found.lastAt,
+      passable: [...passable].sort((a, b) => a - b),
+      blocking: blocking.sort((a, b) => a - b),
       confidence: agreed / (agreed + blocked),
       pairsSeen: agreed + blocked,
       blockedSeen: blocked,
@@ -336,19 +498,6 @@ function componentsOf(grid: Grid, colours: readonly number[]): { x: number; y: n
     }
   }
   return out;
-}
-
-/** The size of the group the moved cells belong to, on the board before the move. */
-function spriteSize(
-  input: Grid,
-  colours: readonly number[],
-  movedCells: readonly { x: number; y: number }[],
-): number {
-  const keys = new Set(movedCells.map((p) => `${p.x},${p.y}`));
-  for (const group of componentsOf(input, colours)) {
-    if (group.some((p) => keys.has(`${p.x},${p.y}`))) return group.length;
-  }
-  return movedCells.length;
 }
 
 /** What this action would do to this board, or null when there is no rule. */

@@ -56,13 +56,18 @@
 
 import type { ArcObservation } from "./environment.ts";
 import type { ArcPolicy, PolicyContext } from "./play-level.ts";
+import { recordOutcome, type ActionHistory } from "./imagination.ts";
+// The MCTS learner in `imagination.ts` is not imported any more, and the
+// measurement is why: on 59 real presses of ls20 the best programs it found
+// were rotate(rotate(g,270),90) — the identity in two steps — at confidence
+// 0.44, so no rule ever passed the 1.0 threshold and nothing it did changed a
+// single decision in any game. It searches whole-grid transforms; a press here
+// moves one sprite. See imagination-move.ts.
 import {
-  imagine,
-  learnActionRules,
-  recordOutcome,
-  type ActionHistory,
-  type LearnedRule,
-} from "./imagination.ts";
+  learnMoveRules,
+  imagineMove,
+  type MoveRule,
+} from "./imagination-move.ts";
 
 /**
  * How many distinct states an action must do nothing in before it is presumed
@@ -75,7 +80,10 @@ const INERT_AFTER = 3;
 
 /** Rehearsal settings. Absent = table only, exactly as before. */
 export interface ImaginationOptions {
-  /** MCTS iterations per action per learning pass. CPU, not keypresses. */
+  /**
+   * Kept for callers that still pass it; the move learner reads the change
+   * between two boards directly and has no search to give iterations to.
+   */
   iterations?: number;
   /**
    * Pairs a rule must be learned from before it is believed. Two, because a
@@ -108,7 +116,7 @@ export interface FrugalPolicyOptions {
    * wire it in.
    */
   onLearn?: (info: {
-    rules: readonly LearnedRule[];
+    rules: readonly MoveRule[];
     trusted: number;
     elapsedMs: number;
     budgetSpent: boolean;
@@ -145,7 +153,6 @@ export interface FrugalPolicyOptions {
  */
 export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
   const { inner, onVeto, imagination, onLearn, onImagined } = options;
-  const imagineIterations = imagination?.iterations ?? 200;
   const imagineMinPairs = Math.max(2, imagination?.minPairs ?? 2);
   const relearnEvery = Math.max(1, imagination?.relearnEvery ?? 4);
   const learnBudgetMs = imagination?.learnBudgetMs ?? 20_000;
@@ -153,7 +160,7 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
   /** Before/after pairs per action — the training set the search runs on. */
   let history: ActionHistory[] = [];
   /** Rules currently believed. Replaced wholesale by each learning pass. */
-  let rules: LearnedRule[] = [];
+  let rules: MoveRule[] = [];
   let pairsSinceLearn = 0;
   let learnMsSpent = 0;
 
@@ -222,13 +229,13 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
     // pairs must not survive on the strength of having once been true.
     if (imagination && pairsSinceLearn >= relearnEvery && learnMsSpent < learnBudgetMs) {
       const startedAt = Date.now();
-      rules = await learnActionRules(history, { iterations: imagineIterations });
+      rules = learnMoveRules(history);
       const elapsedMs = Date.now() - startedAt;
       learnMsSpent += elapsedMs;
       pairsSinceLearn = 0;
       onLearn?.({
         rules,
-        trusted: rules.filter((r) => trustworthy(r, imagineMinPairs)).length,
+        trusted: rules.filter((r) => r.pairsSeen >= imagineMinPairs).length,
         elapsedMs,
         budgetSpent: learnMsSpent >= learnBudgetMs,
       });
@@ -243,8 +250,11 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
       if (rules.length === 0) return null;
       if (known(action) !== undefined) return null; // observed: not our business
       const rule = rules.find((r) => r.action === action);
-      if (!rule || !trustworthy(rule, imagineMinPairs)) return null;
-      const after = imagine(rules, action, cloneGrid(observation.grid));
+      if (!rule || rule.pairsSeen < imagineMinPairs) return null;
+      // `imagineMove` answers null when it cannot pick the sprite out of the
+      // board or has never watched what is ahead of it. Null is not "nothing
+      // happens" — it is no belief, and it must not reach the caller as one.
+      const after = imagineMove(rules, action, cloneGrid(observation.grid));
       return after ? gridKey(after) : null;
     };
     const imaginedNoop = (action: string): boolean => predicted(action) === here;
@@ -309,10 +319,6 @@ function edge(gridKey: string, action: string): string {
  * learned from more than one of them. `imagination.ts` reports both numbers
  * precisely because confidence alone cannot tell those two cases apart.
  */
-function trustworthy(rule: LearnedRule, minPairs: number): boolean {
-  return rule.confidence >= 1 && rule.pairsSeen >= minPairs;
-}
-
 /**
  * A mutable copy. The search's DSL takes `number[][]` and compiled programs are
  * free to write into what they are given; the observation belongs to the

@@ -530,8 +530,8 @@ console.log(`attempts    ${JSON.stringify(attempts)}`);
 console.log(`vetoed      ${vetoes} presses the frugal policy refused to pay for`);
 if (args.imagination !== false) {
   console.log(
-    `imagination ${learnPasses} MCTS passes in ${(learnMs / 1000).toFixed(1)}s, ` +
-      `${trustedRules} trusted rules, ${imagined} presses demoted by a prediction`,
+    `imagination ${learnPasses} learning passes in ${(learnMs / 1000).toFixed(1)}s, ` +
+      `${trustedRules} rules held, ${imagined} presses demoted by a prediction`,
   );
 }
 if (!args.dryRun) {

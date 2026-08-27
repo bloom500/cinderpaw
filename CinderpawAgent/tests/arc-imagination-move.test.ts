@@ -83,31 +83,52 @@ describe("learnMoveRules", () => {
 });
 
 describe("applyMove — the contract that protects the score", () => {
-  const rule = { dx: 0, dy: -2, colours: [9], leaves: 3, size: 2 };
+  /** A rule as the learner would produce it: one press that moved, watched. */
+  const learned = (pairs: { input: number[][]; output: number[][] }[]) =>
+    learnMoveRules([{ action: "ACTION1", pairs }])[0]!;
+
+  const walked = learned([{ input: board(4, 4), output: board(4, 2) }]);
 
   test("a free square moves the sprite", () => {
-    expect(applyMove(board(4, 4), rule)).toEqual(board(4, 2));
+    expect(applyMove(board(4, 6), walked)).toEqual(board(4, 4));
   });
 
-  test("something in the way is reported as a press worth nothing", () => {
-    const blocked = board(4, 4, [[4, 3, 5]]);
-    expect(applyMove(blocked, rule)).toEqual(blocked);
-  });
-
-  test("the edge blocks too", () => {
+  test("the edge blocks, and needs no evidence to be believed", () => {
     const atTop = board(4, 0);
-    expect(applyMove(atTop, rule)).toEqual(atTop);
+    expect(applyMove(atTop, walked)).toEqual(atTop);
+  });
+
+  test("a colour never seen ahead is UNKNOWN, not a wall", () => {
+    // The old model called anything that was not floor a wall. Measured on ten
+    // games, that turned two thirds of the working presses into "this does
+    // nothing" — the prediction that talks the policy out of a press.
+    const strange = board(4, 4, [
+      [4, 3, 5],
+      [5, 3, 5],
+    ]);
+    expect(applyMove(strange, walked)).toBeNull();
+  });
+
+  test("a colour watched stopping it twice IS a wall", () => {
+    const wall = (x: number, y: number) => board(x, y, [[x, y - 1, 5], [x, y - 2, 5]]);
+    const rule = learned([
+      { input: board(4, 6), output: board(4, 4) },
+      { input: wall(4, 4), output: wall(4, 4) },
+      { input: wall(2, 4), output: wall(2, 4) },
+    ]);
+    expect(rule.blocking).toContain(5);
+    expect(applyMove(wall(4, 4), rule)).toEqual(wall(4, 4));
   });
 
   test("a sprite it cannot pick out returns null, NOT the board", () => {
-    // Two groups of the right size: which one is the player is unknowable from
-    // this board alone. Returning the grid would read as "this press does
-    // nothing" and talk the policy out of an action that works.
+    // Two identical shapes the same distance away: which one is the player is
+    // unknowable from this board. Returning the grid would read as "this press
+    // does nothing" and talk the policy out of an action that works.
     const twins = board(4, 4, [
       [6, 4, 9],
       [6, 5, 9],
     ]);
-    expect(applyMove(twins, rule)).toBeNull();
-    expect(imagineMove([{ action: "A", confidence: 1, pairsSeen: 1, blockedSeen: 0, ...rule }], "A", twins)).toBeNull();
+    expect(applyMove(twins, { ...walked, lastAt: { x: 5, y: 4 } })).toBeNull();
+    expect(imagineMove([{ ...walked, lastAt: { x: 5, y: 4 } }], "ACTION1", twins)).toBeNull();
   });
 });
