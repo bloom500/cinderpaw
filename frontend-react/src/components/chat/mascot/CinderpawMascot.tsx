@@ -18,10 +18,17 @@ const SCALE = DISPLAY / FRAME_W;
 const CANVAS_W = FRAME_W + FX_MARGIN_X * 2;
 const CANVAS_H = SPRITE_H + FX_MARGIN_TOP;
 
-function usePrefersReducedMotion(): boolean {
+/** Exported because the perch needs it too — the sprite freezing while the
+ *  creature still runs the width of the composer trailing dust is the setting
+ *  half-honoured, which for a vestibular trigger is not honoured. */
+export function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    // Optional-called, like the two other reduced-motion checks in this app:
+    // an environment without `matchMedia` must lose the preference, not throw
+    // and take the whole composer down with it.
+    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (!mq) return;
     setReduced(mq.matches);
     const on = () => setReduced(mq.matches);
     mq.addEventListener('change', on);

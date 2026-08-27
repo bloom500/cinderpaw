@@ -99,7 +99,7 @@ describe('ConversationActions', () => {
     useProjects.setState({ list: [{ id: 'p1', name: 'Bloom', conversation_ids: [] }] });
     const user = userEvent.setup();
 
-    render(<ProjectActions project={{ id: 'p1', name: 'Bloom', conversation_ids: [] }} />);
+    render(<ProjectActions project={{ id: 'p1', name: 'Bloom' }} />);
     await user.click(screen.getByLabelText('Project options'));
     await user.click(await screen.findByText(/Rename/));
 

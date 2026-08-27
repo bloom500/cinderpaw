@@ -267,7 +267,7 @@ export function SkillHubDrawer() {
 
             {/* Tabs — hidden when detail is open */}
             {!selected && (
-              <div className="flex border-b border-border-subtle shrink-0">
+              <div role="tablist" aria-label="Skills" className="flex border-b border-border-subtle shrink-0">
                 {(['installed', 'discover', 'community', 'import'] as Tab[]).map(t => (
                   <button
                     key={t}
@@ -277,6 +277,8 @@ export function SkillHubDrawer() {
                       if (t === 'discover') fetchRemote();
                       if (t === 'community') fetchCommunity();
                     }}
+                    role="tab"
+                    aria-selected={tab === t}
                     className={`flex-1 py-2.5 text-2xs font-medium capitalize transition-colors border-b-2 -mb-px ${
                       tab === t
                         ? 'border-brand text-text-primary'

@@ -362,18 +362,39 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     }
     const content = text;
     const files = attachedFiles;
+    // Cleared optimistically, because waiting for the whole turn before the
+    // box empties feels broken. That makes what someone typed live nowhere but
+    // in these two consts until a bubble carries it — so if the send throws
+    // before that bubble exists, the message is simply gone, and until now the
+    // rejection was unhandled on top of it: an empty composer and silence.
+    const before = useChat.getState().messages.length;
     setText('');
     setAttachedFiles([]);
-    if (sendFn) {
-      // Agent path: inline text attachments into the content (same as the
-      // chat path) and hand image data URLs over separately so the sidecar
-      // can pass real pixels to vision-capable models.
-      const images = files
-        .filter((f) => f.kind === 'image' && f.dataUrl)
-        .map((f) => f.dataUrl!);
-      await sendFn(buildUserContent(content, files), images.length > 0 ? images : undefined);
-    } else {
-      await send(content, files);
+    try {
+      if (sendFn) {
+        // Agent path: inline text attachments into the content (same as the
+        // chat path) and hand image data URLs over separately so the sidecar
+        // can pass real pixels to vision-capable models.
+        const images = files
+          .filter((f) => f.kind === 'image' && f.dataUrl)
+          .map((f) => f.dataUrl!);
+        await sendFn(buildUserContent(content, files), images.length > 0 ? images : undefined);
+      } else {
+        await send(content, files);
+      }
+    } catch (err) {
+      // Put it back only if nothing made it onto the transcript. Once a user
+      // bubble exists the words are safe there, and restoring the draft as
+      // well would show them twice.
+      if (useChat.getState().messages.length === before) {
+        setText(content);
+        setAttachedFiles(files);
+      }
+      useNotifications.getState().push(
+        'error',
+        'Message not sent',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   };
 
@@ -458,7 +479,17 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-4 pt-3 text-base min-h-11 thin-scrollbar',
             )}
           />
-          <div className="px-4 pb-1 text-right">
+          {/* The hint answers a question you only have once you are typing, so
+              it fades in when there is something to newline. Kept in the layout
+              at zero opacity rather than unmounted: appearing would otherwise
+              push the composer up under the cursor on the first keystroke. */}
+          <div
+            className={cn(
+              'px-4 pb-1 text-right transition-opacity duration-150',
+              text.length > 0 ? 'opacity-100' : 'opacity-0',
+            )}
+            aria-hidden={text.length === 0}
+          >
             <span className="text-2xs text-text-muted select-none">Shift+Enter for newline</span>
           </div>
           <div className="flex items-center justify-between px-2.5 pb-2.5 pt-1">

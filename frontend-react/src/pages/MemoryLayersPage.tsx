@@ -215,7 +215,12 @@ export default function MemoryLayersPage() {
   const [nodes, setNodes] = useState<MemoryGraphNodeView[]>([]);
   const [dreamLast, setDreamLast] = useState<DreamEpisode[]>([]);
   const [bestScore, setBestScore] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  // True from the first paint. Starting false made the hero announce
+  // "Cinderpaw hasn't remembered anything yet" to someone with hundreds of
+  // memories, every single time the tab was opened, for as long as the read
+  // took -- and it left that sentence standing as a fact when the read failed.
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   // State, not a ref: mutating a ref never triggers a render and
   // `setNow(n => n)` bails on Object.is, so the HUD pill froze on its
@@ -240,6 +245,7 @@ export default function MemoryLayersPage() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [graph, telemetry, rsi] = await Promise.all([
         tauri.memory.getGraph(),
@@ -251,6 +257,9 @@ export default function MemoryLayersPage() {
       const status = (rsi as { best_score?: number } | null);
       if (status && typeof status.best_score === 'number') setBestScore(status.best_score);
     } catch (err) {
+      // On screen, not only in a console the person does not have open: an
+      // unreadable graph and an empty graph look identical otherwise.
+      setError(err instanceof Error ? err.message : String(err));
       console.error('[MemoryLayersPage] refresh failed', err);
     } finally {
       setLoading(false);
@@ -321,7 +330,34 @@ export default function MemoryLayersPage() {
         </header>
 
         {/* ── HERO STATS ─────────────────────────────────────────── */}
-        {stats.total === 0 ? (
+        {error ? (
+          <section className="rounded-lg border border-error/40 bg-error/5 px-5 py-6 text-center">
+            <h2 className="text-base font-semibold text-error">
+              Could not read the memory graph.
+            </h2>
+            <p className="mt-1 text-xs text-text-secondary">{error}</p>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              disabled={loading}
+              className="mt-3 rounded-lg border border-border-default px-3 py-1 text-xs
+                         text-text-secondary hover:text-text-primary disabled:opacity-50"
+            >
+              Try again
+            </button>
+          </section>
+        ) : loading && stats.total === 0 ? (
+          // "Not read yet" is not "empty", and saying the wrong one of those is
+          // worse than saying nothing.
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-hidden>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-5">
+                <div className="h-6 w-12 rounded bg-bg-hover animate-pulse" />
+                <div className="mt-2 h-2.5 w-16 rounded bg-bg-hover/70 animate-pulse" />
+              </div>
+            ))}
+          </section>
+        ) : stats.total === 0 ? (
           <section className="rounded-lg border border-brand/40 bg-bg-surface px-5 py-6 text-center">
             <h2 className="text-base font-semibold text-brand">
               Cinderpaw hasn't remembered anything yet.

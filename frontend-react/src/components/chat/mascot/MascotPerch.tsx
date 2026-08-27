@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CinderpawMascot } from './CinderpawMascot';
+import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
 import { ToolCallStack } from './ToolCallStack';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
@@ -73,6 +73,23 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   const travelRef = useRef<{ startX: number; targetX: number; startTime: number } | null>(null);
   const idleCycleCount = useRef(0);
 
+  /**
+   * The OS setting already answered this question.
+   *
+   * `CinderpawMascot` honoured `prefers-reduced-motion` by freezing its sprite
+   * frames — and then this component ran the frozen creature the full width of
+   * the composer and back, trailing dust puffs, every thirty seconds, forever.
+   * Freezing the small motion while keeping the large one is the setting
+   * half-honoured, which for a vestibular trigger is not honoured at all.
+   *
+   * The mascot does not disappear: it sits at its perch and still shows the
+   * state of the turn, and the tool-call stack it carries is information, not
+   * decoration. What stops is the travel, the dust, and the idle choreography.
+   * The kill switch in Settings -> Appearance stays, for people who want it
+   * gone without telling their whole OS.
+   */
+  const reduced = usePrefersReducedMotion();
+
   useEffect(() => {
     const clearTimers = () => {
       timers.current.forEach((t) => window.clearTimeout(t));
@@ -80,7 +97,9 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     };
     clearTimers();
 
-    if (baseState !== 'idle') {
+    // Reduced motion parks it exactly where a non-idle turn does: at the perch,
+    // showing its state, with no travel and no dust.
+    if (reduced || baseState !== 'idle') {
       setTraveling(false);
       setX(0);
       setFlip(false);
@@ -173,7 +192,7 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
 
     startIdleSequence();
     return clearTimers;
-  }, [baseState]);
+  }, [baseState, reduced]);
 
   useEffect(() => {
     if (!traveling) return;
