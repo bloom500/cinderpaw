@@ -373,6 +373,24 @@ console.log(`scorecard ${cardId}  game ${args.game}  budget ${budgetLabel}\n`);
 const attempts = [];
 /** Every press, in order, with the level counter and the clock. Evidence. */
 const trace = [];
+
+// THE BOARD, WRITTEN DOWN AS IT IS PLAYED.
+//
+// The grid only ever existed inside this process, so a run could be watched as
+// a list of button names and nothing else — and a benchmark whose whole subject
+// is a picture is the wrong thing to watch blind. One line per press: the
+// action, the state, and the grid as one hex character a cell (colours are
+// 0..15), which is ~4KB a frame instead of ~8KB of JSON numbers.
+//
+// Written as it happens, not at the end, so it can be tailed live and so a
+// crashed game still leaves every frame it reached.
+const frameDir = path.join(REPO_ROOT, "runs", manifest.runId);
+fs.mkdirSync(frameDir, { recursive: true });
+const framesPath = path.join(frameDir, "frames.jsonl");
+const frames = fs.createWriteStream(framesPath, { flags: "a" });
+const encodeGrid = (grid) =>
+  grid.map((row) => row.map((c) => (c & 15).toString(16)).join("")).join("
+");
 let spent = 0;
 let scenes = 0;
 let guessedCoords = 0;
@@ -414,6 +432,17 @@ try {
         maxActions: args.budget - spent,
         shouldStop: overSpend,
         onAction: (action, observation, index) => {
+          frames.write(
+            JSON.stringify({
+              n: spent + index,
+              action,
+              state: observation.state,
+              levels: `${env.last.levelsCompleted}/${env.last.winLevels}`,
+              atMs: Date.now() - cardOpenedAt,
+              grid: encodeGrid(observation.grid),
+            }) + "
+",
+          );
           trace.push({
             n: spent + index,
             action,
@@ -572,4 +601,6 @@ fs.writeFileSync(
   ),
 );
 console.log(`result      ${resultPath}`);
+frames.end();
+console.log(`frames      ${framesPath}`);
 console.log(`\nScores come from the scorecard, not from here: https://three.arcprize.org`);
