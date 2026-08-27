@@ -1621,9 +1621,10 @@ export class AgentLoop {
         this.#registry.list().map((t) => t.manifest.name),
       );
 
-      // Resolve the stream holdback: tool call or malformed garbage → the
-      // held text never reaches the UI; plain prose → flush it now.
-      hold.resolve(parsed.toolCalls.length === 0 && !parsed.malformedToolCall);
+      // Settle the stream holdback against the parser's own account of the
+      // turn's free text: anything it calls prose and the stream has not
+      // shown yet goes out now, and the tool-call tags never do.
+      hold.settle(parsed.text);
 
       if (parsed.toolCalls.length === 0 && parsed.malformedToolCall) {
         if (malformedRetries < MAX_MALFORMED_RETRIES) {
@@ -3122,12 +3123,21 @@ export function braceOpenerAt(s: string): number {
  * when the finished completion turned out to be plain prose, or drops it
  * when it was a (possibly malformed) tool call.
  */
-export function createStreamHoldback(emit: (text: string) => void): {
+export function createStreamHoldback(rawEmit: (text: string) => void): {
   push: (token: string) => void;
-  resolve: (wasProse: boolean) => void;
+  settle: (visible: string) => void;
 } {
   let held = "";
   let holding = false;
+  // What the person has actually been shown. `settle` needs it to work out
+  // what is still missing; a length alone would be enough only while the
+  // stream and the parsed answer agree, which is exactly the case that does
+  // not need fixing.
+  let emitted = "";
+  const emit = (text: string) => {
+    emitted += text;
+    rawEmit(text);
+  };
   const openerAt = (s: string): number => {
     let best = -1;
     for (const o of STREAM_HOLD_OPENERS) {
@@ -3171,10 +3181,39 @@ export function createStreamHoldback(emit: (text: string) => void): {
         held = held.slice(held.length - keep);
       }
     },
-    resolve(wasProse: boolean) {
-      if (wasProse && held !== "") emit(held);
+    /**
+     * Show whatever the parser says was prose and the stream has not shown yet.
+     *
+     * This used to be `resolve(wasProse: boolean)`, and the boolean is what
+     * lost people's text. Holding LATCHES on the first opener it sees, and one
+     * of those openers is a `{` followed by `name`/`tool`/`invoke` — which a
+     * model writes in ordinary narration ("the setting looks like
+     * {name: 'x'}"). From that brace to the end of the turn everything was
+     * held; if the turn then ended in a real tool call, `resolve(false)` threw
+     * the whole buffer away, prose included. The reported symptom was an answer
+     * cut off just before a tool call, and it was worst in exactly the turns
+     * where the model explains what it is about to do.
+     *
+     * `visible` is the parser's own account of the turn's free text, so this
+     * cannot re-leak a tool call: whatever the parser scrubbed is not in it.
+     * When the two disagree about what was already sent — the stream showed
+     * something the parser later scrubbed — nothing more is emitted, because
+     * the alternative is showing it twice.
+     */
+    settle(visible: string) {
+      // `parsed.text` is trimmed and the stream is not, so a turn whose answer
+      // begins with a blank line would fail a bare `startsWith` and flush
+      // nothing — turning the fix into a no-op on exactly the turns a model
+      // pads. Compare against the shown text with its leading whitespace
+      // dropped; what was already shown is untouched either way.
+      const shown = emitted.trimStart();
+      if (visible.startsWith(shown)) {
+        const rest = visible.slice(shown.length);
+        if (rest !== "") emit(rest);
+      }
       held = "";
       holding = false;
+      emitted = "";
     },
   };
 }

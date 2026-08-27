@@ -8,13 +8,21 @@
 import { describe, expect, test } from "bun:test";
 import { BARE_CALL_KEYS, createStreamHoldback, parseResponse } from "../src/core/agent-loop";
 
-function run(tokens: string[], wasProse: boolean): string {
+/**
+ * `visible` is what the parser says the person should see. `true` is shorthand
+ * for "all of it was prose", `false` for "only what had already streamed" —
+ * the two cases the old boolean `resolve` covered. Pass a string for the case
+ * it could not express: a turn that is part prose, part tool call.
+ */
+function run(tokens: string[], visible: string | boolean): string {
   let out = "";
   const hold = createStreamHoldback((t) => (out += t));
   for (const t of tokens) hold.push(t);
-  hold.resolve(wasProse);
+  hold.settle(typeof visible === "string" ? visible : visible ? tokens.join("") : out);
   return out;
 }
+
+const BR = String.fromCharCode(10);
 
 describe("createStreamHoldback", () => {
   test("plain prose streams through untouched", () => {
@@ -262,13 +270,52 @@ describe("createStreamHoldback", () => {
     expect(out).toBe('config example: {"name": "demo"} rest');
   });
 
-  test("held garbage is dropped, resolve resets for the next turn", () => {
+  test("held garbage is dropped, settle resets for the next turn", () => {
     let out = "";
     const hold = createStreamHoldback((t) => (out += t));
     hold.push("answer <tool_call>junk");
-    hold.resolve(false);
+    hold.settle("answer ");
     hold.push(" more prose");
-    hold.resolve(true);
+    hold.settle("answer  more prose");
     expect(out).toBe("answer  more prose");
+  });
+
+  /**
+   * The reported bug: an answer cut off just before a tool call.
+   *
+   * Holding LATCHES on the first opener, and `{name` is an opener — a shape a
+   * model writes in ordinary narration while explaining what it is about to
+   * do. Everything from that brace to the end of the turn was held, and a turn
+   * that ended in a real tool call then threw the whole buffer away. The prose
+   * after the brace was never shown and never recovered.
+   */
+  test("prose that merely looks like a call survives a turn that ends in one", () => {
+    const prose = "Setarea arata asa: {name: 'x'} — deci o schimb acum." + BR + BR;
+    const call = '{"name":"write_file","arguments":{"path":"a.ts"}}';
+    expect(run([prose, call], prose)).toBe(prose);
+  });
+
+  test("prose AFTER a tool call is shown too", () => {
+    const before = "Verific fisierul." + BR;
+    const call = '{"name":"read_file","arguments":{"path":"a.ts"}}';
+    const after = BR + "Gata, l-am citit.";
+    expect(run([before, call, after], before + after)).toBe(before + after);
+  });
+
+  test("a padded answer still flushes (parsed.text is trimmed, the stream is not)", () => {
+    // The model opened with a blank line. A bare prefix comparison against the
+    // parser's trimmed text fails here, and the tail would never be shown.
+    const streamed = BR + BR + "Ma uit acum: {name: 'x'} si gata.";
+    expect(run([streamed], streamed.trim())).toBe(streamed);
+  });
+
+  test("never re-sends what the stream already showed", () => {
+    // The parser scrubbed something that had already gone out. Showing the
+    // corrected text would duplicate the part they already read.
+    let out = "";
+    const hold = createStreamHoldback((t) => (out += t));
+    hold.push("half a sentence");
+    hold.settle("something else entirely");
+    expect(out).toBe("half a sentence");
   });
 });
