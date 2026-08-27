@@ -23,6 +23,16 @@ if (!runDir) {
   process.exit(2);
 }
 
+/**
+ * NVIDIA AVO's published result: 100.00 on 25 games using 6,624 actions in
+ * total, ~265 a game — FEWER than the human baseline, which is how it reached
+ * the 1.15x cap. It is the only external number on this benchmark worth
+ * lining up against, so the report puts ours beside it rather than leaving it
+ * in a blog post nobody has open.
+ */
+const AVO_TOTAL_ACTIONS = 6624;
+const AVO_PER_GAME = 265;
+
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 const median = (xs) => {
   if (xs.length === 0) return null;
@@ -115,6 +125,14 @@ for (const arm of arms) {
       medianCallLatencyMs: median(lat),
       p90CallLatencyMs: lat.length ? [...lat].sort((a, b) => a - b)[Math.floor(lat.length * 0.9)] : null,
       wallClockSeconds: Math.max(0, ...played.map((g) => g.wallClockSeconds)),
+      avo: {
+        totalActions: AVO_TOTAL_ACTIONS,
+        perGame: AVO_PER_GAME,
+        ourActionsOverAvo: sum(played.map((g) => g.outcome.actionsSpent)) / AVO_TOTAL_ACTIONS,
+        gamesUnderAvoPerGame: played.filter((g) => g.outcome.actionsSpent <= AVO_PER_GAME).length,
+      },
+      humanTotalActions: sum(played.map((g) => g.humanTotalActions ?? 0)),
+      stoppedOnSpendCap: played.filter((g) => g.outcome.stoppedOnSpendCap).length,
       meanPredictedScore:
         played.length === 0
           ? null
@@ -141,6 +159,10 @@ for (const [arm, data] of Object.entries(report.arms)) {
     `- model latency: median ${t.medianCallLatencyMs}ms, p90 ${t.p90CallLatencyMs}ms`,
     `- unparsed replies: ${t.unparsedReplies}`,
     `- predicted mean score: ${t.meanPredictedScore === null ? "n/a" : t.meanPredictedScore.toFixed(4)} (scorecard is authoritative)`,
+    `- vs NVIDIA AVO: ${t.actionsSpent} actions against their ${AVO_TOTAL_ACTIONS} ` +
+      `(${t.avo.ourActionsOverAvo.toFixed(2)}x); ${t.avo.gamesUnderAvoPerGame} of ${t.gamesLaunched} games under their ${AVO_PER_GAME}/game`,
+    `- vs human: ${t.actionsSpent} actions against a baseline of ${t.humanTotalActions}`,
+    `- games stopped by the spend cap: ${t.stoppedOnSpendCap}`,
     "",
     "| game | levels | actions | human | spend | calls | unparsed | stopped | scorecard |",
     "|---|---|---|---|---|---|---|---|---|",

@@ -12,7 +12,11 @@
  *
  *   --list                 print the available games and exit
  *   --game    <id>         required otherwise; from --list
- *   --budget  <n>          hard action cap for the whole game (default 200)
+ *   --budget  <n|none>     action cap for the whole game (default none: spend is
+ *                          the only limit, which is the point — an action cap
+ *                          decides the score for the agent instead of measuring
+ *                          it, and the number worth comparing against is
+ *                          NVIDIA AVO's 6,624 actions over 25 games, ~265 each)
  *   --model   <name>       OpenRouter model (default deepseek/deepseek-v4-flash)
  *   --retries <n>          RESET and retry this many times after GAME_OVER (default 0)
  *   --tag     <text>       repeatable, attached to the scorecard
@@ -51,7 +55,10 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..
 
 function parseArgs(argv) {
   const args = {
-    budget: 200,
+    // No action cap by default. Money is the real constraint and it is already
+    // enforced per process; a press cap on top of it ends the run at a number we
+    // chose rather than at one we measured.
+    budget: Infinity,
     retries: 0,
     model: "deepseek/deepseek-v4-flash",
     tags: [],
@@ -73,7 +80,7 @@ function parseArgs(argv) {
     else if (flag === "--game") { args.game = value; i++; }
     else if (flag === "--model") { args.model = value; i++; }
     else if (flag === "--tag") { args.tags.push(value); i++; }
-    else if (flag === "--budget") { args.budget = Number(value); i++; }
+    else if (flag === "--budget") { args.budget = value === "none" ? Infinity : Number(value); i++; }
     else if (flag === "--retries") { args.retries = Number(value); i++; }
     else if (flag === "--no-imagination") args.imagination = false;
     else if (flag === "--no-perception") args.perception = false;
@@ -84,8 +91,8 @@ function parseArgs(argv) {
     else if (flag === "--learn-budget") { args.learnBudgetMs = Number(value); i++; }
     else throw new Error(`unknown flag "${flag}" — run with no arguments to see usage`);
   }
-  if (!Number.isInteger(args.budget) || args.budget < 1) {
-    throw new Error(`--budget must be an integer >= 1, got ${String(args.budget)}`);
+  if (args.budget !== Infinity && (!Number.isInteger(args.budget) || args.budget < 1)) {
+    throw new Error(`--budget must be "none" or an integer >= 1, got ${String(args.budget)}`);
   }
   if (!Number.isInteger(args.retries) || args.retries < 0) {
     throw new Error(`--retries must be an integer >= 0, got ${String(args.retries)}`);
@@ -258,7 +265,7 @@ const manifest = createRunManifest({
   harness: { name: "cinderpaw-arc-agi-3", version },
   repoRoot: REPO_ROOT,
   config: { benchmark: "arc-agi-3", game: args.game, retries: args.retries, dryRun: !!args.dryRun },
-  budgets: { actions: args.budget },
+  budgets: { actions: args.budget === Infinity ? null : args.budget },
   models: args.dryRun ? {} : { policy: `openrouter/${args.model}` },
 });
 const problems = reportabilityProblems(manifest);
@@ -360,7 +367,8 @@ const closeAndExit = async (signal) => {
 };
 process.on("SIGINT", () => void closeAndExit("SIGINT"));
 process.on("SIGTERM", () => void closeAndExit("SIGTERM"));
-console.log(`scorecard ${cardId}  game ${args.game}  budget ${args.budget}\n`);
+const budgetLabel = args.budget === Infinity ? `none (spend cap $${args.maxSpend.toFixed(2)})` : String(args.budget);
+console.log(`scorecard ${cardId}  game ${args.game}  budget ${budgetLabel}\n`);
 
 const attempts = [];
 /** Every press, in order, with the level counter and the clock. Evidence. */
@@ -458,7 +466,7 @@ const outDir = path.join(REPO_ROOT, "runs", manifest.runId);
 const manifestPath = writeRunManifest(manifest, outDir);
 
 console.log(`\nscorecard   ${cardId}`);
-console.log(`actions     ${spent} of ${args.budget}`);
+console.log(`actions     ${spent} of ${budgetLabel}`);
 console.log(`card open   ${Math.round((Date.now() - cardOpenedAt) / 1000)}s`);
 console.log(`attempts    ${JSON.stringify(attempts)}`);
 console.log(`vetoed      ${vetoes} presses the frugal policy refused to pay for`);
@@ -523,7 +531,7 @@ fs.writeFileSync(
         model: args.model,
         provider: args.provider ?? null,
         reasoningEffort: args.reasoningEffort,
-        budget: args.budget,
+        budget: args.budget === Infinity ? null : args.budget,
         maxSpend: args.maxSpend,
         retries: args.retries,
         imagination: args.imagination !== false,

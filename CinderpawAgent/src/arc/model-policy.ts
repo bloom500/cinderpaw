@@ -318,7 +318,7 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
           renderGrid(observation.grid),
           "",
           `Buttons available now: ${offered.join(", ")}`,
-          `Presses remaining: ${ctx.remaining}`,
+          `Presses remaining: ${Number.isFinite(ctx.remaining) ? ctx.remaining : "no limit"}`,
           recent.length > 0 ? `Your last presses: ${recent.join(", ")}` : "This is your first press.",
           "",
           "Which one button do you press? Answer with the name only.",

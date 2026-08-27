@@ -105,9 +105,12 @@ export interface PlayLevelOptions {
 
 export async function playLevel(options: PlayLevelOptions): Promise<PlayResult> {
   const { env, policy, maxActions, onAction, shouldStop } = options;
-  if (!Number.isInteger(maxActions) || maxActions < 0) {
+  // Infinity is allowed and means "no action cap": the run is bounded by money
+  // and by the game ending, not by a number we picked. A cap decides the score
+  // instead of measuring it.
+  if (maxActions !== Infinity && (!Number.isInteger(maxActions) || maxActions < 0)) {
     throw new Error(
-      `playLevel: maxActions must be a non-negative integer, got ${String(maxActions)}`,
+      `playLevel: maxActions must be a non-negative integer or Infinity, got ${String(maxActions)}`,
     );
   }
 
