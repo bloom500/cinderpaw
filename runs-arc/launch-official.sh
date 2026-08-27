@@ -48,7 +48,6 @@ for game in $(cat runs-arc/games.txt); do
   bun CinderpawAgent/scripts/arc/run_arc_agi3.mjs \
       --game "$game" --model z-ai/glm-5.3-flash --provider Z.AI \
       --reasoning-effort medium --retries 3 --max-spend 0.15 \
-      --no-imagination \
       --card "$ARC_CARD_ID" --cookie "$ARC_CARD_COOKIE" \
       --tag official --tag "$game" \
       > "$OUT/B/$game.log" 2>&1 &
