@@ -141,6 +141,9 @@ async function fetchPricing(model) {
 }
 
 /** Tries after the first, for a model call. */
+// Above this share of failed model calls the run is the fallback policy, not
+// the model, whatever the scorecard says. A fifth is already far past noise.
+const MODEL_FAILURE_LIMIT = 0.2;
 const MODEL_RETRIES = 3;
 
 function makeComplete(model, reasoningEffort, providerOnly, pricing) {
@@ -426,92 +429,117 @@ let learnPasses = 0;
 let learnMs = 0;
 let trustedRules = 0;
 let imagined = 0;
+// ONE session for every attempt. Re-opening the game per retry is what the
+// server refuses: the second openArcGame RESETs a game id the card has already
+// finished with, and answers 400 "game <id> not found" — so --retries never
+// bought a single extra attempt, it crashed the run at the first GAME_OVER.
+// A retry is a RESET on the session we already hold, which competition mode
+// treats as a level reset — the levels already cleared stay cleared.
+// ONE ERROR MUST NOT COST THE WHOLE GAME.
+//
+// Everything below can throw: the model call (an OpenRouter 403 or a timeout),
+// parseAction (the model writes the action strings, and a bare ACTION6 or an
+// out-of-range coordinate is a throw), and every HTTP call once its retries are
+// spent. None of it was caught — the single catch on this path guarded the
+// telemetry callback. So one bad response killed the process, and the game lost
+// every level it had cleared.
+//
+// Caught HERE, around the whole attempt, because this is the one seam all of it
+// routes through: a failed attempt is recorded and the next retry starts from a
+// RESET, instead of the run ending. The frames and the manifest are already on
+// disk, and the scorecard still closes in the finally below.
+let env;
 try {
+  env = await openArcGame({ gameId: args.game, cardId, jar });
   for (let attempt = 0; attempt <= args.retries; attempt++) {
     const remaining = args.budget - spent;
     if (remaining <= 0) break;
-    const env = await openArcGame({ gameId: args.game, cardId, jar });
-    if (attempt > 0) await env.reset();
+    try {
+      if (attempt > 0) await env.reset();
 
-    // KEEP PLAYING AFTER A WIN UNTIL THE GAME SAYS IT IS OVER.
-    //
-    // `playLevel` returns on any terminal state, and WIN is terminal. What WIN
-    // means is the one thing the docs never say: the whole game, or the level
-    // just cleared? The pages that would answer it 404, and no run has reached
-    // one yet to find out.
-    //
-    // Guessing either way is a bad trade. If WIN is per-level and we stop, we
-    // forfeit levels 2..N of every game we play well — and the game score is
-    // the weighted average over ALL levels, with the late ones weighted
-    // highest, so a clean level-1 win would score about 1/28th of what it
-    // should on a 7-level game. If WIN is the game and we keep going, the
-    // second call returns immediately on the same terminal state and costs
-    // nothing.
-    //
-    // So do not guess: ask the server. It reports `levelsCompleted` and
-    // `winLevels` on every frame, and "won but not all levels done" is exactly
-    // the case where play continues. Same env, same guid, same policy — the
-    // policy carrying over IS the point, that is the memory across levels.
-    let result;
-    for (;;) {
-      result = await playLevel({
-        env,
-        policy,
-        maxActions: args.budget - spent,
-        shouldStop: overSpend,
-        onAction: (action, observation, index) => {
-          frames.write(
-            JSON.stringify({
+      // KEEP PLAYING AFTER A WIN UNTIL THE GAME SAYS IT IS OVER.
+      //
+      // `playLevel` returns on any terminal state, and WIN is terminal. What WIN
+      // means is the one thing the docs never say: the whole game, or the level
+      // just cleared? The pages that would answer it 404, and no run has reached
+      // one yet to find out.
+      //
+      // Guessing either way is a bad trade. If WIN is per-level and we stop, we
+      // forfeit levels 2..N of every game we play well — and the game score is
+      // the weighted average over ALL levels, with the late ones weighted
+      // highest, so a clean level-1 win would score about 1/28th of what it
+      // should on a 7-level game. If WIN is the game and we keep going, the
+      // second call returns immediately on the same terminal state and costs
+      // nothing.
+      //
+      // So do not guess: ask the server. It reports `levelsCompleted` and
+      // `winLevels` on every frame, and "won but not all levels done" is exactly
+      // the case where play continues. Same env, same guid, same policy — the
+      // policy carrying over IS the point, that is the memory across levels.
+      let result;
+      for (;;) {
+        result = await playLevel({
+          env,
+          policy,
+          maxActions: args.budget - spent,
+          shouldStop: overSpend,
+          onAction: (action, observation, index) => {
+            frames.write(
+              JSON.stringify({
+                n: spent + index,
+                action,
+                state: observation.state,
+                levels: `${env.last.levelsCompleted}/${env.last.winLevels}`,
+                atMs: Date.now() - cardOpenedAt,
+                grid: encodeGrid(observation.grid),
+              }) + "\n",
+            );
+            trace.push({
               n: spent + index,
               action,
               state: observation.state,
-              levels: `${env.last.levelsCompleted}/${env.last.winLevels}`,
+              levelsCompleted: env.last.levelsCompleted,
+              winLevels: env.last.winLevels,
               atMs: Date.now() - cardOpenedAt,
-              grid: encodeGrid(observation.grid),
-            }) + "\n",
-          );
-          trace.push({
-            n: spent + index,
-            action,
-            state: observation.state,
-            levelsCompleted: env.last.levelsCompleted,
-            winLevels: env.last.winLevels,
-            atMs: Date.now() - cardOpenedAt,
-          });
-          console.log(
-            `  ${String(spent + index).padStart(4)}  ${action.padEnd(14)} ${observation.state}` +
-              `  levels=${env.last.levelsCompleted}/${env.last.winLevels}`,
-          );
-        },
+            });
+            console.log(
+              `  ${String(spent + index).padStart(4)}  ${action.padEnd(14)} ${observation.state}` +
+                `  levels=${env.last.levelsCompleted}/${env.last.winLevels}`,
+            );
+          },
+        });
+        spent += result.actions.length;
+        const more =
+          result.state === "WIN" &&
+          env.last.winLevels > 0 &&
+          env.last.levelsCompleted < env.last.winLevels &&
+          args.budget - spent > 0 &&
+          !overSpend() &&
+          // A pass that spent nothing made no progress, and the state it saw is
+          // the state the next pass will see. Without this, a server that reports
+          // WIN without advancing the level counter spins here forever at zero
+          // cost, which is the worst kind of hang: it looks like a working run.
+          result.actions.length > 0;
+        if (!more) break;
+        console.log(
+          `  -- level ${env.last.levelsCompleted}/${env.last.winLevels} cleared, continuing --`,
+        );
+      }
+      attempts.push({
+        attempt,
+        state: result.state,
+        actions: result.actions.length,
+        stoppedBecause: result.stoppedBecause,
+        levelsCompleted: env.last.levelsCompleted,
+        winLevels: env.last.winLevels,
       });
-      spent += result.actions.length;
-      const more =
-        result.state === "WIN" &&
-        env.last.winLevels > 0 &&
-        env.last.levelsCompleted < env.last.winLevels &&
-        args.budget - spent > 0 &&
-        !overSpend() &&
-        // A pass that spent nothing made no progress, and the state it saw is
-        // the state the next pass will see. Without this, a server that reports
-        // WIN without advancing the level counter spins here forever at zero
-        // cost, which is the worst kind of hang: it looks like a working run.
-        result.actions.length > 0;
-      if (!more) break;
-      console.log(
-        `  -- level ${env.last.levelsCompleted}/${env.last.winLevels} cleared, continuing --`,
-      );
+      if (result.state === "WIN" || result.stoppedBecause === "budget") break;
+      // Out of money is out of money; a retry would only spend past the cap.
+      if (result.stoppedBecause === "deadline") break;
+    } catch (err) {
+      console.error(`  !! attempt ${attempt} failed: ${String(err)}`);
+      attempts.push({ attempt, state: "ERROR", actions: 0, stoppedBecause: "error", error: String(err) });
     }
-    attempts.push({
-      attempt,
-      state: result.state,
-      actions: result.actions.length,
-      stoppedBecause: result.stoppedBecause,
-      levelsCompleted: env.last.levelsCompleted,
-      winLevels: env.last.winLevels,
-    });
-    if (result.state === "WIN" || result.stoppedBecause === "budget") break;
-    // Out of money is out of money; a retry would only spend past the cap.
-    if (result.stoppedBecause === "deadline") break;
   }
 } finally {
   // Always close the card THIS process opened: an open scorecard holds the run
@@ -554,6 +582,26 @@ if (!args.dryRun) {
         ? `  (${usage.modelFailures} of them because the model call failed outright)`
         : ""),
   );
+  // A MODEL THAT NEVER ANSWERED MUST NOT LOOK LIKE A RESULT.
+  //
+  // A failed model call degrades to an arbitrary press on purpose, so an
+  // outage costs a few presses instead of the game. But that makes a dead key
+  // and a real run print the same summary shape: with a 401 on every call this
+  // still reported 20 completions, a full attempts list and a scorecard, and
+  // the only tell was `0 prompt / 0 completion tokens` in a line nobody reads.
+  // Whoever reads the score is not the person who read the log, so the warning
+  // has to be ON the result, not in the scrollback.
+  const failureShare = usage.calls > 0 ? usage.modelFailures / usage.calls : 0;
+  if (failureShare >= MODEL_FAILURE_LIMIT) {
+    console.warn(
+      `
+NOT REPORTABLE — this run may not be published:
+` +
+        `  the model failed on ${usage.modelFailures} of ${usage.calls} calls ` +
+        `(${Math.round(failureShare * 100)}%); those presses were arbitrary, not played
+`,
+    );
+  }
   console.log(`clicks      ${guessedCoords} ACTION6 presses whose coordinates we chose`);
   // Denominator is COMPLETIONS, not actions: a prompt is built per model call,
   // and the last call of a run can be built and then cut by the budget before
@@ -611,6 +659,14 @@ fs.writeFileSync(
       policy: {
         vetoes,
         unparsed,
+        // Machine-readable twin of the NOT REPORTABLE banner above, so a chart
+        // or a script can refuse this run without re-reading the console.
+        // `usage` is null on a dry run, which has no model to fail.
+        modelFailures: usage ? usage.modelFailures : null,
+        modelFailureShare: usage && usage.calls > 0 ? usage.modelFailures / usage.calls : null,
+        reportable: usage
+          ? (usage.calls > 0 ? usage.modelFailures / usage.calls : 0) < MODEL_FAILURE_LIMIT
+          : false,
         guessedCoordinateClicks: guessedCoords,
         promptsWithScene: scenes,
         imagination: { passes: learnPasses, ms: learnMs, trustedRules, demotedPresses: imagined },
