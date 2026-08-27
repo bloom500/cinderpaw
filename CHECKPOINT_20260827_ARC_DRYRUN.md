@@ -174,7 +174,26 @@ call) exactly where the most actions are spent. And BRSI stays a hard no in any
 scored run: code that rewrites itself mid-benchmark means the manifest no
 longer describes what ran.
 
-**But the idea is right, and it is the next build.** A supervisor that detects
+**Run C is now scoped and scheduled** (decided ~20:55): FMS plus ONE cowork
+teammate, behind a supervisor — and NOT BRSI. That is the right cut. BRSI was
+the only part that is genuinely disqualifying (self-rewriting code means the
+manifest stops describing what played); memory and a second opinion are not
+cheating on a benchmark that is *about* long-horizon adaptation — persistent
+memory is the lever AVO names as its own. Waiting on a refund for budget, but
+budget is not the constraint: C has to be BUILT (supervisor, FMS wiring, cowork
+routing, a contract for handing a teammate the game state). Run it as a matched
+triple with A and B — same games, same budget, same pinned upstream — or it
+proves nothing next to them.
+
+**Publishing note.** Do not claim a counterfactual we did not measure ("we
+would have had 70-80% with BRSI/FMS"). Opus 5 alone scores 30% on this
+benchmark; a big claim for a small model invites "show us" and turns an
+engineering result into a credibility argument. The real flex is free and true:
+A vs B is a matched ablation, and AVO's own writeup states theirs is not one.
+Say BRSI was excluded for reproducibility, say nothing about unmeasured
+configurations, and let C answer it with data later.
+
+**And the idea is right, which is why it is the next build.** A supervisor that detects
 stagnation and escalates is the one thing in NVIDIA's AVO writeup we do not
 have, and they name it as their lever. Build it AFTER runs A and B, with their
 deltas in hand, so escalation is aimed at measured weakness rather than
