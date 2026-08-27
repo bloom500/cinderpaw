@@ -17,6 +17,8 @@
  *   --retries <n>          RESET and retry this many times after GAME_OVER (default 0)
  *   --tag     <text>       repeatable, attached to the scorecard
  *   --dry-run              play with a fixed policy, no model calls, no key needed
+ *   --no-imagination       disable MCTS rehearsal (run twice to measure its delta)
+ *   --learn-budget <ms>    total wall-clock the search may spend (default 20000)
  *
  * NO PROVIDER FALLBACK, DELIBERATELY. The agent's InferenceRouter falls back to
  * another provider when one fails, which is right for a person mid-conversation
@@ -43,7 +45,13 @@ import { createRunManifest, writeRunManifest, reportabilityProblems } from "../.
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 function parseArgs(argv) {
-  const args = { budget: 200, retries: 0, model: "deepseek/deepseek-v4-flash", tags: [] };
+  const args = {
+    budget: 200,
+    retries: 0,
+    model: "deepseek/deepseek-v4-flash",
+    tags: [],
+    learnBudgetMs: 20_000,
+  };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
@@ -54,6 +62,8 @@ function parseArgs(argv) {
     else if (flag === "--tag") { args.tags.push(value); i++; }
     else if (flag === "--budget") { args.budget = Number(value); i++; }
     else if (flag === "--retries") { args.retries = Number(value); i++; }
+    else if (flag === "--no-imagination") args.imagination = false;
+    else if (flag === "--learn-budget") { args.learnBudgetMs = Number(value); i++; }
     else throw new Error(`unknown flag "${flag}" — run with no arguments to see usage`);
   }
   if (!Number.isInteger(args.budget) || args.budget < 1) {
@@ -61,6 +71,9 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(args.retries) || args.retries < 0) {
     throw new Error(`--retries must be an integer >= 0, got ${String(args.retries)}`);
+  }
+  if (!Number.isInteger(args.learnBudgetMs) || args.learnBudgetMs < 0) {
+    throw new Error(`--learn-budget must be an integer >= 0 (ms), got ${String(args.learnBudgetMs)}`);
   }
   return args;
 }
@@ -142,7 +155,22 @@ let unparsed = 0;
 const inner = args.dryRun
   ? (_observation, ctx) => ctx.actions[0] ?? null
   : createModelPolicy({ complete, onUnparsed: () => { unparsed++; } });
-const policy = createFrugalPolicy({ inner, onVeto: () => { vetoes++; } });
+// MCTS rehearsal. Free in keypresses, NOT free in wall-clock — and the
+// scorecard closes 15 minutes after it opens — so the search gets a hard total
+// budget and the run reports what it bought. Off with --no-imagination, so the
+// delta it is responsible for can be measured by running the same game twice.
+const policy = createFrugalPolicy({
+  inner,
+  onVeto: () => { vetoes++; },
+  imagination: args.imagination === false ? undefined : { learnBudgetMs: args.learnBudgetMs },
+  onLearn: (info) => {
+    learnPasses++;
+    learnMs += info.elapsedMs;
+    trustedRules = info.trusted;
+    if (info.budgetSpent) console.log("  (imagination: time budget spent, playing on the table alone)");
+  },
+  onImagined: () => { imagined++; },
+});
 
 const cardId = await openScorecard({
   tags: ["cinderpaw", ...args.tags],
@@ -186,6 +214,10 @@ console.log(`scorecard ${cardId}  game ${args.game}  budget ${args.budget}\n`);
 
 const attempts = [];
 let spent = 0;
+let learnPasses = 0;
+let learnMs = 0;
+let trustedRules = 0;
+let imagined = 0;
 try {
   for (let attempt = 0; attempt <= args.retries; attempt++) {
     const remaining = args.budget - spent;
@@ -236,6 +268,12 @@ console.log(
 );
 console.log(`attempts    ${JSON.stringify(attempts)}`);
 console.log(`vetoed      ${vetoes} presses the frugal policy refused to pay for`);
+if (args.imagination !== false) {
+  console.log(
+    `imagination ${learnPasses} MCTS passes in ${(learnMs / 1000).toFixed(1)}s, ` +
+      `${trustedRules} trusted rules, ${imagined} presses demoted by a prediction`,
+  );
+}
 if (!args.dryRun) {
   const usage = complete.usage();
   console.log(`model       ${args.model} — ${usage.calls} completions, ${usage.promptTokens} prompt / ${usage.completionTokens} completion tokens`);

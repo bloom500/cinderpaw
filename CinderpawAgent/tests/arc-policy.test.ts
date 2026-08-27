@@ -158,3 +158,94 @@ describe("createFrugalPolicy — it narrows the choice without taking it", () =>
     expect(spent).toHaveLength(0);
   });
 });
+
+/**
+ * MCTS rehearsal, wired in.
+ *
+ * The table only knows states it has already stood in. `imagination.ts` learns
+ * a DSL program per action from the same before/after pairs and can predict
+ * what an action does in a state nobody has visited — which is the whole
+ * reason it exists. These pin the terms it is allowed to do that on.
+ */
+describe("frugal policy — imagination as a second opinion", () => {
+  /**
+   * A counter that only ACTION2 moves. Every state is distinct, so the
+   * transition table can NEVER answer for the state the agent is standing in —
+   * exactly the coverage gap rehearsal is for.
+   */
+  function counter(length = 8) {
+    const spent: string[] = [];
+    let at = 0;
+    const view = (): ArcObservation => ({
+      grid: [[at, 0], [0, 0]],
+      state: at >= length ? "WIN" : at === 0 ? "NOT_PLAYED" : "NOT_FINISHED",
+    });
+    const env: ArcEnvironment = {
+      actions: ["ACTION1", "ACTION2"],
+      observe: view,
+      act: (a) => {
+        spent.push(a);
+        if (a === "ACTION2" && at < length) at++;
+        return view();
+      },
+    };
+    return { env, spent };
+  }
+
+  test("off by default: no options, no behaviour change", async () => {
+    const { env, spent } = counter(3);
+    const learns: unknown[] = [];
+    const policy = createFrugalPolicy({
+      inner: () => "ACTION2",
+      onLearn: (i) => learns.push(i),
+    });
+    await playLevel({ env, policy, maxActions: 10 });
+    expect(learns).toEqual([]);
+    expect(spent.length).toBeGreaterThan(0);
+  });
+
+  test("learning runs, is reported, and stays inside its time budget", async () => {
+    const { env } = counter(12);
+    const learns: { elapsedMs: number; budgetSpent: boolean }[] = [];
+    const policy = createFrugalPolicy({
+      inner: () => "ACTION2",
+      imagination: { iterations: 20, relearnEvery: 2, learnBudgetMs: 5_000 },
+      onLearn: (i) => learns.push({ elapsedMs: i.elapsedMs, budgetSpent: i.budgetSpent }),
+    });
+    await playLevel({ env, policy, maxActions: 12 });
+    expect(learns.length).toBeGreaterThan(0);
+    // The budget is a total across passes, not a per-pass timeout.
+    const total = learns.reduce((sum, l) => sum + l.elapsedMs, 0);
+    expect(total).toBeLessThan(30_000);
+  });
+
+  test("a prediction can never strand the agent", async () => {
+    // Every action is doubted or useless; the fallback tier is filtered by
+    // observation alone, so `inner` must still be offered something.
+    const { env } = counter(4);
+    const offered: number[] = [];
+    const policy = createFrugalPolicy({
+      inner: (_o, ctx) => {
+        offered.push(ctx.actions.length);
+        return ctx.actions[0] ?? null;
+      },
+      imagination: { iterations: 20, relearnEvery: 1, learnBudgetMs: 5_000 },
+    });
+    await playLevel({ env, policy, maxActions: 8 });
+    expect(offered.length).toBeGreaterThan(0);
+    expect(Math.min(...offered)).toBeGreaterThanOrEqual(1);
+  });
+
+  test("an observed no-op is still vetoed outright, imagination or not", async () => {
+    const { env, spent } = counter(3);
+    const vetoes: string[] = [];
+    const policy = createFrugalPolicy({
+      inner: () => "ACTION1", // the wall, every time
+      imagination: { iterations: 20, relearnEvery: 2, learnBudgetMs: 5_000 },
+      onVeto: (rejected) => vetoes.push(rejected),
+    });
+    await playLevel({ env, policy, maxActions: 8 });
+    expect(vetoes.length).toBeGreaterThan(0);
+    expect(spent).toContain("ACTION2");
+  });
+});

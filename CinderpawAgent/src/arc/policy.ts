@@ -22,12 +22,28 @@
  * So: a transition table built from actions actually taken. Exact, free, no
  * search, no model call, and correct by observation rather than by inference.
  *
- * ponytail: the table only knows states it has already stood in. Generalising
- * to unseen states is exactly what `imagination.ts` is for — wire `imagine()`
- * in as a SECOND opinion (predict, then check the prediction against the table
- * when the table has an entry) when the table's coverage measurably stops
- * being enough. Not before: an imagined veto can be wrong, an observed one
- * cannot.
+ * IMAGINATION IS NOW WIRED IN, on exactly the terms that note set out.
+ * `imagination.ts` learns a DSL program per action by MCTS over the
+ * before/after pairs this table is already collecting, which lets the agent
+ * predict what an action would do in a state it has never stood in. The rules
+ * of engagement, unchanged from the note:
+ *
+ *   - Observation outranks imagination, always. A prediction is consulted ONLY
+ *     for a state+action the table has no entry for. Where the table has seen
+ *     it, the table is the answer.
+ *   - An imagined verdict DEMOTES, it never vetoes. A predicted no-op drops an
+ *     action out of the promising tier and no further; the hard override that
+ *     replaces a chosen action stays observation-only. An imagined veto can be
+ *     wrong; an observed one cannot.
+ *   - A rule is trusted only when it reproduces EVERY pair it was learned from
+ *     and was learned from more than one. A rule from a single pair that
+ *     matches that pair is 1.0 confidence and worth almost nothing.
+ *
+ * AND THE SEARCH IS NOT FREE, which the original plan got half right. It costs
+ * no keypresses, so it is free against the SCORE. It costs wall-clock, and the
+ * scorecard closes 15 minutes after it opens — so it is not free against the
+ * RUN. `learnBudgetMs` is a hard total: when the search has spent it, learning
+ * stops for the rest of the level and play continues on the table alone.
  *
  * HONEST LIMIT, the same one imagination.ts states: this assumes an action is
  * a deterministic function of the visible grid. If a game carries hidden state
@@ -40,6 +56,13 @@
 
 import type { ArcObservation } from "./environment.ts";
 import type { ArcPolicy, PolicyContext } from "./play-level.ts";
+import {
+  imagine,
+  learnActionRules,
+  recordOutcome,
+  type ActionHistory,
+  type LearnedRule,
+} from "./imagination.ts";
 
 /**
  * How many distinct states an action must do nothing in before it is presumed
@@ -50,6 +73,24 @@ import type { ArcPolicy, PolicyContext } from "./play-level.ts";
  */
 const INERT_AFTER = 3;
 
+/** Rehearsal settings. Absent = table only, exactly as before. */
+export interface ImaginationOptions {
+  /** MCTS iterations per action per learning pass. CPU, not keypresses. */
+  iterations?: number;
+  /**
+   * Pairs a rule must be learned from before it is believed. Two, because a
+   * rule fitted to one example reproduces that example by construction.
+   */
+  minPairs?: number;
+  /** Re-run the search once this many new pairs have arrived since the last one. */
+  relearnEvery?: number;
+  /**
+   * Total wall-clock the search may spend on this level, ever. Not a per-pass
+   * timeout: the scorecard's 15-minute window is a total, so this is too.
+   */
+  learnBudgetMs?: number;
+}
+
 export interface FrugalPolicyOptions {
   /** The policy that actually decides. Told which actions are worth deciding between. */
   inner: ArcPolicy;
@@ -58,6 +99,22 @@ export interface FrugalPolicyOptions {
    * happens silently is a veto nobody can audit after a bad score.
    */
   onVeto?: (rejected: string, chosen: string) => void;
+  /** Turn on MCTS rehearsal. Omit and nothing about this module changes. */
+  imagination?: ImaginationOptions;
+  /**
+   * Every learning pass, for the run log: what was learned, what it cost, and
+   * whether the budget ran out. Without this, "did imagination help" is not a
+   * question the run can answer afterwards — which is the whole reason to
+   * wire it in.
+   */
+  onLearn?: (info: {
+    rules: readonly LearnedRule[];
+    trusted: number;
+    elapsedMs: number;
+    budgetSpent: boolean;
+  }) => void;
+  /** A prediction actually changed the ranking. The delta, made countable. */
+  onImagined?: (action: string, verdict: "noop" | "revisit") => void;
 }
 
 /**
@@ -67,7 +124,18 @@ export interface FrugalPolicyOptions {
  * nothing in another game.
  */
 export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
-  const { inner, onVeto } = options;
+  const { inner, onVeto, imagination, onLearn, onImagined } = options;
+  const imagineIterations = imagination?.iterations ?? 200;
+  const imagineMinPairs = Math.max(2, imagination?.minPairs ?? 2);
+  const relearnEvery = Math.max(1, imagination?.relearnEvery ?? 4);
+  const learnBudgetMs = imagination?.learnBudgetMs ?? 20_000;
+
+  /** Before/after pairs per action — the training set the search runs on. */
+  let history: ActionHistory[] = [];
+  /** Rules currently believed. Replaced wholesale by each learning pass. */
+  let rules: LearnedRule[] = [];
+  let pairsSinceLearn = 0;
+  let learnMsSpent = 0;
 
   /** `${gridKey}|${action}` -> the grid key that action produced from there. */
   const transitions = new Map<string, string>();
@@ -80,8 +148,12 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
    * is 256 wasted presses on a 16x16 grid.
    */
   const perAction = new Map<string, { inertIn: Set<string>; everMoved: boolean }>();
-  /** The action in flight: its result is whatever grid the next call shows us. */
-  let pending: { from: string; action: string } | null = null;
+  /**
+   * The action in flight: its result is whatever grid the next call shows us.
+   * The grid itself is kept, not just its key, because the search learns from
+   * the grid and a key cannot be turned back into one.
+   */
+  let pending: { from: string; action: string; grid: readonly (readonly number[])[] } | null = null;
 
   return async (observation: ArcObservation, ctx: PolicyContext): Promise<string | null> => {
     const here = gridKey(observation.grid);
@@ -95,6 +167,13 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
       if (here === pending.from) stat.inertIn.add(pending.from);
       else stat.everMoved = true;
       perAction.set(pending.action, stat);
+      // The same observation, kept in the shape the search wants: the grid
+      // before the action and the grid after it ARE a supervised pair, which
+      // is why `imagination.ts` needs no data the table was not collecting.
+      if (imagination) {
+        history = recordOutcome(history, pending.action, cloneGrid(pending.grid), cloneGrid(observation.grid));
+        pairsSinceLearn++;
+      }
       pending = null;
     }
     visited.add(here);
@@ -118,10 +197,62 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
     };
     const useless = (action: string): boolean => isNoop(action) || likelyInert(action);
 
+    // Re-learn, on a schedule and inside a total time budget. Every pass
+    // replaces the rule set wholesale: a rule that no longer reproduces its
+    // pairs must not survive on the strength of having once been true.
+    if (imagination && pairsSinceLearn >= relearnEvery && learnMsSpent < learnBudgetMs) {
+      const startedAt = Date.now();
+      rules = await learnActionRules(history, { iterations: imagineIterations });
+      const elapsedMs = Date.now() - startedAt;
+      learnMsSpent += elapsedMs;
+      pairsSinceLearn = 0;
+      onLearn?.({
+        rules,
+        trusted: rules.filter((r) => trustworthy(r, imagineMinPairs)).length,
+        elapsedMs,
+        budgetSpent: learnMsSpent >= learnBudgetMs,
+      });
+    }
+
+    /**
+     * What the rules say this action would do HERE — consulted only where the
+     * table is silent, because an observation is worth more than a prediction
+     * and the table already answers everywhere it has been.
+     */
+    const predicted = (action: string): string | null => {
+      if (rules.length === 0) return null;
+      if (known(action) !== undefined) return null; // observed: not our business
+      const rule = rules.find((r) => r.action === action);
+      if (!rule || !trustworthy(rule, imagineMinPairs)) return null;
+      const after = imagine(rules, action, cloneGrid(observation.grid));
+      return after ? gridKey(after) : null;
+    };
+    const imaginedNoop = (action: string): boolean => predicted(action) === here;
+    const imaginedRevisit = (action: string): boolean => {
+      const next = predicted(action);
+      return next !== null && next !== here && visited.has(next);
+    };
+
     // Three tiers, best first. Untried actions count as promising: unknown is
     // not the same as bad, and on this benchmark the alternative to an unknown
     // action is usually a known-useless one.
-    const promising = ctx.actions.filter((a) => !useless(a) && !isRevisit(a));
+    //
+    // Imagination only ever removes from the TOP tier. `moving` — the fallback
+    // when nothing is promising — is filtered by observation alone, so a wrong
+    // prediction costs a reordering and can never narrow the choice to nothing.
+    const doubted = (action: string): boolean => {
+      if (!imagination) return false;
+      if (imaginedNoop(action)) {
+        onImagined?.(action, "noop");
+        return true;
+      }
+      if (imaginedRevisit(action)) {
+        onImagined?.(action, "revisit");
+        return true;
+      }
+      return false;
+    };
+    const promising = ctx.actions.filter((a) => !useless(a) && !isRevisit(a) && !doubted(a));
     const moving = ctx.actions.filter((a) => !useless(a));
     // Fail open, always. Narrowing the choice to nothing would strand the
     // agent, which is worse than any wasted action — see play-level.ts, where
@@ -144,13 +275,31 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
       }
     }
 
-    pending = { from: here, action: final };
+    pending = { from: here, action: final, grid: observation.grid };
     return final;
   };
 }
 
 function edge(gridKey: string, action: string): string {
   return `${gridKey}|${action}`;
+}
+
+/**
+ * A rule worth acting on: reproduces every pair it was learned from, and was
+ * learned from more than one of them. `imagination.ts` reports both numbers
+ * precisely because confidence alone cannot tell those two cases apart.
+ */
+function trustworthy(rule: LearnedRule, minPairs: number): boolean {
+  return rule.confidence >= 1 && rule.pairsSeen >= minPairs;
+}
+
+/**
+ * A mutable copy. The search's DSL takes `number[][]` and compiled programs are
+ * free to write into what they are given; the observation belongs to the
+ * environment and must come back unchanged.
+ */
+function cloneGrid(grid: readonly (readonly number[])[]): number[][] {
+  return grid.map((row) => [...row]);
 }
 
 /**
