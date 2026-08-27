@@ -14,6 +14,9 @@ vi.mock('@/lib/tauri', () => ({
       // the call threw synchronously — before the component's own `.catch`
       // could see it — and took every test in the file down with it.
       coworkHistory: vi.fn().mockResolvedValue(undefined),
+      // Reached through useChat.resolveCoworkApproval when the panel's own
+      // Approve/Deny is used — the same store action the mascot bubble calls.
+      coworkApprovalResolve: vi.fn().mockResolvedValue(undefined),
     },
   },
 }));
@@ -195,6 +198,83 @@ describe('CoworkTranscriptPanel', () => {
     render(<CoworkTranscriptPanel />);
     expect(screen.getByText('delete')).toBeInTheDocument();
     expect(screen.getByText(/Bolt needs your approval/)).toBeInTheDocument();
+    // WHAT is being approved, not just that something is.
+    expect(screen.getByText('rm -rf dist/')).toBeInTheDocument();
+  });
+
+  test('a pending approval is answerable from the panel that reports it', async () => {
+    useCoworkTranscript.setState({
+      exchanges: [
+        exchange({
+          id: 'approval:r7',
+          kind: 'approval',
+          fromAgentId: 'demo-agent-bolt',
+          fromName: 'Bolt',
+          toAgentId: 'human',
+          requestText: 'rm -rf dist/',
+          approvalClass: 'delete',
+          status: 'running',
+          responseText: null,
+        }),
+      ],
+    });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
+    expect(tauri.cinderpawAgent.coworkApprovalResolve).toHaveBeenCalledWith('r7', false);
+    // And the buttons detach, so the decision cannot be sent twice.
+    expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
+  });
+
+  test('a settled approval offers no buttons', () => {
+    useCoworkTranscript.setState({
+      exchanges: [
+        exchange({
+          id: 'approval:r8',
+          kind: 'approval',
+          fromAgentId: 'demo-agent-bolt',
+          fromName: 'Bolt',
+          toAgentId: 'human',
+          requestText: 'rm -rf dist/',
+          status: 'done',
+          responseText: null,
+        }),
+      ],
+    });
+    render(<CoworkTranscriptPanel />);
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
+
+  test('clicking the app behind the panel does NOT close it mid-sentence', async () => {
+    // It is a transcript with a text box, not a modal. Losing a half-typed
+    // message because you glanced at the chat behind it is not a dismissal.
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(
+      <>
+        <button type="button">somewhere else</button>
+        <CoworkTranscriptPanel />
+      </>,
+    );
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'half a thought');
+    await userEvent.click(screen.getByRole('button', { name: 'somewhere else' }));
+    expect(screen.getByTestId('cowork-transcript-panel')).toBeInTheDocument();
+    expect(
+      (screen.getByPlaceholderText(/Message Atlas/) as HTMLInputElement).value,
+    ).toBe('half a thought');
+  });
+
+  test('a position saved on a bigger screen is pulled back into this one', () => {
+    // The stored value wins on every launch, so an unclamped one puts the
+    // panel permanently off-screen with nothing left to click.
+    localStorage.setItem('cowork-panel-pos', JSON.stringify({ top: 4000, right: 4000 }));
+    try {
+      useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+      render(<CoworkTranscriptPanel />);
+      const panel = screen.getByTestId('cowork-transcript-panel');
+      expect(parseFloat(panel.style.top)).toBeLessThanOrEqual(window.innerHeight - 80);
+      expect(parseFloat(panel.style.right)).toBeLessThanOrEqual(window.innerWidth - 80);
+    } finally {
+      localStorage.removeItem('cowork-panel-pos');
+    }
   });
 });
 

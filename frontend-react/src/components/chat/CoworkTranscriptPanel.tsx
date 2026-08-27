@@ -159,6 +159,19 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const right = m.side === 'right';
+  // "show more" was printed under EVERY bubble, including one-word replies,
+  // where clicking it changed nothing on screen. A control that does nothing
+  // teaches the person that controls here do nothing. It appears only when
+  // the six-line clamp is actually hiding something — measured, because the
+  // clamp counts rendered lines and no character count can predict those.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    // Only meaningful while clamped; once expanded the answer is already yes.
+    if (!expanded) setClipped(el.scrollHeight - el.clientHeight > 2);
+  }, [m.text, expanded]);
   const onCopy = async () => {
     try {
       await writeText(m.text);
@@ -208,6 +221,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
           {/* Selectable text: the whole bubble no longer swallows mouse
               selection. Click the "expand" control to toggle line-clamp. */}
           <div
+            ref={bodyRef}
             className={cn(
               'w-full text-xs leading-relaxed break-words select-text',
               'prose prose-xs max-w-none prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1 prose-table:text-xs',
@@ -218,14 +232,16 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
           >
             <Markdown>{m.text}</Markdown>
           </div>
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-            className="self-start text-2xs text-text-muted hover:text-text-secondary underline decoration-dotted cursor-pointer"
-          >
-            {expanded ? 'show less' : 'show more'}
-          </button>
+          {(clipped || expanded) && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              className="self-start text-2xs text-text-muted hover:text-text-secondary underline decoration-dotted cursor-pointer"
+            >
+              {expanded ? 'show less' : 'show more'}
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-1.5 mt-1 px-1">
           <button
@@ -338,35 +354,84 @@ function TypingRow({ e }: { e: CoworkExchange }) {
   );
 }
 
-/** An approval is the system asking the human, not an agent speaking. */
+/**
+ * An approval is the system asking the human, not an agent speaking.
+ *
+ * And a question needs an answer where it is asked. Until now this row said
+ * "Bolt needs your approval" and stopped there — the actual Approve/Deny pair
+ * lived only on the mascot's tool-call bubble, which may be collapsed, may be
+ * scrolled away, and on a fresh install is a widget the person has never
+ * noticed. Somebody watching the panel that reported the request had no way to
+ * answer it from the panel that reported it. Same store action as the mascot
+ * bubble, so both routes detach the buttons and resolve identically.
+ */
 function ApprovalRow({ e }: { e: CoworkExchange }) {
   const who = displayName(e.fromAgentId, e.fromName);
-  const label =
-    e.status === 'running'
-      ? `${who} needs your approval`
-      : e.status === 'error'
-        ? `${who} was not approved`
-        : `${who} was approved`;
+  const pending = e.status === 'running';
+  // The exchange id IS `approval:<requestId>` (see applyCoworkEvent). A row
+  // that arrived some other way simply gets no buttons rather than a broken pair.
+  const requestId = e.id.startsWith('approval:') ? e.id.slice('approval:'.length) : null;
+  const [answered, setAnswered] = useState(false);
+  const label = pending
+    ? `${who} needs your approval`
+    : e.status === 'error'
+      ? `${who} was not approved`
+      : `${who} was approved`;
+  const answer = (approve: boolean) => {
+    if (!requestId) return;
+    setAnswered(true);
+    useChat.getState().resolveCoworkApproval(requestId, approve);
+  };
   return (
     <li className="flex w-full justify-center">
       <span
         className={cn(
-          'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-2xs',
-          e.status === 'running'
+          'flex max-w-[92%] flex-col items-center gap-1 rounded-2xl border px-2.5 py-1.5 text-2xs',
+          pending
             ? 'border-warning/40 bg-warning/10 text-text-primary'
             : e.status === 'error'
               ? 'border-error/30 bg-error/5 text-text-secondary'
               : 'border-border-default bg-bg-surface text-text-secondary',
         )}
       >
-        <span aria-hidden>🔐</span>
-        {label}
-        {e.approvalClass && <span className="font-medium">{e.approvalClass}</span>}
-        {e.status === 'running' && e.startedAt !== undefined && (
-          <span className="text-text-muted">
-            <Elapsed since={e.startedAt} />
+        <span className="flex items-center gap-1.5">
+          <span aria-hidden>🔐</span>
+          {label}
+          {e.approvalClass && <span className="font-medium">{e.approvalClass}</span>}
+          {pending && e.startedAt !== undefined && (
+            <span className="text-text-muted">
+              <Elapsed since={e.startedAt} />
+            </span>
+          )}
+        </span>
+        {/* WHAT is being approved. A decision prompt without the subject of
+            the decision is not a prompt, it is a coin flip. */}
+        {e.requestText && (
+          <span className="w-full break-words text-center font-mono text-text-secondary">
+            {e.requestText}
           </span>
         )}
+        {pending && requestId && !answered && (
+          <span role="group" aria-label={`Approval request: ${e.requestText ?? e.approvalClass ?? who}`} className="flex items-center gap-1.5 pt-0.5">
+            <button
+              type="button"
+              onClick={() => answer(true)}
+              className="rounded-full border border-brand/40 bg-brand/15 px-2.5 py-0.5 text-2xs
+                         font-medium text-text-primary hover:bg-brand/25 cursor-pointer"
+            >
+              Approve
+            </button>
+            <button
+              type="button"
+              onClick={() => answer(false)}
+              className="rounded-full border border-error/40 bg-error/10 px-2.5 py-0.5 text-2xs
+                         font-medium text-text-primary hover:bg-error/20 cursor-pointer"
+            >
+              Deny
+            </button>
+          </span>
+        )}
+        {answered && pending && <span className="text-text-muted">sending…</span>}
       </span>
     </li>
   );
@@ -443,7 +508,13 @@ function Composer({
         )}
         <input
           value={text}
-          onChange={(ev) => setText(ev.target.value)}
+          // Clear the last failure as soon as the person acts on it. A red
+          // line that outlives the message it was about starts describing the
+          // wrong send.
+          onChange={(ev) => {
+            setText(ev.target.value);
+            if (error) setError(null);
+          }}
           onKeyDown={(ev) => {
             if (ev.key === 'Enter' && !ev.shiftKey) {
               ev.preventDefault();
@@ -508,12 +579,31 @@ function readHeight(): number {
     return PANEL_DEFAULT_H;
   }
 }
+/**
+ * Keep the panel on the screen it is actually being drawn on.
+ *
+ * The position is absolute pixels from the top-right and it is remembered
+ * forever. Move the window to a smaller display, unplug the second monitor,
+ * or just resize — and a position that was valid yesterday puts the panel
+ * entirely outside the viewport, where nothing can click it and nothing
+ * brings it back, because the stored value keeps winning on every launch.
+ * Clamping on read AND on resize means the panel can always be reached.
+ */
+function clampPos(p: { top: number; right: number }): { top: number; right: number } {
+  const maxRight = Math.max(4, window.innerWidth - 80);
+  const maxTop = Math.max(4, window.innerHeight - 80);
+  return {
+    top: Math.min(Math.max(4, p.top), maxTop),
+    right: Math.min(Math.max(4, p.right), maxRight),
+  };
+}
+
 function readPos(): { top: number; right: number } {
   try {
     const raw = localStorage.getItem(PANEL_POS_KEY);
     if (raw) {
       const p = JSON.parse(raw) as { top: number; right: number };
-      if (Number.isFinite(p.top) && Number.isFinite(p.right)) return p;
+      if (Number.isFinite(p.top) && Number.isFinite(p.right)) return clampPos(p);
     }
   } catch {}
   return PANEL_DEFAULT_POS;
@@ -557,22 +647,37 @@ export function CoworkTranscriptPanel() {
     prevLenRef.current = len;
   }, [exchanges.length, collapsed]);
 
-  // ESC to collapse + click outside to collapse when expanded.
+  // A window that got smaller must not take the panel with it.
+  useEffect(() => {
+    const onResize = () => setPos((p) => clampPos(p));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // ESC to collapse.
+  //
+  // Click-outside used to collapse it too, and that was wrong: this is a
+  // persistent transcript with a text box in it, not a modal. Glancing at the
+  // chat behind it — or clicking anything at all while composing — threw the
+  // half-typed message away and shut the panel. A panel you cannot look away
+  // from is not a panel. ESC and the header ✕ close it; nothing else does.
+  //
+  // ESC is also ignored while the composer has focus, where the key already
+  // means "abandon what I am typing" in every other text box on the machine.
   useEffect(() => {
     if (collapsed) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setCollapsed(true);
-    };
-    const onDown = (e: MouseEvent) => {
-      const el = panelRef.current;
-      if (el && !el.contains(e.target as Node)) setCollapsed(true);
+      if (e.key !== 'Escape') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      setCollapsed(true);
+      // Same persistence as the ✕: two ways to close, one remembered result.
+      try {
+        localStorage.setItem(COLLAPSED_KEY, '1');
+      } catch {}
     };
     window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('mousedown', onDown);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [collapsed]);
 
   /** Whether the reader is still pinned to the newest message. Scrolling up
@@ -631,11 +736,11 @@ export function CoworkTranscriptPanel() {
     () => filteredMessages.filter((m) => !pinnedIds.has(m.key)),
     [filteredMessages, pinnedIds],
   );
-  const scrollToIdx = (idx: number) => {
-    const key = displayMessages[idx]?.key;
-    if (!key) return;
-    document.getElementById(`cowork-msg-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
+  // A 1px-wide button per message used to live down the right edge as a
+  // "minimap". Past a dozen messages that was a dozen-plus focusable targets
+  // in the tab order — a keyboard user had to press Tab through every one to
+  // get past the transcript — and they were 1px wide, so a mouse could not
+  // reliably hit them either. The scrollbar is the minimap. Deleted.
 
   // Resize handles persistence (width from left edge, height from bottom edge).
   useEffect(() => {
@@ -687,12 +792,7 @@ export function CoworkTranscriptPanel() {
       const dx = e.clientX - dragStart.current.x;
       const dy = e.clientY - dragStart.current.y;
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true;
-      const newRight = Math.max(4, dragStart.current.right - dx);
-      const newTop = Math.max(4, dragStart.current.top + dy);
-      const maxRight = window.innerWidth - 80;
-      const maxTop = window.innerHeight - 80;
-      const clamped = { right: Math.min(newRight, maxRight), top: Math.min(newTop, maxTop) };
-      setPos(clamped);
+      setPos(clampPos({ top: dragStart.current.top + dy, right: dragStart.current.right - dx }));
     };
     const onUp = () => {
       if (!draggingPos.current) return;
@@ -943,18 +1043,20 @@ export function CoworkTranscriptPanel() {
           onScroll={onScroll}
           data-testid="cowork-transcript-scroll"
           style={{ height: `${height}px`, maxHeight: '65vh' }}
-          className="flex-1 overflow-y-auto thin-scrollbar px-2.5 pb-2.5 pr-4"
+          className="flex-1 overflow-y-auto thin-scrollbar px-2.5 pb-2.5"
         >
           {pinnedMessages.length > 0 && (
             <div className="mb-2 rounded-lg border border-warning/20 bg-warning/5 p-2">
               <div className="text-2xs font-medium text-warning mb-1.5 flex items-center gap-1">
                 <Star size={10} fill="currentColor" /> Pinned
               </div>
-              {pinnedMessages.map((m) => (
-                <div key={`pinned:${m.key}`} className="mb-1.5 last:mb-0">
-                  <Bubble m={m} showAuthor pinned onTogglePin={() => togglePin(m.key)} />
-                </div>
-              ))}
+              {/* A real list: Bubble renders an <li>, and an <li> whose parent
+                  is a <div> is not a list item to a screen reader. */}
+              <ul className="flex flex-col gap-1.5">
+                {pinnedMessages.map((m) => (
+                  <Bubble key={`pinned:${m.key}`} m={m} showAuthor pinned onTogglePin={() => togglePin(m.key)} />
+                ))}
+              </ul>
             </div>
           )}
           <ul className="flex flex-col gap-2">
@@ -978,21 +1080,29 @@ export function CoworkTranscriptPanel() {
             {working.map((e) => (
               <TypingRow key={`typing:${e.id}`} e={e} />
             ))}
+            {/* A filter that matches nothing used to leave a blank rectangle,
+                which reads as "the transcript is gone", not as "your search
+                found nothing". Say which, and offer the way back. */}
+            {(filterText.trim() || filterAgent) &&
+              displayMessages.length === 0 &&
+              pinnedMessages.length === 0 && (
+                <li className="flex flex-col items-center gap-1.5 py-6 text-2xs text-text-muted">
+                  <span>No messages match this filter.</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterText('');
+                      setFilterAgent(null);
+                    }}
+                    className="rounded-full border border-border-default px-2.5 py-0.5
+                               text-text-secondary hover:border-brand/40 cursor-pointer"
+                  >
+                    Clear filter
+                  </button>
+                </li>
+              )}
           </ul>
         </div>
-        {displayMessages.length > 12 && (
-          <div className="absolute right-1 top-2 bottom-2 w-1 flex flex-col gap-0.5 py-1">
-            {displayMessages.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => scrollToIdx(i)}
-                className="w-1 flex-1 min-h-1 rounded-full bg-border-subtle hover:bg-brand transition-colors cursor-pointer"
-                aria-label={`Jump to message ${i + 1}`}
-              />
-            ))}
-          </div>
-        )}
       </div>
       {participants.length > 0 && (
         <Composer
