@@ -30,6 +30,9 @@ committed. Total spent on OpenRouter today: **~$0.05** of $4.43.
 | 7 | 15-minute "deadline" that does not exist | would cut every game at ~50 presses | `f5c1579` |
 | 8 | No retry: one 500 killed a whole game | 10 of 25 games died in the first minute | `f85b880` |
 | 9 | Bare `ACTION6` sent without coordinates | `500 — the server is overloaded` | `114e249` |
+| 10 | A `WIN` ended the game — and nobody knows if WIN means the game | would score ~1/28 of a 7-level game | `9d640b6` |
+| 11 | The fix for 10 could spin forever at zero cost | a hang that looks like a working run | `9d640b6` |
+| 12 | One bad model call ended a game that had run for hours | no retry on the OpenRouter side | `794e167` |
 
 Bug 9 is the instructive one: the server's own error message sent us chasing
 load that was never there. **Every failure in both parallel runs was ACTION6
@@ -80,6 +83,16 @@ our `imagination.ts` is).
 parses in **6ms**, 17 objects, 272 relations, renders to 9,054 chars — more than
 twice the 4,159 the grid itself costs. Pathological case (scattered grid): 819
 objects, 346,205 relations, **32ms**. CPU was never the risk; the prompt is.
+
+**Cost, MEASURED not estimated.** One real game on `sb26`, Z.AI, medium:
+2 completions = 8,902 prompt + 217 completion tokens = $0.0007. So **4,451
+prompt + 108 completion per action = $0.00036/action**, and a full run of
+25 games x 200 actions = **$1.80**. A bare run (no scene in the prompt) is
+about $1.05. Completion tokens are far lower than feared — Z.AI at medium
+answers short on a real grid.
+
+**`WIN` semantics are still unknown** and no longer matter: the runner asks the
+server (`levelsCompleted` vs `winLevels`) instead of assuming. See `9d640b6`.
 
 ---
 
@@ -139,7 +152,40 @@ engine. Easy to misread.
 
 ---
 
-## 7. Open, and what to do next
+## 7. THE PLAN AFTER THE QUOTA RESET — decided 2026-08-27 ~20:45
+
+**Two runs, then build the supervisor.** Darius proposed three; the third is
+not a configuration.
+
+- **Run A — bare.** GLM 5.3 Flash with nothing: `--no-imagination
+  --no-perception`. ~$1.05. This is the baseline the delta is measured against.
+- **Run B — the harness as it stands.** MCTS rehearsal, DSL, perception, frugal
+  policy, memory across levels. ~$1.80. Same 25 games, same budget, so the
+  difference is attributable.
+- Total ~$2.85 of $4.43, leaving $1.58.
+
+**Run C (BRSI + FMS + cowork + subagents on hard games) is NOT run tonight**,
+for two reasons of different sizes. The small one: it does not fit the budget.
+The large one: it is not a flag. None of those are imported by the ARC path, so
+"switch them on for hard games" means BUILDING a supervisor that decides a game
+is hard, routes to cowork, persists through FMS, and hands a subagent the game
+state. Plus every agent-routed call carries the ~10,660-token prefix (~6x per
+call) exactly where the most actions are spent. And BRSI stays a hard no in any
+scored run: code that rewrites itself mid-benchmark means the manifest no
+longer describes what ran.
+
+**But the idea is right, and it is the next build.** A supervisor that detects
+stagnation and escalates is the one thing in NVIDIA's AVO writeup we do not
+have, and they name it as their lever. Build it AFTER runs A and B, with their
+deltas in hand, so escalation is aimed at measured weakness rather than
+guessed. Darius: "chiar daca o sa zica lumea ca am furat de la AVO, idgaf" —
+worth noting that citing the influence costs nothing and makes the result
+stronger, since AVO's own writeup says theirs is not a controlled ablation
+either.
+
+---
+
+## 8. Also open
 
 1. **Run 25 in parallel** with the config in §4 after the quota reset.
 2. **`--no-imagination` / `--no-perception`** exist so the delta of each is
