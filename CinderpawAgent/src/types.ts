@@ -603,6 +603,51 @@ export interface InferenceRequest {
   messages: ChatMessage[];
   /** Soft cap for this single completion. */
   maxTokens?: number;
+  /**
+   * Cap a reasoning model's THINKING, separately from its answer.
+   *
+   * On a reasoning model `max_tokens` bounds the whole reply, and the thinking
+   * is spent first — so a generous cap does not buy a longer answer, it buys a
+   * longer monologue and then no answer at all. Measured on
+   * `z-ai/glm-5.3-flash` with a 64x64 grid and max_tokens 16000: 191 seconds,
+   * all 16,000 tokens consumed by reasoning, `content` empty. The same prompt
+   * with this set to 256: 2.5 seconds, 38 tokens, the answer present.
+   *
+   * Sent as OpenRouter's `reasoning: { max_tokens }`. Ignored by providers that
+   * do not know the field, which is why it is safe to set unconditionally.
+   */
+  reasoningMaxTokens?: number;
+  /**
+   * How hard a reasoning model should think, when it takes direction in those
+   * terms: OpenRouter's `reasoning: { effort }`.
+   *
+   * Preferred over `reasoningMaxTokens` where both are available. A token cap
+   * is a hard stop that some upstreams honour and others ignore — measured on
+   * `z-ai/glm-5.3-flash`, the same cap produced 38 output tokens through one
+   * upstream and 3,204 through another, because OpenRouter routes per request.
+   * `effort` is a request the model itself acts on, so it survives that
+   * routing.
+   */
+  reasoningEffort?: "low" | "medium" | "high";
+  /**
+   * Pin which upstream serves the request, for gateways that route per call.
+   *
+   * OpenRouter picks an upstream per request, and they do not behave alike.
+   * Measured on one prompt to `z-ai/glm-5.3-flash`, same body every time:
+   *
+   *   Z.AI       3.8s     95 output tokens, answer present
+   *   Together   4.4s    885 output tokens, answer present
+   *   GMICloud  16.5s    522 output tokens, answer present
+   *   Novita   191.3s 16,000 output tokens, answer EMPTY
+   *   Io Net   602.0s  9,426 output tokens, answer EMPTY  (with effort: low)
+   *
+   * A 158x spread in latency and a coin flip on whether an answer comes back
+   * at all — from routing, not from anything the caller asked for. For a
+   * benchmark that is disqualifying: half the variance in the result would be
+   * infrastructure rather than the thing being measured. Sent as OpenRouter's
+   * `provider: { only, allow_fallbacks }`; ignored by gateways without it.
+   */
+  providerOnly?: string[];
   temperature?: number;
   /**
    * Optional abort signal. When aborted, the in-flight fetch / streaming

@@ -19,6 +19,9 @@
  *   --dry-run              play with a fixed policy, no model calls, no key needed
  *   --no-imagination       disable MCTS rehearsal (run twice to measure its delta)
  *   --no-perception        do not describe the grid as objects in the prompt
+ *   --reasoning-effort <e> low | medium | high (default medium)
+ *   --provider <name>      pin the OpenRouter upstream (default Z.AI)
+ *   --any-provider         let OpenRouter route freely (NOT for a scored run)
  *   --learn-budget <ms>    total wall-clock the search may spend (default 20000)
  *
  * NO PROVIDER FALLBACK, DELIBERATELY. The agent's InferenceRouter falls back to
@@ -40,7 +43,6 @@ import { openArcGame, openScorecard, closeScorecard, listGames, CookieJar } from
 import { playLevel } from "../../src/arc/play-level.ts";
 import { createFrugalPolicy } from "../../src/arc/policy.ts";
 import { createModelPolicy } from "../../src/arc/model-policy.ts";
-import { OpenAICompatibleProvider } from "../../src/egress/inference-providers.ts";
 import { createRunManifest, writeRunManifest, reportabilityProblems } from "../../src/core/run-manifest.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -52,6 +54,10 @@ function parseArgs(argv) {
     model: "deepseek/deepseek-v4-flash",
     tags: [],
     learnBudgetMs: 20_000,
+    reasoningEffort: "medium",
+    // The model's own first-party upstream: fastest of the five observed, and
+    // the one that actually honoured `reasoning.effort`.
+    provider: "Z.AI",
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -65,6 +71,9 @@ function parseArgs(argv) {
     else if (flag === "--retries") { args.retries = Number(value); i++; }
     else if (flag === "--no-imagination") args.imagination = false;
     else if (flag === "--no-perception") args.perception = false;
+    else if (flag === "--reasoning-effort") { args.reasoningEffort = value; i++; }
+    else if (flag === "--provider") { args.provider = value; i++; }
+    else if (flag === "--any-provider") { args.provider = null; i++; }
     else if (flag === "--learn-budget") { args.learnBudgetMs = Number(value); i++; }
     else throw new Error(`unknown flag "${flag}" — run with no arguments to see usage`);
   }
@@ -73,6 +82,9 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(args.retries) || args.retries < 0) {
     throw new Error(`--retries must be an integer >= 0, got ${String(args.retries)}`);
+  }
+  if (!["low", "medium", "high"].includes(args.reasoningEffort)) {
+    throw new Error(`--reasoning-effort must be low, medium or high, got ${String(args.reasoningEffort)}`);
   }
   if (!Number.isInteger(args.learnBudgetMs) || args.learnBudgetMs < 0) {
     throw new Error(`--learn-budget must be an integer >= 0 (ms), got ${String(args.learnBudgetMs)}`);
@@ -86,7 +98,7 @@ function parseArgs(argv) {
  * The 16k cap is generous for "name one button" and exists only so a model
  * that starts monologuing cannot stall the run.
  */
-function makeComplete(model) {
+function makeComplete(model, reasoningEffort, providerOnly) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -94,7 +106,15 @@ function makeComplete(model) {
     );
   }
   const provider = new OpenAICompatibleProvider();
-  const target = { provider: "openrouter", model, baseUrl: "https://openrouter.ai/api/v1", apiKey };
+  // NO TRAILING /v1. `OpenAICompatibleProvider` appends `/v1/chat/completions`
+  // itself, so the documented base URL — which is what OpenRouter prints, what
+  // BYOK stores, and what anyone would paste here — doubles into
+  // `/api/v1/v1/chat/completions` and comes back as a 404 page of HTML. The
+  // desktop host strips the same suffix for the same reason
+  // (crates/cinderpaw-core/src/cinderpaw_agent.rs). Normalised rather than
+  // written short, so pasting either form works.
+  const baseUrl = "https://openrouter.ai/api/v1".replace(/\/+$/, "").replace(/\/v1$/, "");
+  const target = { provider: "openrouter", model, baseUrl, apiKey };
   let calls = 0;
   let promptTokens = 0;
   let completionTokens = 0;
@@ -103,7 +123,31 @@ function makeComplete(model) {
     const response = await provider.complete(target, {
       sessionId: "arc-agi-3",
       messages,
-      maxTokens: 16_000,
+      // NO max_tokens, on purpose. A cap on a reasoning model bounds the whole
+      // reply and the thinking is spent first, so a cap does not shorten the
+      // monologue — it deletes the answer after it. Measured on
+      // z-ai/glm-5.3-flash: max_tokens 2000 came back with 2,000 tokens of
+      // thinking and an empty `content`. `effort` is the honest lever, and it
+      // is the only one here.
+      //
+      // Empty `content` is survivable in any case: the provider folds
+      // `reasoning` back in as <think>...</think>, and parseChoice reads the
+      // last action named anywhere in the reply.
+      reasoningEffort,
+      // Same upstream for all 25 games. Unpinned, OpenRouter served this one
+      // model from five different upstreams with a 158x latency spread and a
+      // coin flip on whether an answer came back — variance that would land in
+      // the score as if it were the agent's.
+      providerOnly,
+      // The number that decides whether this benchmark is runnable at all.
+      // Measured on z-ai/glm-5.3-flash with a real 64x64 grid:
+      //   unbounded  191.3s, 16,000 output tokens, content EMPTY
+      //   256         2.5s,      38 output tokens, "ACTION1"
+      // Unbounded is not "slower but better" — the thinking eats the whole
+      // reply and the answer never arrives, so every press would have been the
+      // parser's fallback. It is also 15x the cost and, at 191s per action,
+      // three hours per game against a card that closes in fifteen minutes.
+      reasoningMaxTokens,
       temperature: 0,
     });
     promptTokens += response.promptTokens ?? 0;
@@ -115,6 +159,18 @@ function makeComplete(model) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+
+// The provider aborts a cloud call after 60s (CLOUD_IDLE_MS). With no token cap
+// a reasoning model can think for longer than that on a 64x64 grid — measured
+// at 191s — and the abort surfaces as a bare AbortError, which reads as a
+// network fault rather than "it was still thinking".
+//
+// That constant is resolved when its module is first evaluated, and ESM
+// evaluates every static import before a single line of this file runs. So the
+// provider is imported DYNAMICALLY, below, after this assignment — a static
+// import here would be hoisted above it and read the old default.
+process.env.CINDERPAW_CLOUD_IDLE_TIMEOUT_MS ??= "600000";
+const { OpenAICompatibleProvider } = await import("../../src/egress/inference-providers.ts");
 
 if (args.list) {
   const games = await listGames();
@@ -147,7 +203,7 @@ if (problems.length > 0) {
   console.warn(`NOT REPORTABLE — this run may not be published:\n  ${problems.join("\n  ")}\n`);
 }
 
-const complete = args.dryRun ? null : makeComplete(args.model);
+const complete = args.dryRun ? null : makeComplete(args.model, args.reasoningEffort, args.provider ? [args.provider] : undefined);
 
 let vetoes = 0;
 let unparsed = 0;
@@ -291,7 +347,11 @@ if (args.imagination !== false) {
 }
 if (!args.dryRun) {
   const usage = complete.usage();
-  console.log(`model       ${args.model} — ${usage.calls} completions, ${usage.promptTokens} prompt / ${usage.completionTokens} completion tokens`);
+  console.log(
+    `model       ${args.model} — ${usage.calls} completions, ${usage.promptTokens} prompt / ` +
+      `${usage.completionTokens} completion tokens` +
+      `, reasoning effort ${args.reasoningEffort}, no token cap, upstream ${args.provider ?? "UNPINNED"}`,
+  );
   console.log(`unparsed    ${unparsed} replies named no available button`);
   console.log(
     `perception  ${scenes} of ${spent} prompts carried a scene description` +

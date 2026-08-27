@@ -421,6 +421,24 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       messages,
       temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+      // See `InferenceRequest.reasoningMaxTokens`: on a reasoning model the
+      // thinking is spent out of `max_tokens` BEFORE the answer, so bounding
+      // the reply alone yields a long monologue and an empty `content`.
+      // `effort` wins when both are given: it survives OpenRouter's per-request
+      // routing, where a token cap is honoured by some upstreams and ignored by
+      // others.
+      // Pin the upstream where the gateway routes per request — see
+      // `InferenceRequest.providerOnly` for the measurements that make this
+      // mandatory rather than tidy. `allow_fallbacks: false` is the point: a
+      // fallback is exactly the unpinned behaviour we are removing.
+      ...(req.providerOnly && req.providerOnly.length > 0
+        ? { provider: { only: req.providerOnly, allow_fallbacks: false } }
+        : {}),
+      ...(req.reasoningEffort
+        ? { reasoning: { effort: req.reasoningEffort } }
+        : req.reasoningMaxTokens
+          ? { reasoning: { max_tokens: req.reasoningMaxTokens } }
+          : {}),
       ...cinderpawExtensionBody(target, req),
       stream: false,
     };
