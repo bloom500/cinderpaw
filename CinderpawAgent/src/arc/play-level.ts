@@ -16,6 +16,19 @@
  * `actions`, and the budget is hard: at zero remaining, the loop stops rather
  * than taking "just one more".
  *
+ * BUT EFFICIENCY IS THE SECOND PRIORITY, NOT THE FIRST — and this file used to
+ * have that backwards. The squared penalty is a LEVEL score. A GAME score is
+ * the weighted average of its level scores, weighted by 1-indexed level number,
+ * and a game you did not finish is capped by the levels you never reached:
+ * finishing 4 of 5 means the game cannot exceed 66.7% however perfectly levels
+ * 1-4 were played. Later levels are worth more than earlier ones, and reaching
+ * them at all beats reaching them cheaply.
+ *
+ * So the ordering is: FINISH the level, then finish it in few actions. An agent
+ * that stops early to protect its ratio is optimising the small number and
+ * forfeiting the large one. The budget still exists — an agent has to stop
+ * somewhere — but it is a wall, not a target.
+ *
  * The policy may look at the observation for as long as it likes, and may run
  * anything it wants in its head — that is where the search belongs. Simulating
  * a move is free; pressing a button to find out is not, and that difference is
@@ -27,9 +40,16 @@ import { isTerminal, type ArcEnvironment, type ArcObservation } from "./environm
 /**
  * Chooses the next action, or `null` to stop voluntarily.
  *
- * Returning null is a real answer: an agent that knows it is stuck should stop
- * rather than burn the remaining budget discovering that again. Under a
- * squared penalty, wasted actions cost more than an unfinished level.
+ * `null` means "this level cannot be finished from here" — no legal action can
+ * change anything, or the level is provably lost. It does NOT mean "I am not
+ * sure what to do", and it is not a way to protect the action ratio.
+ *
+ * That last part is the correction. This used to read "under a squared penalty,
+ * wasted actions cost more than an unfinished level", which is the opposite of
+ * how the benchmark scores: an unfinished game is capped by the levels never
+ * reached, and the levels not reached are the ones worth the most. A guess that
+ * might advance the level is worth more than a clean stop — see the scoring
+ * note at the top of this file.
  */
 export type ArcPolicy = (
   observation: ArcObservation,
@@ -98,7 +118,10 @@ export async function playLevel(options: PlayLevelOptions): Promise<PlayResult> 
       taken,
     });
 
-    // The policy conceding is a legitimate outcome, not a failure. See ArcPolicy.
+    // Conceding is legitimate but expensive: it forfeits every later level of
+    // this game, and those are the ones weighted highest. `stoppedBecause:
+    // "policy"` exists so a run log can be read afterwards and this decision
+    // audited against what the grid actually looked like. See ArcPolicy.
     if (action === null) {
       return {
         state: observation.state,

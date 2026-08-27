@@ -181,6 +181,24 @@ export interface OpenScorecardOptions {
   competitionMode?: boolean;
 }
 
+/**
+ * Open a scorecard.
+ *
+ * TWO OPERATIONAL RULES LIVE ON THIS CALL, and neither is enforceable here —
+ * both belong to whatever drives the campaign, so they are written down at the
+ * call it constrains rather than in a document nobody opens:
+ *
+ * 1. **A card auto-closes after 15 minutes.** At roughly one model call per
+ *    action that is a few hundred actions, not a campaign. Open one card per
+ *    game (or per short segment) and close it; a single card held open across
+ *    five games expires part-way through and everything after that is lost.
+ *
+ * 2. **Killing the run loses the results.** The docs are explicit that
+ *    premature termination stops the scorecard results from being displayed.
+ *    Every path out — finishing, throwing, Ctrl-C, SIGTERM — has to reach
+ *    `closeScorecard`. A `finally` covers the first two; the signals need
+ *    handlers, because Node's default for SIGINT is to exit without unwinding.
+ */
 export async function openScorecard(options: OpenScorecardOptions = {}): Promise<string> {
   const body = await call<{ card_id: string }>("/api/scorecard/open", {
     method: "POST",
@@ -196,6 +214,8 @@ export async function openScorecard(options: OpenScorecardOptions = {}): Promise
   return body.card_id;
 }
 
+/** Close a card. See `openScorecard`: this must run on EVERY exit path, or the
+ *  run produces no score at all. */
 export async function closeScorecard(
   cardId: string,
   options: { apiKey?: string; fetchImpl?: typeof fetch } = {},

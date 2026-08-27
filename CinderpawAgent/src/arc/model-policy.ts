@@ -57,10 +57,21 @@ const SYSTEM = [
   "Each turn you see the current grid and the buttons that are available right now.",
   "Reply with exactly one button name and nothing else.",
   "A button that needs coordinates is written NAME:x,y with two integers from 0 to 63.",
+  "The game does not tell you which squares are clickable - work it out from the grid.",
+  "If ACTION7 is offered it undoes your last move, which makes trying something",
+  "uncertain cheap to take back.",
   "",
-  "Pressing a button is the only thing that costs anything, and the score is",
-  "(a skilled human's presses / your presses) squared. Thinking is free; a press",
-  "is not. Prefer the press that tells you the most or advances you the furthest.",
+  // Both halves, in this order, because the second one alone is what a model
+  // optimises if you let it. Finishing the level is what the GAME score is made
+  // of: an unfinished game is capped by the levels never reached, and those late
+  // levels carry the most weight. Presses are the tiebreak between two ways of
+  // finishing, never a reason to stop finishing.
+  "Finishing the level is the goal. Never stop early to save presses: a level you",
+  "do not finish forfeits every level after it, and those are worth the most.",
+  "",
+  "Between two presses that both make progress, prefer the cheaper one. A level's",
+  "score is (a skilled human's presses / your presses) squared. Thinking is free; a",
+  "press is not. Prefer the press that tells you the most or advances you the furthest.",
 ].join("\n");
 
 /**
