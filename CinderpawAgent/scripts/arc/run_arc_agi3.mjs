@@ -127,6 +127,9 @@ async function fetchPricing(model) {
   return { inPer, outPer };
 }
 
+/** Tries after the first, for a model call. */
+const MODEL_RETRIES = 3;
+
 function makeComplete(model, reasoningEffort, providerOnly, pricing) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -147,8 +150,35 @@ function makeComplete(model, reasoningEffort, providerOnly, pricing) {
   let calls = 0;
   let promptTokens = 0;
   let completionTokens = 0;
+  let modelFailures = 0;
   const complete = async (messages) => {
     calls++;
+    // The model call gets the same treatment the ARC client got, for the same
+    // reason: one transient failure was ending a game that had been running for
+    // hours. A 429 from the gateway, a dropped socket, an upstream restarting —
+    // none of those are a reason to forfeit every level completed so far.
+    //
+    // And when it truly cannot answer, this returns "" rather than throwing.
+    // An empty reply is a case the policy already handles: parseChoice finds no
+    // action, `onUnparsed` counts it, and an arbitrary offered action is
+    // pressed. That degrades a model outage into a few random presses instead
+    // of a dead run — and the unparsed counter is what keeps the two apart
+    // afterwards, so a bad score can be read as "the model went away" rather
+    // than "the agent played badly".
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await once(messages);
+      } catch (err) {
+        if (attempt >= MODEL_RETRIES) {
+          modelFailures++;
+          console.error(`  model call failed after ${MODEL_RETRIES + 1} tries: ${String(err).slice(0, 160)}`);
+          return "";
+        }
+        await new Promise((r) => setTimeout(r, 1500 * 2 ** attempt + Math.random() * 500));
+      }
+    }
+  };
+  const once = async (messages) => {
     const response = await provider.complete(target, {
       sessionId: "arc-agi-3",
       messages,
@@ -176,6 +206,7 @@ function makeComplete(model, reasoningEffort, providerOnly, pricing) {
   };
   complete.usage = () => ({
     calls,
+    modelFailures,
     promptTokens,
     completionTokens,
     spend: promptTokens * pricing.inPer + completionTokens * pricing.outPer,
@@ -430,10 +461,19 @@ if (!args.dryRun) {
       `${usage.completionTokens} completion tokens` +
       `, reasoning effort ${args.reasoningEffort}, no token cap, upstream ${args.provider ?? "UNPINNED"}`,
   );
-  console.log(`unparsed    ${unparsed} replies named no available button`);
-  console.log(`clicks      ${guessedCoords} ACTION6 presses whose coordinates we chose`);
   console.log(
-    `perception  ${scenes} of ${spent} prompts carried a scene description` +
+    `unparsed    ${unparsed} replies named no available button` +
+      (usage.modelFailures > 0
+        ? `  (${usage.modelFailures} of them because the model call failed outright)`
+        : ""),
+  );
+  console.log(`clicks      ${guessedCoords} ACTION6 presses whose coordinates we chose`);
+  // Denominator is COMPLETIONS, not actions: a prompt is built per model call,
+  // and the last call of a run can be built and then cut by the budget before
+  // its action lands. Against `spent` that printed "2 of 1", which reads as a
+  // bug in the counter rather than as the ordinary end of a run.
+  console.log(
+    `perception  ${scenes} of ${usage.calls} prompts carried a scene description` +
       (args.perception === false ? " (disabled)" : ""),
   );
 }
