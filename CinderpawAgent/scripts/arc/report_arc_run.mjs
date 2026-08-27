@@ -141,6 +141,37 @@ for (const arm of arms) {
   };
 }
 
+// THE SCORECARD IS THE RESULT. Everything above is ours; this is theirs, and
+// where the two disagree the server wins. Kept side by side on purpose: a
+// harness that only ever prints its own arithmetic is a harness nobody can
+// check.
+const cardPath = path.join(runDir, "scorecard.json");
+if (fs.existsSync(cardPath)) {
+  const card = JSON.parse(fs.readFileSync(cardPath, "utf8"));
+  report.scorecard = {
+    cardId: card.card_id,
+    competitionMode: card.competition_mode,
+    score: card.score,
+    totalActions: card.total_actions,
+    environments: card.total_environments,
+    environmentsCompleted: card.total_environments_completed,
+    levels: card.total_levels,
+    levelsCompleted: card.total_levels_completed,
+    byTag: card.tags_scores,
+    perGame: (card.environments ?? []).map((e) => ({
+      game: e.id,
+      score: e.score,
+      actions: e.actions,
+      levelsCompleted: e.levels_completed,
+      levels: e.level_count,
+      resets: e.resets,
+      levelScores: e.runs?.[0]?.level_scores ?? null,
+      levelActions: e.runs?.[0]?.level_actions ?? null,
+      humanBaseline: e.runs?.[0]?.level_baseline_actions ?? null,
+    })),
+  };
+}
+
 const jsonPath = path.join(runDir, "report.json");
 fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2));
 
@@ -199,6 +230,31 @@ if (report.arms.A && report.arms.B) {
     "",
   );
 }
+if (report.scorecard) {
+  const c = report.scorecard;
+  lines.push(
+    "## The scorecard — three.arcprize.org's own numbers",
+    "",
+    `- card \`${c.cardId}\`${c.competitionMode ? " (competition mode)" : ""}`,
+    `- **score ${c.score}**`,
+    `- levels ${c.levelsCompleted} of ${c.levels}; environments completed ${c.environmentsCompleted} of ${c.environments}`,
+    `- actions ${c.totalActions}  (NVIDIA AVO: ${AVO_TOTAL_ACTIONS})`,
+    "",
+    "| game | score | levels | actions | resets | human baseline |",
+    "|---|---|---|---|---|---|",
+    ...c.perGame.map(
+      (g) =>
+        `| ${g.game} | ${g.score} | ${g.levelsCompleted}/${g.levels} | ${g.actions} | ${g.resets} | ` +
+        `${g.humanBaseline ? g.humanBaseline.reduce((a, b) => a + b, 0) : "?"} |`,
+    ),
+    "",
+    "| tag | environments | levels | score |",
+    "|---|---|---|---|",
+    ...(c.byTag ?? []).map((t) => `| ${t.id} | ${t.number_of_environments} | ${t.number_of_levels} | ${t.score} |`),
+    "",
+  );
+}
+
 const mdPath = path.join(runDir, "report.md");
 fs.writeFileSync(mdPath, lines.join("\n"));
 console.log(`wrote ${jsonPath}\nwrote ${mdPath}`);

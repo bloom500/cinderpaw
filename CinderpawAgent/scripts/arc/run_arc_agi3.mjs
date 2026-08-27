@@ -27,6 +27,9 @@
  *   --provider <name>      pin the OpenRouter upstream (default Z.AI)
  *   --max-spend <usd>      hard per-game spend cap (default 0.15)
  *   --any-provider         let OpenRouter route freely (NOT for a scored run)
+ *   --card    <id>         play on a scorecard someone else opened (arc_card.mjs)
+ *   --cookie  <header>     that card's session cookie — REQUIRED with --card,
+ *                          because the card is pinned to one backend
  *   --learn-budget <ms>    total wall-clock the search may spend (default 20000)
  *
  * NO PROVIDER FALLBACK, DELIBERATELY. The agent's InferenceRouter falls back to
@@ -89,6 +92,8 @@ function parseArgs(argv) {
     else if (flag === "--max-spend") { args.maxSpend = Number(value); i++; }
     else if (flag === "--any-provider") { args.provider = null; i++; }
     else if (flag === "--learn-budget") { args.learnBudgetMs = Number(value); i++; }
+    else if (flag === "--card") { args.card = value; i++; }
+    else if (flag === "--cookie") { args.cookie = value; i++; }
     else throw new Error(`unknown flag "${flag}" — run with no arguments to see usage`);
   }
   if (args.budget !== Infinity && (!Number.isInteger(args.budget) || args.budget < 1)) {
@@ -330,12 +335,27 @@ const policy = createFrugalPolicy({
 // ONE jar for the whole session: open, every game, and close. The load
 // balancer pins the card to a backend and everything after has to reach the
 // same one — a second jar makes the server deny an id it issued itself.
-const jar = new CookieJar();
-const cardId = await openScorecard({
-  jar,
-  tags: ["cinderpaw", ...args.tags],
-  opaque: { manifest },
-});
+//
+// An official run is one card for all 25 games, opened by `arc_card.mjs` and
+// handed to every player with its cookie — competition mode scores against
+// every environment, so games spread over 25 separate cards cannot be one
+// result. With no --card this opens its own, which is the right thing for
+// measuring ourselves and the wrong thing to publish.
+const joining = args.card !== undefined;
+if (joining && !args.cookie) {
+  throw new Error(
+    "--card needs --cookie: the scorecard is pinned to one backend by its session " +
+      "cookie, and without it the server refuses an id it issued itself.",
+  );
+}
+const jar = joining ? CookieJar.fromHeader(args.cookie) : new CookieJar();
+const cardId = joining
+  ? args.card
+  : await openScorecard({
+      jar,
+      tags: ["cinderpaw", ...args.tags],
+      opaque: { manifest },
+    });
 const cardOpenedAt = Date.now();
 
 // NO DEADLINE. The docs say "scorecards auto close after 15 minutes" and this
@@ -360,8 +380,14 @@ let closing = false;
 const closeAndExit = async (signal) => {
   if (closing) return;
   closing = true;
-  console.error(`${signal} - closing scorecard ${cardId} so the run still counts...`);
-  await closeScorecard(cardId, { jar }).catch((err) => console.error(`close failed: ${String(err)}`));
+  if (joining) {
+    // Someone else owns this card and other games are still playing on it.
+    // Closing it here would end their run as well as ours.
+    console.error(`${signal} - leaving scorecard ${cardId} open; its owner closes it.`);
+  } else {
+    console.error(`${signal} - closing scorecard ${cardId} so the run still counts...`);
+    await closeScorecard(cardId, { jar }).catch((err) => console.error(`close failed: ${String(err)}`));
+  }
   console.error("closed. Scores: https://three.arcprize.org");
   process.exit(130);
 };
@@ -485,8 +511,13 @@ try {
     if (result.stoppedBecause === "deadline") break;
   }
 } finally {
-  // Always close: an open scorecard holds the run and the numbers never land.
-  await closeScorecard(cardId, { jar }).catch((err) => console.error(`close failed: ${String(err)}`));
+  // Always close the card THIS process opened: an open scorecard holds the run
+  // and the numbers never land. A shared card is closed by whoever opened it,
+  // once every game on it has finished — closing it from here would cut off
+  // the games still playing.
+  if (!joining) {
+    await closeScorecard(cardId, { jar }).catch((err) => console.error(`close failed: ${String(err)}`));
+  }
 }
 
 const outDir = path.join(REPO_ROOT, "runs", manifest.runId);

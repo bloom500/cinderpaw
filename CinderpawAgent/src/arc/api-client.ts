@@ -130,6 +130,25 @@ export class CookieJar {
     if (this.#jar.size === 0) return undefined;
     return [...this.#jar].map(([k, v]) => `${k}=${v}`).join("; ");
   }
+
+  /**
+   * Rebuild a jar from a `header()` string.
+   *
+   * An official run is ONE scorecard covering every game, and 25 games played
+   * one after another take a night. Playing them at once means several
+   * processes on one card — and the card is pinned to a backend by this cookie,
+   * so the pin has to travel with the card id or every child is refused an id
+   * the server itself issued.
+   */
+  static fromHeader(header: string | undefined): CookieJar {
+    const jar = new CookieJar();
+    for (const pair of (header ?? "").split(";")) {
+      const eq = pair.indexOf("=");
+      if (eq <= 0) continue;
+      jar.#jar.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+    }
+    return jar;
+  }
 }
 
 function requireKey(apiKey: string | undefined): string {
