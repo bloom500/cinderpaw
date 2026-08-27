@@ -389,8 +389,7 @@ fs.mkdirSync(frameDir, { recursive: true });
 const framesPath = path.join(frameDir, "frames.jsonl");
 const frames = fs.createWriteStream(framesPath, { flags: "a" });
 const encodeGrid = (grid) =>
-  grid.map((row) => row.map((c) => (c & 15).toString(16)).join("")).join("
-");
+  grid.map((row) => row.map((c) => (c & 15).toString(16)).join("")).join("\n");
 let spent = 0;
 let scenes = 0;
 let guessedCoords = 0;
@@ -440,8 +439,7 @@ try {
               levels: `${env.last.levelsCompleted}/${env.last.winLevels}`,
               atMs: Date.now() - cardOpenedAt,
               grid: encodeGrid(observation.grid),
-            }) + "
-",
+            }) + "\n",
           );
           trace.push({
             n: spent + index,
