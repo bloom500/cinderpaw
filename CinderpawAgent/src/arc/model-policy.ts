@@ -27,6 +27,10 @@
 
 import type { ArcObservation } from "./environment.ts";
 import type { ArcPolicy, PolicyContext } from "./play-level.ts";
+import {
+  formatSceneGraphYaml,
+  parseSceneGraph,
+} from "../research/perception/scene-graph.ts";
 
 /** One turn of conversation, in the shape every provider in this repo takes. */
 export interface PolicyMessage {
@@ -50,6 +54,15 @@ export interface ModelPolicyOptions {
    * without this it looks exactly like bad play.
    */
   onUnparsed?: (reply: string, fallback: string) => void;
+  /**
+   * Describe the grid as objects alongside the raw cells. `false` turns it off,
+   * so the same game can be run twice and the difference attributed. Objects
+   * are what the DSL and the MCTS rehearsal both reason in, and until now the
+   * model was the only part of the stack that had to find them by eye.
+   */
+  scene?: SceneOptions | false;
+  /** Called when a scene was rendered, for the run log: was perception used. */
+  onScene?: (text: string) => void;
 }
 
 const SYSTEM = [
@@ -121,8 +134,105 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Caps that keep the scene summary a summary. */
+export interface SceneOptions {
+  /** Beyond this many non-background cells the grid is noise, not a scene. */
+  maxCells?: number;
+  /** Objects listed before the list is truncated. */
+  maxObjects?: number;
+  /** Relations listed. They are O(objects^2), so this is the one that bites. */
+  maxRelations?: number;
+}
+
+const SCENE_DEFAULTS: Required<SceneOptions> = {
+  maxCells: 1200,
+  maxObjects: 40,
+  maxRelations: 60,
+};
+
+/**
+ * The grid, described.
+ *
+ * The model was given 4,159 characters of hex and asked to find structure in
+ * it. We already own the code that finds the structure — `parseSceneGraph`
+ * returns connected components with bounding boxes, shape classes, symmetry and
+ * spatial relations, and it is the same perception the DSL primitives are
+ * written against. It costs no keypresses, so it is free against the score.
+ *
+ * Returns null when there is nothing worth saying, and that is the important
+ * half:
+ *
+ * - Background is the MOST COMMON cell, not hard-coded 0. A game whose
+ *   playfield is colour 8 would otherwise come back as one enormous object
+ *   containing everything, which is worse than no description.
+ * - A grid with more than `maxCells` non-background cells is skipped entirely,
+ *   BEFORE parsing. Relations are O(objects^2) and a noisy grid can produce
+ *   thousands of objects — that is seconds of wall-clock per action against a
+ *   scorecard that closes in fifteen minutes, to produce a wall of text no
+ *   model can use.
+ * - Past `maxObjects` the list is truncated and relations are dropped, with the
+ *   truncation stated. A summary that silently omits half the scene is worse
+ *   than one that admits it.
+ */
+export function renderScene(
+  grid: readonly (readonly number[])[],
+  options: SceneOptions = {},
+): string | null {
+  const { maxCells, maxObjects, maxRelations } = { ...SCENE_DEFAULTS, ...options };
+  if (!Array.isArray(grid) || grid.length === 0) return null;
+
+  const counts = new Map<number, number>();
+  let total = 0;
+  for (const row of grid) {
+    if (!Array.isArray(row)) return null;
+    for (const cell of row) {
+      counts.set(cell, (counts.get(cell) ?? 0) + 1);
+      total++;
+    }
+  }
+  if (total === 0) return null;
+
+  let background = 0;
+  let seen = -1;
+  for (const [colour, n] of counts) {
+    if (n > seen) {
+      seen = n;
+      background = colour;
+    }
+  }
+  // Everything one colour: there is no scene, and saying "1 object covering
+  // everything" is noise the grid already told them.
+  if (seen === total) return null;
+  if (total - seen > maxCells) return null;
+
+  let scene;
+  try {
+    scene = parseSceneGraph(
+      grid.map((row) => [...row]),
+      background,
+    );
+  } catch {
+    // Perception failing is not a reason to lose the turn: the grid itself is
+    // still in the prompt and the model can play from that alone.
+    return null;
+  }
+
+  const truncated = scene.objects.length > maxObjects;
+  const summary = {
+    ...scene,
+    objects: scene.objects.slice(0, maxObjects),
+    // Relations between objects that are no longer listed describe nothing.
+    relations: truncated ? [] : scene.relations.slice(0, maxRelations),
+  };
+  const text = formatSceneGraphYaml(summary);
+  return truncated
+    ? `${text}
+(${scene.objects.length} objects in total; the ${maxObjects} largest are listed)`
+    : text;
+}
+
 export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
-  const { complete, historyLength = 8, onExchange, onUnparsed } = options;
+  const { complete, historyLength = 8, onExchange, onUnparsed, scene, onScene } = options;
 
   return async (observation: ArcObservation, ctx: PolicyContext): Promise<string | null> => {
     const offered = [...ctx.actions];
@@ -131,11 +241,18 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
     if (offered.length === 0) return null;
 
     const recent = ctx.taken.slice(-historyLength);
+    // The description goes ABOVE the cells, and the cells stay. The summary is
+    // a reading of the grid and can be wrong about what matters; the grid is
+    // the ground truth and the model must always be able to check one against
+    // the other.
+    const described = scene === false ? null : renderScene(observation.grid, scene ?? {});
+    if (described) onScene?.(described);
     const messages: PolicyMessage[] = [
       { role: "system", content: SYSTEM },
       {
         role: "user",
         content: [
+          ...(described ? ["What is on the grid, as objects:", described, ""] : []),
           renderGrid(observation.grid),
           "",
           `Buttons available now: ${offered.join(", ")}`,

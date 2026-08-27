@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createModelPolicy, parseChoice, renderGrid } from "../src/arc/model-policy.ts";
+import { createModelPolicy, parseChoice, renderGrid, renderScene } from "../src/arc/model-policy.ts";
 import { playLevel } from "../src/arc/play-level.ts";
 import type { ArcEnvironment } from "../src/arc/environment.ts";
 
@@ -130,5 +130,72 @@ describe("createModelPolicy — what it sends and what it does with the answer",
     });
     expect(result.state).toBe("WIN");
     expect(result.actions).toEqual(["ACTION2", "ACTION2", "ACTION2"]);
+  });
+});
+
+/**
+ * Perception in the prompt.
+ *
+ * The model used to get 4,159 characters of hex and nothing else, while the
+ * DSL and the MCTS rehearsal both reason in objects. `renderScene` gives it the
+ * same reading — and, more importantly, knows when not to.
+ */
+describe("renderScene — the grid, described", () => {
+  test("names the objects it finds", () => {
+    const grid = [
+      [0, 0, 0, 0],
+      [0, 3, 3, 0],
+      [0, 3, 3, 0],
+      [0, 0, 0, 5],
+    ];
+    const text = renderScene(grid);
+    expect(text).toContain("scene: 4x4");
+    expect(text).toContain("color: 3");
+    expect(text).toContain("color: 5");
+  });
+
+  test("background is the most common colour, not hard-coded 0", () => {
+    // A playfield of 8s with one object on it. Treating 0 as background would
+    // make the whole board one object and describe nothing.
+    const grid = [
+      [8, 8, 8, 8],
+      [8, 2, 8, 8],
+      [8, 8, 8, 8],
+      [8, 8, 8, 8],
+    ];
+    const text = renderScene(grid);
+    expect(text).toContain("color: 2");
+    expect(text).not.toContain("color: 8");
+  });
+
+  test("says nothing about an empty board", () => {
+    expect(renderScene([[0, 0], [0, 0]])).toBeNull();
+  });
+
+  test("refuses a grid too noisy to summarise, before parsing it", () => {
+    // Relations are O(objects^2): a 64x64 of alternating cells is thousands of
+    // objects, which is seconds of wall-clock per action against a card that
+    // closes in fifteen minutes.
+    const noisy = Array.from({ length: 64 }, (_, r) =>
+      Array.from({ length: 64 }, (_, c) => ((r + c) % 2 === 0 ? 0 : 1)),
+    );
+    const started = Date.now();
+    expect(renderScene(noisy)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
+  test("truncates a long list and admits it, rather than omitting silently", () => {
+    // 30 separated single cells, capped at 5.
+    const grid = Array.from({ length: 30 }, (_, r) =>
+      Array.from({ length: 3 }, (_, c) => (c === 1 && r % 2 === 0 ? 4 : 0)),
+    );
+    const text = renderScene(grid, { maxObjects: 5 });
+    expect(text).toContain("objects in total");
+    expect(text).toContain("the 5 largest are listed");
+  });
+
+  test("a malformed grid loses perception, never the turn", () => {
+    expect(renderScene([])).toBeNull();
+    expect(renderScene([[1, 2], [3]] as number[][])).toBeNull();
   });
 });

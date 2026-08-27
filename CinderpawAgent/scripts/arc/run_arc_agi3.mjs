@@ -18,6 +18,7 @@
  *   --tag     <text>       repeatable, attached to the scorecard
  *   --dry-run              play with a fixed policy, no model calls, no key needed
  *   --no-imagination       disable MCTS rehearsal (run twice to measure its delta)
+ *   --no-perception        do not describe the grid as objects in the prompt
  *   --learn-budget <ms>    total wall-clock the search may spend (default 20000)
  *
  * NO PROVIDER FALLBACK, DELIBERATELY. The agent's InferenceRouter falls back to
@@ -63,6 +64,7 @@ function parseArgs(argv) {
     else if (flag === "--budget") { args.budget = Number(value); i++; }
     else if (flag === "--retries") { args.retries = Number(value); i++; }
     else if (flag === "--no-imagination") args.imagination = false;
+    else if (flag === "--no-perception") args.perception = false;
     else if (flag === "--learn-budget") { args.learnBudgetMs = Number(value); i++; }
     else throw new Error(`unknown flag "${flag}" — run with no arguments to see usage`);
   }
@@ -154,7 +156,14 @@ let unparsed = 0;
 // nothing about play, which is the honest division of labour for a smoke test.
 const inner = args.dryRun
   ? (_observation, ctx) => ctx.actions[0] ?? null
-  : createModelPolicy({ complete, onUnparsed: () => { unparsed++; } });
+  : createModelPolicy({
+      complete,
+      onUnparsed: () => { unparsed++; },
+      // Objects alongside the raw cells. Free in keypresses, and the same
+      // reading the DSL and the rehearsal already work in.
+      scene: args.perception === false ? false : {},
+      onScene: () => { scenes++; },
+    });
 // MCTS rehearsal. Free in keypresses, NOT free in wall-clock — and the
 // scorecard closes 15 minutes after it opens — so the search gets a hard total
 // budget and the run reports what it bought. Off with --no-imagination, so the
@@ -214,6 +223,7 @@ console.log(`scorecard ${cardId}  game ${args.game}  budget ${args.budget}\n`);
 
 const attempts = [];
 let spent = 0;
+let scenes = 0;
 let learnPasses = 0;
 let learnMs = 0;
 let trustedRules = 0;
@@ -278,6 +288,10 @@ if (!args.dryRun) {
   const usage = complete.usage();
   console.log(`model       ${args.model} — ${usage.calls} completions, ${usage.promptTokens} prompt / ${usage.completionTokens} completion tokens`);
   console.log(`unparsed    ${unparsed} replies named no available button`);
+  console.log(
+    `perception  ${scenes} of ${spent} prompts carried a scene description` +
+      (args.perception === false ? " (disabled)" : ""),
+  );
 }
 console.log(`manifest    ${manifestPath}`);
 console.log(`\nScores come from the scorecard, not from here: https://three.arcprize.org`);
