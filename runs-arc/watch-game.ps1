@@ -28,6 +28,18 @@ if ($framesPath -eq "") {
   $m = Select-String -Path $log -Pattern '^manifest    (.+)run-manifest\.json$' | Select-Object -Last 1
   if ($m) { $framesPath = Join-Path $m.Matches[0].Groups[1].Value.Trim() "frames.jsonl" }
 }
+if ($framesPath -eq "") {
+  # Still playing. Neither line is in the log yet: both are printed when the
+  # game ENDS. The launcher writes _frames_map.txt instead — game id to the
+  # runs/arc-<epoch> directory the runner opened for it.
+  $map = Join-Path $root "runs-arc\$Run\_frames_map.txt"
+  if (Test-Path $map) {
+    foreach ($line in Get-Content $map) {
+      $p = $line -split '\s+'
+      if ($p[0] -eq $Game) { $framesPath = Join-Path $root "CinderpawAgent\runs\$($p[1])\frames.jsonl" }
+    }
+  }
+}
 if ($framesPath -eq "" -or -not (Test-Path $framesPath)) {
   # A run started before frames existed, or one that has not written its first
   # press yet. Say which, rather than showing an empty screen.

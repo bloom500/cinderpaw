@@ -30,6 +30,7 @@ if [ -z "${ARC_CARD_ID:-}" ]; then
   echo "the card was refused — see $OUT/_card-open.log"; cat "$OUT/_card-open.log"; exit 1
 fi
 echo "$ARC_CARD_ID" > "$OUT/_card_id"
+printf %s "$STAMP" > runs-arc/CURRENT_AB   # what watch.ps1 opens with no -Run
 date -Is > "$OUT/_started"
 echo "card $ARC_CARD_ID  commit $COMMIT" | tee -a "$OUT/_card-open.log"
 
@@ -53,4 +54,10 @@ for game in $(cat runs-arc/games.txt); do
       > "$OUT/B/$game.log" 2>&1 &
   sleep 4
 done
+
+# game -> frames dir, for the live viewer. The runner prints the path itself now,
+# but a run launched before that lands has only the launch order to go on: the
+# ids are epoch-ms and the games start four seconds apart, so sorting is the map.
+ls -1 CinderpawAgent/runs | grep "^arc-" | sed 's/arc-//' | sort -n | tail -n 25   | paste -d" " runs-arc/games.txt - | sed 's/ / arc-/' > "$OUT/_frames_map.txt"
+
 wait

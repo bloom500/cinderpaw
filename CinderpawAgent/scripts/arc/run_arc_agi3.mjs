@@ -414,6 +414,9 @@ const frameDir = path.join(REPO_ROOT, "runs", manifest.runId);
 fs.mkdirSync(frameDir, { recursive: true });
 const framesPath = path.join(frameDir, "frames.jsonl");
 const frames = fs.createWriteStream(framesPath, { flags: "a" });
+// Printed HERE, not only in the summary: a live viewer needs the path while the
+// game is playing, and the summary lands after the game it was meant to watch.
+console.log(`frames      ${framesPath}`);
 const encodeGrid = (grid) =>
   grid.map((row) => row.map((c) => (c & 15).toString(16)).join("")).join("\n");
 let spent = 0;
