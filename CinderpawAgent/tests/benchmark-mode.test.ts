@@ -107,7 +107,7 @@ describe("2.3 — the network kill-switch", () => {
 });
 
 describe("the profile dir the sidecar picks agrees with the Rust host", () => {
-  // The host migrates ~/.cinderpaw to ~/.cinderpaw on boot and reads the new one
+  // The host migrates ~/.feral to ~/.cinderpaw on boot and reads the new one
   // from then on. The sidecar had ".cinderpaw" hardcoded, so after any migrated
   // boot the two halves read and wrote two different profiles — connectors
   // saved in one, invisible in the other, with no error anywhere.

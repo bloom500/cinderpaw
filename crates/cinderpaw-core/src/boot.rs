@@ -71,9 +71,9 @@ pub fn build_runtime() -> Arc<RuntimeState> {
             tracing::info!(
                 files,
                 bytes,
-                "moved your data from ~/.cinderpaw to ~/.cinderpaw — the old folder was left in place"
+                "moved your data from ~/.feral to ~/.cinderpaw — the old folder was left in place"
             );
-            eprintln!("[cinderpaw] Your data moved from ~/.cinderpaw to ~/.cinderpaw ({files} files).");
+            eprintln!("[cinderpaw] Your data moved from ~/.feral to ~/.cinderpaw ({files} files).");
             eprintln!("[cinderpaw] Nothing was deleted — the old folder is still there, marked");
             eprintln!("[cinderpaw] as migrated, and you can remove it whenever you like.");
         }

@@ -110,15 +110,55 @@ if (import.meta.main) {
           process.exit(2);
           break;
         }
+        // `models` and `providers` live in the `cinderpaw` CLI, not here. They
+        // used to answer "(not yet implemented — see cinderpaw models in
+        // S5.4)", which tells someone who does not work on this codebase two
+        // untrue things: that the feature does not exist, and that "S5.4" is
+        // somewhere they can go. Same shape as `setup` above — name the real
+        // command, exit non-zero so a script does not read the explanation as
+        // output.
         case "models":
-          console.log("Models: (not yet implemented — see cinderpaw models in S5.4)");
+        case "providers": {
+          console.error(
+            `cinderpaw-agent is the sidecar; \`${args.subcommand}\` is a CLI command.\n` +
+              `Run \`cinderpaw ${args.subcommand}\` instead.`,
+          );
+          process.exit(2);
           break;
-        case "providers":
-          console.log("Providers: (not yet implemented — see cinderpaw providers in S5.4)");
+        }
+        // `brain` has no CLI command to redirect to — the help text has been
+        // promising one that does not exist. The sidecar is what reads
+        // brain.json, so it is the honest place to answer from.
+        case "brain": {
+          const { existsSync } = await import("node:fs");
+          const { defaultBrainPath, loadBrainConfig } = await import("./brain/brain-config.ts");
+          const path = defaultBrainPath();
+          const cfg = loadBrainConfig();
+          if (!cfg) {
+            // Two different situations, and a person needs to know which:
+            // nothing to read, or something read and switched off.
+            console.log(
+              existsSync(path)
+                ? `Brain Stack is OFF.\n${path} exists but does not enable it ` +
+                    `(set "enabled": true, or run with CINDERPAW_BRAIN=1).`
+                : `Brain Stack is OFF — no brain.json.\n` +
+                    `Create ${path} to turn it on; brain.example.json in the ` +
+                    `package is a working starting point.`,
+            );
+            break;
+          }
+          console.log(`Brain Stack is ON — ${path}`);
+          console.log(`  mode: ${cfg.mode}`);
+          console.log(`  models: ${cfg.registry.length}`);
+          for (const m of cfg.registry) {
+            console.log(`    ${m.id}  (${m.target.provider}${m.local ? ", local" : ""})`);
+          }
+          if (cfg.offlineModelId) console.log(`  offline: ${cfg.offlineModelId}`);
+          for (const [category, id] of Object.entries(cfg.overrides ?? {})) {
+            console.log(`  pinned ${category}: ${id}`);
+          }
           break;
-        case "brain":
-          console.log("Brain: (not yet implemented — see cinderpaw brain in S5.4)");
-          break;
+        }
       }
       break;
 

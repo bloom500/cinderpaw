@@ -103,6 +103,10 @@ enum Command {
     /// Diagnose the install (port, token, model, sidecar, GPU, connectors)
     Doctor,
     /// List installed models
+    // `models` is what the help text everywhere else tells people to type, and
+    // what anyone would guess after `cinderpaw providers`. Without the alias it
+    // was a clap error: a documented command that does not exist.
+    #[command(alias = "models")]
     Model,
     /// List AI providers, switch the active one, or store an API key
     #[command(alias = "provider")]

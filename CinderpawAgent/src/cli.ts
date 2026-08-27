@@ -143,8 +143,8 @@ Usage:
   cinderpaw chat         Interactive terminal chat over the gateway.
   cinderpaw setup        Set up Cinderpaw on this machine. (Headless / scripting:
                          use 'cinderpaw setup --non-interactive --config=...'.)
-  cinderpaw models       List installed local models.
-  cinderpaw providers    List configured cloud providers.
+  cinderpaw models       List installed local models.  (the cinderpaw CLI)
+  cinderpaw providers    List configured cloud providers.  (the cinderpaw CLI)
   cinderpaw brain        Show brain.json + the active routing policy.
   cinderpaw help         This text.
   cinderpaw version      Print version and exit.
@@ -155,7 +155,7 @@ Usage:
 
 Environment:
   CINDERPAW_HOME         State directory (default: ~/.cinderpaw).
-                         CINDERPAW_HOME is still read, for machines that set it.
+                         FERAL_HOME is still read, for machines that set it.
   CINDERPAW_BRAIN=1      Force-enable Brain Stack using brain.json.
   NO_COLOR               Disable ANSI colors in TUI output.
 
