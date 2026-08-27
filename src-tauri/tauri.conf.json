@@ -7,7 +7,7 @@
     "frontendDist": "../frontend-react/dist",
     "devUrl": "http://127.0.0.1:5173",
     "beforeDevCommand": {
-      "script": "node scripts/build-sidecar.mjs && bun --cwd ../frontend-react run dev",
+      "script": "node scripts/build-sidecar.mjs && cd ../frontend-react && bun run dev",
       "cwd": "."
     },
     "beforeBuildCommand": {
