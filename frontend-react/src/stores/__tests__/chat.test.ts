@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useChat } from '@/stores/chat';
 
 // The approval verdict must reach the sidecar; in tests there is no Tauri
@@ -241,5 +241,70 @@ describe('useChat', () => {
       useChat.getState().resolveCoworkApproval('r2', false);
       expect(tauri.cinderpawAgent.coworkApprovalResolve).toHaveBeenCalledWith('r2', false);
     });
+  });
+});
+
+/**
+ * The bubble above the mascot that never went away.
+ *
+ * `completeToolCall` is what starts the linger timer that removes a finished
+ * bubble, and it only runs on `tool_done`. Every way a turn can end WITHOUT
+ * one — stopped, errored, sidecar gone mid-call — left the last bubble on
+ * screen with a running clock until the app was restarted.
+ */
+describe('a turn that ends with a tool call still open', () => {
+  beforeEach(() => {
+    reset();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const startCall = () =>
+    useChat.getState().pushToolCall({
+      kind: 'tool',
+      name: 'read_file',
+      emoji: '📄',
+      mainArg: 'notes.md',
+      status: 'running',
+    });
+
+  it.each(['stopped', 'error', 'done', 'idle'] as const)(
+    'marks it cancelled and clears it — streamStatus %s',
+    (status) => {
+      startCall();
+      expect(useChat.getState().toolCallStream).toHaveLength(1);
+
+      useChat.getState().setStreamStatus(status);
+
+      // Cancelled, not done: no result ever came back, and a ✓ would say one did.
+      expect(useChat.getState().toolCallStream[0]).toMatchObject({
+        status: 'cancelled',
+      });
+      expect(useChat.getState().toolCallStream[0]?.endedAt).toBeTypeOf('number');
+
+      vi.advanceTimersByTime(4_000);
+      expect(useChat.getState().toolCallStream).toEqual([]);
+    },
+  );
+
+  it('leaves a running turn alone', () => {
+    startCall();
+    useChat.getState().setStreamStatus('streaming');
+    expect(useChat.getState().toolCallStream[0]).toMatchObject({ status: 'running' });
+  });
+
+  it('does not touch a worker, which outlives the turn on purpose', () => {
+    useChat.getState().upsertWorker({
+      childId: 'w1',
+      name: 'subagent-count-files',
+      status: 'running',
+      detail: 'counting',
+    });
+    useChat.getState().setStreamStatus('done');
+    vi.advanceTimersByTime(4_000);
+    const [w] = useChat.getState().toolCallStream;
+    expect(w).toMatchObject({ kind: 'worker', status: 'running' });
   });
 });

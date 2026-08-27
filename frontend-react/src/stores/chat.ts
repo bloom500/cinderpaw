@@ -207,7 +207,11 @@ export type ToolCallEvent =
       name: string;
       emoji: string;
       mainArg: string | null;
-      status: 'running' | 'done' | 'error';
+      /** `cancelled` is not something a tool reports — it is what the UI
+       *  concludes when the turn ends while this call is still open (see
+       *  `setStreamStatus`). Claiming `done` would be a lie about a result
+       *  nobody ever sent. */
+      status: 'running' | 'done' | 'error' | 'cancelled';
       startedAt: number;
       endedAt: number | null;
       /** #18: truncated tool output, expandable from the bubble. */
@@ -281,7 +285,7 @@ function clearLingerTimers(): void {
   lingerTimers.clear();
 }
 
-export const useChat = create<ChatStore>((set) => ({
+export const useChat = create<ChatStore>((set, get) => ({
   sessionId: crypto.randomUUID(),
   messages: [],
   streamStatus: 'idle',
@@ -365,13 +369,61 @@ export const useChat = create<ChatStore>((set) => ({
       };
     }),
 
-  setStreamStatus: (streamStatus, err = null) =>
+  setStreamStatus: (streamStatus, err = null) => {
+    const settled =
+      streamStatus === 'idle' ||
+      streamStatus === 'done' ||
+      streamStatus === 'error' ||
+      streamStatus === 'stopped';
     set((s) => ({
       streamStatus,
       streamError: err ?? null,
-      agentPhase: streamStatus === 'idle' || streamStatus === 'done' || streamStatus === 'error' || streamStatus === 'stopped' ? null : s.agentPhase,
-      agentTool: streamStatus === 'idle' || streamStatus === 'done' || streamStatus === 'error' || streamStatus === 'stopped' ? null : s.agentTool,
-    })),
+      agentPhase: settled ? null : s.agentPhase,
+      agentTool: settled ? null : s.agentTool,
+    }));
+    if (!settled) return;
+
+    // Close out any tool bubble the turn left open.
+    //
+    // A bubble is removed by the linger timer that `completeToolCall` starts,
+    // and `completeToolCall` runs on `tool_done`. When a turn ends without one
+    // — the run was stopped, the stream errored, the sidecar died mid-call, or
+    // the model simply never got a result back — nothing ever started that
+    // timer, so the last bubble sat above the mascot with a running clock for
+    // the rest of the session. It is the last call that shows it, every time,
+    // because that is the one whose `tool_done` never came.
+    //
+    // Fixed HERE, at the one place every ending passes through, rather than in
+    // each caller: stop / error / done are three code paths and this was
+    // broken in all of them.
+    //
+    // `cancelled`, not `done`: nothing reported success. Only `tool` bubbles
+    // are swept — a `worker` from `rlm()` and a `cowork` exchange both
+    // deliberately outlive the turn that started them, and ending those here
+    // would erase live work from the screen.
+    const orphans = get()
+      .toolCallStream.filter((e) => e.kind === 'tool' && e.status === 'running')
+      .map((e) => e.id);
+    if (orphans.length === 0) return;
+    const endedAt = Date.now();
+    set((s) => ({
+      toolCallStream: s.toolCallStream.map((e) =>
+        e.kind === 'tool' && orphans.includes(e.id)
+          ? { ...e, status: 'cancelled' as const, endedAt, progressNote: null }
+          : e,
+      ),
+    }));
+    // Same linger as a normal finish, so the exit animation and the timing are
+    // the ones the person is already used to — and tracked, so a session reset
+    // cancels it like every other.
+    const timer = window.setTimeout(() => {
+      lingerTimers.delete(timer);
+      set((s) => ({
+        toolCallStream: s.toolCallStream.filter((e) => !orphans.includes(e.id)),
+      }));
+    }, TOOL_CALL_LINGER_MS);
+    lingerTimers.add(timer);
+  },
 
   setAgentPhase: (phase, tool = null) =>
     set({ agentPhase: phase, agentTool: tool ?? null }),
