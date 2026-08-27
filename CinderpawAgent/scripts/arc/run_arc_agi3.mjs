@@ -21,6 +21,7 @@
  *   --no-perception        do not describe the grid as objects in the prompt
  *   --reasoning-effort <e> low | medium | high (default medium)
  *   --provider <name>      pin the OpenRouter upstream (default Z.AI)
+ *   --max-spend <usd>      hard per-game spend cap (default 0.15)
  *   --any-provider         let OpenRouter route freely (NOT for a scored run)
  *   --learn-budget <ms>    total wall-clock the search may spend (default 20000)
  *
@@ -54,6 +55,10 @@ function parseArgs(argv) {
     model: "deepseek/deepseek-v4-flash",
     tags: [],
     learnBudgetMs: 20_000,
+    // Per-GAME spend cap in USD. Present with a real default rather than
+    // optional: an uncapped benchmark loop pointed at a paid API is one bad
+    // reply away from spending everything, and the person running it is asleep.
+    maxSpend: 0.15,
     reasoningEffort: "medium",
     // The model's own first-party upstream: fastest of the five observed, and
     // the one that actually honoured `reasoning.effort`.
@@ -73,6 +78,7 @@ function parseArgs(argv) {
     else if (flag === "--no-perception") args.perception = false;
     else if (flag === "--reasoning-effort") { args.reasoningEffort = value; i++; }
     else if (flag === "--provider") { args.provider = value; i++; }
+    else if (flag === "--max-spend") { args.maxSpend = Number(value); i++; }
     else if (flag === "--any-provider") { args.provider = null; i++; }
     else if (flag === "--learn-budget") { args.learnBudgetMs = Number(value); i++; }
     else throw new Error(`unknown flag "${flag}" — run with no arguments to see usage`);
@@ -82,6 +88,9 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(args.retries) || args.retries < 0) {
     throw new Error(`--retries must be an integer >= 0, got ${String(args.retries)}`);
+  }
+  if (!Number.isFinite(args.maxSpend) || args.maxSpend <= 0) {
+    throw new Error(`--max-spend must be a positive number of dollars, got ${String(args.maxSpend)}`);
   }
   if (!["low", "medium", "high"].includes(args.reasoningEffort)) {
     throw new Error(`--reasoning-effort must be low, medium or high, got ${String(args.reasoningEffort)}`);
@@ -98,7 +107,27 @@ function parseArgs(argv) {
  * The 16k cap is generous for "name one button" and exists only so a model
  * that starts monologuing cannot stall the run.
  */
-function makeComplete(model, reasoningEffort, providerOnly) {
+/**
+ * What this model costs, from the gateway rather than from memory.
+ *
+ * A spend cap computed with a guessed price is not a cap. Fetched once, and a
+ * model whose price cannot be read is a hard error: refusing to start is the
+ * correct failure for a safety limit that would otherwise be decorative.
+ */
+async function fetchPricing(model) {
+  const res = await fetch("https://openrouter.ai/api/v1/models");
+  if (!res.ok) throw new Error(`cannot read model pricing: HTTP ${res.status}`);
+  const found = (await res.json()).data.find((m) => m.id === model);
+  if (!found) throw new Error(`model "${model}" is not on OpenRouter — check the slug with --list-models`);
+  const inPer = Number(found.pricing?.prompt);
+  const outPer = Number(found.pricing?.completion);
+  if (!Number.isFinite(inPer) || !Number.isFinite(outPer)) {
+    throw new Error(`model "${model}" reports no usable pricing; refusing to run without a real spend cap`);
+  }
+  return { inPer, outPer };
+}
+
+function makeComplete(model, reasoningEffort, providerOnly, pricing) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -145,7 +174,12 @@ function makeComplete(model, reasoningEffort, providerOnly) {
     completionTokens += response.completionTokens ?? 0;
     return response.content ?? "";
   };
-  complete.usage = () => ({ calls, promptTokens, completionTokens });
+  complete.usage = () => ({
+    calls,
+    promptTokens,
+    completionTokens,
+    spend: promptTokens * pricing.inPer + completionTokens * pricing.outPer,
+  });
   return complete;
 }
 
@@ -195,7 +229,24 @@ if (problems.length > 0) {
   console.warn(`NOT REPORTABLE — this run may not be published:\n  ${problems.join("\n  ")}\n`);
 }
 
-const complete = args.dryRun ? null : makeComplete(args.model, args.reasoningEffort, args.provider ? [args.provider] : undefined);
+const pricing = args.dryRun ? null : await fetchPricing(args.model);
+const complete = args.dryRun
+  ? null
+  : makeComplete(args.model, args.reasoningEffort, args.provider ? [args.provider] : undefined, pricing);
+
+/**
+ * The money stop.
+ *
+ * Checked between actions through playLevel's `shouldStop`, which already means
+ * "the session is over" as distinct from "this level is finished with" — the
+ * same seam, and it stops BEFORE paying for the action rather than after.
+ *
+ * One process is one game, so this is a per-game cap: multiply by the number of
+ * games running to get what the wallet is exposed to. Deliberately not a shared
+ * counter — that would need coordination between processes, and a cap that can
+ * fail to communicate is worse than one that is simply arithmetic.
+ */
+const overSpend = () => !args.dryRun && complete.usage().spend >= args.maxSpend;
 
 let vetoes = 0;
 let unparsed = 0;
@@ -211,6 +262,7 @@ const inner = args.dryRun
       // reading the DSL and the rehearsal already work in.
       scene: args.perception === false ? false : {},
       onScene: () => { scenes++; },
+      onCoordinateGuess: () => { guessedCoords++; },
     });
 // MCTS rehearsal. Free in keypresses, NOT free in wall-clock — and the
 // scorecard closes 15 minutes after it opens — so the search gets a hard total
@@ -274,6 +326,7 @@ console.log(`scorecard ${cardId}  game ${args.game}  budget ${args.budget}\n`);
 const attempts = [];
 let spent = 0;
 let scenes = 0;
+let guessedCoords = 0;
 let learnPasses = 0;
 let learnMs = 0;
 let trustedRules = 0;
@@ -288,6 +341,7 @@ try {
       env,
       policy,
       maxActions: remaining,
+      shouldStop: overSpend,
       onAction: (action, observation, index) => {
         console.log(
           `  ${String(spent + index).padStart(4)}  ${action.padEnd(14)} ${observation.state}` +
@@ -305,6 +359,8 @@ try {
       winLevels: env.last.winLevels,
     });
     if (result.state === "WIN" || result.stoppedBecause === "budget") break;
+    // Out of money is out of money; a retry would only spend past the cap.
+    if (result.stoppedBecause === "deadline") break;
   }
 } finally {
   // Always close: an open scorecard holds the run and the numbers never land.
@@ -328,11 +384,16 @@ if (args.imagination !== false) {
 if (!args.dryRun) {
   const usage = complete.usage();
   console.log(
+    `spend       $${usage.spend.toFixed(4)} of $${args.maxSpend.toFixed(2)} cap` +
+      (overSpend() ? "  (STOPPED ON THE CAP)" : ""),
+  );
+  console.log(
     `model       ${args.model} — ${usage.calls} completions, ${usage.promptTokens} prompt / ` +
       `${usage.completionTokens} completion tokens` +
       `, reasoning effort ${args.reasoningEffort}, no token cap, upstream ${args.provider ?? "UNPINNED"}`,
   );
   console.log(`unparsed    ${unparsed} replies named no available button`);
+  console.log(`clicks      ${guessedCoords} ACTION6 presses whose coordinates we chose`);
   console.log(
     `perception  ${scenes} of ${spent} prompts carried a scene description` +
       (args.perception === false ? " (disabled)" : ""),

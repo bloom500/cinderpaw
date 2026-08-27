@@ -416,7 +416,23 @@ function actionName(id: number): string {
  */
 export function parseAction(action: string): { name: string; x?: number; y?: number } {
   const colon = action.indexOf(":");
-  if (colon === -1) return { name: action };
+  if (colon === -1) {
+    // ACTION6 is the only action that takes coordinates, and it REQUIRES them.
+    // Sent without, the server answers 500 with an HTML error page — which
+    // reads as "the API is overloaded" and sent a whole debugging session
+    // chasing load that was never there. Six games died on this before the
+    // pattern showed up: every failure was ACTION6, never anything else.
+    //
+    // Caught here, at the seam that knows the rule, rather than upstream where
+    // a policy could keep inventing new ways to omit them.
+    if (action === "ACTION6") {
+      throw new Error(
+        'ARC-AGI-3: "ACTION6" needs coordinates — write it as "ACTION6:x,y" with two ' +
+          "integers in 0..63. Sent bare, the server returns a 500 that looks like an outage.",
+      );
+    }
+    return { name: action };
+  }
   const name = action.slice(0, colon);
   const [xs, ys] = action.slice(colon + 1).split(",");
   const x = Number(xs);

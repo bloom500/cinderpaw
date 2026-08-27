@@ -63,6 +63,12 @@ export interface ModelPolicyOptions {
   scene?: SceneOptions | false;
   /** Called when a scene was rendered, for the run log: was perception used. */
   onScene?: (text: string) => void;
+  /**
+   * The model named ACTION6 without coordinates and we picked them. Counted
+   * because a high rate means the prompt is not teaching the format, and
+   * without it that looks identical to bad clicking.
+   */
+  onCoordinateGuess?: (action: string) => void;
 }
 
 const SYSTEM = [
@@ -244,8 +250,51 @@ export function renderScene(
 (${notes.join("; ")})` : text;
 }
 
+/** Dead centre, the fallback when there is nothing on the board to aim at. */
+function centreOf(grid: readonly (readonly number[])[]): { x: number; y: number } {
+  const rows = grid.length;
+  const cols = grid[0]?.length ?? 0;
+  return { x: Math.max(0, Math.floor(cols / 2)), y: Math.max(0, Math.floor(rows / 2)) };
+}
+
+/**
+ * The centre of the largest non-background object, or null when the board has
+ * nothing to aim at.
+ *
+ * Same reading `renderScene` puts in the prompt, so the click lands on
+ * something the model was just shown rather than on a coordinate nobody has
+ * seen. `x` is the column and `y` the row — the server's order, not the
+ * array's, and the one place that is easy to get backwards.
+ */
+function biggestObjectCentre(
+  grid: readonly (readonly number[])[],
+): { x: number; y: number } | null {
+  try {
+    const counts = new Map<number, number>();
+    for (const row of grid) for (const cell of row) counts.set(cell, (counts.get(cell) ?? 0) + 1);
+    let background = 0;
+    let seen = -1;
+    for (const [colour, n] of counts) if (n > seen) ((seen = n), (background = colour));
+    const scene = parseSceneGraph(grid.map((r) => [...r]), background);
+    let best = null as null | { x: number; y: number; px: number };
+    for (const o of scene.objects) {
+      if (best && o.pixels.length <= best.px) continue;
+      const b = o.boundingBox;
+      best = {
+        x: Math.min(63, Math.max(0, Math.floor(b.x + b.width / 2))),
+        y: Math.min(63, Math.max(0, Math.floor(b.y + b.height / 2))),
+        px: o.pixels.length,
+      };
+    }
+    return best ? { x: best.x, y: best.y } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
-  const { complete, historyLength = 8, onExchange, onUnparsed, scene, onScene } = options;
+  const { complete, historyLength = 8, onExchange, onUnparsed, scene, onScene, onCoordinateGuess } =
+    options;
 
   return async (observation: ArcObservation, ctx: PolicyContext): Promise<string | null> => {
     const offered = [...ctx.actions];
@@ -284,8 +333,22 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
     // stopping — and `onUnparsed` makes the difference between "played badly"
     // and "never understood the question" visible in the log instead of buried
     // in the final number.
-    const chosen = parsed ?? offered[0]!;
+    let chosen = parsed ?? offered[0]!;
     if (parsed === null) onUnparsed?.(reply, chosen);
+    // A bare ACTION6 is not a press, it is a malformed request: the server
+    // needs x,y and answers 500 without them. Models name it without
+    // coordinates often enough that refusing here would throw away the turn.
+    //
+    // So we choose the point ourselves, and perception is already holding the
+    // only defensible answer — the middle of the biggest thing on the board.
+    // The docs say the game "does not provide explicit X/Y coordinates for
+    // active areas", so a click has to be inferred from the grid by whoever is
+    // looking at it; this is that inference, made once, in the open.
+    if (chosen === "ACTION6") {
+      const point = biggestObjectCentre(observation.grid) ?? centreOf(observation.grid);
+      chosen = `ACTION6:${point.x},${point.y}`;
+      onCoordinateGuess?.(chosen);
+    }
     onExchange?.(messages, reply, chosen);
     return chosen;
   };

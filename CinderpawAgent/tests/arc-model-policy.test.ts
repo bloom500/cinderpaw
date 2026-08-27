@@ -215,3 +215,62 @@ describe("renderScene — the grid, described", () => {
     expect(renderScene([[1, 2], [3]] as number[][])).toBeNull();
   });
 });
+
+/**
+ * The bare ACTION6.
+ *
+ * ACTION6 is the only action that takes coordinates and it requires them. Sent
+ * without, the server returns a 500 with an HTML error page — which reads as an
+ * outage, and cost six games and a debugging session before the pattern showed
+ * up: every single failure was ACTION6, never anything else.
+ */
+describe("createModelPolicy — ACTION6 always leaves with coordinates", () => {
+  const board = () => {
+    // A 12x12 board of 0s with one 3x3 block of 7s at columns 6-8, rows 2-4.
+    const g = Array.from({ length: 12 }, () => Array.from({ length: 12 }, () => 0));
+    for (let r = 2; r <= 4; r++) for (let c = 6; c <= 8; c++) g[r]![c] = 7;
+    return g;
+  };
+
+  test("a reply naming ACTION6 alone gets a point, not a 500", async () => {
+    const guesses: string[] = [];
+    const policy = createModelPolicy({
+      complete: async () => "ACTION6",
+      onCoordinateGuess: (a) => guesses.push(a),
+    });
+    const chosen = await policy(
+      { grid: board(), state: "NOT_FINISHED" },
+      { actions: ["ACTION6"], remaining: 10, taken: [] },
+    );
+    expect(chosen).toMatch(/^ACTION6:\d+,\d+$/);
+    expect(guesses).toEqual([chosen]);
+  });
+
+  test("the point is the middle of the biggest object, x=column y=row", async () => {
+    const policy = createModelPolicy({ complete: async () => "ACTION6" });
+    const chosen = await policy(
+      { grid: board(), state: "NOT_FINISHED" },
+      { actions: ["ACTION6"], remaining: 10, taken: [] },
+    );
+    // The block spans columns 6-8 and rows 2-4, so the centre is x=7, y=3.
+    expect(chosen).toBe("ACTION6:7,3");
+  });
+
+  test("an empty board still yields a legal point rather than nothing", async () => {
+    const policy = createModelPolicy({ complete: async () => "ACTION6" });
+    const chosen = await policy(
+      { grid: Array.from({ length: 8 }, () => Array.from({ length: 8 }, () => 0)), state: "NOT_FINISHED" },
+      { actions: ["ACTION6"], remaining: 10, taken: [] },
+    );
+    expect(chosen).toBe("ACTION6:4,4");
+  });
+
+  test("coordinates the model DID give are left alone", async () => {
+    const policy = createModelPolicy({ complete: async () => "ACTION6:11,2" });
+    const chosen = await policy(
+      { grid: board(), state: "NOT_FINISHED" },
+      { actions: ["ACTION6"], remaining: 10, taken: [] },
+    );
+    expect(chosen).toBe("ACTION6:11,2");
+  });
+});
