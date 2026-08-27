@@ -24,9 +24,9 @@ afterEach(() => {
   else process.env.CINDERPAW_HOME = saved;
 });
 
-/** A scratch ~/.feral containing this hooks file. Returns the directory. */
+/** A scratch ~/.cinderpaw containing this hooks file. Returns the directory. */
 async function withHooks(contents: unknown): Promise<string> {
-  const home = await mkdtemp(join(tmpdir(), "feral-uhooks-"));
+  const home = await mkdtemp(join(tmpdir(), "cinderpaw-uhooks-"));
   process.env.CINDERPAW_HOME = home;
   await writeFile(
     userHooksPath(),
@@ -43,7 +43,7 @@ function node(script: string): string[] {
 
 describe("user hooks", () => {
   test("an after_tool_call hook runs and is handed the event on stdin", async () => {
-    const home = await mkdtemp(join(tmpdir(), "feral-uhooks-out-"));
+    const home = await mkdtemp(join(tmpdir(), "cinderpaw-uhooks-out-"));
     const out = join(home, "seen.json");
     await withHooks({
       after_tool_call: [
@@ -72,7 +72,7 @@ describe("user hooks", () => {
   });
 
   test("`match` keeps a hook off tools it was not written for", async () => {
-    const home = await mkdtemp(join(tmpdir(), "feral-uhooks-nm-"));
+    const home = await mkdtemp(join(tmpdir(), "cinderpaw-uhooks-nm-"));
     const out = join(home, "must-not-exist");
     await withHooks({
       after_tool_call: [
@@ -168,7 +168,7 @@ describe("user hooks", () => {
   });
 
   test("no file at all installs nothing, silently", async () => {
-    const home = await mkdtemp(join(tmpdir(), "feral-uhooks-none-"));
+    const home = await mkdtemp(join(tmpdir(), "cinderpaw-uhooks-none-"));
     process.env.CINDERPAW_HOME = home;
     const logged: string[] = [];
     const registry = new HookRegistry();

@@ -7,7 +7,7 @@
  * onboarding would overwhelm a first-time user.
  *
  * Persistence: on `finish()` or `skip()`, the state is written to
- * `~/.feral/onboarding.json` via the Tauri fs API. On next launch the
+ * `~/.cinderpaw/onboarding.json` via the Tauri fs API. On next launch the
  * file is read and the wizard is hidden when `completed === true`.
  *
  * The user/agent names are also written there and consumed by the

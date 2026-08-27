@@ -13,7 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { feralHome } from "../src/config.ts";
+import { cinderpawHome } from "../src/config.ts";
 import {
   assertTenant,
   DEFAULT_TENANT,
@@ -38,11 +38,11 @@ describe("paths() — v1 shared layout", () => {
   });
 
   test("root is under <profile dir>/rsi/", () => {
-    // Derived from feralHome(), not a second hardcoded ".feral": the app
+    // Derived from cinderpawHome(), not a second hardcoded ".cinderpaw": the app
     // moved to ~/.cinderpaw and a test pinning the old literal would keep
     // passing while asserting a directory nothing uses any more.
     const root = paths().root;
-    expect(root).toBe(join(feralHome(), "rsi"));
+    expect(root).toBe(join(cinderpawHome(), "rsi"));
   });
 
   test("every path field is under the root", () => {

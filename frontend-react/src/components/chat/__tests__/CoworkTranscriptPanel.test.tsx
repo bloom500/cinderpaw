@@ -7,7 +7,7 @@ import { tauri } from '@/lib/tauri';
 
 vi.mock('@/lib/tauri', () => ({
   tauri: {
-    feralAgent: {
+    cinderpawAgent: {
       coworkSendMessage: vi.fn().mockResolvedValue(undefined),
       coworkStop: vi.fn().mockResolvedValue(undefined),
     },
@@ -199,7 +199,7 @@ describe('talking to a teammate directly', () => {
     render(<CoworkTranscriptPanel />);
     await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'thanks');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
-    expect(tauri.feralAgent.coworkSendMessage).toHaveBeenCalledWith(
+    expect(tauri.cinderpawAgent.coworkSendMessage).toHaveBeenCalledWith(
       'demo-agent-atlas',
       'thanks',
       't1',
@@ -211,7 +211,7 @@ describe('talking to a teammate directly', () => {
     render(<CoworkTranscriptPanel />);
     const box = screen.getByPlaceholderText(/Message Atlas/);
     await userEvent.type(box, 'hello{Enter}');
-    expect(tauri.feralAgent.coworkSendMessage).toHaveBeenCalled();
+    expect(tauri.cinderpawAgent.coworkSendMessage).toHaveBeenCalled();
     expect((box as HTMLInputElement).value).toBe('');
   });
 
@@ -219,17 +219,17 @@ describe('talking to a teammate directly', () => {
     useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
     render(<CoworkTranscriptPanel />);
     await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), '   {Enter}');
-    expect(tauri.feralAgent.coworkSendMessage).not.toHaveBeenCalled();
+    expect(tauri.cinderpawAgent.coworkSendMessage).not.toHaveBeenCalled();
   });
 
   test('a failed send is reported ON SCREEN, not swallowed', async () => {
-    vi.mocked(tauri.feralAgent.coworkSendMessage).mockRejectedValueOnce(
-      new Error('feral-agent is not running'),
+    vi.mocked(tauri.cinderpawAgent.coworkSendMessage).mockRejectedValueOnce(
+      new Error('cinderpaw-agent is not running'),
     );
     useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
     render(<CoworkTranscriptPanel />);
     await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'hi{Enter}');
-    expect(await screen.findByText(/feral-agent is not running/)).toBeInTheDocument();
+    expect(await screen.findByText(/cinderpaw-agent is not running/)).toBeInTheDocument();
   });
 
   test('Stop aborts that teammate, not the whole app', async () => {
@@ -238,6 +238,6 @@ describe('talking to a teammate directly', () => {
     });
     render(<CoworkTranscriptPanel />);
     await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
-    expect(tauri.feralAgent.coworkStop).toHaveBeenCalledWith('demo-agent-atlas');
+    expect(tauri.cinderpawAgent.coworkStop).toHaveBeenCalledWith('demo-agent-atlas');
   });
 });

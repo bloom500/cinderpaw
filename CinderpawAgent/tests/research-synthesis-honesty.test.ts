@@ -16,7 +16,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { ResearchLoop } from "../src/research/research-loop.ts";
-import type { InferenceRequest, InferenceResponse, FeralFetch } from "../src/types.ts";
+import type { InferenceRequest, InferenceResponse, CinderpawFetch } from "../src/types.ts";
 import type { InferenceRouter } from "../src/egress/inference-router.ts";
 
 function reply(content: string): InferenceResponse {
@@ -52,7 +52,7 @@ function fakeRouter() {
 }
 
 /** Jina search returns two hits (so URL selection needs no model call). */
-const fakeFetch: FeralFetch = async (url) => {
+const fakeFetch: CinderpawFetch = async (url) => {
   const body = url.startsWith("https://s.jina.ai/")
     ? JSON.stringify({
         data: [
@@ -103,7 +103,7 @@ describe("deep_research synthesis brief", () => {
 
   test("the report has a place for what the notes did not answer", async () => {
     const prompt = await synthesisPrompt();
-    // Same principle as `feral migrate`'s "Not imported": a gap with nowhere to
+    // Same principle as `cinderpaw migrate`'s "Not imported": a gap with nowhere to
     // go is a gap that gets filled in.
     expect(prompt).toMatch(/## Not confirmed/);
     expect(prompt).toMatch(/single secondary source/i);

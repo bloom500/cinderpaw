@@ -182,7 +182,7 @@ describe("dry run records the intent and sends nothing", () => {
     const body = (await res.json()) as { dry_run?: boolean; message?: string };
     expect(body.dry_run).toBe(true);
     expect(body.message).toMatch(/NOT sent/i);
-    expect(res.headers["x-feral-dry-run"]).toBe("1");
+    expect(res.headers["x-cinderpaw-dry-run"]).toBe("1");
   });
 
   test("reads are unaffected — the agent still sees real data", async () => {

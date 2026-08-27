@@ -136,10 +136,10 @@ describe("no-progress detection", () => {
       // Every query is different — exactly what a model does when a search
       // comes back empty-handed.
       const script = [
-        toolBlock("web_search", { query: "feral agent docs" }),
-        toolBlock("web_search", { query: "feral local agent documentation" }),
-        toolBlock("web_search", { query: "feral ai agent getting started" }),
-        toolBlock("web_search", { query: "feral runtime setup guide" }),
+        toolBlock("web_search", { query: "cinderpaw agent docs" }),
+        toolBlock("web_search", { query: "cinderpaw local agent documentation" }),
+        toolBlock("web_search", { query: "cinderpaw ai agent getting started" }),
+        toolBlock("web_search", { query: "cinderpaw runtime setup guide" }),
         "Here is what I could gather.",
       ];
       let callIdx = 0;

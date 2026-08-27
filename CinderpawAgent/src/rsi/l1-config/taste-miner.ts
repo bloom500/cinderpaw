@@ -3,7 +3,7 @@
  *
  * Subscribes to `RatchetAdvanced` and re-mines the taste vector from
  * the last 20 ratchet commits (the `main` chain) every time main
- * advances. The vector is persisted to `~/.feral/meta/pbt_state.json`
+ * advances. The vector is persisted to `~/.cinderpaw/meta/pbt_state.json`
  * so PBT can replay / inspect it across sidecar restarts, and is
  * exposed to the selection handler via `SelectionDeps.taste`.
  *
@@ -50,7 +50,7 @@ export interface PbtState {
 export interface TasteMinerDeps {
   bridge: RsiBridge;
   pop: PopulationManager;
-  /** Where to write `pbt_state.json`. Defaults to `~/.feral/meta/`. */
+  /** Where to write `pbt_state.json`. Defaults to `~/.cinderpaw/meta/`. */
   fsRoot?: string;
   /** How many recent ratchet commits to mine. Default 20. */
   historyWindow?: number;
@@ -242,10 +242,10 @@ export function makeTasteDeps(miner: TasteMiner): {
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { feralHome } from "../../config.ts";
+import { cinderpawHome } from "../../config.ts";
 
 function defaultFsRoot(): string {
-  return join(feralHome(), DEFAULT_FS_ROOT);
+  return join(cinderpawHome(), DEFAULT_FS_ROOT);
 }
 
 async function defaultWriteJson(path: string, data: unknown): Promise<void> {

@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { benchmarkRunId, feralHome, pickHomeDir } from "../src/config.ts";
+import { benchmarkRunId, cinderpawHome, pickHomeDir } from "../src/config.ts";
 import { EgressProxy, benchmarkHostRefusal } from "../src/egress/egress-proxy.ts";
 import { hostOf } from "../src/egress/inference-router.ts";
 import type { ToolManifest } from "../src/types.ts";
@@ -107,8 +107,8 @@ describe("2.3 — the network kill-switch", () => {
 });
 
 describe("the profile dir the sidecar picks agrees with the Rust host", () => {
-  // The host migrates ~/.feral to ~/.cinderpaw on boot and reads the new one
-  // from then on. The sidecar had ".feral" hardcoded, so after any migrated
+  // The host migrates ~/.cinderpaw to ~/.cinderpaw on boot and reads the new one
+  // from then on. The sidecar had ".cinderpaw" hardcoded, so after any migrated
   // boot the two halves read and wrote two different profiles — connectors
   // saved in one, invisible in the other, with no error anywhere.
   const MODERN = "/home/u/.cinderpaw";
@@ -131,15 +131,15 @@ describe("2.4 — per-run data dir (invariant I13)", () => {
   test("off: the profile dir is untouched", () => {
     process.env.CINDERPAW_HOME = join("/tmp", "cinderpaw-home");
     delete process.env.CINDERPAW_BENCHMARK_RUN_ID;
-    expect(feralHome()).not.toContain(`${"runs"}`);
+    expect(cinderpawHome()).not.toContain(`${"runs"}`);
   });
 
   test("on: each run gets its own dir, and two runs never share one", () => {
     process.env.CINDERPAW_HOME = join("/tmp", "cinderpaw-home");
     process.env.CINDERPAW_BENCHMARK_RUN_ID = "run-a";
-    const a = feralHome();
+    const a = cinderpawHome();
     process.env.CINDERPAW_BENCHMARK_RUN_ID = "run-b";
-    const b = feralHome();
+    const b = cinderpawHome();
     expect(a).toContain("run-a");
     expect(b).toContain("run-b");
     expect(a).not.toBe(b);

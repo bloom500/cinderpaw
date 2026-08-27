@@ -5,7 +5,7 @@
 //! they carry across without interpretation. Everything with a schema waits for
 //! a later increment.
 //!
-//! All three land in `feral_dir()` because that is where the sidecar's
+//! All three land in `cinderpaw_dir()` because that is where the sidecar's
 //! `soul-loader` looks for user overrides (`SOUL.md`, `IDENTITY.md`,
 //! `AGENTS.md`, per-file, bundled default when absent). An import into any
 //! other directory would copy files nothing reads.
@@ -59,13 +59,13 @@ fn deferred_files(source: Source) -> &'static [(&'static str, &'static str)] {
 }
 
 pub fn plan_persona(found: &Found, overwrite: bool) -> Plan {
-    plan_persona_into(found, &crate::paths::feral_dir(), overwrite)
+    plan_persona_into(found, &crate::paths::cinderpaw_dir(), overwrite)
 }
 
-/// Target directory is a parameter so tests never touch the real `~/.feral`.
-pub fn plan_persona_into(found: &Found, feral_dir: &Path, overwrite: bool) -> Plan {
+/// Target directory is a parameter so tests never touch the real `~/.cinderpaw`.
+pub fn plan_persona_into(found: &Found, cinderpaw_dir: &Path, overwrite: bool) -> Plan {
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-    let backup_dir = feral_dir
+    let backup_dir = cinderpaw_dir
         .join("migration")
         .join(match found.source {
             Source::OpenClaw => "openclaw",
@@ -81,7 +81,7 @@ pub fn plan_persona_into(found: &Found, feral_dir: &Path, overwrite: bool) -> Pl
         if !src.is_file() {
             continue;
         }
-        let dst = feral_dir.join(name);
+        let dst = cinderpaw_dir.join(name);
         if dst.exists() && !overwrite {
             conflicts.push(format!(
                 "{} exists — use --overwrite to replace it, otherwise skipped",
@@ -106,20 +106,20 @@ pub fn plan_persona_into(found: &Found, feral_dir: &Path, overwrite: bool) -> Pl
 }
 
 pub fn apply_persona(found: &Found, plan: &Plan) -> Result<Vec<String>> {
-    apply_persona_into(found, plan, &crate::paths::feral_dir())
+    apply_persona_into(found, plan, &crate::paths::cinderpaw_dir())
 }
 
 /// Copies exactly what `plan.will_import` listed and nothing else — the plan the
 /// user approved is the only input to the decision, so apply cannot drift from
 /// what was printed.
-pub fn apply_persona_into(found: &Found, plan: &Plan, feral_dir: &Path) -> Result<Vec<String>> {
+pub fn apply_persona_into(found: &Found, plan: &Plan, cinderpaw_dir: &Path) -> Result<Vec<String>> {
     let mut done = Vec::new();
     for (rel, name) in persona_files(found.source) {
         if !plan.will_import.iter().any(|i| i.what == *name) {
             continue;
         }
         let src = found.root.join(rel);
-        let dst = feral_dir.join(name);
+        let dst = cinderpaw_dir.join(name);
         if dst.exists() {
             std::fs::create_dir_all(&plan.backup_dir)
                 .with_context(|| format!("creating {}", plan.backup_dir.display()))?;

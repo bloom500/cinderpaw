@@ -215,7 +215,7 @@ pub fn rsi_update_bounds(
     confirmation_token: String,
 ) -> Result<(), String> {
     ensure_initialized(&state)?;
-    if confirmation_token != "feral-user-confirmed" {
+    if confirmation_token != "cinderpaw-user-confirmed" {
         return Err("rsi_update_bounds: confirmation_token missing or wrong".into());
     }
     if reason.trim().is_empty() {
@@ -468,7 +468,7 @@ pub async fn rsi_set_concurrency(
 // ── Private helpers ─────────────────────────────────────────────────────────
 
 /// Forward a JSON line to the Cinderpaw Agent sidecar via stdin.
-/// Mirrors the existing `feral_send_message` pattern in `lib.rs`.
+/// Mirrors the existing `cinderpaw_send_message` pattern in `lib.rs`.
 /// Returns an error if the sidecar isn't running; the caller is
 /// expected to surface this to the UI as "engine not running".
 async fn deliver_to_sidecar(state: &State<'_, AppState>, line: &str) -> Result<(), String> {
@@ -626,7 +626,7 @@ fn parse_dream_telemetry(body: &str, limit: usize) -> DreamTelemetrySummary {
     summary
 }
 
-/// Read `~/.feral/rsi/dream.jsonl` and return lifetime totals + the most recent
+/// Read `~/.cinderpaw/rsi/dream.jsonl` and return lifetime totals + the most recent
 /// `limit` episodes. A missing file yields an empty summary (the Dream Cycle
 /// simply hasn't run yet) rather than an error, so the panel renders a clean
 /// "no dreams yet" state. **Stateless.**
@@ -709,7 +709,7 @@ fn parse_journal_rows(body: &str) -> Vec<JournalRow> {
     rows
 }
 
-/// Read the per-day journal files under `~/.feral/rsi/journal/` and return the
+/// Read the per-day journal files under `~/.cinderpaw/rsi/journal/` and return the
 /// most recent `limit` rows, newest first. A missing directory yields an empty
 /// list (the Dream Cycle simply hasn't journaled yet). **Stateless.**
 ///
@@ -759,7 +759,7 @@ pub struct ChampionTreeRow {
     pub score: f64,
 }
 
-/// Read the Tree of Champions archive (`~/.feral/rsi/champion-tree.json`) and
+/// Read the Tree of Champions archive (`~/.cinderpaw/rsi/champion-tree.json`) and
 /// return its niche champions, highest score first, for the receipts UI. A
 /// missing / corrupt file yields an empty list (the engine simply hasn't
 /// ratcheted a niche yet). Tolerant `Value` parse so a schema drift on the TS

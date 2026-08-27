@@ -21,7 +21,7 @@ const binaryPath = join(
   repoRoot,
   "src-tauri",
   "binaries",
-  "feral-agent-x86_64-pc-windows-msvc.exe",
+  "cinderpaw-agent-x86_64-pc-windows-msvc.exe",
 );
 
 if (!existsSync(binaryPath)) {
@@ -29,7 +29,7 @@ if (!existsSync(binaryPath)) {
   process.exit(2);
 }
 
-const workDir = mkdtempSync(join(tmpdir(), "feral-boot-obs-"));
+const workDir = mkdtempSync(join(tmpdir(), "cinderpaw-boot-obs-"));
 const observeMs = 8_000;
 
 const child = spawn(binaryPath, [], {

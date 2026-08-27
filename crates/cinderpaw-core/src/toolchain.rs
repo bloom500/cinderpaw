@@ -2,7 +2,7 @@
 //! terminal (users-first: the code-RSI loop needs them, a non-tech user
 //! will never `winget install` anything).
 //!
-//! Strategy: PORTABLE copies under `~/.feral/toolchain/`, not system
+//! Strategy: PORTABLE copies under `~/.cinderpaw/toolchain/`, not system
 //! installers — no UAC/admin, no PATH pollution outside our process
 //! tree, uninstall = delete the folder.
 //!
@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static ENSURE_RUNNING: AtomicBool = AtomicBool::new(false);
 
 fn toolchain_dir() -> PathBuf {
-    crate::paths::feral_dir().join("toolchain")
+    crate::paths::cinderpaw_dir().join("toolchain")
 }
 
 /// Where a portable tool's executables land, when present.
@@ -216,7 +216,7 @@ fn portable_serves(name: &str) -> bool {
     }
 }
 
-/// Download a zip and extract it under `~/.feral/toolchain/<name>/`.
+/// Download a zip and extract it under `~/.cinderpaw/toolchain/<name>/`.
 /// Extraction flattens a single top-level folder (bun's zip shape) so the
 /// binary lands directly in the tool dir. Zip-slip safety comes from the
 /// zip crate's sanitized `extract`.

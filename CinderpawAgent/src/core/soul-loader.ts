@@ -2,7 +2,7 @@
  * SOUL.md loader.
  *
  * Cinderpaw Agent's identity is defined in SOUL.md, shipped as a bundled default
- * and overridable by the user at `~/.feral/SOUL.md`. The loader picks whichever
+ * and overridable by the user at `~/.cinderpaw/SOUL.md`. The loader picks whichever
  * exists (user wins), computes a stable version hash for cache-invalidation
  * and audit logging, and warns when the file exceeds recommended size limits.
  *
@@ -20,7 +20,7 @@ import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { feralHome } from "../config.ts";
+import { cinderpawHome } from "../config.ts";
 import { APP_HOME_DIR_NAME } from "../brand.ts";
 // @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
 import bundledSoul from "../SOUL.md" with { type: "text" };
@@ -62,7 +62,7 @@ export interface SoulConfig {
 export interface SoulPaths {
   /** Absolute path of the bundled SOUL.md (the default shipped with the binary). */
   bundled: string;
-  /** Absolute path of the user override, if one exists at `~/.feral/SOUL.md`. */
+  /** Absolute path of the user override, if one exists at `~/.cinderpaw/SOUL.md`. */
   user: string;
 }
 
@@ -88,18 +88,18 @@ export function resolveSoulPaths(homeDir?: string): SoulPaths {
 
 /**
  * The profile dir to read overrides from. `homeDir` stays the test-isolation
- * seam (an OS home, `.feral` appended); omitting it — every production caller —
- * goes through `feralHome()`, so CINDERPAW_HOME is honored. It previously defaulted
+ * seam (an OS home, `.cinderpaw` appended); omitting it — every production caller —
+ * goes through `cinderpawHome()`, so CINDERPAW_HOME is honored. It previously defaulted
  * to `homedir()`, which is why an isolated profile still loaded the real user's
  * SOUL.md and IDENTITY.md.
  */
 function profileDir(homeDir?: string): string {
-  return homeDir === undefined ? feralHome() : join(homeDir, APP_HOME_DIR_NAME);
+  return homeDir === undefined ? cinderpawHome() : join(homeDir, APP_HOME_DIR_NAME);
 }
 
 /**
  * Companion identity documents, each bundled at build time and individually
- * overridable by the user at `~/.feral/<NAME>.md`:
+ * overridable by the user at `~/.cinderpaw/<NAME>.md`:
  *
  *   - IDENTITY.md — who the agent is (name, nature, audience)
  *   - AGENTS.md   — working habits (tools, memory, skills, judgment)

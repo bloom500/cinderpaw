@@ -12,7 +12,7 @@
 //!   - Discord: one bot token.
 //!   - Slack:   two tokens (app-level `xapp-` for Socket Mode + bot `xoxb-`).
 //!   - WhatsApp: no token — a QR code is scanned once; the session persists on
-//!     disk under `~/.feral/whatsapp-auth/`.
+//!     disk under `~/.cinderpaw/whatsapp-auth/`.
 //!
 //! Non-technical-first discipline (like `mcp.rs`): secrets stay in the backend,
 //! the frontend only learns WHICH fields are filled (`filled`), never values.
@@ -25,7 +25,7 @@ use crate::paths;
 
 // R6: persisted config (ConnectorConfig, load/save, legacy-token migration)
 // moved to `cinderpaw_core::connectors` so the headless gateway + CLI can read/
-// write `~/.feral/connectors.json` without a Tauri command. Re-export the
+// write `~/.cinderpaw/connectors.json` without a Tauri command. Re-export the
 // type so the rest of this file (and any external caller) keeps working
 // unchanged.
 pub use cinderpaw_core::connectors::ConnectorConfig;
@@ -34,10 +34,10 @@ use cinderpaw_core::connectors::{
 };
 
 /// Pull the Discord bot token the user already entered for the `mcp-discord`
-/// extension (`~/.feral/mcp.json` → server `discord` → env `DISCORD_TOKEN`), so
+/// extension (`~/.cinderpaw/mcp.json` → server `discord` → env `DISCORD_TOKEN`), so
 /// enabling the Discord *connector* reuses it instead of asking again.
 fn discord_token_from_mcp() -> Option<String> {
-    let raw = std::fs::read_to_string(paths::feral_dir().join("mcp.json")).ok()?;
+    let raw = std::fs::read_to_string(paths::cinderpaw_dir().join("mcp.json")).ok()?;
     let json: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let servers = json.get("servers")?.as_array()?;
     let discord = servers.iter().find(|s| s.get("id").and_then(|v| v.as_str()) == Some("discord"))?;
@@ -48,7 +48,7 @@ fn discord_token_from_mcp() -> Option<String> {
 
 /// True once WhatsApp has been linked (Baileys persisted its session).
 fn whatsapp_linked() -> bool {
-    paths::feral_dir().join("whatsapp-auth").join("creds.json").exists()
+    paths::cinderpaw_dir().join("whatsapp-auth").join("creds.json").exists()
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +379,7 @@ pub async fn connectors_set_enabled(
 }
 
 /// Pending WhatsApp pairing QR. The sidecar mirrors each fresh QR to
-/// `~/.feral/whatsapp-qr.json` (and deletes it once linked) so GUI surfaces
+/// `~/.cinderpaw/whatsapp-qr.json` (and deletes it once linked) so GUI surfaces
 /// can render it — a GUI user has no terminal window to scan from.
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct WhatsappQr {
@@ -402,7 +402,7 @@ pub fn connectors_whatsapp_qr() -> Option<WhatsappQr> {
         qr: String,
         ascii: String,
     }
-    let raw = std::fs::read_to_string(paths::feral_dir().join("whatsapp-qr.json")).ok()?;
+    let raw = std::fs::read_to_string(paths::cinderpaw_dir().join("whatsapp-qr.json")).ok()?;
     let f: QrFile = serde_json::from_str(&raw).ok()?;
     // Baileys rotates the QR every ~20s and the sidecar rewrites the file each
     // time; a stale timestamp means pairing is no longer in progress (e.g. the

@@ -5,7 +5,7 @@
  * The Chat tab talks to the model directly (local llama.cpp or BYOK cloud)
  * and used to have NO memory at all: every conversation started cold and
  * nothing was ever learned. This module closes both gaps using the SAME
- * knowledge graph file the sidecar maintains (`~/.feral/memory-graph.json`):
+ * knowledge graph file the sidecar maintains (`~/.cinderpaw/memory-graph.json`):
  *
  *   - `buildMemoryContext()` reads the shared graph and renders a compact
  *     "[Memory context]" block appended to the system prompt of every send,

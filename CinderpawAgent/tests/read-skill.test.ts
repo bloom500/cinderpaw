@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 function tempHome(): string {
-  return mkdtempSync(join(tmpdir(), "feral-skills-"));
+  return mkdtempSync(join(tmpdir(), "cinderpaw-skills-"));
 }
 
 describe("Cinderpaw-WIP #9: skill content validation", () => {

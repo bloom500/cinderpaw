@@ -57,7 +57,7 @@ use crate::settings::{self, Settings};
 /// `start()` function below does that.
 pub fn build_runtime() -> Arc<RuntimeState> {
     // FIRST, before any path is read or any directory is created: bring the
-    // user's data across from the old `~/.feral` if it is still there. Every
+    // user's data across from the old `~/.cinderpaw` if it is still there. Every
     // line below this one asks `paths::` where things live, and `paths::` now
     // answers `~/.cinderpaw` — so a boot that skipped this would come up
     // looking like a brand-new install to somebody who has been using the app
@@ -71,9 +71,9 @@ pub fn build_runtime() -> Arc<RuntimeState> {
             tracing::info!(
                 files,
                 bytes,
-                "moved your data from ~/.feral to ~/.cinderpaw — the old folder was left in place"
+                "moved your data from ~/.cinderpaw to ~/.cinderpaw — the old folder was left in place"
             );
-            eprintln!("[cinderpaw] Your data moved from ~/.feral to ~/.cinderpaw ({files} files).");
+            eprintln!("[cinderpaw] Your data moved from ~/.cinderpaw to ~/.cinderpaw ({files} files).");
             eprintln!("[cinderpaw] Nothing was deleted — the old folder is still there, marked");
             eprintln!("[cinderpaw] as migrated, and you can remove it whenever you like.");
         }
@@ -162,7 +162,7 @@ fn build_settings() -> Settings {
 
 /// V4: per-launch bearer token for the loopback HTTP API. Two uuids give
 /// ~244 bits of randomness — far past brute-force for a token that also
-/// rotates every launch. Persisted to `~/.feral/api-token` (inside the
+/// rotates every launch. Persisted to `~/.cinderpaw/api-token` (inside the
 /// already user-private profile dir) so external apps that want to
 /// consume the local endpoint can read it; the in-app sidecar receives
 /// it directly. On Unix, the persisted file is chmodded to 0o600 so
@@ -177,7 +177,7 @@ fn build_and_persist_api_token() -> Arc<str> {
         .as_str(),
     );
 
-    let token_path = paths::feral_dir().join("api-token");
+    let token_path = paths::cinderpaw_dir().join("api-token");
     // The mode is set AT CREATION, not after. Writing first and chmod'ing
     // second leaves the file world-readable for the length of the write, and
     // any local process that opens it in that window keeps a valid descriptor
@@ -319,7 +319,7 @@ fn export_settings_env(settings: &Settings) {
     // switch-on permanent for the session.
     //
     // An externally supplied `CINDERPAW_RSI_ALLOW_CLOUD` still wins: that is how
-    // CI and `CINDERPAW_RSI_ALLOW_CLOUD=true feral` have always worked, and the
+    // CI and `CINDERPAW_RSI_ALLOW_CLOUD=true cinderpaw` have always worked, and the
     // value is captured once, before we overwrite it with our own.
     static EXTERNAL_ALLOW_CLOUD: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     let external = EXTERNAL_ALLOW_CLOUD.get_or_init(|| crate::env::env_var("CINDERPAW_RSI_ALLOW_CLOUD"));
@@ -381,12 +381,12 @@ mod tests {
     #[test]
     fn build_runtime_forces_api_server_enabled() {
         // We can't actually build a full runtime in the unit test env
-        // (would touch the user's `~/.feral/`), so we just verify the
+        // (would touch the user's `~/.cinderpaw/`), so we just verify the
         // helper that build_runtime delegates to. If a future refactor
         // skips the override, this test will need a fs redactor.
         let settings = build_settings();
         assert!(settings.api_server_enabled,
             "build_runtime must force api_server_enabled on — \
-             the Feral Agent sidecar hardcodes CINDERPAW_BASE_URL=127.0.0.1:api_port");
+             the Cinderpaw Agent sidecar hardcodes CINDERPAW_BASE_URL=127.0.0.1:api_port");
     }
 }

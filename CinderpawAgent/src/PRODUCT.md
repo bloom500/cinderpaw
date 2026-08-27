@@ -4,12 +4,12 @@
 > reference for questions about Cinderpaw itself — what it is, how to set it up,
 > how connectors/models/commands work. Answer from THIS document, not from
 > guesses. If something isn't covered here, say so and point the user to
-> `feral doctor`, `feral logs`, or the docs instead of inventing behavior.
+> `cinderpaw doctor`, `cinderpaw logs`, or the docs instead of inventing behavior.
 
 ## What is Cinderpaw
 
 Cinderpaw is a local-first personal AI agent by Bloom Media. It runs on the
-user's own machine: a desktop app, a terminal chat (TUI), and a `feral` CLI
+user's own machine: a desktop app, a terminal chat (TUI), and a `cinderpaw` CLI
 all talk to the same local runtime (the "gateway", port 11435 on 127.0.0.1).
 The model can be a fully local GGUF model (llama.cpp, GPU via Vulkan/Metal
 with CPU fallback) or a cloud provider the user brings a key for (BYOK).
@@ -19,16 +19,16 @@ cycles (background reflection), and eval-gated on-device LoRA personalization.
 ## Surfaces
 
 - **Desktop app** — chat, connectors page, local models, memory, extensions.
-- **Terminal chat** — `feral` or `feral chat` opens the TUI.
-- **CLI** — `feral <command>` for admin tasks (see Commands below).
+- **Terminal chat** — `cinderpaw` or `cinderpaw chat` opens the TUI.
+- **CLI** — `cinderpaw <command>` for admin tasks (see Commands below).
 
 ## First-time setup (onboarding)
 
-- `feral setup` — guided flow: detects AI the user can already use (existing
+- `cinderpaw setup` — guided flow: detects AI the user can already use (existing
   provider keys, configured models, local GGUF files on disk), live-tests the
   best candidate with a REAL completion, persists only a verified route, then
   offers to open chat. ~4 interactions on the happy path.
-- `feral setup --classic` — full step-by-step wizard (hardware probe, local
+- `cinderpaw setup --classic` — full step-by-step wizard (hardware probe, local
   vs cloud choice, model download, provider key, health checks).
 - The desktop app runs an equivalent onboarding wizard on first launch.
 - A one-time security acknowledgement is shown: Cinderpaw runs with the user's
@@ -37,7 +37,7 @@ cycles (background reflection), and eval-gated on-device LoRA personalization.
 ## Connectors (Discord, WhatsApp, Slack)
 
 Connectors let the agent talk on chat platforms. Configuration lives in
-`~/.feral/connectors.json`; secrets are stored per-connector.
+`~/.cinderpaw/connectors.json`; secrets are stored per-connector.
 
 **You can connect yourself.** When the user asks you to hook up Discord,
 Slack, or WhatsApp, use the `connectors_manage` tool: `action:"list"` shows
@@ -57,8 +57,8 @@ The user can also do it manually — in the terminal chat:
   (it rotates every ~20s).
 - `/connectors reload` — make the runtime re-read connectors.json.
 
-From the CLI: `feral connectors` (list), `feral connectors set <id> …`,
-`feral connectors reload`. In the desktop app: the Connectors page.
+From the CLI: `cinderpaw connectors` (list), `cinderpaw connectors set <id> …`,
+`cinderpaw connectors reload`. In the desktop app: the Connectors page.
 Telegram is not live yet (coming soon).
 
 WhatsApp supports an optional "public" mode (restricted persona for
@@ -109,11 +109,11 @@ further.
 Once Cinderpaw is set up, the person should not have to open a terminal again for
 the things they set it up to do. Ask in the conversation.
 
-- "Are you up to date?" / "update yourself" — `feral_admin` checks for a newer
+- "Are you up to date?" / "update yourself" — `cinderpaw_admin` checks for a newer
   version and installs it. The person is asked before anything is installed,
   and the new version takes effect the next time Cinderpaw starts, rather than the
   app disappearing mid-conversation.
-- "What models do I have?" / "use the local one for this" — `feral_admin`
+- "What models do I have?" / "use the local one for this" — `cinderpaw_admin`
   lists the local models and configured cloud providers, and switches which
   one answers. Switching needs no confirmation: it is cheap, immediately
   visible, and undone by switching back.
@@ -144,7 +144,7 @@ they are asked for:
 - LoRA personalization: on-device fine-tuning proposals gated by eval
   (never auto-applied blind). `/lora` shows training status.
 - RSI (recursive self-improvement): config/code proposals with watchdog
-  auto-revert on crash; `feral meta` inspects meta-evolution state.
+  auto-revert on crash; `cinderpaw meta` inspects meta-evolution state.
 
 ## Working unattended (walk-away runs)
 
@@ -206,7 +206,7 @@ what the others lose:
   summarized into one note carrying an exact `### Established facts` section.
   Summaries are carried forward verbatim, never re-summarized. `/compact`
   triggers it manually.
-- **The scratchpad.** `~/.feral/workspace` is the agent's own directory. It
+- **The scratchpad.** `~/.cinderpaw/workspace` is the agent's own directory. It
   writes there freely with `write_file` and `edit_file` — running notes, drafts
   of long output, intermediate results — without touching anything of the
   user's. The desktop shows what it wrote as `1 scratchpad edit +71` under the
@@ -266,25 +266,25 @@ token footnote), `/restart` (restart the runtime).
 
 ## CLI commands
 
-`feral` (chat), `feral setup [--classic]`, `feral gateway start|stop|restart|status`,
-`feral status`, `feral doctor` (health checks), `feral logs [-f]`,
-`feral model`, `feral connectors …`, `feral dreams`, `feral meta …`,
-`feral config get|set`, `feral completion <shell>`.
+`cinderpaw` (chat), `cinderpaw setup [--classic]`, `cinderpaw gateway start|stop|restart|status`,
+`cinderpaw status`, `cinderpaw doctor` (health checks), `cinderpaw logs [-f]`,
+`cinderpaw model`, `cinderpaw connectors …`, `cinderpaw dreams`, `cinderpaw meta …`,
+`cinderpaw config get|set`, `cinderpaw completion <shell>`.
 
 ## Files & troubleshooting
 
-- `~/.feral/` — settings.json, connectors.json, api-token, gateway.log,
+- `~/.cinderpaw/` — settings.json, connectors.json, api-token, gateway.log,
   optional SOUL.md override (personality).
-- Something broken? `feral doctor` runs health checks; `feral logs` shows
-  the gateway log; `feral gateway restart` restarts the runtime.
+- Something broken? `cinderpaw doctor` runs health checks; `cinderpaw logs` shows
+  the gateway log; `cinderpaw gateway restart` restarts the runtime.
 - The gateway listens only on 127.0.0.1:11435 with a bearer token — nothing
   is exposed to the network.
-- **"feral-agent not running" in the desktop app, and reinstalling changes
+- **"cinderpaw-agent not running" in the desktop app, and reinstalling changes
   nothing.** The usual cause is a SECOND Cinderpaw already running on this machine —
-  typically a CLI `feral gateway` started in a terminal. One profile holds one
-  exclusive lock on the memory database (`~/.feral/agent/.writer.lock`, stamped
+  typically a CLI `cinderpaw gateway` started in a terminal. One profile holds one
+  exclusive lock on the memory database (`~/.cinderpaw/agent/.writer.lock`, stamped
   with the owning process id), so the app's own sidecar cannot open it and dies
-  at startup. Fix: `feral gateway stop`, or close the other Cinderpaw, then restart
+  at startup. Fix: `cinderpaw gateway stop`, or close the other Cinderpaw, then restart
   the app. Two instances that genuinely need to coexist need separate profiles —
   a different `CINDERPAW_HOME` and a different `api_port` each.
 - **The banner does not clear by itself.** After the runtime comes back, the
@@ -301,6 +301,6 @@ token footnote), `/restart` (restart the runtime).
   outside the configured workspace roots, and the agent must read a file
   before it may overwrite it.
 - The agent cannot edit its own settings, memory database, or identity files
-  under `~/.feral` — configuration changes go through the commands and
-  surfaces above. The ONE exception is `~/.feral/workspace`, its scratchpad,
+  under `~/.cinderpaw` — configuration changes go through the commands and
+  surfaces above. The ONE exception is `~/.cinderpaw/workspace`, its scratchpad,
   which is writable by design and holds nothing of the user's.

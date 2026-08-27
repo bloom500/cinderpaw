@@ -10,7 +10,7 @@ import (
 // Preflight tests pin the off-disk sanity sweep that fires at the top
 // of startWizard (Phase 1 of the OpenClaw-parity wizard work). The
 // sweep must:
-//   - return zero notices on a fresh install (no ~/.feral state)
+//   - return zero notices on a fresh install (no ~/.cinderpaw state)
 //   - return a notice on a malformed byok.json (fail-severity)
 //   - return a notice on an empty byok.json (warn-severity)
 //   - return a notice on a byok.json whose provider id is unknown
@@ -24,7 +24,7 @@ func TestPreflightFreshInstall(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
-	// feralHome() is called via feralHomeDir() in checkByokFile /
+	// cinderpawHome() is called via cinderpawHomeDir() in checkByokFile /
 	// checkProgressVersion. Both should return zero notices.
 	if notes := checkByokFile(); notes != nil {
 		t.Errorf("fresh install should have no byok notice; got %+v", notes)

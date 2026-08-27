@@ -2,7 +2,7 @@
 //! addressed by a `secret_ref` string that accounts and configs may carry
 //! freely — it is a name, not a value.
 
-pub const CONNECTOR_SERVICE: &str = "ai.bloom.feral.connectors";
+pub const CONNECTOR_SERVICE: &str = "ai.bloom.cinderpaw.connectors";
 
 pub fn secret_ref(connector_id: &str, field_key: &str) -> String {
     format!("connector:{connector_id}:{field_key}")
@@ -29,7 +29,7 @@ fn entry_of(connector_id: &str, field_key: &str) -> String {
 // Plaintext → vault migration (Task 3, connector-accounts).
 //
 // Existing installs have connector secrets sitting in plaintext inside
-// `~/.feral/connectors.json`. This moves them into the vault on startup,
+// `~/.cinderpaw/connectors.json`. This moves them into the vault on startup,
 // with no user interaction, and without ever losing a credential — including
 // when the process is killed mid-migration.
 // ---------------------------------------------------------------------------

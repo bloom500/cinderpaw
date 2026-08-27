@@ -35,7 +35,7 @@ afterEach(() => {
   for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 function freshDir(): string {
-  const d = mkdtempSync(join(tmpdir(), "feral-l4-b4-"));
+  const d = mkdtempSync(join(tmpdir(), "cinderpaw-l4-b4-"));
   tmpDirs.push(d);
   return d;
 }

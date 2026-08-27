@@ -26,7 +26,7 @@ function fakeHomeserver(opts: {
 
     if (path.startsWith("/_matrix/client/v3/account/whoami")) {
       const status = opts.whoamiStatus ?? 200;
-      return new Response(JSON.stringify({ user_id: "@feral:example.org" }), { status });
+      return new Response(JSON.stringify({ user_id: "@cinderpaw:example.org" }), { status });
     }
     if (path.startsWith("/_matrix/client/v3/sync")) {
       syncs += 1;
@@ -149,7 +149,7 @@ describe("matrix transport", () => {
       events: [
         {
           type: "m.room.message",
-          sender: "@feral:example.org",
+          sender: "@cinderpaw:example.org",
           content: { msgtype: "m.text", body: "hello" },
         },
       ],

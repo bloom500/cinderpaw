@@ -77,7 +77,7 @@ export function toolCall(name: string, args: Record<string, unknown>): string {
  * a harness whose tools are stubs proves the loop can talk to stubs.
  */
 export async function runScenario(scenario: Scenario): Promise<Outcome> {
-  const workspace = await mkdtemp(join(tmpdir(), `feral-parity-${scenario.name}-`));
+  const workspace = await mkdtemp(join(tmpdir(), `cinderpaw-parity-${scenario.name}-`));
   const savedEnv: Record<string, string | undefined> = {};
   for (const [k, v] of Object.entries(scenario.env ?? {})) {
     savedEnv[k] = process.env[k];

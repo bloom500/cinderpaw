@@ -99,7 +99,7 @@ func main() {
 }
 
 // runTUI launches the full Bubble Tea TUI with alternate screen.
-// forceClassic (--wizard, the `feral setup --classic` path) opens the
+// forceClassic (--wizard, the `cinderpaw setup --classic` path) opens the
 // classic step-by-step wizard instead of the default guided flow.
 func runTUI(baseURL, token string, forceClassic bool) {
 	status, err := api.FetchStatus(baseURL, token)

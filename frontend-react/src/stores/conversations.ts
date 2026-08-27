@@ -123,7 +123,7 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       // cowork_send), so opening a chat asks for whatever teammates did in
       // it. Fire-and-forget — the answer arrives as cowork_history_result
       // and the panel stays hidden when the list comes back empty.
-      void tauri.feralAgent.coworkHistory(conv.id).catch(() => {});
+      void tauri.cinderpawAgent.coworkHistory(conv.id).catch(() => {});
       // The disk snapshot is stale while a generation is in flight — restore
       // streamed content, tool bubbles and agent phase from the live mirror
       // so the task doesn't look like it reset.

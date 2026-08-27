@@ -33,7 +33,7 @@ const ALL_KINDS: CodeQualityKind[] = [
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "feral-cq-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "cinderpaw-cq-"));
 });
 afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });

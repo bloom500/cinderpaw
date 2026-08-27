@@ -4,7 +4,7 @@
  * A connector is NOT a second agent: it shares the one `AgentLoop` running in
  * this sidecar, so a Discord message is answered by the same local model and
  * the same tools as the desktop app. The host (Rust) owns configuration
- * (`~/.feral/connectors.json`: enabled, bot token, allowlist) and pokes us with
+ * (`~/.cinderpaw/connectors.json`: enabled, bot token, allowlist) and pokes us with
  * a `connectors_reload` stdin message whenever it changes; `ConnectorManager`
  * reconciles the live connections.
  *
@@ -18,7 +18,7 @@ import { readFile, writeFile, unlink } from "node:fs/promises";
 // Sync twins, deliberately: `isLinked` is called from `start()` before anything
 // is awaited, and from a static context that has no async seam to hide a read in.
 import { existsSync, readFileSync } from "node:fs";
-import { feralHome } from "../config.ts";
+import { cinderpawHome } from "../config.ts";
 import {
   Client,
   GatewayIntentBits,
@@ -1176,8 +1176,8 @@ export class WhatsAppConnector {
 
   /**
    * Honor an owner control command typed into a chat from the linked account.
-   * `/pause` (or `/feral off`) hands the chat to the human; `/resume` (or
-   * `/feral on`) gives it back to the assistant. Acknowledged with a reaction
+   * `/pause` (or `/cinderpaw off`) hands the chat to the human; `/resume` (or
+   * `/cinderpaw on`) gives it back to the assistant. Acknowledged with a reaction
    * (not a message) so the lead doesn't see a confusing system reply. Anything
    * else from the owner is ignored.
    */
@@ -1187,11 +1187,11 @@ export class WhatsAppConnector {
     const sessionId = `whatsapp:${jid}`;
     const react = (emoji: string) =>
       void this.#sock?.sendMessage(jid, { react: { text: emoji, key: msg.key } }).catch(() => {});
-    if (t === "/resume" || t === "/feral on") {
+    if (t === "/resume" || t === "/cinderpaw on") {
       this.#desk.resume(sessionId);
       react("🐾");
       this.#log(`whatsapp: owner resumed the assistant on ${sessionId}`);
-    } else if (t === "/pause" || t === "/feral off") {
+    } else if (t === "/pause" || t === "/cinderpaw off") {
       this.#desk.pause(sessionId);
       react("🤝");
       this.#log(`whatsapp: owner paused the assistant on ${sessionId}`);
@@ -1208,7 +1208,7 @@ export class WhatsAppConnector {
    */
   static isLinked(): boolean {
     try {
-      const creds = join(feralHome(), "whatsapp-auth", "creds.json");
+      const creds = join(cinderpawHome(), "whatsapp-auth", "creds.json");
       if (!existsSync(creds)) return false;
       return JSON.parse(readFileSync(creds, "utf8")).registered === true;
     } catch {
@@ -1267,7 +1267,7 @@ export class WhatsAppConnector {
   }
 
   async #connect(): Promise<void> {
-    const authDir = join(feralHome(), "whatsapp-auth");
+    const authDir = join(cinderpawHome(), "whatsapp-auth");
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     const sock = makeWASocket({ auth: state });
     this.#sock = sock;
@@ -1282,14 +1282,14 @@ export class WhatsAppConnector {
           // Mirror the QR to a file so GUI surfaces (desktop Connectors page)
           // can render it — a GUI user has no terminal to scan from.
           void writeFile(
-            join(feralHome(), "whatsapp-qr.json"),
+            join(cinderpawHome(), "whatsapp-qr.json"),
             JSON.stringify({ ts: Date.now(), qr, ascii }),
           ).catch(() => {});
         });
       }
       if (connection === "open") {
         this.#log("whatsapp connector online (linked)");
-        void unlink(join(feralHome(), "whatsapp-qr.json")).catch(() => {});
+        void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
       }
       if (connection === "close") {
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
@@ -1297,7 +1297,7 @@ export class WhatsAppConnector {
         if (this.#stopped) return;
         if (loggedOut) {
           this.#log("whatsapp: logged out — toggle the connector off and on to re-link.");
-          void unlink(join(feralHome(), "whatsapp-qr.json")).catch(() => {});
+          void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
         } else {
           this.#log("whatsapp: connection closed, reconnecting…");
           void this.#connect().catch((e) => this.#log(`whatsapp reconnect failed: ${String(e)}`));
@@ -1322,7 +1322,7 @@ export class WhatsAppConnector {
       // already closed
     }
     this.#sock = null;
-    void unlink(join(feralHome(), "whatsapp-qr.json")).catch(() => {});
+    void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
   }
 
   async #onMessage(msg: WAMessage): Promise<void> {
@@ -1431,7 +1431,7 @@ export class WhatsAppConnector {
 }
 
 // ---------------------------------------------------------------------------
-// Manager — reconciles live connectors against ~/.feral/connectors.json
+// Manager — reconciles live connectors against ~/.cinderpaw/connectors.json
 // ---------------------------------------------------------------------------
 
 export interface ConnectorRow {
@@ -1463,12 +1463,12 @@ export interface ConnectorRow {
 }
 
 export function configPath(): string {
-  return join(feralHome(), "connectors.json");
+  return join(cinderpawHome(), "connectors.json");
 }
 
 /** Where the supervisor publishes what actually connected. */
 export function connectorHealthPath(): string {
-  return join(feralHome(), "connector-health.json");
+  return join(cinderpawHome(), "connector-health.json");
 }
 
 /** One connector's real state, as opposed to what the config asks for. */
@@ -1632,7 +1632,7 @@ export class ConnectorManager {
    * What actually connected, by connector id.
    *
    * A connector that fails to start used to be logged and swallowed here, while
-   * `feral connectors list` and the desktop both read connectors.json and
+   * `cinderpaw connectors list` and the desktop both read connectors.json and
    * cheerfully reported "on" — because "on" meant "enabled in a file", not
    * "connected". An invalid Discord token left the bot dead and every surface
    * insisting it was running. This is the only place that knows the difference,
@@ -1813,7 +1813,7 @@ export class ConnectorManager {
    * Publish health next to the config both readers already open.
    *
    * Deliberately a file rather than a request/response over the sidecar pipe:
-   * `feral connectors list` reads connectors.json directly and works with the
+   * `cinderpaw connectors list` reads connectors.json directly and works with the
    * gateway down, and the desktop reads the same catalog. A file keeps both
    * paths as they are. The tradeoff is staleness — the writer is gone but the
    * file remains — so `updatedAt` is stamped and readers that know the gateway

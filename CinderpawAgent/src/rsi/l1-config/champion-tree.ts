@@ -29,7 +29,7 @@
 import { mkdirSync, readFileSync, existsSync } from "node:fs";
 import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname, join } from "node:path";
-import { feralHome } from "../../config.ts";
+import { cinderpawHome } from "../../config.ts";
 import type { ChampionRecord } from "./champion.ts";
 import { regionKey } from "./escape-time.ts";
 import type { GenomeConfig } from "./genome.ts";
@@ -145,7 +145,7 @@ export class SpeciesChampions {
 
 /** Default on-disk location, sibling of `champion.json`. */
 export function defaultChampionTreePath(): string {
-  return join(feralHome(), "rsi", "champion-tree.json");
+  return join(cinderpawHome(), "rsi", "champion-tree.json");
 }
 
 /** Persist the tree. Best-effort mkdir; throws only on a genuine write fault

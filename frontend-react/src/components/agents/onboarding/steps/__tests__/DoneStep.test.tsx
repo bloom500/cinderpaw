@@ -10,15 +10,15 @@ vi.mock('@/lib/tauri', async () => {
     ...actual,
     tauri: {
       ...actual.tauri,
-      feralAgent: {
-        ...actual.tauri.feralAgent,
+      cinderpawAgent: {
+        ...actual.tauri.cinderpawAgent,
         status: vi.fn(),
       },
     },
   };
 });
 
-const mockStatus = vi.mocked(tauri.feralAgent.status);
+const mockStatus = vi.mocked(tauri.cinderpawAgent.status);
 
 beforeEach(() => vi.clearAllMocks());
 

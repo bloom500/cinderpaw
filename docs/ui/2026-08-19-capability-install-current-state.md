@@ -39,7 +39,7 @@ fn validate_content_url(url: &str) -> Result<()> { … }
 
 **Curated manifests served from the Cinderpaw repository** — `skills.rs:6-10`
 `GITHUB_MANIFEST_URL` and `COMMUNITY_MANIFEST_URL` both point at
-`raw.githubusercontent.com/bloom500/feral/main/skills/…`.
+`raw.githubusercontent.com/bloom500/cinderpaw/main/skills/…`.
 
 **Path-traversal rejection with tests** — `validate_id` (`skills.rs:88`).
 Its unit tests assert that `../evil`, `../../etc/passwd`, `Has Spaces` and

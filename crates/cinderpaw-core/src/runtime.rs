@@ -111,7 +111,7 @@ pub struct RuntimeState {
     pub active_agent_model: Arc<Mutex<Option<String>>>,
     /// Faza 4.5 Slice 4: a graceful-shutdown signal. `POST /runtime/shutdown`
     /// fires it; the headless gateway selects on it alongside Ctrl+C to run the
-    /// D7 drain. Cross-platform, so `feral gateway stop` doesn't depend on
+    /// D7 drain. Cross-platform, so `cinderpaw gateway stop` doesn't depend on
     /// Windows console signal groups (which don't reach a detached child). The
     /// desktop host builds this field but never awaits it — window close is its
     /// exit — so a stray POST there is a harmless no-op.

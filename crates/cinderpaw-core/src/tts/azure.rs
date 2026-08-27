@@ -177,7 +177,7 @@ impl TtsProvider for AzureTts {
             .header("Content-Type", "application/ssml+xml")
             .header("X-Microsoft-OutputFormat", OUTPUT_FORMAT)
             // Azure documents User-Agent as required and answers 400 without it.
-            .header("User-Agent", "feral/0.1")
+            .header("User-Agent", "cinderpaw/0.1")
             .body(ssml)
             .send()
             .await

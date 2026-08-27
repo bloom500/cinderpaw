@@ -8,7 +8,7 @@ let dir: string;
 const ctx = { manifest: {} as any } as any;
 
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), "feral-skills-"));
+  dir = await mkdtemp(join(tmpdir(), "cinderpaw-skills-"));
   await mkdir(join(dir, "pdf-wizard"));
   await writeFile(
     join(dir, "pdf-wizard", "SKILL.md"),

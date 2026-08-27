@@ -188,7 +188,7 @@ async fn web_search(args: Value) -> Result<String> {
     let q = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("missing query"))?;
 
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (compatible; FeralAI/0.1; +https://github.com/feral)")
+        .user_agent("Mozilla/5.0 (compatible; CinderpawAI/0.1; +https://github.com/cinderpaw)")
         .timeout(std::time::Duration::from_secs(12))
         .build()?;
 
@@ -252,9 +252,9 @@ fn urlencoding(s: &str) -> String {
 
 // ── Agent file-tool confinement (C-2) ───────────────────────────────────────
 //
-// Unlike the webview-facing readers in lib.rs (which only add `deny_feral_private`),
+// Unlike the webview-facing readers in lib.rs (which only add `deny_cinderpaw_private`),
 // the LLM-driven file tools are confined to a single workspace root. The root
-// lives OUTSIDE `~/.feral` proper (`~/.feral/workspace`), so the agent can never
+// lives OUTSIDE `~/.cinderpaw` proper (`~/.cinderpaw/workspace`), so the agent can never
 // reach the api-token, byok.json or the agent DB — they are simply not under the
 // root, and the `starts_with` check below rejects any path that escapes it
 // (including via `..` or a symlink, because we canonicalize before comparing).
@@ -362,7 +362,7 @@ fn file_write(args: Value) -> Result<String> {
         .parent()
         .ok_or_else(|| anyhow!("target has no parent directory"))?;
     std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".feral-write-{}.tmp", uuid::Uuid::new_v4()));
+    let tmp = dir.join(format!(".cinderpaw-write-{}.tmp", uuid::Uuid::new_v4()));
     std::fs::write(&tmp, content)?;
     if let Err(e) = std::fs::rename(&tmp, &canonical) {
         let _ = std::fs::remove_file(&tmp);
@@ -568,7 +568,7 @@ async fn http_request(args: Value) -> Result<String> {
     // Follow redirects MANUALLY so every hop is re-validated — `reqwest`'s
     // automatic follow would chase a 3xx into a private address unchecked.
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (compatible; FeralAI/0.1)")
+        .user_agent("Mozilla/5.0 (compatible; CinderpawAI/0.1)")
         .timeout(std::time::Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
         .build()?;

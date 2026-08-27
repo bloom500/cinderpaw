@@ -223,12 +223,12 @@ mod tests {
         let plan = Plan {
             will_import: vec![PlanItem {
                 what: "SOUL.md".into(),
-                target: "/home/u/.feral/SOUL.md".into(),
+                target: "/home/u/.cinderpaw/SOUL.md".into(),
                 note: None,
             }],
             not_imported: vec!["channels.signal — no Cinderpaw connector for Signal yet".into()],
             conflicts: vec![],
-            backup_dir: PathBuf::from("/home/u/.feral/migration/openclaw/x"),
+            backup_dir: PathBuf::from("/home/u/.cinderpaw/migration/openclaw/x"),
         };
         let out = render_report(&found(), &plan);
         assert!(out.contains("Will import (1)"));

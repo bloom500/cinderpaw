@@ -24,7 +24,7 @@ afterEach(() => {
 
 /** A CINDERPAW_HOME whose whatsapp-auth holds exactly `creds`, or nothing. */
 function homeWith(creds: string | null): string {
-  const home = mkdtempSync(join(tmpdir(), "feral-wa-"));
+  const home = mkdtempSync(join(tmpdir(), "cinderpaw-wa-"));
   made.push(home);
   if (creds !== null) {
     mkdirSync(join(home, "whatsapp-auth"), { recursive: true });

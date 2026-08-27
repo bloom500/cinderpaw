@@ -55,7 +55,7 @@ async function initRepo(repoDir: string): Promise<void> {
   });
   // Configure a local user so commits work without a global git config.
   await new Promise<void>((resolve, reject) => {
-    const p = spawn("git", ["config", "user.email", "test@feral"], { cwd: repoDir });
+    const p = spawn("git", ["config", "user.email", "test@cinderpaw"], { cwd: repoDir });
     p.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`git config email exited ${code}`)));
     p.on("error", reject);
   });
@@ -68,7 +68,7 @@ async function initRepo(repoDir: string): Promise<void> {
 
 describe("shell_exec (argv-only)", () => {
   let tmp: string;
-  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "feral-shell-")); });
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "cinderpaw-shell-")); });
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
 
   it("runs an allowlisted binary via argv and captures stdout", async () => {
@@ -125,8 +125,8 @@ describe("shell_exec (argv-only)", () => {
     // be invisible here. Tested through the knob rather than a hardcoded
     // `C:\Program Files\Git\bin`, so it asserts the mechanism on every platform:
     // an existing directory is added, a missing one is not.
-    const real = mkdtempSync(join(tmpdir(), "feral-path-"));
-    const fake = join(tmpdir(), "feral-path-does-not-exist");
+    const real = mkdtempSync(join(tmpdir(), "cinderpaw-path-"));
+    const fake = join(tmpdir(), "cinderpaw-path-does-not-exist");
     process.env.CINDERPAW_SHELL_PATH_EXTRA = `${real},${fake}`;
     try {
       const mod = await import(`../src/egress/process-sandbox.ts?bust=${Date.now()}`);
@@ -185,7 +185,7 @@ describe("shell_exec (argv-only)", () => {
     // NOT under tmpdir(): scratch space is deliberately on the allowed list, so
     // a target there proves nothing. The home directory is the real shape of
     // this mistake — "another project of mine", "my Documents".
-    const outside = join(homedir(), "feral-test-definitely-not-a-root");
+    const outside = join(homedir(), "cinderpaw-test-definitely-not-a-root");
     const tool = createShellExecTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
     try {
@@ -199,7 +199,7 @@ describe("shell_exec (argv-only)", () => {
 describe("git tools (integration)", () => {
   let repo: string;
   beforeEach(async () => {
-    repo = mkdtempSync(join(tmpdir(), "feral-git-"));
+    repo = mkdtempSync(join(tmpdir(), "cinderpaw-git-"));
     await initRepo(repo);
   });
   // maxRetries/retryDelay: Windows holds EBUSY locks briefly after git exits.

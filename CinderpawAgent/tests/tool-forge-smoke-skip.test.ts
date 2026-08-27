@@ -21,10 +21,10 @@ import { saveCustomTool, transpileToolCode, type CustomToolRecord } from "../src
 import { TOOL_DOMAINS_ENV } from "../src/tools/custom-tool-runner.ts";
 import type { AskUserQuestion, Tool, ToolContext } from "../src/types.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "feral-forge-skip-"));
+const dir = mkdtempSync(join(tmpdir(), "cinderpaw-forge-skip-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-const FAKE_RUNTIME = { executable: "C:/fake/feral-agent.exe", prefix: ["--custom-tool-runner"] };
+const FAKE_RUNTIME = { executable: "C:/fake/cinderpaw-agent.exe", prefix: ["--custom-tool-runner"] };
 const CODE = `export default async function (args) { return { ok: true, content: "v1" }; }`;
 
 function makeRegistry() {

@@ -3,7 +3,7 @@
  *
  * A turn that reports success and wrote nothing looked identical to one that
  * advanced. The safety point is already durable — orphan git commits under
- * `refs/feral/safety/`, or a shadow git dir for a workspace that is not a repo —
+ * `refs/cinderpaw/safety/`, or a shadow git dir for a workspace that is not a repo —
  * so the evidence is available at any moment, including after the process that
  * started the run has died. What was missing is the way back: `changedSince`
  * takes the SafetyPoint OBJECT, and after a restart the object is gone.
@@ -26,7 +26,7 @@ import {
 
 /** A throwaway git repository with one committed file. */
 async function repo(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "feral-progress-"));
+  const dir = await mkdtemp(join(tmpdir(), "cinderpaw-progress-"));
   await mkdir(join(dir, "src"), { recursive: true });
   await writeFile(join(dir, "src", "a.ts"), "export const a = 1;\n");
   Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
@@ -40,7 +40,7 @@ async function repo(): Promise<string> {
 
 /** A plain directory — no git — so the shadow-repo path is exercised. */
 async function plainDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "feral-progress-plain-"));
+  const dir = await mkdtemp(join(tmpdir(), "cinderpaw-progress-plain-"));
   await writeFile(join(dir, "notes.md"), "# notes\n");
   return dir;
 }
@@ -200,7 +200,7 @@ describe("safetyPointFrom edge cases", () => {
  * Every workspace root, not just the first.
  *
  * Found live: the agent was told "the workspace", picked the third configured
- * root (`~/.feral/workspace`) and wrote three files there, while the safety
+ * root (`~/.cinderpaw/workspace`) and wrote three files there, while the safety
  * point covered only the first (the repo). The digest reported zero files, and
  * — worse — `filesChanged: 0` on every turn is exactly the signal
  * `decideResume` reads as "the last attempt achieved nothing", so a healthy

@@ -23,7 +23,7 @@ fn file_key(service: &str, entry: &str) -> String {
 /// (Linux only) to the encrypted file store under `file_key`. Most callers
 /// want [`set`], which namespaces the file key by service; `byok` calls this
 /// directly with its historical un-namespaced provider id so existing
-/// `~/.feral/byok.keys` entries keep working.
+/// `~/.cinderpaw/byok.keys` entries keep working.
 pub fn set_with_file_key(service: &str, entry: &str, file_key: &str, value: &str) -> anyhow::Result<()> {
     match keyring::Entry::new(service, entry) {
         Ok(e) => match e.set_password(value) {
@@ -152,7 +152,7 @@ mod tests {
     /// teaches people to ignore red.
     #[test]
     fn set_then_get_returns_the_value() {
-        let service = "ai.bloom.feral.test";
+        let service = "ai.bloom.cinderpaw.test";
         let entry = "secret-store-roundtrip";
         if set(service, entry, "hunter2").is_err() {
             eprintln!("no secret backend available; skipping");

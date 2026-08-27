@@ -66,7 +66,7 @@ pub fn maybe_migrate() -> Result<MigrationOutcome> {
 /// not a hypothetical ordering problem — it is what happened on the first real
 /// boot after the rename, and the app died on a panic before showing a window.
 ///
-/// So the migration hangs off `paths::feral_dir()` instead: every path in the
+/// So the migration hangs off `paths::cinderpaw_dir()` instead: every path in the
 /// program is built from that function, which makes "before the migration" a
 /// state no caller can be in.
 ///

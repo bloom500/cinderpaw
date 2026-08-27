@@ -12,7 +12,7 @@
  * before the backend has told it one.
  *
  * What is deliberately NOT here: the bundle identifier, the `CINDERPAW_*`
- * environment variables, the `feral://` event channel names and the CLI binary
+ * environment variables, the `cinderpaw://` event channel names and the CLI binary
  * name. Those are technical identities with migration cost, and they move in a
  * later phase with a migrator beside them. See RENAME-PLAN.md.
  */
@@ -29,7 +29,7 @@ export const AGENT_DEFAULT_NAME = APP_NAME;
  * UI shows a path that does not exist.
  *
  * Only for display fallbacks: the real path always comes from the backend,
- * which honours `CINDERPAW_HOME` and portable installs. A hardcoded `~/.feral`
+ * which honours `CINDERPAW_HOME` and portable installs. A hardcoded `~/.cinderpaw`
  * here outlived the migration and was still on the Settings screen.
  */
 export const APP_HOME_DIR_NAME = '.cinderpaw' as const;
@@ -41,4 +41,4 @@ export const BRAND_TAGLINE = 'An AI companion that lives on your machine.';
  * The old names, kept for migration lookups and for recognising data written by
  * a previous version — never for display.
  */
-export const LEGACY_BRAND_NAMES = ['Cinderpaw', 'feral', 'FERAL'] as const;
+export const LEGACY_BRAND_NAMES = ['Feral', 'feral', 'FERAL'] as const;

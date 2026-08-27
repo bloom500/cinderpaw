@@ -1,7 +1,7 @@
 /**
  * Pre-release hardening (2026-07-31) — C-02: outcome-aware no-progress hard stop.
  *
- * Before this change FERAL's only loop signal was `recentToolKeys`, keyed on
+ * Before this change CINDERPAW's only loop signal was `recentToolKeys`, keyed on
  * `name:args` alone. It could WARN ("you are looping") but never stop, so a model
  * that ignored the nudge ran to `ABSOLUTE_CEILING` (500 iterations) or the wall
  * clock — on a cloud provider, real money spent re-issuing an identical call.

@@ -8,7 +8,7 @@
 //! desktop host's job:
 //!   - the curated catalog and install flow (command lines are built HERE,
 //!     never by the frontend),
-//!   - persistence of `~/.feral/mcp.json` (secrets stay in the backend),
+//!   - persistence of `~/.cinderpaw/mcp.json` (secrets stay in the backend),
 //!   - proxying the Extensions page's live queries to the sidecar over the
 //!     stdin protocol (`mcp_reload` / `mcp_status` / `mcp_list_tools` /
 //!     `mcp_call_tool` → one id-correlated `mcp_result` line back).
@@ -52,7 +52,7 @@ struct McpConfigFile {
 }
 
 fn config_path() -> PathBuf {
-    paths::feral_dir().join("mcp.json")
+    paths::cinderpaw_dir().join("mcp.json")
 }
 
 fn load_config() -> McpConfigFile {

@@ -1,7 +1,7 @@
 //! RSI (Recursive Self-Improvement) — Bounded-RSI Boundary Module.
 //!
 //! **NON-NEGOTIABLE INVARIANT**: every write to the RSI substrate
-//! (`~/.feral/rsi/`, the git repo, the eval suite, the SandboxBounds file,
+//! (`~/.cinderpaw/rsi/`, the git repo, the eval suite, the SandboxBounds file,
 //! the scorer code) MUST go through the host's command layer
 //! (`src-tauri/src/rsi/commands.rs`). The
 //! TypeScript sidecar and the LLM agent have NO direct filesystem path to

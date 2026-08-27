@@ -38,19 +38,19 @@ const binaryPath = join(
   repoRoot,
   "src-tauri",
   "binaries",
-  "feral-agent-x86_64-pc-windows-msvc.exe",
+  "cinderpaw-agent-x86_64-pc-windows-msvc.exe",
 );
 
 if (!existsSync(binaryPath)) {
   console.error(
     `✗ sidecar binary not found at ${binaryPath}\n` +
-      `  Run: cd CinderpawAgent && bun run build && cp dist/feral-agent.exe ` +
+      `  Run: cd CinderpawAgent && bun run build && cp dist/cinderpaw-agent.exe ` +
       `${binaryPath}`,
   );
   process.exit(2);
 }
 
-const workDir = mkdtempSync(join(tmpdir(), "feral-d2-smoke-"));
+const workDir = mkdtempSync(join(tmpdir(), "cinderpaw-d2-smoke-"));
 const telemetryPath = join(workDir, "dream.jsonl");
 const dbPath = ":memory:";
 
@@ -68,7 +68,7 @@ const child = spawn(
     env: {
       ...process.env,
       // Redirect the sidecar's os.homedir() to our temp dir so we don't
-      // pollute the real ~/.feral. Node's `os.homedir()` reads USERPROFILE
+      // pollute the real ~/.cinderpaw. Node's `os.homedir()` reads USERPROFILE
       // on Windows; HOME is unset here to avoid surprises.
       USERPROFILE: workDir,
       HOME: workDir,

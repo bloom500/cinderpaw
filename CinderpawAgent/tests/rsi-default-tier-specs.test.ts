@@ -3,7 +3,7 @@
  *
  * Tier 1/2 specs ship embedded (not as loose JSON) because bun
  * `--compile` does not bundle data files; users can still extend them by
- * dropping JSON in `~/.feral/eval/tierN`. These tests guard the embedded
+ * dropping JSON in `~/.cinderpaw/eval/tierN`. These tests guard the embedded
  * set's integrity: well-formed, unique ids, correct tier, and — most
  * importantly — *satisfiable* (a synthesized correct answer passes the
  * spec's own validator, so no spec is impossible to pass).

@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { destructiveOutsideRoots } from "../src/tools/builtin/shell-exec.ts";
 
-const ROOTS = [join(tmpdir(), "feral-blast-workspace"), join(tmpdir(), "feral-blast-second")];
+const ROOTS = [join(tmpdir(), "cinderpaw-blast-workspace"), join(tmpdir(), "cinderpaw-blast-second")];
 const outside = process.platform === "win32" ? "C:\\Users\\Someone\\Documents" : "/home/someone/Documents";
 
 describe("destructive commands outside the workspace", () => {
@@ -83,7 +83,7 @@ describe("destructive commands outside the workspace", () => {
 describe("the tool refuses before it spawns anything", () => {
   test("a destructive command aimed outside the workspace never reaches the sandbox", async () => {
     const { createShellExecTool } = await import("../src/tools/builtin/shell-exec.ts");
-    const root = join(tmpdir(), "feral-blast-workspace");
+    const root = join(tmpdir(), "cinderpaw-blast-workspace");
     const tool = createShellExecTool([root]);
     let spawned = false;
 
@@ -112,7 +112,7 @@ describe("the tool refuses before it spawns anything", () => {
 
   test("the same command inside the workspace does reach the sandbox", async () => {
     const { createShellExecTool } = await import("../src/tools/builtin/shell-exec.ts");
-    const root = join(tmpdir(), "feral-blast-workspace");
+    const root = join(tmpdir(), "cinderpaw-blast-workspace");
     const tool = createShellExecTool([root]);
     let spawned = false;
 

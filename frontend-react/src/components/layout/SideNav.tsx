@@ -329,7 +329,7 @@ export function SideNav() {
 
   const newChat = () => {
     navigate('/chat');
-    window.dispatchEvent(new CustomEvent('feral:new-chat'));
+    window.dispatchEvent(new CustomEvent('cinderpaw:new-chat'));
   };
 
   // Gone entirely, with one way back — but GONE ANIMATED. The collapse used

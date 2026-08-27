@@ -28,7 +28,7 @@ function pruneExpired(stream: ToolCallEvent[]): ToolCallEvent[] {
   return stream.filter((e) => e.endedAt === null || e.endedAt > cutoff);
 }
 
-export interface FeralLiveSnapshot {
+export interface CinderpawLiveSnapshot {
   content: string;
   thinking: string | null;
   thinkingComplete: boolean;
@@ -40,7 +40,7 @@ export interface FeralLiveSnapshot {
   completionTokens: number | null;
 }
 
-const live = new Map<string, FeralLiveSnapshot>();
+const live = new Map<string, CinderpawLiveSnapshot>();
 
 export function beginLiveSession(sessionId: string): void {
   live.set(sessionId, {
@@ -55,7 +55,7 @@ export function beginLiveSession(sessionId: string): void {
   });
 }
 
-export function getLiveSession(sessionId: string): FeralLiveSnapshot | undefined {
+export function getLiveSession(sessionId: string): CinderpawLiveSnapshot | undefined {
   return live.get(sessionId);
 }
 
@@ -67,7 +67,7 @@ export function getLiveToolStrip(sessionId: string): ToolCallEvent[] | undefined
 
 export function updateLiveSession(
   sessionId: string,
-  patch: Partial<FeralLiveSnapshot>,
+  patch: Partial<CinderpawLiveSnapshot>,
 ): void {
   const snap = live.get(sessionId);
   if (!snap) return;

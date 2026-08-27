@@ -12,7 +12,7 @@
  *     → writes Z/adapter.gguf (dummy bytes), prints metric lines, exit 0
  *
  * Build:  bun build scripts/fake-lora-trainer.ts --compile --outfile scripts/fake-lora-trainer
- * Use:    set CINDERPAW_LORA_TRAINER_BIN=D:\FeralLocalAI\scripts\fake-lora-trainer.exe
+ * Use:    set CINDERPAW_LORA_TRAINER_BIN=D:\CinderpawLocalAI\scripts\fake-lora-trainer.exe
  *
  * NOTE: the adapter it writes is NOT a real LoRA — approving it will make
  * the model reload FAIL loudly at rsi_set_lora (llama.cpp rejects the

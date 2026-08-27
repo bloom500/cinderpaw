@@ -1,7 +1,7 @@
 /**
  * Brain config loader — Brain Stack slice 5.
  *
- * Reads `~/.feral/brain.json` (or `$CINDERPAW_HOME/brain.json`) and returns a
+ * Reads `~/.cinderpaw/brain.json` (or `$CINDERPAW_HOME/brain.json`) and returns a
  * `BrainConfig`. Opt-in: when the file is absent, Brain Stack stays
  * disabled and the agent-loop falls through to the existing path
  * (`router.complete()` with `#primary` / `#fallback`).
@@ -37,7 +37,7 @@ import type { Mode } from "./brain-stack.ts";
 import type { ModelTarget } from "../types.ts";
 import type { BrainModel } from "./capability-registry.ts";
 import { profileFor } from "./model-profiles.ts";
-import { feralHome } from "../config.ts";
+import { cinderpawHome } from "../config.ts";
 
 const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
   "budget",
@@ -55,11 +55,11 @@ const DEFAULT_MODE: Mode = "balanced";
 
 /**
  * Default location for brain.json: `$CINDERPAW_HOME/brain.json` if set,
- * else `~/.feral/brain.json`. Exported so callers (and tests) can
+ * else `~/.cinderpaw/brain.json`. Exported so callers (and tests) can
  * discover the same path the loader would use.
  */
 export function defaultBrainPath(): string {
-  return join(feralHome(), "brain.json");
+  return join(cinderpawHome(), "brain.json");
 }
 
 /**
@@ -163,7 +163,7 @@ export function loadBrainConfig(
  * was the ONLY outcome on a normal installation — nothing in the product
  * ever wrote the file, so every shipped copy of Cinderpaw ran with model
  * routing absent, not degraded (docs/ui/2026-08-19-brain-current-state.md
- * §3, §10). `brain.example.json` even claimed `feral setup` would write
+ * §3, §10). `brain.example.json` even claimed `cinderpaw setup` would write
  * it; nothing did.
  *
  * Scope: the sidecar knows at most two targets — the router's `#primary`

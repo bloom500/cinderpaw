@@ -4,7 +4,7 @@
  * Public-connector tool. Use when the person needs something the assistant
  * can't answer or do (a firm quote, a complaint, anything beyond the knowledge
  * base), or explicitly asks for a human. Three effects:
- *   1. appends the escalation to `~/.feral/leads/escalations.jsonl`,
+ *   1. appends the escalation to `~/.cinderpaw/leads/escalations.jsonl`,
  *   2. pings the owner via the LeadDesk notifier (a WhatsApp message),
  *   3. PAUSES the assistant on this conversation (via LeadDesk) so the human
  *      can take over without the bot talking over them.

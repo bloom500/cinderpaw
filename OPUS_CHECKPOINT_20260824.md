@@ -43,7 +43,7 @@ Snapshot is React state now; store emits fresh object per update.
 viewport rebuild too (prevChatH only covered height). go test ./... green.
 
 ### fix/verify-sh-package-rename (`7875d50`)
-verify.sh ran `cargo test -p feral`; package renamed to `cinderpaw-core` —
+verify.sh ran `cargo test -p cinderpaw`; package renamed to `cinderpaw-core` —
 gate dead for everyone. 1-line fix. NOTE: bash is absent on this box, so
 verify.sh still can't run as-is; steps were executed manually in PowerShell.
 
@@ -55,7 +55,7 @@ the future cancels reqwest requests; code_execute child is kill_on_drop.
 chat:: tests 5 pass; full `-p cinderpaw` suite green.
 
 ### fix/rename-drift-guards (`58ffcfe`, `6dbf368`) — both PRE-EXISTING failures
-- **SECURITY**: desktop-control HARD_DENY listed only `"feral"`; process is now
+- **SECURITY**: desktop-control HARD_DENY listed only `"cinderpaw"`; process is now
   `cinderpaw.exe` → self-manipulation guard stopped matching the app's own
   binary. Added `"cinderpaw"`, kept `"feral"` for old builds. Test pinned it.
 - commands baseline 156→160 (+ LiveKit quartet: start_livekit_call,

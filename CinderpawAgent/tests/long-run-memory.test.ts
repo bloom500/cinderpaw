@@ -13,7 +13,7 @@ import { WorkingMemory } from "../src/memory/working.ts";
 test("a fact written to the notebook early survives many compactions", async () => {
   const mem = new WorkingMemory("sys", { maxTokens: 2_000, keepRecent: 4 });
   const NOTEBOOK = [
-    { key: "note:db-path", value: "the real database is ~/.feral/agent/feral.db" },
+    { key: "note:db-path", value: "the real database is ~/.cinderpaw/agent/cinderpaw.db" },
   ];
 
   let compactions = 0;
@@ -37,5 +37,5 @@ test("a fact written to the notebook early survives many compactions", async () 
   const rendered = mem.render();
   const lastUser = [...rendered].reverse().find((m) => m.role === "user");
   // The whole point: an early fact is still in the prompt at the end.
-  expect(lastUser?.content).toContain("~/.feral/agent/feral.db");
+  expect(lastUser?.content).toContain("~/.cinderpaw/agent/cinderpaw.db");
 });

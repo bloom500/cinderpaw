@@ -27,7 +27,7 @@ const mockGetByok  = vi.mocked(tauri.raw.getByokSettings);
 const mockTestByok = vi.mocked(tauri.raw.testByokProvider);
 
 const sample = {
-  models_dir: '/home/.feral/models',
+  models_dir: '/home/.cinderpaw/models',
   default_gpu_layers: 100,
   api_server_enabled: false,
   api_port: 11435,

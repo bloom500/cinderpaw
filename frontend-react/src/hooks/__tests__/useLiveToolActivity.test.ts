@@ -77,15 +77,15 @@ describe('hitsOf', () => {
   it('reads the DuckDuckGo shape, splitting the title off the snippet', () => {
     const hits = hitsOf({
       ok: true,
-      data: [{ text: 'Cinderpaw AI — a local agent runtime', url: 'https://www.example.com/docs/feral' }],
+      data: [{ text: 'Cinderpaw AI — a local agent runtime', url: 'https://www.example.com/docs/cinderpaw' }],
     });
     expect(hits).toEqual([
       {
         title: 'Cinderpaw AI',
-        url: 'https://www.example.com/docs/feral',
+        url: 'https://www.example.com/docs/cinderpaw',
         host: 'example.com',
         snippet: 'a local agent runtime',
-        crumbs: 'docs › feral',
+        crumbs: 'docs › cinderpaw',
       },
     ]);
   });

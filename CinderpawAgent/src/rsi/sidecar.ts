@@ -149,7 +149,7 @@ export interface RsiSidecarDeps {
   /** Optional: history window for the taste miner. Default 20. */
   historyWindow?: number;
   /** Optional: where to write `pbt_state.json`. Default
-   *  `~/.feral/meta/`. */
+   *  `~/.cinderpaw/meta/`. */
   fsRoot?: string;
   /** Optional: called when a run ends (resolve OR reject), after the
    *  engine is torn down. The Dream Cycle scheduler uses this to enter
@@ -162,13 +162,13 @@ export interface RsiSidecarDeps {
    *  talks to. The record is also persisted to `championPath`. */
   onChampion?: (record: ChampionRecord) => void;
   /** Optional: where to persist `champion.json`. Default
-   *  `~/.feral/rsi/champion.json`. */
+   *  `~/.cinderpaw/rsi/champion.json`. */
   championPath?: string;
   /** Optional: where to persist the Tree of Champions per-niche archive
-   *  (§7.4). Default `~/.feral/rsi/champion-tree.json`. */
+   *  (§7.4). Default `~/.cinderpaw/rsi/champion-tree.json`. */
   championTreePath?: string;
   /** Optional: where to persist the full population snapshot (Dream Cycle
-   *  evolutionary continuity). Default `~/.feral/rsi/population.json`. */
+   *  evolutionary continuity). Default `~/.cinderpaw/rsi/population.json`. */
   populationSnapshotPath?: string;
   /** Optional: L6 Meta Evolution — the live MetaGenome accessor. When
    *  present, its ratio-to-default fields scale the PBT-driven selection
@@ -731,7 +731,7 @@ export class RsiSidecar {
         // Persist the full population so the next episode resumes exactly
         // here (best-effort + atomic; a disk error never aborts the
         // cascade). Done before tearing down `engine` so we snapshot the
-        // final evolved state. Also mkdir's ~/.feral/rsi/, so the
+        // final evolved state. Also mkdir's ~/.cinderpaw/rsi/, so the
         // telemetry append below lands even on the first cold episode.
         writePopulationSnapshot(snapshotPath, engine.pop.snapshot());
         this.engine = null;

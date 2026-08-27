@@ -9,7 +9,7 @@ contract below. This page is the authoritative spec for that contract
 ## Bundled trainer (NVIDIA)
 
 Cinderpaw ships a reference trainer for NVIDIA machines:
-`scripts/lora-trainer/feral_lora_trainer.py` — QLoRA via **unsloth** (falls
+`scripts/lora-trainer/cinderpaw_lora_trainer.py` — QLoRA via **unsloth** (falls
 back to plain transformers+peft when unsloth won't install), converted to
 GGUF with llama.cpp's `convert_lora_to_gguf.py`. One command installs and
 registers it:
@@ -72,7 +72,7 @@ Cinderpaw invokes the trainer as ONE child process:
 ## Bringing your own trainer
 
 1. Implement or install a wrapper honoring the contract (the bundled
-   `scripts/lora-trainer/feral_lora_trainer.py` is the reference
+   `scripts/lora-trainer/cinderpaw_lora_trainer.py` is the reference
    implementation; GPU strongly recommended).
 2. Validate + register it:
 
@@ -90,9 +90,9 @@ Cinderpaw invokes the trainer as ONE child process:
    to set in the desktop app's environment.
 3. Restart Cinderpaw. `self_lora` / the Settings → Training card will show
    the trainer as available; trigger a cycle with at least 10 usable
-   conversation pairs on a LOCAL primary model. Headless: `feral lora
-   train` starts a cycle, `feral lora reviews` shows the resulting card,
-   `feral lora approve <id>` promotes it (same gate as the desktop).
+   conversation pairs on a LOCAL primary model. Headless: `cinderpaw lora
+   train` starts a cycle, `cinderpaw lora reviews` shows the resulting card,
+   `cinderpaw lora approve <id>` promotes it (same gate as the desktop).
 
 ## What the eval gate does regardless of trainer quality
 

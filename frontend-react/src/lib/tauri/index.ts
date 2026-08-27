@@ -23,7 +23,7 @@ export type { ModelLoadProgressEvent };
 export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine } from './events';
 
 /**
- * One row of the voice-engine picker — mirrors `feral_core::tts::TtsEngine`.
+ * One row of the voice-engine picker — mirrors `cinderpaw_core::tts::TtsEngine`.
  *
  * `isLocal` must be shown before recording starts, not buried in settings: with
  * a hosted engine every spoken reply leaves the machine, and a local-first
@@ -318,7 +318,7 @@ export interface ByokProvider {
 // Phase 1 (2026-07-07) — canonical provider catalog row served by the
 // Rust `byok::provider_catalog()` function via the
 // `provider_catalog` Tauri command. Mirrors
-// `crates/feral-core/src/byok.rs::ProviderCatalogEntry` 1:1.
+// `crates/cinderpaw-core/src/byok.rs::ProviderCatalogEntry` 1:1.
 // Optional fields come back as `null` from the Rust serde
 // `skip_serializing_if = "Option::is_none"` so we type them as
 // `T | null` (NOT `T | undefined`).
@@ -337,9 +337,9 @@ export interface ProviderCatalogEntry {
 }
 
 // Guided setup (2026-07-10 OpenClaw onboarding parity). Mirrors
-// `crates/feral-core/src/setup.rs::Candidate` / `VerifyOutcome` 1:1 —
+// `crates/cinderpaw-core/src/setup.rs::Candidate` / `VerifyOutcome` 1:1 —
 // the detection ladder + real-completion verification the CLI's
-// `feral setup` and the TUI consume over `/runtime/setup/*`.
+// `cinderpaw setup` and the TUI consume over `/runtime/setup/*`.
 export type SetupCandidateKind =
   | 'existing_config'
   | 'local_gguf'
@@ -796,20 +796,20 @@ const raw = {
   installSkillFromFile:     (path: string, overwrite: boolean) =>
     invoke<SkillMeta>('install_skill_from_file', { path, overwrite }),
   removeSkill:              (id: string) => invoke<void>('remove_skill', { id }),
-  feralSendMessage:         (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
-    invoke<string>('feral_send_message', { content, sessionId, images: images ?? null, inferParams: inferParams ?? null }),
-  feralAgentStatus:         () => invoke<boolean>('cinderpaw_agent_status'),
-  feralStopGeneration:      (sessionId?: string | null) =>
-    invoke<void>('feral_stop_generation', { sessionId: sessionId ?? null }),
-  feralSubmitFeedback:      (sessionId: string, messageId: string, value: 'up' | 'down') =>
-    invoke<void>('feral_submit_feedback', { sessionId, messageId, value }),
-  feralSetModel: (
+  cinderpawSendMessage:         (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
+    invoke<string>('cinderpaw_send_message', { content, sessionId, images: images ?? null, inferParams: inferParams ?? null }),
+  cinderpawAgentStatus:         () => invoke<boolean>('cinderpaw_agent_status'),
+  cinderpawStopGeneration:      (sessionId?: string | null) =>
+    invoke<void>('cinderpaw_stop_generation', { sessionId: sessionId ?? null }),
+  cinderpawSubmitFeedback:      (sessionId: string, messageId: string, value: 'up' | 'down') =>
+    invoke<void>('cinderpaw_submit_feedback', { sessionId, messageId, value }),
+  cinderpawSetModel: (
     source: string,
     model: string,
     providerId?: string | null,
     baseUrl?: string | null,
-  ) => invoke<void>('feral_set_model', { source, model, providerId, baseUrl }),
-  feralGetModelConfig:      () => invoke<CinderpawModelConfigView | null>('feral_get_model_config'),
+  ) => invoke<void>('cinderpaw_set_model', { source, model, providerId, baseUrl }),
+  cinderpawGetModelConfig:      () => invoke<CinderpawModelConfigView | null>('cinderpaw_get_model_config'),
   mcpCatalog:               () => invoke<McpCatalogEntry[]>('mcp_catalog'),
   mcpList:                  () => invoke<McpServerView[]>('mcp_list'),
   mcpInstall:               (id: string, values: Record<string, string>) =>
@@ -826,7 +826,7 @@ const raw = {
   // provider list at the wizard level; see OnboardingWizard.tsx.
   providerCatalog:          () => invoke<ProviderCatalogEntry[]>('provider_catalog'),
   // Guided setup — detection ladder + real-completion verify (persist only
-  // on success; the invariant lives in feral-core, not here).
+  // on success; the invariant lives in cinderpaw-core, not here).
   setupDetect:              () => invoke<SetupCandidate[]>('setup_detect'),
   setupVerify:              (candidate: SetupCandidate, apiKey: string | undefined, persist: boolean) =>
     invoke<SetupVerifyOutcome>('setup_verify', { candidate, apiKey: apiKey ?? null, persist }),
@@ -872,53 +872,53 @@ const raw = {
   rsiJournalRecent:   (limit: number) =>
     invoke<JournalRow[]>('rsi_journal_recent', { limit }),
   rsiChampionTree:    () => invoke<ChampionTreeRow[]>('rsi_champion_tree'),
-  rsiDreamNow:        () => invoke<void>('feral_dream_now'),
+  rsiDreamNow:        () => invoke<void>('cinderpaw_dream_now'),
   // Faza 6 (L6) Meta Evolution — fire-and-forget; the sidecar replies async
   // via a `meta_result` event (handled by `events.onMetaResult`).
-  feralMeta:          (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-    invoke<void>('feral_meta', { op }),
+  cinderpawMeta:          (op: 'status' | 'evolve' | 'rollback' | 'history') =>
+    invoke<void>('cinderpaw_meta', { op }),
   // Slice A6 (L5 Governance) — fire-and-forget; the sidecar replies async
   // via a `governance_result` event (handled by `events.onGovernanceResult`).
-  feralGovernance:    (op: 'status' | 'verify' | 'approve' | 'reject', policyId?: string, reason?: string) =>
-    invoke<void>('feral_governance', { op, policyId: policyId ?? null, reason: reason ?? null }),
+  cinderpawGovernance:    (op: 'status' | 'verify' | 'approve' | 'reject', policyId?: string, reason?: string) =>
+    invoke<void>('cinderpaw_governance', { op, policyId: policyId ?? null, reason: reason ?? null }),
   // Phase B (L4 Architecture Evolution) — fire-and-forget; the sidecar
   // replies async via a `modules_result` event (events.onModulesResult).
-  feralModules:       (op: 'list' | 'approve' | 'reject' | 'demote', moduleId?: string, seam?: string, note?: string) =>
-    invoke<void>('feral_modules', { op, moduleId: moduleId ?? null, seam: seam ?? null, note: note ?? null }),
-  // Faza 2 Slice 5 — code-patch approval gate. `feral_code_patches_list` is
+  cinderpawModules:       (op: 'list' | 'approve' | 'reject' | 'demote', moduleId?: string, seam?: string, note?: string) =>
+    invoke<void>('cinderpaw_modules', { op, moduleId: moduleId ?? null, seam: seam ?? null, note: note ?? null }),
+  // Faza 2 Slice 5 — code-patch approval gate. `cinderpaw_code_patches_list` is
   // fire-and-forget; the sidecar replies async via a `code_patches` event
-  // (handled by `events.onCodePatches`). `feral_code_patch_resolve` is also
+  // (handled by `events.onCodePatches`). `cinderpaw_code_patch_resolve` is also
   // fire-and-forget; the ack + refreshed queue arrives as `code_patch_resolved`
   // + `code_patches`. The Rust handler validates `action ∈ {approve,reject}`
   // and rejects anything else.
-  feralCodePatchesList:   () => invoke<void>('feral_code_patches_list'),
-  feralCodePatchResolve:  (patchId: string, action: 'approve' | 'reject') =>
-    invoke<void>('feral_code_patch_resolve', { patchId, action }),
+  cinderpawCodePatchesList:   () => invoke<void>('cinderpaw_code_patches_list'),
+  cinderpawCodePatchResolve:  (patchId: string, action: 'approve' | 'reject') =>
+    invoke<void>('cinderpaw_code_patch_resolve', { patchId, action }),
   // Faza 4 (L2 LoRA) — personal-adaptation gate. All fire-and-forget; the
   // sidecar replies via `lora_reviews` / `lora_review_resolved` /
   // `lora_train_result` events (see events.ts).
-  feralLoraReviewsList:   () => invoke<void>('feral_lora_reviews_list'),
-  feralLoraReviewResolve: (cardId: string, action: 'approve' | 'reject') =>
-    invoke<void>('feral_lora_review_resolve', { cardId, action }),
+  cinderpawLoraReviewsList:   () => invoke<void>('cinderpaw_lora_reviews_list'),
+  cinderpawLoraReviewResolve: (cardId: string, action: 'approve' | 'reject') =>
+    invoke<void>('cinderpaw_lora_review_resolve', { cardId, action }),
   // Agent Cowork S4 — approval gate. Fire-and-forget; the sidecar acks by
   // emitting the terminal cowork_event (approval_approved / approval_denied),
   // which is also what closes the chat bubble.
-  feralCoworkApprovalResolve: (requestId: string, action: 'approve' | 'reject') =>
-    invoke<void>('feral_cowork_approval_resolve', { requestId, action }),
+  cinderpawCoworkApprovalResolve: (requestId: string, action: 'approve' | 'reject') =>
+    invoke<void>('cinderpaw_cowork_approval_resolve', { requestId, action }),
   /** Agent Cowork S6 — write straight to a teammate's inbox from the panel,
    *  without asking the main agent to retype what the person already wrote. */
   /** Agent Cowork S6 — replay one chat's teammate traffic. The answer
    *  arrives as a `cowork_history_result` event, paired by thread id. */
-  feralCoworkHistory: (threadId?: string | null) =>
-    invoke<void>('feral_cowork_history', { threadId: threadId ?? null }),
-  feralCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
-    invoke<void>('feral_cowork_send_message', {
+  cinderpawCoworkHistory: (threadId?: string | null) =>
+    invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
+  cinderpawCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
+    invoke<void>('cinderpaw_cowork_send_message', {
       toAgentId,
       body,
       threadId: threadId ?? null,
     }),
-  feralLoraTrain:         (domain?: string) =>
-    invoke<void>('feral_lora_train', { domain: domain ?? null }),
+  cinderpawLoraTrain:         (domain?: string) =>
+    invoke<void>('cinderpaw_lora_train', { domain: domain ?? null }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
   whisperModelPresent:      (modelSize: string) =>
@@ -1154,23 +1154,23 @@ export const tauri = {
     pairPoll:   async (id: string) => raw.connectorPairPoll(id),
   },
 
-  feralAgent: {
+  cinderpawAgent: {
     sendMessage: async (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
-      raw.feralSendMessage(content, sessionId, images, inferParams),
-    status:      async () => raw.feralAgentStatus(),
-    stop:        async (sessionId?: string) => raw.feralStopGeneration(sessionId ?? null),
+      raw.cinderpawSendMessage(content, sessionId, images, inferParams),
+    status:      async () => raw.cinderpawAgentStatus(),
+    stop:        async (sessionId?: string) => raw.cinderpawStopGeneration(sessionId ?? null),
     /** Agent Cowork S4 — answer an approval request rendered in chat. The
      *  sidecar acks via the terminal cowork_event for that requestId. */
     coworkApprovalResolve: async (requestId: string, approve: boolean) =>
-      raw.feralCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
-    coworkHistory: async (threadId?: string | null) => raw.feralCoworkHistory(threadId ?? null),
+      raw.cinderpawCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
+    coworkHistory: async (threadId?: string | null) => raw.cinderpawCoworkHistory(threadId ?? null),
     coworkSendMessage: async (toAgentId: string, body: string, threadId?: string) =>
-      raw.feralCoworkSendMessage(toAgentId, body, threadId),
+      raw.cinderpawCoworkSendMessage(toAgentId, body, threadId),
     /** Abort a teammate's in-flight turn. A cowork turn runs under the session
      *  `cowork:<agentId>`, so the existing stop path already reaches it — no
      *  second mechanism, and it stops exactly one teammate rather than the
      *  user's own chat. */
-    coworkStop: async (agentId: string) => raw.feralStopGeneration(`cowork:${agentId}`),
+    coworkStop: async (agentId: string) => raw.cinderpawStopGeneration(`cowork:${agentId}`),
   },
 
   rsi: {
@@ -1189,30 +1189,30 @@ export const tauri = {
     /** Faza 6 (L6) Meta Evolution — status / evolve / rollback / history.
      *  Reply arrives async via `events.onMetaResult`. */
     meta:            async (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-      raw.feralMeta(op),
+      raw.cinderpawMeta(op),
     /** Slice A6 (L5 Governance) — safety-rules card + approval inbox.
      *  Reply arrives async via `events.onGovernanceResult`. */
     governance:      async (op: 'status' | 'verify' | 'approve' | 'reject', args?: { policyId?: string; reason?: string }) =>
-      raw.feralGovernance(op, args?.policyId, args?.reason),
+      raw.cinderpawGovernance(op, args?.policyId, args?.reason),
     /** Phase B (L4 Architecture Evolution) — the Architecture card.
      *  Reply arrives async via `events.onModulesResult`. */
     modules:         async (op: 'list' | 'approve' | 'reject' | 'demote', args?: { moduleId?: string; seam?: string; note?: string }) =>
-      raw.feralModules(op, args?.moduleId, args?.seam, args?.note),
+      raw.cinderpawModules(op, args?.moduleId, args?.seam, args?.note),
     /** Faza 2 Slice 5 — ask the sidecar for the pending code-patch queue.
      *  The full snapshot arrives async via `events.onCodePatches`. */
-    codePatchesList: async () => raw.feralCodePatchesList(),
+    codePatchesList: async () => raw.cinderpawCodePatchesList(),
     /** Faza 2 Slice 5 — approve or reject one pending patch. The sidecar
      *  acks via `code_patch_resolved` and re-emits `code_patches`. */
     codePatchResolve: async (patchId: string, action: 'approve' | 'reject') =>
-      raw.feralCodePatchResolve(patchId, action),
+      raw.cinderpawCodePatchResolve(patchId, action),
     /** Faza 4 (L2 LoRA) — ask for the review inbox; snapshot arrives via
      *  `events.onLoraReviews`. */
-    loraReviewsList: async () => raw.feralLoraReviewsList(),
+    loraReviewsList: async () => raw.cinderpawLoraReviewsList(),
     /** Faza 4 — approve (promote + apply live) or reject one review card. */
     loraReviewResolve: async (cardId: string, action: 'approve' | 'reject') =>
-      raw.feralLoraReviewResolve(cardId, action),
+      raw.cinderpawLoraReviewResolve(cardId, action),
     /** Faza 4 — run one training cycle; outcome via `events.onLoraTrainResult`. */
-    loraTrain: async (domain?: string) => raw.feralLoraTrain(domain),
+    loraTrain: async (domain?: string) => raw.cinderpawLoraTrain(domain),
   },
 
   agents: {

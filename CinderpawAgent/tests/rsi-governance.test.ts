@@ -33,7 +33,7 @@ import {
 } from "../src/rsi/l5-gov/governance.ts";
 
 function freshDir(): string {
-  return mkdtempSync(join(tmpdir(), "feral-gov-"));
+  return mkdtempSync(join(tmpdir(), "cinderpaw-gov-"));
 }
 
 /** A fully-valid policy document (the spec §2.1 example, gp-7). */

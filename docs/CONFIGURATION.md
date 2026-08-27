@@ -1,16 +1,16 @@
-# FERAL configuration reference
+# CINDERPAW configuration reference
 
 > **Audience:** operators, integrators, and security reviewers. End users
 > who only want the wizard-driven experience can stop after §1.
 >
 > **Machine-checked:** the canonical list of `CINDERPAW_*` env vars lives
-> in the fenced `feral-env-vars` block at the bottom of this file.
+> in the fenced `cinderpaw-env-vars` block at the bottom of this file.
 > `scripts/check-env-docs.mjs` greps source for `CINDERPAW_*` and fails if
 > anything in code is missing from that block (or vice-versa). Run it
 > after adding a new env var.
 
 Cinderpaw reads ~90 env vars across two runtimes (the Rust host
-`crates/feral-core` and the TypeScript sidecar `CinderpawAgent/`). This
+`crates/cinderpaw-core` and the TypeScript sidecar `CinderpawAgent/`). This
 document lists every one, the default, the read site, and — for the
 security-relevant ones — an explicit threat note.
 
@@ -100,7 +100,7 @@ There are **two** env vars with confusingly similar names. They are
 
 | Var | Runtime | Type | Default | Effect |
 |---|---|---|---|---|
-| `CINDERPAW_AGENT_WORKSPACE` | Rust host (`crates/feral-core`) | single absolute path | unset | Sidecar-internal Rust tools (e.g. raw FS access) accept absolute paths only under this single root. |
+| `CINDERPAW_AGENT_WORKSPACE` | Rust host (`crates/cinderpaw-core`) | single absolute path | unset | Sidecar-internal Rust tools (e.g. raw FS access) accept absolute paths only under this single root. |
 | `CINDERPAW_WORKSPACE` | TS sidecar (`CinderpawAgent/src/boot.ts` `loadWorkspaceRoots`) | path-list | launch cwd + home + scratch | Write tools and the agent's filesystem exposure are rooted at this list, plus an automatic scratch dir. `~/.cinderpaw`/`~/.ssh`/`CINDERPAW_FS_DENY` are denied at call time regardless. |
 
 If you set one and meant the other, the agent will fail in confusing
@@ -129,7 +129,7 @@ Rust-side vars (`CINDERPAW_ENABLE_CODE_EXEC`, `CINDERPAW_AGENT_WORKSPACE`,
 `CINDERPAW_DISCORD_CLIENT_ID`, `CINDERPAW_STT_PROBE` (a `.webm` path for the ignored
 `probe_whisper_prompt` test, which re-transcribes one stored recording with and
 without the vocabulary prompt — the open question of why English speech
-occasionally comes back as fluent Romanian), and others in `crates/feral-core` /
+occasionally comes back as fluent Romanian), and others in `crates/cinderpaw-core` /
 `src-tauri/src`)
 are NOT read by `CinderpawAgent/src` and so are out of scope for `config.ts`;
 they remain hand-maintained here and are still covered by
@@ -307,7 +307,7 @@ it from the voice settings in the app.
 
 - *"Positive integer only"* means the perf-policy reader parses a
   `u64` and rejects zero and non-numeric strings. See
-  `crates/feral-core/src/perf_policy.rs::read_env_optional`.
+  `crates/cinderpaw-core/src/perf_policy.rs::read_env_optional`.
 - *"Must be absolute"* — `CINDERPAW_AGENT_WORKSPACE` only accepts absolute
   paths; relative paths log a warning and the value is ignored.
 - All defaults reflect a *single-user, fully-local* install. The
@@ -323,7 +323,7 @@ it from the voice settings in the app.
      parses ONLY this block; do not list vars anywhere else in this
      file without mirroring them here. -->
 
-```feral-env-vars
+```cinderpaw-env-vars
 CINDERPAW_AGENT_BASE_PROMPT
 CINDERPAW_AGENT_WORKSPACE
 CINDERPAW_API_KEY

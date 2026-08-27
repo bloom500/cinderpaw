@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, feralHome, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
+import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -83,7 +83,7 @@ import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { createListSkillsTool } from "./tools/builtin/list-skills.ts";
 import { createCapabilityTools } from "./tools/builtin/capability.ts";
-import { createFeralAdminTools } from "./tools/builtin/cinderpaw-admin.ts";
+import { createCinderpawAdminTools } from "./tools/builtin/cinderpaw-admin.ts";
 import { createProductInfoTool } from "./tools/builtin/product-info.ts";
 import { createCodeQualityTool } from "./tools/builtin/code-quality.ts";
 import { ToolObservationLog } from "./telemetry/tool-observations.ts";
@@ -172,7 +172,7 @@ interface AppConfig {
 }
 
 /** The agent's own home: RSI git substrate, SQLite db, SOUL/identity. */
-const CINDERPAW_HOME = feralHome();
+const CINDERPAW_HOME = cinderpawHome();
 
 /**
  * Sidecar version, surfaced verbatim in the runtime identity doc emitted
@@ -220,13 +220,13 @@ const CLOUD_REBUILD_LEAF_CAP = 200;
  *   unset it defaults to the launch cwd PLUS the user's home directory — the
  *   agent is a local assistant and should be able to work anywhere the user
  *   can, not just in one project folder. Set CINDERPAW_WORKSPACE to RESTRICT.
- * - A dedicated scratch dir under ~/.feral/workspace is ALWAYS added, so a
+ * - A dedicated scratch dir under ~/.cinderpaw/workspace is ALWAYS added, so a
  *   task always has somewhere it fully owns to read/write even if cwd is
  *   read-only.
  * - Self-protection wall: broad roots are fine because the real guarantee
  *   moved to CALL TIME — resolveAllowedPath (tool-permissions.ts) denies any
- *   target inside ~/.feral (except scratch), ~/.ssh, or CINDERPAW_FS_DENY on every
- *   single access. Here we only drop roots that sit ENTIRELY inside ~/.feral
+ *   target inside ~/.cinderpaw (except scratch), ~/.ssh, or CINDERPAW_FS_DENY on every
+ *   single access. Here we only drop roots that sit ENTIRELY inside ~/.cinderpaw
  *   (every call through them would fail anyway — better to warn at boot).
  */
 
@@ -255,11 +255,11 @@ export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
   roots.push(scratch);
 
   const guarded = roots.filter((r) => {
-    if (isWithin(r, scratch)) return true; // scratch subtree — the one allowed path under ~/.feral
-    // Only drop roots that sit INSIDE ~/.feral (RSI repo, db, SOUL): every
+    if (isWithin(r, scratch)) return true; // scratch subtree — the one allowed path under ~/.cinderpaw
+    // Only drop roots that sit INSIDE ~/.cinderpaw (RSI repo, db, SOUL): every
     // access through them would be refused by the call-time deny wall in
     // resolveAllowedPath, so registering them just produces confusing tools.
-    // Ancestors of ~/.feral (home, drive root) are ALLOWED — the deny wall
+    // Ancestors of ~/.cinderpaw (home, drive root) are ALLOWED — the deny wall
     // guards the brain per-access, not per-root.
     // Both profile dirs: the rename migration never deletes ~/.feral, so on a
     // migrated machine it still holds agent state and the call-time deny wall
@@ -425,12 +425,12 @@ export async function boot(transportOverride?: Transport) {
   // --- RSI bootstrap (Faza 0 — Keystone) ---
   // Boot the Bounded-RSI substrate. Two slices, two owners:
   //
-  //   - Rust slice (git repo at ~/.feral/rsi/, PLAN.md, SandboxBounds,
+  //   - Rust slice (git repo at ~/.cinderpaw/rsi/, PLAN.md, SandboxBounds,
   //     audit chain) — bootstrapped by Tauri's `setup()` hook in
   //     src-tauri/src/lib.rs BEFORE the sidecar process spawns. By
   //     the time we reach this line, that slice is already live.
   //
-  //   - Sidecar slice (5 tables in feral.db, 4 initial
+  //   - Sidecar slice (5 tables in cinderpaw.db, 4 initial
   //     strategy-genomes) — bootstrapped here. Idempotent: re-running
   //     is a no-op.
   //
@@ -458,7 +458,7 @@ export async function boot(transportOverride?: Transport) {
   log(`soul loaded — source=${soul.source} version=${soul.version} ` +
     `~${soul.approxTokens.toLocaleString()} tokens`);
 
-  // --- Personalization: read ~/.feral/onboarding.json (written by the React
+  // --- Personalization: read ~/.cinderpaw/onboarding.json (written by the React
   // onboarding wizard). The userName and agentName are injected as a USER
   // block in the system prompt so the model uses them in replies. If no
   // record exists yet (user skipped onboarding), the block is omitted and
@@ -510,7 +510,7 @@ export async function boot(transportOverride?: Transport) {
   if (benchRun !== null) {
     const benchHosts = cfgList("CINDERPAW_BENCHMARK_ALLOW_HOSTS");
     log(`BENCHMARK MODE: run "${benchRun}"`);
-    log(`  data dir: ${feralHome()}  (isolated from other runs — invariant I13)`);
+    log(`  data dir: ${cinderpawHome()}  (isolated from other runs — invariant I13)`);
     log(
       benchHosts.length === 0
         ? "  network: NOTHING is reachable — CINDERPAW_BENCHMARK_ALLOW_HOSTS is empty"
@@ -845,7 +845,7 @@ export async function boot(transportOverride?: Transport) {
   for (const t of createCapabilityTools()) registry.register(t);
   // The act half of the CLI — update, switch model. Registered alongside the
   // read-only self_* family so the agent has one obvious place to look.
-  for (const t of createFeralAdminTools()) registry.register(t);
+  for (const t of createCinderpawAdminTools()) registry.register(t);
   // product_info: bundled PRODUCT.md — the agent's factual reference about
   // Cinderpaw itself (setup, connectors, commands). Zero permissions.
   registry.register(createProductInfoTool());
@@ -965,7 +965,7 @@ export async function boot(transportOverride?: Transport) {
       // Snapshots live beside the agent's other state so a notebook survives a
       // gateway restart — upstream persists its kernel namespace for the same
       // reason. Only JSON-round-trippable variables come back; see repl.ts.
-      stateDir: join(feralHome(), "notebooks"),
+      stateDir: join(cinderpawHome(), "notebooks"),
       // Worker telemetry out to the UI. `sendHolder` rather than the turn's
       // emitter: by the time a child does anything, the turn that spawned it
       // has ended — that is what `rlm()` is for.
@@ -1014,7 +1014,7 @@ export async function boot(transportOverride?: Transport) {
   // persona). They are registered globally but only EXPOSED to the public
   // profile (see PUBLIC_ALLOWED_TOOLS in transports/connectors.ts). The shared
   // LeadDesk lets escalate/schedule reach the live connector (owner ping +
-  // conversation pause); records land under ~/.feral/leads/.
+  // conversation pause); records land under ~/.cinderpaw/leads/.
   const leadsDir = join(CINDERPAW_HOME, "leads");
   const leadDesk = new LeadDesk();
   registry.register(createCaptureLeadTool(leadsDir));
@@ -1817,7 +1817,7 @@ export async function boot(transportOverride?: Transport) {
     send: (e) => transport.send(e),
     telemetryPath: dreamTelemetryPath,
     // BRSI §2.9 Evolution Journal: per-day rotating file under the
-    // per-instance ~/.feral/rsi/journal dir. Resolved per write so a
+    // per-instance ~/.cinderpaw/rsi/journal dir. Resolved per write so a
     // process spanning UTC midnight rolls to the next day's file.
     journalPath: () => defaultJournalPath(),
     // BRSI §2.5: report honest remaining budget against the same limits
@@ -1963,7 +1963,7 @@ export async function boot(transportOverride?: Transport) {
   const dream = dreamCycle.arm(rsiSidecar, episodeOpts);
 
   // Connector Surface (inbound): Discord/Telegram/… share this one agent.
-  // The host writes ~/.feral/connectors.json and pokes us with
+  // The host writes ~/.cinderpaw/connectors.json and pokes us with
   // `connectors_reload`; reconcile here. Started in onReady once the agent and
   // tools are fully wired.
   /**
@@ -2071,7 +2071,7 @@ export async function boot(transportOverride?: Transport) {
   askUser.setDelegate(connectors.askRouter);
 
   // connectors_manage — the agent's self-service door for connecting itself
-  // to Discord/Slack/WhatsApp on user request. Writes ~/.feral/connectors.json
+  // to Discord/Slack/WhatsApp on user request. Writes ~/.cinderpaw/connectors.json
   // (the one deliberate exception to the deny wall) and hot-reloads the manager.
   registry.register(createConnectorsManageTool(connectors));
 

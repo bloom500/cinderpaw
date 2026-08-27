@@ -18,7 +18,7 @@ The AES-256-GCM key that encrypts the `semantic.value` column at rest.
 
 | Where                                                | Op  | What                                                                  |
 |------------------------------------------------------|-----|-----------------------------------------------------------------------|
-| `src-tauri/src/db_key.rs:18-20`                      | WR+RD | `keyring::Entry::new("ai.bloom.feral.dbkey", "semantic")` — namespace |
+| `src-tauri/src/db_key.rs:18-20`                      | WR+RD | `keyring::Entry::new("ai.bloom.cinderpaw.dbkey", "semantic")` — namespace |
 | `src-tauri/src/db_key.rs:29`                         | RD  | `e.get_password()` — read existing key from keychain                  |
 | `src-tauri/src/db_key.rs:36-39`                      | WR  | `getrandom::getrandom(&mut buf)` — generate 32 random bytes           |
 | `src-tauri/src/db_key.rs:40`                         | WR  | `e.set_password(&b64)` — persist new key                              |
@@ -54,7 +54,7 @@ Also includes the STT key for cloud transcription.
 
 | Where                                         | Op  | What                                                                  |
 |-----------------------------------------------|-----|-----------------------------------------------------------------------|
-| `src-tauri/src/byok.rs:213-218`               | WR+RD | `KEYCHAIN_SERVICE = "ai.bloom.feral.byok"`; `keyring::Entry::new(...)` |
+| `src-tauri/src/byok.rs:213-218`               | WR+RD | `KEYCHAIN_SERVICE = "ai.bloom.cinderpaw.byok"`; `keyring::Entry::new(...)` |
 | `src-tauri/src/byok.rs:222-225`               | WR  | `byok_set(provider_id, key)` → `set_password(key)`                     |
 | `src-tauri/src/byok.rs:228-233`               | WR  | `clear_key(provider_id)` → `delete_credential()`                       |
 | `src-tauri/src/byok.rs:237-242`               | RD  | `byok_get(provider_id)` → `get_password()`                             |
@@ -64,8 +64,8 @@ Also includes the STT key for cloud transcription.
 | `src-tauri/src/byok.rs:289-296`               | WR  | `save()` → `byok_set` per provider + `write_metadata`                  |
 | `src-tauri/src/byok.rs:302-310`               | WR  | `remove_provider()` → `clear_key` + flip `enabled=false` in metadata   |
 | `src-tauri/src/byok.rs:323-326`               | WR  | `write_metadata()` → `byok.json` (api_key is `skip_serializing`)       |
-| `crates/feral-core/src/byok.rs:506-518`       | WR  | `save_provider(id, config)` — Phase 0b (2026-07-07) single-provider write used by `/runtime/byok/save`. Empty `api_key` skips the keychain write; metadata still goes to byok.json. Wraps `byok_set` + `load_metadata` + `write_metadata`. |
-| `crates/feral-core/src/api.rs:1030-1108`      | WR+RD | `POST /runtime/byok/save` (Phase 0b) — headless wizard's atomic key+metadata write. Body `{provider_id, enabled, api_key, base_url?, default_model?}`. Empty `api_key` is the explicit "leave keychain entry untouched" path. Walks the `anyhow::Error` chain to classify `keyring::Error` variants into typed 4xx (Bad Request for `TooLong`/`Invalid`) or 5xx (Service Unavailable for `NoStorageAccess`/`PlatformFailure`). Response never echoes the key. |
+| `crates/cinderpaw-core/src/byok.rs:506-518`       | WR  | `save_provider(id, config)` — Phase 0b (2026-07-07) single-provider write used by `/runtime/byok/save`. Empty `api_key` skips the keychain write; metadata still goes to byok.json. Wraps `byok_set` + `load_metadata` + `write_metadata`. |
+| `crates/cinderpaw-core/src/api.rs:1030-1108`      | WR+RD | `POST /runtime/byok/save` (Phase 0b) — headless wizard's atomic key+metadata write. Body `{provider_id, enabled, api_key, base_url?, default_model?}`. Empty `api_key` is the explicit "leave keychain entry untouched" path. Walks the `anyhow::Error` chain to classify `keyring::Error` variants into typed 4xx (Bad Request for `TooLong`/`Invalid`) or 5xx (Service Unavailable for `NoStorageAccess`/`PlatformFailure`). Response never echoes the key. |
 | `tui/api/client.go:525-619`                   | WR+RD+NET | `SaveByokKey(baseURL, token, providerID, apiKey, baseURLOpt, defaultModelOpt)` — Phase 0b TUI client. POSTs to `/runtime/byok/save`. Bearer-token auth. `api_key` reaches the server verbatim (over loopback bearer-gated channel) and is never logged or surfaced in the typed result. Optional fields omitted via `*string` nil. |
 | `tui/app/update.go:1689-1759`                 | WR+RD+NET | `saveCloudProvider()` — wired (Phase 0b) so the validated wizard state is persisted through one atomic `SaveByokKey` call (key + metadata) before `SetModel` flips the runtime to the chosen provider. Empty-key guard rejects early. |
 | `src-tauri/src/lib.rs:1532`                   | RD+NET | `byok::byok_get(&provider)` then `Authorization: Bearer …` to Groq     |
@@ -126,8 +126,8 @@ paths** — they are public-content fetches. Listed for completeness so a future
 | `src-tauri/src/models.rs:174`               | `https://huggingface.co/{repo}/resolve/main/{file}`        | GET — download GGUF model                       |
 | `src-tauri/src/tools.rs:140-167`            | `https://{searx_instance}/search?q=…`                      | GET — web search tool (SearXNG, no auth)        |
 | `src-tauri/src/tools.rs:477-524`            | arbitrary `https://` (user-supplied, agent-tool)           | GET/POST — `http_request` tool (SSRF-guarded)    |
-| `src-tauri/src/skills.rs:233-237`           | `https://raw.githubusercontent.com/bloom500/feral/main/…`  | GET — GitHub skills manifest                     |
-| `src-tauri/src/skills.rs:271-275`           | `https://raw.githubusercontent.com/bloom500/feral/main/…`  | GET — community skills manifest                  |
+| `src-tauri/src/skills.rs:233-237`           | `https://raw.githubusercontent.com/bloom500/cinderpaw/main/…`  | GET — GitHub skills manifest                     |
+| `src-tauri/src/skills.rs:271-275`           | `https://raw.githubusercontent.com/bloom500/cinderpaw/main/…`  | GET — community skills manifest                  |
 | `src-tauri/src/skills.rs:307-309`           | `https://{allowed_host}/…` (skill preview)                 | GET — fetch SKILL.md (host allow-listed)        |
 | `src-tauri/src/cinderpaw_agent.rs:185`          | (sidecar → external, see `connectors.rs`)                  | connector outbound (Slack/Discord/etc., no auth at this layer) |
 

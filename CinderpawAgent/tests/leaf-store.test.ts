@@ -42,7 +42,7 @@ function rec(id: number, over: Partial<LeafRecord> = {}): LeafRecord {
 
 describe("LeafStore", () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "feral-leafstore-")); });
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "cinderpaw-leafstore-")); });
   afterEach(() => { if (existsSync(dir)) rmSync(dir, { recursive: true, force: true }); });
 
   const path = () => join(dir, "fractal-leaves.jsonl");

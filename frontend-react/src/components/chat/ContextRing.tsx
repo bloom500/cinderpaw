@@ -18,12 +18,12 @@ export function ContextRing() {
   const isAgentMode         = useUI((s) => s.inputMode) === 'agent';
   const loaded              = useModel((s) => s.loaded);
   const cloudModel          = useModel((s) => s.cloudModel);
-  const feralConfig         = useCinderpawStore((s) => s.modelConfig);
+  const cinderpawConfig         = useCinderpawStore((s) => s.modelConfig);
 
   const { used, ctxWindow, pct, modelName, remaining, isLive } = useMemo(() => {
     const { model, ctxWindow } = activeContextWindow({
       isAgentMode,
-      feralConfig,
+      cinderpawConfig,
       cloudModel,
       loaded,
     });
@@ -45,7 +45,7 @@ export function ContextRing() {
     const pct = ctxWindow > 0 ? Math.min(1, used / ctxWindow) : 0;
     const remaining = estimateRemaining(ctxWindow, used, messages.length);
     return { used, ctxWindow, pct, modelName: model ?? 'Unknown', remaining, isLive };
-  }, [messages, livePromptTokens, liveCompletionTokens, isAgentMode, feralConfig, cloudModel, loaded]);
+  }, [messages, livePromptTokens, liveCompletionTokens, isAgentMode, cinderpawConfig, cloudModel, loaded]);
 
   if (messages.length === 0) return null;
 

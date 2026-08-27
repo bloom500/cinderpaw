@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * build-sidecar.mjs — rebuild the Feral Agent sidecar and copy it to
+ * build-sidecar.mjs — rebuild the Cinderpaw Agent sidecar and copy it to
  * src-tauri/binaries/ for the Tauri dev/build step to pick up.
  *
  * D1 fix: previously every TypeScript change in CinderpawAgent/ required a

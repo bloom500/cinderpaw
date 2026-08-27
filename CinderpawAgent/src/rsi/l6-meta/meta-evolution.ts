@@ -315,7 +315,7 @@ interface MetaState {
 }
 
 export interface MetaEvolutionOpts {
-  /** State dir override (tests). Default: `~/.feral/rsi/`. */
+  /** State dir override (tests). Default: `~/.cinderpaw/rsi/`. */
   dir?: string;
   now?: () => number;
   /** Journal window reader override (tests). Default: last 7 UTC days
@@ -432,7 +432,7 @@ export class MetaEvolution {
     return this.state.genome;
   }
 
-  /** Snapshot for `feral meta status` / GET /meta/current: genome,
+  /** Snapshot for `cinderpaw meta status` / GET /meta/current: genome,
    *  generation, live fitness-so-far, and whether a candidate is pending. */
   status(): MetaResultPayload {
     const fitness = metaFitness(this.readWindowEx(this.state.deployedAt).entries);

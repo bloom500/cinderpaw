@@ -6,7 +6,7 @@
 //! `Error::PlatformFailure` and `byok::byok_set` would otherwise 500 the
 //! `/runtime/setup/verify` route. This module is the targeted fallback for
 //! exactly that case: an AES-256-GCM encrypted key/value store on disk under
-//! `~/.feral/byok.keys`, chmod 0o600, that the keychain path delegates to
+//! `~/.cinderpaw/byok.keys`, chmod 0o600, that the keychain path delegates to
 //! transparently when the OS keychain is unreachable.
 //!
 //! **Scope is Linux-only.** Windows ships Credential Manager and macOS
@@ -36,8 +36,8 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use hkdf::Hkdf;
 use sha2::Sha256;
 
-/// File name (lives at `~/.feral/byok.keys`). Kept distinct from `byok.json`
-/// so a casual `cat ~/.feral/byok.json` never reveals a secret, even if
+/// File name (lives at `~/.cinderpaw/byok.keys`). Kept distinct from `byok.json`
+/// so a casual `cat ~/.cinderpaw/byok.json` never reveals a secret, even if
 /// the caller forgets the encryption contract.
 const FILE_NAME: &str = "byok.keys";
 
@@ -59,7 +59,7 @@ fn master_key() -> [u8; 32] {
         // keys written on this box can still be read back. NOT a defense
         // against a determined attacker; this branch is a "we still work
         // on weird images" fallback, not a security claim.
-        b"feral-no-machine-id-sentinel".as_slice()
+        b"cinderpaw-no-machine-id-sentinel".as_slice()
     } else {
         machine_id.as_bytes()
     };
@@ -86,7 +86,7 @@ fn read_machine_id() -> Option<String> {
 }
 
 fn file_path() -> PathBuf {
-    crate::paths::feral_dir().join(FILE_NAME)
+    crate::paths::cinderpaw_dir().join(FILE_NAME)
 }
 
 /// Loads the in-memory map from disk. A missing or unparseable file is
@@ -173,8 +173,8 @@ pub fn file_clear(provider_id: &str) -> anyhow::Result<()> {
 
 /// True when this fallback has ever been used on this machine — i.e. at
 /// least one key was written through the file path. Surfaced in
-/// `feral doctor` so the operator sees "your keys are at-rest-encrypted on
-/// disk, not in the OS keychain" without having to `ls ~/.feral/`.
+/// `cinderpaw doctor` so the operator sees "your keys are at-rest-encrypted on
+/// disk, not in the OS keychain" without having to `ls ~/.cinderpaw/`.
 pub fn file_store_used() -> bool {
     file_path().exists()
 }
@@ -190,13 +190,13 @@ mod tests {
     /// ran in parallel threads of the same process, each pointing `CINDERPAW_HOME`
     /// somewhere else: the byok tests read keys back out of a directory the RSI
     /// tests had just swapped away, and the RSI tests fell through to the real
-    /// `~/.feral` and failed to find a repo there on any machine that didn't
-    /// already have one. Green on a developer box with a populated `~/.feral`,
+    /// `~/.cinderpaw` and failed to find a repo there on any machine that didn't
+    /// already have one. Green on a developer box with a populated `~/.cinderpaw`,
     /// red on a fresh CI runner.
     ///
     /// There is exactly one such lock now, in `rsi::test_support`.
     fn with_temp_home<R>(f: impl FnOnce() -> R) -> R {
-        crate::rsi::test_support::with_temp_feral_home(|_| f())
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_| f())
     }
 
     #[test]

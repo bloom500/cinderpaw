@@ -56,7 +56,7 @@ describe("resolving the mode", () => {
     // before spawning it, so changing one needs a host rebuild AND a restart.
     // That made "read-only for a public connector" a per-launch ceremony nobody
     // would perform. The process that ENFORCES the mode reads it instead.
-    const home = await mkdtemp(join(tmpdir(), "feral-mode-"));
+    const home = await mkdtemp(join(tmpdir(), "cinderpaw-mode-"));
     process.env.CINDERPAW_HOME = home;
     delete process.env.CINDERPAW_PERMISSION_MODE;
     try {
@@ -86,7 +86,7 @@ describe("resolving the mode", () => {
 describe("read-only mode", () => {
   test("reads run, writes do not — and the refusal says which is which", async () => {
     process.env.CINDERPAW_PERMISSION_MODE = "read_only";
-    const root = await mkdtemp(join(tmpdir(), "feral-ro-"));
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-ro-"));
     const tool = createShellExecTool([root]);
 
     const read = ctxFor(tool);
@@ -102,7 +102,7 @@ describe("read-only mode", () => {
 
   test("the file tools are covered too, at the shared gate", async () => {
     process.env.CINDERPAW_PERMISSION_MODE = "read_only";
-    const root = await mkdtemp(join(tmpdir(), "feral-ro-fs-"));
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-ro-fs-"));
     const tool = createWriteFileTool([root]);
     const { ctx } = ctxFor(tool);
 
@@ -116,7 +116,7 @@ describe("read-only mode", () => {
 
   test("an unclassifiable binary is refused rather than assumed harmless", async () => {
     process.env.CINDERPAW_PERMISSION_MODE = "read_only";
-    const root = await mkdtemp(join(tmpdir(), "feral-ro-unk-"));
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-ro-unk-"));
     const tool = createShellExecTool([root]);
     const { ctx, state } = ctxFor(tool);
     const result = await tool.execute({ argv: ["sh", "-c", "some-unknown-tool --go"] }, ctx);
@@ -131,7 +131,7 @@ describe("destruction outside the workspace is a human's call", () => {
   test("with nobody to ask, it refuses instead of approving itself", async () => {
     process.env.CINDERPAW_PERMISSION_MODE = "workspace_write";
     process.env.CINDERPAW_AUTONOMOUS = "true";
-    const root = await mkdtemp(join(tmpdir(), "feral-warn-"));
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-warn-"));
     const tool = createShellExecTool([root]);
     // A bridge EXISTS — walk-away mode is what makes it unusable for this
     // class of question, which is the case that would otherwise auto-approve.
@@ -146,7 +146,7 @@ describe("destruction outside the workspace is a human's call", () => {
   test("asked and declined: nothing runs", async () => {
     process.env.CINDERPAW_PERMISSION_MODE = "workspace_write";
     delete process.env.CINDERPAW_AUTONOMOUS;
-    const root = await mkdtemp(join(tmpdir(), "feral-warn-no-"));
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-warn-no-"));
     const tool = createShellExecTool([root]);
     const { ctx, state } = ctxFor(tool, {
       ask: async () => [{ question: "", selected: ["No, skip it"] }],
@@ -160,7 +160,7 @@ describe("destruction outside the workspace is a human's call", () => {
   test("asked and approved: it runs", async () => {
     process.env.CINDERPAW_PERMISSION_MODE = "workspace_write";
     delete process.env.CINDERPAW_AUTONOMOUS;
-    const root = await mkdtemp(join(tmpdir(), "feral-warn-yes-"));
+    const root = await mkdtemp(join(tmpdir(), "cinderpaw-warn-yes-"));
     const tool = createShellExecTool([root]);
     let asked = 0;
     const { ctx, state } = ctxFor(tool, {

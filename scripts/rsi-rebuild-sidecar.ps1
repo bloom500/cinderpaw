@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Rebuild the Feral Agent sidecar after a code-RSI patch is applied.
+    Rebuild the Cinderpaw Agent sidecar after a code-RSI patch is applied.
 
 .DESCRIPTION
     Faza 3 — Slice 2 ("closing the loop"): after `applyPatchLive`
@@ -17,13 +17,13 @@
       3. Runs `bun run build` in <RepoRoot>\CinderpawAgent. Any non-zero
          exit propagates as exit 1.
       4. Copies the freshly built binary
-         (<RepoRoot>\CinderpawAgent\dist\feral-agent.exe) over the
+         (<RepoRoot>\CinderpawAgent\dist\cinderpaw-agent.exe) over the
          Tauri externalBin target
-         (<RepoRoot>\src-tauri\binaries\feral-agent-<target-triple>).
+         (<RepoRoot>\src-tauri\binaries\cinderpaw-agent-<target-triple>).
          On Windows the triple is `x86_64-pc-windows-msvc.exe`.
       5. Exits 0 with the absolute path of the binary it wrote.
 
-    The script is intentionally Windows-first: Feral is shipped as a
+    The script is intentionally Windows-first: Cinderpaw is shipped as a
     Windows desktop app, and the patch-applied-on-source → agent-becomes-
     patched loop is a developer-machine story (user machines are
     explicitly deferred per the Faza 3 spec).
@@ -37,7 +37,7 @@
     Runs with the default repo root inferred from the script location.
 
 .EXAMPLE
-    pwsh -File scripts/rsi-rebuild-sidecar.ps1 -RepoRoot D:\FeralLocalAI
+    pwsh -File scripts/rsi-rebuild-sidecar.ps1 -RepoRoot D:\CinderpawLocalAI
     Runs against an explicit repo root.
 #>
 [CmdletBinding()]
@@ -51,10 +51,10 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 }
 
-$feralAgentDir = Join-Path $RepoRoot 'CinderpawAgent'
-$distExe       = Join-Path $feralAgentDir 'dist/feral-agent.exe'
+$cinderpawAgentDir = Join-Path $RepoRoot 'CinderpawAgent'
+$distExe       = Join-Path $cinderpawAgentDir 'dist/cinderpaw-agent.exe'
 $binariesDir   = Join-Path $RepoRoot 'src-tauri/binaries'
-$targetExe     = Join-Path $binariesDir 'feral-agent-x86_64-pc-windows-msvc.exe'
+$targetExe     = Join-Path $binariesDir 'cinderpaw-agent-x86_64-pc-windows-msvc.exe'
 
 function Write-Status {
     param([string]$Message)
@@ -70,8 +70,8 @@ if (-not $bun) {
 
 # 2. Sanity-check the repo layout. We deliberately fail loud here —
 # a missing CinderpawAgent/ is a build-script bug, not a toolchain gap.
-if (-not (Test-Path -LiteralPath $feralAgentDir)) {
-    Write-Status "FATAL: CinderpawAgent/ not found at $feralAgentDir. Repo root looks wrong."
+if (-not (Test-Path -LiteralPath $cinderpawAgentDir)) {
+    Write-Status "FATAL: CinderpawAgent/ not found at $cinderpawAgentDir. Repo root looks wrong."
     exit 1
 }
 
@@ -82,8 +82,8 @@ if (-not (Test-Path -LiteralPath $feralAgentDir)) {
 # than spawning a fresh pwsh) doesn't get its cwd stomped.
 $originalCwd = (Get-Location).ProviderPath
 try {
-    Set-Location -LiteralPath $feralAgentDir
-    Write-Status "running: bun run build (cwd=$feralAgentDir)"
+    Set-Location -LiteralPath $cinderpawAgentDir
+    Write-Status "running: bun run build (cwd=$cinderpawAgentDir)"
     & bun run build
     if ($LASTEXITCODE -ne 0) {
         Write-Status "FATAL: 'bun run build' exited with status $LASTEXITCODE"

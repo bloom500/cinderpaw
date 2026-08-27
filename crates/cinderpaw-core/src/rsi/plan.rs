@@ -1,5 +1,5 @@
 //! The versioned architectural plan, embedded as a Rust string and
-//! written into `~/.feral/rsi/PLAN.md` at bootstrap. The plan is also
+//! written into `~/.cinderpaw/rsi/PLAN.md` at bootstrap. The plan is also
 //! committed to the RSI git repo as the initial commit, so every
 //! future commit has a diff-able ancestor.
 //!
@@ -12,7 +12,7 @@
 
 /// The locked architectural plan. Mirrors the spec delivered by
 /// Opus. Kept here as a single `&'static str` so the `bootstrap`
-/// path can write it to `~/.feral/rsi/PLAN.md` and commit it without
+/// path can write it to `~/.cinderpaw/rsi/PLAN.md` and commit it without
 /// loading anything from disk.
 ///
 /// **DO NOT EDIT without a corresponding spec amendment.** The plan
@@ -57,7 +57,7 @@ code review.
 ## Git substrate
 
 ```
-~/.feral/rsi/   ← libgit2 via the git2 crate, vendored
+~/.cinderpaw/rsi/   ← libgit2 via the git2 crate, vendored
 ├── PLAN.md              ← read-only for agent, this file
 ├── eval/
 │   ├── tier0/           ← frozen permanent

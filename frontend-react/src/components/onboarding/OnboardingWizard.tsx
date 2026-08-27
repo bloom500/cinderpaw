@@ -458,8 +458,8 @@ export function ProviderStep() {
  * to choose, show what the machine already has — an enabled provider, a
  * GGUF on disk, an env API key, a running Ollama, or an OpenClaw config —
  * and verify the pick with a REAL completion before calling it ready.
- * The detection + persistence logic lives in feral-core (`setup_detect` /
- * `setup_verify`), the same ladder `feral setup` uses.
+ * The detection + persistence logic lives in cinderpaw-core (`setup_detect` /
+ * `setup_verify`), the same ladder `cinderpaw setup` uses.
  */
 function DetectedSection() {
   const [candidates, setCandidates] = useState<SetupCandidate[] | null>(null);
@@ -763,7 +763,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
     } catch (e) {
       // Surface the Rust error verbatim — bare `catch {}` swallowed the real
       // reason (keychain locked, disk full, permission denied on
-      // ~/.feral/byok.json). The wizard is often a user's first save attempt,
+      // ~/.cinderpaw/byok.json). The wizard is often a user's first save attempt,
       // so a helpful reason here saves the whole session.
       const reason = typeof e === 'string' ? e : (e as Error)?.message ?? String(e);
       setMsg({ ok: false, text: `Save failed: ${reason}` });

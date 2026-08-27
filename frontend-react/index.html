@@ -8,7 +8,7 @@
       Cinematic shell startup: a blocking, same-origin pre-paint script runs
       before the React module (CSP `script-src 'self'` — no inline JS). It
       reads the persisted `cinderpaw-ui` theme (falling back to the pre-rename
-      `feral-ui`) and stamps `data-theme` before the
+      `cinderpaw-ui`) and stamps `data-theme` before the
       first paint, so a cold start never shows the old white frame. The inline
       style below is allowed by the CSP's `style-src 'unsafe-inline'`.
     -->
@@ -34,7 +34,7 @@
           rendered statically so the first paint is the product, not a blank
           page. Layer order mirrors the app scene (globals.css): vignette →
           key light → grain → content. */
-      #feral-startup {
+      #cinderpaw-startup {
         position: fixed;
         inset: 0;
         z-index: 50;
@@ -51,45 +51,45 @@
            (Darius, 2026-08-24). The loading scene is its own scene. */
         background-color: #100E09;
       }
-      html[data-theme="light"] #feral-startup { background-color: #FFF5EE; }
+      html[data-theme="light"] #cinderpaw-startup { background-color: #FFF5EE; }
       /* Vignette + grain mirror the shell tokens (globals.css --scene-vignette,
          --scene-grain-opacity) — hardcoded here because this style block is
          parsed before that stylesheet exists. */
-      #feral-startup::before,
-      #feral-startup::after {
+      #cinderpaw-startup::before,
+      #cinderpaw-startup::after {
         content: '';
         position: absolute;
         pointer-events: none;
       }
-      #feral-startup::before {
+      #cinderpaw-startup::before {
         inset: 0;
         z-index: 1;
         background: radial-gradient(115% 115% at 50% 42%, transparent 58%, rgba(8, 6, 4, 0.5) 100%);
       }
-      html[data-theme="light"] #feral-startup::before {
+      html[data-theme="light"] #cinderpaw-startup::before {
         background: radial-gradient(115% 115% at 50% 42%, transparent 58%, rgba(92, 64, 36, 0.3) 100%);
       }
-      #feral-startup::after {
+      #cinderpaw-startup::after {
         inset: -30%;
         z-index: 3;
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
         background-repeat: repeat;
         opacity: 0.05;
       }
-      html[data-theme="light"] #feral-startup::after { opacity: 0.04; }
+      html[data-theme="light"] #cinderpaw-startup::after { opacity: 0.04; }
       /* Sleepy bear — the loading animoji (Darius, 2026-08-24; reference:
          Apple's bear Animoji). Inline SVG, no assets: radial gradients fake
          the volume, CSS breathes the head and floats the Zzz. The old
          wordmark composition was cinematic but the startup finishes too fast
          to read it; a single character with one gag is the right budget for
          a screen that lives ~2 seconds. */
-      .feral-startup-bear {
+      .cinderpaw-startup-bear {
         width: clamp(120px, 16vw, 190px);
         height: auto;
         z-index: 4;
         filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35));
       }
-      .feral-startup-bear .bear-head {
+      .cinderpaw-startup-bear .bear-head {
         transform-origin: 100px 130px;
         animation: bear-breathe 3.2s ease-in-out infinite;
       }
@@ -97,19 +97,19 @@
         0%, 100% { transform: scale(1); }
         50%      { transform: scale(1.025); }
       }
-      .feral-startup-bear .zz {
+      .cinderpaw-startup-bear .zz {
         opacity: 0;
         animation: zzz-float 2.7s ease-in-out infinite;
       }
-      .feral-startup-bear .zz2 { animation-delay: 0.9s; }
-      .feral-startup-bear .zz3 { animation-delay: 1.8s; }
+      .cinderpaw-startup-bear .zz2 { animation-delay: 0.9s; }
+      .cinderpaw-startup-bear .zz3 { animation-delay: 1.8s; }
       @keyframes zzz-float {
         0%   { opacity: 0; transform: translate(6px, 8px) rotate(0deg); }
         25%  { opacity: 0.95; }
         100% { opacity: 0; transform: translate(-4px, -16px) rotate(-6deg); }
       }
       /* Soft warm pool behind the bear — static; the bear owns the motion. */
-      .feral-startup-light {
+      .cinderpaw-startup-light {
         position: absolute;
         top: 50%;
         left: 50%;
@@ -120,7 +120,7 @@
         pointer-events: none;
         background: radial-gradient(closest-side, rgba(196, 132, 58, 0.16), transparent 70%);
       }
-      html[data-theme="light"] .feral-startup-light {
+      html[data-theme="light"] .cinderpaw-startup-light {
         background: radial-gradient(closest-side, rgba(160, 104, 40, 0.12), transparent 70%);
       }
       /* Visible, and announced. This was screen-reader-only, which left the
@@ -128,7 +128,7 @@
          a large workspace that silence lasts long enough to read as a hang.
          The bear alone cannot distinguish "loading" from "stuck".
          One quiet line, pulsing, is the whole difference. */
-      .feral-startup-status {
+      .cinderpaw-startup-status {
         position: relative;
         z-index: 4;
         margin-top: 1.6em;
@@ -138,20 +138,20 @@
         letter-spacing: 0.14em;
         text-transform: uppercase;
         color: rgba(240, 230, 211, 0.34);
-        animation: feral-startup-breathe 2200ms ease-in-out infinite;
+        animation: cinderpaw-startup-breathe 2200ms ease-in-out infinite;
       }
-      html[data-theme="light"] .feral-startup-status {
+      html[data-theme="light"] .cinderpaw-startup-status {
         color: rgba(28, 22, 16, 0.38);
       }
-      @keyframes feral-startup-breathe {
+      @keyframes cinderpaw-startup-breathe {
         0%, 100% { opacity: 0.55; }
         50%      { opacity: 1; }
       }
-      /* React mounted: the pre-paint script adds `feral-ready`; the surface
+      /* React mounted: the pre-paint script adds `cinderpaw-ready`; the surface
          does an exposure fade (opacity + slight scale) out into the app scene,
          and the script removes it from the DOM (accessibility + pointer flow)
          once the fade completes. React-fail → the surface stays. */
-      html.feral-ready #feral-startup {
+      html.cinderpaw-ready #cinderpaw-startup {
         opacity: 0;
         transform: scale(1.02);
         pointer-events: none;
@@ -159,13 +159,13 @@
       /* Reduced motion: the bear holds still (no breathing, Zzz parked
          visible), the handoff keeps a plain opacity fade (no scale). */
       @media (prefers-reduced-motion: reduce) {
-        .feral-startup-bear .bear-head { animation: none; }
-        .feral-startup-bear .zz { animation: none; opacity: 0.9; }
+        .cinderpaw-startup-bear .bear-head { animation: none; }
+        .cinderpaw-startup-bear .zz { animation: none; opacity: 0.9; }
         /* Legible and still, not hidden: the line is the only thing on screen
            telling the person anything. */
-        .feral-startup-status { animation: none; opacity: 1; }
-        #feral-startup { transition: opacity 0.45s ease; }
-        html.feral-ready #feral-startup { transform: none; }
+        .cinderpaw-startup-status { animation: none; opacity: 1; }
+        #cinderpaw-startup { transition: opacity 0.45s ease; }
+        html.cinderpaw-ready #cinderpaw-startup { transform: none; }
       }
     </style>
   </head>
@@ -224,14 +224,14 @@
       </defs>
     </svg>
     <div id="root"></div>
-    <div id="feral-startup">
-      <div class="feral-startup-light" aria-hidden="true"></div>
+    <div id="cinderpaw-startup">
+      <div class="cinderpaw-startup-light" aria-hidden="true"></div>
       <!-- The loading animoji: a sleepy bear, drawn inline (no assets — the
            CSP allows only same-origin + data:). Radial gradients fake the
            Apple-Animoji volume; CSS breathes the head and floats the Zzz.
            Deliberately not "Starting Cinderpaw": the status line below is the
            only text, so the bear carries the identity. -->
-      <svg class="feral-startup-bear" viewBox="0 0 200 200" aria-hidden="true">
+      <svg class="cinderpaw-startup-bear" viewBox="0 0 200 200" aria-hidden="true">
         <defs>
           <radialGradient id="bearHead" cx="38%" cy="28%" r="85%">
             <stop offset="0%" stop-color="#c08a52"/>
@@ -288,7 +288,7 @@
       <!-- Deliberately not "Starting Cinderpaw": the bear above
            already carries the identity, and repeating it spends the one line the
            startup screen has on something the eye has just read. -->
-      <div class="feral-startup-status" role="status">Starting</div>
+      <div class="cinderpaw-startup-status" role="status">Starting</div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

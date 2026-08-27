@@ -14,7 +14,7 @@
  *      leading string literal). Axum's `merge` chains are resolved
  *      manually by walking forward.
  *   2. Parse `docs/API.md` and extract the canonical list from a
- *      fenced ```feral-api-routes ... ``` block near the bottom of the
+ *      fenced ```cinderpaw-api-routes ... ``` block near the bottom of the
  *      doc. Entries are `METHOD path`, one per line.
  *   3. Diff source-set vs doc-set. Report:
  *        MISSING (source has it, doc does not) — failure
@@ -64,10 +64,10 @@ function documentedRoutes() {
     throw new Error(`docs/API.md not found at ${DOC}`);
   }
   const md = readFileSync(DOC, "utf8");
-  const m = md.match(/```feral-api-routes\n([\s\S]*?)\n```/);
+  const m = md.match(/```cinderpaw-api-routes\n([\s\S]*?)\n```/);
   if (!m) {
     throw new Error(
-      "docs/API.md must contain a fenced block tagged ```feral-api-routes listing every route as METHOD path, one per line. See scripts/check-api-docs.mjs.",
+      "docs/API.md must contain a fenced block tagged ```cinderpaw-api-routes listing every route as METHOD path, one per line. See scripts/check-api-docs.mjs.",
     );
   }
   return new Set(

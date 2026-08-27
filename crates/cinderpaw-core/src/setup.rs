@@ -1,7 +1,7 @@
 //! First-run setup: the detection ladder + verified activation
 //! (2026-07-10 OpenClaw onboarding-parity spec, Part 5/6).
 //!
-//! One place, consumed by every surface (CLI `feral setup`, Go TUI, desktop
+//! One place, consumed by every surface (CLI `cinderpaw setup`, Go TUI, desktop
 //! React onboarding) via `GET /runtime/setup/detect` + `POST
 //! /runtime/setup/verify`. The load-bearing invariant, copied verbatim from
 //! OpenClaw's `setup-inference.ts`: *a candidate is persisted as the default
@@ -36,7 +36,7 @@ pub const VERIFY_TIMEOUT_SECS: u64 = 90;
 pub enum CandidateKind {
     /// An enabled BYOK provider with a stored key — "already configured".
     ExistingConfig,
-    /// A .gguf already in ~/.feral/models.
+    /// A .gguf already in ~/.cinderpaw/models.
     LocalGguf,
     /// Nothing local yet, but the hardware can run a recommended model —
     /// a one-click download away. Not verifiable until downloaded.
@@ -68,7 +68,7 @@ pub struct Candidate {
     /// Stable id, e.g. `byok:minimax`, `local:Qwen3.5-4B.gguf`, `env:openai`.
     pub id: String,
     pub label: String,
-    /// Human detail line ("found in ~/.feral/models", "env OPENAI_API_KEY").
+    /// Human detail line ("found in ~/.cinderpaw/models", "env OPENAI_API_KEY").
     pub detail: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
@@ -661,7 +661,7 @@ pub async fn verify_cloud(
     );
 
     let client = match reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(VERIFY_TIMEOUT_SECS))
         .build()
     {

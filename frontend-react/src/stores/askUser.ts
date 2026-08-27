@@ -13,7 +13,7 @@
  *
  * When the user picks options and clicks "Submit", the store resolves the
  * head's Promise (which the stream wiring forwards to Rust as
- * `feral_ask_user_response`) and promotes the next queued request to head.
+ * `cinderpaw_ask_user_response`) and promotes the next queued request to head.
  *
  * History is kept per-session in memory only — reloading the app clears it.
  * Persisting ask_user history is out of scope for v0.1.7; SQLite persistence
@@ -71,7 +71,7 @@ interface AskUserStore {
    * Called by useCinderpawStream when an `ask_user` event arrives from the
    * sidecar. Returns a Promise that resolves when the user picks options
    * (or rejects on cancel / timeout). The consumer is expected to call
-   * `feralAskUserResponse(requestId, answers)` when the Promise resolves.
+   * `cinderpawAskUserResponse(requestId, answers)` when the Promise resolves.
    *
    * If a request is already pending, the new one is QUEUED — it becomes the
    * head only once the earlier requests have been answered/cancelled, so no

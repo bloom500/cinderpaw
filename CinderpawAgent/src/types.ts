@@ -161,7 +161,7 @@ export interface ToolContext {
    */
   signal?: AbortSignal;
   /** Validated network fetch — the only network entry point for tools. */
-  fetch: FeralFetch;
+  fetch: CinderpawFetch;
   /** Append an arbitrary audit entry from within a tool. */
   audit: AuditLogger;
   manifest: ToolManifest;
@@ -242,7 +242,7 @@ export interface CapabilityBridge {
 
 /**
  * Bridge to the host's administrative commands — update, model switching.
- * Present only on the Tauri host; the `feral_admin` tool refuses to run
+ * Present only on the Tauri host; the `cinderpaw_admin` tool refuses to run
  * without it rather than pretending.
  */
 export interface AdminBridge {
@@ -341,12 +341,12 @@ export interface ToolResult {
 // ---------------------------------------------------------------------------
 
 /** The validated fetch signature exposed to tools. Mirrors a subset of fetch. */
-export type FeralFetch = (
+export type CinderpawFetch = (
   url: string,
-  init?: FeralFetchInit,
-) => Promise<FeralFetchResponse>;
+  init?: CinderpawFetchInit,
+) => Promise<CinderpawFetchResponse>;
 
-export interface FeralFetchInit {
+export interface CinderpawFetchInit {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
@@ -356,7 +356,7 @@ export interface FeralFetchInit {
   signal?: AbortSignal;
 }
 
-export interface FeralFetchResponse {
+export interface CinderpawFetchResponse {
   status: number;
   ok: boolean;
   headers: Record<string, string>;
@@ -1212,7 +1212,7 @@ export interface InboundMessage {
     // budget); the sidecar replies with one `compact_result` paired by `id`.
     | "compact_session"
     | "provider_conformance"
-    // R5 — MCP over stdin. The host manages `~/.feral/mcp.json` and pokes
+    // R5 — MCP over stdin. The host manages `~/.cinderpaw/mcp.json` and pokes
     // `mcp_reload` after every change; `mcp_status` / `mcp_list_tools` /
     // `mcp_call_tool` serve the Extensions page's live queries. All four
     // reply with one `mcp_result` paired by `id`. Payload fields
@@ -1630,7 +1630,7 @@ export type OutboundEvent =
   // always `ok:boolean` so the gateway + CLI can route without knowing the
   // op-specific extra fields. `ok:false` carries a `reason`. The
   // `documentHash` field is echoed by the `approve` handler when the
-  // caller omits it, so the CLI's plain `feral governance approve <id>`
+  // caller omits it, so the CLI's plain `cinderpaw governance approve <id>`
   // (which doesn't compute the sha256 itself) still gets a verifiable
   // record.
   | {

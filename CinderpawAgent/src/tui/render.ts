@@ -5,7 +5,7 @@ import { readEnv } from "../config.ts";
  * Pure ANSI helpers. No I/O. Test-friendly: every function is referentially
  * transparent so we can assert on exact byte output.
  *
- * Brand palette (matches docs/superpowers/specs/...feral-react-migration-spec1):
+ * Brand palette (matches docs/superpowers/specs/...cinderpaw-react-migration-spec1):
  *   bg-primary     #100E09   deep warm black
  *   bg-surface     #1C1916
  *   text-primary   #F0E6D3   warm cream
@@ -16,7 +16,7 @@ import { readEnv } from "../config.ts";
  *
  * Color detection: NO_COLOR env (https://no-color.org/) disables ANSI.
  * Piped stdout (`!process.stdout.isTTY`) also disables — keeps logs
- * readable when the user does `feral chat | tee session.log`.
+ * readable when the user does `cinderpaw chat | tee session.log`.
  *
  * Unicode box-drawing chars are used for the status bar and frames.
  * Terminals that can't render them (rare) get ASCII fallback via the
@@ -268,7 +268,7 @@ export function renderYouPrompt(useColor = shouldUseColor()): string {
  * Render the "Cinderpaw › " response marker. Used at the start of every
  * assistant message.
  */
-export function renderFeralPrompt(useColor = shouldUseColor()): string {
+export function renderCinderpawPrompt(useColor = shouldUseColor()): string {
   return `${primary("Cinderpaw ", useColor)}${muted("›", useColor)} `;
 }
 

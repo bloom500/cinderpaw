@@ -9,7 +9,7 @@ use tauri::State;
 /// which validates and clamps them. Both fields optional so the frontend can
 /// send only what the user changed.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-pub struct FeralInferParams {
+pub struct CinderpawInferParams {
     pub temperature: Option<f64>,
     pub max_tokens: Option<u32>,
 }
@@ -40,12 +40,12 @@ pub(crate) fn agent_is_ready(state: State<'_, AppState>) -> bool {
 /// desktop's full markdown read out loud.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_send_message(
+pub(crate) async fn cinderpaw_send_message(
     state: State<'_, AppState>,
     content: String,
     session_id: String,
     images: Option<Vec<String>>,
-    infer_params: Option<FeralInferParams>,
+    infer_params: Option<CinderpawInferParams>,
     surface: Option<String>,
 ) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
@@ -120,7 +120,7 @@ pub(crate) fn cinderpaw_agent_status(state: State<'_, AppState>) -> bool {
 /// `done` event with `stopped: true` for each interrupted message.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_stop_generation(
+pub(crate) async fn cinderpaw_stop_generation(
     state: State<'_, AppState>,
     session_id: Option<String>,
 ) -> Result<(), String> {
@@ -146,7 +146,7 @@ pub(crate) async fn feral_stop_generation(
 /// feeds LoRA adaptation. `value` is "up" or "down".
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_submit_feedback(
+pub(crate) async fn cinderpaw_submit_feedback(
     state: State<'_, AppState>,
     session_id: String,
     message_id: String,
@@ -176,7 +176,7 @@ pub(crate) async fn feral_submit_feedback(
 /// recall/latency numbers) which Rust forwards over `cinderpaw://agent-output`.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_run_fractal_benchmark(state: State<'_, AppState>) -> Result<(), String> {
+pub(crate) async fn cinderpaw_run_fractal_benchmark(state: State<'_, AppState>) -> Result<(), String> {
     let msg = serde_json::json!({ "type": "fractal_benchmark" }).to_string();
     let tx = {
         let guard = state.cinderpaw_agent_tx.lock();
@@ -194,7 +194,7 @@ pub(crate) async fn feral_run_fractal_benchmark(state: State<'_, AppState>) -> R
 /// `meta_result` line forwarded over `cinderpaw://agent-output`.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_meta(state: State<'_, AppState>, op: String) -> Result<(), String> {
+pub(crate) async fn cinderpaw_meta(state: State<'_, AppState>, op: String) -> Result<(), String> {
     if !matches!(op.as_str(), "status" | "evolve" | "rollback" | "history") {
         return Err(format!("invalid meta op '{op}'"));
     }
@@ -211,15 +211,15 @@ pub(crate) async fn feral_meta(state: State<'_, AppState>, op: String) -> Result
 }
 
 /// Slice A6 (L5 Governance) — drive the sidecar's GovernanceLifecycle from
-/// the desktop Governance card. Fire-and-forget like `feral_meta`; the
+/// the desktop Governance card. Fire-and-forget like `cinderpaw_meta`; the
 /// sidecar replies with one `governance_result` line over
 /// `cinderpaw://agent-output`. Only the ops the card needs are exposed — the
-/// full set lives in the gateway API + `feral governance` CLI. Approve
+/// full set lives in the gateway API + `cinderpaw governance` CLI. Approve
 /// deliberately omits `documentHash`: the sidecar computes it from the
 /// stored proposal (A5 convenience path).
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_governance(
+pub(crate) async fn cinderpaw_governance(
     state: State<'_, AppState>,
     op: String,
     policy_id: Option<String>,
@@ -248,13 +248,13 @@ pub(crate) async fn feral_governance(
 
 /// Phase B (L4 Architecture Evolution) — drive the sidecar's module
 /// lifecycle from the desktop Architecture card. Fire-and-forget like
-/// `feral_governance`; the sidecar replies with one `modules_result` line
+/// `cinderpaw_governance`; the sidecar replies with one `modules_result` line
 /// over `cinderpaw://agent-output`. Only the card's ops are exposed (list /
 /// approve / reject / demote) — `evaluate` lives in the gateway API + CLI
 /// (it monopolises the model for minutes; not a card button).
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_modules(
+pub(crate) async fn cinderpaw_modules(
     state: State<'_, AppState>,
     op: String,
     module_id: Option<String>,
@@ -296,7 +296,7 @@ pub(crate) async fn feral_modules(
 /// tick and emits the usual `dream_cycle` "started"/"ended" events.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_dream_now(state: State<'_, AppState>) -> Result<(), String> {
+pub(crate) async fn cinderpaw_dream_now(state: State<'_, AppState>) -> Result<(), String> {
     let msg = serde_json::json!({ "type": "rsi_dream_now" }).to_string();
     let tx = {
         let guard = state.cinderpaw_agent_tx.lock();
@@ -314,7 +314,7 @@ pub(crate) async fn feral_dream_now(state: State<'_, AppState>) -> Result<(), St
 /// (full queue + first-10 window state) forwarded over `cinderpaw://agent-output`.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_code_patches_list(state: State<'_, AppState>) -> Result<(), String> {
+pub(crate) async fn cinderpaw_code_patches_list(state: State<'_, AppState>) -> Result<(), String> {
     let msg = serde_json::json!({ "type": "rsi_code_patches_list" }).to_string();
     let tx = {
         let guard = state.cinderpaw_agent_tx.lock();
@@ -334,7 +334,7 @@ pub(crate) async fn feral_code_patches_list(state: State<'_, AppState>) -> Resul
 /// `code_patches` line.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_code_patch_resolve(
+pub(crate) async fn cinderpaw_code_patch_resolve(
     state: State<'_, AppState>,
     patch_id: String,
     action: String,
@@ -367,7 +367,7 @@ pub(crate) async fn feral_code_patch_resolve(
 /// though every row was still in the mailbox.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_cowork_history(
+pub(crate) async fn cinderpaw_cowork_history(
     state: State<'_, AppState>,
     thread_id: Option<String>,
 ) -> Result<(), String> {
@@ -398,7 +398,7 @@ pub(crate) async fn feral_cowork_history(
 /// here so a stray Enter cannot wake an agent for nothing.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_cowork_send_message(
+pub(crate) async fn cinderpaw_cowork_send_message(
     state: State<'_, AppState>,
     to_agent_id: String,
     body: String,
@@ -435,7 +435,7 @@ pub(crate) async fn feral_cowork_send_message(
 /// approval_denied), which also closes the chat bubble.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_cowork_approval_resolve(
+pub(crate) async fn cinderpaw_cowork_approval_resolve(
     state: State<'_, AppState>,
     request_id: String,
     action: String,
@@ -465,7 +465,7 @@ pub(crate) async fn feral_cowork_approval_resolve(
 /// with one `lora_reviews` line forwarded over `cinderpaw://agent-output`.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_lora_reviews_list(state: State<'_, AppState>) -> Result<(), String> {
+pub(crate) async fn cinderpaw_lora_reviews_list(state: State<'_, AppState>) -> Result<(), String> {
     let msg = serde_json::json!({ "type": "rsi_lora_reviews_list" }).to_string();
     let tx = {
         let guard = state.cinderpaw_agent_tx.lock();
@@ -485,7 +485,7 @@ pub(crate) async fn feral_lora_reviews_list(state: State<'_, AppState>) -> Resul
 /// `lora_review_resolved` + a refreshed `lora_reviews`.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_lora_review_resolve(
+pub(crate) async fn cinderpaw_lora_review_resolve(
     state: State<'_, AppState>,
     card_id: String,
     action: String,
@@ -517,7 +517,7 @@ pub(crate) async fn feral_lora_review_resolve(
 /// reports a clear "training unavailable" reason instead of erroring here.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_lora_train(state: State<'_, AppState>, domain: Option<String>) -> Result<(), String> {
+pub(crate) async fn cinderpaw_lora_train(state: State<'_, AppState>, domain: Option<String>) -> Result<(), String> {
     let msg = serde_json::json!({
         "type": "rsi_lora_train",
         "loraDomain": domain.unwrap_or_else(|| "general".into()),
@@ -541,7 +541,7 @@ pub(crate) async fn feral_lora_train(state: State<'_, AppState>, domain: Option<
 /// id. Returns once the request is queued.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_fractal_cluster_leaves(
+pub(crate) async fn cinderpaw_fractal_cluster_leaves(
     state: State<'_, AppState>,
     request_id: String,
     cluster_index: u32,
@@ -576,7 +576,7 @@ pub(crate) async fn feral_fractal_cluster_leaves(
 /// event. `answers` is the user's selection (1 answer per question).
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_ask_user_response(
+pub(crate) async fn cinderpaw_ask_user_response(
     state: State<'_, AppState>,
     request_id: String,
     answers: Vec<cinderpaw_agent::AskUserAnswer>,
@@ -600,7 +600,7 @@ pub(crate) async fn feral_ask_user_response(
 /// with whatever fallback the model chose for the missing input.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_ask_user_cancel(
+pub(crate) async fn cinderpaw_ask_user_cancel(
     state: State<'_, AppState>,
     request_id: String,
     reason: Option<String>,

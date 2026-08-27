@@ -14,7 +14,7 @@ pub struct VoiceMeta {
     pub peaks: Vec<f32>,
 }
 
-/// What the agent wrote in its own scratchpad (`~/.feral/workspace`) during one
+/// What the agent wrote in its own scratchpad (`~/.cinderpaw/workspace`) during one
 /// turn.
 ///
 /// Persisted rather than kept in memory because the whole point of the line is
@@ -306,7 +306,7 @@ mod tests {
 
     fn tmp() -> PathBuf {
         let dir = std::env::temp_dir()
-            .join(format!("feral_conv_test_{}", uuid::Uuid::new_v4()));
+            .join(format!("cinderpaw_conv_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

@@ -25,7 +25,7 @@ const genome: CodeGenome = {
 };
 
 function scratch() {
-  const dir = mkdtempSync(join(tmpdir(), "feral-pending-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "cinderpaw-pending-test-"));
   return { file: join(dir, "pending.json"), cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 

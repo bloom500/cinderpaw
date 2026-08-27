@@ -114,7 +114,7 @@ describe("an answer about a file nothing opened", () => {
   test("the fabricated module summary is flagged", () => {
     const answer =
       "QuantumScheduler, in plain terms: it decides when and on which thread a " +
-      "microtask runs. See D:\\FeralLocalAI\\CinderpawAgent\\src\\core\\quantum-scheduler.ts.";
+      "microtask runs. See D:\\CinderpawLocalAI\\CinderpawAgent\\src\\core\\quantum-scheduler.ts.";
     expect(unsourcedWarning(answer, 0)).toContain("quantum-scheduler.ts");
     expect(unsourcedWarning(answer, 0)).toContain("no file was opened");
   });
@@ -130,7 +130,7 @@ describe("an answer about a file nothing opened", () => {
 
   test("a turn that actually used tools is never flagged", () => {
     // The whole point: evidence exists, so the reader needs no footnote.
-    const answer = "I read D:\\FeralLocalAI\\CinderpawAgent\\package.json — the version is 2026.8.1.";
+    const answer = "I read D:\\CinderpawLocalAI\\CinderpawAgent\\package.json — the version is 2026.8.1.";
     expect(unsourcedWarning(answer, 1)).toBeNull();
     expect(unsourcedWarning(answer, 12)).toBeNull();
   });

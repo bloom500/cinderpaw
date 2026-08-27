@@ -11,13 +11,13 @@
  *   6. Repeat until confident or max iterations reached
  *   7. Synthesize: write a final markdown report with inline citations
  *
- * The loop accepts a FeralFetch (already bound to s.jina.ai + r.jina.ai by the
+ * The loop accepts a CinderpawFetch (already bound to s.jina.ai + r.jina.ai by the
  * deep_research tool's egress manifest) and an InferenceRouter (for LLM calls
  * within the loop). Every LLM call still counts against the session budget.
  */
 
 import type { InferenceRouter } from "../egress/inference-router.ts";
-import type { FeralFetch, ToolProgressPayload } from "../types.ts";
+import type { CinderpawFetch, ToolProgressPayload } from "../types.ts";
 import { ddgLiteSearch } from "../tools/builtin/ddg-lite.ts";
 
 export type ResearchProgressStage =
@@ -73,7 +73,7 @@ export class ResearchStoppedError extends Error {
 
 export class ResearchLoop {
   readonly #router: InferenceRouter;
-  readonly #fetch: FeralFetch;
+  readonly #fetch: CinderpawFetch;
   readonly #sessionId: string;
   readonly #jinaApiKey: string | undefined;
   readonly #signal: AbortSignal | undefined;
@@ -81,7 +81,7 @@ export class ResearchLoop {
 
   constructor(
     router: InferenceRouter,
-    fetch: FeralFetch,
+    fetch: CinderpawFetch,
     sessionId: string,
     jinaApiKey?: string,
     signal?: AbortSignal,

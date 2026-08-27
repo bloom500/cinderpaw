@@ -266,7 +266,7 @@ const PATCHES_PAYLOAD = (over: Partial<CodePatchesLine> = {}) => ({
 });
 
 describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
-  it('fires feral_code_patches_list on mount', async () => {
+  it('fires cinderpaw_code_patches_list on mount', async () => {
     stubListener();
     capturePatchesListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
@@ -455,7 +455,7 @@ const LORA_PAYLOAD = (over: Partial<LoraReviewsLine> = {}): LoraReviewsLine => (
 });
 
 describe('CinderpawDreamsPanel — Personal adaptation (Faza 4)', () => {
-  it('fires feral_lora_reviews_list on mount and renders the empty state', async () => {
+  it('fires cinderpaw_lora_reviews_list on mount and renders the empty state', async () => {
     stubListener();
     capturePatchesListener();
     vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);

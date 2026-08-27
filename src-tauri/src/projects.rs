@@ -65,17 +65,17 @@ pub fn delete_from(dir: &Path, id: &str) -> Result<()> {
 
 pub fn load_all() -> Result<Vec<ProjectSummary>> {
     paths::ensure_dirs()?;
-    load_all_from(&paths::feral_dir())
+    load_all_from(&paths::cinderpaw_dir())
 }
 
 pub fn save(project: &ProjectSummary) -> Result<()> {
     paths::ensure_dirs()?;
-    save_to(&paths::feral_dir(), project)
+    save_to(&paths::cinderpaw_dir(), project)
 }
 
 pub fn delete(id: &str) -> Result<()> {
     paths::ensure_dirs()?;
-    delete_from(&paths::feral_dir(), id)
+    delete_from(&paths::cinderpaw_dir(), id)
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ mod tests {
 
     fn tmp() -> PathBuf {
         let dir = std::env::temp_dir()
-            .join(format!("feral_proj_test_{}", uuid::Uuid::new_v4()));
+            .join(format!("cinderpaw_proj_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

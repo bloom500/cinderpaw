@@ -54,7 +54,7 @@ import type { Tool, ToolManifest } from "../../types.ts";
 import { resolve, join, sep } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { resolveExecutables } from "../../core/executables.ts";
-import { feralHome, readEnv } from "../../config.ts";
+import { cinderpawHome, readEnv } from "../../config.ts";
 import { classifyCommand, recordIntent } from "../../core/command-intent.ts";
 import {
   canAskAHuman,
@@ -191,7 +191,7 @@ export function destructiveOutsideRoots(argv: string[], roots: string[]): string
   // Scratch space the agent is expected to churn through. Its own temp files
   // are not the user's work, and refusing to clean them up teaches the agent
   // to leave litter.
-  const allowed = [...roots, tmpdir(), feralHome()];
+  const allowed = [...roots, tmpdir(), cinderpawHome()];
   for (const match of line.match(ABSOLUTE_PATH) ?? []) {
     // "/" and "C:\" alone are the catastrophic case the denylist already owns;
     // leaving them here too costs nothing and closes the ordering question.

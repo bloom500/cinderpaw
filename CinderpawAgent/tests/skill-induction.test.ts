@@ -27,7 +27,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { assertUsableEvidence, assertValidRunId, defaultSinkPath, induceReusableSkill, JsonlSkillSink } from "../src/memory/fractal/skill-induction.ts";
-import { feralHome } from "../src/config.ts";
+import { cinderpawHome } from "../src/config.ts";
 
 const GOOD_PROGRAM = "(g) => rotate(g, 90)";
 const DESCRIPTION = "Rotate grid 90 degrees clockwise";
@@ -118,7 +118,7 @@ describe("induceReusableSkill", () => {
     expect(p.endsWith(path.join("agent", "runs", RUN, "raptor-skills.jsonl"))).toBe(true);
     // Not homedir() directly: an isolated profile (CINDERPAW_HOME) must not write
     // its induced skills into the real profile's directory.
-    expect(p.startsWith(feralHome())).toBe(true);
+    expect(p.startsWith(cinderpawHome())).toBe(true);
     // Two runs must never resolve to the same file — that IS the isolation.
     expect(defaultSinkPath("run-a")).not.toBe(defaultSinkPath("run-b"));
   });

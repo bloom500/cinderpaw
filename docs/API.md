@@ -1,4 +1,4 @@
-# FERAL HTTP API reference
+# CINDERPAW HTTP API reference
 
 > **Stability policy:** As of v1.0 the Cinderpaw HTTP API is **unstable
 > pre-2.0**. Every response carries
@@ -14,10 +14,10 @@
 > deprecation cycle. Decision recorded in the spec at
 > `docs/2026-07-09-v1-architecture-hardening-spec.md` §B1.
 
-The list below mirrors `crates/feral-core/src/api.rs::router()`.
+The list below mirrors `crates/cinderpaw-core/src/api.rs::router()`.
 That file is the source of truth — `scripts/check-api-docs.mjs`
 parses its `.route(` lines and fails if any drift from the fenced
-`feral-api-routes` block at the bottom of this file. Wired into
+`cinderpaw-api-routes` block at the bottom of this file. Wired into
 `bun test` via `CinderpawAgent/tests/api-docs.test.ts`.
 
 Operation class tags (`read`, `evolve`, `govern`) come straight from
@@ -148,10 +148,10 @@ the host's env, not via the request.
      only harvests the first verb of a chained axum MethodRouter
      (`get(...).post(...)` on one `.route()` call), so it cannot see
      `POST /runtime/connectors` — that route is real (see the table
-     above + crates/feral-core/src/api.rs) but is deliberately left out
+     above + crates/cinderpaw-core/src/api.rs) but is deliberately left out
      of this fenced list to avoid a permanent false "unlisted" warning. -->
 
-```feral-api-routes
+```cinderpaw-api-routes
 DELETE /api/delete
 GET /api/tags
 POST /api/chat

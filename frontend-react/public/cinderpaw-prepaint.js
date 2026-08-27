@@ -1,4 +1,4 @@
-/* Feral pre-paint.
+/* Cinderpaw pre-paint.
  *
  * Runs BEFORE the React module (plain blocking script in <head> — no
  * defer/async) and before any external stylesheet arrives, so the first
@@ -10,7 +10,7 @@
  *      resolve `system` against the OS preference, and stamp `data-theme`
  *      on <html> before first paint.
  *   2. Observe #root; when React mounts real content, fade the startup
- *      surface out (CSS owns the fade via `html.feral-ready`) and then
+ *      surface out (CSS owns the fade via `html.cinderpaw-ready`) and then
  *      remove it from accessibility and pointer flow.
  *
  * Same-origin by design: the Tauri CSP is `script-src 'self'`, so this
@@ -82,7 +82,7 @@
    * unusable and could not even be closed.
    */
   function watchForMount() {
-    var startup = document.getElementById('feral-startup');
+    var startup = document.getElementById('cinderpaw-startup');
     var appRoot = document.getElementById('root');
     /* Not parsed yet. Report failure so the caller keeps waiting instead of
      * giving up — giving up here is precisely the bug this file is fixing. */
@@ -99,7 +99,7 @@
        * mount speed — the fade itself stays FADE_MS. */
       var wait = Math.max(0, MIN_HOLD_MS - (Date.now() - SEEN_AT));
       window.setTimeout(function () {
-        rootEl.classList.add('feral-ready');
+        rootEl.classList.add('cinderpaw-ready');
         window.setTimeout(function () {
           if (startup.parentNode) startup.parentNode.removeChild(startup);
         }, FADE_MS);

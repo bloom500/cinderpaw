@@ -1,7 +1,7 @@
 /**
  * Memory hygiene — the facts extractor must not store junk keys.
  *
- * Observed in production (~/.feral/agent/feral.db, semantic table): the old
+ * Observed in production (~/.cinderpaw/agent/cinderpaw.db, semantic table): the old
  * colon-split parser stored keys like "- language", "1. user shared a link",
  * "we need to produce final answer", and "- the user has a project at `d"
  * (a Windows path split at the drive-letter colon). These polluted the
@@ -45,9 +45,9 @@ describe("sanitizeFact", () => {
 
   it("rejects drive-letter colon splits (value starts with backslash)", () => {
     expect(
-      sanitizeFact("the user has a project at `d", "\\FeralLocalAI`"),
+      sanitizeFact("the user has a project at `d", "\\CinderpawLocalAI`"),
     ).toBeNull();
-    expect(sanitizeFact("workspace at c", "\\Users\\Darius\\.feral\\workspace\\")).toBeNull();
+    expect(sanitizeFact("workspace at c", "\\Users\\Darius\\.cinderpaw\\workspace\\")).toBeNull();
   });
 
   it("rejects keys with quotes or JSON/markup fragments", () => {

@@ -12,7 +12,7 @@
  * These ship embedded (a TS array) rather than as loose JSON because bun
  * `--compile` does not bundle data files. Users/operators can still
  * extend the suite at runtime by dropping JSON specs in
- * `~/.feral/eval/tier1` / `~/.feral/eval/tier2` (see `loadTierSpecs`);
+ * `~/.cinderpaw/eval/tier1` / `~/.cinderpaw/eval/tier2` (see `loadTierSpecs`);
  * the production `getSpecs` concatenates embedded defaults with whatever
  * is found on disk.
  *

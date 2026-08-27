@@ -1,11 +1,11 @@
 /**
  * connectors_manage — the agent's self-service connector door.
  *
- * Uses CINDERPAW_HOME-independent configPath (~/.feral/connectors.json is fixed),
+ * Uses CINDERPAW_HOME-independent configPath (~/.cinderpaw/connectors.json is fixed),
  * so these tests intercept at the tool level: list redaction, configure
  * round-trip, unknown id rejection, and reload() being poked after a save.
  *
- * NOTE: configure writes the REAL ~/.feral/connectors.json. The test restores
+ * NOTE: configure writes the REAL ~/.cinderpaw/connectors.json. The test restores
  * the previous file content afterward.
  */
 import { afterAll, expect, test } from "bun:test";

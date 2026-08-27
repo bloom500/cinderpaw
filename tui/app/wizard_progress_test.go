@@ -12,7 +12,7 @@ import (
 // file: save → load returns the same step. F1 introduced the v2 format;
 // load must ignore older v1 (unprefixed) files and reset to WizWelcome.
 func TestSaveLoadWizardProgressRoundtrip(t *testing.T) {
-	// Redirect to a temp dir so we don't touch the real ~/.feral/.
+	// Redirect to a temp dir so we don't touch the real ~/.cinderpaw/.
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)

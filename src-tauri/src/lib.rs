@@ -67,7 +67,7 @@ type CancelFlag = Arc<AtomicBool>;
 /// Display-safe snapshot of the Cinderpaw Agent's active LLM backend.
 /// API keys are never included — Rust injects them before forwarding to the sidecar.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-pub struct FeralModelConfigView {
+pub struct CinderpawModelConfigView {
     pub provider: String,
     pub model: String,
     pub base_url: String,
@@ -87,8 +87,8 @@ pub struct AppState {
     /// first call to get_system_info() returns instantly.
     pub system_info_cache: Arc<Mutex<Option<SystemInfo>>>,
     /// Cached display-safe view of the model the sidecar is currently using.
-    /// Updated optimistically by feral_set_model; None until first set_model call.
-    pub feral_model_config: Arc<Mutex<Option<FeralModelConfigView>>>,
+    /// Updated optimistically by cinderpaw_set_model; None until first set_model call.
+    pub cinderpaw_model_config: Arc<Mutex<Option<CinderpawModelConfigView>>>,
     /// The speech-to-speech call in progress, if any. Holding the command
     /// sender IS the call: dropping it closes the socket, which is what hanging
     /// up means and why there is no separate "is a call running" flag to get out
@@ -340,7 +340,7 @@ pub fn run() {
             // records WHICH folder was reported, so a different leftover later
             // is a fresh notice rather than one silently swallowed.
             eprintln!("[cinderpaw] {msg}");
-            let receipt = cinderpaw_core::paths::feral_dir().join(".legacy-home-notice");
+            let receipt = cinderpaw_core::paths::cinderpaw_dir().join(".legacy-home-notice");
             let already_told = std::fs::read_to_string(&receipt)
                 .map(|seen| seen.trim() == legacy.to_string_lossy())
                 .unwrap_or(false);
@@ -412,7 +412,7 @@ pub fn run() {
         downloads: Arc::new(Mutex::new(HashMap::new())),
         stop_signals: Arc::new(StopRegistry::default()),
         system_info_cache,
-        feral_model_config: Arc::new(Mutex::new(None)),
+        cinderpaw_model_config: Arc::new(Mutex::new(None)),
         live_call: Arc::new(Mutex::new(None)),
         livekit_call: Arc::new(Mutex::new(None)),
     };
@@ -508,29 +508,29 @@ pub fn run() {
             skills::install_skill_from_url,
             skills::install_skill_from_file,
             skills::remove_skill,
-            feral_send_message,
+            cinderpaw_send_message,
             cinderpaw_agent_status,
-            feral_stop_generation,
-            feral_submit_feedback,
-            feral_run_fractal_benchmark,
-            feral_dream_now,
-            feral_meta,
-            feral_governance,
-            feral_modules,
-            feral_code_patches_list,
-            feral_code_patch_resolve,
-            feral_cowork_approval_resolve,
-            feral_cowork_send_message,
-            feral_cowork_history,
-            feral_lora_reviews_list,
-            feral_lora_review_resolve,
-            feral_lora_train,
-            feral_fractal_cluster_leaves,
-            feral_set_model,
-            feral_get_model_config,
+            cinderpaw_stop_generation,
+            cinderpaw_submit_feedback,
+            cinderpaw_run_fractal_benchmark,
+            cinderpaw_dream_now,
+            cinderpaw_meta,
+            cinderpaw_governance,
+            cinderpaw_modules,
+            cinderpaw_code_patches_list,
+            cinderpaw_code_patch_resolve,
+            cinderpaw_cowork_approval_resolve,
+            cinderpaw_cowork_send_message,
+            cinderpaw_cowork_history,
+            cinderpaw_lora_reviews_list,
+            cinderpaw_lora_review_resolve,
+            cinderpaw_lora_train,
+            cinderpaw_fractal_cluster_leaves,
+            cinderpaw_set_model,
+            cinderpaw_get_model_config,
             get_local_api_token,
-            feral_ask_user_response,
-            feral_ask_user_cancel,
+            cinderpaw_ask_user_response,
+            cinderpaw_ask_user_cancel,
             get_onboarding_record,
             set_onboarding_record,
             list_ollama_models,
@@ -866,7 +866,7 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
             });
 
             // MCP extensions: no host-side reconnect anymore (R5). The
-            // sidecar's McpManager reconciles `~/.feral/mcp.json` at its own
+            // sidecar's McpManager reconciles `~/.cinderpaw/mcp.json` at its own
             // boot and on every `mcp_reload` poke — desktop and headless
             // gateway get identical behavior for free.
 

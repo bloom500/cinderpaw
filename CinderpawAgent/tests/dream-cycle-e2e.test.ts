@@ -117,7 +117,7 @@ async function runOneEpisode(bridge: FakeBridge): Promise<{
   rec: Record<string, unknown>;
   starts: number;
 }> {
-  const telemetryPath = join(tmpdir(), `feral-dream-e2e-${Date.now()}-${Math.random()}.jsonl`);
+  const telemetryPath = join(tmpdir(), `cinderpaw-dream-e2e-${Date.now()}-${Math.random()}.jsonl`);
   const events: OutboundEvent[] = [];
   const activityMonitor = new ActivityMonitor({ errorWindowMs: CONFIG.errorWindowMs });
   activityMonitor.recordActivity(Date.now() - 10_000); // idle now
@@ -134,8 +134,8 @@ async function runOneEpisode(bridge: FakeBridge): Promise<{
     db: openDatabase(":memory:"),
     router: new FakeRouter(),
     send: () => {},
-    championPath: join(tmpdir(), `feral-dream-e2e-champ-${Math.random()}.json`),
-    championTreePath: join(tmpdir(), `feral-dream-e2e-tree-${Math.random()}.json`),
+    championPath: join(tmpdir(), `cinderpaw-dream-e2e-champ-${Math.random()}.json`),
+    championTreePath: join(tmpdir(), `cinderpaw-dream-e2e-tree-${Math.random()}.json`),
     onIdle: dreamCycle.onEpisodeEnd,
   });
   const scheduler = dreamCycle.arm(sidecar, {

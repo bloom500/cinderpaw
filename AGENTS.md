@@ -88,8 +88,8 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   Desktop Onboarding) shipped 2026-07-06** — see the Status table at
   the bottom of the file for the file-level landing points of every
   shipped item.
-- **`project_chat_tui.md`** — `feral chat` is a Go/Bubble Tea TUI
-  (`tui/`, launched by `crates/feral-cli/src/chat.rs`). Also flags the
+- **`project_chat_tui.md`** — `cinderpaw chat` is a Go/Bubble Tea TUI
+  (`tui/`, launched by `crates/cinderpaw-cli/src/chat.rs`). Also flags the
   open follow-up: local-Ollama reasoning for models like MiniMax-M3
   arrives inline in `content` (no `think` tags), so the TUI cannot
   split it — needs a sidecar fix (`CinderpawAgent/src/sandbox/inference-providers.ts`
@@ -126,7 +126,7 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   connector configuration from the wizard (Discord/Slack/WhatsApp/Telegram).
   Token-based connectors get field-by-field masked input (like the API key
   step); WhatsApp (QR) uses Y/n toggle. Config is persisted to
-  `~/.feral/connectors.json` and sidecar reloaded via
+  `~/.cinderpaw/connectors.json` and sidecar reloaded via
   `POST /runtime/connectors/reload`. Implemented 2026-07-06. **Read before
   touching WizConnectorPrompt, connector state fields, or
   `api.SaveConnectorConfig`.**
@@ -137,13 +137,13 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   metrics. Implemented 2026-07-06.
 - **`project_substrate_introspection.md`** — `self.*` runtime
   introspection surface (`CinderpawAgent/src/tools/builtin/self.ts`) +
-  the `feral-self` and `feral-connectors` skills. This is the
+  the `cinderpaw-self` and `cinderpaw-connectors` skills. This is the
   agent's mental model of its own substrate (BRSI / FMS / LoRA /
   Dreaming / Genomes / Connectors / Brain Stack / Memory). Use the
   `self_*` tools, don't dump substrate docs into the prompt or open
-  `~/.feral/` to the agent's filesystem tools — both lose. **Read
+  `~/.cinderpaw/` to the agent's filesystem tools — both lose. **Read
   before adding/changing a `self_*` tool, the SUBSYSTEMS catalog,
-  or any path that says `~/.feral/` somewhere in it.**
+  or any path that says `~/.cinderpaw/` somewhere in it.**
 
 ## Things that are pinned at the type level (don't break these)
 
@@ -183,6 +183,6 @@ These are pre-existing items noticed while doing Faza 4.5 work; they
 are NOT blockers for the current slice and should be addressed in their
 own slice.
 
-- `crates/feral-core/src/inference.rs` — `max_contexts()` method is
+- `crates/cinderpaw-core/src/inference.rs` — `max_contexts()` method is
   dead (no caller; pool caps go through `effective_pool_cap(_with_env)`).
   Has an inline `// TODO(inference)` marker. Out of scope for Slice 2.

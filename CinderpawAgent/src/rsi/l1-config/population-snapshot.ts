@@ -23,7 +23,7 @@ import {
   existsSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { feralHome } from "../../config.ts";
+import { cinderpawHome } from "../../config.ts";
 import type { PopulationSnapshot } from "./population-manager.ts";
 
 /** The on-disk format version this module reads/writes. A snapshot whose
@@ -31,10 +31,10 @@ import type { PopulationSnapshot } from "./population-manager.ts";
  *  degrades to the champion fallback instead of corrupting a run. */
 const SNAPSHOT_VERSION = 1;
 
-/** Default on-disk location: `~/.feral/rsi/population.json` (sibling of
+/** Default on-disk location: `~/.cinderpaw/rsi/population.json` (sibling of
  *  champion.json + the git substrate). */
 export function defaultPopulationSnapshotPath(): string {
-  return join(feralHome(), "rsi", "population.json");
+  return join(cinderpawHome(), "rsi", "population.json");
 }
 
 /**

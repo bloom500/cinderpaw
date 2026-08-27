@@ -39,10 +39,10 @@ impl Drop for EnvGuard {
     }
 }
 
-fn with_temp_feral_home<R>(f: impl FnOnce(&Path) -> R) -> R {
+fn with_temp_cinderpaw_home<R>(f: impl FnOnce(&Path) -> R) -> R {
     let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::Builder::new()
-        .prefix("feral-byok-test-")
+        .prefix("cinderpaw-byok-test-")
         .tempdir()
         .expect("tempdir");
     let prev = std::env::var_os("CINDERPAW_HOME");
@@ -56,7 +56,7 @@ fn with_temp_feral_home<R>(f: impl FnOnce(&Path) -> R) -> R {
 
 #[test]
 fn save_provider_with_empty_key_writes_metadata_only() {
-    with_temp_feral_home(|tmp| {
+    with_temp_cinderpaw_home(|tmp| {
         let config = ProviderConfig {
             enabled: true,
             api_key: String::new(), // empty → no keychain write
@@ -89,7 +89,7 @@ fn save_provider_with_empty_key_writes_metadata_only() {
 
 #[test]
 fn save_provider_persists_metadata_consistently_across_calls() {
-    with_temp_feral_home(|tmp| {
+    with_temp_cinderpaw_home(|tmp| {
         byok::save_provider(
             "p1",
             ProviderConfig {
@@ -125,7 +125,7 @@ fn save_provider_persists_metadata_consistently_across_calls() {
 fn save_provider_does_not_touch_existing_providers_on_metadata_update() {
     // Phase 0b invariant: a single-provider save must not disturb
     // unrelated providers already in the metadata.
-    with_temp_feral_home(|tmp| {
+    with_temp_cinderpaw_home(|tmp| {
         byok::save_provider(
             "anthropic",
             ProviderConfig {

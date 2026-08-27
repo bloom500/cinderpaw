@@ -113,7 +113,7 @@ export function routerInfer(router: InferenceRouter): InferFn {
     if (!router.isPrimaryLocal) {
       // ponytail: warn each call; deduplicate in logs if noise — local-first means users should know
       console.warn(
-        "[feral:privacy] cluster summarization is sending local memory to cloud model:",
+        "[cinderpaw:privacy] cluster summarization is sending local memory to cloud model:",
         router.currentModel.model,
         "— set primary to a local engine to keep summaries on-device",
       );

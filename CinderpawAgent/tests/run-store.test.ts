@@ -15,7 +15,7 @@ function store() {
   return { store: new RunStore(raw), raw, close };
 }
 
-const MISSION = "add a --json flag to feral status";
+const MISSION = "add a --json flag to cinderpaw status";
 
 function input(over: Partial<StartRunInput> = {}): StartRunInput {
   return {

@@ -1,7 +1,7 @@
 /**
  * Global Cinderpaw Agent stream manager.
  *
- * The Feral Agent sidecar streams `cinderpaw://agent-output` events for the whole
+ * The Cinderpaw Agent sidecar streams `cinderpaw://agent-output` events for the whole
  * app lifetime, regardless of which tab is mounted. Previously the listener
  * lived inside `AgentChat`, so navigating away from the Agents tab tore it down
  * mid-generation: chunks stopped arriving (generation appeared to freeze) and
@@ -22,7 +22,7 @@ import { useChat } from '@/stores/chat';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 
-export interface FeralStreamHandlers {
+export interface CinderpawStreamHandlers {
   onChunk: (content: string) => void;
   onDone: (finalContent?: string, stopped?: boolean) => void;
   onError: (message: string) => void;
@@ -46,14 +46,14 @@ export interface FeralStreamHandlers {
    */
   chatMessageId?: string;
   /**
-   * Chat session this stream belongs to. Lets `requestFeralStop(sessionId)`
+   * Chat session this stream belongs to. Lets `requestCinderpawStop(sessionId)`
    * stop only that session's streams instead of every in-flight stream —
    * the same per-session stop semantics `lib/chatStream` has (audit A2).
    */
   sessionId?: string;
 }
 
-interface InflightEntry extends FeralStreamHandlers {
+interface InflightEntry extends CinderpawStreamHandlers {
   stopped: boolean;
 }
 
@@ -64,9 +64,9 @@ let initPromise: Promise<void> | null = null;
 /**
  * Lazily install the single persistent `cinderpaw://agent-output` listener.
  * Idempotent and safe to call before every send. Must resolve before the
- * `feral_send_message` invoke so the first chunk is never missed.
+ * `cinderpaw_send_message` invoke so the first chunk is never missed.
  */
-export function ensureFeralListener(): Promise<void> {
+export function ensureCinderpawListener(): Promise<void> {
   if (unlisten) return Promise.resolve();
   if (initPromise) return initPromise;
   initPromise = listen<{ data: string }>('cinderpaw://agent-output', (event) => {
@@ -321,7 +321,7 @@ function routeAskUser(
   promise
     .then((answers) => {
       // Forward the user's selection back to Rust → sidecar.
-      void invoke('feral_ask_user_response', { requestId, answers });
+      void invoke('cinderpaw_ask_user_response', { requestId, answers });
       // Advance the visible card to the next queued request, or REMOVE it
       // entirely when the queue has drained. We deliberately do not leave an
       // "answered" summary card lingering in the chat — once the user has
@@ -334,7 +334,7 @@ function routeAskUser(
       // User cancelled, sidecar cancelled, or timeout. Tell the sidecar so
       // it can stop waiting (silently no-op when the sidecar initiated the
       // cancel), then advance to the next queued request (or clear).
-      void invoke('feral_ask_user_cancel', { requestId }).catch(() => {
+      void invoke('cinderpaw_ask_user_cancel', { requestId }).catch(() => {
         console.warn('[askUser] cancel invoke also failed:', err);
       });
       advanceAskUserCard(targetMessageId);
@@ -373,12 +373,12 @@ function cancelAskUserOnAllInflight(reason: string): void {
 }
 
 /** Register handlers for an in-flight sidecar message. */
-export function registerFeralStream(messageId: string, handlers: FeralStreamHandlers): void {
+export function registerCinderpawStream(messageId: string, handlers: CinderpawStreamHandlers): void {
   inflight.set(messageId, { ...handlers, stopped: false });
 }
 
 /**
- * Mark in-flight feral streams as stopped and send a stop signal to the
+ * Mark in-flight cinderpaw streams as stopped and send a stop signal to the
  * sidecar. The next done/error event for each message will route to `onStopped`
  * instead of `onDone`/`onError` so the UI shows the partial response cleanly.
  *
@@ -386,24 +386,24 @@ export function registerFeralStream(messageId: string, handlers: FeralStreamHand
  * didn't declare a session are also marked, conservatively — they may belong
  * to it). Without one, everything stops.
  */
-export async function requestFeralStop(sessionId?: string): Promise<void> {
+export async function requestCinderpawStop(sessionId?: string): Promise<void> {
   for (const entry of inflight.values()) {
     if (!sessionId || !entry.sessionId || entry.sessionId === sessionId) {
       entry.stopped = true;
     }
   }
   try {
-    await tauri.feralAgent.stop(sessionId);
+    await tauri.cinderpawAgent.stop(sessionId);
   } catch (err) {
-    console.warn('[feralAgentStream] stop signal failed:', err);
+    console.warn('[cinderpawAgentStream] stop signal failed:', err);
   }
 }
 
 /**
- * True if a feral stream is in flight — for `sessionId` when given (entries
+ * True if a cinderpaw stream is in flight — for `sessionId` when given (entries
  * without a declared session count as a match), otherwise for any session.
  */
-export function isFeralStreaming(sessionId?: string): boolean {
+export function isCinderpawStreaming(sessionId?: string): boolean {
   if (!sessionId) return inflight.size > 0;
   for (const entry of inflight.values()) {
     if (!entry.sessionId || entry.sessionId === sessionId) return true;

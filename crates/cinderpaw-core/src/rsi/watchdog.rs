@@ -5,7 +5,7 @@
 //!
 //! 1. The host's stdout reader (`cinderpaw_agent.rs`), on a
 //!    `code_patch_resolved` line with `status: "applied"`, writes a
-//!    [`PatchMarker`] to `~/.feral/rsi/last_applied_patch.json`
+//!    [`PatchMarker`] to `~/.cinderpaw/rsi/last_applied_patch.json`
 //!    ([`default_marker_path`]).
 //! 2. The Rust supervisor (`#11`) accumulates the timestamps of every
 //!    UNPLANNED sidecar exit. On each new exit it calls
@@ -196,12 +196,12 @@ static SAVE_COUNTER: AtomicU64 = AtomicU64::new(0);
 // `pending-patches.json` ONLY because the sidecar is dead when the revert
 // runs — that's the whole premise of the watchdog.
 
-/// Canonical marker path: `~/.feral/rsi/last_applied_patch.json`.
+/// Canonical marker path: `~/.cinderpaw/rsi/last_applied_patch.json`.
 pub fn default_marker_path() -> PathBuf {
     crate::paths::rsi_dir().join("last_applied_patch.json")
 }
 
-/// The TS `PendingPatchStore` file: `~/.feral/rsi/pending-patches.json`
+/// The TS `PendingPatchStore` file: `~/.cinderpaw/rsi/pending-patches.json`
 /// (TS side: `defaultPendingPatchesPath()` in `pending-patches.ts`).
 pub fn default_pending_store_path() -> PathBuf {
     crate::paths::rsi_dir().join("pending-patches.json")
@@ -442,8 +442,8 @@ mod tests {
 
     #[test]
     fn save_creates_parent_directory() {
-        // Common shape: ~/.feral/rsi/last_applied_patch.json. The
-        // first call must not fail just because ~/.feral/rsi/ doesn't
+        // Common shape: ~/.cinderpaw/rsi/last_applied_patch.json. The
+        // first call must not fail just because ~/.cinderpaw/rsi/ doesn't
         // exist yet on a fresh box.
         let dir = TempDir::new().unwrap();
         let p = dir.path().join("nested/dir/last_applied_patch.json");

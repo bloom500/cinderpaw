@@ -1,5 +1,5 @@
 /**
- * Custom tools — agent-authored tools, persisted under ~/.feral/tools/.
+ * Custom tools — agent-authored tools, persisted under ~/.cinderpaw/tools/.
  *
  * The RSI story's "generation" half for the tool surface: the agent can
  * create / modify / delete its own tools at runtime (via the `tool_forge`
@@ -55,7 +55,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { atomicWriteFileSync } from "../atomic-write.ts";
 import { basename, join } from "node:path";
-import { cfgBool, feralHome } from "../config.ts";
+import { cfgBool, cinderpawHome } from "../config.ts";
 import { CUSTOM_TOOL_RUNNER_FLAG, TOOL_DOMAINS_ENV } from "./custom-tool-runner.ts";
 import type { AskUserQuestion, Tool, ToolManifest, ToolParameter, ToolResult } from "../types.ts";
 
@@ -101,7 +101,7 @@ export interface CustomToolRecord {
 export const QUARANTINE_CALLS = 3;
 
 export function customToolsDir(): string {
-  return join(feralHome(), "tools");
+  return join(cinderpawHome(), "tools");
 }
 
 const NAME_RE = /^[a-z][a-z0-9_]{2,31}$/;

@@ -26,7 +26,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
       // Cheap reachability probe: returns true when the Cinderpaw Agent sidecar
       // is alive and responded to a health check. We don't run a full
       // inference round-trip here — that happens on the first user message.
-      const up = await tauri.feralAgent.status().catch(() => false);
+      const up = await tauri.cinderpawAgent.status().catch(() => false);
       if (!cancelled) setProbe({ phase: 'done', up });
     }
 

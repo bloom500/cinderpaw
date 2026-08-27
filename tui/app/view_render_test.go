@@ -56,8 +56,8 @@ func TestViewRendersIdle(t *testing.T) {
 	if out == "" || out == "Loading…" {
 		t.Fatalf("View() returned empty/loading for a sized app: %q", out)
 	}
-	if !strings.Contains(out, "feral") {
-		t.Fatalf("expected 'feral' brand in view, got:\n%s", out)
+	if !strings.Contains(out, "cinderpaw") {
+		t.Fatalf("expected 'cinderpaw' brand in view, got:\n%s", out)
 	}
 }
 

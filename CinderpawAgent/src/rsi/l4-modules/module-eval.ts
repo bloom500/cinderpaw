@@ -168,7 +168,7 @@ export async function runModuleEval(
   // The incumbent is this seam's champion, so pass it: an environment task
   // (latency, token budget) only vetoes when the incumbent passed it on this
   // same machine. The recorded report for the one module ever built on this
-  // install (2026-07-09, `~/.feral/rsi/envelopes`) reads "Tier 0 floor
+  // install (2026-07-09, `~/.cinderpaw/rsi/envelopes`) reads "Tier 0 floor
   // breached: 5 frozen sanity task(s) failed", and the pairs show the
   // INCUMBENT failing the same five — one of them `tier0/latency_short`, a
   // property of the route that no module can change. Correctness tasks still

@@ -421,7 +421,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       messages,
       temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      ...feralExtensionBody(target, req),
+      ...cinderpawExtensionBody(target, req),
       stream: false,
     };
     if (useNativeTools) {
@@ -541,7 +541,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       messages,
       temperature: cloudTemperature(target, req),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      ...feralExtensionBody(target, req),
+      ...cinderpawExtensionBody(target, req),
       stream: true,
       // Without this, an OpenAI-compatible server sends NO usage block in a
       // stream — that is what the field is for. Every streamed completion then
@@ -1633,7 +1633,7 @@ function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
   };
 }
 
-function feralExtensionBody(
+function cinderpawExtensionBody(
   target: ModelTarget,
   req: InferenceRequest,
 ): Record<string, unknown> {

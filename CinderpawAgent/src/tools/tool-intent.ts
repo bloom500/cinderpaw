@@ -95,7 +95,7 @@ export const INTENT_TOOLS: Readonly<Record<ToolIntent, readonly string[]>> = {
   ],
   code: ["git_status", "git_diff", "git_log", "git_commit", "git_branch", "shell_exec"],
   web: ["web_search", "fetch_url", "read_webpage", "deep_research"],
-  system: ["shell_exec", "feral_admin"],
+  system: ["shell_exec", "cinderpaw_admin"],
   memory: ["recall", "remember"],
   introspect: [
     "self_describe",

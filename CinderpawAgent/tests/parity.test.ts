@@ -80,7 +80,7 @@ describe("parity: permissions", () => {
       proves: "a refusal the model cannot read is a silent failure",
       prompt: "write to the system directory",
       script: [
-        { content: toolCall("write_file", { path: "/etc/feral-parity-probe", content: "x" }) },
+        { content: toolCall("write_file", { path: "/etc/cinderpaw-parity-probe", content: "x" }) },
         { content: "I could not write there." },
       ],
     });

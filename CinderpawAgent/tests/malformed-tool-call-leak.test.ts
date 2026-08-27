@@ -32,7 +32,7 @@ const BUDGET = { perConversation: 50_000, perDay: 500_000, onExhausted: "stop" }
 
 /** The exact shape observed: a colon replaced by an equals sign. */
 const BROKEN =
-  '<tool_call>\n{"name="read_file","args":{"path":"D:\\FeralLocalAI\\a.ts"}}\n</tool_call>';
+  '<tool_call>\n{"name="read_file","args":{"path":"D:\\CinderpawLocalAI\\a.ts"}}\n</tool_call>';
 
 async function answerFor(script: string[]): Promise<string> {
   const originalFetch = globalThis.fetch;

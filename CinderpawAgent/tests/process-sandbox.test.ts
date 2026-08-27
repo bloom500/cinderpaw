@@ -86,7 +86,7 @@ describe("RealProcessSandbox", () => {
 
   beforeEach(() => {
     sandbox = new RealProcessSandbox(noopAudit());
-    tmpDir = mkdtempSync(join(tmpdir(), "feral-procsbx-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "cinderpaw-procsbx-"));
   });
 
   afterEach(() => {
@@ -98,15 +98,15 @@ describe("RealProcessSandbox", () => {
     const result = isWin
       ? await sandbox.run(manifest, "sess-1", {
           executable: "cmd",
-          args: ["/c", "echo", "hello-feral"],
+          args: ["/c", "echo", "hello-cinderpaw"],
         })
       : await sandbox.run(manifest, "sess-1", {
           executable: "sh",
-          args: ["-c", "echo hello-feral"],
+          args: ["-c", "echo hello-cinderpaw"],
         });
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe("hello-feral");
+    expect(result.stdout.trim()).toBe("hello-cinderpaw");
     expect(result.timedOut).toBe(false);
     expect(result.outputTruncated).toBe(false);
   });

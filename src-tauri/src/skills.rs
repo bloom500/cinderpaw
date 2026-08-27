@@ -53,7 +53,7 @@ fn content_client() -> Result<reqwest::Client> {
         }
     });
     Ok(reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(15))
         .redirect(policy)
         .build()?)
@@ -156,7 +156,7 @@ pub fn skill_path(id: &str) -> Result<std::path::PathBuf> {
     Ok(base.join(id))
 }
 
-/// Scan ~/.feral/skills/ and return one SkillMeta per subdirectory
+/// Scan ~/.cinderpaw/skills/ and return one SkillMeta per subdirectory
 /// that contains a SKILL.md file.
 pub fn local_list() -> Result<Vec<SkillMeta>> {
     paths::ensure_dirs()?;
@@ -478,7 +478,7 @@ pub fn preview_local_file(path: &str) -> Result<SkillPreview> {
     // ~/.ssh/id_rsa returned the private key as "skill preview content", and
     // pointing it at a huge file — or /dev/urandom — read until the process
     // died. Same threat model, same guard, as the file readers in commands/files.rs.
-    crate::commands::files::deny_feral_private(&canon).map_err(|e| anyhow::anyhow!(e))?;
+    crate::commands::files::deny_cinderpaw_private(&canon).map_err(|e| anyhow::anyhow!(e))?;
     crate::commands::files::deny_sensitive_home_paths(&canon).map_err(|e| anyhow::anyhow!(e))?;
 
     const MAX_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
@@ -515,7 +515,7 @@ pub fn skill_exists(id: &str) -> Result<bool> {
     Ok(dir.exists())
 }
 
-/// Write SKILL.md to ~/.feral/skills/<id>/SKILL.md.
+/// Write SKILL.md to ~/.cinderpaw/skills/<id>/SKILL.md.
 /// Fails if the directory already exists and overwrite is false.
 ///
 /// PRIVATE ON PURPOSE. This function trusts everything it is given — the body,

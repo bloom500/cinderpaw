@@ -10,7 +10,7 @@
  *     drive-letter splits (value starts with "\"), role names.
  */
 import { Database } from "bun:sqlite";
-import { feralHome } from "../src/config.ts";
+import { cinderpawHome } from "../src/config.ts";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -38,10 +38,10 @@ function mentionsFable(...parts: (string | undefined)[]): boolean {
 }
 
 // ── 1. semantic table ──────────────────────────────────────────────────
-// feralHome(), not homedir() + ".feral": on a migrated machine the latter
+// cinderpawHome(), not homedir() + ".cinderpaw": on a migrated machine the latter
 // is a directory the app stopped writing to, so this script would have
 // cleaned a stale copy of the memory and left the live one untouched.
-const db = new Database(join(feralHome(), "agent", "feral.db"));
+const db = new Database(join(cinderpawHome(), "agent", "cinderpaw.db"));
 const rows = db.query("SELECT key, value FROM semantic").all() as {
   key: string;
   value: string;
@@ -63,7 +63,7 @@ if (APPLY) {
 }
 
 // ── 2. memory-graph.json ───────────────────────────────────────────────
-const graphPath = join(feralHome(), "memory-graph.json");
+const graphPath = join(cinderpawHome(), "memory-graph.json");
 if (existsSync(graphPath)) {
   type Node = { id?: string; label?: string; value?: string; [k: string]: unknown };
   const graph = JSON.parse(readFileSync(graphPath, "utf8")) as {

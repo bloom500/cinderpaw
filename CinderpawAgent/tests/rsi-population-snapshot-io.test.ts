@@ -19,7 +19,7 @@ import {
 
 const dirs: string[] = [];
 function tmp(): string {
-  const d = mkdtempSync(join(tmpdir(), "feral-snap-"));
+  const d = mkdtempSync(join(tmpdir(), "cinderpaw-snap-"));
   dirs.push(d);
   return d;
 }

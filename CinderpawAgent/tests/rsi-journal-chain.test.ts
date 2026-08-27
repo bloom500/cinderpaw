@@ -32,7 +32,7 @@ afterEach(() => {
   for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 function freshTmpDir(): string {
-  const d = mkdtempSync(join(tmpdir(), "feral-jchain-"));
+  const d = mkdtempSync(join(tmpdir(), "cinderpaw-jchain-"));
   tmpDirs.push(d);
   return d;
 }

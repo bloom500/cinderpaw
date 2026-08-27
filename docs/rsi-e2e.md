@@ -31,8 +31,8 @@ bun run build
 node ../src-tauri/scripts/build-sidecar.mjs
 ```
 
-The script copies `CinderpawAgent/dist/feral-agent.exe` →
-`src-tauri/binaries/feral-agent-<triple>.exe`. Cargo's
+The script copies `CinderpawAgent/dist/cinderpaw-agent.exe` →
+`src-tauri/binaries/cinderpaw-agent-<triple>.exe`. Cargo's
 `beforeDevCommand` does this automatically — only run by hand
 when iterating without `cargo tauri dev`.
 

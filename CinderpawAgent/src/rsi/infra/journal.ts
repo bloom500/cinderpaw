@@ -142,7 +142,7 @@ export interface JournalEntry {
 }
 
 /** Default journal directory. Mirrors `dream-telemetry.ts` pattern at
- *  `~/.feral/rsi/dream.jsonl`. Delegates to `instance-paths.ts` so
+ *  `~/.cinderpaw/rsi/dream.jsonl`. Delegates to `instance-paths.ts` so
  *  the per-instance split (BRSI §3.3) is a one-file change. */
 export function defaultJournalDir(): string {
   return paths().journalDir;

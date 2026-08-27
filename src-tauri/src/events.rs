@@ -142,7 +142,7 @@ pub struct LiveStatusEvent {
     pub text: String,
 }
 
-/// One raw JSON line emitted by the feral-agent sidecar on stdout.
+/// One raw JSON line emitted by the cinderpaw-agent sidecar on stdout.
 /// The React frontend parses `data` to get the typed event
 /// (`chunk`, `done`, `tool_start`, `tool_done`, `proactive`, `pong`, `error`).
 /// Using a single opaque event keeps the Rust side thin and forward-compatible.

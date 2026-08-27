@@ -25,7 +25,7 @@ const CORE = [
   "shell_exec", "web_search", "read_webpage", "recall", "remember", "self_describe",
   "self_status", "self_health", "self_tools", "self_subsystem", "product_info",
   "delegate_task", "cowork_team", "cowork_send", "list_tools", "load_tool", "ask_user",
-  "todo_write", "feral_admin", "notebook",
+  "todo_write", "cinderpaw_admin", "notebook",
 ];
 
 describe("classifyToolIntents", () => {

@@ -38,7 +38,7 @@
  * system; the agent doesn't need to memorise the capabilities — it just
  * needs to know it can ask the runtime". Each tool is small, focused, and
  * returns shaped data (not raw JSON dumps), so the LLM can compose a
- * concrete answer without guessing what's in ~/.feral/...
+ * concrete answer without guessing what's in ~/.cinderpaw/...
  *
  * Security posture: all reads are from internal TypeScript modules, no
  * user-controlled paths. No `fs:read` permission, no `allowedPaths` —
@@ -49,7 +49,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { cfgBool, feralHome } from "../../config.ts";
+import { cfgBool, cinderpawHome } from "../../config.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 import type { ToolRegistry } from "../registry.ts";
 import type { InferenceRouter } from "../../egress/inference-router.ts";
@@ -109,7 +109,7 @@ function tailJsonl(path: string, n: number): unknown[] {
 
 // ── Path constants (single source of truth) ───────────────────────────────
 
-const RSI_ROOT = join(feralHome(), "rsi");
+const RSI_ROOT = join(cinderpawHome(), "rsi");
 const P_CHAMPION = join(RSI_ROOT, "champion.json");
 const P_POPULATION = join(RSI_ROOT, "population.json");
 const P_DREAM = join(RSI_ROOT, "dream.jsonl");
@@ -120,9 +120,9 @@ const P_MODULE_HISTORY = join(RSI_ROOT, "modules", "registry_history.jsonl");
 const P_POLICY = join(RSI_ROOT, "governance", "policy.json");
 const P_META = join(RSI_ROOT, "meta_genome.json");
 const P_META_HISTORY = join(RSI_ROOT, "meta_history.jsonl");
-const P_MEMORY_GRAPH = join(feralHome(), "memory-graph.json");
-const P_CONNECTORS = join(feralHome(), "connectors.json");
-const P_LEAF_STORE = join(feralHome(), "fractal-leaves.json");
+const P_MEMORY_GRAPH = join(cinderpawHome(), "memory-graph.json");
+const P_CONNECTORS = join(cinderpawHome(), "connectors.json");
+const P_LEAF_STORE = join(cinderpawHome(), "fractal-leaves.json");
 
 // ── Subsystem deep-dive catalog ───────────────────────────────────────────
 //
@@ -148,15 +148,15 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     purpose:
       "Bounded Reflective Self-Improvement — an evolution engine that optimises a small set of agent-config genomes against the agent's own evaluation corpus.",
     inputs: [
-      "Genome population (`~/.feral/rsi/population.json`).",
-      "Evolution journal (`~/.feral/rsi/journal/<date>.jsonl`).",
+      "Genome population (`~/.cinderpaw/rsi/population.json`).",
+      "Evolution journal (`~/.cinderpaw/rsi/journal/<date>.jsonl`).",
       "Tier 0/1 contract FSM results.",
       "Conversation feedback (acceptance / completion signals).",
     ],
     outputs: [
-      "Updated champion (`~/.feral/rsi/champion.json`).",
+      "Updated champion (`~/.cinderpaw/rsi/champion.json`).",
       "Ratcheted commits in the git substrate.",
-      "Taste-miner PBT vectors (`~/.feral/rsi/pbt_state.json`).",
+      "Taste-miner PBT vectors (`~/.cinderpaw/rsi/pbt_state.json`).",
     ],
     safety: [
       "Tier 0 capability gate (must not regress core fitness).",
@@ -181,7 +181,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     outputs: [
       "Ranked leaves for `recall` queries (leaf_id + text snippet + score).",
       "Centroid refresh into the active tree.",
-      "Evicted summaries into `~/.feral/fractal-evicted.jsonl`.",
+      "Evicted summaries into `~/.cinderpaw/fractal-evicted.jsonl`.",
     ],
     safety: [
       "Read-only API — `recall` cannot write.",
@@ -203,8 +203,8 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "Hyperparameters from the trainer backend (rank, alpha, lr, epochs).",
     ],
     outputs: [
-      "Promoted adapter files (`*.gguf` under `~/.feral/rsi/envelopes/`).",
-      "Registry entries (`~/.feral/rsi/lora-registry.json`) with full lineage back to genesis.",
+      "Promoted adapter files (`*.gguf` under `~/.cinderpaw/rsi/envelopes/`).",
+      "Registry entries (`~/.cinderpaw/rsi/lora-registry.json`) with full lineage back to genesis.",
     ],
     safety: [
       "Champion-per-domain isolation (a coding regression cannot retire the writing champion).",
@@ -229,7 +229,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     outputs: [
       "New candidate evaluated against Tier 0/1.",
       "Ratcheted commit in the substrate on accept.",
-      "Per-episode summary in `~/.feral/rsi/dream.jsonl` (tokens, ratchets, errors, emptyResponses, resources).",
+      "Per-episode summary in `~/.cinderpaw/rsi/dream.jsonl` (tokens, ratchets, errors, emptyResponses, resources).",
     ],
     safety: [
       "Hard wall-clock ceiling (CINDERPAW_TOTAL_DEADLINE_MS).",
@@ -271,14 +271,14 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     purpose:
       "The ConnectorManager → Connector → Token → Gateway → Session hierarchy that fans the agent's replies out to chat surfaces (Discord / Slack / WhatsApp) and back in. Each surface is an independent connector with its own allowlist, mode, and (optional) inline knowledge-base for the public responder.",
     inputs: [
-      "Multi-tenant connector rows (`~/.feral/connectors.json`).",
+      "Multi-tenant connector rows (`~/.cinderpaw/connectors.json`).",
       "Per-connector allowlist (channel / DM / group IDs).",
       "Per-connector mode (owner = full agent, public = constrained KB).",
     ],
     outputs: [
       "Active connector sockets (Discord gateway WS, Slack Socket Mode, WhatsApp Web session).",
       "Per-message `agent-output` events with conversation trace.",
-      "Leads + escalations captured under `~/.feral/leads/`.",
+      "Leads + escalations captured under `~/.cinderpaw/leads/`.",
     ],
     safety: [
       "Allowlist enforcement (channels + DM peers).",
@@ -294,7 +294,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
   },
   memory: {
     purpose:
-      "The tiered memory substrate: working memory (per-session transcript), episodic (Fractal Memory Search), semantic (knowledge graph at `~/.feral/memory-graph.json`), and tool-state memories.",
+      "The tiered memory substrate: working memory (per-session transcript), episodic (Fractal Memory Search), semantic (knowledge graph at `~/.cinderpaw/memory-graph.json`), and tool-state memories.",
     inputs: [
       "Conversation turns (auto-captured).",
       "Tool outputs (selectively remembered via extractor policy).",
@@ -347,7 +347,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     inputs: [
       "A cell of JavaScript from the model (`notebook` tool, `code` argument).",
       "The session's live tool registry — one injected function per registered tool, itself excluded.",
-      "The previous snapshot for this session (`~/.feral/notebooks/<session>.json`), restored on first use.",
+      "The previous snapshot for this session (`~/.cinderpaw/notebooks/<session>.json`), restored on first use.",
     ],
     outputs: [
       "The last expression's value plus anything logged, returned as the tool result.",
@@ -370,7 +370,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
   rsi: {
     purpose:
       "The parent substrate that owns BRSI's on-disk state — the single " +
-      "source of truth for `~/.feral/rsi/*`. Every BRSI/LORA/Genome " +
+      "source of truth for `~/.cinderpaw/rsi/*`. Every BRSI/LORA/Genome " +
       "operation touches this directory; dreaming + journaling + the " +
       "audit log live here.",
     inputs: [
@@ -411,7 +411,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "Tier 0 / contract FSM results from the sandboxed run.",
     ],
     outputs: [
-      "`~/.feral/rsi/pending-patches.json` — every candidate diff and its status (pending → approved/rejected → applied/apply_failed/reverted).",
+      "`~/.cinderpaw/rsi/pending-patches.json` — every candidate diff and its status (pending → approved/rejected → applied/apply_failed/reverted).",
       "Substrate commits for candidates that won the ratchet.",
     ],
     safety: [
@@ -436,7 +436,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "an operator, that can be promoted to serve that seam live. Every seam " +
       "always has a builtin fallback, so a module is additive, never load-bearing.",
     inputs: [
-      "Candidate module dirs (`~/.feral/rsi/modules/<id>/` — manifest.json + a single .ts entry).",
+      "Candidate module dirs (`~/.cinderpaw/rsi/modules/<id>/` — manifest.json + a single .ts entry).",
       "The seam catalog (compiled in; a module targeting an unknown seam is rejected).",
       "L5 gate thresholds — a module promotes only if it beats the builtin by the policy's margin.",
     ],
@@ -563,7 +563,7 @@ interface ConnectorShape {
 }
 
 /** Override hooks let tests inject a temp dir; production callers pass
- *  no argument and the helpers resolve the real `~/.feral/...` paths. */
+ *  no argument and the helpers resolve the real `~/.cinderpaw/...` paths. */
 interface ShapePaths {
   connectors?: string;
   lora?: string;
@@ -982,7 +982,7 @@ function healthNotebook(): SubsystemHealth {
   }
   let snapshots = 0;
   try {
-    snapshots = readdirSync(join(feralHome(), "notebooks")).filter((f) => f.endsWith(".json")).length;
+    snapshots = readdirSync(join(cinderpawHome(), "notebooks")).filter((f) => f.endsWith(".json")).length;
   } catch {
     // No directory yet: enabled but never used. Not a fault either.
   }
@@ -1489,7 +1489,7 @@ function buildRuntimeSnapshot(
     active_base_url: primary.baseUrl,
     brain_stack_enabled: ctx.brainStackEnabled,
     cloud_reachable: ctx.router.cloudReachable,
-    sidecar_lifecycle: "supervised by the host runtime (Tauri or feral-cli gateway)",
+    sidecar_lifecycle: "supervised by the host runtime (Tauri or cinderpaw-cli gateway)",
   };
 }
 

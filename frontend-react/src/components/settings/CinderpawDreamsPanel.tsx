@@ -50,7 +50,7 @@ function DreamStageStepper({ stage }: { stage: DreamStage | null }) {
 /**
  * "Cinderpaw's Dreams" — lifetime view of the Dream Cycle (RSI self-improvement
  * that runs while the user is idle). Reads aggregated telemetry from
- * `~/.feral/rsi/dream.jsonl` via `rsi_dream_telemetry` and refreshes whenever
+ * `~/.cinderpaw/rsi/dream.jsonl` via `rsi_dream_telemetry` and refreshes whenever
  * a new episode ends (the `dream_cycle` pulse the sidecar emits). Read-only:
  * the user watches Cinderpaw improve itself, they don't pilot it.
  *

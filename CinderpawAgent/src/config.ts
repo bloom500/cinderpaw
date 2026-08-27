@@ -1,6 +1,6 @@
 // CinderpawAgent/src/config.ts
 // Single source of truth for CINDERPAW_* environment configuration read by the
-// TypeScript sidecar (CinderpawAgent/src/). Rust-side vars (crates/feral-core,
+// TypeScript sidecar (CinderpawAgent/src/). Rust-side vars (crates/cinderpaw-core,
 // src-tauri) are documented separately in docs/CONFIGURATION.md §1/§2 and
 // are NOT part of this schema.
 //
@@ -374,7 +374,7 @@ export function cfgList(name: string): string[] {
  * real one's connectors and secrets. Single resolver; import it instead of
  * re-deriving the path.
  */
-export function feralHome(): string {
+export function cinderpawHome(): string {
   const base = resolve(cfgPath("CINDERPAW_HOME") ?? defaultHomeDir());
   const run = benchmarkRunId();
   // INVARIANT I13: a benchmark run gets its own profile dir, so nothing it
@@ -444,14 +444,14 @@ function defaultHomeDir(): string {
  * off "the agent's home" has to wall off both, or it protects whichever one
  * the app happens to be using and leaves the user's keys in the other.
  *
- * Includes `feralHome()` first so an explicit CINDERPAW_HOME/CINDERPAW_HOME
+ * Includes `cinderpawHome()` first so an explicit CINDERPAW_HOME
  * override is covered too. Duplicates are removed; a directory that does not
  * exist is harmless in a deny list.
  */
 export function agentProfileDirs(): string[] {
   return [
     ...new Set([
-      feralHome(),
+      cinderpawHome(),
       resolve(join(homedir(), APP_HOME_DIR_NAME)),
       resolve(join(homedir(), LEGACY_HOME_DIR_NAME)),
     ]),
@@ -513,12 +513,12 @@ export function benchmarkRunId(): string | null {
  *
  * It is the ONE writable path under the profile dir; `loadWorkspaceRoots` creates it
  * at boot and exempts it from the wall that refuses every other root inside the
- * agent's own home. Resolved here, next to `feralHome`, for the same reason that
+ * agent's own home. Resolved here, next to `cinderpawHome`, for the same reason that
  * one exists: two callers deriving it separately is how an isolated profile ends
  * up writing into the real one's directory.
  */
 export function scratchRoot(): string {
-  return join(feralHome(), "workspace");
+  return join(cinderpawHome(), "workspace");
 }
 
 /**

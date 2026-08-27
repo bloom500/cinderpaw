@@ -18,7 +18,7 @@ import { EventBus, type RsiEvent } from "../src/rsi/infra/event-bus.ts";
 import { RatchetHandler } from "../src/rsi/l1-config/ratchet-handler.ts";
 
 /** Scratch journal path so the per-candidate Contract rows never touch the
- *  real ~/.feral/rsi/journal during tests. */
+ *  real ~/.cinderpaw/rsi/journal during tests. */
 const journalPath = () => join(tmpdir(), `rsi-ratchet-test-${process.pid}.jsonl`);
 
 describe("RSI ratchet handler", () => {

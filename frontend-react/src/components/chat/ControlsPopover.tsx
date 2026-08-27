@@ -188,8 +188,8 @@ export function ControlsPopover() {
   const isAgentMode = useUI((s) => s.inputMode) === 'agent';
   const loaded      = useModel((s) => s.loaded);
   const cloudModel  = useModel((s) => s.cloudModel);
-  const feralConfig = useCinderpawStore((s) => s.modelConfig);
-  const { isLocal } = activeContextWindow({ isAgentMode, feralConfig, cloudModel, loaded });
+  const cinderpawConfig = useCinderpawStore((s) => s.modelConfig);
+  const { isLocal } = activeContextWindow({ isAgentMode, cinderpawConfig, cloudModel, loaded });
   const isLocalActive = isLocal && !!loaded;
 
   const rows = ROWS.filter((r) => isLocalActive || !r.localOnly);

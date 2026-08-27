@@ -149,7 +149,7 @@ type ToolDone struct {
 
 // SessionSummary is one row in `/runtime/sessions` — the welcome screen
 // renders the most-recent N of these. Mirrors the shape stored in
-// `~/.feral/conversations/index.json` (see frontend-react/src/stores/conversations.ts).
+// `~/.cinderpaw/conversations/index.json` (see frontend-react/src/stores/conversations.ts).
 type SessionSummary struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
@@ -205,10 +205,10 @@ func ReadToken() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// EnsureToken returns the existing API token at `~/.feral/api-token` or, on
+// EnsureToken returns the existing API token at `~/.cinderpaw/api-token` or, on
 // first run, generates a fresh 32-byte URL-safe random token, writes it
 // 0600-permissioned, and returns it. This is the Sprint 2 first-run
-// bootstrap (audit C-3) — a new user who runs `feral chat` with no prior
+// bootstrap (audit C-3) — a new user who runs `cinderpaw chat` with no prior
 // install used to hit a cryptic exit; now they get a fresh token and the
 // wizard opens automatically (audit J2.3).
 //
@@ -265,7 +265,7 @@ func EnsureToken(seed []byte) (string, error) {
 	return token, nil
 }
 
-// StartGateway attempts to start the feral gateway process. It looks for
+// StartGateway attempts to start the cinderpaw gateway process. It looks for
 // the gateway binary next to the TUI binary, then in PATH, and finally at
 // common install locations. Returns the process handle on success.
 func StartGateway(port int) (*os.Process, error) {
@@ -288,7 +288,7 @@ func StartGateway(port int) (*os.Process, error) {
 // and at common install locations.
 //
 // The old names are still tried: someone who installed before the rename has a
-// feral binary on disk, and a TUI that cannot find it would report "not found"
+// cinderpaw binary on disk, and a TUI that cannot find it would report "not found"
 // on a machine where it is plainly installed.
 func findGateway() (string, error) {
 	// Look next to the TUI binary first.
@@ -299,9 +299,9 @@ func findGateway() (string, error) {
 			filepath.Join(dir, "cinderpaw.exe"),
 			filepath.Join(dir, "cinderpaw-gateway.exe"),
 			filepath.Join(dir, "cinderpaw"),
-			filepath.Join(dir, "feral.exe"),
-			filepath.Join(dir, "feral-gateway.exe"),
-			filepath.Join(dir, "feral"),
+			filepath.Join(dir, "cinderpaw.exe"),
+			filepath.Join(dir, "cinderpaw-gateway.exe"),
+			filepath.Join(dir, "cinderpaw"),
 		}
 		for _, c := range candidates {
 			if _, err := os.Stat(c); err == nil {
@@ -503,7 +503,7 @@ func ReloadConnectors(baseURL, token string) error {
 }
 
 // ConnectorView is the redacted per-connector state from
-// GET /runtime/connectors (mirrors feral-core's ConnectorRedactedView).
+// GET /runtime/connectors (mirrors cinderpaw-core's ConnectorRedactedView).
 type ConnectorView struct {
 	ID        string   `json:"id"`
 	Enabled   bool     `json:"enabled"`
@@ -712,7 +712,7 @@ func TriggerDream(baseURL, token string) error {
 
 // FetchSessions returns the most-recent conversations (default 5) so the
 // welcome screen can render a "recent" list. The host endpoint reads the
-// `~/.feral/conversations/index.json` written by the desktop app.
+// `~/.cinderpaw/conversations/index.json` written by the desktop app.
 func FetchSessions(baseURL, token string, limit int) ([]SessionSummary, error) {
 	if limit <= 0 {
 		limit = 5
@@ -779,7 +779,7 @@ func FetchResume(baseURL, token string) (*ResumeView, error) {
 }
 
 // SystemInfo is the Sprint 2 / audit C-1 hardware probe. Mirrors the Rust
-// `crates/feral-core/src/sysinfo_mod.rs::SystemInfo` JSON wire shape (snake_case).
+// `crates/cinderpaw-core/src/sysinfo_mod.rs::SystemInfo` JSON wire shape (snake_case).
 type SystemInfo struct {
 	OS              string `json:"os"`
 	CPU             string `json:"cpu"`
@@ -939,7 +939,7 @@ func SaveByokKey(baseURL, token, providerID, apiKey string, baseURLOpt, defaultM
 // fallbacks (Decision C).
 
 // ProviderCatalogEntry is one row of the canonical provider catalog.
-// Mirrors `crates/feral-core/src/byok.rs::ProviderCatalogEntry`.
+// Mirrors `crates/cinderpaw-core/src/byok.rs::ProviderCatalogEntry`.
 type ProviderCatalogEntry struct {
 	ID                     string  `json:"id"`
 	Name                   string  `json:"name"`
@@ -955,7 +955,7 @@ type ProviderCatalogEntry struct {
 }
 
 // ConnectorPairingFieldDef is one secret field a connector requires.
-// Mirrors `crates/feral-core/src/connectors.rs::PairingFieldDef`.
+// Mirrors `crates/cinderpaw-core/src/connectors.rs::PairingFieldDef`.
 type ConnectorPairingFieldDef struct {
 	Key    string `json:"key"`
 	Label  string `json:"label"`
@@ -963,7 +963,7 @@ type ConnectorPairingFieldDef struct {
 }
 
 // ConnectorCatalogEntry is one row of the canonical connector catalog.
-// Mirrors `crates/feral-core/src/connectors.rs::ConnectorCatalogEntry`.
+// Mirrors `crates/cinderpaw-core/src/connectors.rs::ConnectorCatalogEntry`.
 //
 // v2 (2026-07-07) — added QRSetupEndpoint. QR-paired connectors (only
 // WhatsApp today) carry the gateway endpoint the wizard POSTs to in
@@ -1067,7 +1067,7 @@ func FetchConnectorCatalog(baseURL, token string) (*CatalogResult, error) {
 	return fetchCatalog(baseURL, token, "/runtime/connectors/catalog", ConnectorCatalogVersionExpected)
 }
 
-// ConnectorFileConfig is the on-disk format of `~/.feral/connectors.json`.
+// ConnectorFileConfig is the on-disk format of `~/.cinderpaw/connectors.json`.
 // Mirrors the Rust `ConnectorConfigFile` shape in src-tauri/src/connectors.rs.
 type ConnectorFileConfig struct {
 	Connectors []ConnectorFileEntry `json:"connectors"`
@@ -1083,7 +1083,7 @@ type ConnectorFileEntry struct {
 }
 
 // SaveConnectorConfig persists a connector's secrets and enabled flag to
-// `~/.feral/connectors.json`, then pokes the gateway to reload. F4
+// `~/.cinderpaw/connectors.json`, then pokes the gateway to reload. F4
 // chat-platform connector counterpart to the cloud-provider keychain path
 // (SaveByokKey + /runtime/byok/save). Phase 2 of the terminal-onboarding
 // slice replaces this file-only writer with a keychain-backed endpoint

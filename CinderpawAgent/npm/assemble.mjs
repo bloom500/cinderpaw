@@ -74,7 +74,7 @@ if (os !== "win32") {
 const pkgJson = {
   name,
   version,
-  description: `Feral CLI runtime for ${os}-${arch}. Installed automatically by \`cinderpaw-agent\`.`,
+  description: `Cinderpaw CLI runtime for ${os}-${arch}. Installed automatically by \`cinderpaw-agent\`.`,
   license: "BUSL-1.1",
   homepage: "https://github.com/bloom500/cinderpaw#readme",
   repository: { type: "git", url: "git+https://github.com/bloom500/cinderpaw.git", directory: "CinderpawAgent" },

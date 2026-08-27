@@ -16,7 +16,7 @@ import {
 import { validateManifest } from "../src/rsi/l4-modules/module-registry.ts";
 import { SEAM_CATALOG } from "../src/rsi/l4-modules/seam-catalog.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "feral-modprop-"));
+const dir = mkdtempSync(join(tmpdir(), "cinderpaw-modprop-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 const GOOD_MODULE = `const stopwords = new Set(["the", "a", "of"]);

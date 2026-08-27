@@ -10,7 +10,7 @@ import (
 // TestMain gives this package's tests their own home directory.
 //
 // `go test ./...` was writing into the developer's real profile dir: a run on
-// 2026-08-26 created .wizard-done and .wizard-progress under ~/.feral on a
+// 2026-08-26 created .wizard-done and .wizard-progress under ~/.cinderpaw on a
 // machine where that directory had just been cleaned up after migrating. That
 // left an unmarked legacy home behind, and the Rust host then refused to boot
 // ("both exist, and the older one is not marked as migrated"). A test run must
@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 }
 
 // testHomeDir resolves the profile dir the code under test will actually use.
-// Fixtures used to hardcode "<tmp>/.feral", which silently stopped matching
+// Fixtures used to hardcode "<tmp>/.cinderpaw", which silently stopped matching
 // once the resolver started preferring .cinderpaw — a fixture that names a
 // directory the code no longer picks tests nothing.
 func testHomeDir(t *testing.T) string {

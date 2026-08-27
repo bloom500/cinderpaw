@@ -8,7 +8,7 @@
  * guarantees runnability downstream.
  *
  * Storage: append-only JSONL under
- * <feralHome()>/agent/runs/<runId>/raptor-skills.jsonl. The sink is
+ * <cinderpawHome()>/agent/runs/<runId>/raptor-skills.jsonl. The sink is
  * injectable for tests and alternative stores. Identical (code,
  * description) pairs are deduplicated by content hash, never written twice.
  *
@@ -31,7 +31,7 @@ import path from "node:path";
 
 import { compileProgram } from "../../core/mcts-verifier.ts";
 import { assertValidRunId } from "../../core/run-id.ts";
-import { feralHome } from "../../config.ts";
+import { cinderpawHome } from "../../config.ts";
 
 // Re-exported: this module was the original home of the check, and
 // callers/tests import it from here.
@@ -113,7 +113,7 @@ export class JsonlSkillSink implements SkillSink {
 /**
  * Per-run persistence location (fractal-leaves convention, run-scoped).
  *
- * Derived from `feralHome()`, not from `homedir()` directly. Reading the home
+ * Derived from `cinderpawHome()`, not from `homedir()` directly. Reading the home
  * dir here meant an isolated profile (CINDERPAW_HOME) still wrote its induced
  * skills into the real profile's directory — the one place in the sidecar
  * where agent state escaped its own home, and the one kind of state whose
@@ -121,7 +121,7 @@ export class JsonlSkillSink implements SkillSink {
  */
 export function defaultSinkPath(runId: string): string {
   assertValidRunId(runId);
-  return path.join(feralHome(), "agent", "runs", runId, "raptor-skills.jsonl");
+  return path.join(cinderpawHome(), "agent", "runs", runId, "raptor-skills.jsonl");
 }
 
 function fnv1a32(text: string): string {

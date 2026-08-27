@@ -2,12 +2,12 @@
  * Instance paths — the single source of truth for per-tenant storage locations.
  *
  * Why this exists:
- *   Today, every Feral RSI artifact lives under `~/.feral/rsi/`. The
+ *   Today, every Cinderpaw RSI artifact lives under `~/.cinderpaw/rsi/`. The
  *   per-instance divergence model (BRSI §3.3) calls for a split into:
  *
- *     ~/.feral/shared/                    — Tier 0 specs, scoring weights,
+ *     ~/.cinderpaw/shared/                    — Tier 0 specs, scoring weights,
  *                                           immutable core (agent cannot write)
- *     ~/.feral/instances/<tenant_id>/    — per-tenant genomes, adapters,
+ *     ~/.cinderpaw/instances/<tenant_id>/    — per-tenant genomes, adapters,
  *                                           demos, eval suites, journal, audit
  *
  *   The split is a real refactor (Rust side `paths.rs` + TS side this
@@ -16,7 +16,7 @@
  *
  *   The contract this module establishes:
  *     1. Every TS caller goes through `paths(tenant)` — never hardcodes
- *        `~/.feral/rsi/`.
+ *        `~/.cinderpaw/rsi/`.
  *     2. `assertTenant(tenant)` validates a tenant id before any path
  *        computation, defending against `../` and path-separator escapes.
  *     3. The post-split layout is documented here, not invented elsewhere.
@@ -25,7 +25,7 @@
  */
 
 import { join } from "node:path";
-import { feralHome } from "../../config.ts";
+import { cinderpawHome } from "../../config.ts";
 
 /** Default tenant id when none is supplied. Single-user installs never
  *  pass anything else. Multi-user installs (post-split) get a UUID. */
@@ -33,8 +33,8 @@ export const DEFAULT_TENANT = "default";
 
 /** All the paths a tenant's RSI state occupies. */
 export interface InstancePaths {
-  /** Root for this tenant's RSI state. v1: `~/.feral/rsi/`.
-   *  v2 (post-split): `~/.feral/instances/<tenant>/rsi/`. */
+  /** Root for this tenant's RSI state. v1: `~/.cinderpaw/rsi/`.
+   *  v2 (post-split): `~/.cinderpaw/instances/<tenant>/rsi/`. */
   root: string;
   /** Hash-chained NDJSON audit log for SandboxBounds mutations. */
   auditLog: string;
@@ -65,7 +65,7 @@ export interface InstancePaths {
 export function paths(tenant: string = DEFAULT_TENANT): InstancePaths {
   assertTenant(tenant);
   // v1: shared root. v2 would replace this with a per-tenant subdir.
-  const root = join(feralHome(), "rsi");
+  const root = join(cinderpawHome(), "rsi");
   return {
     root,
     auditLog: join(root, "sandbox_bounds.audit.log"),

@@ -99,7 +99,7 @@ describe("CheckpointStore", () => {
 
 describe("write_file is idempotent", () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "feral-wf-")); });
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "cinderpaw-wf-")); });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   test("re-writing identical content is a skipped no-op", async () => {

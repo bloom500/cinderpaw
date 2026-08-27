@@ -1,7 +1,7 @@
 /**
  * Egress proxy — the single network exit for the entire agent.
  *
- * Non-negotiable constraint: no network request may bypass `feralFetch`. Tools
+ * Non-negotiable constraint: no network request may bypass `cinderpawFetch`. Tools
  * receive a *bound* fetch from `EgressProxy.forTool()` that enforces, for every
  * request:
  *   - the host is in the calling tool's `allowedDomains` whitelist
@@ -16,9 +16,9 @@ import { lookup } from "node:dns/promises";
 import { benchmarkRunId, cfgList } from "../config.ts";
 import type {
   AuditLogger,
-  FeralFetch,
-  FeralFetchInit,
-  FeralFetchResponse,
+  CinderpawFetch,
+  CinderpawFetchInit,
+  CinderpawFetchResponse,
   ToolManifest,
 } from "../types.ts";
 
@@ -221,8 +221,8 @@ export class EgressProxy {
    * Produce a fetch bound to a single tool's permissions. The returned function
    * is the only network primitive a tool is ever given.
    */
-  forTool(manifest: ToolManifest, sessionId: string): FeralFetch {
-    return (url: string, init?: FeralFetchInit) =>
+  forTool(manifest: ToolManifest, sessionId: string): CinderpawFetch {
+    return (url: string, init?: CinderpawFetchInit) =>
       this.#fetch(manifest, sessionId, url, init);
   }
 
@@ -230,8 +230,8 @@ export class EgressProxy {
     manifest: ToolManifest,
     sessionId: string,
     url: string,
-    init?: FeralFetchInit,
-  ): Promise<FeralFetchResponse> {
+    init?: CinderpawFetchInit,
+  ): Promise<CinderpawFetchResponse> {
     const start = Date.now();
 
     const block = (reason: string): never => {
@@ -406,7 +406,7 @@ export class EgressProxy {
         return {
           status: 200,
           ok: true,
-          headers: { "content-type": "application/json", "x-feral-dry-run": "1" },
+          headers: { "content-type": "application/json", "x-cinderpaw-dry-run": "1" },
           text: async () => body,
           json: async () => JSON.parse(body) as unknown,
         };

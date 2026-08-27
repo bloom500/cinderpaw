@@ -15,7 +15,7 @@
  */
 
 import { requestStreamStop } from './chatStream';
-import { requestFeralStop } from './cinderpawAgentStream';
+import { requestCinderpawStop } from './cinderpawAgentStream';
 
 /**
  * Stop whatever is streaming for `sessionId`, on whichever path it runs.
@@ -38,7 +38,7 @@ export async function stopActiveStream(sessionId: string): Promise<void> {
   // running. Asking twice costs one ignored message; asking never costs the user
   // their only way to interrupt.
   await Promise.all([
-    requestFeralStop(sessionId).catch(() => {}),
+    requestCinderpawStop(sessionId).catch(() => {}),
     requestStreamStop(sessionId).catch(() => {}),
   ]);
 }

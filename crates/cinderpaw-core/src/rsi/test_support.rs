@@ -1,9 +1,9 @@
 //! Hermetic test harness for the RSI substrate.
 //!
-//! Every RSI path resolves under `crate::paths::feral_dir()`, which reads
-//! the `CINDERPAW_HOME` env var (see `paths::feral_dir`). The RSI tests must
-//! never write into the developer's real `~/.feral/rsi`, so they run
-//! inside `with_temp_feral_home`, which:
+//! Every RSI path resolves under `crate::paths::cinderpaw_dir()`, which reads
+//! the `CINDERPAW_HOME` env var (see `paths::cinderpaw_dir`). The RSI tests must
+//! never write into the developer's real `~/.cinderpaw/rsi`, so they run
+//! inside `with_temp_cinderpaw_home`, which:
 //!
 //! 1. serialises all path-touching tests behind a single global mutex
 //!    (env vars are process-global, so two tests setting `CINDERPAW_HOME`
@@ -13,7 +13,7 @@
 //!    panic, via a drop guard.
 //!
 //! The previous design wrote bounds + audit rows straight into the real
-//! `~/.feral/rsi`, which polluted production state (a stray `$50` cost cap
+//! `~/.cinderpaw/rsi`, which polluted production state (a stray `$50` cost cap
 //! with reason "user raised cap" was a test artifact, not a user action).
 
 use std::path::Path;
@@ -43,7 +43,7 @@ impl Drop for EnvGuard {
 /// Run `f` with `CINDERPAW_HOME` pointed at a fresh temp dir. The temp dir
 /// (and the env override) live only for the duration of the call. The
 /// closure receives the temp root so it can assert on the on-disk layout.
-pub fn with_temp_feral_home<R>(f: impl FnOnce(&Path) -> R) -> R {
+pub fn with_temp_cinderpaw_home<R>(f: impl FnOnce(&Path) -> R) -> R {
     // Recover from a poisoned lock: a prior test panicking inside the
     // closure is exactly the case the drop guard handles, and we still
     // want subsequent tests to run.

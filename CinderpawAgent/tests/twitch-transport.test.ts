@@ -54,8 +54,8 @@ function ctxFor(over: { secrets?: Record<string, string>; metadata?: Record<stri
       id: "twitch",
       enabled: true,
       allowlist: ["sam"],
-      channels: ["#FeralStream"],
-      metadata: over.metadata ?? { TWITCH_LOGIN: "feralbot" },
+      channels: ["#CinderpawStream"],
+      metadata: over.metadata ?? { TWITCH_LOGIN: "cinderpawbot" },
       secrets: {},
     },
     secrets: over.secrets ?? { OAUTH_ACCESS: "acc" },
@@ -67,13 +67,13 @@ function ctxFor(over: { secrets?: Record<string, string>; metadata?: Record<stri
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 50));
-const WELCOME = ":tmi.twitch.tv 001 feralbot :Welcome, GLHF!";
+const WELCOME = ":tmi.twitch.tv 001 cinderpawbot :Welcome, GLHF!";
 
 describe("twitch line parsing", () => {
   it("reads a tagged PRIVMSG", () => {
     expect(
-      parsePrivmsg("@badge-info=;id=1 :sam!sam@sam.tmi.twitch.tv PRIVMSG #feralstream :hello there"),
-    ).toEqual({ user: "sam", channel: "feralstream", text: "hello there" });
+      parsePrivmsg("@badge-info=;id=1 :sam!sam@sam.tmi.twitch.tv PRIVMSG #cinderpawstream :hello there"),
+    ).toEqual({ user: "sam", channel: "cinderpawstream", text: "hello there" });
   });
   it("reads an untagged one", () => {
     expect(parsePrivmsg(":sam!sam@sam.tmi.twitch.tv PRIVMSG #chan :hi")).toEqual({
@@ -99,13 +99,13 @@ describe("twitch transport", () => {
     s.open();
 
     expect(s.sent).toContain("PASS oauth:acc");
-    expect(s.sent).toContain("NICK feralbot");
+    expect(s.sent).toContain("NICK cinderpawbot");
     // Not live until Twitch says hello — an open socket is not a login.
     expect(c.health().live).toBe(false);
 
     s.lines(WELCOME);
     expect(c.health()).toEqual({ live: true });
-    expect(s.sent).toContain("JOIN #feralstream");
+    expect(s.sent).toContain("JOIN #cinderpawstream");
     await c.stop();
   });
 
@@ -154,10 +154,10 @@ describe("twitch transport", () => {
     await c.start(ctxFor());
     const s = FakeSocket.last!;
     s.open();
-    s.lines(WELCOME, ":sam!sam@sam.tmi.twitch.tv PRIVMSG #feralstream :hello");
+    s.lines(WELCOME, ":sam!sam@sam.tmi.twitch.tv PRIVMSG #cinderpawstream :hello");
     await settle();
 
-    expect(s.sent).toContain("PRIVMSG #feralstream :hi back");
+    expect(s.sent).toContain("PRIVMSG #cinderpawstream :hi back");
     await c.stop();
   });
 
@@ -167,7 +167,7 @@ describe("twitch transport", () => {
     await c.start(ctxFor());
     const s = FakeSocket.last!;
     s.open();
-    s.lines(WELCOME, ":rando!rando@rando.tmi.twitch.tv PRIVMSG #feralstream :hello");
+    s.lines(WELCOME, ":rando!rando@rando.tmi.twitch.tv PRIVMSG #cinderpawstream :hello");
     await settle();
 
     expect(s.sent.some((l) => l.startsWith("PRIVMSG"))).toBe(false);
@@ -185,7 +185,7 @@ describe("twitch transport", () => {
     const s = FakeSocket.last!;
     s.open();
     s.lines(WELCOME);
-    expect(s.sent).toContain("JOIN #feralbot");
+    expect(s.sent).toContain("JOIN #cinderpawbot");
     await c.stop();
   });
 });

@@ -2,7 +2,7 @@
  * schedule_meeting — capture a meeting/booking request from a lead.
  *
  * Public-connector tool. v1 records the request (preferred time, contact,
- * topic) to `~/.feral/leads/meetings.jsonl` and pings the owner so they can
+ * topic) to `~/.cinderpaw/leads/meetings.jsonl` and pings the owner so they can
  * confirm — it does NOT hold a live calendar yet. The real booking backend
  * (cal.diy — https://github.com/calcom/cal.diy) lands later; when it does,
  * this tool gets a confirmed slot back instead of "someone will confirm".

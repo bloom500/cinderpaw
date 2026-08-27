@@ -37,7 +37,7 @@ import { rebuildDerivedBrain } from "./brain/brain-config.ts";
  * circular runtime import between the two modules for a 3-line function.
  */
 function log(message: string): void {
-  process.stderr.write(`[feral] ${message}\n`);
+  process.stderr.write(`[cinderpaw] ${message}\n`);
 }
 
 /**
@@ -181,7 +181,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         const gl = governanceGate();
         // Brief: "if msg.documentHash is absent, compute it via
         // sha256Canonical(gl.proposalDocument(msg.id)) and echo the hash
-        // in the result." Lets the CLI `feral governance approve <id>`
+        // in the result." Lets the CLI `cinderpaw governance approve <id>`
         // skip the canonical-JSON roundtrip in Rust; API callers that DO
         // pass an explicit hash still get the stale-hash safety net
         // (AC4) — pass nothing and we recompute, pass a wrong one and the

@@ -7,10 +7,10 @@
  *
  *   list      — supported connectors, what each needs, current state
  *               (secrets REDACTED to present/absent — never echoed back)
- *   configure — upsert one connector's row in ~/.feral/connectors.json and
+ *   configure — upsert one connector's row in ~/.cinderpaw/connectors.json and
  *               hot-reload the ConnectorManager so it takes effect immediately
  *
- * Security posture: this is a deliberate, narrow door through the ~/.feral
+ * Security posture: this is a deliberate, narrow door through the ~/.cinderpaw
  * deny wall. Generic fs tools can never touch connectors.json (call-time deny
  * in tool-permissions.ts); this tool writes ONLY that one fixed path, through
  * the same row shape the ConnectorManager reads, and every call is audited by

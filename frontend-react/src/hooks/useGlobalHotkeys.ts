@@ -19,12 +19,12 @@ export function useGlobalHotkeys() {
       if (e.key.toLowerCase() === 'n' && !inEditable) {
         e.preventDefault();
         navigate('/chat');
-        window.dispatchEvent(new CustomEvent('feral:new-chat'));
+        window.dispatchEvent(new CustomEvent('cinderpaw:new-chat'));
       }
 
       if (e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent('feral:open-search'));
+        window.dispatchEvent(new CustomEvent('cinderpaw:open-search'));
       }
     };
 
@@ -35,10 +35,10 @@ export function useGlobalHotkeys() {
     };
 
     window.addEventListener('keydown', handler);
-    window.addEventListener('feral:open-search', searchHandler);
+    window.addEventListener('cinderpaw:open-search', searchHandler);
     return () => {
       window.removeEventListener('keydown', handler);
-      window.removeEventListener('feral:open-search', searchHandler);
+      window.removeEventListener('cinderpaw:open-search', searchHandler);
     };
   }, [navigate]);
 }

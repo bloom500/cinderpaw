@@ -25,7 +25,7 @@ let tmp: string;
 const SESSION = "read-gate-session";
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), "feral-readgate-"));
+  tmp = mkdtempSync(join(tmpdir(), "cinderpaw-readgate-"));
   forgetSession(SESSION);
 });
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));

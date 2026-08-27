@@ -24,7 +24,7 @@ import {
   renderStatusBar,
   renderHelpLine,
   renderYouPrompt,
-  renderFeralPrompt,
+  renderCinderpawPrompt,
 } from "../src/tui/render.ts";
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ describe("style (no color)", () => {
 
 describe("brand", () => {
   test("plain text when useColor=false", () => {
-    expect(brand("feral", false)).toBe("feral");
+    expect(brand("cinderpaw", false)).toBe("cinderpaw");
   });
   test("wraps in ANSI when useColor=true", () => {
     const out = brand("test", true);
@@ -194,8 +194,8 @@ describe("renderYouPrompt (no color)", () => {
   });
 });
 
-describe("renderFeralPrompt (no color)", () => {
+describe("renderCinderpawPrompt (no color)", () => {
   test("produces 'Cinderpaw › '", () => {
-    expect(renderFeralPrompt(false)).toBe("Cinderpaw › ");
+    expect(renderCinderpawPrompt(false)).toBe("Cinderpaw › ");
   });
 });

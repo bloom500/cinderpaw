@@ -52,7 +52,7 @@ export function isLocalBaseUrl(baseUrl: string | undefined): boolean {
 export interface ActiveModelInputs {
   isAgentMode: boolean;
   /** Agent-mode target (provider + model + base_url). */
-  feralConfig?: { model?: string; base_url?: string } | null;
+  cinderpawConfig?: { model?: string; base_url?: string } | null;
   /** Chat-mode cloud target. */
   cloudModel?: { modelId: string } | null;
   /** The local GGUF currently in memory, if any. `ctx_len` is its real KV cache. */
@@ -73,8 +73,8 @@ export function activeContextWindow(i: ActiveModelInputs): { model: string | und
   let isLocal: boolean;
 
   if (i.isAgentMode) {
-    model = i.feralConfig?.model;
-    isLocal = isLocalBaseUrl(i.feralConfig?.base_url);
+    model = i.cinderpawConfig?.model;
+    isLocal = isLocalBaseUrl(i.cinderpawConfig?.base_url);
   } else if (i.cloudModel) {
     model = i.cloudModel.modelId;
     isLocal = false;

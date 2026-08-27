@@ -48,10 +48,10 @@ mod command_count_test {
     // That commit added the command without bumping this constant, so the test
     // has been failing on main ever since — CI does not run the src-tauri
     // suite, which is why it went unnoticed.
-    // 132 = + feral_submit_feedback (thumbs 👍/👎 → RSI acceptance signal,
+    // 132 = + cinderpaw_submit_feedback (thumbs 👍/👎 → RSI acceptance signal,
     // 9c1849f). Same story as fe5b5b6: added without bumping the baseline, so
     // the suite has been red since. CI still does not run it — until it does,
-    // this constant only moves when someone runs `cargo test -p feral --lib`
+    // this constant only moves when someone runs `cargo test -p cinderpaw --lib`
     // by hand.
     // 136 = + tts_providers + tts_has_key + speak_text + stop_speaking (voice
     // mode's outbound half — the streaming TTS bridge and its key check).
@@ -84,11 +84,11 @@ mod command_count_test {
     // 156 → 160 = + start_livekit_call + end_livekit_call
     // + list_s2s_providers + stt_local_available (LiveKit call engine).
     // 160 → 161 = + set_dreams_enabled (master Dream Cycle opt-in).
-    // 161 → 162 = + feral_cowork_approval_resolve (cowork S4 approval gate;
+    // 161 → 162 = + cinderpaw_cowork_approval_resolve (cowork S4 approval gate;
     // the chat surface answers a blocked tool call through this command).
-    // 162 → 163 = + feral_cowork_send_message (cowork S6: the panel writes to
+    // 162 → 163 = + cinderpaw_cowork_send_message (cowork S6: the panel writes to
     // a teammate's inbox directly, instead of dictating to the main agent).
-    // 163 -> 164 = + feral_cowork_history (replay one chat's teammate
+    // 163 -> 164 = + cinderpaw_cowork_history (replay one chat's teammate
     // traffic from the mailbox; the panel was live-only until then).
     const EXPECTED_COMMAND_COUNT: usize = 164;
 

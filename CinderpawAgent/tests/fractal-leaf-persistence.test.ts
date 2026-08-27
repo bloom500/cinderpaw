@@ -36,7 +36,7 @@ function makeFm(leafStorePath: string) {
 
 describe("FractalMemory upsertLeaf → LeafStore write-through", () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "feral-leafwt-")); });
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "cinderpaw-leafwt-")); });
   afterEach(() => { if (existsSync(dir)) rmSync(dir, { recursive: true, force: true }); });
 
   const storePath = () => join(dir, "fractal-leaves.jsonl");

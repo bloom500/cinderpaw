@@ -13,7 +13,7 @@
 //! extra fields below capture that.
 //!
 //! This module is the **read-only catalog** half of the Connector
-//! Surface. The persistence half (loading/saving `~/.feral/connectors.json`,
+//! Surface. The persistence half (loading/saving `~/.cinderpaw/connectors.json`,
 //! the live reload handshake, the secret-value handling policy) remains
 //! in `src-tauri/src/connectors.rs` and re-uses the catalog from here.
 
@@ -83,7 +83,7 @@ pub struct DeviceFlowDef {
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct PairingFieldDef {
     /// Stable key — the JSON-key the secret gets stored under in
-    /// `~/.feral/connectors.json` and the env-var name the sidecar
+    /// `~/.cinderpaw/connectors.json` and the env-var name the sidecar
     /// reads. Examples: `"DISCORD_TOKEN"`, `"SLACK_APP_TOKEN"`.
     pub key: String,
     /// Human label for the input, e.g. `"Discord bot token"`.
@@ -407,7 +407,7 @@ pub fn connector_by_id(id: &str) -> Option<ConnectorCatalogEntry> {
 
 // ---------------------------------------------------------------------------
 // R6: persisted connector configuration (moved from src-tauri/src/connectors.rs
-// so the headless gateway + CLI can read/write `~/.feral/connectors.json`
+// so the headless gateway + CLI can read/write `~/.cinderpaw/connectors.json`
 // without going through a Tauri command. The desktop app's own catalog/view
 // types (src-tauri/src/connectors.rs) are unrelated to this file's richer
 // Decision-D catalog above and keep their own shape for the existing UI —
@@ -470,7 +470,7 @@ struct ConnectorConfigFile {
 }
 
 fn config_path() -> std::path::PathBuf {
-    crate::paths::feral_dir().join("connectors.json")
+    crate::paths::cinderpaw_dir().join("connectors.json")
 }
 
 pub fn blank_connector_config(id: &str) -> ConnectorConfig {
@@ -634,7 +634,7 @@ struct HealthEntry {
 /// process that wrote it, so a stale "live: true" would claim a bot that died
 /// with its gateway.
 fn read_health() -> std::collections::HashMap<String, HealthEntry> {
-    let path = crate::paths::feral_dir().join("connector-health.json");
+    let path = crate::paths::cinderpaw_dir().join("connector-health.json");
     let Ok(raw) = std::fs::read_to_string(path) else {
         return Default::default();
     };
@@ -675,7 +675,7 @@ mod persistence_tests {
 
     #[test]
     fn save_then_load_round_trips_and_redacts_secrets_on_read_view() {
-        crate::rsi::test_support::with_temp_feral_home(|_dir| {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_dir| {
             let mut cfg = blank_connector_config("discord");
             cfg.enabled = true;
             cfg.secrets.insert("DISCORD_TOKEN".to_string(), "sekret".to_string());

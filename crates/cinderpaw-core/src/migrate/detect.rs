@@ -57,7 +57,7 @@ pub fn hermes_default_root() -> Option<PathBuf> {
 /// Config file names to try, in order, for one source tool.
 ///
 /// One name per tool was a silent migration failure waiting to happen: the tool
-/// says "No OpenClaw or Hermes install found", sends the user to `feral setup`,
+/// says "No OpenClaw or Hermes install found", sends the user to `cinderpaw setup`,
 /// and they start from scratch with their real config sitting right there. That
 /// is the worst outcome this command has, and it costs a filename to avoid.
 ///
@@ -171,7 +171,7 @@ mod tests {
     fn the_other_conventional_extension_is_still_a_find() {
         // Measured against a fixture install: a Hermes root holding `config.yml`
         // printed "No OpenClaw or Hermes install found" and pointed the user at
-        // `feral setup` — i.e. start from scratch, with your real config sitting
+        // `cinderpaw setup` — i.e. start from scratch, with your real config sitting
         // right there unread. Worst outcome this command has, and a filename
         // buys it back. Same format, other conventional spelling; nothing here
         // guesses at a different layout.

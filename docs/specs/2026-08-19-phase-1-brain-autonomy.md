@@ -9,7 +9,7 @@
 
 On a fresh Cinderpaw installation, Brain Stack is active by default and selects an
 appropriate available model for every turn, without the user writing
-`~/.feral/brain.json` and without the user picking a model to send a message.
+`~/.cinderpaw/brain.json` and without the user picking a model to send a message.
 
 This is an **activation and hardening pass**, not a Brain redesign. The routing
 architecture exists, is wired into the agent loop, and is covered by 1327 lines

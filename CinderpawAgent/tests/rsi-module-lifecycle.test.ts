@@ -47,7 +47,7 @@ afterEach(() => {
   }
 });
 function freshDir(): string {
-  const d = mkdtempSync(join(tmpdir(), "feral-l4-b5-"));
+  const d = mkdtempSync(join(tmpdir(), "cinderpaw-l4-b5-"));
   tmpDirs.push(d);
   return d;
 }

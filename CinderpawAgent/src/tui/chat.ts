@@ -14,7 +14,7 @@ import {
   renderStatusBar,
   renderHelpLine,
   renderYouPrompt,
-  renderFeralPrompt,
+  renderCinderpawPrompt,
   terminalWidth,
 } from "./render.ts";
 import type { OutboundEvent } from "../types.ts";
@@ -33,7 +33,7 @@ export async function runChat(): Promise<void> {
     switch (event.type) {
       case "chunk":
         if (!aiResponding) {
-          process.stdout.write(renderFeralPrompt(useColor));
+          process.stdout.write(renderCinderpawPrompt(useColor));
           aiResponding = true;
         }
         process.stdout.write(event.content);
@@ -116,7 +116,7 @@ export async function runChat(): Promise<void> {
   console.log();
   console.log(renderStatusBar(model, width, useColor));
   console.log();
-  console.log(renderFeralPrompt(useColor) + muted("Ready. Type a message, or a slash command.", useColor));
+  console.log(renderCinderpawPrompt(useColor) + muted("Ready. Type a message, or a slash command.", useColor));
   console.log(renderHelpLine(["/help", "/clear", "/model", "/exit", "Ctrl+C"], width, useColor));
   console.log();
 

@@ -2,7 +2,7 @@
  * fetch_url — generic HTTP GET inside the sandbox egress proxy.
  *
  * Requires `network:outbound` with an explicit domain allowlist. All requests
- * go through `ctx.fetch` (feralFetch), which validates the domain, blocks SSRF,
+ * go through `ctx.fetch` (cinderpawFetch), which validates the domain, blocks SSRF,
  * rate-limits, and audits every call.
  *
  * Returns the response body as text, truncated to 32 KB to keep the context

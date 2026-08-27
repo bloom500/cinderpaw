@@ -27,7 +27,7 @@ import {
 import { createToolForgeTool, registerPersistedCustomTools } from "../src/tools/builtin/tool-forge.ts";
 import type { AskUserQuestion, Tool, ToolContext } from "../src/types.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "feral-forge-"));
+const dir = mkdtempSync(join(tmpdir(), "cinderpaw-forge-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 /** Minimal structural registry mock (only what the forge touches). */
@@ -50,7 +50,7 @@ const GOOD_CODE = `export default async function (args) {
 
 /** Stands in for `resolveToolRuntime()` — the real one returns this
  *  process, which would make the fake sandbox assertions meaningless. */
-const FAKE_RUNTIME = { executable: "C:/fake/feral-agent.exe", prefix: ["--custom-tool-runner"] };
+const FAKE_RUNTIME = { executable: "C:/fake/cinderpaw-agent.exe", prefix: ["--custom-tool-runner"] };
 
 /**
  * A forge wired to a fake sandbox + askUser bridge. `state` drives the two

@@ -73,7 +73,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
       setTimeout(() => setSaveMsg(null), 2000);
     } catch (e) {
       // The Rust command returns Result<(), String> with the real cause
-      // (keychain locked, disk full, permission denied on ~/.feral/byok.json,
+      // (keychain locked, disk full, permission denied on ~/.cinderpaw/byok.json,
       // etc.). Swallowing it in a bare `catch {}` and showing a generic
       // "Save failed" left the user with no way to tell why — the reported
       // "Save Failed" bug on OpenRouter / NVIDIA NIM (2026-08-22) turned out

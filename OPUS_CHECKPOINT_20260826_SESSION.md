@@ -14,7 +14,7 @@ cowork, and all of today's work — it is the tip, not a side branch.
 - **Val 2.3 + 2.4 — DONE.** `CINDERPAW_BENCHMARK_RUN_ID` turns on both isolations:
   the network narrows to `CINDERPAW_BENCHMARK_ALLOW_HOSTS` at BOTH exits (egress
   proxy AND inference router — model traffic uses the global fetch and never
-  touches the proxy), and `feralHome()` returns `<home>/runs/<runId>`.
+  touches the proxy), and `cinderpawHome()` returns `<home>/runs/<runId>`.
 - **Val 3 — NOT STARTED**, by decision: no official ARC run until the systems
   are stable.
 
@@ -27,14 +27,14 @@ Go TUI never learned. Consequences, all fixed:
   in the other, no error anywhere).
 - **The fs deny wall guarded the wrong directory**, so `~/.cinderpaw/byok.json`
   and `connectors.json` were readable by the agent's own tools.
-  `agentProfileDirs()` now returns BOTH; fixing only `feralHome()` would have
+  `agentProfileDirs()` now returns BOTH; fixing only `cinderpawHome()` would have
   flipped which one was exposed.
-- The TUI's `feralHome()` did `MkdirAll`, so merely running it RECREATED the
+- The TUI's `cinderpawHome()` did `MkdirAll`, so merely running it RECREATED the
   legacy dir — after the cleanup that made the Rust host refuse to boot.
 - **Both test suites wrote into the live profile.** `bun test` overwrote a real
-  connector allowlist; `go test` recreated `~/.feral`. Both isolated now, both
+  connector allowlist; `go test` recreated `~/.cinderpaw`. Both isolated now, both
   setting the WEAKER variable (`CINDERPAW_HOME`/`HOME`) so per-test overrides win.
-- Three TS tests hardcoded `.feral` themselves, which is why none of it was
+- Three TS tests hardcoded `.cinderpaw` themselves, which is why none of it was
   caught.
 
 `~/.feral` is gone from this machine. Backup: `~/cinderpaw-home-backup-20260826`
@@ -66,8 +66,8 @@ branch carried the engine without the lever. Now committed, plus:
 ## invoke() camelCase — three approval gates never worked
 
 Tauri converts camelCase JS keys to snake_case Rust params, so passing
-snake_case fails. `feral_code_patch_resolve`, `feral_lora_review_resolve` and
-`feral_cowork_approval_resolve` all shipped broken. The gates themselves held
+snake_case fails. `cinderpaw_code_patch_resolve`, `cinderpaw_lora_review_resolve` and
+`cinderpaw_cowork_approval_resolve` all shipped broken. The gates themselves held
 (nothing was wrongly approved) — what did not work was the human saying YES.
 A guard now scans for snake_case invoke keys.
 

@@ -72,7 +72,7 @@ describe("RealProcessSandbox — environment filtering", () => {
 
   beforeEach(() => {
     sandbox = new RealProcessSandbox(noopAudit());
-    tmpDir = mkdtempSync(join(tmpdir(), "feral-sbx-env-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "cinderpaw-sbx-env-"));
   });
 
   afterEach(() => {
@@ -158,12 +158,12 @@ describe("RealProcessSandbox — PATH hijack prevention", () => {
 
   beforeEach(() => {
     sandbox = new RealProcessSandbox(noopAudit());
-    tmpDir = mkdtempSync(join(tmpdir(), "feral-sbx-pathy-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "cinderpaw-sbx-pathy-"));
     // An "attacker" directory placed early in PATH. We then put a
     // malicious "sh" (or "cmd") there and confirm the sandbox refuses
     // to use it — the allowlist uses the absolute path of the
     // real binary instead.
-    evilDir = mkdtempSync(join(tmpdir(), "feral-sbx-evil-"));
+    evilDir = mkdtempSync(join(tmpdir(), "cinderpaw-sbx-evil-"));
   });
 
   afterEach(() => {
@@ -237,7 +237,7 @@ describe("RealProcessSandbox — output truncation", () => {
       defaultTimeoutMs: 5_000,
       maxTimeoutMs: 5_000,
     });
-    tmpDir = mkdtempSync(join(tmpdir(), "feral-sbx-cap-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "cinderpaw-sbx-cap-"));
   });
 
   afterEach(() => {
@@ -269,8 +269,8 @@ describe("resolveAllowedPath — symlink escape containment", () => {
   let outsideDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "feral-sbx-symlink-"));
-    outsideDir = mkdtempSync(join(tmpdir(), "feral-sbx-outside-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "cinderpaw-sbx-symlink-"));
+    outsideDir = mkdtempSync(join(tmpdir(), "cinderpaw-sbx-outside-"));
   });
 
   afterEach(() => {

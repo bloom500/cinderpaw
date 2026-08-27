@@ -1,7 +1,7 @@
-# Feral Agent
+# Cinderpaw Agent
 
 A proactive, portable AI agent with a **native security sandbox**, built in
-TypeScript on [Bun](https://bun.sh). Agent layer for the Feral desktop app
+TypeScript on [Bun](https://bun.sh). Agent layer for the Cinderpaw desktop app
 (Rust + Tauri v2 + Leptos) — runs the same core on any transport via an
 adapter pattern.
 
@@ -24,7 +24,7 @@ without it.
 
 ```bash
 git clone https://github.com/bloom500/cinderpaw-agent.git
-cd feral-agent
+cd cinderpaw-agent
 bun install
 ```
 
@@ -125,14 +125,14 @@ Every action is written to SQLite. After a session:
 
 ```bash
 # Open the DB (requires sqlite3 CLI)
-sqlite3 data/feral.db "SELECT timestamp, action_type, tool_name, result FROM audit_log ORDER BY id;"
+sqlite3 data/cinderpaw.db "SELECT timestamp, action_type, tool_name, result FROM audit_log ORDER BY id;"
 ```
 
 ### 5. Build the Tauri sidecar binary
 
 ```bash
 bun run build
-# → dist/feral-agent (single executable, no Node/Bun needed at runtime)
+# → dist/cinderpaw-agent (single executable, no Node/Bun needed at runtime)
 ```
 
 ---
@@ -143,7 +143,7 @@ Set via environment variables (or a `.env` file — Bun reads it automatically):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CINDERPAW_DB` | `data/feral.db` | SQLite path (`:memory:` for ephemeral) |
+| `CINDERPAW_DB` | `data/cinderpaw.db` | SQLite path (`:memory:` for ephemeral) |
 | `CINDERPAW_WORKSPACE` | cwd | root directory `read_file` may access |
 | `CINDERPAW_MODEL` | `qwen2.5:7b` | primary model name |
 | `CINDERPAW_BASE_URL` | `http://localhost:11434` | primary inference endpoint |
@@ -186,7 +186,7 @@ src/
 ├── sandbox/                Layer 3 — SECURITY (constructed before everything else)
 │   ├── audit-log.ts        every action → SQLite audit_log row
 │   ├── tool-permissions.ts manifest validation + path containment
-│   ├── egress-proxy.ts     feralFetch(): domain whitelist, SSRF guard, rate limit
+│   ├── egress-proxy.ts     cinderpawFetch(): domain whitelist, SSRF guard, rate limit
 │   └── inference-router.ts single LLM choke point: budgets, allowlist, fallback
 ├── transports/             Layer 4 — transport-agnostic core
 │   ├── interface.ts        Transport contract
@@ -207,7 +207,7 @@ src/
 
 - Every tool must declare a manifest before registration; undeclared permissions
   are blocked at call time and written to the audit log.
-- No network request reaches the wire without passing through `feralFetch()` —
+- No network request reaches the wire without passing through `cinderpawFetch()` —
   loopback, private, and link-local ranges are blocked (SSRF guard), domains are
   whitelisted per-tool, and a rolling-window rate limit applies.
 - Every LLM call goes through the inference router — per-conversation and per-day

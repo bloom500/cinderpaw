@@ -127,7 +127,7 @@ export class MatrixConnector implements LiveConnector {
     for (const part of formatForChat(text, MATRIX_MAX)) {
       // The transaction id makes a retry idempotent — the homeserver treats a
       // repeat of the same id as the same message rather than a second one.
-      const txn = `feral-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const txn = `cinderpaw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       await this.#api(
         "PUT",
         `/_matrix/client/v3/rooms/${encodeURIComponent(target.roomId)}/send/m.room.message/${txn}`,

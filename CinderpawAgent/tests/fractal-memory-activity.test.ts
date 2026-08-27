@@ -21,7 +21,7 @@ import type { EpisodicEvent } from "../../src/types.ts";
 const tmpDirs: string[] = [];
 afterEach(() => { for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 function treePath(): string {
-  const d = mkdtempSync(join(tmpdir(), "feral-factiv-"));
+  const d = mkdtempSync(join(tmpdir(), "cinderpaw-factiv-"));
   tmpDirs.push(d);
   return join(d, "tree.json");
 }

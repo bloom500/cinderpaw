@@ -67,7 +67,7 @@ pub enum AuthState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, specta::Type)]
 pub struct ConnectorAccount {
     pub connector_id: String,
-    /// What the provider calls this account (`feral_bot`), for the user to
+    /// What the provider calls this account (`cinderpaw_bot`), for the user to
     /// recognise which login they are looking at. Absent until pairing says.
     #[serde(default)]
     pub display_name: Option<String>,
@@ -124,7 +124,7 @@ struct AccountsFile {
 }
 
 fn accounts_path() -> std::path::PathBuf {
-    crate::paths::feral_dir().join("connector-accounts.json")
+    crate::paths::cinderpaw_dir().join("connector-accounts.json")
 }
 
 /// Missing file, unreadable file, or garbage in it all mean the same thing to

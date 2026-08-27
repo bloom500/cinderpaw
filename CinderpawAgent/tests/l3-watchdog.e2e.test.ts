@@ -6,7 +6,7 @@
  * The watchdog decision (`should_revert`, `marker_expired`) and its
  * persistence helpers (`load_marker` / `save_marker` /
  * `applied_patch_text` / `mark_patch_reverted`) live in
- * `crates/feral-core/src/rsi/watchdog.rs` and already have 16 unit
+ * `crates/cinderpaw-core/src/rsi/watchdog.rs` and already have 16 unit
  * tests covering every edge case documented in the spec. The assembled
  * end-to-end contract a reviewer can read in 60 seconds:
  *   1. Build a real marker file via `save_marker` and reload it via
@@ -19,7 +19,7 @@
  *      `applied` → `reverted` (no zombies left behind).
  *   5. `clear_marker` is idempotent on a missing file.
  *
- * This test runs `cargo test -p feral-core` with a filter that
+ * This test runs `cargo test -p cinderpaw-core` with a filter that
  * matches exactly the watchdog test module; it fails loudly if the
  * Rust test binary errors out OR if the filter excludes the watchdog
  * contract surface. The full Faza-3 rebuild cycle (marker → real
@@ -35,11 +35,11 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Off unless asked for by name, because this one test needs a whole Rust BUILD
- * environment and the `feral-agent` CI job is not one.
+ * environment and the `cinderpaw-agent` CI job is not one.
  *
  * Worth stating precisely, because the first guess here was wrong and cost a
  * red build: cargo is NOT missing on the runner — ubuntu-latest ships it. What
- * is missing is `libdbus-1-dev`, which `feral-core` links through
+ * is missing is `libdbus-1-dev`, which `cinderpaw-core` links through
  * `libdbus-sys`, and which only the `rust` job installs. A probe for `cargo
  * --version` therefore passed and the build failed thirty-six seconds later.
  * The dependency is the environment, not the binary, so the gate is an explicit
@@ -73,9 +73,9 @@ const REPO_ROOT = findRepoRoot();
 
 describe("L3 — crash → auto-revert watchdog (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
-    "crates/feral-core/src/rsi/watchdog.rs unit tests pass on this box",
+    "crates/cinderpaw-core/src/rsi/watchdog.rs unit tests pass on this box",
     () => {
-      // `cargo test -p feral-core` with a target name filter that
+      // `cargo test -p cinderpaw-core` with a target name filter that
       // matches the watchdog contract surface. The Rust tests are the
       // pinned contract — re-running them from bun wraps the regression
       // into the e2e gate.
@@ -84,7 +84,7 @@ describe("L3 — crash → auto-revert watchdog (CINDERPAW_E2E)", () => {
         [
           "test",
           "-p",
-          "feral-core",
+          "cinderpaw-core",
           "--lib",
           "--",
           "--skip",
@@ -108,7 +108,7 @@ describe("L3 — crash → auto-revert watchdog (CINDERPAW_E2E)", () => {
       if (res.status !== 0) {
         const tail = (res.stdout ?? "") + "\n--- stderr ---\n" + (res.stderr ?? "");
         throw new Error(
-          `cargo test -p feral-core --lib (watchdog filter) exited with status ${res.status}:\n` +
+          `cargo test -p cinderpaw-core --lib (watchdog filter) exited with status ${res.status}:\n` +
             tail.slice(-4_000),
         );
       }

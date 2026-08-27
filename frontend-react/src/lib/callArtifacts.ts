@@ -9,7 +9,7 @@ import type { ToolActivity } from '@/hooks/useLiveToolActivity';
  * being thrown away — the answer was spoken, the links vanished, and the only
  * way back to a page the agent read was to ask it again.
  *
- * Deliberately outside React, like `feralLiveSession`: this has to outlive the
+ * Deliberately outside React, like `cinderpawLiveSession`: this has to outlive the
  * overlay that produced it, and a hook's state does not survive hanging up.
  *
  * They survive a restart too, because the point was always to come back to a

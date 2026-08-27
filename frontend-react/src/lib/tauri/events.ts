@@ -163,7 +163,7 @@ export interface DreamCycleLine {
 /**
  * Code-patch approval-gate snapshot (Faza 2 Slice 5). Filtered out of the
  * raw sidecar line stream. Mirrors the `code_patches` OutboundEvent in
- * `CinderpawAgent/src/types.ts`. Sent on `feral_code_patches_list` and after
+ * `CinderpawAgent/src/types.ts`. Sent on `cinderpaw_code_patches_list` and after
  * every resolution so the Dreams-panel card always reflects the truth.
  */
 export interface CodePatchesLine {
@@ -187,7 +187,7 @@ export interface CodePatchesLine {
 
 /**
  * Code-patch resolution ack (Faza 2 Slice 5). A single `code_patch_resolved`
- * arrives in reply to `feral_code_patch_resolve`; the sidecar follows it
+ * arrives in reply to `cinderpaw_code_patch_resolve`; the sidecar follows it
  * with a refreshed `code_patches` snapshot. Same listener shape as the
  * other filtered sidecar streams.
  */
@@ -201,7 +201,7 @@ export interface CodePatchResolvedLine {
 /**
  * Faza 4 (L2 LoRA) — personal-adaptation review inbox snapshot. Mirrors the
  * `lora_reviews` OutboundEvent in `CinderpawAgent/src/types.ts`. Sent on
- * `feral_lora_reviews_list` and after every train/resolve.
+ * `cinderpaw_lora_reviews_list` and after every train/resolve.
  */
 /** Faza 6 (L6) Meta Evolution reply. `op` says which request it answers;
  *  the rest of the payload is op-specific (status carries genome/generation/
@@ -319,7 +319,7 @@ export interface LoraReviewsLine {
   };
 }
 
-/** Faza 4 — resolution ack for one `feral_lora_review_resolve`. */
+/** Faza 4 — resolution ack for one `cinderpaw_lora_review_resolve`. */
 export interface LoraReviewResolvedLine {
   type: 'lora_review_resolved';
   id: string;
@@ -403,10 +403,10 @@ export const events = {
    * The listener fires for EVERY sidecar line, not just RSI events,
    * so callers must filter.
    */
-  feralAgentOutputEvent: wrap<CinderpawAgentOutputEvent>('cinderpaw://agent-output'),
+  cinderpawAgentOutputEvent: wrap<CinderpawAgentOutputEvent>('cinderpaw://agent-output'),
 
   /**
-   * Thin binding over `feralAgentOutputEvent` that filters for RSI engine
+   * Thin binding over `cinderpawAgentOutputEvent` that filters for RSI engine
    * events only. Fires for any `rsi_engine_event` line (started / progress /
    * stopped / concurrency_set). Mirrors the `wrap()` shape so callers use
    * the same `.listen(cb)` API as every other event in this file.
@@ -454,7 +454,7 @@ export const events = {
 
   /**
    * Reactive-tree drill-down responses — the sidecar's member-memory reply to a
-   * `feral_fractal_cluster_leaves` request, paired by `id`. Same filtered shape
+   * `cinderpaw_fractal_cluster_leaves` request, paired by `id`. Same filtered shape
    * as `onFractalActivity`.
    */
   onFractalClusterLeaves: {
@@ -636,7 +636,7 @@ export const events = {
   /**
    * Pending code-patch queue snapshot (Faza 2 Slice 5). Filtered out of the
    * raw sidecar line stream for `type === "code_patches"`. The Dreams-panel
-   * card consumes this on mount (via `feral_code_patches_list`) and on every
+   * card consumes this on mount (via `cinderpaw_code_patches_list`) and on every
    * resolution ack. Same `.listen(cb)` shape as the other filtered listeners.
    */
   onCodePatches: {

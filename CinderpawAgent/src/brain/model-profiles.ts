@@ -3,7 +3,7 @@
  *
  * Turns a real `ModelTarget` into the `capabilities` / `cost` / `local`
  * fields a `BrainModel` needs, so Brain Stack can be built WITHOUT a
- * hand-written `~/.feral/brain.json`. Before this module, capability
+ * hand-written `~/.cinderpaw/brain.json`. Before this module, capability
  * numbers existed only where a human typed them, which is why Brain was
  * off on every installation that ever shipped
  * (see docs/ui/2026-08-19-brain-current-state.md §6).

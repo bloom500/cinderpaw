@@ -1,7 +1,7 @@
 /**
  * api-docs.test.ts — B1 spec gate.
  *
- * Every route in `crates/feral-core/src/api.rs::router()` MUST be listed
+ * Every route in `crates/cinderpaw-core/src/api.rs::router()` MUST be listed
  * in `docs/API.md`. Otherwise the API reference silently rots.
  *
  * Drift is enforced via `scripts/check-api-docs.mjs`. This test is the

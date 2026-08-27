@@ -12,7 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { openDatabase, type FeralDb } from "../src/db.ts";
+import { openDatabase, type CinderpawDb } from "../src/db.ts";
 import {
   CronJobsRepo,
   nextRunAt,
@@ -41,7 +41,7 @@ function now(): Date {
   return new Date("2026-06-09T12:00:00.000Z");
 }
 
-function makeDb(): FeralDb {
+function makeDb(): CinderpawDb {
   return openDatabase(":memory:");
 }
 
@@ -114,7 +114,7 @@ describe("nextRunAt", () => {
 // ─── Jobs repo ─────────────────────────────────────────────────────────────
 
 describe("CronJobsRepo", () => {
-  let db: FeralDb;
+  let db: CinderpawDb;
   let repo: CronJobsRepo;
 
   beforeEach(() => {
@@ -359,7 +359,7 @@ describe("deliverCron", () => {
 // ─── Scheduler ─────────────────────────────────────────────────────────────
 
 describe("CronScheduler", () => {
-  let db: FeralDb;
+  let db: CinderpawDb;
   let repo: CronJobsRepo;
   let emitted: OutboundEvent[];
   let runFn: ReturnType<typeof mock>;
@@ -511,7 +511,7 @@ describe("CronScheduler", () => {
 });
 
 describe("CronScheduler — an unfinished run is not a success", () => {
-  let db: FeralDb;
+  let db: CinderpawDb;
   let repo: CronJobsRepo;
   let delivered: string[];
 

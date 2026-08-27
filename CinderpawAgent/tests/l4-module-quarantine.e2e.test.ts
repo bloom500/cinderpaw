@@ -43,9 +43,9 @@ describe("L4 — module quarantine watchdog (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "host-spawn failure × maxStrikes → builtin + audit row + history watchdog row",
     async () => {
-      const dir = freshDir("feral-e2e-l4-reg-");
-      const gov = freshDir("feral-e2e-l4-gov-");
-      const moduleDir = freshDir("feral-e2e-l4-mod-");
+      const dir = freshDir("cinderpaw-e2e-l4-reg-");
+      const gov = freshDir("cinderpaw-e2e-l4-gov-");
+      const moduleDir = freshDir("cinderpaw-e2e-l4-mod-");
       const registry = new ModuleRegistry({ dir, governanceDir: gov });
       registry.repoint("retrieval_strategy", "mod-deliberately-broken", "test", "promote");
 
@@ -113,9 +113,9 @@ describe("L4 — module quarantine watchdog (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "negative control: builtin active → no spawn attempts even with a faulty spawn",
     async () => {
-      const dir = freshDir("feral-e2e-l4-control-reg-");
-      const gov = freshDir("feral-e2e-l4-control-gov-");
-      const moduleDir = freshDir("feral-e2e-l4-control-mod-");
+      const dir = freshDir("cinderpaw-e2e-l4-control-reg-");
+      const gov = freshDir("cinderpaw-e2e-l4-control-gov-");
+      const moduleDir = freshDir("cinderpaw-e2e-l4-control-mod-");
       const registry = new ModuleRegistry({ dir, governanceDir: gov });
 
       let spawnAttempts = 0;

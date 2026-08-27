@@ -371,7 +371,7 @@ pub(crate) async fn transcribe_audio_cloud(
     }
 
     let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|_| "stt-cloud-failed".to_string())?;
@@ -920,8 +920,8 @@ mod stt_prompt_probe {
     /// Run against the exact file that failed, so this is the real audio and not
     /// a re-enactment. Pass the path:
     ///
-    ///     CINDERPAW_STT_PROBE=C:\Users\Darius\.feral\voice\<id>.webm \
-    ///       cargo test -p feral --lib probe_whisper_prompt -- --ignored --nocapture
+    ///     CINDERPAW_STT_PROBE=C:\Users\Darius\.cinderpaw\voice\<id>.webm \
+    ///       cargo test -p cinderpaw --lib probe_whisper_prompt -- --ignored --nocapture
     #[tokio::test]
     #[ignore = "sends a stored recording to Groq"]
     async fn probe_whisper_prompt() {

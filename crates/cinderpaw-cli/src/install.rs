@@ -199,7 +199,7 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
         dim: DIM, reset: RESET, ..
     } = palette();
     let kind = detect();
-    let data = cinderpaw_core::paths::feral_dir();
+    let data = cinderpaw_core::paths::cinderpaw_dir();
 
     // Paths we remove ourselves, and commands only the package manager can run.
     let mut targets: Vec<PathBuf> = Vec::new();

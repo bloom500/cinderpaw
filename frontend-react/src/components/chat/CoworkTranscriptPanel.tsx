@@ -327,7 +327,7 @@ function TypingRow({ e }: { e: CoworkExchange }) {
           had no answer at all before this. */}
       <button
         type="button"
-        onClick={() => void tauri.feralAgent.coworkStop(e.toAgentId).catch(() => {})}
+        onClick={() => void tauri.cinderpawAgent.coworkStop(e.toAgentId).catch(() => {})}
         className="self-center rounded-full border border-border-default px-2 py-0.5 text-2xs
                    text-text-muted hover:text-error hover:border-error/40 cursor-pointer"
         title={`Stop ${who}`}
@@ -409,7 +409,7 @@ function Composer({
     setSending(true);
     setError(null);
     try {
-      await tauri.feralAgent.coworkSendMessage(to, body, threadId ?? undefined);
+      await tauri.cinderpawAgent.coworkSendMessage(to, body, threadId ?? undefined);
       setText('');
     } catch (err) {
       // On screen, not in a console: the message did not go, and the person
@@ -544,7 +544,7 @@ export function CoworkTranscriptPanel() {
   const currentId = convId ?? chatSid;
   useEffect(() => {
     if (!currentId) return;
-    void tauri.feralAgent.coworkHistory(currentId).catch(() => {});
+    void tauri.cinderpawAgent.coworkHistory(currentId).catch(() => {});
   }, [currentId]);
   // Unread badge: when collapsed, new exchanges bump the count; expanding clears it.
   useEffect(() => {

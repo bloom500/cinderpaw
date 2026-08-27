@@ -32,7 +32,7 @@ let tmpDir: string;
 let brainPath: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "feral-brain-"));
+  tmpDir = mkdtempSync(join(tmpdir(), "cinderpaw-brain-"));
   brainPath = join(tmpDir, "brain.json");
 });
 
@@ -190,7 +190,7 @@ describe("loadBrainConfig — shape validation", () => {
 
 describe("defaultBrainPath", () => {
   test("uses $CINDERPAW_HOME/brain.json when CINDERPAW_HOME is set", () => {
-    const customHome = join(tmpDir, "custom-feral-home");
+    const customHome = join(tmpDir, "custom-cinderpaw-home");
     const path = defaultBrainPath.call(null);
     // We can't easily test the env override without polluting process.env,
     // so just assert the function returns a string ending in 'brain.json'.

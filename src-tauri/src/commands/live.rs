@@ -973,7 +973,7 @@ mod stop_command_tests {
 
     #[test]
     fn an_address_prefix_still_counts() {
-        // "feral, stop" and "ok stop" are how people actually say it out loud.
+        // "cinderpaw, stop" and "ok stop" are how people actually say it out loud.
         for said in ["feral stop", "Cinderpaw, stop it", "ok stop", "hey stop"] {
             assert!(is_stop_command(said), "{said:?} should stop the work");
         }
@@ -997,7 +997,7 @@ mod stop_command_tests {
     #[test]
     fn a_bare_address_is_not_a_command() {
         // Saying the assistant's name is not an instruction.
-        for said in ["feral", "hey", "ok", ""] {
+        for said in ["cinderpaw", "hey", "ok", ""] {
             assert!(!is_stop_command(said), "{said:?} must NOT cancel anything");
         }
     }

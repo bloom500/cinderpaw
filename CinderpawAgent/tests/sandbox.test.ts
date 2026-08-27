@@ -91,7 +91,7 @@ describe("manifest validation", () => {
 });
 
 describe("path permission enforcement", () => {
-  const root = mkdtempSync(join(tmpdir(), "feral-"));
+  const root = mkdtempSync(join(tmpdir(), "cinderpaw-"));
   const manifest: ToolManifest = {
     name: "read_file",
     description: "d",
@@ -120,7 +120,7 @@ describe("path permission enforcement", () => {
   });
 });
 
-describe("call-time deny wall (~/.feral, ~/.ssh, CINDERPAW_FS_DENY)", () => {
+describe("call-time deny wall (~/.cinderpaw, ~/.ssh, CINDERPAW_FS_DENY)", () => {
   // Broad root: the user's whole home dir — the lax-sandbox default.
   const homeManifest: ToolManifest = {
     name: "read_file",
@@ -131,7 +131,7 @@ describe("call-time deny wall (~/.feral, ~/.ssh, CINDERPAW_FS_DENY)", () => {
   };
   const CINDERPAW_HOME = join(homedir(), APP_HOME_DIR_NAME);
 
-  test("targets inside ~/.feral are denied even under an allowed root", () => {
+  test("targets inside ~/.cinderpaw are denied even under an allowed root", () => {
     for (const p of [
       join(CINDERPAW_HOME, "connectors.json"),
       join(CINDERPAW_HOME, "rsi", "repo", "x.ts"),
@@ -143,7 +143,7 @@ describe("call-time deny wall (~/.feral, ~/.ssh, CINDERPAW_FS_DENY)", () => {
     }
   });
 
-  test("the scratch subtree ~/.feral/workspace stays allowed", () => {
+  test("the scratch subtree ~/.cinderpaw/workspace stays allowed", () => {
     const p = resolveAllowedPath(
       homeManifest,
       "fs:write",
@@ -322,7 +322,7 @@ describe("tool registry", () => {
   });
 
   test("read_file reads inside the workspace and blocks traversal", async () => {
-    const root = mkdtempSync(join(tmpdir(), "feral-ws-"));
+    const root = mkdtempSync(join(tmpdir(), "cinderpaw-ws-"));
     writeFileSync(join(root, "note.txt"), "hello sandbox");
     const db = freshDb();
     const audit = new AuditLog(db.raw);

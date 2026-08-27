@@ -43,12 +43,12 @@ export async function main(transportOverride?: Transport): Promise<void> {
 //
 // The process is started in one of three ways:
 //   1. By the Tauri host (no args) → default → main() with TauriTransport.
-//   2. By the user via `feral chat`  → TUI mode → main() with TuiTransport.
-//   3. By the user via `feral setup` / `feral-agent setup` → the headless
-//      wildcard handler redirects to the canonical `feral setup` (the Rust
+//   2. By the user via `cinderpaw chat`  → TUI mode → main() with TuiTransport.
+//   3. By the user via `cinderpaw setup` / `cinderpaw-agent setup` → the headless
+//      wildcard handler redirects to the canonical `cinderpaw setup` (the Rust
 //      CLI, which launches the Go/Bubble Tea wizard). The on-board wizard
 //      code has been removed from this binary; nothing here configures Cinderpaw.
-//   4. By the user via `feral help/version` → print and exit.
+//   4. By the user via `cinderpaw help/version` → print and exit.
 //
 // Dynamic imports break the circular dependency between index.ts and
 // src/tui/chat.ts (chat.ts imports main from here).
@@ -69,7 +69,7 @@ if (import.meta.main) {
 
   switch (result.kind) {
     case "default":
-      // Tauri host (no args) or plain `feral` from CLI — existing behaviour.
+      // Tauri host (no args) or plain `cinderpaw` from CLI — existing behaviour.
       main().catch((err) => {
         log(`fatal: failed to start — ${err instanceof Error ? err.message : String(err)}`);
         process.exit(1);
@@ -94,18 +94,18 @@ if (import.meta.main) {
         }
         case "setup": {
           // Phase 0a (2026-07-07): the on-board wizard lives in the
-          // headless `feral` (Rust) CLI's `--wizard` flow, which launches
-          // the Go/Bubble Tea TUI. `feral-agent setup` (this branch) used
+          // headless `cinderpaw` (Rust) CLI's `--wizard` flow, which launches
+          // the Go/Bubble Tea TUI. `cinderpaw-agent setup` (this branch) used
           // to run a hardcoded-Anthropic wizard that silently dropped
           // keys; that surface is gone. Print exactly three lines so
           // that scripted consumers (e.g. CI smoke tests that run the
           // sidecar binary directly) see the canonical command and stop.
-          // See `docs/superpowers/specs/2026-07-03-sp0-unify-feral-cli-design.md`
+          // See `docs/superpowers/specs/2026-07-03-sp0-unify-cinderpaw-cli-design.md`
           // for the canonical command path.
           console.error(
             "cinderpaw-agent setup has moved.\n" +
               "Run \`cinderpaw setup\` instead (the Rust CLI launches the same wizard).\n" +
-              "Docs: docs/superpowers/specs/2026-07-03-sp0-unify-feral-cli-design.md",
+              "Docs: docs/superpowers/specs/2026-07-03-sp0-unify-cinderpaw-cli-design.md",
           );
           process.exit(2);
           break;
@@ -117,7 +117,7 @@ if (import.meta.main) {
           console.log("Providers: (not yet implemented — see cinderpaw providers in S5.4)");
           break;
         case "brain":
-          console.log("Brain: (not yet implemented — see feral brain in S5.4)");
+          console.log("Brain: (not yet implemented — see cinderpaw brain in S5.4)");
           break;
       }
       break;

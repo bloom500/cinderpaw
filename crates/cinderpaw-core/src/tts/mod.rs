@@ -46,7 +46,7 @@ pub(crate) const SPEAK_TIMEOUT_SECS: u64 = 120;
 /// One HTTP client, built the same way for every hosted engine.
 pub(crate) fn http(timeout_secs: u64) -> Result<reqwest::Client> {
     reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(timeout_secs))
         .build()
         .context("build reqwest client")

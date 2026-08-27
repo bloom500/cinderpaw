@@ -73,7 +73,7 @@ describe("spawnSpecFor", () => {
 // ---------------------------------------------------------------------------
 
 describe("loadMcpConfig", () => {
-  const dir = mkdtempSync(join(tmpdir(), "feral-mcp-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "cinderpaw-mcp-test-"));
 
   test("missing file → empty list", () => {
     expect(loadMcpConfig(join(dir, "nope.json"))).toEqual([]);

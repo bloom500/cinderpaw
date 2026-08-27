@@ -190,15 +190,15 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
           answered={askUser.answers}
           onSubmit={(answers) => {
             // The store's submit() resolves the promise that the
-            // feralAgentStream manager is awaiting, which is what
-            // actually dispatches `feral_ask_user_response` to Rust.
+            // cinderpawAgentStream manager is awaiting, which is what
+            // actually dispatches `cinderpaw_ask_user_response` to Rust.
             // Keep it as the single source of truth for the dispatch.
             submitAskUser(answers);
           }}
           onCancel={() => {
             // Same single-source-of-truth pattern: the store's cancel()
             // rejects the promise; the stream manager catches it and
-            // invokes `feral_ask_user_cancel` for us.
+            // invokes `cinderpaw_ask_user_cancel` for us.
             cancelAskUser('user dismissed');
           }}
         />

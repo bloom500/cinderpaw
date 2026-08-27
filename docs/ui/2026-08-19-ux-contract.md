@@ -42,7 +42,7 @@ remembers about you).
 ## Persistent chrome
 
 ```
-FERAL      + New      Models      Search                            ⚙
+CINDERPAW      + New      Models      Search                            ⚙
 ```
 
 Floating, translucent, visually subordinate to the page. Four items and a

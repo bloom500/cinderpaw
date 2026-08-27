@@ -106,7 +106,7 @@ test("the capabilities that made this gate necessary are in the document", () =>
 });
 
 test("the document does not contradict what the agent can actually do", () => {
-  // It used to state flatly that the agent cannot write under ~/.feral. The
+  // It used to state flatly that the agent cannot write under ~/.cinderpaw. The
   // scratchpad lives there and is writable by design, so that sentence became a
   // lie the agent would repeat with confidence. A wrong self-description is
   // worse than a missing one.

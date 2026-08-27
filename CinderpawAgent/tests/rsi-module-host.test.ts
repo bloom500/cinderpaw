@@ -165,7 +165,7 @@ describe("module host e2e (spec §4)", () => {
     // Write an evil module to a temp fixture dir on the fly.
     const { mkdtempSync, writeFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
-    const dir = mkdtempSync(join(tmpdir(), "feral-evil-mod-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-evil-mod-"));
     writeFileSync(
       join(dir, "manifest.json"),
       JSON.stringify({ id: "mod-evil", seam: "retrieval_strategy", entry: "module.ts" }),

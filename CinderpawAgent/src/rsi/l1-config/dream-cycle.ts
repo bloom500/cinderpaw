@@ -20,7 +20,7 @@
  *   - stderr:  "rsi dream: arming event-driven scheduler …"
  *   - stdout:  {type:"dream_cycle", phase:"started"/"ended", …}
  *   - UI:      typing-bar mascot enters its `dreaming` pose + a toast
- *   - file:    a new line in ~/.feral/rsi/dream.jsonl (or $CINDERPAW_RSI_TELEMETRY)
+ *   - file:    a new line in ~/.cinderpaw/rsi/dream.jsonl (or $CINDERPAW_RSI_TELEMETRY)
  * The dream-cycle-e2e test automates this same path with the LLM engine faked.
  */
 

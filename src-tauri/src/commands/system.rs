@@ -1,5 +1,5 @@
 //! System info snapshot, the local API bearer token, and the onboarding
-//! record persisted under `~/.feral/`.
+//! record persisted under `~/.cinderpaw/`.
 
 use crate::*;
 use tauri::State;
@@ -32,14 +32,14 @@ pub(crate) fn get_local_api_token(state: State<'_, AppState>) -> String {
     state.local_api_token.to_string()
 }
 
-// ---------- Onboarding record (persisted in ~/.feral/) ----------
+// ---------- Onboarding record (persisted in ~/.cinderpaw/) ----------
 
 /// Path of the onboarding JSON written/read by `get_onboarding_record` /
 /// `set_onboarding_record`. The file lives in the user's home dir, NOT in
 /// the Tauri app data dir, so it survives:
 ///   - WebView reload (Ctrl+R)
 ///   - Tauri auto-updates
-///   - Uninstall + reinstall (the app data dir is wiped, but `~/.feral/`
+///   - Uninstall + reinstall (the app data dir is wiped, but `~/.cinderpaw/`
 ///     lives outside the app and persists as long as the user account does)
 ///
 /// We use plain `std::fs` rather than the `tauri-plugin-fs` plugin because:

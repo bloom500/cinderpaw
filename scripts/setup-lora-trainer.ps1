@@ -1,4 +1,4 @@
-# Set up (or register) a LoRA trainer for Feral's L2 pipeline.
+# Set up (or register) a LoRA trainer for Cinderpaw's L2 pipeline.
 # Contract: docs/LORA_TRAINER.md.
 #
 # Two modes:
@@ -21,7 +21,7 @@ $ErrorActionPreference = 'Stop'
 # older one is not marked as migrated").
 function Get-AppHome {
     $override = $env:CINDERPAW_HOME
-    if (-not $override) { $override = $env:CINDERPAW_HOME }
+    if (-not $override) { $override = $env:FERAL_HOME }
     if ($override) { return $override }
     $modern = Join-Path $env:USERPROFILE '.cinderpaw'
     $legacy = Join-Path $env:USERPROFILE '.feral'
@@ -42,7 +42,7 @@ function Register-Trainer([string]$bin) {
     [Environment]::SetEnvironmentVariable('CINDERPAW_LORA_TRAINER_BIN', $bin, 'User')
     Write-Host "[setup-lora-trainer] OK - CINDERPAW_LORA_TRAINER_BIN set (user scope) to:"
     Write-Host "  $bin"
-    Write-Host "Restart Feral (and any open terminals) to pick it up."
+    Write-Host "Restart Cinderpaw (and any open terminals) to pick it up."
 }
 
 # ---- external-binary mode (original behavior) -------------------------------
@@ -111,12 +111,12 @@ if (-not (Test-Path (Join-Path $llamacpp 'convert_lora_to_gguf.py'))) {
     }
 }
 
-Copy-Item (Join-Path $PSScriptRoot 'lora-trainer\feral_lora_trainer.py') $dir -Force
+Copy-Item (Join-Path $PSScriptRoot 'lora-trainer\cinderpaw_lora_trainer.py') $dir -Force
 
-$launcher = Join-Path $dir 'feral-lora-trainer.cmd'
-Set-Content -Path $launcher -Value "@echo off`r`n`"$venvPy`" `"$(Join-Path $dir 'feral_lora_trainer.py')`" %*" -Encoding ascii
+$launcher = Join-Path $dir 'cinderpaw-lora-trainer.cmd'
+Set-Content -Path $launcher -Value "@echo off`r`n`"$venvPy`" `"$(Join-Path $dir 'cinderpaw_lora_trainer.py')`" %*" -Encoding ascii
 
-& $venvPy (Join-Path $dir 'feral_lora_trainer.py') self-test
+& $venvPy (Join-Path $dir 'cinderpaw_lora_trainer.py') self-test
 if ($LASTEXITCODE -ne 0) {
     Write-Error "trainer self-test failed"
     exit 1

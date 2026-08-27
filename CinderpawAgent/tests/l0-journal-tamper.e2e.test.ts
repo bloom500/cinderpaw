@@ -58,7 +58,7 @@ describe("L0 — journal tamper detection (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "a byte-tampered row is flagged by verifyJournal AND excluded by defaultReadWindow",
     async () => {
-      const dir = freshDir("feral-e2e-jt-");
+      const dir = freshDir("cinderpaw-e2e-jt-");
       const now = Date.UTC(2026, 6, 9, 12, 0, 0);
 
       // Build a day-file with a few chained entries, then tamper the middle row.
@@ -113,7 +113,7 @@ describe("L0 — journal tamper detection (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "an empty (GENESIS-only) chain verifies cleanly",
     async () => {
-      const dir = freshDir("feral-e2e-jt-empty-");
+      const dir = freshDir("cinderpaw-e2e-jt-empty-");
       const now = Date.UTC(2026, 6, 9, 12, 0, 0);
       const path = join(dir, journalFilename(new Date(now)));
       appendJournal(path, entry("c-only", now));

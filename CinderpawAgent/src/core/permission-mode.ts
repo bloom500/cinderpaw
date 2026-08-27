@@ -27,7 +27,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cfgBool, feralHome } from "../config.ts";
+import { cfgBool, cinderpawHome } from "../config.ts";
 import type { CommandIntent } from "./command-intent.ts";
 
 export type PermissionMode = "read_only" | "workspace_write" | "full_access";
@@ -52,7 +52,7 @@ const SETTINGS_TTL_MS = 2_000;
 let cached: { mode: PermissionMode | null; at: number } | null = null;
 
 /**
- * `permission_mode` from `~/.feral/settings.json`, or null.
+ * `permission_mode` from `~/.cinderpaw/settings.json`, or null.
  *
  * Every other setting reaches the sidecar as an env var the Rust host exports
  * before spawning it, which means changing one needs a host rebuild AND a
@@ -76,7 +76,7 @@ function settingsMode(): PermissionMode | null {
   if (cached && now - cached.at < SETTINGS_TTL_MS) return cached.mode;
   let mode: PermissionMode | null = null;
   try {
-    const raw = readFileSync(join(feralHome(), "settings.json"), "utf8");
+    const raw = readFileSync(join(cinderpawHome(), "settings.json"), "utf8");
     mode = named((JSON.parse(raw) as { permission_mode?: string }).permission_mode);
   } catch {
     mode = null;

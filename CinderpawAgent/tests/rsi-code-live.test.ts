@@ -58,9 +58,9 @@ function fakeDeps(over: Partial<CodeStageDeps> = {}, calls: string[] = []) {
   return { deps, calls };
 }
 
-/** Every test journals to a scratch file — NEVER the production ~/.feral. */
+/** Every test journals to a scratch file — NEVER the production ~/.cinderpaw. */
 function scratchJournal() {
-  const dir = mkdtempSync(join(tmpdir(), "feral-code-rsi-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "cinderpaw-code-rsi-test-"));
   return { journalPath: () => join(dir, "journal.jsonl"), cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 

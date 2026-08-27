@@ -26,7 +26,7 @@
  *   - Every forge call is audited by the registry like any tool call.
  *
  * A tool that passes all five is available immediately (hot-registered)
- * and persists across restarts (~/.feral/tools/).
+ * and persists across restarts (~/.cinderpaw/tools/).
  */
 
 import type { AskUserQuestion, Tool, ToolContext, ToolManifest, ToolParameter } from "../../types.ts";
@@ -56,7 +56,7 @@ const SMOKE_TIMEOUT_MS = 30_000;
 export interface ToolForgeDeps {
   registry: ToolRegistry;
   workspaceRoots: string[];
-  /** Injectable for tests. Default: ~/.feral/tools. */
+  /** Injectable for tests. Default: ~/.cinderpaw/tools. */
   dir?: string;
   /** Injectable for tests. Default: this binary, re-invoked as the runner. */
   runtime?: ToolRuntime;

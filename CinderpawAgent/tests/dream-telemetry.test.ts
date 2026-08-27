@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 function freshTmpDir(): string {
-  const d = mkdtempSync(join(tmpdir(), "feral-dream-telem-"));
+  const d = mkdtempSync(join(tmpdir(), "cinderpaw-dream-telem-"));
   tmpDirs.push(d);
   return d;
 }

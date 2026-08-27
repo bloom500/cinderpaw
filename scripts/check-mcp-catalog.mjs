@@ -87,14 +87,14 @@ function parseCatalog(rust) {
 function dummyValues(entry) {
   const args = entry.args.map((a) =>
     a.replace(/\{([A-Z0-9_]+)\}/g, (_, key) =>
-      /FOLDER|DIR|PATH/.test(key) ? tmpdir() : `feral-check-${key.toLowerCase()}`,
+      /FOLDER|DIR|PATH/.test(key) ? tmpdir() : `cinderpaw-check-${key.toLowerCase()}`,
     ),
   );
   const env = { ...Object.fromEntries(entry.staticEnv) };
   for (const key of new Set([...entry.envKeys, ...entry.fieldKeys])) {
     env[key] ??= /URL$/.test(key)
       ? "postgresql://user:pass@localhost:5432/db"
-      : `feral-check-${key.toLowerCase()}`;
+      : `cinderpaw-check-${key.toLowerCase()}`;
   }
   return { args, env };
 }
@@ -163,7 +163,7 @@ function handshakes(entry) {
       params: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        clientInfo: { name: "feral-catalog-check", version: "1.0.0" },
+        clientInfo: { name: "cinderpaw-catalog-check", version: "1.0.0" },
       },
     }) + "\n");
   });

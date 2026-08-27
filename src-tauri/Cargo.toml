@@ -47,7 +47,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 # HTTP client (tool calls, HF downloads)
 reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls-tls"], default-features = false }
 
-# Feral Runtime (host-agnostic): inference, models, API, RSI substrate,
+# Cinderpaw Runtime (host-agnostic): inference, models, API, RSI substrate,
 # settings, paths, tools, byok, perf, gpu, transcription.
 cinderpaw-core = { path = "../crates/cinderpaw-core", default-features = false }
 
@@ -64,7 +64,7 @@ dirs = "5"
 # here uses the same algorithm but a separate chain so a tamper on one side
 # cannot mask a tamper on the other.
 sha2 = "0.10"
-# git2 (libgit2 bindings) for the RSI git substrate at ~/.feral/rsi/.git/.
+# git2 (libgit2 bindings) for the RSI git substrate at ~/.cinderpaw/rsi/.git/.
 # Vendored so we don't depend on a system libgit2 install — the spec requires
 # "fără dependență de git instalat pe sistem". The C build is heavy; only the
 # rsi module pulls it in.

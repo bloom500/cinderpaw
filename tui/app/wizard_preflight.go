@@ -92,7 +92,7 @@ func preflightNotices() []preflightNotice {
 	return notes
 }
 
-// checkByokFile inspects ~/.feral/byok.json. Returns a notice if the
+// checkByokFile inspects ~/.cinderpaw/byok.json. Returns a notice if the
 // file exists but cannot be read as the ByokSettings struct the
 // wizard expects. This catches:
 //   - corrupt JSON (manual edits that broke the file)
@@ -104,7 +104,7 @@ func preflightNotices() []preflightNotice {
 // byok.json is not a notice — `hasExistingConfig` already surfaces it
 // via the WizConfigHandling gate.
 func checkByokFile() *preflightNotice {
-	home := feralHomeDir()
+	home := cinderpawHomeDir()
 	if home == "" {
 		return nil
 	}
@@ -148,7 +148,7 @@ func checkByokFile() *preflightNotice {
 	return nil
 }
 
-// checkProgressVersion inspects ~/.feral/.wizard-progress for a
+// checkProgressVersion inspects ~/.cinderpaw/.wizard-progress for a
 // version stamp that does not match wizardProgressVersion. A stale
 // file (older version) is reset automatically by loadWizardProgress so
 // the user sees WizWelcome next session — but surfacing the notice
@@ -159,7 +159,7 @@ func checkByokFile() *preflightNotice {
 // resume on a future file. The notice tells them so and offers the
 // recovery path (delete the file).
 func checkProgressVersion() *preflightNotice {
-	home := feralHomeDir()
+	home := cinderpawHomeDir()
 	if home == "" {
 		return nil
 	}

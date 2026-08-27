@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
-import { feralHome } from "../config.ts";
+import { cinderpawHome } from "../config.ts";
 import { atomicWriteFileSync } from "../atomic-write.ts";
 
 export { atomicWriteFileSync };
@@ -28,7 +28,7 @@ export interface MemoryGraphData {
   version: 1;
 }
 
-const DEFAULT_GRAPH_PATH = path.join(feralHome(), "memory-graph.json");
+const DEFAULT_GRAPH_PATH = path.join(cinderpawHome(), "memory-graph.json");
 
 // ponytail: hand-rolled advisory file lock; cross-process via O_EXCL lockfile.
 // Single-machine only. For multi-machine coordination, swap to fs2 or sqlite.
@@ -86,7 +86,7 @@ export function withFileLock<T>(filePath: string, fn: () => T): T {
 }
 
 export interface MemoryGraphOptions {
-  /** Override the on-disk path. Default: `~/.feral/memory-graph.json`. */
+  /** Override the on-disk path. Default: `~/.cinderpaw/memory-graph.json`. */
   path?: string;
 }
 

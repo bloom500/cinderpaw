@@ -6,7 +6,7 @@
  * (Extensions page) and this sidecar's MCPClient (never wired — the agent
  * could not use MCP tools at all). Now the sidecar owns every connection:
  *
- *   - Config stays Rust-owned: the desktop writes `~/.feral/mcp.json`
+ *   - Config stays Rust-owned: the desktop writes `~/.cinderpaw/mcp.json`
  *     (install / enable / remove) and pokes `mcp_reload` over stdin —
  *     the same discipline as `connectors_reload`.
  *   - `reconcile()` diffs that config against live connections: spawns
@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { MCPClient } from "./mcp-client.ts";
 import type { AuditLogger } from "../types.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
-import { feralHome } from "../config.ts";
+import { cinderpawHome } from "../config.ts";
 
 /** Mirrors `McpServerConfig` in `src-tauri/src/mcp.rs` (serde field names). */
 export interface McpServerConfig {
@@ -60,7 +60,7 @@ export interface McpServerStatus {
 
 /** Default config path — the file `src-tauri/src/mcp.rs` persists. */
 export function defaultMcpConfigPath(): string {
-  return join(feralHome(), "mcp.json");
+  return join(cinderpawHome(), "mcp.json");
 }
 
 /** Tolerant loader: missing / malformed file → empty list (an unreadable

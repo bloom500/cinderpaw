@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { Subagent } from "../src/core/subagent.ts";
 import { HookRegistry } from "../src/core/hook-registry.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
-import { openDatabase, type FeralDb } from "../src/db.ts";
+import { openDatabase, type CinderpawDb } from "../src/db.ts";
 import { AuditLog } from "../src/egress/audit-log.ts";
 import { EgressProxy } from "../src/egress/egress-proxy.ts";
 import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
@@ -34,12 +34,12 @@ import { EpisodicMemory } from "../src/memory/episodic.ts";
 import { ToolObservationLog } from "../src/telemetry/tool-observations.ts";
 import type { InferenceRouter } from "../src/egress/inference-router.ts";
 import type { Tool, ToolContext, ToolManifest, ToolResult } from "../src/types.ts";
-import type { FeralFetch } from "../src/types.ts";
+import type { CinderpawFetch } from "../src/types.ts";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function tempHome(): string {
-  return mkdtempSync(join(tmpdir(), "feral-subagent-"));
+  return mkdtempSync(join(tmpdir(), "cinderpaw-subagent-"));
 }
 
 function stubRouter(
@@ -99,7 +99,7 @@ function makeEchoTool(name: string, result: string = "ok"): Tool {
 interface Deps {
   router: InferenceRouter;
   allTools: Tool[];
-  db: FeralDb;
+  db: CinderpawDb;
   hooks: HookRegistry;
   audit: AuditLog;
   egress: EgressProxy;

@@ -10,7 +10,7 @@
  * change a person's settings, and "the tests are careful" is not a mechanism.
  *
  * CINDERPAW_HOME is the one variable every profile path derives from
- * (config.ts::feralHome → paths(), the DB, the journal, the skill sink, the
+ * (config.ts::cinderpawHome → paths(), the DB, the journal, the skill sink, the
  * connector store), so pointing it at a fresh temp dir moves all of them at
  * once. A test that genuinely needs a specific home still sets its own — this
  * only supplies the default that used to be "the user's real data".

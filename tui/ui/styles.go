@@ -52,11 +52,11 @@ var (
 	HeaderValue  = lipgloss.NewStyle().Foreground(Text) // header segment values
 
 	TagYou   = lipgloss.NewStyle().Foreground(AccentHi).Width(TagWidth).Align(lipgloss.Right)
-	TagFeral = lipgloss.NewStyle().Foreground(Accent).Width(TagWidth).Align(lipgloss.Left)
+	TagCinderpaw = lipgloss.NewStyle().Foreground(Accent).Width(TagWidth).Align(lipgloss.Left)
 	Cursor   = lipgloss.NewStyle().Foreground(Accent)
 
 	UserContent  = lipgloss.NewStyle().Foreground(Meta) // settled history (§6)
-	FeralContent = lipgloss.NewStyle().Foreground(Text)
+	CinderpawContent = lipgloss.NewStyle().Foreground(Text)
 
 	// Welcome screen — bigger surface, more breathing room than a transcript row.
 	WelcomeTagline  = lipgloss.NewStyle().Foreground(AccentHi)
@@ -150,13 +150,13 @@ var (
 	OkStyle     = lipgloss.NewStyle().Foreground(Ok)
 	WarnStyle   = lipgloss.NewStyle().Foreground(Warn)
 	AccentStyle = lipgloss.NewStyle().Foreground(Accent)
-	WizardTitle = lipgloss.NewStyle().Foreground(AccentHi) // ✻ setting up feral
+	WizardTitle = lipgloss.NewStyle().Foreground(AccentHi) // ✻ setting up cinderpaw
 	WizardBody  = lipgloss.NewStyle().Foreground(Text)     // body prose
 	WizardKey   = lipgloss.NewStyle().Foreground(Accent)   // option number
 	WizardNote  = lipgloss.NewStyle().Foreground(Meta).Italic(true) // recommendation text
 
 	// Wizard frame — the chrome that wraps every wizard step
-	// (wizard_frame.go). Two halves: left side ("FERAL  setup wizard")
+	// (wizard_frame.go). Two halves: left side ("CINDERPAW  setup wizard")
 	// is brand-coloured, right side ("step N of M  -  Title") is meta.
 	// Footer style already declared above; aliased here for one-call use.
 	WizardHeaderLeft   = BrandStyle.Render(AppName) + " " + MetaStyle.Render("setup wizard")
@@ -173,10 +173,10 @@ var (
 	HelpMeta  = lipgloss.NewStyle().Foreground(Meta)
 )
 
-// feralStyleJSON is the Glamour brand theme (§30.2) — headings bold Text,
+// cinderpawStyleJSON is the Glamour brand theme (§30.2) — headings bold Text,
 // links underlined Accent, code spans AccentHi on no background, blockquotes
 // Meta italic with 2-space indent.
-var feralStyleJSON = []byte(`{
+var cinderpawStyleJSON = []byte(`{
   "document": {
     "block_prefix": "\n",
     "block_suffix": "\n",
@@ -272,7 +272,7 @@ func RenderMarkdown(md string, width int) string {
 	if !ok {
 		var err error
 		r, err = glamour.NewTermRenderer(
-			glamour.WithStylesFromJSONBytes(feralStyleJSON),
+			glamour.WithStylesFromJSONBytes(cinderpawStyleJSON),
 			glamour.WithWordWrap(width),
 		)
 		if err != nil {

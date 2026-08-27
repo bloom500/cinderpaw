@@ -30,7 +30,7 @@ pub struct MemoryFactInput {
     pub object: String,
 }
 
-/// Merge extracted facts into `~/.feral/memory-graph.json` using the exact
+/// Merge extracted facts into `~/.cinderpaw/memory-graph.json` using the exact
 /// node/edge schema the agent sidecar's MemoryGraph writes, so both the
 /// sidecar and the Chat tab feed one shared knowledge graph. Returns the
 /// number of facts written. The whole read-modify-write is held under an
@@ -42,7 +42,7 @@ pub fn add_memory_facts(facts: Vec<MemoryFactInput>) -> Result<u32, String> {
     if facts.is_empty() {
         return Ok(0);
     }
-    let dir = crate::paths::feral_dir();
+    let dir = crate::paths::cinderpaw_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("memory-graph.json");
 
@@ -141,7 +141,7 @@ fn chrono_now_ms() -> u64 {
 #[tauri::command]
 #[specta::specta]
 pub fn get_memory_graph() -> MemoryGraphSnapshot {
-    let path = crate::paths::feral_dir().join("memory-graph.json");
+    let path = crate::paths::cinderpaw_dir().join("memory-graph.json");
     let raw = std::fs::read_to_string(&path).unwrap_or_default();
 
     #[derive(serde::Deserialize)]

@@ -96,7 +96,7 @@ export async function spawnModuleHost(opts: SpawnOpts): Promise<SpawnResult> {
   if (!wall.ok) return { ok: false, reason: `lexical wall: ${wall.reason}` };
 
   // Write the embedded host script out — compiled sidecars have no src/.
-  const hostDir = mkdtempSync(join(tmpdir(), "feral-module-host-"));
+  const hostDir = mkdtempSync(join(tmpdir(), "cinderpaw-module-host-"));
   const hostPath = join(hostDir, "host.ts");
   writeFileSync(hostPath, HOST_SOURCE as unknown as string, "utf8");
 

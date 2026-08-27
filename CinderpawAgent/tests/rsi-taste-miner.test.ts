@@ -4,7 +4,7 @@
  * `TasteMiner` subscribes to `RatchetAdvanced`, fetches the last N
  * main commits via `rsi_log`, pairs each with its predecessor, runs
  * `mineTasteVector`, and persists the result to
- * `~/.feral/meta/pbt_state.json`. Exposes `getVector` / `getWeight`
+ * `~/.cinderpaw/meta/pbt_state.json`. Exposes `getVector` / `getWeight`
  * for the SelectionDeps.taste binding.
  *
  * Tests cover the core contract with a mock bridge (no Rust, no

@@ -18,7 +18,7 @@ frontend-react/dist/
 frontend-react/target/
 node_modules/
 
-# Feral agent sidecar build output (only .gitkeep is tracked)
+# Cinderpaw agent sidecar build output (only .gitkeep is tracked)
 CinderpawAgent/dist/
 src-tauri/binaries/*.exe
 src-tauri/binaries/cinderpaw-agent
@@ -31,8 +31,8 @@ scripts/*.exe
 # Go TUI binary (go build output)
 tui/cinderpaw-tui.exe
 tui/cinderpaw-tui
-tui/feral-tui.exe
-tui/feral-tui
+tui/cinderpaw-tui.exe
+tui/cinderpaw-tui
 
 # Git worktrees (paseo / git worktree add)
 .worktrees/
@@ -63,7 +63,7 @@ desktop.ini
 
 # Tauri dev / Vite dev logs (untracked build output).
 # D3 fix: the real filenames are `.tauri-dev.log` / `.tauri-dev.err`;
-# the previous entries (`.feral-tauri.log`, `.feral-dev.log`) were stale
+# the previous entries (`.cinderpaw-tauri.log`, `.cinderpaw-dev.log`) were stale
 # and never matched what Tauri actually wrote.
 .tauri-dev.log
 .tauri-dev.err
@@ -72,9 +72,9 @@ desktop.ini
 
 # Released installers — never commit the bundle artifacts.
 # Build with `cargo tauri build`; upload via the GitHub release workflow.
-Feral_*.msi
-Feral_*-setup.exe
-Feral_*.exe
+Cinderpaw_*.msi
+Cinderpaw_*-setup.exe
+Cinderpaw_*.exe
 
 # Internal handoff / diagnostic scripts that have lived at the repo root.
 # They are session-scoped and should not be tracked.

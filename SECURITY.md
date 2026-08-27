@@ -22,7 +22,7 @@ engine behind a loopback HTTP API, and a Bun/TypeScript agent sidecar.
 
 - Binds to **127.0.0.1 only** — never exposed to the LAN.
 - Every route requires a **per-launch random bearer token**, shared only with
-  the sidecar (injected env) and, for external consumers, `~/.feral/api-token`.
+  the sidecar (injected env) and, for external consumers, `~/.cinderpaw/api-token`.
   This closes the same-host surface: other local processes and browser-based
   DNS-rebinding/CORS probes can reach the port but cannot authenticate.
 - Token comparison is constant-time; CORS is restricted to loopback origins.

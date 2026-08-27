@@ -138,7 +138,7 @@ async fn model_switch(app: &AppHandle, params: &Value) -> Result<Value, String> 
         .and_then(|v| v.as_str())
         .map(str::to_string);
 
-    crate::commands::models::feral_set_model(
+    crate::commands::models::cinderpaw_set_model(
         app.state::<AppState>(),
         source.clone(),
         provider_id.clone(),

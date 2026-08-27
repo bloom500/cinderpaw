@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Set up (or register) a LoRA trainer for Feral's L2 pipeline.
+# Set up (or register) a LoRA trainer for Cinderpaw's L2 pipeline.
 # Contract: docs/LORA_TRAINER.md.
 #
 # Two modes:
@@ -11,15 +11,15 @@ set -eu
 
 # ---- where the profile dir lives --------------------------------------------
 # Mirrors tui/api/home.go, CinderpawAgent/src/config.ts and
-# crates/cinderpaw-core/src/paths.rs (the rename from .feral to .cinderpaw).
-# The ".feral" literal must never be CREATED here: on a migrated machine an
-# unmarked ~/.feral makes the Rust host refuse to boot ("both exist, and the
+# crates/cinderpaw-core/src/paths.rs (the rename from .cinderpaw to .cinderpaw).
+# The ".cinderpaw" literal must never be CREATED here: on a migrated machine an
+# unmarked ~/.cinderpaw makes the Rust host refuse to boot ("both exist, and the
 # older one is not marked as migrated").
 app_home() {
   if [ -n "${CINDERPAW_HOME:-}" ]; then printf '%s\n' "$CINDERPAW_HOME"; return; fi
   if [ -n "${CINDERPAW_HOME:-}" ]; then printf '%s\n' "$CINDERPAW_HOME"; return; fi
   MODERN="${HOME}/.cinderpaw"
-  LEGACY="${HOME}/.feral"
+  LEGACY="${HOME}/.cinderpaw"
   if [ -d "$MODERN" ]; then printf '%s\n' "$MODERN"
   # A pre-migration install: the old dir is where this machine's state is,
   # so installing next to it is correct - creating it is not.
@@ -36,13 +36,13 @@ persist_env() {
   esac
   LINE="export CINDERPAW_LORA_TRAINER_BIN=\"$RESOLVED\""
   if ! grep -qsF "CINDERPAW_LORA_TRAINER_BIN" "$PROFILE" 2>/dev/null; then
-    printf '\n# Feral LoRA trainer (docs/LORA_TRAINER.md)\n%s\n' "$LINE" >> "$PROFILE"
+    printf '\n# Cinderpaw LoRA trainer (docs/LORA_TRAINER.md)\n%s\n' "$LINE" >> "$PROFILE"
     echo "[setup-lora-trainer] appended to $PROFILE"
   else
     echo "[setup-lora-trainer] $PROFILE already sets CINDERPAW_LORA_TRAINER_BIN - update it manually if the path changed:"
   fi
   echo "  $LINE"
-  echo "Restart Feral (and your shell) to pick it up."
+  echo "Restart Cinderpaw (and your shell) to pick it up."
 }
 
 probe() {
@@ -112,13 +112,13 @@ if [ ! -f "$LLAMACPP/convert_lora_to_gguf.py" ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cp "$SCRIPT_DIR/lora-trainer/feral_lora_trainer.py" "$DIR/"
+cp "$SCRIPT_DIR/lora-trainer/cinderpaw_lora_trainer.py" "$DIR/"
 
-LAUNCHER="$DIR/feral-lora-trainer"
-printf '#!/usr/bin/env bash\nexec "%s" "%s" "$@"\n' "$VENV_PY" "$DIR/feral_lora_trainer.py" > "$LAUNCHER"
+LAUNCHER="$DIR/cinderpaw-lora-trainer"
+printf '#!/usr/bin/env bash\nexec "%s" "%s" "$@"\n' "$VENV_PY" "$DIR/cinderpaw_lora_trainer.py" > "$LAUNCHER"
 chmod +x "$LAUNCHER"
 
-"$VENV_PY" "$DIR/feral_lora_trainer.py" self-test
+"$VENV_PY" "$DIR/cinderpaw_lora_trainer.py" self-test
 
 probe "$LAUNCHER"
 persist_env "$LAUNCHER"

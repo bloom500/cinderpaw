@@ -4,7 +4,7 @@ use std::collections::HashMap;
 fn sample() -> ConnectorAccount {
     ConnectorAccount {
         connector_id: "twitch".into(),
-        display_name: Some("feral_bot".into()),
+        display_name: Some("cinderpaw_bot".into()),
         status: AccountStatus::Connected,
         metadata: HashMap::new(),
         auth_state: None,

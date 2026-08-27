@@ -47,7 +47,7 @@ async function seedThreeStaleLeaves(fm: FractalMemory) {
 
 describe("FractalMemory.evict", () => {
   let dir: string;
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "feral-evict-")); });
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "cinderpaw-evict-")); });
   afterEach(() => { if (existsSync(dir)) rmSync(dir, { recursive: true, force: true }); });
 
   const storePath = () => join(dir, "fractal-leaves.jsonl");

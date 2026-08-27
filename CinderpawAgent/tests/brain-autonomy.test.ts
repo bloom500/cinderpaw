@@ -142,7 +142,7 @@ describe("deriveDefaultConfig", () => {
 
 describe("brainConfigFileExists", () => {
   test("distinguishes 'no file' from 'file says enabled: false'", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-brain-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-brain-"));
     const brainPath = join(dir, "brain.json");
     try {
       expect(brainConfigFileExists({ brainPath })).toBe(false);

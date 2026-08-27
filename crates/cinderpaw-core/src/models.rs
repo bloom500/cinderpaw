@@ -108,7 +108,7 @@ pub(crate) fn parse_quant(name: &str) -> Option<String> {
 }
 
 fn load_modelfile(gguf_path: &Path) -> Option<Modelfile> {
-    let mf = gguf_path.with_extension("feral");
+    let mf = gguf_path.with_extension("cinderpaw");
     let bytes = std::fs::read(&mf).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
@@ -117,7 +117,7 @@ pub fn delete_model(path: &Path) -> Result<()> {
     if path.exists() {
         remove_file_with_retry(path)?;
     }
-    let mf = path.with_extension("feral");
+    let mf = path.with_extension("cinderpaw");
     if mf.exists() {
         let _ = remove_file_with_retry(&mf);
     }
@@ -233,7 +233,7 @@ pub async fn download_hf_file_as(
     );
 
     let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(60 * 60))
         .build()
         .with_context(|| "build reqwest client")?;

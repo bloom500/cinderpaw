@@ -56,24 +56,24 @@ Cinderpaw is one repo, three runtimes, three languages:
 
 - **Stack:** React 18, TypeScript, Vite, Tailwind, Zustand, framer-motion.
 - **State:** one Zustand store per domain in `src/stores/` (chat, model,
-  conversations, agent, feral, settings, ui, …). Stores are module-global —
+  conversations, agent, cinderpaw, settings, ui, …). Stores are module-global —
   they survive page/tab switches; components subscribe to slices.
 - **Streaming:** two parallel paths with deliberately identical semantics:
   - `src/lib/chatStream.ts` — local llama.cpp / cloud BYOK chat
-  - `src/lib/feralAgentStream.ts` — Cinderpaw Agent sidecar (persistent global
-    listener; streams survive navigation; `src/lib/feralLiveSession.ts`
+  - `src/lib/cinderpawAgentStream.ts` — Cinderpaw Agent sidecar (persistent global
+    listener; streams survive navigation; `src/lib/cinderpawLiveSession.ts`
     mirrors in-flight state so re-entering a chat rehydrates it)
   - `src/lib/streamControl.ts` — the **only** stop entry point UI code may call.
 - **IPC:** typed wrappers in `src/lib/tauri/index.ts`. Never call `invoke()`
   ad-hoc from components — add a typed wrapper.
 - **Mascot:** `src/components/chat/mascot/` — pixel frames in `frames.ts`,
   procedural particle effects in `effects.ts`, canvas renderer in
-  `FeralMascot.tsx`, idle choreography in `MascotPerch.tsx`.
+  `CinderpawMascot.tsx`, idle choreography in `MascotPerch.tsx`.
 
 ### src-tauri/ — the Rust host
 
 - **`lib.rs`** — all `#[tauri::command]` handlers (chat, models, conversations,
-  BYOK, skills, agents, feral_* sidecar bridge). Commands are registered in the
+  BYOK, skills, agents, cinderpaw_* sidecar bridge). Commands are registered in the
   `collect_commands![]` block near the bottom; events in `collect_events![]`.
 - **`inference.rs`** — llama.cpp engine: GGUF load, context pool, KV-cache
   reuse. GPU builds use `--features inference-vulkan` (default is CPU).
@@ -141,7 +141,7 @@ Outbound (sidecar → Rust → React): `chunk`, `done`, `error`, `tool_start`,
 `tool_done`, `tool_progress`, `ask_user`, `spawning`, `model_set`,
 `model_error`, `cron_fired`, `cron_error`, `pong`.
 
-API keys never reach React: `feral_set_model` injects BYOK keys in Rust before
+API keys never reach React: `cinderpaw_set_model` injects BYOK keys in Rust before
 forwarding to the sidecar.
 
 ---
@@ -161,7 +161,7 @@ forwarding to the sidecar.
 ### First run
 
 ```bash
-git clone <repo> && cd FeralLocalAI
+git clone <repo> && cd CinderpawLocalAI
 cd frontend-react && npm install && cd ..
 cd CinderpawAgent && bun install && cd ..
 

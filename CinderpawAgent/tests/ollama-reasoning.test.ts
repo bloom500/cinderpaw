@@ -21,7 +21,7 @@
 //
 // The TUI is rendering-only; it never inspects the model name. These
 // tests assert at the sidecar boundary (where wire → text happens)
-// because that's the single seam both `feral-tui` (SSE delta frames)
+// because that's the single seam both `cinderpaw-tui` (SSE delta frames)
 // and the agent loop (stripThinking on the final completion) read
 // from.
 

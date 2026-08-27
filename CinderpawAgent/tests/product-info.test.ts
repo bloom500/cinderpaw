@@ -27,11 +27,16 @@ describe("product_info", () => {
     const content = res.content;
     // Anchor sections the agent needs for the observed failure cases:
     // "help me with onboarding" and "connect me to Discord".
-    expect(content).toContain("feral setup");
+    expect(content).toContain("cinderpaw setup");
     expect(content).toContain("/connectors add discord");
     expect(content).toContain("What is Cinderpaw");
-    expect(content).toContain("feral doctor");
+    expect(content).toContain("cinderpaw doctor");
     // Bounded: PRODUCT.md must stay a cheap on-demand load, not a book.
-    expect(content.length).toBeLessThan(16 * 1024);
+    // 17 KiB, not 16: the rename added four characters to every occurrence of
+    // the product's name and of every CINDERPAW_* variable, which pushed a file
+    // whose CONTENT did not grow past the old cap. Raised once, deliberately —
+    // if this needs raising again, something was actually added and the right
+    // answer is to cut, not to raise.
+    expect(content.length).toBeLessThan(17 * 1024);
   });
 });

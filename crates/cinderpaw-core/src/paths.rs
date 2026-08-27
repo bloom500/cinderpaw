@@ -1,21 +1,21 @@
 use std::path::PathBuf;
 
-/// Root of all Feral on-disk state. Defaults to `~/.feral`.
+/// Root of all Cinderpaw on-disk state. Defaults to `~/.cinderpaw`.
 ///
 /// Honors the `CINDERPAW_HOME` environment variable when set: its value is
-/// used as the `.feral` root verbatim (no `.feral` suffix appended), so
+/// used as the `.cinderpaw` root verbatim (no `.cinderpaw` suffix appended), so
 /// `CINDERPAW_HOME=/tmp/x` puts the RSI substrate at `/tmp/x/rsi`. Two uses:
 ///
 /// 1. **Relocatable data dir** for portable installs / custom storage.
 /// 2. **Hermetic tests** — the RSI test suite points this at a `TempDir`
-///    so it never writes into the developer's real `~/.feral/rsi`.
+///    so it never writes into the developer's real `~/.cinderpaw/rsi`.
 ///
 /// This does NOT weaken the bounded-RSI boundary. The variable is read
 /// in-process by the Rust host that owns the sandbox. The agent runs as
 /// a separate sidecar subprocess; it inherits env at spawn and has no
 /// API to mutate the host's environment afterward, so it cannot redirect
 /// the sandbox root by setting `CINDERPAW_HOME`.
-pub fn feral_dir() -> PathBuf {
+pub fn cinderpaw_dir() -> PathBuf {
     // Both names are honoured — see `crate::env`. Someone who set CINDERPAW_HOME in
     // a shell profile a year ago must not find the app quietly ignoring it.
     if let Some(over) = crate::env::env_var_os("CINDERPAW_HOME") {
@@ -40,54 +40,54 @@ pub fn feral_dir() -> PathBuf {
 }
 
 pub fn models_dir() -> PathBuf {
-    feral_dir().join("models")
+    cinderpaw_dir().join("models")
 }
 
 pub fn agents_dir() -> PathBuf {
-    feral_dir().join("agents")
+    cinderpaw_dir().join("agents")
 }
 
 pub fn skills_dir() -> PathBuf {
-    feral_dir().join("skills")
+    cinderpaw_dir().join("skills")
 }
 
 pub fn conversations_dir() -> PathBuf {
-    feral_dir().join("conversations")
+    cinderpaw_dir().join("conversations")
 }
 
 pub fn settings_path() -> PathBuf {
-    feral_dir().join("settings.json")
+    cinderpaw_dir().join("settings.json")
 }
 
 pub fn cinderpaw_agent_dir() -> PathBuf {
-    feral_dir().join("agent")
+    cinderpaw_dir().join("agent")
 }
 
 pub fn cinderpaw_agent_db_path() -> PathBuf {
-    cinderpaw_agent_dir().join("feral.db")
+    cinderpaw_agent_dir().join("cinderpaw.db")
 }
 
 pub fn cinderpaw_agent_workspace_path() -> PathBuf {
-    feral_dir().join("workspace")
+    cinderpaw_dir().join("workspace")
 }
 
 pub fn whisper_dir() -> PathBuf {
-    feral_dir().join("whisper")
+    cinderpaw_dir().join("whisper")
 }
 
 pub fn voice_dir() -> PathBuf {
-    feral_dir().join("voice")
+    cinderpaw_dir().join("voice")
 }
 
 /// Downloaded Piper voices — one `.onnx` and one `.onnx.json` per voice.
 pub fn piper_dir() -> PathBuf {
-    feral_dir().join("piper")
+    cinderpaw_dir().join("piper")
 }
 
 /// Kokoro's model, tokenizer and voice packs, mirroring the repo's own layout
 /// (`onnx/…`, `voices/…`) so it is obvious on disk where a file came from.
 pub fn kokoro_dir() -> PathBuf {
-    feral_dir().join("kokoro")
+    cinderpaw_dir().join("kokoro")
 }
 
 /// HuggingFace repo hosting Piper voices (MIT).
@@ -166,7 +166,7 @@ pub fn piper_config_path(voice: &str) -> Option<PathBuf> {
 }
 
 // ── RSI (Fractal Memory System) ────────────────────────────────────────────────
-// All RSI state lives under ~/.feral/rsi/. The git substrate at .git/ holds
+// All RSI state lives under ~/.cinderpaw/rsi/. The git substrate at .git/ holds
 // every genome commit; the eval/ tree holds the frozen Tier 0/1/2 tasks; the
 // meta/ dir holds PBT state and taste_vector. The agent has no write path to
 // any of these directories — every write is mediated by Rust commands in
@@ -174,46 +174,46 @@ pub fn piper_config_path(voice: &str) -> Option<PathBuf> {
 
 /// Root of the RSI substrate.
 pub fn rsi_dir() -> PathBuf {
-    feral_dir().join("rsi")
+    cinderpaw_dir().join("rsi")
 }
 
-/// `~/.feral/rsi/eval/<tier>/` — frozen evaluation suite per tier.
+/// `~/.cinderpaw/rsi/eval/<tier>/` — frozen evaluation suite per tier.
 /// Tier 0 frozen permanently. Tier 1 frozen per epoch. Tier 2 human-gated.
 pub fn rsi_eval_dir(tier: u8) -> PathBuf {
     rsi_dir().join("eval").join(format!("tier{}", tier))
 }
 
-/// `~/.feral/rsi/genomes/` — per-commit snapshot of the winning genome JSON.
+/// `~/.cinderpaw/rsi/genomes/` — per-commit snapshot of the winning genome JSON.
 pub fn rsi_genomes_dir() -> PathBuf {
     rsi_dir().join("genomes")
 }
 
-/// `~/.feral/rsi/meta/pbt_state.json` — strategy-genomes + taste_vector.
+/// `~/.cinderpaw/rsi/meta/pbt_state.json` — strategy-genomes + taste_vector.
 /// Updated on every RatchetAdvanced by the meta-RSI handler (Faza 3.5).
 pub fn rsi_meta_dir() -> PathBuf {
     rsi_dir().join("meta")
 }
 
-/// `~/.feral/rsi/sandbox_bounds.json` — the canonical, agent-immutable
+/// `~/.cinderpaw/rsi/sandbox_bounds.json` — the canonical, agent-immutable
 /// SandboxBounds. Writes go through the hash-chained audit log.
 pub fn rsi_sandbox_bounds_path() -> PathBuf {
     rsi_dir().join("sandbox_bounds.json")
 }
 
-/// `~/.feral/rsi/sandbox_bounds_audit.log` — append-only hash-chained log of
+/// `~/.cinderpaw/rsi/sandbox_bounds_audit.log` — append-only hash-chained log of
 /// every mutation to sandbox_bounds.json. The chain starts at GENESIS; each
 /// row carries `prev_hash` and `entry_hash = sha256(prev_hash || canonical(row))`.
 pub fn rsi_sandbox_bounds_audit_path() -> PathBuf {
     rsi_dir().join("sandbox_bounds_audit.log")
 }
 
-/// `~/.feral/rsi/PLAN.md` — versioned architectural plan. Read-only for the
+/// `~/.cinderpaw/rsi/PLAN.md` — versioned architectural plan. Read-only for the
 /// agent after bootstrap (writes require an out-of-band user confirmation).
 pub fn rsi_plan_path() -> PathBuf {
     rsi_dir().join("PLAN.md")
 }
 
-/// `~/.feral/rsi/dream.jsonl` — one JSONL line per completed Dream Cycle
+/// `~/.cinderpaw/rsi/dream.jsonl` — one JSONL line per completed Dream Cycle
 /// episode. Written by the sidecar (`dream-telemetry.ts`); read back by the
 /// `rsi_dream_telemetry` command for the Cinderpaw's Dreams UI panel. NOTE: the
 /// sidecar honors a `CINDERPAW_RSI_TELEMETRY` override (dev/test only); the host
@@ -222,7 +222,7 @@ pub fn rsi_dream_telemetry_path() -> PathBuf {
     rsi_dir().join("dream.jsonl")
 }
 
-/// `~/.feral/rsi/journal/` — the BRSI Evolution Journal (§2.9): per-day
+/// `~/.cinderpaw/rsi/journal/` — the BRSI Evolution Journal (§2.9): per-day
 /// `journal-YYYY-MM-DD.jsonl` files, one semantic row per dream episode
 /// (observed / decided / budget). Written by the sidecar (`journal.ts`,
 /// mirroring `instance-paths.ts` journalDir); read back by

@@ -79,7 +79,7 @@ export function makeCodeStageAdapters(args: {
     evaluateInWorktree: (genome) =>
       evaluateCodePatch(genome, {
         repoRoot,
-        scratchDir: join(tmpdir(), "feral-code-rsi"),
+        scratchDir: join(tmpdir(), "cinderpaw-code-rsi"),
         ...args.sandbox,
       }),
 

@@ -134,7 +134,7 @@ is the payload, exactly.
 ### As a service
 
 ```ini
-# /etc/systemd/system/feral-public-journal.service
+# /etc/systemd/system/cinderpaw-public-journal.service
 [Unit]
 Description=Cinderpaw public journal exporter
 After=network-online.target

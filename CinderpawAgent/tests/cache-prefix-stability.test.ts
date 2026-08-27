@@ -81,7 +81,7 @@ describe("the cached prefix stays byte-identical", () => {
     const before = frozenPart(mem.render());
 
     // Setting the notebook between turns must not rewrite anything already frozen.
-    mem.setNotebook([{ key: "note:db-path", value: "~/.feral/agent/feral.db" }]);
+    mem.setNotebook([{ key: "note:db-path", value: "~/.cinderpaw/agent/cinderpaw.db" }]);
     mem.addAssistant("second answer");
     mem.addUser("third question");
     const after = frozenPart(mem.render());

@@ -1,7 +1,7 @@
 /**
  * useCinderpaw — React integration for the Cinderpaw Agent sidecar.
  *
- * Wraps `feral_send_message` + `cinderpaw://agent-output` events into the same
+ * Wraps `cinderpaw_send_message` + `cinderpaw://agent-output` events into the same
  * callback interface that useChatStream uses, so useSendMessage can drop it in
  * as a third inference path without changing the streaming logic.
  */
@@ -21,10 +21,10 @@ import { voiceToPersisted } from '@/lib/messageMapping';
 import { splitThinking, stripStreamingToolCalls } from '@/lib/parseThink';
 import { tauri, type CinderpawAgentEvent, type PersistedMessage } from '@/lib/tauri';
 import {
-  ensureFeralListener,
-  registerFeralStream,
-  requestFeralStop,
-  isFeralStreaming,
+  ensureCinderpawListener,
+  registerCinderpawStream,
+  requestCinderpawStop,
+  isCinderpawStreaming,
 } from '@/lib/cinderpawAgentStream';
 import {
   beginLiveSession,
@@ -115,14 +115,14 @@ export function useCinderpawStream(chatSessionId: string) {
       images?: string[],
       surface?: 'voice' | 'text',
     ) => {
-      await ensureFeralListener();
+      await ensureCinderpawListener();
 
       // Parity with `startChatStream`: a fresh send is an implicit interrupt
       // of any stream still in flight for this session. Without this, the
       // previous generation's chunks keep racing the new one into the same
       // chat (stop/retry semantics must match across both paths — audit A2).
-      if (isFeralStreaming(chatSessionId)) {
-        await requestFeralStop(chatSessionId);
+      if (isCinderpawStreaming(chatSessionId)) {
+        await requestCinderpawStop(chatSessionId);
       }
 
       let messageId: string;
@@ -130,7 +130,7 @@ export function useCinderpawStream(chatSessionId: string) {
         // Controls-panel params (temperature / max tokens) now reach the
         // agent too — previously they only applied to the plain chat tab.
         const { temperature, max_tokens } = useModel.getState().inferParams;
-        messageId = await invoke<string>('feral_send_message', {
+        messageId = await invoke<string>('cinderpaw_send_message', {
           content,
           sessionId: chatSessionId,
           images: images && images.length > 0 ? images : null,
@@ -145,7 +145,7 @@ export function useCinderpawStream(chatSessionId: string) {
         return;
       }
 
-      registerFeralStream(messageId, {
+      registerCinderpawStream(messageId, {
         onChunk: (c) => callbacks.onToken(c),
         onDone: (fc, stopped) => callbacks.onDone(fc, stopped),
         onError: (m) => callbacks.onError(m),
@@ -159,7 +159,7 @@ export function useCinderpawStream(chatSessionId: string) {
         // ask_user flow can patch the right message with `askUser` (which
         // is what makes AskUserCard actually appear in the chat list).
         chatMessageId: callbacks.chatMessageId,
-        // Lets requestFeralStop(sessionId) stop only this session's streams.
+        // Lets requestCinderpawStop(sessionId) stop only this session's streams.
         sessionId: chatSessionId,
       });
     },
@@ -179,7 +179,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
       opts?: {
         voice?: ChatMessage['voice'];
         existingUserId?: string;
-        /** `'voice'` when this answer will be spoken aloud — see `feral_send_message`. */
+        /** `'voice'` when this answer will be spoken aloud — see `cinderpaw_send_message`. */
         surface?: 'voice' | 'text';
       },
     ) => {
@@ -235,7 +235,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
       try {
         await useConversations.getState().saveCurrent(autoTitle(useChat.getState().messages), agentId);
       } catch (err) {
-        console.error('[feral] failed initial save to Recent:', err);
+        console.error('[cinderpaw] failed initial save to Recent:', err);
       }
 
       const state = {
@@ -272,7 +272,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
           await useConversations.getState().refresh();
         } catch (err) {
-          console.error('[feral] failed final save to Recent:', err);
+          console.error('[cinderpaw] failed final save to Recent:', err);
         }
       };
 

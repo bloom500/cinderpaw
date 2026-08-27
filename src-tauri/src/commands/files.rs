@@ -3,22 +3,22 @@
 
 use crate::*;
 
-/// Reject a path that resolves inside the Feral private dir (`~/.feral`) where
+/// Reject a path that resolves inside the Cinderpaw private dir (`~/.cinderpaw`) where
 /// the api-token, byok metadata and the agent DB live. The webview-facing file
 /// readers below use this so they can't be turned into a secret-exfiltration
 /// primitive (e.g. by an injected script): there is no legitimate reason to
 /// drag those files into chat, and it denies a would-be XSS its highest-value
 /// local targets. `canonical` must already be canonicalized (symlinks resolved)
 /// so a symlink can't point out of an allowed dir into the private one.
-pub(crate) fn deny_feral_private(canonical: &std::path::Path) -> Result<(), String> {
+pub(crate) fn deny_cinderpaw_private(canonical: &std::path::Path) -> Result<(), String> {
     // Canonicalize if we can, fall back to the plain path if we can't. It used
-    // to be `if let Ok(...)` with no else, so on a first run — before ~/.feral
+    // to be `if let Ok(...)` with no else, so on a first run — before ~/.cinderpaw
     // exists — canonicalize failed, the whole check was skipped, and the dir
     // this function exists to protect was wide open on exactly the machine
     // that had never been set up.
-    let feral = paths::feral_dir();
-    let feral = feral.canonicalize().unwrap_or(feral);
-    if canonical.starts_with(&feral) {
+    let cinderpaw = paths::cinderpaw_dir();
+    let cinderpaw = cinderpaw.canonicalize().unwrap_or(cinderpaw);
+    if canonical.starts_with(&cinderpaw) {
         return Err("Access denied: path is inside the Cinderpaw private directory".into());
     }
     deny_sensitive_home_paths(canonical)
@@ -32,7 +32,7 @@ pub(crate) fn deny_feral_private(canonical: &std::path::Path) -> Result<(), Stri
 /// a read-any-text-file primitive reachable from the webview. One injected
 /// script — a poisoned markdown render, an iframe — and `~/.ssh/id_rsa` lands
 /// in the conversation, where the agent may well go on to send it to a cloud
-/// model. Blocking ~/.feral alone never covered that.
+/// model. Blocking ~/.cinderpaw alone never covered that.
 pub(crate) fn deny_sensitive_home_paths(canonical: &std::path::Path) -> Result<(), String> {
     let Some(home) = dirs::home_dir() else {
         return Ok(());
@@ -69,7 +69,7 @@ pub(crate) fn deny_sensitive_home_paths(canonical: &std::path::Path) -> Result<(
 pub(crate) async fn read_file_as_text(path: String) -> Result<String, String> {
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("Invalid path: {}", e))?;
-    deny_feral_private(&canonical)?;
+    deny_cinderpaw_private(&canonical)?;
     let meta = std::fs::metadata(&canonical)
         .map_err(|e| format!("Stat failed: {}", e))?;
     if meta.len() > 10 * 1024 * 1024 {
@@ -86,18 +86,18 @@ pub(crate) async fn read_file_as_text(path: String) -> Result<String, String> {
 /// Security: this command is reachable from the webview, so it must not become
 /// an arbitrary-file-read primitive. Two guards on top of the size cap:
 ///   - the resolved (canonical, symlink-followed) path may NOT be inside the
-///     Feral private dir (`~/.feral`) where the api-token, byok metadata and
+///     Cinderpaw private dir (`~/.cinderpaw`) where the api-token, byok metadata and
 ///     the agent DB live — there is no legitimate reason to drag those in, and
 ///     it denies a would-be XSS its highest-value local targets.
 ///   - the extension allowlist below keeps it to images, so it can never
-///     return the *text* of a secret file even outside `~/.feral`.
+///     return the *text* of a secret file even outside `~/.cinderpaw`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn read_file_as_data_url(path: String) -> Result<String, String> {
     use base64::Engine as _;
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("Invalid path: {}", e))?;
-    deny_feral_private(&canonical)?;
+    deny_cinderpaw_private(&canonical)?;
     let meta = std::fs::metadata(&canonical)
         .map_err(|e| format!("Stat failed: {}", e))?;
     if meta.len() > 10 * 1024 * 1024 {
@@ -137,7 +137,7 @@ pub(crate) async fn read_file_as_data_url(path: String) -> Result<String, String
 pub(crate) async fn extract_file_text(path: String) -> Result<String, String> {
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("Invalid path: {}", e))?;
-    deny_feral_private(&canonical)?;
+    deny_cinderpaw_private(&canonical)?;
     let meta = std::fs::metadata(&canonical)
         .map_err(|e| format!("Stat failed: {}", e))?;
     if meta.len() > 25 * 1024 * 1024 {

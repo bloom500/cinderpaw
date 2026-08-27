@@ -6,7 +6,7 @@
 //! the agent must not edit. The full list:
 //!
 //! 1. The `ScorerWeights` — formula for the composite fitness score.
-//! 2. The eval suite (`~/.feral/rsi/eval/`) — the tasks that determine
+//! 2. The eval suite (`~/.cinderpaw/rsi/eval/`) — the tasks that determine
 //!    fitness.
 //! 3. The SandboxBounds file itself — recursively, because otherwise
 //!    the agent could just disable its own restrictions.
@@ -16,14 +16,14 @@
 // it to the UI as the chain anchor; the allow keeps the build clean
 // until then.
 //! 4. The SandboxBounds audit log — append-only, hash-chained.
-//! 5. The git repo at `~/.feral/rsi/.git/` — the substrate of memory.
+//! 5. The git repo at `~/.cinderpaw/rsi/.git/` — the substrate of memory.
 //!    (Read access is fine; write access is mediated by Rust commands
 //!    that always go through a bounds check.)
-//! 6. The genome snapshot dir at `~/.feral/rsi/genomes/`.
-//! 7. The meta/PBT state at `~/.feral/rsi/meta/`.
+//! 6. The genome snapshot dir at `~/.cinderpaw/rsi/genomes/`.
+//! 7. The meta/PBT state at `~/.cinderpaw/rsi/meta/`.
 //! 8. The PLAN.md.
 //!
-//! `SandboxBounds` is serialised to `~/.feral/rsi/sandbox_bounds.json`.
+//! `SandboxBounds` is serialised to `~/.cinderpaw/rsi/sandbox_bounds.json`.
 //! Mutations are written via `save_with_audit`, which appends a row to
 //! the hash-chained audit log first; on failure the JSON file is not
 //! touched. The audit log's chain head is the integrity anchor —
@@ -110,7 +110,7 @@ impl SandboxBounds {
     }
 
     /// Path-parameterised core so tests can run without touching the
-    /// user's `~/.feral/`.
+    /// user's `~/.cinderpaw/`.
     pub fn load_from(bounds_path: &Path) -> Result<Self> {
         let audit_path = bounds_path.with_extension("audit.log");
         let audit = SandboxBoundsAudit::open(&audit_path)?;
@@ -361,8 +361,8 @@ mod tests {
     fn bootstrap_writes_genesis_row() {
         // Hermetic: CINDERPAW_HOME points at a temp dir, so this exercises
         // the real production paths (rsi_sandbox_bounds_path etc.)
-        // without touching the developer's ~/.feral/rsi.
-        crate::rsi::test_support::with_temp_feral_home(|_root| {
+        // without touching the developer's ~/.cinderpaw/rsi.
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
             let bounds_path = crate::paths::rsi_sandbox_bounds_path();
             std::fs::create_dir_all(bounds_path.parent().unwrap()).unwrap();
 
@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn save_with_audit_records_changed_fields_only() {
-        crate::rsi::test_support::with_temp_feral_home(|_root| {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
             let audit_path = crate::paths::rsi_sandbox_bounds_audit_path();
             std::fs::create_dir_all(audit_path.parent().unwrap()).unwrap();
 
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn protected_path_check_includes_eval_and_genomes() {
         let (_b, _a) = fresh(TempDir::new().unwrap().path());
-        // We can't actually point at a real ~/.feral/rsi in tests; the
+        // We can't actually point at a real ~/.cinderpaw/rsi in tests; the
         // check is exercised through the integration surface in
         // commands.rs. Here we just sanity-check that the function
         // exists and the signature is right. We pass an EXISTING

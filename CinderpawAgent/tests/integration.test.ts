@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
 
-import { openDatabase, type FeralDb } from "../src/db.ts";
+import { openDatabase, type CinderpawDb } from "../src/db.ts";
 import { AuditLog } from "../src/egress/audit-log.ts";
 import { EgressProxy } from "../src/egress/egress-proxy.ts";
 import { InferenceRouter } from "../src/egress/inference-router.ts";
@@ -86,7 +86,7 @@ function installSequencedFetch(steps: MockStep[]): {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function auditAll(db: FeralDb) {
+function auditAll(db: CinderpawDb) {
   return db.raw
     .query<
       { action_type: string; result: string; tool_name: string | null; token_cost: number | null },
@@ -273,7 +273,7 @@ describe("full pipeline: message → tool call → sandbox → audit → respons
   });
 
   test("read_file allows workspace path and rejects directory traversal", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "feral-int-"));
+    const workspace = mkdtempSync(join(tmpdir(), "cinderpaw-int-"));
     writeFileSync(join(workspace, "notes.txt"), "patient: John Doe, appt: 9am");
 
     const db = openDatabase(":memory:");

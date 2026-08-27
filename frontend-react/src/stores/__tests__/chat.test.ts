@@ -10,8 +10,8 @@ vi.mock('@/lib/tauri', async (importOriginal) => {
     ...actual,
     tauri: {
       ...actual.tauri,
-      feralAgent: {
-        ...actual.tauri.feralAgent,
+      cinderpawAgent: {
+        ...actual.tauri.cinderpawAgent,
         coworkApprovalResolve: vi.fn().mockResolvedValue(undefined),
       },
     },
@@ -236,10 +236,10 @@ describe('useChat', () => {
       useChat.getState().resolveCoworkApproval('r1', true);
       // Buttons are gone BEFORE any event round-trip — no double-click window.
       expect(coworkBubble().approval).toBeUndefined();
-      expect(tauri.feralAgent.coworkApprovalResolve).toHaveBeenCalledWith('r1', true);
+      expect(tauri.cinderpawAgent.coworkApprovalResolve).toHaveBeenCalledWith('r1', true);
 
       useChat.getState().resolveCoworkApproval('r2', false);
-      expect(tauri.feralAgent.coworkApprovalResolve).toHaveBeenCalledWith('r2', false);
+      expect(tauri.cinderpawAgent.coworkApprovalResolve).toHaveBeenCalledWith('r2', false);
     });
   });
 });

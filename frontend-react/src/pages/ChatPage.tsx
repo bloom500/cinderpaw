@@ -31,7 +31,7 @@ export function ChatPage() {
   const inputMode    = useUI((s) => s.inputMode);
   const setInputMode = useUI((s) => s.setInputMode);
   const sessionId    = useChat((s) => s.sessionId);
-  const feralSend    = useCinderpawSendMessage(sessionId);
+  const cinderpawSend    = useCinderpawSendMessage(sessionId);
   const isAgentMode  = inputMode === 'agent';
 
   // The composer is always live. Cinderpaw used to gate the whole screen on
@@ -119,7 +119,7 @@ export function ChatPage() {
   }, [reopenSessionId, sessionId]);
 
   // When the user switches to agent mode:
-  // 1. Ensure an agent is selected so feralSend can tag conversations.
+  // 1. Ensure an agent is selected so cinderpawSend can tag conversations.
   // 2. Hot-swap the Cinderpaw sidecar to the currently loaded local model.
   //    The sidecar persists its own model config and may be pointing at
   //    an Ollama model name that doesn't match what's loaded in the
@@ -153,7 +153,7 @@ export function ChatPage() {
           source: 'openai_compatible',
           model: loaded.name,
           baseUrl: 'http://localhost:11435',
-          providerId: 'feral-local',
+          providerId: 'cinderpaw-local',
         }).catch(console.error);
       }
     }
@@ -162,8 +162,8 @@ export function ChatPage() {
   // Listen for Ctrl+N / ⌘N from useGlobalHotkeys
   useEffect(() => {
     const handler = () => useConversations.getState().newChat();
-    window.addEventListener('feral:new-chat', handler);
-    return () => window.removeEventListener('feral:new-chat', handler);
+    window.addEventListener('cinderpaw:new-chat', handler);
+    return () => window.removeEventListener('cinderpaw:new-chat', handler);
   }, []);
 
   const handleSuggestion = (text: string) => {
@@ -229,7 +229,7 @@ export function ChatPage() {
           <ChatInput
             ref={chatInputRef}
             isEmpty={isEmpty}
-            sendFn={isAgentMode ? feralSend : undefined}
+            sendFn={isAgentMode ? cinderpawSend : undefined}
             alwaysEnabled={isAgentMode}
           />
           {/* Inside the composer's wrapper, not floating near it: the wrapper

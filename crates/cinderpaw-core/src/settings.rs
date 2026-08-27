@@ -112,14 +112,14 @@ pub fn load() -> Settings {
             // is discarded whole, and the process comes up on 11435 insisting
             // nothing is wrong. That cost an afternoon: two Cinderpaw instances
             // fought over one port and one database lock, and the desktop app
-            // reported "feral-agent not running", which is true and useless.
+            // reported "cinderpaw-agent not running", which is true and useless.
             //
             // Loud, and still non-fatal: refusing to boot over a bad settings
             // file would be worse. But the person gets to know their file was
             // ignored, and why.
             Err(e) => {
                 eprintln!(
-                    "[feral] WARNING: {} exists but could not be parsed ({e}) — \
+                    "[cinderpaw] WARNING: {} exists but could not be parsed ({e}) — \
                      IGNORING IT and using defaults. Every field is required; \
                      a partial file is not merged with the defaults.",
                     path.display()

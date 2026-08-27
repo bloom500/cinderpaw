@@ -59,7 +59,7 @@ function makeCtx(allowedPaths: string[]): { ctx: ToolContext; cleanup: () => voi
 
 describe("resolveAllowedPath", () => {
   let tmp: string;
-  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "feral-fs-")); });
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "cinderpaw-fs-")); });
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
 
   it("accepts a path inside the allowed root", () => {
@@ -91,7 +91,7 @@ describe("resolveAllowedPath", () => {
 
 describe("read_file states the line count instead of leaving it to be guessed", () => {
   let tmp: string;
-  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "feral-read-")); });
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "cinderpaw-read-")); });
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
 
   it("numbers the lines and puts the exact total in the header", async () => {
@@ -139,12 +139,12 @@ describe("read_file states the line count instead of leaving it to be guessed", 
 
 describe("edit_file", () => {
   let tmp: string;
-  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "feral-edit-")); });
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "cinderpaw-edit-")); });
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
 
   it("replaces a unique occurrence of old_string", async () => {
     const f = join(tmp, "hello.txt");
-    writeFileSync(f, "Hello world!\nThis is feral.\n");
+    writeFileSync(f, "Hello world!\nThis is cinderpaw.\n");
     noteRead("test", f); // read-before-edit gate; read_file does this in prod
     const tool = createEditFileTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);
@@ -155,7 +155,7 @@ describe("edit_file", () => {
       );
       expect(result.ok).toBe(true);
       const after = await Bun.file(f).text();
-      expect(after).toBe("Hello Cinderpaw!\nThis is feral.\n");
+      expect(after).toBe("Hello Cinderpaw!\nThis is cinderpaw.\n");
     } finally { cleanup(); }
   });
 
@@ -209,7 +209,7 @@ describe("edit_file", () => {
   });
 
   it("blocks edits outside allowedPaths", async () => {
-    const other = mkdtempSync(join(tmpdir(), "feral-other-"));
+    const other = mkdtempSync(join(tmpdir(), "cinderpaw-other-"));
     try {
       const f = join(other, "secret.txt");
       writeFileSync(f, "top secret\n");
@@ -232,7 +232,7 @@ describe("edit_file", () => {
 describe("file_search", () => {
   let tmp: string;
   beforeEach(() => {
-    tmp = mkdtempSync(join(tmpdir(), "feral-fs-"));
+    tmp = mkdtempSync(join(tmpdir(), "cinderpaw-fs-"));
     // Build a small fixture tree.
     mkdirSync(join(tmp, "src", "tools"), { recursive: true });
     mkdirSync(join(tmp, "src", "core"), { recursive: true });
@@ -288,7 +288,7 @@ describe("file_search", () => {
   });
 
   it("blocks searches outside allowedPaths", async () => {
-    const other = mkdtempSync(join(tmpdir(), "feral-other-"));
+    const other = mkdtempSync(join(tmpdir(), "cinderpaw-other-"));
     try {
       const tool = createFileSearchTool([tmp]);
       const { ctx, cleanup } = makeCtx([tmp]);
@@ -306,10 +306,10 @@ describe("file_search", () => {
 describe("grep", () => {
   let tmp: string;
   beforeEach(() => {
-    tmp = mkdtempSync(join(tmpdir(), "feral-grep-"));
+    tmp = mkdtempSync(join(tmpdir(), "cinderpaw-grep-"));
     mkdirSync(join(tmp, "src"), { recursive: true });
-    writeFileSync(join(tmp, "src", "a.ts"), "const feral = 1;\nconst other = 2;\n");
-    writeFileSync(join(tmp, "src", "b.ts"), "const FERAL = 'cap';\n");
+    writeFileSync(join(tmp, "src", "a.ts"), "const cinderpaw = 1;\nconst other = 2;\n");
+    writeFileSync(join(tmp, "src", "b.ts"), "const CINDERPAW = 'cap';\n");
     writeFileSync(join(tmp, "src", "c.txt"), "no code here\n");
   });
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
@@ -319,12 +319,12 @@ describe("grep", () => {
     const { ctx, cleanup } = makeCtx([tmp]);
     try {
       const result = await tool.execute(
-        { pattern: "feral", path: tmp, context_lines: 0 },
+        { pattern: "cinderpaw", path: tmp, context_lines: 0 },
         ctx,
       );
       expect(result.ok).toBe(true);
       const data = result.data as { matches: { file: string; line: number }[] };
-      // Should match a.ts:1 only (FERAL in b.ts is case-different).
+      // Should match a.ts:1 only (CINDERPAW in b.ts is case-different).
       expect(data.matches.length).toBe(1);
       expect(data.matches[0]?.file).toMatch(/a\.ts$/);
     } finally { cleanup(); }

@@ -43,25 +43,25 @@ parts). If you must ship again the same day, advance the day component
 (`2026.6.17` → `2026.6.18`) — it stays a valid, monotonically increasing version;
 the displayed date will be one day ahead, which is an accepted rare edge.
 
-## The `feral-agent` npm package
+## The `cinderpaw-agent` npm package
 
-The npm package is versioned and released independently (tag `feral-agent-v*`,
+The npm package is versioned and released independently (tag `cinderpaw-agent-v*`,
 see `.github/workflows/publish-npm.yml`). Its `package.json` version follows the
 same CalVer scheme but on its own cadence.
 
 It ships **cross-platform** via the esbuild/swc pattern: the workflow builds one
-per-platform package per OS/arch (`feral-agent-win32-x64`, `-darwin-arm64`,
-`-darwin-x64`, `-linux-x64`), each carrying just that platform's `feral-cli` +
-sidecar binaries with `os`/`cpu` set, then publishes the umbrella `feral-agent`
-that lists all four as `optionalDependencies`. `npm install -g feral-agent`
+per-platform package per OS/arch (`cinderpaw-agent-win32-x64`, `-darwin-arm64`,
+`-darwin-x64`, `-linux-x64`), each carrying just that platform's `cinderpaw-cli` +
+sidecar binaries with `os`/`cpu` set, then publishes the umbrella `cinderpaw-agent`
+that lists all four as `optionalDependencies`. `npm install -g cinderpaw-agent`
 pulls only the one matching the user's machine; `bin/cinderpaw.js` resolves it.
 
 Cutting an npm release:
 
 ```sh
 node scripts/set-release-version.mjs 2026.06.17   # bumps CinderpawAgent/package.json too
-git tag feral-agent-v2026.6.17                     # UNPADDED semver, matches package.json
-git push origin feral-agent-v2026.6.17
+git tag cinderpaw-agent-v2026.6.17                     # UNPADDED semver, matches package.json
+git push origin cinderpaw-agent-v2026.6.17
 ```
 
 Requires the `NPM_TOKEN` repository secret (an npm automation/granular token with

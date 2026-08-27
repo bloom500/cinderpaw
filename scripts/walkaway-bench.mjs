@@ -2,7 +2,7 @@
 /**
  * Walk-away bench — the missing number.
  *
- * Feral has ~2400 unit tests and zero measurements of the thing it is actually
+ * Cinderpaw has ~2400 unit tests and zero measurements of the thing it is actually
  * for: give it a complex task, leave, come back to finished work. Every
  * reliability fix so far has been a guess about what matters, including the
  * good ones, because nothing counted how often an unattended run finishes.
@@ -19,7 +19,7 @@
  * REQUIRES a working model, and will refuse to start without one (see
  * preflight below) rather than burn your afternoon discovering it.
  *
- * The sidecar does NOT read ~/.feral/byok.json — the Rust host resolves the
+ * The sidecar does NOT read ~/.cinderpaw/byok.json — the Rust host resolves the
  * BYOK route and hands the sidecar CINDERPAW_PROVIDER / CINDERPAW_MODEL /
  * CINDERPAW_BASE_URL / CINDERPAW_API_KEY. This script spawns the sidecar directly, so
  * it has to do the same job. It resolves the base URL and model from
@@ -264,7 +264,7 @@ async function preflight(routeEnv) {
  * four runtimes, and the rule is: the new name when it exists, the old one
  * only when it is all there is.
  *
- * It read ~/.feral outright until 2026-08-26, which on a migrated machine is a
+ * It read ~/.cinderpaw outright until 2026-08-26, which on a migrated machine is a
  * directory the app stopped writing to - so the bench read a byok.json that
  * had not been updated in weeks, or none at all.
  */
@@ -272,7 +272,7 @@ function agentHome() {
   const override = process.env.CINDERPAW_HOME || process.env.CINDERPAW_HOME;
   if (override) return override;
   const modern = join(homedir(), ".cinderpaw");
-  const legacy = join(homedir(), ".feral");
+  const legacy = join(homedir(), ".cinderpaw");
   if (existsSync(modern)) return modern;
   if (existsSync(legacy)) return legacy;
   return modern;
@@ -552,7 +552,7 @@ function runNode(args) {
  * not a longer wait.
  */
 function runTask(task, workspace, logPath, timeoutMs, routeEnv, needsMockAds = false) {
-  const benchHome = join(workspace, ".feral");
+  const benchHome = join(workspace, ".cinderpaw");
   seedProviderConfig(benchHome);
   return new Promise((done) => {
     const events = [];

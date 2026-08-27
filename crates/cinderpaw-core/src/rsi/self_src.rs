@@ -4,7 +4,7 @@
 //! whole L3 loop (propose → worktree eval → ratchet → approve → apply →
 //! rebuild) is structurally impossible for a real user. The bundle now
 //! carries the sidecar sources as Tauri resources; this module copies
-//! them to `~/.feral/self-src/` on first spawn, turns that copy into a
+//! them to `~/.cinderpaw/self-src/` on first spawn, turns that copy into a
 //! git repo (the substrate/worktree machinery requires one), and hands
 //! the path back so the supervisor can export `CINDERPAW_CODE_RSI_REPO`.
 //!
@@ -20,7 +20,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// Directory name under `~/.feral` that holds the provisioned sources.
+/// Directory name under `~/.cinderpaw` that holds the provisioned sources.
 pub const SELF_SRC_DIR: &str = "self-src";
 
 /// Locate the bundled source tree under the host-supplied resource dirs:
@@ -184,7 +184,7 @@ fn run_git(repo: &Path, args: &[&str]) -> Result<(), String> {
     }
 }
 
-/// Provision `~/.feral/self-src` from the bundled sources. Idempotent:
+/// Provision `~/.cinderpaw/self-src` from the bundled sources. Idempotent:
 /// when the provisioned version matches the bundle and the repo exists,
 /// this is a no-op returning the existing path. A version change
 /// re-copies the tree and commits it on top of the existing history —
@@ -195,7 +195,7 @@ pub fn provision(search_dirs: &[PathBuf]) -> Result<PathBuf, String> {
     let version = package_version(&bundled.join("CinderpawAgent").join("package.json"))
         .ok_or_else(|| "bundled package.json has no version".to_string())?;
 
-    let target = crate::paths::feral_dir().join(SELF_SRC_DIR);
+    let target = crate::paths::cinderpaw_dir().join(SELF_SRC_DIR);
     let provisioned_version =
         package_version(&target.join("CinderpawAgent").join("package.json"));
     if provisioned_version.as_deref() == Some(version.as_str()) && target.join(".git").exists() {
@@ -225,7 +225,7 @@ pub fn provision(search_dirs: &[PathBuf]) -> Result<PathBuf, String> {
     let _ = run_git(
         &target,
         &[
-            "-c", "user.name=feral", "-c", "user.email=feral@local",
+            "-c", "user.name=cinderpaw", "-c", "user.email=cinderpaw@local",
             "commit", "--allow-empty", "-m", &msg,
         ],
     );
@@ -295,7 +295,7 @@ mod tests {
     fn package_version_reads_version() {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("package.json");
-        write(&p, "{\"name\":\"feral-agent\",\"version\":\"2026.7.17\"}");
+        write(&p, "{\"name\":\"cinderpaw-agent\",\"version\":\"2026.7.17\"}");
         assert_eq!(package_version(&p).as_deref(), Some("2026.7.17"));
         assert!(package_version(&tmp.path().join("missing.json")).is_none());
     }

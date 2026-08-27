@@ -45,7 +45,7 @@ import type { EmbedInvoker } from "../src/memory/fractal/embed.ts";
 // ---------------------------------------------------------------------------
 
 function tempDataDir(): string {
-  return mkdtempSync(join(tmpdir(), "feral-migration-"));
+  return mkdtempSync(join(tmpdir(), "cinderpaw-migration-"));
 }
 
 function makeSemantic(): { semantic: SemanticMemory; close: () => void } {

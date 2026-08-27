@@ -31,7 +31,7 @@ provides, so "no sidebar" deletes product unless it is decomposed first.
 
 **1. Automatic model selection is built but off, and nothing can turn it on.**
 `brain-config.ts` enables Brain Stack only when the user hand-writes
-`~/.feral/brain.json`. No UI, no onboarding step, no default file writes it.
+`~/.cinderpaw/brain.json`. No UI, no onboarding step, no default file writes it.
 So §10's "remove *No model selected*, Cinderpaw picks automatically" is impossible
 today — not for lack of a router, but because the default is off and there is
 no path to on. On a fresh machine this is invisible: the user simply meets

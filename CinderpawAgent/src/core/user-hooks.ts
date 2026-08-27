@@ -7,7 +7,7 @@
  * change freeze — each of those is a feature request today, and a line of JSON
  * once this exists.
  *
- * `~/.feral/hooks.json`, one entry per event:
+ * `~/.cinderpaw/hooks.json`, one entry per event:
  *
  * ```json
  * {
@@ -36,14 +36,14 @@
  *     hooks; a `before_*` hook that cannot even start does NOT block, because
  *     an unstartable command is a config error, not a policy decision.
  *
- * Read fresh on every install call, so `feral gateway restart` picks up edits;
+ * Read fresh on every install call, so `cinderpaw gateway restart` picks up edits;
  * handlers are registered once at boot, which is where the registry lives.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { feralHome } from "../config.ts";
+import { cinderpawHome } from "../config.ts";
 import type { HookRegistry } from "./hook-registry.ts";
 import type { HookEvent, HookResult } from "../types.ts";
 
@@ -66,7 +66,7 @@ type Log = (message: string) => void;
 const DEFAULT_TIMEOUT_MS = 5_000;
 
 export function userHooksPath(): string {
-  return join(feralHome(), "hooks.json");
+  return join(cinderpawHome(), "hooks.json");
 }
 
 /** Parse the file. Absent = no hooks (the normal case); broken = say so. */

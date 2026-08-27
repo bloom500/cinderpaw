@@ -18,7 +18,7 @@ reachable from somewhere else, and four of them still are not.
 The contract's persistent chrome is four items:
 
 ```
-FERAL      + New      Models      Search                            ⚙
+CINDERPAW      + New      Models      Search                            ⚙
 ```
 
 The rail has nine. Five of them lose their only entry point when it goes:
@@ -194,7 +194,7 @@ where S1–S4 put it.
 Seven rows, and they do not grow:
 
 ```
-FERAL · + New · Search · Chats · Projects · Models · ⚙ Settings
+CINDERPAW · + New · Search · Chats · Projects · Models · ⚙ Settings
 ```
 
 It **replaces** the floating top nav rather than joining it — two navigation

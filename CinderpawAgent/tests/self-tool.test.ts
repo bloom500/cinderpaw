@@ -34,7 +34,7 @@ const {
 
 describe("readJsonSync", () => {
   test("returns parsed JSON for a valid file", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-self-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
     try {
       const f = join(dir, "ok.json");
       writeFileSync(f, JSON.stringify({ a: 1, b: [2, 3] }));
@@ -49,7 +49,7 @@ describe("readJsonSync", () => {
   });
 
   test("returns null on a corrupt file (does not throw)", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-self-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
     try {
       const f = join(dir, "broken.json");
       writeFileSync(f, "{not-json");
@@ -62,7 +62,7 @@ describe("readJsonSync", () => {
 
 describe("tailJsonl", () => {
   test("returns the last n parsed objects", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-self-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
     try {
       const f = join(dir, "log.jsonl");
       writeFileSync(f, '{ "n": 1 }\n{ "n": 2 }\n{ "n": 3 }\n');
@@ -78,7 +78,7 @@ describe("tailJsonl", () => {
   });
 
   test("ignores malformed lines (does not throw on one bad row)", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-self-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
     try {
       const f = join(dir, "log.jsonl");
       writeFileSync(f, '{ "n": 1 }\n{not-json\n{ "n": 2 }\n');
@@ -195,7 +195,7 @@ describe("shape helpers (use temp dirs so they're environment-independent)", () 
   });
 
   test("shapeChampion populates from a valid file", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-self-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
     try {
       const f = join(dir, "champion.json");
       writeFileSync(
@@ -223,7 +223,7 @@ describe("shape helpers (use temp dirs so they're environment-independent)", () 
   });
 
   test("shapePopulation aggregates alive/dead + best-record", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-self-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
     try {
       const f = join(dir, "population.json");
       writeFileSync(
@@ -263,7 +263,7 @@ describe("shape helpers (use temp dirs so they're environment-independent)", () 
   });
 
   test("shapeDreams reads the last episode", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-self-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
     try {
       const f = join(dir, "dream.jsonl");
       const ep1 = { startedAt: 1000, endedAt: 2000, trigger: "idle", iterations: 5, tokens: 200, ratchets: 1, stopReason: "ok", errors: [], emptyResponses: 0 };
@@ -290,7 +290,7 @@ describe("shape helpers (use temp dirs so they're environment-independent)", () 
   });
 
   test("shapeLora computes per-domain buckets", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-self-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
     try {
       const f = join(dir, "lora-registry.json");
       writeFileSync(
@@ -324,7 +324,7 @@ describe("shape helpers (use temp dirs so they're environment-independent)", () 
   });
 
   test("shapeConnectors never echoes secret values", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-self-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
     try {
       const f = join(dir, "connectors.json");
       writeFileSync(

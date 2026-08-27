@@ -10,7 +10,7 @@
  * machine is off, the endpoint simply stops hearing from it — which is exactly
  * the signal the page needs to say Cubby is asleep.
  *
- * Resumption is a timestamp cursor at `~/.feral/public-journal/cursor.json`.
+ * Resumption is a timestamp cursor at `~/.cinderpaw/public-journal/cursor.json`.
  * It is an optimisation, not a correctness mechanism: event ids are
  * deterministic over the source row, so a lost, stale, or replayed cursor
  * causes re-sends that the store dedupes, never duplicates on the page.
@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { atomicWriteFileSync } from "../atomic-write.ts";
 import { dirname, join } from "node:path";
 import { defaultJournalDir } from "../rsi/infra/journal.ts";
-import { feralHome } from "../config.ts";
+import { cinderpawHome } from "../config.ts";
 import {
   assertPublicSafe,
   PUBLIC_EVENT_SCHEMA_VERSION,
@@ -48,7 +48,7 @@ export interface ExportCursor {
 const CURSOR_ZERO: ExportCursor = { lastTimestamp: 0 };
 
 export function cursorPath(): string {
-  return join(feralHome(), "public-journal", "cursor.json");
+  return join(cinderpawHome(), "public-journal", "cursor.json");
 }
 
 export function readCursor(path: string): ExportCursor {

@@ -10,9 +10,9 @@ import { describe, expect, test } from 'vitest';
  * someone clicks the button. Three human approval gates shipped broken this
  * way and stayed broken:
  *
- *   feral_code_patch_resolve      { patch_id: … }    — the L3 code-patch gate
- *   feral_lora_review_resolve     { card_id: … }     — the LoRA promotion gate
- *   feral_cowork_approval_resolve { request_id: … }  — the cowork approval gate
+ *   cinderpaw_code_patch_resolve      { patch_id: … }    — the L3 code-patch gate
+ *   cinderpaw_lora_review_resolve     { card_id: … }     — the LoRA promotion gate
+ *   cinderpaw_cowork_approval_resolve { request_id: … }  — the cowork approval gate
  *
  * Every one of them is a place where a person says yes or no to something the
  * agent wants to do, and every one of them silently could not be answered.

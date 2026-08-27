@@ -20,7 +20,7 @@ import { BackendBadge } from '@/components/BackendBadge';
 // a local pick must target THIS (not external Ollama on 11434) so the agent uses
 // the model loaded in the Models tab.
 const CINDERPAW_API_BASE = 'http://localhost:11435';
-const LOCAL_PROVIDER_ID = 'feral-local';
+const LOCAL_PROVIDER_ID = 'cinderpaw-local';
 
 function formatBytes(n: number): string {
   if (n > 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
@@ -40,10 +40,10 @@ export function ModelPickerPopover() {
   // in-process chat model. The pill stays visually identical; only the
   // selection action + label source change.
   const isAgentMode   = useUI((s) => s.inputMode) === 'agent';
-  const feralConfig   = useCinderpawStore((s) => s.modelConfig);
-  const feralSwitching = useCinderpawStore((s) => s.switching);
-  const feralSetModel = useCinderpawStore((s) => s.setModel);
-  const feralSetError = useCinderpawStore((s) => s.setModelError);
+  const cinderpawConfig   = useCinderpawStore((s) => s.modelConfig);
+  const cinderpawSwitching = useCinderpawStore((s) => s.switching);
+  const cinderpawSetModel = useCinderpawStore((s) => s.setModel);
+  const cinderpawSetError = useCinderpawStore((s) => s.setModelError);
 
   const [localModels, setLocalModels]     = useState<ModelInfo[]>([]);
   const [cloudProviders, setCloudProviders] = useState<ByokProvider[]>([]);
@@ -98,17 +98,17 @@ export function ModelPickerPopover() {
   // Goes through the model store's load() so isLoading/loadProgress are
   // populated — the ModelPill renders a progress bar off those.
   const selectLocalAgent = async (m: ModelInfo) => {
-    feralSetError(null);
+    cinderpawSetError(null);
     try {
       await load(m.path);
-      await feralSetModel({
+      await cinderpawSetModel({
         source: 'openai_compatible',
         model: m.name,
         baseUrl: CINDERPAW_API_BASE,
         providerId: LOCAL_PROVIDER_ID,
       });
     } catch (err) {
-      feralSetError(String(err));
+      cinderpawSetError(String(err));
       useNotifications.getState().push('error', 'Could not switch model', String(err));
     }
   };
@@ -119,11 +119,11 @@ export function ModelPickerPopover() {
   // offline, provider disabled, missing key…). A discarded promise meant the
   // user clicked a model and nothing visibly happened — surface the error.
   const selectCloudAgent = async (providerId: string, modelId: string) => {
-    feralSetError(null);
+    cinderpawSetError(null);
     try {
-      await feralSetModel({ source: 'byok', providerId, model: modelId });
+      await cinderpawSetModel({ source: 'byok', providerId, model: modelId });
     } catch (err) {
-      feralSetError(String(err));
+      cinderpawSetError(String(err));
       useNotifications.getState().push('error', 'Could not switch model', String(err));
     }
   };
@@ -145,11 +145,11 @@ export function ModelPickerPopover() {
 
   let label: string;
   if (isAgentMode) {
-    label = feralSwitching
+    label = cinderpawSwitching
       ? 'Switching…'
       : isLoading
         ? `Loading ${progress?.percentage.toFixed(0) ?? 0}%`
-        : feralConfig?.display_name ?? loaded?.name ?? unpinnedLabel;
+        : cinderpawConfig?.display_name ?? loaded?.name ?? unpinnedLabel;
   } else if (isLoading) {
     label = `Loading ${progress?.percentage.toFixed(0) ?? 0}%`;
   } else if (cloudModel) {

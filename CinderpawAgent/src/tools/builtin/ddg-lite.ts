@@ -25,7 +25,7 @@
  * parser only if that actually starts happening.
  */
 
-import type { FeralFetch } from "../../types.ts";
+import type { CinderpawFetch } from "../../types.ts";
 import { cfgInt } from "../../config.ts";
 
 /** Whitelist entry covering lite.duckduckgo.com and the /l/ redirector. */
@@ -171,7 +171,7 @@ function minIntervalMs(): number {
  * the original bug in this tool.
  */
 export async function ddgLiteSearch(
-  fetch: FeralFetch,
+  fetch: CinderpawFetch,
   query: string,
   opts: { limit?: number; signal?: AbortSignal } = {},
 ): Promise<DdgSearchOutcome> {

@@ -34,7 +34,7 @@ export interface ChatMessage {
   /** Why the response was truncated (e.g. "length"). */
   truncatedReason?: string;
   /**
-   * What the agent wrote in its OWN scratchpad (`~/.feral/workspace`) during
+   * What the agent wrote in its OWN scratchpad (`~/.cinderpaw/workspace`) during
    * this turn. Absent when it wrote nothing there — the common case, and an
    * always-present "0 edits" row would train people to stop reading the line.
    *
@@ -328,7 +328,7 @@ export const useChat = create<ChatStore>((set) => ({
       // Forward every explicit click to the audit log (a re-click that toggles
       // the UI still tells the runtime the user's latest intent). Fire-and-
       // forget — the vote UI must not block on the sidecar.
-      void tauri.raw.feralSubmitFeedback(s.sessionId, messageId, value).catch(() => {});
+      void tauri.raw.cinderpawSubmitFeedback(s.sessionId, messageId, value).catch(() => {});
       return { feedback: next };
     }),
 
@@ -549,7 +549,7 @@ export const useChat = create<ChatStore>((set) => ({
           : e,
       ),
     }));
-    void tauri.feralAgent
+    void tauri.cinderpawAgent
       .coworkApprovalResolve(requestId, approve)
       .catch(() =>
         // The verdict never reached the sidecar — put the ask back so the

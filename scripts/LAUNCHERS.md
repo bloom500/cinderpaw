@@ -17,7 +17,7 @@ cd /d "%~dp0src-tauri"
 cargo tauri dev
 ```
 
-> **Paths below are historical.** The repo was `D:\FeralLocalAI` before the
+> **Paths below are historical.** The repo was `D:\CinderpawLocalAI` before the
 > rename and every launcher hardcoded it, so after the move the documented way
 > to start the app `cd`'d into a directory that no longer exists — the app
 > simply would not launch, with a `cmd` error and nothing else to go on.
@@ -33,8 +33,8 @@ Status legend:
 - **deleted** — removed in the consolidation; the recipe below is preserved so
   the exact env vars and cargo command can be reconstructed if needed.
 
-All deleted launchers share `cd /d D:\FeralLocalAI\.worktrees\wt-29286b1b\src-tauri`
-(the old worktree path — adjust to `D:\FeralLocalAI\src-tauri` for the current
+All deleted launchers share `cd /d D:\CinderpawLocalAI\.worktrees\wt-29286b1b\src-tauri`
+(the old worktree path — adjust to `D:\CinderpawLocalAI\src-tauri` for the current
 main checkout) unless otherwise noted.
 
 ---
@@ -75,7 +75,7 @@ CMAKE_GENERATOR=Ninja
 **Command:**
 
 ```bat
-cd /d "D:\FeralLocalAI\src-tauri"
+cd /d "D:\CinderpawLocalAI\src-tauri"
 cargo tauri dev --features inference-cuda
 ```
 
@@ -107,7 +107,7 @@ CARGO_TARGET_DIR=D:\fb
 **Command:**
 
 ```bat
-cd /d "D:\FeralLocalAI\src-tauri"
+cd /d "D:\CinderpawLocalAI\src-tauri"
 cargo tauri dev --features inference-vulkan
 ```
 
@@ -119,7 +119,7 @@ launcher and the host will leave it alone.
 
 ### `run-dream-test.bat`  (repo root)
 
-The Dream Cycle dev launcher. Builds + runs the app from `D:\FeralLocalAI`
+The Dream Cycle dev launcher. Builds + runs the app from `D:\CinderpawLocalAI`
 (NOT the old `wt-29286b1b` worktree) with the RSI scheduler tuned SHORT so a
 full dream cycle is observable in ~1 minute. Local-only (cloud refused unless
 `CINDERPAW_RSI_ALLOW_CLOUD` is also set).
@@ -142,11 +142,11 @@ CINDERPAW_EMBED_CHUNK=32
 **Command:**
 
 ```bat
-cd /d "D:\FeralLocalAI\src-tauri"
+cd /d "D:\CinderpawLocalAI\src-tauri"
 cargo tauri dev
 ```
 
-Telemetry lands at `%USERPROFILE%\.feral\rsi\dream.jsonl`.
+Telemetry lands at `%USERPROFILE%\.cinderpaw\rsi\dream.jsonl`.
 
 ---
 
@@ -174,7 +174,7 @@ CINDERPAW_EMBED_CHUNK=32
 **Command:**
 
 ```bat
-cd /d "D:\FeralLocalAI\.worktrees\wt-29286b1b\src-tauri"
+cd /d "D:\CinderpawLocalAI\.worktrees\wt-29286b1b\src-tauri"
 cargo tauri dev
 ```
 
@@ -196,7 +196,7 @@ CINDERPAW_EMBED_CHUNK=32
 **Command:**
 
 ```bat
-cd /d "D:\FeralLocalAI\.worktrees\wt-29286b1b\src-tauri"
+cd /d "D:\CinderpawLocalAI\.worktrees\wt-29286b1b\src-tauri"
 cargo tauri dev
 ```
 
@@ -219,7 +219,7 @@ CINDERPAW_EMBED_CHUNK=32
 **Command:**
 
 ```bat
-cd /d "D:\FeralLocalAI\.worktrees\wt-29286b1b\src-tauri"
+cd /d "D:\CinderpawLocalAI\.worktrees\wt-29286b1b\src-tauri"
 cargo tauri dev
 ```
 
@@ -241,7 +241,7 @@ CINDERPAW_EMBED_GPU_LAYERS=999
 **Command:**
 
 ```bat
-cd /d "D:\FeralLocalAI\.worktrees\wt-29286b1b\src-tauri"
+cd /d "D:\CinderpawLocalAI\.worktrees\wt-29286b1b\src-tauri"
 cargo tauri dev --features inference-vulkan
 ```
 
@@ -263,7 +263,7 @@ CINDERPAW_EMBED_CHUNK=32
 **Command:**
 
 ```bat
-cd /d "D:\FeralLocalAI\.worktrees\wt-29286b1b\src-tauri"
+cd /d "D:\CinderpawLocalAI\.worktrees\wt-29286b1b\src-tauri"
 cargo tauri dev
 ```
 
@@ -284,8 +284,8 @@ publish. Flat (~0.40) → embedding is the ceiling; bge-large is next.
 Branch=8 tree + report backup locations:
 
 ```
-%USERPROFILE%\.feral\agent\fractal-tree.branch8.bak.json
-%USERPROFILE%\.feral\agent\fractal-bench-report.branch8.bak.json
+%USERPROFILE%\.cinderpaw\agent\fractal-tree.branch8.bak.json
+%USERPROFILE%\.cinderpaw\agent\fractal-bench-report.branch8.bak.json
 ```
 
 The launcher deletes any cached `fractal-tree.json` before starting (otherwise
@@ -307,17 +307,17 @@ CINDERPAW_EMBED_CHUNK=32
 **Pre-step:**
 
 ```bat
-if exist "%USERPROFILE%\.feral\agent\fractal-tree.json" del /q "%USERPROFILE%\.feral\agent\fractal-tree.json"
+if exist "%USERPROFILE%\.cinderpaw\agent\fractal-tree.json" del /q "%USERPROFILE%\.cinderpaw\agent\fractal-tree.json"
 ```
 
 **Command:**
 
 ```bat
-cd /d "D:\FeralLocalAI\.worktrees\wt-29286b1b\src-tauri"
+cd /d "D:\CinderpawLocalAI\.worktrees\wt-29286b1b\src-tauri"
 cargo tauri dev
 ```
 
-New report → `%USERPROFILE%\.feral\agent\fractal-bench-report.json`.
+New report → `%USERPROFILE%\.cinderpaw\agent\fractal-bench-report.json`.
 
 ---
 
@@ -328,6 +328,6 @@ New report → `%USERPROFILE%\.feral\agent\fractal-bench-report.json`.
 2. Adjust `CINDERPAW_*` knobs only — DO NOT touch the `vcvars64` call or the Ninja
    PATH prepend unless you have a reason that survives "the build still
    references the right `cl.exe`/ninja.exe on a fresh shell".
-3. Run from the repo root (`D:\FeralLocalAI`), not from inside `src-tauri`.
+3. Run from the repo root (`D:\CinderpawLocalAI`), not from inside `src-tauri`.
 4. After confirming the launcher works for one full cycle, append it to this
    doc under **Active** with its exact env + command.

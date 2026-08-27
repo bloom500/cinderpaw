@@ -36,7 +36,7 @@ hardware token.
 2. They review that it's a genuine OSS project (a few days).
 3. After approval, the SignPath dashboard gives you:
    - **Organization ID**
-   - **Project slug** (e.g. `feral`)
+   - **Project slug** (e.g. `cinderpaw`)
    - **Signing policy slug** (e.g. `release-signing`)
    - an **API token**
 4. Configure the SignPath project's *artifact configuration* to sign the
@@ -81,7 +81,7 @@ regenerated — otherwise auto-update would reject the signed file.
 The only thing that can't be tested before approval is the live run. On the
 first signed tag, verify:
 
-1. `Get-AuthenticodeSignature .\Feral_*_x64-setup.exe` → `Status: Valid`,
+1. `Get-AuthenticodeSignature .\Cinderpaw_*_x64-setup.exe` → `Status: Valid`,
    signer = Bloom Media (via SignPath).
 2. Fresh install on a clean Windows VM → no "Unknown publisher" SmartScreen
    (reputation may take a few downloads to fully warm up).

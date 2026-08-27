@@ -146,7 +146,7 @@ describe("dispatch", () => {
 
 describe("HELP_TEXT", () => {
   test("contains subcommands", () => {
-    expect(HELP_TEXT).toMatch(/feral/);
+    expect(HELP_TEXT).toMatch(/cinderpaw/);
     expect(HELP_TEXT).toMatch(/chat/);
     expect(HELP_TEXT).toMatch(/setup/);
     expect(HELP_TEXT).toMatch(/help/);

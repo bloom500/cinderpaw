@@ -11,7 +11,7 @@
  *   1. Grep CinderpawAgent/src, src-tauri/src, crates/ for `CINDERPAW_[A-Z_]+`
  *      (rg --no-filename; fall back to a node walker if rg is missing).
  *   2. Parse `docs/CONFIGURATION.md` and extract the canonical list
- *      from a fenced ```feral-env-vars ... ``` block near the top of the
+ *      from a fenced ```cinderpaw-env-vars ... ``` block near the top of the
  *      doc. Anything in that block is "documented"; anything outside it
  *      is ignored (so we don't false-positive on prose mentions).
  *   3. Diff source-set vs doc-set. Report:
@@ -23,7 +23,7 @@
  * R3 additions — the TS side now has a single source of truth,
  * `CinderpawAgent/src/config.ts`'s `CONFIG_SCHEMA`. Two new checks:
  *   4. Every `CONFIG_SCHEMA` entry name must appear in the doc's
- *      `feral-env-vars` fence (schema-missing — always fails).
+ *      `cinderpaw-env-vars` fence (schema-missing — always fails).
  *   5. The doc's generated `<!-- TS-SCHEMA-TABLE -->` section must equal
  *      what `scripts/gen-config-docs.mjs` would produce right now
  *      (doc-stale — always fails). This is the literal "is the committed
@@ -134,10 +134,10 @@ function documentedVars() {
     throw new Error(`docs/CONFIGURATION.md not found at ${DOC}`);
   }
   const md = readFileSync(DOC, "utf8");
-  const m = md.match(/```feral-env-vars\n([\s\S]*?)\n```/);
+  const m = md.match(/```cinderpaw-env-vars\n([\s\S]*?)\n```/);
   if (!m) {
     throw new Error(
-      "docs/CONFIGURATION.md must contain a fenced code block tagged ```feral-env-vars listing every var name, one per line. See scripts/check-env-docs.mjs.",
+      "docs/CONFIGURATION.md must contain a fenced code block tagged ```cinderpaw-env-vars listing every var name, one per line. See scripts/check-env-docs.mjs.",
     );
   }
   return new Set(
@@ -150,7 +150,7 @@ function documentedVars() {
 
 /**
  * R3 check 4: every CONFIG_SCHEMA entry name must be in the doc's
- * feral-env-vars fence. Always fails (not gated by --strict) — the
+ * cinderpaw-env-vars fence. Always fails (not gated by --strict) — the
  * schema is the TS source of truth now, so drift here is a hard bug.
  */
 function checkSchemaNamesDocumented(doc) {

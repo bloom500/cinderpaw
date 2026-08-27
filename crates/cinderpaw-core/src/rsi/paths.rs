@@ -1,7 +1,7 @@
 //! Path validation for the RSI substrate.
 //!
 //! Every Rust entry point that touches the filesystem under
-//! `~/.feral/rsi/` MUST go through a containment check here. The agent
+//! `~/.cinderpaw/rsi/` MUST go through a containment check here. The agent
 //! itself has no filesystem permission to write under that tree — the
 //! sandbox already blocks it — but the API surface in this module is the
 //! last line of defence against a future Rust-side bug that would let a

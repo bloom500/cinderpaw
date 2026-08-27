@@ -26,7 +26,7 @@
 import { mkdirSync, readFileSync, existsSync } from "node:fs";
 import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname, join } from "node:path";
-import { feralHome } from "../../config.ts";
+import { cinderpawHome } from "../../config.ts";
 import type { GenomeConfig } from "./genome.ts";
 import type { GenomeSpec } from "./population-manager.ts";
 import { promptStyleFor } from "./prompt-pool.ts";
@@ -62,10 +62,10 @@ export interface ChampionRecord {
   updatedAt: number;
 }
 
-/** Default on-disk location: `~/.feral/rsi/champion.json` (sibling of
+/** Default on-disk location: `~/.cinderpaw/rsi/champion.json` (sibling of
  *  the git substrate; matches the taste miner's homedir-rooted layout). */
 export function defaultChampionPath(): string {
-  return join(feralHome(), "rsi", "champion.json");
+  return join(cinderpawHome(), "rsi", "champion.json");
 }
 
 /** Persist the champion. Creates the parent dir if needed. */

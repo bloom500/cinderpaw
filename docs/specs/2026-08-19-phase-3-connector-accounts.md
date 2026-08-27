@@ -4,7 +4,7 @@
 
 **UX contract:** `docs/ui/2026-08-19-ux-contract.md`
 **Precedents:** `docs/specs/2026-08-19-phase-2-capability-lifecycle.md` (host owns the
-trust decision), `crates/feral-core/src/byok.rs` + `byok_file_store.rs` (secret storage)
+trust decision), `crates/cinderpaw-core/src/byok.rs` + `byok_file_store.rs` (secret storage)
 
 ## Objective
 
@@ -26,7 +26,7 @@ Three separate bottlenecks, all load-bearing:
 branch, reload diff and health entry. A fifth connector edits that class in
 about six places. That is the bottleneck, and it grows.
 
-**2. Two catalogs.** `crates/feral-core/src/connectors.rs` carries the rich
+**2. Two catalogs.** `crates/cinderpaw-core/src/connectors.rs` carries the rich
 "Decision-D" catalog the headless gateway and CLI read.
 `src-tauri/src/connectors.rs` carries the desktop's own catalog and view types.
 The code says so itself: *"unrelated to this file's richer Decision-D catalog
@@ -35,7 +35,7 @@ entered twice, by hand, in two shapes that can drift — and one of them is what
 the user sees.
 
 **3. Secrets in the clear.** Connector secrets live in
-`~/.feral/connectors.json` as plain JSON. BYOK API keys, on the same machine,
+`~/.cinderpaw/connectors.json` as plain JSON. BYOK API keys, on the same machine,
 live in the OS keychain with an AES-256-GCM file fallback on Linux
 (`byok_file_store.rs`). A Discord bot token — which is access to somebody's
 server — is protected worse than an OpenAI key.
@@ -67,13 +67,13 @@ These are contract-level and not up for interpretation during implementation.
 6. **Adding a connector must not require modifying `ConnectorManager`.** If the
    fifth connector edits that class, the abstraction failed. This is an
    acceptance test, not an aspiration.
-7. **One catalog.** `feral-core` owns it. The desktop renders a projection of
+7. **One catalog.** `cinderpaw-core` owns it. The desktop renders a projection of
    it. There is no second list to keep in sync.
 
 ## Architecture
 
 ```
-        ┌──────────────── feral-core (Rust) ────────────────┐
+        ┌──────────────── cinderpaw-core (Rust) ────────────────┐
         │                                                    │
         │   Descriptor  ──►  Account  ──►  secret_ref        │
         │   (what it is)    (where it     (into the vault)   │
@@ -94,7 +94,7 @@ These are contract-level and not up for interpretation during implementation.
 
 ### A. Descriptor — a connector becomes data
 
-One entry, in `feral-core`, read by every surface.
+One entry, in `cinderpaw-core`, read by every surface.
 
 ```rust
 pub struct ConnectorDescriptor {
@@ -133,7 +133,7 @@ not the vault. That distinction is the reason Matrix is a witness.
 
 **The desktop catalog is deleted as a source of truth.** `src-tauri/src/connectors.rs`
 keeps its view types — the redacted shape the frontend already receives — but
-builds them from the `feral-core` descriptors. Adding a connector touches one
+builds them from the `cinderpaw-core` descriptors. Adding a connector touches one
 list.
 
 ### B. Account — where a connection stands
@@ -310,7 +310,7 @@ the connector is merged.
    that registers a fake descriptor and a fake transport from outside the module
    and drives it through start, health, send and stop.
 2. **One catalog.** `src-tauri/src/connectors.rs` contains no connector list;
-   its view types are built from `feral-core` descriptors. Adding an entry in one
+   its view types are built from `cinderpaw-core` descriptors. Adding an entry in one
    place changes both the CLI and the desktop.
 3. **No secret in `connectors.json` after migration**, and the credential still
    works — verified by re-reading the file and by a successful connection.
@@ -330,11 +330,11 @@ the connector is merged.
 
 ## Test plan
 
-- **Rust (`feral-core`)**: descriptor catalog shape; account state transitions;
+- **Rust (`cinderpaw-core`)**: descriptor catalog shape; account state transitions;
   migration under injected failure at each of the five steps; log-sentinel test;
   vault-unavailable path leaves config untouched and reports.
 - **Rust (`src-tauri`)**: the desktop view is a projection — a descriptor added to
-  `feral-core` appears in the desktop catalog with no second edit; secrets never
+  `cinderpaw-core` appears in the desktop catalog with no second edit; secrets never
   cross the boundary.
 - **TypeScript (sidecar)**: registry start/stop/health/send with a fake transport;
   the no-edit acceptance test from criterion 1; reload diffing still restarts only

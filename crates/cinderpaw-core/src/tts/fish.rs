@@ -88,7 +88,7 @@ pub async fn synthesize(
     audio: Sender<Vec<u8>>,
 ) -> Result<usize> {
     if api_key.trim().is_empty() {
-        // Not `feral providers set-key fish`: that command validates the id
+        // Not `cinderpaw providers set-key fish`: that command validates the id
         // against the LLM provider catalog, which a speech engine is correctly
         // absent from. The key is entered on the call screen and stored in the
         // same keychain.

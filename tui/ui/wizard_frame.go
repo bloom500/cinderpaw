@@ -83,7 +83,7 @@ func RenderWizardFrame(width int, f WizardFrame) string {
 }
 
 // renderWizardHeader produces the top strip that runs above every wizard
-// step. Layout: `FERAL · setup wizard` flush-left, then a generous run
+// step. Layout: `CINDERPAW · setup wizard` flush-left, then a generous run
 // of spaces, then `step 3 of 16 · Security` flush-right. The whole line
 // is a single row of ASCII-only characters so it renders identically
 // regardless of glyph set (Unicode / ASCII).

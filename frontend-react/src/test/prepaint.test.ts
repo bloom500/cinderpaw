@@ -2,7 +2,7 @@
  * Regression cover for `public/cinderpaw-prepaint.js`.
  *
  * The bug this exists for: the script is a BLOCKING script in <head>, so it
- * runs before <body> is parsed. It used to look up `#feral-startup` and
+ * runs before <body> is parsed. It used to look up `#cinderpaw-startup` and
  * `#root` at top level and bail when both were null — which was always. The
  * theme still applied (that runs earlier), so a cold start looked perfect:
  * correct colours, no white flash. But the startup surface was never
@@ -17,7 +17,7 @@
  * EVERY test here runs under fake timers. The script schedules REAL
  * setTimeouts (the MIN_HOLD_MS presentation floor), and a pending one from a
  * previous test fires mid-way through the next one's assertions — a leaked
- * `feral-ready` class that looks exactly like the hold being broken. Fake
+ * `cinderpaw-ready` class that looks exactly like the hold being broken. Fake
  * clocks per test make the hold deterministic and leak-free.
  */
 
@@ -43,11 +43,11 @@ function mountReact(): void {
 function writeStartupMarkup(): void {
   document.body.innerHTML = `
     <div id="root"></div>
-    <div id="feral-startup"><div class="feral-startup-bear"></div></div>
+    <div id="cinderpaw-startup"><div class="cinderpaw-startup-bear"></div></div>
   `;
 }
 
-describe('feral-prepaint', () => {
+describe('cinderpaw-prepaint', () => {
   beforeEach(() => {
     document.documentElement.className = '';
     document.documentElement.removeAttribute('data-theme');
@@ -79,15 +79,15 @@ describe('feral-prepaint', () => {
     writeStartupMarkup();
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
-    expect(document.documentElement.classList.contains('feral-ready')).toBe(false);
+    expect(document.documentElement.classList.contains('cinderpaw-ready')).toBe(false);
 
     mountReact();
     await vi.advanceTimersByTimeAsync(500);
     // Still inside MIN_HOLD_MS — the presentation floor, not a bug.
-    expect(document.documentElement.classList.contains('feral-ready')).toBe(false);
+    expect(document.documentElement.classList.contains('cinderpaw-ready')).toBe(false);
 
     await vi.advanceTimersByTimeAsync(1500);
-    expect(document.documentElement.classList.contains('feral-ready')).toBe(true);
+    expect(document.documentElement.classList.contains('cinderpaw-ready')).toBe(true);
   });
 
   test('dismisses when React already mounted, after the hold', async () => {
@@ -99,7 +99,7 @@ describe('feral-prepaint', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
     await vi.advanceTimersByTimeAsync(2000);
-    expect(document.documentElement.classList.contains('feral-ready')).toBe(true);
+    expect(document.documentElement.classList.contains('cinderpaw-ready')).toBe(true);
   });
 
   test('removes the surface from the DOM once the fade is done', async () => {
@@ -110,7 +110,7 @@ describe('feral-prepaint', () => {
 
     // Hold (1600) + fade (500) + slack.
     await vi.advanceTimersByTimeAsync(2500);
-    expect(document.getElementById('feral-startup')).toBeNull();
+    expect(document.getElementById('cinderpaw-startup')).toBeNull();
   });
 
   test('keeps the surface up when React never mounts', async () => {
@@ -122,7 +122,7 @@ describe('feral-prepaint', () => {
     document.dispatchEvent(new Event('DOMContentLoaded'));
 
     await vi.advanceTimersByTimeAsync(5000);
-    expect(document.documentElement.classList.contains('feral-ready')).toBe(false);
-    expect(document.getElementById('feral-startup')).not.toBeNull();
+    expect(document.documentElement.classList.contains('cinderpaw-ready')).toBe(false);
+    expect(document.getElementById('cinderpaw-startup')).not.toBeNull();
   });
 });

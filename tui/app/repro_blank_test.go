@@ -26,7 +26,7 @@ func TestMaximizedTerminalRendersFullFrame(t *testing.T) {
 	if len(lines) < 30 {
 		t.Fatalf("frame collapsed to %d lines:\n%s", len(lines), out)
 	}
-	if !strings.Contains(out, "feral") {
+	if !strings.Contains(out, "cinderpaw") {
 		t.Fatalf("header/brand missing from frame:\n%s", firstN(out, 800))
 	}
 	if !strings.Contains(out, "dadada") {

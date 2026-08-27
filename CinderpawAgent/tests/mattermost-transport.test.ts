@@ -10,7 +10,7 @@ import type { AgentLike } from "../src/transports/connectors.ts";
 
 const CHANNEL = "chan1";
 const USER = "user1";
-const SELF = "feralbot";
+const SELF = "cinderpawbot";
 
 const realFetch = globalThis.fetch;
 const RealWebSocket = globalThis.WebSocket;

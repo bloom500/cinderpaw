@@ -290,7 +290,7 @@ pub fn resolve_provider(preferred: Option<&str>) -> Option<(&'static S2sProvider
 
 /// Where a downloaded server and the agent's dependencies live.
 fn dir() -> PathBuf {
-    crate::paths::feral_dir().join("livekit")
+    crate::paths::cinderpaw_dir().join("livekit")
 }
 
 fn server_filename() -> &'static str {
@@ -329,7 +329,7 @@ pub fn find_server(extra_dirs: &[PathBuf]) -> Option<PathBuf> {
     None
 }
 
-/// Download the server into `~/.feral/livekit`, once.
+/// Download the server into `~/.cinderpaw/livekit`, once.
 ///
 /// This is the development and self-repair path — a release bundles the binary
 /// and `find_server` answers first. It exists because the alternative for
@@ -578,7 +578,7 @@ impl Drop for Session {
     }
 }
 
-/// Install the agent's one dependency, once, into `~/.feral/livekit/agent`.
+/// Install the agent's one dependency, once, into `~/.cinderpaw/livekit/agent`.
 ///
 /// Not bundled yet, and that is a real gap for a fresh machine: it needs npm on
 /// PATH and a network the first time. Both failures are reported as themselves

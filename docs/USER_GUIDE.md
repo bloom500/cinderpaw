@@ -77,8 +77,8 @@ still running on your machine.
   Slack take a bot token.
 - **Only allowlisted people** can talk to your agent — you choose who when
   enabling the connector.
-- In the terminal: `feral connectors` (and `/connectors add whatsapp` inside
-  `feral chat` shows the QR right in the transcript).
+- In the terminal: `cinderpaw connectors` (and `/connectors add whatsapp` inside
+  `cinderpaw chat` shows the QR right in the transcript).
 
 ## Memory and privacy
 

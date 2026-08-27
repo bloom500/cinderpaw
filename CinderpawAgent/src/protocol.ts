@@ -1,7 +1,7 @@
 // CinderpawAgent/src/protocol.ts
 // Single source of truth for the desktop<->sidecar stdin/stdout protocol.
-// Rust mirror: crates/feral-core/src/sidecar_protocol.rs (kept in sync by
-// crates/feral-core/tests/protocol_drift.rs).
+// Rust mirror: crates/cinderpaw-core/src/sidecar_protocol.rs (kept in sync by
+// crates/cinderpaw-core/tests/protocol_drift.rs).
 //
 // INBOUND_TYPES mirrors the `InboundMessage.type` union in ./types.ts (also
 // pinned there at compile time by transports/tauri.ts's exhaustiveness

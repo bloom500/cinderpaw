@@ -7,10 +7,10 @@ one after the other adopts your existing `~/.cinderpaw` config with zero re-setu
 ## Launching
 
 ```bash
-feral          # plain `feral` in a terminal opens the chat TUI (OpenClaw-style)
-feral chat     # same, explicit (auto-starts the gateway if it isn't running)
-feral setup    # guided setup: detects AI you already have, verifies, saves
-feral tui      # alias for `feral chat`
+cinderpaw          # plain `cinderpaw` in a terminal opens the chat TUI (OpenClaw-style)
+cinderpaw chat     # same, explicit (auto-starts the gateway if it isn't running)
+cinderpaw setup    # guided setup: detects AI you already have, verifies, saves
+cinderpaw tui      # alias for `cinderpaw chat`
 ```
 
 `cinderpaw chat` and `cinderpaw setup` shell out to the `cinderpaw-tui` binary that ships
@@ -22,7 +22,7 @@ next to the CLI. You can also run it directly:
 | `--wizard` | force the classic step-by-step wizard even if already configured |
 
 If the gateway isn't running, the TUI starts it and waits for the port. If it
-can't, it tells you the manual command: `feral gateway start`.
+can't, it tells you the manual command: `cinderpaw gateway start`.
 
 ## Slash commands
 
@@ -79,7 +79,7 @@ hint; during model downloads it shows `↓ name 38% · 1.6/4.1 GB · 12 MB/s`.
 
 ## First run — guided setup
 
-On a fresh install the TUI opens the GUIDED flow (same shape as `feral setup`
+On a fresh install the TUI opens the GUIDED flow (same shape as `cinderpaw setup`
 and OpenClaw's default onboarding): a one-time security acknowledgement, then
 "Looking for AI you can already use…" — the server-side detection ladder
 (existing config → local GGUFs on disk → hardware-tier download → env keys →
@@ -101,6 +101,6 @@ go build -o cinderpaw-tui.exe .   # drop the .exe suffix on macOS/Linux
 go test ./...
 ```
 
-Put the resulting binary next to the `feral` CLI binary (that's where
-`feral chat` looks for it). The TUI is an API client only — it needs a running
-gateway (or lets `feral chat` start one) and has no other local dependencies.
+Put the resulting binary next to the `cinderpaw` CLI binary (that's where
+`cinderpaw chat` looks for it). The TUI is an API client only — it needs a running
+gateway (or lets `cinderpaw chat` start one) and has no other local dependencies.

@@ -37,7 +37,7 @@ function outcomes(successes: boolean[]): EvalOutcome[] {
 }
 
 /** Scratch journal path so the per-candidate Contract rows never touch the
- *  real ~/.feral/rsi/journal during tests. */
+ *  real ~/.cinderpaw/rsi/journal during tests. */
 const journalPath = () => join(tmpdir(), `rsi-ratchet-confidence-test-${process.pid}.jsonl`);
 
 const ACCEPT: GateDecision = {

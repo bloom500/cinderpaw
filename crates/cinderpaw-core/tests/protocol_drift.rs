@@ -57,7 +57,7 @@ fn inbound_and_outbound_types_match_ts() {
 ///
 /// Both sides already had a test. Both passed. Each compared its own constant
 /// to itself, so when the rename moved the Rust marker to `cinderpaw-agent-ready`
-/// and left `boot.ts` printing `feral-agent-ready`, nothing failed: the host
+/// and left `boot.ts` printing `cinderpaw-agent-ready`, nothing failed: the host
 /// simply waited for a sentence the sidecar never says, `cinderpaw://agent-ready`
 /// never fired, and the app stayed "waking up" forever. A test that reads the
 /// OTHER language's source is the only kind that could have caught it.

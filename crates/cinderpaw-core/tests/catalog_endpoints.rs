@@ -52,7 +52,7 @@ async fn providers_catalog_returns_200_with_version_header() {
     assert_eq!(resp.status(), StatusCode::OK);
     let version = resp
         .headers()
-        .get("x-feral-catalog-version")
+        .get("x-cinderpaw-catalog-version")
         .expect("catalog version header present");
     let v: u32 = version
         .to_str()
@@ -80,7 +80,7 @@ async fn connectors_catalog_returns_200_with_version_header() {
     assert_eq!(resp.status(), StatusCode::OK);
     let version = resp
         .headers()
-        .get("x-feral-catalog-version")
+        .get("x-cinderpaw-catalog-version")
         .expect("catalog version header present");
     let v: u32 = version
         .to_str()

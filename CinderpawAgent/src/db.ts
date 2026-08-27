@@ -46,7 +46,7 @@ const LOCK_HEARTBEAT_MS = 10_000;
  */
 export const LOCK_STALE_AFTER_MS = 60_000;
 
-export interface FeralDb {  // exported for test helpers
+export interface CinderpawDb {  // exported for test helpers
   raw: Database;
   /** Release the sidecar's writer lock + close the SQLite handle. */
   close(): void;
@@ -57,7 +57,7 @@ export interface FeralDb {  // exported for test helpers
  * exist. Safe to call once at startup.
  *
  * Sprint 1.9 — single-writer discipline. On non-`:memory:` paths we acquire an
- * exclusive `O_EXCL` lockfile at `~/.feral/.writer.lock` before opening SQLite.
+ * exclusive `O_EXCL` lockfile at `~/.cinderpaw/.writer.lock` before opening SQLite.
  * The sidecar is the sole writer of memory state; Tauri commands are readers
  * + ack-only mutators (per `project_memory_roadmap.md`'s writer contract).
  * The lock is released in `close()`. If the lock is already held by another
@@ -133,7 +133,7 @@ function isLockAbandoned(lockPath: string, now: number): boolean {
  */
 const heldLocks = new Set<string>();
 
-export function openDatabase(path: string): FeralDb {
+export function openDatabase(path: string): CinderpawDb {
   let lockPath: string | null = null;
   let lockFd: number | null = null;
 
@@ -182,7 +182,7 @@ export function openDatabase(path: string): FeralDb {
 
     try {
       // Stamp our pid so the next sidecar can run the stale check.
-      // The fd is closed by `close()` on the returned FeralDb; we also
+      // The fd is closed by `close()` on the returned CinderpawDb; we also
       // re-write on every open because sidecars restart under the
       // same pid (rare but possible after OS pid recycle).
       lockFd = openSync(lockPath, "wx");
@@ -192,7 +192,7 @@ export function openDatabase(path: string): FeralDb {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "EEXIST") {
         throw new Error(
-          `feral: another sidecar already holds the writer lock at ${lockPath} ` +
+          `cinderpaw: another sidecar already holds the writer lock at ${lockPath} ` +
             `— refusing to open the memory database. ` +
             `If a previous sidecar crashed, remove the lockfile and retry.`,
         );
@@ -935,7 +935,7 @@ function migrate(db: Database): void {
     // we will corrupt memory if we keep opening it. Surface a clear error
     // instead of a cryptic SQLite fault.
     throw new Error(
-      `feral: on-disk memory schema version (${onDisk}) is newer than this ` +
+      `cinderpaw: on-disk memory schema version (${onDisk}) is newer than this ` +
         `build supports (${CURRENT_MEMORY_SCHEMA_VERSION}). ` +
         `Refusing to start — please upgrade Cinderpaw.`,
     );

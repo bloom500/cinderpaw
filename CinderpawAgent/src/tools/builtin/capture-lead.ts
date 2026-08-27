@@ -2,7 +2,7 @@
  * capture_lead — record an interested person's details so the business owner
  * can follow up. Public-connector tool: it's how a sales/support persona turns
  * a chat into a durable lead. Appends one JSON line per lead to
- * `~/.feral/leads/leads.jsonl`; no network, no owner ping (use
+ * `~/.cinderpaw/leads/leads.jsonl`; no network, no owner ping (use
  * `escalate_to_human` when a human is actually needed now).
  */
 

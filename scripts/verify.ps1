@@ -14,7 +14,7 @@
 
   Rust note: BOTH cargo packages are tested. `cinderpaw` is the Tauri host
   (src-tauri) and `cinderpaw-core` is the engine crate; running only one
-  leaves roughly half the Rust suite unmeasured, which is how `-p feral`
+  leaves roughly half the Rust suite unmeasured, which is how `-p cinderpaw`
   survived the rebrand as a silently dead step.
 
   Running it in a FRESH worktree: install first (`bun install` in both

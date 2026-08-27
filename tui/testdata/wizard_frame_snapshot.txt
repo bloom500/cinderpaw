@@ -14,11 +14,11 @@ CINDERPAW setup wizard                                  [38;2;121;116;107mstep 
 CINDERPAW setup wizard                                 [38;2;121;116;107mstep 2 of 14 · Security[0m
                                                                               
 [38;2;137;83;47m╭────────────────────────────────────────────────────────────────────────────╮[0m
-[38;2;137;83;47m│[0m  Feral may execute actions using the connectors you enable.                [38;2;137;83;47m│[0m
+[38;2;137;83;47m│[0m  Cinderpaw may execute actions using the connectors you enable.            [38;2;137;83;47m│[0m
 [38;2;137;83;47m│[0m                                                                            [38;2;137;83;47m│[0m
 [38;2;137;83;47m│[0m  Only connect services you trust.                                          [38;2;137;83;47m│[0m
 [38;2;137;83;47m│[0m                                                                            [38;2;137;83;47m│[0m
-[38;2;137;83;47m│[0m  Read: docs.feral.local/security                                           [38;2;137;83;47m│[0m
+[38;2;137;83;47m│[0m  Read: docs.cinderpaw.local/security                                       [38;2;137;83;47m│[0m
 [38;2;137;83;47m│[0m                                                                            [38;2;137;83;47m│[0m
 [38;2;137;83;47m│[0m  Press y to accept, n to decline.                                          [38;2;137;83;47m│[0m
 [38;2;137;83;47m╰────────────────────────────────────────────────────────────────────────────╯[0m

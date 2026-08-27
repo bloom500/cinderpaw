@@ -99,7 +99,7 @@ export function isBackgroundSession(sessionId: string): boolean {
 /**
  * True when an error means "this target has no model resident", not "your
  * request was bad". The bundled local engine answers `503 {"type":
- * "model_not_ready"}` (see `no_model_response` in crates/feral-core/src/api.rs)
+ * "model_not_ready"}` (see `no_model_response` in crates/cinderpaw-core/src/api.rs)
  * whenever the desktop has unloaded the GGUF — which it does deliberately on
  * every switch to a cloud route. A fallback that says this was never eligible
  * for the turn, so its message must not be pinned onto the primary's failure.
@@ -760,7 +760,7 @@ export class InferenceRouter {
       // a line per completion.
       if (!InferenceRouter.#costWriteFailed) {
         InferenceRouter.#costWriteFailed = true;
-        console.warn(`[feral] completion_cost write failed, cost accounting is blind: ${String(err)}`);
+        console.warn(`[cinderpaw] completion_cost write failed, cost accounting is blind: ${String(err)}`);
       }
     }
   }

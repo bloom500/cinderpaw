@@ -2,7 +2,7 @@
  * web_search — a network tool gated by the sandbox.
  *
  * Declares `network:outbound` with a tight domain whitelist. It never calls
- * fetch directly: it uses `ctx.fetch` (the per-tool feralFetch from the egress
+ * fetch directly: it uses `ctx.fetch` (the per-tool cinderpawFetch from the egress
  * proxy), which enforces the whitelist, blocks private/loopback destinations,
  * rate-limits, and audits every request.
  *

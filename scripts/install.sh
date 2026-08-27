@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Feral universal installer — one command, OS auto-detected:
+# Cinderpaw universal installer — one command, OS auto-detected:
 #
 #   curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash
 #
@@ -60,12 +60,12 @@ install_macos() {
   curl -fL --progress-bar -o "$dmg" "$url"
   mnt="$(hdiutil attach "$dmg" -nobrowse | awk '/\/Volumes\// { print $NF; exit }')"
   say "installing to /Applications…"
-  rm -rf /Applications/Feral.app
-  cp -R "$mnt"/Feral.app /Applications/
+  rm -rf /Applications/Cinderpaw.app
+  cp -R "$mnt"/Cinderpaw.app /Applications/
   hdiutil detach "$mnt" -quiet
-  # Clear the quarantine flag (Feral isn't Apple-notarized yet).
-  xattr -cr /Applications/Feral.app || true
-  say "done — launch Feral from /Applications."
+  # Clear the quarantine flag (Cinderpaw isn't Apple-notarized yet).
+  xattr -cr /Applications/Cinderpaw.app || true
+  say "done — launch Cinderpaw from /Applications."
 }
 
 # ── Linux desktop (.deb / .rpm) ──────────────────────────────────────────────
@@ -161,7 +161,7 @@ Run this once as root, then re-run the installer as this user:
   fi
   export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.local/go/bin:$PATH"
 
-  local src="$HOME/src/feral"
+  local src="$HOME/src/cinderpaw"
   mkdir -p "$HOME/src"
   if [ -d "$src/.git" ]; then
     say "updating existing checkout…"
@@ -189,7 +189,7 @@ Run this once as root, then re-run the installer as this user:
     # reason REPO is pinned above.
     local origin; origin="$(git -C "$src" remote get-url origin 2>/dev/null || true)"
     case "$origin" in
-      *bloom500/feral*)
+      *bloom500/cinderpaw*)
         say "repointing origin to ${REPO} (the repo was renamed)"
         git -C "$src" remote set-url origin "https://github.com/${REPO}"
         ;;

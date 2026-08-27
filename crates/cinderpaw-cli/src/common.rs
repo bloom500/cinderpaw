@@ -82,7 +82,7 @@ pub fn base_url() -> String {
 
 /// Read the per-launch bearer token the gateway persists to `~/.cinderpaw/api-token`.
 pub fn read_token() -> Option<String> {
-    let path = cinderpaw_core::paths::feral_dir().join("api-token");
+    let path = cinderpaw_core::paths::cinderpaw_dir().join("api-token");
     std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
 }
 

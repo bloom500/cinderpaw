@@ -3,9 +3,9 @@
  *
  * Contract (post sandbox-relax): roots are broad by default — unset
  * CINDERPAW_WORKSPACE means launch cwd + the user's home dir. The self-protection
- * guarantee moved to CALL TIME (resolveAllowedPath's deny wall over ~/.feral,
+ * guarantee moved to CALL TIME (resolveAllowedPath's deny wall over ~/.cinderpaw,
  * ~/.ssh, CINDERPAW_FS_DENY — tested in sandbox.test.ts). Here we only assert
- * that roots sitting INSIDE ~/.feral are still dropped at registration.
+ * that roots sitting INSIDE ~/.cinderpaw are still dropped at registration.
  */
 import { test, expect } from "bun:test";
 import { resolve, delimiter, parse } from "node:path";
@@ -14,12 +14,12 @@ import { homedir } from "node:os";
 // but that static re-export forced every short-lived invocation to evaluate
 // the whole agent module graph — see the note in index.ts.
 import { loadWorkspaceRoots } from "../src/boot.ts";
-import { agentProfileDirs, feralHome } from "../src/config.ts";
+import { agentProfileDirs, cinderpawHome } from "../src/config.ts";
 
 // The profile dir the code actually uses, not a second hardcoded copy of
 // it: this test asserted ".feral" while the app had moved to ".cinderpaw",
 // which is the same drift the deny wall was suffering from.
-const CINDERPAW_HOME = feralHome();
+const CINDERPAW_HOME = cinderpawHome();
 const SCRATCH = resolve(CINDERPAW_HOME, "workspace");
 
 test("explicit CINDERPAW_WORKSPACE list is honored and scratch is always added", () => {
@@ -38,7 +38,7 @@ test("unset CINDERPAW_WORKSPACE defaults to cwd + home (broad by default)", () =
   expect(roots).toContain(SCRATCH);
 });
 
-test("ancestors of ~/.feral (home, drive root) are allowed as roots", () => {
+test("ancestors of ~/.cinderpaw (home, drive root) are allowed as roots", () => {
   // The deny wall in resolveAllowedPath guards the brain per-access now;
   // broad roots are the point of the lax sandbox.
   const fsRoot = parse(CINDERPAW_HOME).root;
@@ -49,7 +49,7 @@ test("ancestors of ~/.feral (home, drive root) are allowed as roots", () => {
   expect(roots).toContain(resolve(fsRoot));
 });
 
-test("a root INSIDE ~/.feral is still dropped (brain exposure at registration)", () => {
+test("a root INSIDE ~/.cinderpaw is still dropped (brain exposure at registration)", () => {
   const rsiRepo = resolve(CINDERPAW_HOME, "rsi");
   const agentDir = resolve(CINDERPAW_HOME, "agent");
   const realProject = resolve("/tmp/legit-project");
@@ -59,7 +59,7 @@ test("a root INSIDE ~/.feral is still dropped (brain exposure at registration)",
   expect(roots).not.toContain(rsiRepo);
   expect(roots).not.toContain(agentDir);
   expect(roots).toContain(realProject); // a legit sibling root still survives
-  expect(roots).toContain(SCRATCH); // the one allowed ~/.feral subtree
+  expect(roots).toContain(SCRATCH); // the one allowed ~/.cinderpaw subtree
 });
 
 test("a root inside EITHER profile dir is dropped, not just the current one", () => {

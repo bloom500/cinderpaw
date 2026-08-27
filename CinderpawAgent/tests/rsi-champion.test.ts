@@ -66,7 +66,7 @@ describe("mapGenomeToAgentConfig", () => {
 
 describe("champion persistence", () => {
   test("write then read round-trips the record", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-champ-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-champ-"));
     try {
       const path = join(dir, "rsi", "champion.json");
       const rec: ChampionRecord = { genomeId: "g1", score: 73.2, config: CFG, updatedAt: 123 };
@@ -94,7 +94,7 @@ describe("champion persistence", () => {
   });
 
   test("read returns null for corrupt JSON (never throws)", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-champ-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-champ-"));
     try {
       const path = join(dir, "champion.json");
       writeChampion(path, { genomeId: "x", score: 1, config: CFG, updatedAt: 1 });

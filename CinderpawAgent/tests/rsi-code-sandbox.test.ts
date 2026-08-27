@@ -130,8 +130,8 @@ describe("parsers", () => {
 
 describe("integration — real git worktree lifecycle", () => {
   test("create → apply → measure → destroy against a throwaway repo", async () => {
-    const repo = mkdtempSync(join(tmpdir(), "feral-code-sbx-"));
-    const scratch = mkdtempSync(join(tmpdir(), "feral-code-sbx-wt-"));
+    const repo = mkdtempSync(join(tmpdir(), "cinderpaw-code-sbx-"));
+    const scratch = mkdtempSync(join(tmpdir(), "cinderpaw-code-sbx-wt-"));
     try {
       // Tiny repo shaped like the monorepo: CinderpawAgent/src/rsi/<file>.
       const run = (args: string[]) =>

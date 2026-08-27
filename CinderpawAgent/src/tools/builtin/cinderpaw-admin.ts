@@ -1,5 +1,5 @@
 /**
- * feral_admin — the commands a person would otherwise open a terminal for.
+ * cinderpaw_admin — the commands a person would otherwise open a terminal for.
  *
  * The `self_*` tools already cover the READ half of what the CLI shows:
  * status, providers, health, dreams, genome. This is the ACT half. The point
@@ -50,9 +50,9 @@ const ACTIONS: readonly Action[] = [
   "gateway_stop",
 ];
 
-export const feralAdminTool: Tool = {
+export const cinderpawAdminTool: Tool = {
   manifest: {
-    name: "feral_admin",
+    name: "cinderpaw_admin",
     description:
       "Run Cinderpaw's own administrative commands. `update_check` reports whether " +
       "a newer version exists; `update_apply` installs it (the person is asked " +
@@ -258,6 +258,6 @@ function summarize(action: Action, data: unknown): string {
   }
 }
 
-export function createFeralAdminTools(): Tool[] {
-  return [feralAdminTool];
+export function createCinderpawAdminTools(): Tool[] {
+  return [cinderpawAdminTool];
 }

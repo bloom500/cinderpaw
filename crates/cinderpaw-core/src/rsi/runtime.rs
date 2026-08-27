@@ -98,7 +98,7 @@ impl RsiRequestRegistry {
 
     /// Number of in-flight requests. Tests only — production code
     /// has no reason to inspect the size. Not `#[cfg(test)]`-gated:
-    /// the downstream `feral` crate's own test module (`src-tauri/src/rsi/commands.rs`)
+    /// the downstream `cinderpaw` crate's own test module (`src-tauri/src/rsi/commands.rs`)
     /// exercises this type too, and `cfg(test)` doesn't cross crate
     /// boundaries — it would only apply to cinderpaw-core's own tests.
     #[allow(dead_code)]
@@ -492,10 +492,10 @@ pub async fn dispatch_rsi_request(
                 // be pushed into the running model: something in ~/Downloads, on
                 // a network share, whatever a prompt-injected instruction named.
                 //
-                // Adapters that Feral trained or fetched live under ~/.feral.
+                // Adapters that Cinderpaw trained or fetched live under ~/.cinderpaw.
                 // Confining it there is broad enough for every real path
                 // (models dir, RSI dir) and closes the rest.
-                let root = crate::paths::feral_dir();
+                let root = crate::paths::cinderpaw_dir();
                 match crate::rsi::paths::is_under(&root, p) {
                     Ok(true) => {}
                     _ => {

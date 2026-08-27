@@ -48,7 +48,7 @@ export interface ChatInputProps {
     opts?: {
       voice?: ChatMessage['voice'];
       existingUserId?: string;
-      /** `'voice'` when the answer will be spoken aloud — see `feral_send_message`. */
+      /** `'voice'` when the answer will be spoken aloud — see `cinderpaw_send_message`. */
       surface?: 'voice' | 'text';
     },
   ) => Promise<void>;

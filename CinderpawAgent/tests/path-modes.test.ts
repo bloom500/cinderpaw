@@ -37,7 +37,7 @@ function makeManifest(overrides: Partial<ToolManifest> = {}): ToolManifest {
   };
 }
 
-function tempDir(prefix = "feral-path-modes-"): string {
+function tempDir(prefix = "cinderpaw-path-modes-"): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 

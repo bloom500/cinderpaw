@@ -218,7 +218,7 @@ function modePermits(
  *     migration never deletes the old one.
  *   - ~/.ssh (private keys)
  *   - anything listed in CINDERPAW_FS_DENY (path-list, same separator as PATH)
- * Privileged built-ins that must write inside ~/.feral (e.g. connectors_manage)
+ * Privileged built-ins that must write inside ~/.cinderpaw (e.g. connectors_manage)
  * do NOT route through resolveAllowedPath — they own their fixed path.
  */
 function deniedPaths(): { deny: string[]; exempt: string[] } {
@@ -250,7 +250,7 @@ function deniedPaths(): { deny: string[]; exempt: string[] } {
  *   - symlink escape: a symlink inside an allowed root that points OUTSIDE
  *     the root must not be followed. We resolve the REAL path of the target
  *     (following symlinks) and check containment against THAT.
- *   - the deny wall: targets inside ~/.feral (non-scratch), ~/.ssh, or
+ *   - the deny wall: targets inside ~/.cinderpaw (non-scratch), ~/.ssh, or
  *     CINDERPAW_FS_DENY are refused regardless of the allowed roots.
  */
 export function resolveAllowedPath(
@@ -286,7 +286,7 @@ export function resolveAllowedPath(
   const target = realpathBestEffort(requestedPath);
 
   // Deny wall first — an allowed root may legitimately CONTAIN a denied
-  // subtree (home contains ~/.feral), so containment success is not enough.
+  // subtree (home contains ~/.cinderpaw), so containment success is not enough.
   const { deny, exempt } = deniedPaths();
   const within = (child: string, parent: string): boolean =>
     child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);

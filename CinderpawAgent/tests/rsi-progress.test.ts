@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { appendJournal, journalFilename, type JournalEntry } from "../src/rsi/infra/journal.ts";
 import { improvementSeries } from "../src/rsi/infra/progress.ts";
 
-const dir = mkdtempSync(join(tmpdir(), "feral-progress-"));
+const dir = mkdtempSync(join(tmpdir(), "cinderpaw-progress-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 function entry(over: { aggregate?: number; action?: "accept" | "reject" | "halt" }): JournalEntry {
@@ -75,7 +75,7 @@ test("aggregates per-day counts, means, and the rising trend", () => {
 });
 
 test("empty dir → flat zero series, null trend, never throws", () => {
-  const empty = mkdtempSync(join(tmpdir(), "feral-progress-empty-"));
+  const empty = mkdtempSync(join(tmpdir(), "cinderpaw-progress-empty-"));
   try {
     const s = improvementSeries(empty, 3);
     expect(s.days.length).toBe(3);

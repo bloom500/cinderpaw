@@ -201,7 +201,7 @@ export class MCPClient {
         {
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          clientInfo: { name: "feral-agent", version: "1.0.0" },
+          clientInfo: { name: "cinderpaw-agent", version: "1.0.0" },
         },
         this.#config.initTimeoutMs,
       );

@@ -20,7 +20,7 @@ use crate::common::{self, Palette};
 ///
 /// Both names are tried. The binary is called `cinderpaw-tui` from this release
 /// on, but an install (or a developer's target dir) from before the rename has
-/// `feral-tui` sitting there instead, and answering "the TUI isn't in this
+/// `cinderpaw-tui` sitting there instead, and answering "the TUI isn't in this
 /// build" to somebody who can see the file is worse than looking twice.
 pub(crate) fn tui_binary_path() -> Option<std::path::PathBuf> {
     let exe_dir = std::env::current_exe()
@@ -67,6 +67,6 @@ pub fn run() -> ! {
     // console back in cooked mode so the parent shell isn't left mute.
     common::reset_console_mode();
     let Palette { meta: META, reset: RESET, .. } = common::palette();
-    let _ = writeln!(std::io::stderr(), "\n  {META}stay feral. ↝{RESET}");
+    let _ = writeln!(std::io::stderr(), "\n  {META}stay cinderpaw. ↝{RESET}");
     std::process::exit(code);
 }

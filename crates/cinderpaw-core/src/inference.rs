@@ -376,7 +376,7 @@ impl ModelManager {
                 let prompt = messages.last().map(|m| m.content.clone()).unwrap_or_default();
                 let _ = (params, on_start);
                 let reply = format!(
-                    "[feral stub — build with `--features inference` for real generation] You said: {}",
+                    "[cinderpaw stub — build with `--features inference` for real generation] You said: {}",
                     prompt.chars().take(200).collect::<String>()
                 );
                 for word in reply.split_inclusive(' ') {
@@ -1972,7 +1972,7 @@ mod load_failure_tests {
     /// Every one of these used to reach the user as "null result from llama cpp".
     #[test]
     fn explains_the_three_reasons_a_model_will_not_open() {
-        let dir = std::env::temp_dir().join("feral-load-explain");
+        let dir = std::env::temp_dir().join("cinderpaw-load-explain");
         std::fs::create_dir_all(&dir).unwrap();
 
         let empty = dir.join("empty.gguf");

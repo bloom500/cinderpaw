@@ -8,7 +8,7 @@
 //! parses the `type` field and routes to chunk/done/tool/proactive/error
 //! handlers.
 //!
-//! Data files live under `~/.feral/agent/` (DB) and `~/.feral/workspace/`.
+//! Data files live under `~/.cinderpaw/agent/` (DB) and `~/.cinderpaw/workspace/`.
 //!
 //! **Faza 4.5 Slice 2 — host-agnostic core.** This module no longer touches
 //! `tauri::AppHandle`. Every host-specific concern flows through the
@@ -37,7 +37,7 @@ use crate::runtime::{PlannedExit, PlannedExitSlot, RuntimeState};
 /// Mirrors the TS `AskUserAnswer` shape on the React side so the JSON
 /// payload we write to the sidecar's stdin is round-trippable:
 /// `{ question, selected[], customText? }`. Used by the
-/// `feral_ask_user_response` Tauri command (and the corresponding
+/// `cinderpaw_ask_user_response` Tauri command (and the corresponding
 /// `build_ask_user_response_line` helper).
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct AskUserAnswer {
@@ -357,7 +357,7 @@ pub async fn spawn(
     tracing::info!("cinderpaw-agent: binary resolved to {:?}", binary);
 
     // Option A (code-RSI in production): when the dev knob is unset, try to
-    // provision the BUNDLED sources into ~/.feral/self-src and export the
+    // provision the BUNDLED sources into ~/.cinderpaw/self-src and export the
     // path — the sidecar and this supervisor's apply/revert/rebuild handlers
     // all read CINDERPAW_CODE_RSI_REPO from the environment. Any miss (dev run
     // without a bundle, no git) logs and leaves code-RSI off, as before.
@@ -434,10 +434,10 @@ pub async fn spawn(
     let api_key = resolve_sidecar_api_key(&base_url, api_token, env_or_byok_key)?;
 
     // CINDERPAW_WORKSPACE is deliberately NOT set here. It used to be pinned to
-    // ~/.feral/workspace (the scratch dir), which silently reduced the agent's
+    // ~/.cinderpaw/workspace (the scratch dir), which silently reduced the agent's
     // filesystem to a sandbox nobody's files live in — the #1 "the agent can't
     // do anything" complaint. The sidecar's own default (launch cwd + the
-    // user's home, with the call-time deny wall over ~/.feral and ~/.ssh) is
+    // user's home, with the call-time deny wall over ~/.cinderpaw and ~/.ssh) is
     // the intended posture; a user-set CINDERPAW_WORKSPACE in the host environment
     // still passes through via normal env inheritance.
     let mut cmd = tokio::process::Command::new(&binary);
@@ -589,7 +589,7 @@ pub async fn spawn(
     // `gateway stop` waits 35s for the port; the drain always took ~30 plus
     // change, so it was a coin flip whether stopping reported success or
     // "gateway still up after 35s" for a shutdown that did work, five seconds
-    // late. `feral update` restarts through that same path.
+    // late. `cinderpaw update` restarts through that same path.
     tokio::spawn(stdin_writer(stdin, rx));
     tokio::spawn(stdout_reader(
         runtime.clone(),
@@ -756,7 +756,7 @@ pub fn supervise(
                 over_budget,
                 "cinderpaw-agent: sidecar exited unexpectedly"
             );
-            // Invalidate the stale stdin sender so feral_send_message fails
+            // Invalidate the stale stdin sender so cinderpaw_send_message fails
             // fast instead of writing into a dead pipe.
             *runtime.cinderpaw_agent_tx.lock() = None;
             // A dead sidecar is not a ready one. Cleared here as well as
@@ -823,7 +823,7 @@ async fn stdin_writer(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Recei
 /// to the host's event bus as `cinderpaw://agent-output` (matching the wire shape
 /// `{"data": "<line>"}` the legacy `CinderpawAgentOutputEvent` Tauri struct used to
 /// emit — see Step 3 of Task 2 in
-/// `docs/superpowers/plans/2026-07-03-faza4-5-slice2-feral-gateway.md`).
+/// `docs/superpowers/plans/2026-07-03-faza4-5-slice2-cinderpaw-gateway.md`).
 ///
 /// Exceptions handled in Rust, NOT forwarded as `agent-output`:
 ///   * `desktop_control_request` — routed to the injected `DesktopControlHandler`
@@ -1426,7 +1426,7 @@ mod tests {
     fn only_the_exact_marker_means_ready() {
         let ready = |line: &str| line.trim().ends_with(READY_MARKER);
 
-        assert!(ready("[feral] ::cinderpaw-agent-ready::"));
+        assert!(ready("[cinderpaw] ::cinderpaw-agent-ready::"));
         assert!(ready("::cinderpaw-agent-ready::"));
 
         // Every one of these used to flip the app to "the agent is up".

@@ -23,7 +23,7 @@ afterEach(() => {
   for (const d of tmpDirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 function treePath(): string {
-  const d = mkdtempSync(join(tmpdir(), "feral-fembed-"));
+  const d = mkdtempSync(join(tmpdir(), "cinderpaw-fembed-"));
   tmpDirs.push(d);
   return join(d, "tree.json");
 }

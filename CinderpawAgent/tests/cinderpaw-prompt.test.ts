@@ -29,7 +29,7 @@ import { RecallEngine } from "../src/memory/recall.ts";
 import { ToolRegistry } from "../src/tools/registry.ts";
 import { createReadFileTool } from "../src/tools/builtin/read-file.ts";
 import type { OutboundEvent } from "../src/types.ts";
-import { openDatabase, type FeralDb } from "../src/db.ts";
+import { openDatabase, type CinderpawDb } from "../src/db.ts";
 import type { ToolRegistry as ToolRegistryType } from "../src/tools/registry.ts";
 import type { SoulConfig } from "../src/core/soul-loader.ts";
 import type { UserConfig } from "../src/core/user-loader.ts";
@@ -313,7 +313,7 @@ afterEach(() => { restoreFetch?.(); restoreFetch = null; });
 
 describe("AgentLoop — tool result stored exactly once (P4)", () => {
   it("tool result lives as a `tool`-role message; no synthetic user-nudge follows", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "feral-cont-"));
+    const workspace = mkdtempSync(join(tmpdir(), "cinderpaw-cont-"));
     writeFileSync(join(workspace, "notes.txt"), "hello world");
 
     const db = openDatabase(":memory:");
@@ -376,7 +376,7 @@ describe("AgentLoop — tool result stored exactly once (P4)", () => {
   });
 
   it("multi-tool turns still produce exactly one `tool` row per call (no nudge duplicates)", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "feral-cont-"));
+    const workspace = mkdtempSync(join(tmpdir(), "cinderpaw-cont-"));
     writeFileSync(join(workspace, "a.txt"), "alpha");
     writeFileSync(join(workspace, "b.txt"), "beta");
 

@@ -531,7 +531,7 @@ pub async fn test_provider(
     let chat_endpoint = url_join(&url, provider.chat_endpoint_path());
 
     let client = match reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(10))
         .build()
     {
@@ -685,9 +685,9 @@ fn url_join(base: &str, path: &str) -> String {
 
 /// Keychain service name. Stable across launches so keys persist; namespaced
 /// to Cinderpaw so it never collides with other apps' credentials.
-const KEYCHAIN_SERVICE: &str = "ai.bloom.feral.byok";
+const KEYCHAIN_SERVICE: &str = "ai.bloom.cinderpaw.byok";
 
-/// Human label for a keychain-probe error, so callers (e.g. `feral doctor`)
+/// Human label for a keychain-probe error, so callers (e.g. `cinderpaw doctor`)
 /// can report the kind without depending on the `keyring` crate themselves.
 pub fn keychain_error_kind(err: &keyring::Error) -> &'static str {
     match err {
@@ -697,17 +697,17 @@ pub fn keychain_error_kind(err: &keyring::Error) -> &'static str {
     }
 }
 
-/// Probe the OS keychain with a throwaway credential so `feral doctor`
+/// Probe the OS keychain with a throwaway credential so `cinderpaw doctor`
 /// can surface "keychain unavailable — byok will fall back to the file
 /// store" BEFORE the user types their API key and hits the 500. Returns
 /// `Ok(())` when the keychain round-trips (`set` then `delete`), or
 /// `Err` with the keyring error kind so the caller can decide what to
-/// print. We probe under a reserved name (`__feral_doctor_probe__`) so
+/// print. We probe under a reserved name (`__cinderpaw_doctor_probe__`) so
 /// a real provider's slot is never touched. On non-Linux targets this
 /// is reported as available — Windows Credential Manager and macOS
 /// Keychain are assumed reliable on every SKU Cinderpaw ships to.
 pub fn keychain_probe() -> Result<(), keyring::Error> {
-    const PROBE_USER: &str = "__feral_doctor_probe__";
+    const PROBE_USER: &str = "__cinderpaw_doctor_probe__";
     match keyring::Entry::new(KEYCHAIN_SERVICE, PROBE_USER) {
         Ok(entry) => {
             // round-trip a 1-byte value: set → get → delete. get_password
@@ -727,9 +727,9 @@ pub fn keychain_probe() -> Result<(), keyring::Error> {
 
 /// True when the file-store fallback has ever been used on this machine.
 /// On non-Linux targets this is always `false` (the file store is
-/// Linux-only); on Linux it inspects `~/.feral/byok.keys` existence.
-/// Surfaced by `feral doctor` to report "your keys live on disk, not in
-/// the OS keychain" without forcing the user to `ls ~/.feral/`.
+/// Linux-only); on Linux it inspects `~/.cinderpaw/byok.keys` existence.
+/// Surfaced by `cinderpaw doctor` to report "your keys live on disk, not in
+/// the OS keychain" without forcing the user to `ls ~/.cinderpaw/`.
 pub fn file_fallback_used() -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -744,7 +744,7 @@ pub fn file_fallback_used() -> bool {
 /// Store a provider's API key. Tries the OS keychain first; on
 /// `NoStorageAccess` / `PlatformFailure` (the classic Linux-headless case),
 /// falls back transparently to the encrypted file store at
-/// `~/.feral/byok.keys`. The fallback is Linux-only — Windows Credential
+/// `~/.cinderpaw/byok.keys`. The fallback is Linux-only — Windows Credential
 /// Manager and macOS Keychain are reliable on every SKU Cinderpaw targets.
 ///
 /// On a successful keychain write we also clear any stale file-store entry
@@ -752,7 +752,7 @@ pub fn file_fallback_used() -> bool {
 /// store should not re-appear there on the next boot.
 pub fn byok_set(provider_id: &str, key: &str) -> anyhow::Result<()> {
     // File key stays un-namespaced (bare provider id) for back-compat with
-    // ~/.feral/byok.keys — existing installs must keep reading their keys.
+    // ~/.cinderpaw/byok.keys — existing installs must keep reading their keys.
     crate::secret_store::set_with_file_key(KEYCHAIN_SERVICE, provider_id, provider_id, key)
 }
 
@@ -775,7 +775,7 @@ fn clear_key(provider_id: &str) -> anyhow::Result<()> {
 /// OS keychain. Migrates any plaintext keys found in a legacy `byok.json` into
 /// the keychain, then deletes the legacy file.
 pub fn load(_settings: &crate::settings::Settings) -> ByokSettings {
-    let path = crate::paths::feral_dir().join("byok.json");
+    let path = crate::paths::cinderpaw_dir().join("byok.json");
     let mut s: ByokSettings =
         crate::atomic_file::read_json_or_report(&path, "your provider settings");
 
@@ -871,7 +871,7 @@ pub fn save_provider(id: &str, config: ProviderConfig) -> anyhow::Result<()> {
 /// Read only the on-disk metadata (no keychain access). Used by mutation paths
 /// that must not re-trigger migration or key population.
 fn load_metadata() -> ByokSettings {
-    let path = crate::paths::feral_dir().join("byok.json");
+    let path = crate::paths::cinderpaw_dir().join("byok.json");
     match std::fs::read(&path) {
         Ok(bytes) => serde_json::from_slice::<ByokSettings>(&bytes).unwrap_or_default(),
         Err(_) => ByokSettings::default(),
@@ -880,7 +880,7 @@ fn load_metadata() -> ByokSettings {
 
 /// Write only the non-secret metadata to disk (api_key is skip_serializing).
 fn write_metadata(settings: &ByokSettings) -> anyhow::Result<()> {
-    let path = crate::paths::feral_dir().join("byok.json");
+    let path = crate::paths::cinderpaw_dir().join("byok.json");
     crate::atomic_file::write_secret_atomic(&path, &serde_json::to_vec_pretty(settings)?)?;
     Ok(())
 }

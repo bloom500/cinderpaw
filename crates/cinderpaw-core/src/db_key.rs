@@ -12,7 +12,7 @@ use base64::Engine as _;
 
 /// Keychain namespace for the DB key. Separate service from BYOK so the two
 /// concerns never collide.
-const SERVICE: &str = "ai.bloom.feral.dbkey";
+const SERVICE: &str = "ai.bloom.cinderpaw.dbkey";
 const ACCOUNT: &str = "semantic";
 
 fn entry() -> Result<keyring::Entry, keyring::Error> {

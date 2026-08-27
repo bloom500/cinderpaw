@@ -47,8 +47,8 @@ let tmpDir: string;
 let dbPath: string;
 
 beforeEach(() => {
-  tmpDir = mkdtempSync(join(tmpdir(), "feral-mem-test-"));
-  dbPath = join(tmpDir, "feral.db");
+  tmpDir = mkdtempSync(join(tmpdir(), "cinderpaw-mem-test-"));
+  dbPath = join(tmpDir, "cinderpaw.db");
 });
 
 function teardown() {
@@ -60,8 +60,8 @@ function teardown() {
  *  they reproduce the production lock-acquire path, not a parallel one.
  *
  *  Sits in `dirname(dbPath)` — `db.ts` writes `${dir}${sep}.writer.lock`,
- *  i.e. `tmpDir/.writer.lock` for `dbPath = tmpDir/feral.db`. Earlier
- *  revisions of this file claimed the path was `tmpDir/feral.db.writer.lock`
+ *  i.e. `tmpDir/.writer.lock` for `dbPath = tmpDir/cinderpaw.db`. Earlier
+ *  revisions of this file claimed the path was `tmpDir/cinderpaw.db.writer.lock`
  *  but that string never matched anything; the existing tests passed by
  *  asserting the negative (`exists(... )` → false after close) on a
  *  path that was never the real one. */

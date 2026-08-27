@@ -1,5 +1,5 @@
 //! Git substrate for the RSI layer, via the `git2` crate (libgit2
-//! vendored). All access to `~/.feral/rsi/.git/` goes through this
+//! vendored). All access to `~/.cinderpaw/rsi/.git/` goes through this
 //! module. The sidecar has no libgit2 / no `git` CLI access — every
 //! commit, every diff, every LCA query, every fast-forward is an
 //! explicit call here.
@@ -810,7 +810,7 @@ mod tests {
     /// so "Substrate is live on first launch" was unproven.
     #[test]
     fn bootstrap_creates_git_substrate() {
-        crate::rsi::test_support::with_temp_feral_home(|root| {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|root| {
             let head = bootstrap().expect("bootstrap must succeed");
             assert_eq!(head.len(), 40, "genesis commit hash is a git SHA-1");
             assert!(crate::rsi::paths::is_valid_commit_hash(&head));
@@ -869,7 +869,7 @@ mod tests {
     /// implementation.
     #[test]
     fn gc_prunes_unreachable_loose_objects_and_keeps_reachable_intact() {
-        crate::rsi::test_support::with_temp_feral_home(|_root| {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
             // Bootstrap + a small chain of ratchet-advanced iterations.
             // Each iteration advances `main` strictly, so every committed
             // object ends up reachable from main by the end.

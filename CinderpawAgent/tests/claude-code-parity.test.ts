@@ -141,7 +141,7 @@ function scriptedRouter(responses: string[]): InferenceRouter {
 }
 
 function delegateHarness(responses: string[]) {
-  const home = mkdtempSync(join(tmpdir(), "feral-delegate-"));
+  const home = mkdtempSync(join(tmpdir(), "cinderpaw-delegate-"));
   const db = openDatabase(":memory:");
   const audit = new AuditLog(db.raw);
   const egress = new EgressProxy(audit.logger);

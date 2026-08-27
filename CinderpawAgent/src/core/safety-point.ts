@@ -16,11 +16,11 @@
  * stash entry, no index modification, no checkout. Snapshots are built with a
  * throwaway index (`GIT_INDEX_FILE`) and `commit-tree`, which writes an orphan
  * commit object and nothing else; the only visible trace is a ref under
- * `refs/feral/safety/`, which no branch, tag or log surface lists by default.
+ * `refs/cinderpaw/safety/`, which no branch, tag or log surface lists by default.
  * A safety mechanism that mutates the thing it is protecting is not one.
  *
  * Workspaces that are not git repositories get a *shadow* repository whose
- * git dir lives under `~/.feral/safety/` — the project tree itself gets no
+ * git dir lives under `~/.cinderpaw/safety/` — the project tree itself gets no
  * `.git` directory and no new files at all.
  */
 
@@ -29,7 +29,7 @@ import { mkdir, writeFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, basename } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { feralHome } from "../config.ts";
+import { cinderpawHome } from "../config.ts";
 import { resolveExecutables } from "./executables.ts";
 
 /** Absolute path to git, resolved once (PATH-hijack hardening, as git.ts). */
@@ -101,9 +101,9 @@ function git(args: string[], cwd: string, env: Record<string, string> = {}): Pro
           // commit-tree refuses to run without an identity, and we must not
           // depend on (or be recorded as) the user's configured one.
           GIT_AUTHOR_NAME: "Cinderpaw",
-          GIT_AUTHOR_EMAIL: "safety@feral.local",
+          GIT_AUTHOR_EMAIL: "safety@cinderpaw.local",
           GIT_COMMITTER_NAME: "Cinderpaw",
-          GIT_COMMITTER_EMAIL: "safety@feral.local",
+          GIT_COMMITTER_EMAIL: "safety@cinderpaw.local",
           // Never prompt for credentials from a background run.
           GIT_TERMINAL_PROMPT: "0",
           ...env,
@@ -133,7 +133,7 @@ function git(args: string[], cwd: string, env: Record<string, string> = {}): Pro
 /** Stable per-root directory name for a shadow repo. */
 function shadowDirFor(root: string): string {
   const hash = createHash("sha256").update(resolve(root)).digest("hex").slice(0, 12);
-  return join(feralHome(), "safety", `${basename(root) || "root"}-${hash}`);
+  return join(cinderpawHome(), "safety", `${basename(root) || "root"}-${hash}`);
 }
 
 /**
@@ -194,7 +194,7 @@ async function snapshot(
   // the wrong tree — silently, as a plausible-looking file list. Two roots of
   // one run, or a cron job firing while a chat message is answered, are enough.
   const indexFile = join(
-    feralHome(),
+    cinderpawHome(),
     "safety",
     `index-${process.pid}-${Date.now()}-${randomUUID()}`,
   );
@@ -204,7 +204,7 @@ async function snapshot(
     env.GIT_WORK_TREE = root;
   }
   try {
-    await mkdir(join(feralHome(), "safety"), { recursive: true });
+    await mkdir(join(cinderpawHome(), "safety"), { recursive: true });
     const add = await git(["add", "-A", "--", "."], root, env);
     // A partial add (an unreadable file, a permission error) still produces a
     // usable tree; only a total failure is fatal.
@@ -220,7 +220,7 @@ async function snapshot(
     // No parent: an orphan snapshot that cannot be mistaken for, or interfere
     // with, the user's own history.
     const commit = await git(
-      ["commit-tree", tree.stdout, "-m", `feral safety point: ${label}`],
+      ["commit-tree", tree.stdout, "-m", `cinderpaw safety point: ${label}`],
       root,
       env,
     );
@@ -231,7 +231,7 @@ async function snapshot(
     const sha = commit.stdout.split("\n")[0]!.trim();
     // A ref keeps the objects from being garbage-collected. Namespaced well
     // away from refs/heads and refs/tags so nothing lists it by accident.
-    await git(["update-ref", `refs/feral/safety/${Date.now()}`, sha], root, env);
+    await git(["update-ref", `refs/cinderpaw/safety/${Date.now()}`, sha], root, env);
     return sha;
   } catch (err) {
     log(`safety-point: snapshot failed in ${root}: ${String(err)}`);
@@ -443,7 +443,7 @@ export function changeFingerprint(summary: ChangeSummary): string {
  * minutes of it".
  *
  * `gitDir` matters as much as the other two: a workspace that is not a git
- * repository is tracked through a shadow git dir under `~/.feral/safety/`, and
+ * repository is tracked through a shadow git dir under `~/.cinderpaw/safety/`, and
  * a point rebuilt without it would look for a git dir inside the project that
  * was deliberately never created there.
  *

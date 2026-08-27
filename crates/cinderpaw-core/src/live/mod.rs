@@ -583,13 +583,13 @@ mod tests {
         // Not `realtimeInput`: that is a stream the server segments itself. A
         // typed line ends where it says it ends, and without `turnComplete` the
         // server waits for the rest of a sentence that is never coming.
-        let v = serde_json::to_value(text_turn("open github.com/bloom500/feral")).unwrap();
+        let v = serde_json::to_value(text_turn("open github.com/bloom500/cinderpaw")).unwrap();
         assert_eq!(v.as_object().unwrap().len(), 1);
         assert_eq!(v["clientContent"]["turnComplete"], true);
         assert_eq!(v["clientContent"]["turns"][0]["role"], "user");
         assert_eq!(
             v["clientContent"]["turns"][0]["parts"][0]["text"],
-            "open github.com/bloom500/feral"
+            "open github.com/bloom500/cinderpaw"
         );
         // A system instruction takes no role, and must not grow one.
         let setup = serde_json::to_value(ClientMessage::Setup(

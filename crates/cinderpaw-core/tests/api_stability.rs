@@ -20,7 +20,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-const STABILITY_HEADER: &str = "x-feral-api-stability";
+const STABILITY_HEADER: &str = "x-cinderpaw-api-stability";
 
 /// Send a bare GET against `/path`. No auth header, so a route that
 /// requires a token returns 401; the stability header must still be

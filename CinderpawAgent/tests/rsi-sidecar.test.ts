@@ -109,7 +109,7 @@ function buildSidecar(opts: {
     send,
     log: (m) => logs.push(m),
     // Hermetic: point at a nonexistent champion path so tests never read
-    // the real ~/.feral/rsi/champion.json (resume seed) from the dev box.
+    // the real ~/.cinderpaw/rsi/champion.json (resume seed) from the dev box.
     championPath: resolve(import.meta.dir, `../.tmp-nochampion-${Math.random()}.json`),
     championTreePath: resolve(import.meta.dir, `../.tmp-tree-${Math.random()}.json`),
     ...(opts.historyWindow != null ? { historyWindow: opts.historyWindow } : {}),

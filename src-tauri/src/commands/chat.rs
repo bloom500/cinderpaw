@@ -482,7 +482,7 @@ pub(crate) async fn chat_cloud_complete(
     let auth_value = format!("{}{}", provider.api_key_prefix(), cfg.api_key);
 
     let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|e| e.to_string())?;
@@ -602,7 +602,7 @@ pub(crate) async fn chat_cloud_stream(
     let anthropic = !provider.is_openai_compatible();
 
     let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| { let _ = app.emit("cinderpaw://stream-error", events::StreamErrorEvent { session_id: session_id.clone(), error: e.to_string() }); e.to_string() })?;

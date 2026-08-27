@@ -134,7 +134,7 @@ describe("episodeBudgetCaps", () => {
 });
 
 describe("journal round-trips through readJournal", () => {
-  const path = join(tmpdir(), `feral-journal-test-${Date.now()}-${Math.random()}.jsonl`);
+  const path = join(tmpdir(), `cinderpaw-journal-test-${Date.now()}-${Math.random()}.jsonl`);
   afterEach(() => rmSync(path, { force: true }));
 
   test("a written cycle summary reads back with its decision intact", () => {

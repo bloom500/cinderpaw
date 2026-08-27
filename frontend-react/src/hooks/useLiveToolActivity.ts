@@ -91,7 +91,7 @@ export interface ToolActivity {
   output: string;
   /** The directory a command ran in, when the tool reported one. Shown in the
    *  prompt, because `PS >` with nothing in front of it is a drawing of a
-   *  terminal and `PS D:\FeralLocalAI>` is a session. */
+   *  terminal and `PS D:\CinderpawLocalAI>` is a session. */
   cwd: string;
   /** Facts a memory lookup came back with. */
   facts: string[];
@@ -314,7 +314,7 @@ export function useLiveToolActivity(enabled: boolean) {
     // The LiveKit channel hands the payload over directly, not wrapped.
     attach(events.liveKitEvent.listen((e) => onTool(e.kind, e.text ?? '')));
 
-    void events.feralAgentOutputEvent
+    void events.cinderpawAgentOutputEvent
       .listen((event) => {
         let line: { type?: string; tool?: string; args?: Record<string, unknown>; result?: unknown; message?: string; stage?: string };
         try {

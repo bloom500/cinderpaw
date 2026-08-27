@@ -67,7 +67,7 @@ src-tauri/        Rust — Tauri v2 shell
 
 frontend-react/   React + TS + Vite + Tailwind — the UI
   src/stores/       Zustand stores (chat, model, conversations, ui, …)
-  src/lib/          chatStream / feralAgentStream (the two streaming paths),
+  src/lib/          chatStream / cinderpawAgentStream (the two streaming paths),
                     streamControl (unified stop), tauri/ (typed IPC bindings)
   src/components/   pages, chat surface, models, settings, mascot
 
@@ -164,7 +164,7 @@ send, stop mid-stream, switch tabs mid-stream, send again.
 - **Errors must reach the user.** No silent `catch {}` on user-facing paths;
   route to `stream-error` events / toasts (`lib/humanizeError.ts`).
 - **Two streaming paths, one semantics.** Stop/interrupt behaviour stays
-  identical between `chatStream.ts` and `feralAgentStream.ts`. UI calls
+  identical between `chatStream.ts` and `cinderpawAgentStream.ts`. UI calls
   `streamControl.stopActiveStream()` — never one path directly.
 - **Strings:** user-facing UI text goes through `lib/i18n.ts` (EN + RO).
 - **Security:** anything touching filesystem, network or child processes goes

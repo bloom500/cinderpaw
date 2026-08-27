@@ -2,8 +2,8 @@ import { create } from 'zustand';
 import type { CinderpawModelConfigView, CinderpawModelSelection } from '@/lib/tauri';
 import { tauri } from '@/lib/tauri';
 
-interface FeralStore {
-  /** Active model in the sidecar. Null until feral_get_model_config resolves. */
+interface CinderpawStore {
+  /** Active model in the sidecar. Null until cinderpaw_get_model_config resolves. */
   modelConfig: CinderpawModelConfigView | null;
   /** True once cinderpaw://agent-ready fires. */
   isReady: boolean;
@@ -34,7 +34,7 @@ interface FeralStore {
   setModel(selection: CinderpawModelSelection): Promise<void>;
 }
 
-export const useCinderpawStore = create<FeralStore>((set) => ({
+export const useCinderpawStore = create<CinderpawStore>((set) => ({
   modelConfig: null,
   isReady: false,
   modelError: null,
@@ -61,7 +61,7 @@ export const useCinderpawStore = create<FeralStore>((set) => ({
 
   async fetchModelConfig() {
     try {
-      const cfg = await tauri.raw.feralGetModelConfig();
+      const cfg = await tauri.raw.cinderpawGetModelConfig();
       if (cfg) set({ modelConfig: cfg });
     } catch {
       // Sidecar not yet ready — will retry when agent-ready fires.
@@ -72,11 +72,11 @@ export const useCinderpawStore = create<FeralStore>((set) => ({
     set({ modelError: null, switching: true });
     try {
       if (selection.source === 'ollama') {
-        await tauri.raw.feralSetModel('ollama', selection.model, null, selection.baseUrl);
+        await tauri.raw.cinderpawSetModel('ollama', selection.model, null, selection.baseUrl);
       } else if (selection.source === 'byok') {
-        await tauri.raw.feralSetModel('byok', selection.model, selection.providerId, null);
+        await tauri.raw.cinderpawSetModel('byok', selection.model, selection.providerId, null);
       } else {
-        await tauri.raw.feralSetModel(
+        await tauri.raw.cinderpawSetModel(
           'openai_compatible',
           selection.model,
           selection.providerId,
@@ -84,7 +84,7 @@ export const useCinderpawStore = create<FeralStore>((set) => ({
         );
       }
       // Store is updated optimistically by Rust; model_set event from sidecar confirms.
-      const cfg = await tauri.raw.feralGetModelConfig();
+      const cfg = await tauri.raw.cinderpawGetModelConfig();
       if (cfg) set({ modelConfig: cfg });
     } catch (err) {
       set({ modelError: String(err) });

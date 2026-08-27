@@ -2,7 +2,7 @@
  * Tests for the USER.md loader.
  *
  * The user-loader reads the per-user personalization record at
- * `~/.feral/onboarding.json` (written by the onboarding wizard) and
+ * `~/.cinderpaw/onboarding.json` (written by the onboarding wizard) and
  * exposes the user name + agent name to the system prompt. The
  * record is JSON, not Markdown, because it carries structured
  * fields the agent can format into a USER block.
@@ -29,7 +29,7 @@ import {
 let home: string;
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "feral-user-"));
+  home = mkdtempSync(join(tmpdir(), "cinderpaw-user-"));
 });
 afterEach(() => {
   rmSync(home, { recursive: true, force: true });

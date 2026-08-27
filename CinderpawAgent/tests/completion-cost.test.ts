@@ -244,7 +244,7 @@ describe("the table survives an upgrade", () => {
     // A FILE, not `:memory:` — the whole point is that the second open sees
     // what the first one left behind. On `:memory:` each open is a fresh
     // database and this test would pass without the migration existing at all.
-    const path = join(tmpdir(), `feral-cost-migration-${crypto.randomUUID()}.db`);
+    const path = join(tmpdir(), `cinderpaw-cost-migration-${crypto.randomUUID()}.db`);
     try {
       const before = openDatabase(path);
       before.raw.exec("DROP TABLE completion_cost");

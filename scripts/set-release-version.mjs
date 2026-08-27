@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * set-release-version.mjs — set Feral's release version across every manifest.
+ * set-release-version.mjs — set Cinderpaw's release version across every manifest.
  *
- * Feral uses calendar versioning: a release is the padded date `YYYY.MM.DD`
+ * Cinderpaw uses calendar versioning: a release is the padded date `YYYY.MM.DD`
  * (e.g. 2026.06.17). Internally the manifests must hold valid semver, which
  * forbids leading zeros, so they store the UNPADDED `YYYY.M.D` (2026.6.17).
  * This script does that conversion in one place so a manual edit can never
@@ -58,7 +58,7 @@ patch('src-tauri/tauri.conf.json', /"version":\s*"([^"]+)"/, 'tauri.conf.json');
 patch('src-tauri/Cargo.toml', /^version = "([^"]+)"/m, 'src-tauri/Cargo.toml');
 // [workspace.package] version, inherited by crates/cinderpaw-cli and crates/cinderpaw-core
 // via `version.workspace = true`. Left out until 2026.07.26, so every npm CLI
-// ever published answered `feral --version` with the workspace default (0.2.0)
+// ever published answered `cinderpaw --version` with the workspace default (0.2.0)
 // while its package said something else entirely.
 patch('Cargo.toml', /^version = "([^"]+)"/m, 'Cargo.toml [workspace.package]');
 patch('CinderpawAgent/package.json', /"version":\s*"([^"]+)"/, 'CinderpawAgent/package.json');

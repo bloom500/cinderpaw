@@ -2,7 +2,7 @@
  * Connector liveness — "on" must stop meaning "enabled in a file".
  *
  * An invalid Discord token made `conn.start()` throw; the supervisor logged it
- * and swallowed it, and every surface (feral connectors list, /runtime/connectors,
+ * and swallowed it, and every surface (cinderpaw connectors list, /runtime/connectors,
  * the desktop) went on reporting the bot as on, because all three read
  * connectors.json and nothing else. The supervisor is the only code that knows
  * what actually connected, so it writes it down.

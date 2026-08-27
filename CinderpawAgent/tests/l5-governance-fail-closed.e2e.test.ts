@@ -19,7 +19,7 @@
  * end-to-end view a reviewer can read in 60 seconds, with on-disk
  * policy files written into a temp dir. `loadPolicy(dir)` and
  * `governanceCheck(...{dir})` both accept an explicit `dir` arg so
- * the test does NOT touch `~/.feral/`; the production code path that
+ * the test does NOT touch `~/.cinderpaw/`; the production code path that
  * pins via `defaultGovernanceDir()` is exercised on every install.
  */
 import { afterEach, describe, expect, it } from "bun:test";
@@ -58,7 +58,7 @@ describe("L5 — governance freeze / fail-closed (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "missing policy.json → builtin fail-closed, every governanceCheck refused",
     () => {
-      const dir = freshDir("feral-e2e-l5-missing-");
+      const dir = freshDir("cinderpaw-e2e-l5-missing-");
       const loaded = loadPolicy(dir);
       expect(loaded.source).toBe("builtin");
       if (loaded.source !== "builtin") throw new Error("unreachable");
@@ -83,7 +83,7 @@ describe("L5 — governance freeze / fail-closed (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "unparseable policy.json → file quarantined + fail-closed builtin",
     () => {
-      const dir = freshDir("feral-e2e-l5-corrupt-");
+      const dir = freshDir("cinderpaw-e2e-l5-corrupt-");
       writeFileSync(join(dir, "policy.json"), "{ this is not valid json", "utf8");
       const loaded = loadPolicy(dir);
       expect(loaded.source).toBe("builtin");
@@ -102,7 +102,7 @@ describe("L5 — governance freeze / fail-closed (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "G0-violating policy.json (budgets 10× the ceiling) → quarantined + fail-closed",
     () => {
-      const dir = freshDir("feral-e2e-l5-g0-");
+      const dir = freshDir("cinderpaw-e2e-l5-g0-");
       // Take a known-good document, blow one G0 wall (budget 1B tokens;
       // ceiling is 20M).
       const doc = defaultGenesisPolicy();
@@ -130,7 +130,7 @@ describe("L5 — governance freeze / fail-closed (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "valid policy.json → loads as source: file; governanceCheck follows its flags",
     () => {
-      const dir = freshDir("feral-e2e-l5-valid-");
+      const dir = freshDir("cinderpaw-e2e-l5-valid-");
       const doc = defaultGenesisPolicy();
       writeFileSync(join(dir, "policy.json"), JSON.stringify(doc), "utf8");
       const loaded = loadPolicy(dir);

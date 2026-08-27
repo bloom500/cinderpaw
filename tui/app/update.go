@@ -100,7 +100,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Check for wizard-done marker (§2 J2.3) — if missing, this is a
 		// first launch. The GUIDED flow is the default (OpenClaw parity);
-		// `--wizard` (the `feral setup --classic` path) forces the classic
+		// `--wizard` (the `cinderpaw setup --classic` path) forces the classic
 		// step-by-step wizard.
 		marker, err := WizardDonePath()
 		if err == nil {
@@ -600,7 +600,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.Wizard.KeyValidMsg = msg.Msg
 			a.Wizard.lastCompleted = WizCloudKey
 			saveWizardProgress(WizCloudKey, a.Wizard.SetupMode, a.Wizard.Choice)
-			// ONB-004: persist the validated key to ~/.feral/byok.json
+			// ONB-004: persist the validated key to ~/.cinderpaw/byok.json
 			// and activate the provider by switching the runtime model.
 			// The API key itself is not written to byok.json (the Rust
 			// backend reads keys from the OS keychain); we only persist
@@ -1828,7 +1828,7 @@ func (a *App) startWizardProviderTest(providerID, apiKey string) tea.Cmd {
 // Phase 0b 2026-07-07).
 //
 // Pre-Phase-0b this function wrote only non-secret metadata to
-// ~/.feral/byok.json and relied on a non-existent code path to put the
+// ~/.cinderpaw/byok.json and relied on a non-existent code path to put the
 // key into the keychain — first-time cloud users saw "✓ Connection
 // successful", finished the wizard, and on the next launch got "No API
 // key configured" because the key never persisted. The single
@@ -2246,10 +2246,10 @@ func (a *App) wizardHandleKey(key tea.KeyMsg) tea.Cmd {
 		// y/N confirm.
 		n := welcomeOptionCount(w)
 		if w.ResetPending {
-			// Confirming a wipe of ~/.feral.
+			// Confirming a wipe of ~/.cinderpaw.
 			if key.Type == tea.KeyRunes && len(key.Runes) == 1 &&
 				(key.Runes[0] == 'y' || key.Runes[0] == 'Y') {
-				wipeFeralHome()
+				wipeCinderpawHome()
 				a.Wizard = WizardState{}
 				a.startWizard()
 				a.rebuildViewport()

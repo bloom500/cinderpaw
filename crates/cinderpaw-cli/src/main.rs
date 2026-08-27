@@ -8,7 +8,7 @@
 //! because the desktop dev binary already claims `target/debug/cinderpaw.exe`
 //! (src-tauri package name `cinderpaw`). The user-facing name `cinderpaw` is
 //! applied at packaging time (installer alias/rename); installs from before the
-//! rename also keep a `feral` alias pointing at the same binary.
+//! rename also keep a `cinderpaw` alias pointing at the same binary.
 //!
 //! **Usage:** `cinderpaw-cli gateway` runs in the foreground until Ctrl+C,
 //! then drains per spec D7 (planned shutdown, bounded wait, hard-kill
@@ -432,13 +432,13 @@ mod tests {
     /// connectors (their naming) — muscle-memory for switchers.
     #[test]
     fn parses_onboard_alias_as_setup() {
-        let cli = Cli::try_parse_from(["feral", "onboard"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "onboard"]).unwrap();
         assert!(matches!(cli.command, Some(Command::Setup { classic: false, accept_risk: false })));
     }
 
     #[test]
     fn parses_channels_alias_as_connectors() {
-        let cli = Cli::try_parse_from(["feral", "channels"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "channels"]).unwrap();
         assert!(matches!(cli.command, Some(Command::Connectors { action: None })));
     }
 
@@ -451,7 +451,7 @@ mod tests {
     /// Phase B (L4) — pin the `cinderpaw modules …` parser shape.
     #[test]
     fn parses_modules_list() {
-        let cli = Cli::try_parse_from(["feral", "modules", "list"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "modules", "list"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Modules { action: crate::admin::ModulesAction::List })
@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn parses_modules_approve_with_note() {
         let cli =
-            Cli::try_parse_from(["feral", "modules", "approve", "mod-x", "-m", "looks good"]).unwrap();
+            Cli::try_parse_from(["cinderpaw", "modules", "approve", "mod-x", "-m", "looks good"]).unwrap();
         match cli.command {
             Some(Command::Modules {
                 action: crate::admin::ModulesAction::Approve { id, message },
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn parses_modules_demote() {
-        let cli = Cli::try_parse_from(["feral", "modules", "demote", "retrieval_strategy"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "modules", "demote", "retrieval_strategy"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Modules { action: crate::admin::ModulesAction::Demote { .. } })
@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn parses_modules_evaluate() {
-        let cli = Cli::try_parse_from(["feral", "modules", "evaluate", "mod-x"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "modules", "evaluate", "mod-x"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Modules { action: crate::admin::ModulesAction::Evaluate { .. } })
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn parses_governance_status() {
-        let cli = Cli::try_parse_from(["feral", "governance", "status"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "governance", "status"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Governance { action: crate::admin::GovernanceAction::Status })
@@ -502,7 +502,7 @@ mod tests {
 
     #[test]
     fn parses_governance_history() {
-        let cli = Cli::try_parse_from(["feral", "governance", "history"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "governance", "history"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Governance { action: crate::admin::GovernanceAction::History })
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn parses_governance_proposals() {
-        let cli = Cli::try_parse_from(["feral", "governance", "proposals"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "governance", "proposals"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Governance { action: crate::admin::GovernanceAction::Proposals })
@@ -520,7 +520,7 @@ mod tests {
 
     #[test]
     fn parses_governance_verify() {
-        let cli = Cli::try_parse_from(["feral", "governance", "verify"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "governance", "verify"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Governance { action: crate::admin::GovernanceAction::Verify })
@@ -530,7 +530,7 @@ mod tests {
     #[test]
     fn parses_governance_propose_with_file() {
         let cli = Cli::try_parse_from([
-            "feral", "governance", "propose", "/tmp/policy.json",
+            "cinderpaw", "governance", "propose", "/tmp/policy.json",
         ]).unwrap();
         if let Some(Command::Governance {
             action: crate::admin::GovernanceAction::Propose { file },
@@ -544,7 +544,7 @@ mod tests {
 
     #[test]
     fn parses_governance_approve_id_only() {
-        let cli = Cli::try_parse_from(["feral", "governance", "approve", "gp-3"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "governance", "approve", "gp-3"]).unwrap();
         if let Some(Command::Governance {
             action: crate::admin::GovernanceAction::Approve { id },
         }) = cli.command
@@ -558,7 +558,7 @@ mod tests {
     #[test]
     fn parses_governance_reject_with_reason() {
         let cli = Cli::try_parse_from([
-            "feral", "governance", "reject", "gp-3", "-m", "gate too loose",
+            "cinderpaw", "governance", "reject", "gp-3", "-m", "gate too loose",
         ]).unwrap();
         if let Some(Command::Governance {
             action: crate::admin::GovernanceAction::Reject { id, message },
@@ -574,7 +574,7 @@ mod tests {
     #[test]
     fn parses_governance_freeze_multiple_layers_with_message() {
         let cli = Cli::try_parse_from([
-            "feral", "governance", "freeze", "l3", "l6", "-m", "audit pause",
+            "cinderpaw", "governance", "freeze", "l3", "l6", "-m", "audit pause",
         ]).unwrap();
         if let Some(Command::Governance {
             action: crate::admin::GovernanceAction::Freeze { layers, message },
@@ -589,7 +589,7 @@ mod tests {
 
     #[test]
     fn parses_governance_unfreeze_layers() {
-        let cli = Cli::try_parse_from(["feral", "governance", "unfreeze", "l4"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "governance", "unfreeze", "l4"]).unwrap();
         if let Some(Command::Governance {
             action: crate::admin::GovernanceAction::Unfreeze { layers, message },
         }) = cli.command
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn parses_governance_rollback_no_args() {
-        let cli = Cli::try_parse_from(["feral", "governance", "rollback"]).unwrap();
+        let cli = Cli::try_parse_from(["cinderpaw", "governance", "rollback"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Command::Governance { action: crate::admin::GovernanceAction::Rollback })

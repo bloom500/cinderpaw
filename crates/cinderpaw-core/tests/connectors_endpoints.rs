@@ -18,7 +18,7 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 /// Restores the prior `CINDERPAW_HOME` (or removes it) when dropped. Held across
 /// `.await` points for the lifetime of the test body — safe here because
 /// `#[tokio::test]` defaults to a current-thread runtime (no `Send` bound on
-/// the test future), matching `rsi::test_support::with_temp_feral_home`'s
+/// the test future), matching `rsi::test_support::with_temp_cinderpaw_home`'s
 /// same-crate equivalent.
 struct EnvGuard {
     prev: Option<std::ffi::OsString>,
@@ -34,10 +34,10 @@ impl Drop for EnvGuard {
     }
 }
 
-fn temp_feral_home() -> (tempfile::TempDir, EnvGuard) {
+fn temp_cinderpaw_home() -> (tempfile::TempDir, EnvGuard) {
     let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::Builder::new()
-        .prefix("feral-connectors-test-")
+        .prefix("cinderpaw-connectors-test-")
         .tempdir()
         .expect("tempdir");
     let prev = std::env::var_os("CINDERPAW_HOME");
@@ -64,7 +64,7 @@ fn build_router() -> axum::Router {
 
 #[tokio::test]
 async fn get_runtime_connectors_never_returns_secret_values() {
-    let (_tmp, _guard) = temp_feral_home();
+    let (_tmp, _guard) = temp_cinderpaw_home();
     let app = build_router();
 
     let post_resp = app
@@ -130,7 +130,7 @@ async fn get_runtime_connectors_never_returns_secret_values() {
 
 #[tokio::test]
 async fn post_runtime_connectors_rejects_unknown_id() {
-    let (_tmp, _guard) = temp_feral_home();
+    let (_tmp, _guard) = temp_cinderpaw_home();
     let app = build_router();
     let resp = app
         .oneshot(

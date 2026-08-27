@@ -158,8 +158,8 @@ pub(crate) fn ensure_gateway() -> Result<(), i32> {
     Err(1)
 }
 
-fn feral_file(name: &str) -> std::path::PathBuf {
-    cinderpaw_core::paths::feral_dir().join(name)
+fn cinderpaw_file(name: &str) -> std::path::PathBuf {
+    cinderpaw_core::paths::cinderpaw_dir().join(name)
 }
 
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -269,7 +269,7 @@ pub fn gateway_start() -> i32 {
     };
     // Detach from this terminal: logs go to a file, not the console, so the
     // gateway outlives the shell that launched it.
-    let log_path = feral_file("gateway.log");
+    let log_path = cinderpaw_file("gateway.log");
     let log = match std::fs::File::create(&log_path) {
         Ok(f) => f,
         Err(e) => {
@@ -297,7 +297,7 @@ pub fn gateway_start() -> i32 {
         }
     };
     let pid = child.id();
-    let _ = std::fs::write(feral_file("gateway.pid"), pid.to_string());
+    let _ = std::fs::write(cinderpaw_file("gateway.pid"), pid.to_string());
 
     for i in 0..40 {
         if port_in_use(port) {
@@ -314,7 +314,7 @@ pub fn gateway_start() -> i32 {
     // behind after a failed start means `cinderpaw status` reports a pid with no
     // port, and the next `cinderpaw gateway stop` sends a signal to whatever the
     // OS has since given that number to — someone else's process.
-    let _ = std::fs::remove_file(feral_file("gateway.pid"));
+    let _ = std::fs::remove_file(cinderpaw_file("gateway.pid"));
     eprintln!(
         "{FAIL}gateway did not bind port {port} within 20s{RESET} — see {}",
         log_path.display()
@@ -339,7 +339,7 @@ pub fn gateway_stop() -> i32 {
     }
     for i in 0..70 {
         if !port_in_use(port) {
-            let _ = std::fs::remove_file(feral_file("gateway.pid"));
+            let _ = std::fs::remove_file(cinderpaw_file("gateway.pid"));
             tick_done();
             println!("{OK}● gateway stopped{RESET}                 ");
             return 0;
@@ -368,7 +368,7 @@ pub fn gateway_restart() -> i32 {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while std::time::Instant::now() < deadline {
             if !port_in_use(port) {
-                let _ = std::fs::remove_file(feral_file("gateway.pid"));
+                let _ = std::fs::remove_file(cinderpaw_file("gateway.pid"));
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
@@ -434,7 +434,7 @@ pub fn model_list() -> i32 {
 // ── logs ───────────────────────────────────────────────────────────────────
 
 pub fn logs(follow: bool) -> i32 {
-    let path = feral_file("gateway.log");
+    let path = cinderpaw_file("gateway.log");
     let mut file = match std::fs::File::open(&path) {
         Ok(f) => f,
         Err(_) => {
@@ -498,7 +498,7 @@ pub fn logs(follow: bool) -> i32 {
 pub fn connectors_list() -> i32 {
     let Palette { accent: ACCENT, text: TEXT, meta: META, ok: OK, fail: FAIL, bold: BOLD, dim: DIM, reset: RESET, .. } =
         palette();
-    let path = feral_file("connectors.json");
+    let path = cinderpaw_file("connectors.json");
     let raw = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
@@ -596,7 +596,7 @@ pub fn connectors_list() -> i32 {
 /// connectors actually connected, as opposed to which are switched on in the
 /// config. Absent (old sidecar, never reloaded) → no claim either way.
 fn read_connector_health() -> Option<serde_json::Map<String, serde_json::Value>> {
-    let raw = std::fs::read_to_string(feral_file("connector-health.json")).ok()?;
+    let raw = std::fs::read_to_string(cinderpaw_file("connector-health.json")).ok()?;
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
     v.get("connectors")?.as_object().cloned()
 }
@@ -1505,7 +1505,7 @@ fn document_kind(v: &serde_json::Value) -> &'static str {
 // ── config ─────────────────────────────────────────────────────────────────
 
 pub fn config_get(key: Option<&str>) -> i32 {
-    let path = feral_file("settings.json");
+    let path = cinderpaw_file("settings.json");
     let v: serde_json::Value = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -1529,7 +1529,7 @@ pub fn config_get(key: Option<&str>) -> i32 {
 /// gateway needs a restart to pick most keys up.
 pub fn config_set(key: &str, value: &str) -> i32 {
     let Palette { ok: OK, meta: META, fail: FAIL, dim: DIM, reset: RESET, .. } = palette();
-    let path = feral_file("settings.json");
+    let path = cinderpaw_file("settings.json");
     let mut v: serde_json::Value = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -1719,7 +1719,7 @@ fn check_models() -> Check {
 ///
 /// Absent brain.json is a WARN, not a FAIL: Brain Stack is opt-in.
 fn check_brain() -> Check {
-    let path = feral_file("brain.json");
+    let path = cinderpaw_file("brain.json");
     let raw = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => return Check::Warn("no brain.json — Brain Stack off (run `cinderpaw setup`)".into()),
@@ -1901,7 +1901,7 @@ fn check_gpu() -> Check {
 }
 
 fn check_connectors() -> Check {
-    let path = feral_file("connectors.json");
+    let path = cinderpaw_file("connectors.json");
     if !path.exists() {
         Check::Warn("no connectors.json — Discord/Slack/etc. not configured".into())
     } else {

@@ -358,7 +358,7 @@ func (a *App) renderHeader() string {
 	} else {
 		state = "no sidecar"
 	}
-	brand := ui.BrandStyle.Render("feral")
+	brand := ui.BrandStyle.Render("cinderpaw")
 	right := fmt.Sprintf("%s %s", dot, state)
 
 	// Build left segments right-to-left, dropping the rightmost segment
@@ -504,7 +504,7 @@ func humanKind(k string) string {
 		return "no model"
 	case "runtime_lost":
 		// Terminal surfaces say "gateway" — the same noun as the CLI's
-		// `feral gateway` command — so a user can transfer the word straight
+		// `cinderpaw gateway` command — so a user can transfer the word straight
 		// into the fix (audit 2026-07-10 Part 5, gateway had 4 names).
 		return "gateway lost"
 	case "rate_limited":
@@ -1602,9 +1602,9 @@ func renderWizWelcome(w *WizardState, width int) string {
 	if w.HasExistingConfig {
 		b.WriteByte('\n')
 		if w.ResetPending {
-			b.WriteString(ui.WarnStyle.Render("  reset ~/.feral and start fresh?  y/N"))
+			b.WriteString(ui.WarnStyle.Render("  reset ~/.cinderpaw and start fresh?  y/N"))
 		} else {
-			b.WriteString(wizLine("  " + ui.AccentStyle.Render("r") + " reset - wipe ~/.feral and start fresh"))
+			b.WriteString(wizLine("  " + ui.AccentStyle.Render("r") + " reset - wipe ~/.cinderpaw and start fresh"))
 		}
 		b.WriteByte('\n')
 	}
@@ -1980,7 +1980,7 @@ func renderWizTestIt(w *WizardState, width int) string {
 // renderWizFinish renders P1 screen 4: Ready. One consolidated receipt
 // (provider/model + benchmark, rendered once), a ⚠ warning when the health
 // check was skipped, a try-this suggestion (pre-filled on Enter), and the
-// two slash-command pointers. No `feral chat/doctor/desktop` list — the
+// two slash-command pointers. No `cinderpaw chat/doctor/desktop` list — the
 // user is already inside the TUI.
 func renderWizFinish(w *WizardState, width int) string {
 	var b strings.Builder

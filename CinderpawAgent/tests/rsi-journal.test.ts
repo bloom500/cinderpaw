@@ -20,7 +20,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { feralHome } from "../src/config.ts";
+import { cinderpawHome } from "../src/config.ts";
 import {
   appendJournal,
   defaultJournalDir,
@@ -40,7 +40,7 @@ afterEach(() => {
 });
 
 function freshTmpDir(): string {
-  const d = mkdtempSync(join(tmpdir(), "feral-journal-"));
+  const d = mkdtempSync(join(tmpdir(), "cinderpaw-journal-"));
   tmpDirs.push(d);
   return d;
 }
@@ -275,7 +275,7 @@ describe("path helpers", () => {
   });
 
   test("defaultJournalDir sits under <profile dir>/rsi/journal/", () => {
-    expect(defaultJournalDir()).toBe(join(feralHome(), "rsi", "journal"));
+    expect(defaultJournalDir()).toBe(join(cinderpawHome(), "rsi", "journal"));
   });
 });
 

@@ -417,7 +417,7 @@ pub(crate) fn delete_model(state: State<AppState>, path: String) -> Result<(), S
 #[specta::specta]
 pub(crate) async fn get_model_size_info(repo_id: String, filename: String) -> Result<u64, String> {
     let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
@@ -437,7 +437,7 @@ pub(crate) async fn get_model_size_info(repo_id: String, filename: String) -> Re
 #[specta::specta]
 pub(crate) async fn get_hf_model_size(repo_id: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
@@ -523,7 +523,7 @@ fn is_local_api_url(url: &str, api_port: u16) -> bool {
 ///   - "openai_compatible" → arbitrary OpenAI-compatible endpoint, caller supplies base_url
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn feral_set_model(
+pub(crate) async fn cinderpaw_set_model(
     state: State<'_, AppState>,
     source: String,
     provider_id: Option<String>,
@@ -655,7 +655,7 @@ pub(crate) async fn feral_set_model(
     } else {
         format!("{} · {}", provider, model)
     };
-    *state.feral_model_config.lock() = Some(FeralModelConfigView {
+    *state.cinderpaw_model_config.lock() = Some(CinderpawModelConfigView {
         provider,
         model,
         base_url: resolved_url,
@@ -666,11 +666,11 @@ pub(crate) async fn feral_set_model(
 }
 
 /// Returns the display-safe model config currently active in the Cinderpaw Agent sidecar.
-/// Returns None until the first feral_set_model call this session.
+/// Returns None until the first cinderpaw_set_model call this session.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn feral_get_model_config(state: State<'_, AppState>) -> Option<FeralModelConfigView> {
-    state.feral_model_config.lock().clone()
+pub(crate) fn cinderpaw_get_model_config(state: State<'_, AppState>) -> Option<CinderpawModelConfigView> {
+    state.cinderpaw_model_config.lock().clone()
 }
 
 /// Fetch the list of models available from a local Ollama instance.
@@ -751,7 +751,7 @@ pub struct HfSearchPage {
 #[specta::specta]
 pub(crate) async fn search_hf_models(query: String, cursor: Option<String>) -> Result<HfSearchPage, String> {
     let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -820,7 +820,7 @@ pub(crate) async fn search_hf_models(query: String, cursor: Option<String>) -> R
 #[specta::specta]
 pub(crate) async fn get_hf_model_detail(repo_id: String) -> Result<HfModelDetail, String> {
     let client = reqwest::Client::builder()
-        .user_agent("feral/0.1")
+        .user_agent("cinderpaw/0.1")
         .build()
         .map_err(|e| e.to_string())?;
 

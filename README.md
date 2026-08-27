@@ -178,7 +178,7 @@ Grab the latest installer from [Releases](https://github.com/bloom500/cinderpaw/
 > ```
 > Then open Cinderpaw normally. This removes the quarantine flag macOS puts on downloaded apps — nothing is actually damaged.
 
-> **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.feral.byok`. That's your saved API keys in the macOS Keychain — the name still says `feral` on purpose, because that is where your existing keys are, and renaming the Keychain item without moving them would lose them — enter your Mac login password and click **Always Allow** (or just re-enter the key in Settings → Cloud Keys). This happens because Cinderpaw isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Cinderpaw ships with an Apple Developer certificate.
+> **macOS after an update:** if you saved cloud API keys before updating, macOS may ask for your Mac login password to let the new version access an item stored in `ai.bloom.cinderpaw.byok`. That's your saved API keys in the macOS Keychain — the name still says `cinderpaw` on purpose, because that is where your existing keys are, and renaming the Keychain item without moving them would lose them — enter your Mac login password and click **Always Allow** (or just re-enter the key in Settings → Cloud Keys). This happens because Cinderpaw isn't Apple-notarized yet, so each update looks like a new app to the Keychain. It will go away once Cinderpaw ships with an Apple Developer certificate.
 
 ### Hardware requirements
 

@@ -1,5 +1,5 @@
 /**
- * feral_admin — the act half of what the CLI can do.
+ * cinderpaw_admin — the act half of what the CLI can do.
  *
  * The tests that matter are the refusals: an update replaces the running
  * application, so it gets the same posture as install_capability — confirmed,
@@ -7,7 +7,7 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { feralAdminTool } from "../src/tools/builtin/cinderpaw-admin.ts";
+import { cinderpawAdminTool } from "../src/tools/builtin/cinderpaw-admin.ts";
 import type { AskUserAnswer, AskUserQuestion } from "../src/types.ts";
 
 function bridgeWith(responses: Record<string, unknown>) {
@@ -36,16 +36,16 @@ function asker(label: string, seen: AskUserQuestion[] = []) {
   };
 }
 
-describe("feral_admin — availability and arguments", () => {
+describe("cinderpaw_admin — availability and arguments", () => {
   test("without the host bridge it says so instead of pretending", async () => {
-    const res = await feralAdminTool.execute({ action: "update_check" }, {} as never);
+    const res = await cinderpawAdminTool.execute({ action: "update_check" }, {} as never);
     expect(res.ok).toBe(false);
     expect(res.error).toBe("not_available");
   });
 
   test("an unknown action is refused", async () => {
     const { bridge } = bridgeWith({});
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "uninstall" },
       { admin: bridge } as never,
     );
@@ -55,7 +55,7 @@ describe("feral_admin — availability and arguments", () => {
 
   test("model_switch without a model is refused before the host is called", async () => {
     const { bridge, calls } = bridgeWith({});
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "model_switch", source: "local" },
       { admin: bridge } as never,
     );
@@ -64,14 +64,14 @@ describe("feral_admin — availability and arguments", () => {
   });
 });
 
-describe("feral_admin — updating", () => {
+describe("cinderpaw_admin — updating", () => {
   const AVAILABLE = { available: true, version: "2026.9.1", current: "2026.8.19" };
 
   test("nothing to install → says so, asks nobody", async () => {
     const { bridge } = bridgeWith({ update_check: { available: false, current: "2026.8.19" } });
     const seen: AskUserQuestion[] = [];
     const ask = asker("Update", seen);
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "update_apply" },
       { admin: bridge, askUser: ask.bridge } as never,
     );
@@ -82,7 +82,7 @@ describe("feral_admin — updating", () => {
 
   test("no way to ask → fails closed, installs nothing", async () => {
     const { bridge, calls } = bridgeWith({ update_check: AVAILABLE });
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "update_apply" },
       { admin: bridge } as never,
     );
@@ -94,7 +94,7 @@ describe("feral_admin — updating", () => {
   test("declined → installs nothing", async () => {
     const { bridge, calls } = bridgeWith({ update_check: AVAILABLE });
     const ask = asker("Not now");
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "update_apply" },
       { admin: bridge, askUser: ask.bridge } as never,
     );
@@ -110,7 +110,7 @@ describe("feral_admin — updating", () => {
     });
     const seen: AskUserQuestion[] = [];
     const ask = asker("Update", seen);
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "update_apply" },
       { admin: bridge, askUser: ask.bridge } as never,
     );
@@ -125,14 +125,14 @@ describe("feral_admin — updating", () => {
   });
 });
 
-describe("feral_admin — stopping and restarting", () => {
+describe("cinderpaw_admin — stopping and restarting", () => {
   test("restart is scheduled, not immediate, and says so", async () => {
     // The turn being served runs inside the process that goes away. Killing it
     // in the handler means the answer never arrives — a hang, not an action.
     const { bridge, calls } = bridgeWith({
       gateway_restart: { scheduled: true, restarting: true, in_seconds: 6 },
     });
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "gateway_restart" },
       { admin: bridge } as never,
     );
@@ -148,7 +148,7 @@ describe("feral_admin — stopping and restarting", () => {
     });
     const seen: AskUserQuestion[] = [];
     const ask = asker("Shut down", seen);
-    await feralAdminTool.execute(
+    await cinderpawAdminTool.execute(
       { action: "gateway_restart" },
       { admin: bridge, askUser: ask.bridge } as never,
     );
@@ -161,7 +161,7 @@ describe("feral_admin — stopping and restarting", () => {
     });
     const seen: AskUserQuestion[] = [];
     const ask = asker("Shut down", seen);
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "gateway_stop" },
       { admin: bridge, askUser: ask.bridge } as never,
     );
@@ -175,7 +175,7 @@ describe("feral_admin — stopping and restarting", () => {
   test("declining the stop leaves Cinderpaw running", async () => {
     const { bridge, calls } = bridgeWith({ gateway_stop: {} });
     const ask = asker("Not now");
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "gateway_stop" },
       { admin: bridge, askUser: ask.bridge } as never,
     );
@@ -185,7 +185,7 @@ describe("feral_admin — stopping and restarting", () => {
 
   test("no way to ask → stop fails closed", async () => {
     const { bridge, calls } = bridgeWith({ gateway_stop: {} });
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "gateway_stop" },
       { admin: bridge } as never,
     );
@@ -195,14 +195,14 @@ describe("feral_admin — stopping and restarting", () => {
   });
 });
 
-describe("feral_admin — models", () => {
+describe("cinderpaw_admin — models", () => {
   test("switching needs no confirmation — it is cheap and reversible", async () => {
     const { bridge, calls } = bridgeWith({
       model_switch: { switched: true, source: "local", model: "qwen2.5:7b" },
     });
     const seen: AskUserQuestion[] = [];
     const ask = asker("Update", seen);
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "model_switch", source: "local", model: "qwen2.5:7b" },
       { admin: bridge, askUser: ask.bridge } as never,
     );
@@ -213,7 +213,7 @@ describe("feral_admin — models", () => {
 
   test("an empty machine is described, not reported as an error", async () => {
     const { bridge } = bridgeWith({ model_list: { local: [], cloud: [] } });
-    const res = await feralAdminTool.execute(
+    const res = await cinderpawAdminTool.execute(
       { action: "model_list" },
       { admin: bridge } as never,
     );

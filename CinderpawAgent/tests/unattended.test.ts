@@ -330,7 +330,7 @@ describe("runUnattended", () => {
 describe("verifyDoneWhen kinds filter", () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "feral-kinds-"));
+    dir = await mkdtemp(join(tmpdir(), "cinderpaw-kinds-"));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -378,7 +378,7 @@ describe("verifyDoneWhen kinds filter", () => {
 describe("done_when", () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "feral-donewhen-"));
+    dir = await mkdtemp(join(tmpdir(), "cinderpaw-donewhen-"));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -438,7 +438,7 @@ describe("done_when", () => {
 describe("safety point", () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "feral-safety-"));
+    dir = await mkdtemp(join(tmpdir(), "cinderpaw-safety-"));
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -480,7 +480,7 @@ describe("safety point", () => {
       changes.restoreHint!.indexOf("checkout"),
     );
 
-    // The project tree stays clean: the shadow repo lives under ~/.feral.
+    // The project tree stays clean: the shadow repo lives under ~/.cinderpaw.
     expect(point.gitDir).toBeTruthy();
     expect(point.gitDir!).not.toStartWith(dir);
   });

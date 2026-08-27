@@ -6,7 +6,7 @@
  * must never reach the internet — filesystem paths, prompt text, model output,
  * API keys — and assert the published event does not contain them anywhere.
  *
- * The rows used below are shaped like real ones from `~/.feral/rsi/journal/`,
+ * The rows used below are shaped like real ones from `~/.cinderpaw/rsi/journal/`,
  * including the fields the engine leaves empty in practice.
  */
 import { describe, expect, test } from "bun:test";
@@ -323,7 +323,7 @@ describe("toPublicHeartbeat", () => {
       publisher: "cubby",
       ts: 1786437227900,
       working: false,
-      agentVersion: "built from C:\\dev\\feral",
+      agentVersion: "built from C:\\dev\\cinderpaw",
     });
     expect(beat.agentVersion).toBeNull();
   });
@@ -342,7 +342,7 @@ describe("toPublicHeartbeat", () => {
 describe("collectEvents", () => {
   /** A journal directory with the given files, each an array of rows. */
   function fixtureDir(files: Record<string, unknown[]>): string {
-    const dir = mkdtempSync(join(tmpdir(), "feral-journal-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-journal-"));
     for (const [name, rows] of Object.entries(files)) {
       writeFileSync(dir + "/" + name, rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
     }
@@ -372,7 +372,7 @@ describe("collectEvents", () => {
   });
 
   test("skips malformed lines instead of throwing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-journal-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-journal-"));
     writeFileSync(
       join(dir, "journal-2026-08-11.jsonl"),
       [
@@ -415,7 +415,7 @@ describe("cursor", () => {
   });
 
   test("a corrupt cursor resets to zero rather than skipping history", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-cursor-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-cursor-"));
     const file = join(dir, "cursor.json");
     writeFileSync(file, "{ not json", "utf8");
     expect(readCursor(file)).toEqual({ lastTimestamp: 0 });
@@ -425,7 +425,7 @@ describe("cursor", () => {
   });
 
   test("round-trips a written cursor", () => {
-    const dir = mkdtempSync(join(tmpdir(), "feral-cursor-"));
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-cursor-"));
     const file = join(dir, "nested", "cursor.json");
     writeCursor(file, { lastTimestamp: 1786437227900 });
     expect(readCursor(file)).toEqual({ lastTimestamp: 1786437227900 });
@@ -472,7 +472,7 @@ describe("buildPayload", () => {
 
 describe("assertTransportSafe", () => {
   test("allows https", () => {
-    expect(() => assertTransportSafe("https://feral.example/api/x")).not.toThrow();
+    expect(() => assertTransportSafe("https://cinderpaw.example/api/x")).not.toThrow();
   });
 
   test("allows plain http on localhost, for the local demo", () => {
@@ -481,7 +481,7 @@ describe("assertTransportSafe", () => {
   });
 
   test("refuses to send the token over plain http to a remote host", () => {
-    expect(() => assertTransportSafe("http://feral.example/api/x")).toThrow(/plain HTTP/);
+    expect(() => assertTransportSafe("http://cinderpaw.example/api/x")).toThrow(/plain HTTP/);
   });
 
   test("refuses a URL it cannot parse", () => {

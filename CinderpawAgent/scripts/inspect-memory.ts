@@ -2,12 +2,12 @@
 // or junk keys (leading "- ", etc). Read-only.
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { feralHome } from "../src/config.ts";
+import { cinderpawHome } from "../src/config.ts";
 
-// feralHome() rather than USERPROFILE + ".feral": that path is the
+// cinderpawHome() rather than USERPROFILE + ".cinderpaw": that path is the
 // pre-rename home, empty or stale on any machine the host has migrated,
 // and it was not even portable off Windows.
-const db = new Database(join(feralHome(), "agent", "feral.db"), {
+const db = new Database(join(cinderpawHome(), "agent", "cinderpaw.db"), {
   readonly: true,
 });
 

@@ -8,7 +8,7 @@
  *      - Survives: Ctrl+R, F5, Vite HMR
  *      - Dies on: uninstall, Tauri auto-update (WebView data dir wiped)
  *
- *   2. ~/.feral/onboarding.json via Tauri command (Rust std::fs)
+ *   2. ~/.cinderpaw/onboarding.json via Tauri command (Rust std::fs)
  *      - Survives: everything localStorage does PLUS uninstall + reinstall
  *        and Tauri auto-updates (lives in the user's home dir, outside
  *        the app data dir)
