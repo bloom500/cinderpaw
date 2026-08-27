@@ -249,3 +249,60 @@ describe("frugal policy — imagination as a second opinion", () => {
     expect(spent).toContain("ACTION2");
   });
 });
+
+/**
+ * Memory that survives a level.
+ *
+ * The runner builds ONE policy for a whole game, so everything learned in
+ * level 1 is still there in level 2 — the lever NVIDIA's AVO writeup calls its
+ * main one. This pins it, because the obvious "tidy" refactor is to construct
+ * the policy per level, and that silently pays presses to relearn the same
+ * buttons at every boundary.
+ */
+describe("frugal policy — what it remembers across a level boundary", () => {
+  test("a wall proven useless in level 1 is not paid for again in level 2", async () => {
+    const spent: string[] = [];
+    let level = 1;
+    let at = 0;
+    // ACTION1 is inert in BOTH levels; ACTION2 advances. Level 2's grids are
+    // disjoint from level 1's, so nothing the transition table stored can match
+    // — only the inertness inference carries, which is the point.
+    const view = (): ArcObservation => ({
+      grid: [[level * 1000 + at]],
+      state: at >= 3 ? "WIN" : "NOT_FINISHED",
+    });
+    const env: ArcEnvironment = {
+      actions: ["ACTION1", "ACTION2"],
+      observe: view,
+      act: (a) => {
+        spent.push(a);
+        if (a === "ACTION2" && at < 3) at++;
+        return view();
+      },
+    };
+
+    const policy = createFrugalPolicy({ inner: () => "ACTION1" });
+    await playLevel({ env, policy, maxActions: 12 });
+    const level1Walls = spent.filter((a) => a === "ACTION1").length;
+
+    // Same policy, new level: the grids are all different values now.
+    level = 2;
+    at = 0;
+    spent.length = 0;
+    await playLevel({ env, policy, maxActions: 12 });
+    const level2Walls = spent.filter((a) => a === "ACTION1").length;
+
+    // Level 1 pays to discover the wall. Level 2 must not pay as much again.
+    expect(level1Walls).toBeGreaterThan(0);
+    expect(level2Walls).toBeLessThan(level1Walls);
+  });
+
+  test("and it still finishes the level, never stranded by its own memory", async () => {
+    const { env, spent } = corridor(3);
+    const policy = createFrugalPolicy({ inner: () => "ACTION1" });
+    await playLevel({ env, policy, maxActions: 12 });
+    const first = await playLevel({ env, policy, maxActions: 12 });
+    expect(first.state).toBe("WIN");
+    expect(spent.length).toBeGreaterThan(0);
+  });
+});

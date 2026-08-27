@@ -120,8 +120,28 @@ export interface FrugalPolicyOptions {
 /**
  * Wrap a policy so it stops paying for actions it has already proven inert.
  *
- * One instance per level. The table is the level's own history and means
- * nothing in another game.
+ * ONE INSTANCE PER GAME, not per level — the runner builds it before the attempt
+ * loop and it lives across every level and every retry. That is deliberate and
+ * it is the cheapest thing in this file: what an action does is a property of
+ * the GAME, so relearning it at each level boundary means paying real presses
+ * to rediscover that the same button still does the same thing. NVIDIA's AVO
+ * writeup names persistent memory across attempts as its main lever for exactly
+ * this reason.
+ *
+ * Two halves age differently, which is why keeping both is safe:
+ *
+ *  - The transition table is keyed by the exact grid, so a new level's grids
+ *    simply never match the old entries. Stale rows are inert, not wrong.
+ *  - The learned RULES are re-scored against every pair they came from on each
+ *    pass, so a rule that held in level 1 and fails in level 2 drops below full
+ *    confidence and stops being believed. Self-correcting, by measurement.
+ *
+ * ponytail: the inertness INFERENCE (`likelyInert`) is the one part that
+ * generalises across a boundary it cannot see — an action that did nothing all
+ * through level 1 stays demoted into level 2, and since demotion keeps it out
+ * of the promising tier it may not get retried for a while. It fails open, so
+ * the ceiling is a few wasted presses rather than a stuck agent. If a run shows
+ * that costing levels, clear `perAction` on a level change and keep the rest.
  */
 export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
   const { inner, onVeto, imagination, onLearn, onImagined } = options;
