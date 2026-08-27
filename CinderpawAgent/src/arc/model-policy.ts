@@ -31,6 +31,7 @@ import {
   formatSceneGraphYaml,
   parseSceneGraph,
 } from "../research/perception/scene-graph.ts";
+import { biggestObjectCentre, centreOf } from "./click-target.ts";
 
 /** One turn of conversation, in the shape every provider in this repo takes. */
 export interface PolicyMessage {
@@ -248,48 +249,6 @@ export function renderScene(
   }
   return notes.length > 0 ? `${text}
 (${notes.join("; ")})` : text;
-}
-
-/** Dead centre, the fallback when there is nothing on the board to aim at. */
-function centreOf(grid: readonly (readonly number[])[]): { x: number; y: number } {
-  const rows = grid.length;
-  const cols = grid[0]?.length ?? 0;
-  return { x: Math.max(0, Math.floor(cols / 2)), y: Math.max(0, Math.floor(rows / 2)) };
-}
-
-/**
- * The centre of the largest non-background object, or null when the board has
- * nothing to aim at.
- *
- * Same reading `renderScene` puts in the prompt, so the click lands on
- * something the model was just shown rather than on a coordinate nobody has
- * seen. `x` is the column and `y` the row — the server's order, not the
- * array's, and the one place that is easy to get backwards.
- */
-function biggestObjectCentre(
-  grid: readonly (readonly number[])[],
-): { x: number; y: number } | null {
-  try {
-    const counts = new Map<number, number>();
-    for (const row of grid) for (const cell of row) counts.set(cell, (counts.get(cell) ?? 0) + 1);
-    let background = 0;
-    let seen = -1;
-    for (const [colour, n] of counts) if (n > seen) ((seen = n), (background = colour));
-    const scene = parseSceneGraph(grid.map((r) => [...r]), background);
-    let best = null as null | { x: number; y: number; px: number };
-    for (const o of scene.objects) {
-      if (best && o.pixels.length <= best.px) continue;
-      const b = o.boundingBox;
-      best = {
-        x: Math.min(63, Math.max(0, Math.floor(b.x + b.width / 2))),
-        y: Math.min(63, Math.max(0, Math.floor(b.y + b.height / 2))),
-        px: o.pixels.length,
-      };
-    }
-    return best ? { x: best.x, y: best.y } : null;
-  } catch {
-    return null;
-  }
 }
 
 export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {

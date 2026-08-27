@@ -57,6 +57,7 @@
  */
 
 import type { ArcEnvironment, ArcGrid, ArcLevelState, ArcObservation } from "./environment.ts";
+import { withClickTarget } from "./click-target.ts";
 
 const BASE_URL = "https://three.arcprize.org";
 
@@ -382,7 +383,13 @@ export async function openArcGame(options: ArcApiOptions): Promise<ArcApiEnviron
     observe: () => current(),
     reset,
     act: async (action: string): Promise<ArcObservation> => {
-      const parsed = parseAction(action);
+      // Last resort, and the reason it is here rather than in the policy: a
+      // bare ACTION6 is a 500 from the server, and more than one caller can
+      // produce one — the model names it without coordinates, and the frugal
+      // policy's veto substitutes from `available_actions`, which lists bare
+      // names. Filling it at the single seam every press passes through covers
+      // callers that do not exist yet.
+      const parsed = parseAction(withClickTarget(action, current().grid));
       const reasoning = options.reasoning?.();
       return absorb(
         await call<FrameResponse>(`/api/cmd/${parsed.name}`, {
