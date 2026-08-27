@@ -37,6 +37,7 @@
  */
 
 import process from "node:process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -178,7 +179,9 @@ function makeComplete(model, reasoningEffort, providerOnly, pricing) {
       }
     }
   };
+  const latenciesMs = [];
   const once = async (messages) => {
+    const startedAt = Date.now();
     const response = await provider.complete(target, {
       sessionId: "arc-agi-3",
       messages,
@@ -202,11 +205,16 @@ function makeComplete(model, reasoningEffort, providerOnly, pricing) {
     });
     promptTokens += response.promptTokens ?? 0;
     completionTokens += response.completionTokens ?? 0;
+    // Where the wall-clock of a run actually goes. Kept per call, not averaged,
+    // because the distribution is the interesting part: the same model on the
+    // same upstream answered in 3s and in 22s on the same grid.
+    latenciesMs.push(Date.now() - startedAt);
     return response.content ?? "";
   };
   complete.usage = () => ({
     calls,
     modelFailures,
+    latenciesMs,
     promptTokens,
     completionTokens,
     spend: promptTokens * pricing.inPer + completionTokens * pricing.outPer,
@@ -355,6 +363,8 @@ process.on("SIGTERM", () => void closeAndExit("SIGTERM"));
 console.log(`scorecard ${cardId}  game ${args.game}  budget ${args.budget}\n`);
 
 const attempts = [];
+/** Every press, in order, with the level counter and the clock. Evidence. */
+const trace = [];
 let spent = 0;
 let scenes = 0;
 let guessedCoords = 0;
@@ -396,6 +406,14 @@ try {
         maxActions: args.budget - spent,
         shouldStop: overSpend,
         onAction: (action, observation, index) => {
+          trace.push({
+            n: spent + index,
+            action,
+            state: observation.state,
+            levelsCompleted: env.last.levelsCompleted,
+            winLevels: env.last.winLevels,
+            atMs: Date.now() - cardOpenedAt,
+          });
           console.log(
             `  ${String(spent + index).padStart(4)}  ${action.padEnd(14)} ${observation.state}` +
               `  levels=${env.last.levelsCompleted}/${env.last.winLevels}`,
@@ -478,4 +496,72 @@ if (!args.dryRun) {
   );
 }
 console.log(`manifest    ${manifestPath}`);
+
+// EVERYTHING THIS RUN KNOWS, IN ONE MACHINE-READABLE FILE.
+//
+// The console summary is for a person watching; this is for the chart, the
+// paper and anyone who asks to see the run. It carries the scorecard id, which
+// is the only part of it three.arcprize.org can independently confirm, and the
+// full press-by-press trace, so a claim about how a level was cleared can be
+// checked rather than trusted.
+const usage = args.dryRun ? null : complete.usage();
+const resultPath = path.join(outDir, "result.json");
+fs.writeFileSync(
+  resultPath,
+  JSON.stringify(
+    {
+      runId: manifest.runId,
+      benchmark: "arc-agi-3",
+      game: args.game,
+      scorecardId: cardId,
+      scorecardUrl: `https://three.arcprize.org/scorecards/${cardId}`,
+      startedAt: new Date(cardOpenedAt).toISOString(),
+      endedAt: new Date().toISOString(),
+      wallClockSeconds: Math.round((Date.now() - cardOpenedAt) / 1000),
+      code: manifest.code,
+      config: {
+        model: args.model,
+        provider: args.provider ?? null,
+        reasoningEffort: args.reasoningEffort,
+        budget: args.budget,
+        maxSpend: args.maxSpend,
+        retries: args.retries,
+        imagination: args.imagination !== false,
+        perception: args.perception !== false,
+        dryRun: !!args.dryRun,
+        learnBudgetMs: args.learnBudgetMs ?? null,
+      },
+      outcome: {
+        actionsSpent: spent,
+        attempts,
+        levelsCompleted: attempts.at(-1)?.levelsCompleted ?? 0,
+        winLevels: attempts.at(-1)?.winLevels ?? 0,
+        finalState: attempts.at(-1)?.state ?? null,
+        stoppedOnSpendCap: !args.dryRun && overSpend(),
+      },
+      policy: {
+        vetoes,
+        unparsed,
+        guessedCoordinateClicks: guessedCoords,
+        promptsWithScene: scenes,
+        imagination: { passes: learnPasses, ms: learnMs, trustedRules, demotedPresses: imagined },
+      },
+      model: usage && {
+        name: args.model,
+        upstream: args.provider ?? null,
+        calls: usage.calls,
+        failures: usage.modelFailures,
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        spendUsd: usage.spend,
+        latenciesMs: usage.latenciesMs,
+      },
+      trace,
+      reportability: problems,
+    },
+    null,
+    2,
+  ),
+);
+console.log(`result      ${resultPath}`);
 console.log(`\nScores come from the scorecard, not from here: https://three.arcprize.org`);
