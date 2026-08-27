@@ -91,6 +91,26 @@ describe('ConversationActions', () => {
 
     expect(await screen.findByText(/disk is read-only/)).toBeTruthy();
   });
+
+  it('keeps a failed rename on screen, with the typed name still in the box', async () => {
+    // Rename used to close the dialog whatever happened, so the row snapped
+    // back to the old title and the reason went nowhere at all.
+    saveProject.mockRejectedValueOnce(new Error('disk is read-only'));
+    useProjects.setState({ list: [{ id: 'p1', name: 'Bloom', conversation_ids: [] }] });
+    const user = userEvent.setup();
+
+    render(<ProjectActions project={{ id: 'p1', name: 'Bloom', conversation_ids: [] }} />);
+    await user.click(screen.getByLabelText('Project options'));
+    await user.click(await screen.findByText(/Rename/));
+
+    const box = await screen.findByDisplayValue('Bloom');
+    await user.clear(box);
+    await user.type(box, 'Bloom Media');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText(/disk is read-only/)).toBeTruthy();
+    expect(screen.getByDisplayValue('Bloom Media')).toBeTruthy();
+  });
 });
 
 describe('ProjectActions', () => {

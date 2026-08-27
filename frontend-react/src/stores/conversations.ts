@@ -3,6 +3,7 @@ import { tauri, type PersistedMessage, type ConversationSummary } from '@/lib/ta
 import { rehydrateLiveSession } from '@/lib/cinderpawLiveSession';
 import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { useChat, type ChatMessage } from './chat';
+import { reportFailure } from './notifications';
 
 export type { ConversationSummary };
 
@@ -110,7 +111,14 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
 
     set({ loadingConversation: true });
     try {
-      const conv = await tauri.conversations.load(id);
+      // Every caller opens a chat as `void open(id)` — a row click in the rail,
+      // in Chats, in Projects. A load that throws was an unhandled rejection
+      // there: the click did nothing at all, with no clue whether the chat was
+      // gone, corrupt, or the backend simply not up yet.
+      const conv = await reportFailure('Could not open the chat', () =>
+        tauri.conversations.load(id),
+      );
+      if (!conv) return;
       const msgs = conv.messages.map(toChatMessage);
       // Preserve the streaming animation if the user re-enters the chat
       // that's currently mid-generation. Without this, `loadSession` would
@@ -153,6 +161,9 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   rename: async (id, title) => {
     const next = title.trim();
     if (!next) return; // An empty name is not a rename, it is a chat you cannot find.
+    // Throws on failure ON PURPOSE: RenameDialog catches it and keeps itself
+    // open with the typed name intact, which beats a toast over a dialog that
+    // already closed. See ConfirmDialog, which has always done this for delete.
     await tauri.conversations.rename(id, next);
     // Patched in place rather than re-listed: a rename does not change the
     // order, and a full refresh would make the row the user just typed into
@@ -161,6 +172,9 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
   },
 
   delete: async (id) => {
+    // Throws on failure ON PURPOSE — ConfirmDialog catches it, stays open and
+    // prints the reason next to the button. Swallowing it here would close the
+    // dialog on a delete that did not happen.
     await tauri.conversations.delete(id);
     if (get().currentId === id) {
       useChat.getState().newSession();

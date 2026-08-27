@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
@@ -51,9 +51,25 @@ function isCategory(s: string | null): s is Category {
 }
 
 export function SettingsPage() {
-  const [searchParams] = useSearchParams();
-  const initial = searchParams.get('cat');
-  const [cat, setCat] = useState<Category>(isCategory(initial) ? initial : 'general');
+  /**
+   * The URL is the only place the open category lives.
+   *
+   * It used to live in `useState` as well, with an effect syncing the URL back
+   * onto it — and that effect ran on `[searchParams, cat]`, so it fired on the
+   * click that changed `cat` and put the old category straight back. Anyone who
+   * arrived through one of the four redirects (`/extensions`, `/connectors`,
+   * `/memory-layers`, `/memory-graph`) was then locked in that category: every
+   * other entry in the sidebar visibly did nothing. Settings, unable to leave
+   * the first screen it opened on.
+   *
+   * One source of truth removes the loop rather than patching it, and the URL
+   * is the right one — it is what the redirects, deep links and the agent's own
+   * navigation already speak.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  const raw = searchParams.get('cat');
+  const cat: Category = isCategory(raw) ? raw : 'general';
+  const setCat = (next: Category) => setSearchParams({ cat: next }, { replace: true });
   const fetchSettings = useSettings((s) => s.fetchSettings);
   const fetchByok     = useSettings((s) => s.fetchByok);
 
@@ -61,12 +77,6 @@ export function SettingsPage() {
     void fetchSettings();
     void fetchByok();
   }, [fetchSettings, fetchByok]);
-
-  // Allow deep-links like /settings?cat=agent to switch tabs.
-  useEffect(() => {
-    const next = searchParams.get('cat');
-    if (isCategory(next) && next !== cat) setCat(next);
-  }, [searchParams, cat]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -84,6 +94,9 @@ export function SettingsPage() {
             key={c.id}
             type="button"
             onClick={() => setCat(c.id)}
+            // Colour alone said which category was open. A screen reader read
+            // eleven identical buttons.
+            aria-current={cat === c.id ? 'page' : undefined}
             className={cn(
               'flex items-center gap-2.5 px-4 py-2 text-sm text-left transition-colors',
               cat === c.id

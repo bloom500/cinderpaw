@@ -133,7 +133,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
   // The projects store is refreshed by Chat/Projects pages; the rail must
   // not depend on having visited them first.
   useEffect(() => {
-    void useProjects.getState().refresh().catch(console.error);
+    void useProjects.getState().refresh();
   }, []);
   if (collapsed) return null;
 
@@ -177,6 +177,9 @@ function Library({ collapsed }: { collapsed: boolean }) {
           <button
             type="button"
             onClick={() => { void useConversations.getState().open(c.id); navigate('/chat'); }}
+            // Which chat you are in was said in background colour alone, so a
+            // screen reader read a column of interchangeable titles.
+            aria-current={c.id === currentId ? 'page' : undefined}
             className={cn(
               rowBase,
               'flex-1 min-w-0',
@@ -256,7 +259,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
                       e.dataTransfer.getData('text/cinderpaw-chat-id') ||
                       e.dataTransfer.getData('text/plain');
                     if (convId) {
-                      void useProjects.getState().addChat(p.id, convId).catch(console.error);
+                      void useProjects.getState().addChat(p.id, convId);
                     }
                     setDragOverProject(null);
                     setDraggingChat(null);

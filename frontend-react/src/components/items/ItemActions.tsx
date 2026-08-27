@@ -112,7 +112,15 @@ function ConfirmDeleteDialog({
   );
 }
 
-/** Single-field rename. Enter saves, so the mouse is optional. */
+/**
+ * Single-field rename. Enter saves, so the mouse is optional.
+ *
+ * Failures stay on screen, exactly as ConfirmDeleteDialog above has always
+ * done. This one used to `await onSave(name)` and close regardless — so a
+ * rename that the backend rejected closed the dialog, put the old name back in
+ * the row, threw the typed name away, and reported nothing anywhere. Both
+ * things a rename dialog can do — chats and projects — went through here.
+ */
 function RenameDialog({
   open, onOpenChange, title, label, initial, onSave,
 }: {
@@ -125,18 +133,34 @@ function RenameDialog({
   onSave: (name: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
     const name = draft.trim();
-    if (!name) return;
-    await onSave(name);
-    onOpenChange(false);
+    if (!name || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(name);
+      onOpenChange(false);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => { if (!next) setDraft(initial); onOpenChange(next); }}
+      // Not dismissible mid-write, same as the delete dialog: closing while the
+      // save is in flight leaves the person with no idea which name won.
+      onOpenChange={(next) => {
+        if (busy) return;
+        if (!next) { setDraft(initial); setError(null); }
+        onOpenChange(next);
+      }}
     >
       <DialogContent
         className="sm:max-w-sm"
@@ -156,19 +180,26 @@ function RenameDialog({
           aria-label={label}
           className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
         />
+        {error && (
+          <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
+            <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+            <p className="text-sm text-error">{error}</p>
+          </div>
+        )}
         <DialogFooter>
           <button
             onClick={() => onOpenChange(false)}
-            className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover"
+            disabled={busy}
+            className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={() => void save()}
-            disabled={!draft.trim()}
+            disabled={!draft.trim() || busy}
             className="px-3 py-1.5 text-sm rounded bg-brand text-on-brand disabled:opacity-40"
           >
-            Save
+            {busy ? 'Saving…' : 'Save'}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -206,7 +237,7 @@ export function ConversationActions({
           // menu opened from the sidebar before visiting either saw an empty
           // list and a disabled "Add to project" (Darius, 2026-08-24).
           // Refresh on every open — cheap, and the submenu is always live.
-          if (open) void useProjects.getState().refresh().catch(console.error);
+          if (open) void useProjects.getState().refresh();
         }}
       >
         <ActionsTrigger label="Chat options" className={className} />
@@ -218,7 +249,7 @@ export function ConversationActions({
           <DropdownMenuSeparator />
           {parent ? (
             <DropdownMenuItem
-              onClick={() => void useProjects.getState().removeChat(parent.id, conv.id).catch(console.error)}
+              onClick={() => void useProjects.getState().removeChat(parent.id, conv.id)}
             >
               <FolderMinus size={13} />
               Remove from project
@@ -233,7 +264,7 @@ export function ConversationActions({
                 {projects.map((p) => (
                   <DropdownMenuItem
                     key={p.id}
-                    onClick={() => void useProjects.getState().addChat(p.id, conv.id).catch(console.error)}
+                    onClick={() => void useProjects.getState().addChat(p.id, conv.id)}
                   >
                     <Folder size={13} />
                     {p.name}

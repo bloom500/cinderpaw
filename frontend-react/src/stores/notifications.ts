@@ -64,3 +64,33 @@ export const useNotifications = create<NotificationStore>((set, get) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
 }));
+
+/**
+ * Run something the user asked for, and if it fails, say so on their screen.
+ *
+ * Renaming a chat, deleting a project, dragging a chat into a project: every
+ * one of these went to the backend with no `catch` at all, or with a `catch`
+ * that reached `console.error`. On a machine where the sidecar has not started
+ * — which is every machine, for the first few seconds after launch, and any
+ * machine where the setup did not finish — the rename simply did not happen.
+ * The dialog closed, the name stayed the same, and the only account of why was
+ * in a DevTools console the person does not have open.
+ *
+ * Wrapping the store mutation rather than each caller is what makes it hold:
+ * `addChat` alone has three entry points (the row menu, the project menu, and
+ * dropping a chat onto a project in the rail), and a guard in one of them is a
+ * guard in one of them.
+ *
+ * Returns `undefined` on failure, so a caller that cares can still branch;
+ * nothing is rethrown, because a rejected promise is what nobody was catching
+ * in the first place.
+ */
+export async function reportFailure<T>(what: string, run: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await run();
+  } catch (err) {
+    useNotifications.getState().push('error', what, err instanceof Error ? err.message : String(err));
+    console.error(`[${what}]`, err);
+    return undefined;
+  }
+}
