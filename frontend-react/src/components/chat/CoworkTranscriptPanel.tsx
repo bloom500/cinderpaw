@@ -853,6 +853,11 @@ export function CoworkTranscriptPanel() {
         type="button"
         onClick={toggleCollapsed}
         aria-expanded={true}
+        // Without this the control announces as its own contents — the avatar
+        // initial glued to the participant list, "AAtlas" — which says who is
+        // in the conversation and nothing about what the button does. The
+        // collapsed bubble already names its action; this is the other half.
+        aria-label="Collapse cowork transcript"
         className="flex items-center gap-2 px-3 py-2 text-2xs font-medium text-text-muted
                    hover:bg-bg-elevated cursor-pointer select-none"
       >

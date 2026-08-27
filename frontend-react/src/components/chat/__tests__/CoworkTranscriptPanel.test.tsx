@@ -10,6 +10,10 @@ vi.mock('@/lib/tauri', () => ({
     cinderpawAgent: {
       coworkSendMessage: vi.fn().mockResolvedValue(undefined),
       coworkStop: vi.fn().mockResolvedValue(undefined),
+      // The panel asks for a thread's history on mount. Absent from this mock,
+      // the call threw synchronously — before the component's own `.catch`
+      // could see it — and took every test in the file down with it.
+      coworkHistory: vi.fn().mockResolvedValue(undefined),
     },
   },
 }));
@@ -138,7 +142,7 @@ describe('CoworkTranscriptPanel', () => {
   test('collapse toggle hides the transcript and persists its state', async () => {
     useCoworkTranscript.setState({ exchanges: [exchange({ id: 'y' })] });
     const { unmount } = render(<CoworkTranscriptPanel />);
-    await userEvent.click(screen.getByRole('button', { name: /Atlas/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Collapse cowork transcript/ }));
     expect(screen.queryByText('count the files')).toBeNull();
     expect(localStorage.getItem('cowork-panel-collapsed')).toBe('1');
     unmount();
@@ -148,7 +152,10 @@ describe('CoworkTranscriptPanel', () => {
     render(<CoworkTranscriptPanel />);
     expect(screen.queryByText('again')).toBeNull();
 
-    await userEvent.click(screen.getByRole('button', { name: /Atlas/ }));
+    // Collapsed, the control is the bubble — named for what it does, not for
+    // who is in the conversation. Querying it by a participant's name is what
+    // made this assertion depend on the panel's visual state.
+    await userEvent.click(screen.getByRole('button', { name: /Open cowork transcript/ }));
     expect(localStorage.getItem('cowork-panel-collapsed')).toBe('0');
   });
 
