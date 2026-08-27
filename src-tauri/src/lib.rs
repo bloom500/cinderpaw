@@ -370,6 +370,74 @@ pub fn run() {
         Ok(_) => {}
     }
 
+    // The database file was renamed with the app too, and unlike the folder
+    // nothing had ever moved it: an install from before the rename kept its
+    // whole history in `agent/feral.db` while the host asked SQLite for
+    // `agent/cinderpaw.db` — a name SQLite creates, empty, without complaint.
+    // The result was an app that opened perfectly and knew nothing: no
+    // conversations, no memories, no teammates. `migrate_agent_db` renames the
+    // old file into place when that is safe and reports when it is not; this
+    // is only the reporting half. Resolving it here also settles the choice
+    // before anything opens the database.
+    if let Some(notice) = cinderpaw_core::migrate_agent_db::notice() {
+        use cinderpaw_core::migrate_agent_db::DbNotice;
+        let mb = |b: u64| format!("{:.1} MB", b as f64 / (1024.0 * 1024.0));
+        let (title, msg, key) = match notice {
+            // The one case with a real decision in it, so it gets the numbers.
+            // Whichever file is theirs, the sizes say which is which faster
+            // than any sentence could.
+            DbNotice::BothPresent { current, current_bytes, legacy, legacy_bytes } => (
+                "Two Cinderpaw databases are on disk",
+                format!(
+                    "Cinderpaw is using:
+  {} ({})
+
+An older database from before the                      rename is also there:
+  {} ({})
+
+Nothing has been moved, changed or                      deleted. If your conversations, memories or teammates look missing, close                      Cinderpaw, rename the file it is using to cinderpaw.db.bak, rename the older                      file to cinderpaw.db, and start Cinderpaw again.",
+                    current.display(), mb(*current_bytes), legacy.display(), mb(*legacy_bytes)
+                ),
+                format!("both:{}", legacy.display()),
+            ),
+            // Nothing is wrong here — the data is open and in use, just under
+            // its old name — so this says what happened and asks for nothing.
+            DbNotice::OpenedLegacyInPlace { legacy, reason } => (
+                "Cinderpaw is using its older database file",
+                format!(
+                    "Cinderpaw could not rename {} to cinderpaw.db, so it opened it where it                      is.
+
+{}
+
+Everything is there and nothing is at risk. Cinderpaw will                      try again the next time it starts.",
+                    legacy.display(), reason
+                ),
+                format!("inplace:{}", legacy.display()),
+            ),
+        };
+        // Same contract as the leftover-home notice above: the log line every
+        // boot, the modal exactly once per distinct situation, and never on the
+        // thread that still has to get a window on screen.
+        eprintln!("[cinderpaw] {msg}");
+        let receipt = cinderpaw_core::paths::cinderpaw_dir().join(".agent-db-notice");
+        let already_told = std::fs::read_to_string(&receipt)
+            .map(|seen| seen.trim() == key)
+            .unwrap_or(false);
+        if !already_told {
+            if let Some(parent) = receipt.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&receipt, key.as_bytes());
+            std::thread::spawn(move || {
+                rfd::MessageDialog::new()
+                    .set_level(rfd::MessageLevel::Warning)
+                    .set_title(title)
+                    .set_description(&msg)
+                    .show();
+            });
+        }
+    }
+
     // The webview keeps its storage in a directory named after the bundle
     // identifier, and that identifier moved with the rename — so without this
     // the renamed build opens an empty profile and the person loses their

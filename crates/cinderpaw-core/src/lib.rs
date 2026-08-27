@@ -25,6 +25,7 @@ pub mod inference;
 pub mod live;
 pub mod livekit;
 pub mod migrate;
+pub mod migrate_agent_db;
 pub mod migrate_home;
 pub mod models;
 pub mod oauth_device;

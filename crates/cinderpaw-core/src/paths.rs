@@ -63,8 +63,15 @@ pub fn cinderpaw_agent_dir() -> PathBuf {
     cinderpaw_dir().join("agent")
 }
 
+/// The agent's SQLite database.
+///
+/// Not simply `agent/cinderpaw.db`: an install from before the rename has its
+/// entire history in `agent/feral.db`, and asking SQLite for a name that is not
+/// there gets you a brand-new empty database rather than an error. The choice
+/// is made once, by `migrate_agent_db` — which renames the old file into place
+/// when it can, and never overwrites anything when it cannot.
 pub fn cinderpaw_agent_db_path() -> PathBuf {
-    cinderpaw_agent_dir().join("cinderpaw.db")
+    crate::migrate_agent_db::resolve().path.clone()
 }
 
 pub fn cinderpaw_agent_workspace_path() -> PathBuf {
