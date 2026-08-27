@@ -1,8 +1,15 @@
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { CoworkTranscriptPanel, toMessages } from '../CoworkTranscriptPanel';
+import {
+  CoworkTranscriptPanel,
+  toMessages,
+  maxBodyHeight,
+  PANEL_MIN_H,
+  PANEL_MAX_H,
+} from '../CoworkTranscriptPanel';
 import { useCoworkTranscript, type CoworkExchange } from '@/stores/coworkTranscript';
+import { useConversations } from '@/stores/conversations';
 import { tauri } from '@/lib/tauri';
 
 vi.mock('@/lib/tauri', () => ({
@@ -45,8 +52,16 @@ function exchange(overrides: Partial<CoworkExchange>): CoworkExchange {
   };
 }
 
+// The panel renders one THREAD's traffic, so every test needs a chat open —
+// exactly as the app does. `exchange()` files its rows under 't1'.
+beforeEach(() => {
+  useConversations.setState({ currentId: 't1' });
+  useCoworkTranscript.setState({ activeThreadId: 't1' });
+});
+
 afterEach(() => {
-  useCoworkTranscript.setState({ exchanges: [] });
+  useConversations.setState({ currentId: null });
+  useCoworkTranscript.setState({ exchanges: [], activeThreadId: null });
   localStorage.removeItem('cowork-panel-collapsed');
   // Without this a "was not called" assertion passes or fails depending on
   // what the previous test did — the exact way a negative assertion rots.
@@ -326,5 +341,50 @@ describe('talking to a teammate directly', () => {
     render(<CoworkTranscriptPanel />);
     await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
     expect(tauri.cinderpawAgent.coworkStop).toHaveBeenCalledWith('demo-agent-atlas');
+  });
+});
+
+/**
+ * The resize you cannot undo.
+ *
+ * The old clamp was `Math.min(MAX, roomLeft, Math.max(MIN, wanted))` — the
+ * floor sat INSIDE the min and lost to it. A short window, or a panel dragged
+ * near the bottom, made `roomLeft` smaller than the minimum (or negative), the
+ * body collapsed to a strip, and the resize grip went with it: there was no
+ * gesture left that could make the panel big again.
+ */
+describe('the height ceiling', () => {
+  const dock = (topPx: number) => {
+    const el = document.createElement('div');
+    el.setAttribute('data-chat-input-dock', '');
+    el.getBoundingClientRect = () => ({ top: topPx }) as DOMRect;
+    document.body.appendChild(el);
+    return el;
+  };
+
+  afterEach(() => {
+    document.querySelectorAll('[data-chat-input-dock]').forEach((e) => e.remove());
+  });
+
+  test('never returns less than the minimum, however cramped the window', () => {
+    dock(120); // composer almost at the top: no room at all
+    expect(maxBodyHeight(100)).toBe(PANEL_MIN_H);
+  });
+
+  test('never returns less than the minimum when the panel is dragged below the composer', () => {
+    dock(400);
+    expect(maxBodyHeight(900)).toBe(PANEL_MIN_H); // negative room
+  });
+
+  test('stops at the composer, not at the bottom of the window', () => {
+    dock(600);
+    // 600 (dock) - 40 (panel top) - 132 (chrome) - 12 (gap) = 416
+    expect(maxBodyHeight(40)).toBe(416);
+  });
+
+  test('falls back to the viewport when no composer is on the page', () => {
+    // No dock element: the panel is being rendered somewhere without one.
+    expect(maxBodyHeight(40)).toBeGreaterThanOrEqual(PANEL_MIN_H);
+    expect(maxBodyHeight(40)).toBeLessThanOrEqual(PANEL_MAX_H);
   });
 });

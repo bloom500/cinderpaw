@@ -143,7 +143,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             exactly this reason: the shape has to read before the tail can
             mean anything. */}
         <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-brand text-bg-primary shadow-md">
-          <BubbleTail className="absolute right-[-11px] bottom-0 text-brand" />
+          <BubbleTail className="absolute right-[-11px] bottom-0 text-[color:var(--brand)]" />
           {images.length > 0 && (
             <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
               {images.map((src, i) => (

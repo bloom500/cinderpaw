@@ -222,6 +222,11 @@ export function ChatPage() {
           // a shadow with no object casting it. The transcript's own top fade
           // does the "there is more" job now, and the composer sits on the
           // scene like everything else.
+          // Named so the floating cowork panel can measure where the composer
+          // actually starts. It was clearing a hard-coded 88px, and this dock
+          // is not 88px tall — it grows with a multi-line draft, the error
+          // notice and the greeting.
+          data-chat-input-dock=""
           className="absolute inset-x-0 bottom-0 z-20 pt-8"
         >
           {isEmpty && !showAgentOnboarding && <HomeGreeting />}

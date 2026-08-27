@@ -3,6 +3,7 @@ import {
   applyCoworkEvent,
   COWORK_TRANSCRIPT_MAX,
   fromHistory,
+  threadExchanges,
   useCoworkTranscript,
   type CoworkExchange,
 } from '../coworkTranscript';
@@ -208,18 +209,46 @@ describe('fromHistory — the transcript rebuilt from the mailbox', () => {
     expect(fromHistory('c', rows).every((e) => e.startedAt === undefined)).toBe(true);
   });
 
-  test('hydrate REPLACES, so switching chats does not leak the previous one', () => {
+  test('another chat never leaks into the one on screen', () => {
     useCoworkTranscript.setState({
       exchanges: fromHistory('old-chat', [{ ...rows[0]!, id: 'old', body: 'from another chat' }]),
+      activeThreadId: 'conv-1',
     });
     useCoworkTranscript.getState().hydrate('conv-1', rows);
-    const texts = useCoworkTranscript.getState().exchanges.map((e) => e.requestText);
-    expect(texts).not.toContain('from another chat');
-    expect(texts).toContain('summarise perception');
+    const shown = threadExchanges(useCoworkTranscript.getState().exchanges, 'conv-1');
+    expect(shown.map((e) => e.requestText)).toEqual([
+      'summarise perception',
+      'check the tests',
+    ]);
+    // Kept, not wiped: reopening that chat must bring its own history back.
+    expect(threadExchanges(useCoworkTranscript.getState().exchanges, 'old-chat')).toHaveLength(1);
   });
 
-  test('an empty thread clears the panel rather than leaving stale traffic', () => {
+  test('hydrate replaces only the thread it was asked about', () => {
+    useCoworkTranscript.setState({ exchanges: fromHistory('conv-1', rows) });
+    useCoworkTranscript.getState().hydrate('conv-1', [{ ...rows[0]!, id: 'only', body: 'just this' }]);
+    expect(
+      threadExchanges(useCoworkTranscript.getState().exchanges, 'conv-1').map((e) => e.requestText),
+    ).toEqual(['just this']);
+  });
+
+  test('a thread that never used cowork shows nothing, and neither does a new chat', () => {
+    useCoworkTranscript.setState({ exchanges: fromHistory('conv-1', rows) });
     useCoworkTranscript.getState().hydrate('conv-2', []);
-    expect(useCoworkTranscript.getState().exchanges).toEqual([]);
+    expect(threadExchanges(useCoworkTranscript.getState().exchanges, 'conv-2')).toEqual([]);
+    // No conversation open yet (a brand-new chat) — the panel gets nothing.
+    expect(threadExchanges(useCoworkTranscript.getState().exchanges, null)).toEqual([]);
+  });
+
+  test('a thread-less teammate message is filed under the chat being read', () => {
+    useCoworkTranscript.setState({ exchanges: [], activeThreadId: 'conv-9' });
+    useCoworkTranscript.getState().ingest({
+      eventType: 'message_received',
+      agentId: 'bolt',
+      threadId: undefined,
+      title: 'Atlas → Bolt',
+      data: { messageId: 'd1', body: 'agent to agent', fromAgentId: 'atlas' },
+    });
+    expect(threadExchanges(useCoworkTranscript.getState().exchanges, 'conv-9')).toHaveLength(1);
   });
 });

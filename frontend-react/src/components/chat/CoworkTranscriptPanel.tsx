@@ -30,6 +30,7 @@ import { Markdown } from '@/lib/markdown';
 import { tauri } from '@/lib/tauri';
 import {
   useCoworkTranscript,
+  threadExchanges,
   type CoworkExchange,
 } from '@/stores/coworkTranscript';
 import { useConversations } from '@/stores/conversations';
@@ -88,14 +89,27 @@ function Elapsed({ since }: { since: number }) {
   );
 }
 
-function Avatar({ id, name }: { id: string; name?: string }) {
+function Avatar({
+  id,
+  name,
+  size = 'inline',
+  className,
+}: {
+  id: string;
+  name?: string;
+  /** `head` is the collapsed chat head: one avatar filling the whole circle. */
+  size?: 'inline' | 'head';
+  className?: string;
+}) {
   const label = displayName(id, name);
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center justify-center size-6 rounded-full',
-        'text-2xs font-semibold text-white select-none',
+        'inline-flex shrink-0 items-center justify-center rounded-full',
+        'font-semibold text-white select-none',
+        size === 'head' ? 'size-full text-lg' : 'size-6 text-2xs',
         avatarColor(id),
+        className,
       )}
       // The id stays reachable on hover: the name is for the person, the id is
       // what they would quote in a bug report.
@@ -194,7 +208,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
           {showAuthor && <Avatar id={m.authorId} name={m.authorName} />}
         </span>
       )}
-      <div className={cn('flex flex-col gap-0.5 max-w-[82%]', right && 'items-end')}>
+      <div className={cn('flex flex-col gap-0.5 max-w-[94%]', right && 'items-end')}>
         {showAuthor && (
           <span className="px-1 text-2xs font-medium text-text-secondary">
             {displayName(m.authorId, m.authorName)}
@@ -202,7 +216,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
         )}
         <div
           className={cn(
-            'relative rounded-2xl px-3 py-2 shadow-sm',
+            'relative rounded-2xl px-3.5 py-2.5 shadow-sm',
             right
               ? 'rounded-br-none bg-brand text-bg-primary'
               : m.failed
@@ -210,11 +224,16 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
                 : 'rounded-bl-none border border-border-default bg-bg-surface text-text-primary',
           )}
         >
+          {/* `text-brand` is deliberately NOT the fill: the text token is a
+              lighter orange tuned for words on glass (tailwind.config.ts), so
+              using it here drew the curl in a different colour from the bubble
+              it belongs to — a stray bright hook floating off the corner.
+              The tail is part of the SHAPE, so it takes the fill's own var. */}
           <BubbleTail
             className={cn(
               'absolute bottom-0',
               right
-                ? 'right-[-11px] text-brand'
+                ? 'right-[-11px] text-[color:var(--brand)]'
                 : 'left-[-11px] -scale-x-100 text-bg-surface',
             )}
           />
@@ -223,11 +242,15 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
           <div
             ref={bodyRef}
             className={cn(
-              'w-full text-xs leading-relaxed break-words select-text',
+              'w-full text-[13px] leading-relaxed break-words select-text',
               'prose prose-xs max-w-none prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1 prose-table:text-xs',
               'prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap',
               right ? 'prose-invert' : 'prose-neutral dark:prose-invert',
-              !expanded && 'line-clamp-6',
+              // 6 lines in a narrow panel clamped almost every message into a
+              // square slab of brand colour. 14 lets a normal paragraph
+              // through whole and keeps "show more" for the ones that are
+              // genuinely long.
+              !expanded && 'line-clamp-[14]',
             )}
           >
             <Markdown>{m.text}</Markdown>
@@ -546,9 +569,11 @@ const PANEL_WIDTH_KEY = 'cowork-panel-width';
 const PANEL_MIN_W = 280;
 const PANEL_MAX_W = 640;
 const PANEL_DEFAULT_W = 360;
+/** Header + filter row + composer: the panel's height minus its scroll body. */
+const PANEL_CHROME_PX = 132;
 const PANEL_HEIGHT_KEY = 'cowork-panel-height';
-const PANEL_MIN_H = 200;
-const PANEL_MAX_H = 720;
+export const PANEL_MIN_H = 200;
+export const PANEL_MAX_H = 720;
 const PANEL_DEFAULT_H = 440;
 const PINNED_KEY = 'cowork-pinned-ids';
 const PANEL_POS_KEY = 'cowork-panel-pos';
@@ -612,8 +637,46 @@ function readPos(): { top: number; right: number } {
 /** How close to the bottom still counts as "following the live feed". */
 const FOLLOW_SLACK_PX = 48;
 
+/** Breathing room between the panel's bottom edge and the composer. */
+const COMPOSER_GAP_PX = 12;
+
+/**
+ * The tallest the transcript body may be, given where the panel sits and where
+ * the composer starts.
+ *
+ * This used to be `window.innerHeight - top - 88`. Two things were wrong with
+ * it. The 88 was a guess at the height of a dock that grows with a multi-line
+ * draft, an error notice and the greeting — so the panel overlapped the very
+ * thing it was supposed to clear. And the guess was then fed through
+ * `Math.min(MAX, thatNumber, Math.max(MIN, wanted))`, where the floor is inside
+ * the `min` and loses to it: drag the panel low, or use a short window, and the
+ * ceiling went under the floor and the body collapsed to a sliver — taking the
+ * resize grip with it, so there was no way to drag it back. That is the bug
+ * you cannot recover from, which is why the floor now wins last.
+ */
+export function maxBodyHeight(panelTop: number): number {
+  const dock = document.querySelector('[data-chat-input-dock]') as HTMLElement | null;
+  // The composer is the real limit; the viewport bottom is the fallback for
+  // any host that renders this panel without one.
+  const floorY = dock ? dock.getBoundingClientRect().top : window.innerHeight;
+  const room = floorY - panelTop - PANEL_CHROME_PX - COMPOSER_GAP_PX;
+  // Never below the floor: a ceiling that has gone negative is a window too
+  // small for the panel, and the honest answer there is a scrollbar, not a
+  // panel nobody can grab.
+  return Math.max(PANEL_MIN_H, Math.min(PANEL_MAX_H, room));
+}
+
 export function CoworkTranscriptPanel() {
-  const exchanges = useCoworkTranscript((s) => s.exchanges);
+  const allExchanges = useCoworkTranscript((s) => s.exchanges);
+  const activeThreadId = useCoworkTranscript((s) => s.activeThreadId);
+  // ONLY this chat's teammate traffic. The store keeps every thread's, so
+  // reopening a chat brings its own transcript back, but a chat that never
+  // used cowork — including a brand-new one, where `activeThreadId` is null —
+  // shows nothing at all.
+  const exchanges = useMemo(
+    () => threadExchanges(allExchanges, activeThreadId),
+    [allExchanges, activeThreadId],
+  );
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [width, setWidth] = useState(readWidth);
   const [height, setHeight] = useState(readHeight);
@@ -631,11 +694,28 @@ export function CoworkTranscriptPanel() {
   // When switching threads, fetch that thread's mailbox rows; empty = hide.
   const convId = useConversations((s) => s.currentId);
   const chatSid = useChat((s) => s.sessionId);
-  const currentId = convId ?? chatSid;
+  const currentId = convId ?? chatSid ?? null;
   useEffect(() => {
+    // Point the transcript at this chat FIRST, so the previous one's bubbles
+    // are gone on the same frame the conversation changes rather than lingering
+    // until the mailbox answers — and so a new chat (no id yet) shows nothing.
+    useCoworkTranscript.getState().setThread(currentId);
     if (!currentId) return;
     void tauri.cinderpawAgent.coworkHistory(currentId).catch(() => {});
   }, [currentId]);
+  // Changing chats is not mail arriving.
+  //
+  // The badge counts how much `exchanges` grew, and `exchanges` is now this
+  // thread's traffic — so opening a chat with seven exchanges after one with
+  // two used to read as "5 new messages" about a conversation that happened
+  // days ago. Reset the baseline when the thread changes, and count only what
+  // arrives while you are actually on it.
+  useEffect(() => {
+    prevLenRef.current = exchanges.length;
+    setUnread(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeThreadId]);
+
   // Unread badge: when collapsed, new exchanges bump the count; expanding clears it.
   useEffect(() => {
     const len = exchanges.length;
@@ -647,12 +727,29 @@ export function CoworkTranscriptPanel() {
     prevLenRef.current = len;
   }, [exchanges.length, collapsed]);
 
-  // A window that got smaller must not take the panel with it.
+  /** Pull the body back under the composer, wherever the panel is now. */
+  const fitHeight = () => {
+    const top = panelRef.current?.getBoundingClientRect().top ?? pos.top;
+    const ceiling = maxBodyHeight(top);
+    setHeight((h) => Math.max(PANEL_MIN_H, Math.min(ceiling, h)));
+  };
+
+  // A window that got smaller must not take the panel with it — and that
+  // applies to its HEIGHT as much as its position. Only the position was being
+  // clamped, so shrinking the window (or opening the app on a laptop screen
+  // after using a monitor) left a remembered height lying across the composer,
+  // permanently, with its resize grip somewhere below the bottom of the screen.
+  // Runs once on mount too, for exactly that remembered-from-a-bigger-screen case.
   useEffect(() => {
-    const onResize = () => setPos((p) => clampPos(p));
+    const onResize = () => {
+      setPos((p) => clampPos(p));
+      fitHeight();
+    };
+    onResize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsed]);
 
   // ESC to collapse.
   //
@@ -754,10 +851,11 @@ export function CoworkTranscriptPanel() {
         const panel = document.querySelector('[data-testid="cowork-transcript-panel"]') as HTMLElement | null;
         if (panel) {
           const top = panel.getBoundingClientRect().top;
-          const maxByViewport = window.innerHeight - top - 88; // keep 88px above typing bar
-          const newH = e.clientY - top - 36; // ~header height
-          const clampedH = Math.min(PANEL_MAX_H, maxByViewport, Math.max(PANEL_MIN_H, newH));
-          setHeight(clampedH);
+          const wanted = e.clientY - top - PANEL_CHROME_PX;
+          // Ceiling first, floor last — see `maxBodyHeight`. In the other
+          // order a cramped window wins over the minimum and the panel
+          // collapses to a strip with no grip on it.
+          setHeight(Math.max(PANEL_MIN_H, Math.min(maxBodyHeight(top), wanted)));
         }
       }
     };
@@ -860,7 +958,10 @@ export function CoworkTranscriptPanel() {
     last && last.toAgentId !== 'human' && last.toAgentId !== 'unknown'
       ? last.toAgentId
       : (participants[0]?.[0] ?? '');
-  const lastThreadId = last?.threadId && last.threadId !== 'direct' ? last.threadId : null;
+  // A reply belongs to the chat the panel is showing — that is what every
+  // bubble in it was filed under, and it is the thread `cowork_send` would
+  // have used from this conversation anyway.
+  const lastThreadId = activeThreadId ?? (last?.threadId && last.threadId !== 'direct' ? last.threadId : null);
 
   const isEmpty = exchanges.length === 0;
   if (isEmpty) return null;
@@ -890,23 +991,54 @@ export function CoworkTranscriptPanel() {
         exit={{ scale: 0.85, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 420, damping: 28 }}
         style={{ top: pos.top, right: pos.right }}
-        className="absolute z-20 w-12 h-12 rounded-full bg-brand shadow-lg
-                   flex items-center justify-center border border-brand/20
-                   hover:scale-105 active:scale-95 cursor-pointer"
+        className="absolute z-30 size-14 rounded-full shadow-lg
+                   flex items-center justify-center cursor-pointer
+                   ring-2 ring-bg-elevated
+                   hover:scale-105 active:scale-95 transition-transform"
       >
-        <span className="flex -space-x-1">
-          {participants.slice(0, 2).map(([id, name]) => (
-            <Avatar key={id} id={id} name={name} />
-          ))}
-          {participants.length === 0 && <span className="text-sm text-white font-semibold">◈</span>}
-        </span>
-        {working.length > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full bg-brand border-2 border-white animate-pulse" />
-        )}
-        {unread > 0 && (
-          <span className="absolute -bottom-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-error text-white text-2xs font-semibold flex items-center justify-center border-2 border-white">
-            {unread > 9 ? '9+' : unread}
+        {/* A chat head: the person you are talking to, filling the circle,
+            the way every messenger draws one. The first version stacked two
+            6px avatars on a brand-orange disc — at 48px across that is three
+            competing shapes and no face. One teammate fills it; a second
+            appears as a small overlap, and that is the whole hierarchy. */}
+        {participants.length > 0 ? (
+          <>
+            <Avatar id={participants[0]![0]} name={participants[0]![1]} size="head" />
+            {participants.length > 1 && (
+              <Avatar
+                id={participants[1]![0]}
+                name={participants[1]![1]}
+                className="absolute -bottom-0.5 -left-0.5 ring-2 ring-bg-elevated"
+              />
+            )}
+          </>
+        ) : (
+          <span className="flex size-full items-center justify-center rounded-full bg-brand text-base font-semibold text-white">
+            ◈
           </span>
+        )}
+        {/* Top right, red, over the edge of the head — the one place a person
+            already looks for "how many". It used to sit bottom-right, where
+            the eye does not go, sharing that corner with nothing while the
+            "someone is working" dot sat top-right and collided with it on
+            every busy turn. Now: count on top, activity underneath. */}
+        {unread > 0 && (
+          <span
+            data-testid="cowork-unread-badge"
+            aria-label={`${unread} unread message${unread === 1 ? '' : 's'}`}
+            className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1.5 rounded-full
+                       bg-error text-white text-2xs font-bold leading-none
+                       flex items-center justify-center ring-2 ring-bg-elevated"
+          >
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+        {working.length > 0 && unread === 0 && (
+          <span
+            aria-hidden
+            className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full
+                       bg-success ring-2 ring-bg-elevated animate-pulse"
+          />
         )}
       </motion.button>
     );
@@ -923,7 +1055,11 @@ export function CoworkTranscriptPanel() {
       animate={{ scale: 1, opacity: 1, borderRadius: 16 }}
       exit={{ scale: 0.92, opacity: 0, borderRadius: 999 }}
       transition={{ type: 'spring', stiffness: 380, damping: 30, layout: { duration: 0 } }}
-      className="absolute z-20
+      // z-30, not z-20: the chat input wrapper is z-20 AND comes later in the
+      // DOM, so at the same level it painted its own panel straight over a
+      // floating window the person had dragged there. Modals (z-40+) still
+      // win, which is right — they are answering something.
+      className="absolute z-30
                  flex flex-col rounded-2xl border border-border-default
                  bg-bg-elevated/80 backdrop-blur-md shadow-lg overflow-hidden"
       aria-label="Agent Cowork transcript"
