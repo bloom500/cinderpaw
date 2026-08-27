@@ -122,3 +122,6 @@ docs/session-*.md
 docs/2026-*.md
 .superpowers/
 bench-results/
+
+# ARC benchmark run logs — outputs, not source.
+runs-arc/
