@@ -36,7 +36,7 @@ import process from "node:process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { openArcGame, openScorecard, closeScorecard, listGames } from "../../src/arc/api-client.ts";
+import { openArcGame, openScorecard, closeScorecard, listGames, CookieJar } from "../../src/arc/api-client.ts";
 import { playLevel } from "../../src/arc/play-level.ts";
 import { createFrugalPolicy } from "../../src/arc/policy.ts";
 import { createModelPolicy } from "../../src/arc/model-policy.ts";
@@ -181,7 +181,12 @@ const policy = createFrugalPolicy({
   onImagined: () => { imagined++; },
 });
 
+// ONE jar for the whole session: open, every game, and close. The load
+// balancer pins the card to a backend and everything after has to reach the
+// same one — a second jar makes the server deny an id it issued itself.
+const jar = new CookieJar();
 const cardId = await openScorecard({
+  jar,
   tags: ["cinderpaw", ...args.tags],
   opaque: { manifest },
 });
@@ -213,7 +218,7 @@ const closeAndExit = async (signal) => {
   if (closing) return;
   closing = true;
   console.error(`${signal} - closing scorecard ${cardId} so the run still counts...`);
-  await closeScorecard(cardId).catch((err) => console.error(`close failed: ${String(err)}`));
+  await closeScorecard(cardId, { jar }).catch((err) => console.error(`close failed: ${String(err)}`));
   console.error("closed. Scores: https://three.arcprize.org");
   process.exit(130);
 };
@@ -232,7 +237,7 @@ try {
   for (let attempt = 0; attempt <= args.retries; attempt++) {
     const remaining = args.budget - spent;
     if (remaining <= 0) break;
-    const env = await openArcGame({ gameId: args.game, cardId });
+    const env = await openArcGame({ gameId: args.game, cardId, jar });
     if (attempt > 0) await env.reset();
     const result = await playLevel({
       env,
@@ -262,7 +267,7 @@ try {
   }
 } finally {
   // Always close: an open scorecard holds the run and the numbers never land.
-  await closeScorecard(cardId).catch((err) => console.error(`close failed: ${String(err)}`));
+  await closeScorecard(cardId, { jar }).catch((err) => console.error(`close failed: ${String(err)}`));
 }
 
 const outDir = path.join(REPO_ROOT, "runs", manifest.runId);

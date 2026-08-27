@@ -24,6 +24,15 @@
  *    which reads exactly like a broken agent, not a broken client. There is a
  *    jar below, and it is the main reason this file is not twenty lines.
  *
+ *    AND IT STARTS AT `/api/scorecard/open`, NOT AT THE FIRST RESET. This was
+ *    the bug: the card was opened with no jar, so its cookies were dropped, and
+ *    RESET went to a different backend which had never heard of that card. The
+ *    server does not say "wrong backend" — it says `game <id> not found` for an
+ *    id that came out of `/api/games` one second earlier, and
+ *    `scorecard <id> not found` for a card it issued itself. Both messages send
+ *    you looking in exactly the wrong place. One jar now spans open -> play ->
+ *    close, which is the whole session.
+ *
  * 2. `available_actions` CHANGES PER FRAME. It is not a fixed vocabulary per
  *    game. `ArcEnvironment.actions` is therefore a getter that reflects the
  *    latest frame, which `playLevel` re-reads every iteration — so a policy is
@@ -77,6 +86,12 @@ export interface ArcApiOptions {
   gameId: string;
   /** From `openScorecard()`. Every action is billed to it. */
   cardId: string;
+  /**
+   * The jar the scorecard was opened with. Required in practice: without it
+   * RESET reaches a backend that does not know this card and answers
+   * `game <id> not found`.
+   */
+  jar?: CookieJar;
   /** Override for tests. Defaults to global fetch. */
   fetchImpl?: typeof fetch;
   /** Attached to each ACTION as `reasoning`, capped by the server at 16 KB. */
@@ -91,7 +106,7 @@ export interface ArcApiOptions {
  * the length of one game, and a correct RFC 6265 implementation here would be
  * code nobody needs and everybody has to read.
  */
-class CookieJar {
+export class CookieJar {
   #jar = new Map<string, string>();
 
   absorb(response: Response): void {
@@ -179,6 +194,13 @@ export interface OpenScorecardOptions {
   /** Custom metadata, ≤16 KB serialised. The run manifest belongs here. */
   opaque?: Record<string, unknown>;
   competitionMode?: boolean;
+  /**
+   * The session's cookie jar. Pass the SAME one to `openArcGame` and
+   * `closeScorecard`: the load balancer pins this card to one backend and every
+   * later call has to reach it. Omit it and the card is unusable — see the
+   * affinity note at the top of this file.
+   */
+  jar?: CookieJar;
 }
 
 /**
@@ -204,6 +226,7 @@ export async function openScorecard(options: OpenScorecardOptions = {}): Promise
     method: "POST",
     apiKey: requireKey(options.apiKey),
     fetchImpl: options.fetchImpl,
+    jar: options.jar,
     body: {
       ...(options.sourceUrl ? { source_url: options.sourceUrl } : {}),
       ...(options.tags ? { tags: options.tags } : {}),
@@ -218,12 +241,13 @@ export async function openScorecard(options: OpenScorecardOptions = {}): Promise
  *  run produces no score at all. */
 export async function closeScorecard(
   cardId: string,
-  options: { apiKey?: string; fetchImpl?: typeof fetch } = {},
+  options: { apiKey?: string; fetchImpl?: typeof fetch; jar?: CookieJar } = {},
 ): Promise<unknown> {
   return call("/api/scorecard/close", {
     method: "POST",
     apiKey: requireKey(options.apiKey),
     fetchImpl: options.fetchImpl,
+    jar: options.jar,
     body: { card_id: cardId },
   });
 }
@@ -247,7 +271,10 @@ export interface ArcApiEnvironment extends ArcEnvironment {
  */
 export async function openArcGame(options: ArcApiOptions): Promise<ArcApiEnvironment> {
   const apiKey = requireKey(options.apiKey);
-  const jar = new CookieJar();
+  // The caller's jar when there is one — it already holds the affinity cookies
+  // the scorecard was opened on, and a fresh jar here would land this game on a
+  // backend that has never seen that card.
+  const jar = options.jar ?? new CookieJar();
   const { gameId, cardId, fetchImpl } = options;
 
   let latest: ArcObservationWithFrame | null = null;
