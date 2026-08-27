@@ -3,8 +3,8 @@ package app
 import (
 	"encoding/json"
 	"errors"
-	"feral-tui/api"
-	"feral-tui/ui"
+	"cinderpaw-tui/api"
+	"cinderpaw-tui/ui"
 	"fmt"
 	"os"
 	"strings"

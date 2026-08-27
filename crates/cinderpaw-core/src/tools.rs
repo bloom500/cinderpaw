@@ -260,10 +260,14 @@ fn urlencoding(s: &str) -> String {
 // (including via `..` or a symlink, because we canonicalize before comparing).
 
 /// Root directory the agent's file tools are confined to. Defaults to
-/// `~/.feral/workspace`; override with `FERAL_AGENT_WORKSPACE` (absolute path)
-/// to widen access deliberately — opt-in, never default-on.
+/// `~/.cinderpaw/workspace`; override with `FERAL_AGENT_WORKSPACE` /
+/// `CINDERPAW_AGENT_WORKSPACE` (absolute path) to widen access deliberately —
+/// opt-in, never default-on.
+///
+/// Read uncached: this bounds what the agent may touch, and it is consulted on
+/// every file operation rather than once at startup.
 fn agent_workspace_root() -> std::path::PathBuf {
-    if let Ok(p) = std::env::var("FERAL_AGENT_WORKSPACE") {
+    if let Some(p) = crate::env::env_var_uncached("FERAL_AGENT_WORKSPACE") {
         let pb = std::path::PathBuf::from(&p);
         if pb.is_absolute() {
             return pb;
@@ -376,8 +380,10 @@ fn file_write(args: Value) -> Result<String> {
 /// `FERAL_ENABLE_SHELL_EXEC` gate — a generic code runner is never default-on.
 fn code_exec_enabled() -> bool {
     matches!(
-        std::env::var("FERAL_ENABLE_CODE_EXEC").as_deref(),
-        Ok("true") | Ok("1")
+        // Uncached for the same reason as the workspace root: this is a gate on
+        // running arbitrary host code, checked per call, not a startup setting.
+        crate::env::env_var_uncached("FERAL_ENABLE_CODE_EXEC").as_deref(),
+        Some("true") | Some("1")
     )
 }
 

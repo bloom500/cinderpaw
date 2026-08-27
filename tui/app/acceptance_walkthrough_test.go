@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

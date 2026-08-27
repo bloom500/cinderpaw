@@ -300,19 +300,74 @@ pub fn run() {
     // `rfd` rather than `tauri-plugin-dialog`: this runs before the Tauri app is
     // built, so there is no handle for a plugin to hang off. It is already in
     // the tree as that plugin's own dependency, so this costs nothing.
-    if let Err(e) = cinderpaw_core::migrate_home::ensure_migrated() {
-        let msg = format!(
-            "Cinderpaw could not move your data to its new home folder, so it stopped \
-             before changing anything.\n\n{e}\n\nYour existing data has not been touched \
-             or deleted."
-        );
-        eprintln!("[cinderpaw] FATAL: {msg}");
-        rfd::MessageDialog::new()
-            .set_level(rfd::MessageLevel::Error)
-            .set_title("Cinderpaw could not start")
-            .set_description(&msg)
-            .show();
-        std::process::exit(1);
+    match cinderpaw_core::migrate_home::ensure_migrated() {
+        Err(e) => {
+            let msg = format!(
+                "Cinderpaw could not move your data to its new home folder, so it stopped \
+                 before changing anything.\n\n{e}\n\nYour existing data has not been touched \
+                 or deleted."
+            );
+            eprintln!("[cinderpaw] FATAL: {msg}");
+            rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Error)
+                .set_title("Cinderpaw could not start")
+                .set_description(&msg)
+                .show();
+            std::process::exit(1);
+        }
+        // A leftover old home is a housekeeping note, not a reason to refuse to
+        // open. Say it once, plainly, name the folder, and carry on — the app
+        // is already running on the new home. Warning level, not Error: nothing
+        // is broken and nothing is lost.
+        Ok(cinderpaw_core::migrate_home::MigrationOutcome::LeftoverLegacyHome { legacy }) => {
+            let msg = format!(
+                "Cinderpaw is using its new data folder, and an older one is still on \
+                 disk at {}.\n\nNothing was moved, changed or deleted. If you have been \
+                 using Cinderpaw since the update, everything you have is in the new \
+                 folder and the old one is safe to delete once you have checked it.",
+                legacy.display()
+            );
+            // The log line every boot; the modal exactly once.
+            //
+            // A dialog that blocks startup until it is dismissed is fine as a
+            // one-time notice and intolerable as a greeting. Somebody who reads
+            // it and decides to keep the old folder — which is a legitimate
+            // choice, it is their data — would otherwise be made to click it
+            // away on every single launch, forever, for a decision they have
+            // already made.
+            //
+            // The receipt goes in the NEW home, which is ours to write in. It
+            // records WHICH folder was reported, so a different leftover later
+            // is a fresh notice rather than one silently swallowed.
+            eprintln!("[cinderpaw] {msg}");
+            let receipt = cinderpaw_core::paths::feral_dir().join(".legacy-home-notice");
+            let already_told = std::fs::read_to_string(&receipt)
+                .map(|seen| seen.trim() == legacy.to_string_lossy())
+                .unwrap_or(false);
+            if !already_told {
+                // Best effort, and BEFORE the dialog: the receipt records that
+                // we told them, and the app must not depend on the dialog
+                // returning to get on with starting.
+                if let Some(parent) = receipt.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&receipt, legacy.to_string_lossy().as_bytes());
+                // On its own thread, because `show()` blocks until dismissed
+                // and this runs before the window exists — so a housekeeping
+                // note was standing between the person and their app, with the
+                // dialog as the only window on screen. "The app won't open" is
+                // what that looks like from the outside, which is precisely the
+                // impression this whole path exists to avoid.
+                std::thread::spawn(move || {
+                    rfd::MessageDialog::new()
+                        .set_level(rfd::MessageLevel::Warning)
+                        .set_title("An older Cinderpaw data folder is still there")
+                        .set_description(&msg)
+                        .show();
+                });
+            }
+        }
+        Ok(_) => {}
     }
 
     // The webview keeps its storage in a directory named after the bundle

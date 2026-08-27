@@ -14,6 +14,7 @@
  * the agent.
  */
 
+import { APP_HOME_DIR_NAME } from "../src/brand.ts";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -43,7 +44,7 @@ describe("loadUserConfig", () => {
   });
 
   it("loads userName and agentName from a valid onboarding file", () => {
-    const dir = join(home, ".feral");
+    const dir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "onboarding.json"),
@@ -61,7 +62,7 @@ describe("loadUserConfig", () => {
   });
 
   it("falls back to 'Cinderpaw' when agentName is missing or empty", () => {
-    const dir = join(home, ".feral");
+    const dir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "onboarding.json"),
@@ -71,7 +72,7 @@ describe("loadUserConfig", () => {
   });
 
   it("treats malformed JSON as no personalization (does not throw)", () => {
-    const dir = join(home, ".feral");
+    const dir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "onboarding.json"), "{not json");
     const cfg = loadUserConfig(home);
@@ -81,7 +82,7 @@ describe("loadUserConfig", () => {
   });
 
   it("treats `completed: false` as not onboarded", () => {
-    const dir = join(home, ".feral");
+    const dir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "onboarding.json"),

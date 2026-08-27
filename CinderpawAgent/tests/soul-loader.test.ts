@@ -9,6 +9,7 @@
  * user-override lookup without monkey-patching os.homedir.
  */
 
+import { APP_HOME_DIR_NAME } from "../src/brand.ts";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,7 +28,7 @@ describe("resolveSoulPaths", () => {
     const home = join(sep + "home", "test");
     const paths = resolveSoulPaths(home);
     expect(paths.bundled).toMatch(/SOUL\.md$/);
-    expect(paths.user).toBe(join(home, ".feral", "SOUL.md"));
+    expect(paths.user).toBe(join(home, APP_HOME_DIR_NAME, "SOUL.md"));
   });
 });
 
@@ -50,7 +51,7 @@ describe("loadSoul", () => {
   });
 
   it("prefers user override when ~/.feral/SOUL.md exists", () => {
-    const feralDir = join(home, ".feral");
+    const feralDir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(feralDir, { recursive: true });
     writeFileSync(join(feralDir, "SOUL.md"), "# My Custom Cinderpaw\n\nI am the user's version.");
 
@@ -83,7 +84,7 @@ describe("loadSoul", () => {
   });
 
   it("persona honours a user override too", () => {
-    const feralDir = join(home, ".feral");
+    const feralDir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(feralDir, { recursive: true });
     writeFileSync(join(feralDir, "SOUL.md"), "# My Own Cub");
 
@@ -93,7 +94,7 @@ describe("loadSoul", () => {
   });
 
   it("prefers per-file user overrides for companions", () => {
-    const feralDir = join(home, ".feral");
+    const feralDir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(feralDir, { recursive: true });
     writeFileSync(join(feralDir, "IDENTITY.md"), "# Custom Identity Override");
 
@@ -114,7 +115,7 @@ describe("loadSoul", () => {
   it("version hash changes when content changes", () => {
     const a = loadSoul(home);
 
-    const feralDir = join(home, ".feral");
+    const feralDir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(feralDir, { recursive: true });
     writeFileSync(join(feralDir, "SOUL.md"), "# Edited\n\nDifferent content entirely.");
     const b = loadSoul(home);
@@ -131,7 +132,7 @@ describe("loadSoul", () => {
   });
 
   it("emits a console warning when SOUL exceeds soft cap", () => {
-    const feralDir = join(home, ".feral");
+    const feralDir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(feralDir, { recursive: true });
     // ~50KB ≈ 12.5K tokens (4 chars/token heuristic) — well over both caps
     const huge = "# Big Soul\n\n" + "x".repeat(50_000);
@@ -176,7 +177,7 @@ describe("watchSoul", () => {
   });
 
   it("invokes the callback with the new soul when user override changes", async () => {
-    const feralDir = join(home, ".feral");
+    const feralDir = join(home, APP_HOME_DIR_NAME);
     mkdirSync(feralDir, { recursive: true });
     const userSoul = join(feralDir, "SOUL.md");
     writeFileSync(userSoul, "# v1");

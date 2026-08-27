@@ -1,7 +1,7 @@
 /**
  * USER loader — per-user personalization.
  *
- * Reads the onboarding record at `~/.feral/onboarding.json` (written by
+ * Reads the onboarding record at `~/.cinderpaw/onboarding.json` (written by
  * the first-run wizard on the React side). The record carries:
  *   - userName:   how the user wants to be addressed
  *   - agentName:  what the user named the agent (defaults to "Cinderpaw")
@@ -21,6 +21,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { feralHome } from "../config.ts";
+import { APP_HOME_DIR_NAME } from "../brand.ts";
 
 export interface UserConfig {
   /** The user's chosen display name. Empty when no onboarding has happened. */
@@ -37,7 +38,7 @@ interface OnboardingRecord {
   agentName?: unknown;
 }
 
-const ONBOARDING_PATH = ".feral/onboarding.json";
+const ONBOARDING_PATH = `${APP_HOME_DIR_NAME}/onboarding.json`;
 const DEFAULT_AGENT_NAME = "Cinderpaw";
 
 /**
@@ -45,7 +46,7 @@ const DEFAULT_AGENT_NAME = "Cinderpaw";
  * failure (file missing, parse error, schema mismatch) returns a default
  * `UserConfig` so the agent can keep running.
  *
- * `homeDir` is the test-isolation seam (an OS home, `.feral` appended).
+ * `homeDir` is the test-isolation seam (an OS home, the profile dir appended).
  * Omitting it — every production caller — resolves through `feralHome()` so
  * FERAL_HOME is honored; it used to read $HOME directly, which meant an
  * isolated profile still picked up the real user's onboarding record.

@@ -476,7 +476,7 @@ async fn deliver_to_sidecar(state: &State<'_, AppState>, line: &str) -> Result<(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(line.to_string())

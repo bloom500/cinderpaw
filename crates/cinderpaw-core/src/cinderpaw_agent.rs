@@ -365,7 +365,7 @@ pub async fn spawn(
     // children (sidecar, worktree evals, rebuild scripts) inherit it.
     crate::toolchain::activate_portable();
     let bundled_src = crate::rsi::self_src::find_bundled_src(&extra_bin_dirs).is_some();
-    if std::env::var("FERAL_CODE_RSI_REPO").map(|v| v.trim().is_empty()).unwrap_or(true) {
+    if crate::env::env_var("FERAL_CODE_RSI_REPO").map(|v| v.trim().is_empty()).unwrap_or(true) {
         match crate::rsi::self_src::provision(&extra_bin_dirs) {
             Ok(root) => {
                 tracing::info!("cinderpaw-agent: self-src provisioned at {:?} (code-RSI enabled)", root);
@@ -382,7 +382,7 @@ pub async fn spawn(
     // explicit dev repo), make sure the tools its stages spawn exist —
     // portable download in the background when missing, zero terminal, zero
     // admin. No-op when git+bun are already present.
-    if bundled_src || std::env::var("FERAL_CODE_RSI_REPO").map(|v| !v.trim().is_empty()).unwrap_or(false) {
+    if bundled_src || crate::env::env_var("FERAL_CODE_RSI_REPO").map(|v| !v.trim().is_empty()).unwrap_or(false) {
         crate::toolchain::ensure_background();
     }
 
@@ -409,16 +409,15 @@ pub async fn spawn(
         let (pid, model) = r.split_once(':')?;
         (pid != "local").then(|| (pid.to_string(), model.to_string()))
     });
-    let env_byok = std::env::var("FERAL_BYOK_PROVIDER").ok();
+    let env_byok = crate::env::env_var("FERAL_BYOK_PROVIDER");
     let route_is_source = env_byok.is_none() && persisted_route.is_some();
     let byok = env_byok
         .or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()))
         .and_then(|pid| load_byok_provider_endpoint(&pid));
 
-    let provider = std::env::var("FERAL_PROVIDER")
-        .unwrap_or_else(|_| "openai_compatible".to_string());
-    let base_url = std::env::var("FERAL_BASE_URL")
-        .ok()
+    let provider = crate::env::env_var("FERAL_PROVIDER")
+        .unwrap_or_else(|| "openai_compatible".to_string());
+    let base_url = crate::env::env_var("FERAL_BASE_URL")
         .or_else(|| byok.as_ref().map(|b| b.base_url.clone()))
         .unwrap_or_else(|| format!("http://127.0.0.1:{api_port}"));
     // Normalize exactly like load_byok_provider_endpoint: the sidecar appends
@@ -430,8 +429,7 @@ pub async fn spawn(
         .trim_end_matches('/')
         .trim_end_matches("/v1")
         .to_string();
-    let env_or_byok_key = std::env::var("FERAL_API_KEY")
-        .ok()
+    let env_or_byok_key = crate::env::env_var("FERAL_API_KEY")
         .or_else(|| byok.as_ref().map(|b| b.api_key.clone()));
     let api_key = resolve_sidecar_api_key(&base_url, api_token, env_or_byok_key)?;
 
@@ -443,17 +441,17 @@ pub async fn spawn(
     // the intended posture; a user-set FERAL_WORKSPACE in the host environment
     // still passes through via normal env inheritance.
     let mut cmd = tokio::process::Command::new(&binary);
-    cmd.env("FERAL_DB", &db_path)
-        .env("FERAL_PROVIDER", &provider)
-        .env("FERAL_BASE_URL", &base_url)
-        .env("FERAL_API_KEY", &api_key);
+    cmd.env("CINDERPAW_DB", &db_path)
+        .env("CINDERPAW_PROVIDER", &provider)
+        .env("CINDERPAW_BASE_URL", &base_url)
+        .env("CINDERPAW_API_KEY", &api_key);
 
     // FERAL_MODEL discovery is for the bundled llama.cpp (/v1/models on
     // loopback). For a remote provider the user is expected to set
     // FERAL_MODEL explicitly; we still call discover_active_model as a
     // best-effort (some clouds expose OpenAI-compatible /v1/models) but
     // honour FERAL_MODEL when present so the caller can override.
-    let model_name = if let Ok(m) = std::env::var("FERAL_MODEL") {
+    let model_name = if let Some(m) = crate::env::env_var("FERAL_MODEL") {
         m
     } else if let Some((_, m)) = persisted_route.as_ref().filter(|_| route_is_source && byok.is_some()) {
         // The persisted route names the exact model the user verified/picked
@@ -466,7 +464,7 @@ pub async fn spawn(
             .await
             .unwrap_or_else(|| "cinderpaw-local".to_string())
     };
-    cmd.env("FERAL_MODEL", &model_name);
+    cmd.env("CINDERPAW_MODEL", &model_name);
     *runtime.active_agent_model.lock() = Some(model_name.clone());
     tracing::info!(model = %model_name, "cinderpaw-agent: using discovered model");
 
@@ -477,8 +475,8 @@ pub async fn spawn(
     // "fall back to local" silently re-called the boot-time cloud provider
     // after the user had switched away from it (blocker F9).
     let local_url = format!("http://127.0.0.1:{api_port}");
-    cmd.env("FERAL_LOCAL_BASE_URL", &local_url)
-        .env("FERAL_LOCAL_API_KEY", api_token);
+    cmd.env("CINDERPAW_LOCAL_BASE_URL", &local_url)
+        .env("CINDERPAW_LOCAL_API_KEY", api_token);
 
     // The model the local engine serves. When the boot route IS the local
     // engine we already know it — reuse it instead of a second /v1/models
@@ -507,11 +505,11 @@ pub async fn spawn(
         None
     };
     if let Some(local) = local_model {
-        cmd.env("FERAL_LOCAL_MODEL", local);
+        cmd.env("CINDERPAW_LOCAL_MODEL", local);
     }
 
     if let Some(db_key) = crate::db_key::get_or_create() {
-        cmd.env("FERAL_DB_KEY", db_key);
+        cmd.env("CINDERPAW_DB_KEY", db_key);
     }
 
     for key in [
@@ -1026,7 +1024,7 @@ fn handle_code_patch_resolved(
         tracing::warn!("cinderpaw-agent: failed to write watchdog marker: {e}");
     }
 
-    let repo = std::env::var("FERAL_CODE_RSI_REPO").unwrap_or_default();
+    let repo = crate::env::env_var("FERAL_CODE_RSI_REPO").unwrap_or_default();
     if repo.trim().is_empty() {
         return;
     }
@@ -1173,7 +1171,7 @@ async fn revert_bad_patch(
     marker: &crate::rsi::watchdog::PatchMarker,
 ) {
     let id = &marker.patch_id;
-    let repo = std::env::var("FERAL_CODE_RSI_REPO").unwrap_or_default();
+    let repo = crate::env::env_var("FERAL_CODE_RSI_REPO").unwrap_or_default();
     if repo.trim().is_empty() {
         tracing::warn!("cinderpaw-agent: watchdog fired for '{id}' but FERAL_CODE_RSI_REPO is unset — cannot revert");
         return;

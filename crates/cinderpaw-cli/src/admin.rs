@@ -1861,7 +1861,7 @@ fn check_sidecar() -> Check {
                 ))
             }
         }
-        None => Check::Fail("feral-agent sidecar binary not found next to the executable".to_string()),
+        None => Check::Fail("cinderpaw-agent sidecar binary not found next to the executable".to_string()),
     }
 }
 

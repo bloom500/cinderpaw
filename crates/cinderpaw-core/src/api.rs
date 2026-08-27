@@ -639,8 +639,7 @@ async fn wait_for_model(state: &ApiState, requested: &str) -> bool {
         // Fall through to the wait loop — a concurrent UI load may still land.
     }
 
-    let deadline_ms = std::env::var("FERAL_MODEL_WAIT_MS")
-        .ok()
+    let deadline_ms = crate::env::env_var("FERAL_MODEL_WAIT_MS")
         .and_then(|v| v.trim().parse::<u64>().ok())
         .unwrap_or(120_000);
     let start = std::time::Instant::now();
@@ -2472,8 +2471,8 @@ async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
     // / "local" instead of relying on the backend label alone. The provider
     // is set at sidecar spawn time; a runtime switch updates the sidecar
     // but not this env var, so we also report the agent_model change below.
-    let provider = std::env::var("FERAL_PROVIDER").unwrap_or_else(|_| "openai_compatible".to_string());
-    let byok_provider = std::env::var("FERAL_BYOK_PROVIDER").ok();
+    let provider = crate::env::env_var("FERAL_PROVIDER").unwrap_or_else(|| "openai_compatible".to_string());
+    let byok_provider = crate::env::env_var("FERAL_BYOK_PROVIDER");
     Json(json!({
         "model": model,
         // What the sidecar actually infers with (local GGUF name or a cloud

@@ -103,7 +103,7 @@ if (import.meta.main) {
           // See `docs/superpowers/specs/2026-07-03-sp0-unify-feral-cli-design.md`
           // for the canonical command path.
           console.error(
-            "feral-agent setup has moved.\n" +
+            "cinderpaw-agent setup has moved.\n" +
               "Run \`cinderpaw setup\` instead (the Rust CLI launches the same wizard).\n" +
               "Docs: docs/superpowers/specs/2026-07-03-sp0-unify-feral-cli-design.md",
           );

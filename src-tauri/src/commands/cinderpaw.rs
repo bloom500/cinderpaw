@@ -100,7 +100,7 @@ pub(crate) async fn feral_send_message(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -133,7 +133,7 @@ pub(crate) async fn feral_stop_generation(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -163,7 +163,7 @@ pub(crate) async fn feral_submit_feedback(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -182,7 +182,7 @@ pub(crate) async fn feral_run_fractal_benchmark(state: State<'_, AppState>) -> R
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -203,7 +203,7 @@ pub(crate) async fn feral_meta(state: State<'_, AppState>, op: String) -> Result
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -239,7 +239,7 @@ pub(crate) async fn feral_governance(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg.to_string()).await.map_err(|e| e.to_string())?;
@@ -283,7 +283,7 @@ pub(crate) async fn feral_modules(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg.to_string()).await.map_err(|e| e.to_string())?;
@@ -302,7 +302,7 @@ pub(crate) async fn feral_dream_now(state: State<'_, AppState>) -> Result<(), St
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -320,7 +320,7 @@ pub(crate) async fn feral_code_patches_list(state: State<'_, AppState>) -> Resul
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -352,7 +352,7 @@ pub(crate) async fn feral_code_patch_resolve(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -453,7 +453,70 @@ pub(crate) async fn feral_cowork_approval_resolve(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Agent Cowork S6 — the person writing to a teammate DIRECTLY from the
+/// transcript panel, without spending a main-agent turn to retype what they
+/// already wrote. Fire-and-forget; the sidecar emits the `cowork_event` that
+/// puts the message on screen, or an `error` event naming the teammate it
+/// could not find.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn feral_cowork_send_message(
+    state: State<'_, AppState>,
+    to: String,
+    body: String,
+    thread_id: Option<String>,
+) -> Result<(), String> {
+    if to.trim().is_empty() || body.trim().is_empty() {
+        return Err("a teammate and a message are both required".to_string());
+    }
+    let msg = serde_json::json!({
+        "type": "cowork_send_message",
+        "coworkTo": to,
+        "content": body,
+        "coworkThreadId": thread_id,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Agent Cowork S6 — replay one chat thread's cowork mailbox. Fire-and-forget;
+/// the sidecar answers with one `cowork_history` event. Without this the
+/// transcript panel is empty after every restart, and a person cannot tell
+/// "nobody answered" from "the app forgot".
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn feral_cowork_history(
+    state: State<'_, AppState>,
+    thread_id: String,
+) -> Result<(), String> {
+    if thread_id.trim().is_empty() {
+        return Err("thread_id is required".to_string());
+    }
+    let msg = serde_json::json!({
+        "type": "cowork_history",
+        "coworkThreadId": thread_id,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -471,7 +534,7 @@ pub(crate) async fn feral_lora_reviews_list(state: State<'_, AppState>) -> Resul
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -503,7 +566,7 @@ pub(crate) async fn feral_lora_review_resolve(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -527,7 +590,7 @@ pub(crate) async fn feral_lora_train(state: State<'_, AppState>, domain: Option<
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -556,7 +619,7 @@ pub(crate) async fn feral_fractal_cluster_leaves(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;
@@ -586,7 +649,7 @@ pub(crate) async fn feral_ask_user_response(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(line).await.map_err(|e| e.to_string())?;
@@ -610,7 +673,7 @@ pub(crate) async fn feral_ask_user_cancel(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(line).await.map_err(|e| e.to_string())?;

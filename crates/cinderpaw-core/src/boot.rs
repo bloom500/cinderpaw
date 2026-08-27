@@ -203,7 +203,7 @@ fn build_and_persist_api_token() -> Arc<str> {
 /// overwrite a pre-set env var).
 #[cfg(feature = "inference-vulkan")]
 fn fragile_amd_embed_guard() {
-    if std::env::var_os("FERAL_EMBED_GPU_LAYERS").is_none() {
+    if crate::env::env_var_os("FERAL_EMBED_GPU_LAYERS").is_none() {
         let info = crate::gpu_detect::detect();
         if crate::gpu_detect::should_force_cpu_embed(&info) {
             std::env::set_var("FERAL_EMBED_GPU_LAYERS", "0");
@@ -322,7 +322,7 @@ fn export_settings_env(settings: &Settings) {
     // CI and `FERAL_RSI_ALLOW_CLOUD=true feral` have always worked, and the
     // value is captured once, before we overwrite it with our own.
     static EXTERNAL_ALLOW_CLOUD: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    let external = EXTERNAL_ALLOW_CLOUD.get_or_init(|| std::env::var("FERAL_RSI_ALLOW_CLOUD").ok());
+    let external = EXTERNAL_ALLOW_CLOUD.get_or_init(|| crate::env::env_var("FERAL_RSI_ALLOW_CLOUD"));
     let value = match external {
         Some(v) => v.clone(),
         None => if settings.rsi_allow_cloud_dreams { "true" } else { "false" }.to_string(),

@@ -35,7 +35,7 @@ export function AgentOfflineBanner() {
    * interactive long before that. Nothing covered the gap: `offline` is false
    * because it has not exited, `isReady` is false because it has not arrived,
    * and the banner showed neither — so anything the user tried in that window
-   * failed with "feral-agent is not running", which is true and reads as
+   * failed with "cinderpaw-agent is not running", which is true and reads as
    * broken when the truth is "not yet".
    *
    * They are different states and deserve different words. This one is the

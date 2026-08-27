@@ -52,7 +52,15 @@ fn onboarding_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("USERPROFILE")
         .ok()
         .or_else(|| std::env::var("HOME").ok());
-    home.map(|h| std::path::PathBuf::from(h).join(".feral").join("onboarding.json"))
+    // The home folder moved with the rename. Left hard-coded, this read the
+    // onboarding record from the OLD folder while everything else wrote to the
+    // new one — so a person who had finished onboarding was asked to do it
+    // again, on a machine where the answer was sitting one directory over.
+    home.map(|h| {
+        std::path::PathBuf::from(h)
+            .join(cinderpaw_core::brand::APP_HOME_DIR_NAME)
+            .join("onboarding.json")
+    })
 }
 
 #[derive(serde::Serialize, serde::Deserialize, specta::Type, Debug, Clone)]

@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"feral-tui/ui"
+	"cinderpaw-tui/ui"
 
 	"github.com/charmbracelet/lipgloss"
 )

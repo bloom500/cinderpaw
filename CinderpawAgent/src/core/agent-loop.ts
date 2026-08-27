@@ -2391,7 +2391,7 @@ export class AgentLoop {
   async #summarize(sessionId: string, msgs: ChatMessage[]): Promise<string> {
     if (!this.#router.isPrimaryLocal) {
       console.warn(
-        "[feral:privacy] working-memory compression is sending transcript to cloud model:",
+        "[cinderpaw:privacy] working-memory compression is sending transcript to cloud model:",
         this.#router.currentModel.model,
         "— set primary to a local engine to keep compression on-device",
       );
