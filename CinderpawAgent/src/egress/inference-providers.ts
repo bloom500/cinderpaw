@@ -23,6 +23,7 @@ import type {
 } from "../types.ts";
 import { resolvePerfPolicy, type PerfPolicy } from "./perf-policy.ts";
 import { cfgInt } from "../config.ts";
+import { log } from "../runtime-meta.ts";
 
 // Defined here (not imported from inference-router) to avoid a circular dep.
 // inference-router re-exports its own InferenceError class; both throw the
@@ -444,6 +445,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         message?: {
           content?: string;
           reasoning_content?: string;
+          /** OpenRouter's normalised spelling of the same field. */
+          reasoning?: string;
           tool_calls?: any[];
         };
         finish_reason?: string;
@@ -462,7 +465,14 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     // a fully empty response to the agent loop. Wrap it in <think> tags —
     // the exact format local thinking models emit — so stripThinking()
     // and the frontend's live thinking-splitter handle it unchanged.
-    const reasoning = raw.choices?.[0]?.message?.reasoning_content ?? "";
+    // Two spellings for one thing: DeepSeek/NIM/QwQ say `reasoning_content`,
+    // OpenRouter normalises it to `reasoning`. Reading only the first meant
+    // every reasoning model routed through OpenRouter had its chain-of-thought
+    // silently dropped on the floor.
+    const reasoning =
+      raw.choices?.[0]?.message?.reasoning_content ??
+      raw.choices?.[0]?.message?.reasoning ??
+      "";
     if (reasoning) {
       content = `<think>${reasoning}</think>${content}`;
     }
@@ -592,6 +602,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     // that reasons before answering streams NOTHING and an all-reasoning
     // turn surfaces as "(The model returned an empty response.)".
     let inReasoning = false;
+    let sawReasoningField = false;
     const emitPiece = (piece: string): void => {
       content += piece;
       req.onToken!(piece);
@@ -673,6 +684,15 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         }).choices?.[0]?.delta;
 
         const reasoningTok = delta?.reasoning_content ?? delta?.reasoning ?? "";
+        if (reasoningTok && !sawReasoningField) {
+          sawReasoningField = true;
+          // Named once per stream, because "which field did this provider
+          // actually use" is otherwise unanswerable without a packet capture,
+          // and it is the first question when reasoning goes missing.
+          log(
+            `reasoning stream: provider uses '${delta?.reasoning_content ? "reasoning_content" : "reasoning"}'`,
+          );
+        }
         if (reasoningTok) {
           if (!inReasoning) {
             inReasoning = true;
