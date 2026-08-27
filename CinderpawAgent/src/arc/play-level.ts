@@ -73,7 +73,7 @@ export interface PlayResult {
   /** The last view the environment gave. */
   finalObservation: ArcObservation;
   /** Why the loop returned — for the run log, so a short run is explainable. */
-  stoppedBecause: "terminal" | "budget" | "policy" | "invalid_action";
+  stoppedBecause: "terminal" | "budget" | "policy" | "invalid_action" | "deadline";
 }
 
 export interface PlayLevelOptions {
@@ -86,10 +86,25 @@ export interface PlayLevelOptions {
   maxActions: number;
   /** Called after each action, for live telemetry. Must not throw. */
   onAction?: (action: string, observation: ArcObservation, index: number) => void;
+  /**
+   * Asked before every action; true means stop now, cleanly.
+   *
+   * The budget counts presses, and there is a second currency the loop cannot
+   * see: a scorecard auto-closes 15 minutes after it is opened, and at one
+   * model call per action that arrives long before a 200-action budget does.
+   * Actions taken after it closes are not scored — the run keeps playing and
+   * the results are already gone.
+   *
+   * Deliberately a predicate and not a timestamp: the loop should not own a
+   * clock, the caller already knows when its card was opened, and a predicate
+   * is testable without faking time. Distinct from a policy returning `null` —
+   * that says the LEVEL is finished with; this says the SESSION is.
+   */
+  shouldStop?: () => boolean;
 }
 
 export async function playLevel(options: PlayLevelOptions): Promise<PlayResult> {
-  const { env, policy, maxActions, onAction } = options;
+  const { env, policy, maxActions, onAction, shouldStop } = options;
   if (!Number.isInteger(maxActions) || maxActions < 0) {
     throw new Error(
       `playLevel: maxActions must be a non-negative integer, got ${String(maxActions)}`,
@@ -112,6 +127,18 @@ export async function playLevel(options: PlayLevelOptions): Promise<PlayResult> 
   }
 
   while (taken.length < maxActions) {
+    // Before the action, never after: an action taken past the deadline is one
+    // the scorecard will not count, which is the worst of both — paid for and
+    // unscored.
+    if (shouldStop?.()) {
+      return {
+        state: observation.state,
+        actions: taken,
+        finalObservation: observation,
+        stoppedBecause: "deadline",
+      };
+    }
+
     const action = await policy(observation, {
       actions: env.actions,
       remaining: maxActions - taken.length,

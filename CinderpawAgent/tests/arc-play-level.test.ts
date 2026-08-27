@@ -183,3 +183,58 @@ describe("isTerminal", () => {
     expect(isTerminal("NOT_FINISHED")).toBe(false);
   });
 });
+
+/**
+ * The second currency.
+ *
+ * The budget counts presses; the scorecard counts minutes. A card auto-closes
+ * 15 minutes after it is opened, and at one model call per action that arrives
+ * long before a 200-action budget does — so a run that only watches the budget
+ * keeps playing into a closed card, paying for actions nobody scores.
+ */
+describe("playLevel — stopping before the scorecard expires", () => {
+  test("stops cleanly, and says the deadline was why", async () => {
+    const { e, calls } = env();
+    const result = await playLevel({
+      env: e,
+      policy: always("ACTION1"),
+      maxActions: 50,
+      // Two actions in, the card is about to close.
+      shouldStop: () => calls.length >= 2,
+    });
+    expect(result.stoppedBecause).toBe("deadline");
+    expect(result.actions).toEqual(["ACTION1", "ACTION1"]);
+    expect(calls).toHaveLength(2);
+  });
+
+  test("asked BEFORE the action, so nothing is spent past the deadline", async () => {
+    const { e, calls } = env();
+    const result = await playLevel({
+      env: e,
+      policy: always("ACTION1"),
+      maxActions: 50,
+      shouldStop: () => true,
+    });
+    expect(result.actions).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(result.stoppedBecause).toBe("deadline");
+  });
+
+  test("a win still wins — the deadline does not pre-empt finishing", async () => {
+    const { e } = env({ winAfter: 1 });
+    const result = await playLevel({
+      env: e,
+      policy: always("ACTION1"),
+      maxActions: 50,
+      shouldStop: () => false,
+    });
+    expect(result.state).toBe("WIN");
+    expect(result.stoppedBecause).toBe("terminal");
+  });
+
+  test("without the option nothing changes", async () => {
+    const { e } = env({ winAfter: 3 });
+    const result = await playLevel({ env: e, policy: always("ACTION1"), maxActions: 50 });
+    expect(result.state).toBe("WIN");
+  });
+});

@@ -148,6 +148,40 @@ const cardId = await openScorecard({
   tags: ["cinderpaw", ...args.tags],
   opaque: { manifest },
 });
+const cardOpenedAt = Date.now();
+
+// A card auto-closes 15 minutes after it is opened and every action after that
+// is unscored - the run happily keeps playing into a card the server has
+// already filed. The budget is in presses and this limit is in minutes, so
+// nothing about --budget can protect against it.
+//
+// The margin is not politeness: the deadline is checked BETWEEN actions, and
+// the action that follows the check is a model call plus a round trip. Stopping
+// 45s early costs a handful of presses; stopping 5s late loses everything after
+// the close.
+const CARD_TTL_MS = 15 * 60_000;
+const CARD_MARGIN_MS = 45_000;
+const cardDeadline = cardOpenedAt + CARD_TTL_MS - CARD_MARGIN_MS;
+const pastDeadline = () => Date.now() >= cardDeadline;
+
+// Close the card on the way out of a signal too.
+//
+// The `finally` below covers finishing and throwing. It does NOT cover Ctrl-C:
+// Node's default SIGINT handler exits the process without unwinding, so the
+// `finally` never runs, the card is never closed, and the docs are explicit
+// that a card left open shows no results. Every way this process can end has to
+// pass through closeScorecard, or the run produces nothing at all.
+let closing = false;
+const closeAndExit = async (signal) => {
+  if (closing) return;
+  closing = true;
+  console.error(`${signal} - closing scorecard ${cardId} so the run still counts...`);
+  await closeScorecard(cardId).catch((err) => console.error(`close failed: ${String(err)}`));
+  console.error("closed. Scores: https://three.arcprize.org");
+  process.exit(130);
+};
+process.on("SIGINT", () => void closeAndExit("SIGINT"));
+process.on("SIGTERM", () => void closeAndExit("SIGTERM"));
 console.log(`scorecard ${cardId}  game ${args.game}  budget ${args.budget}\n`);
 
 const attempts = [];
@@ -162,6 +196,7 @@ try {
       env,
       policy,
       maxActions: remaining,
+      shouldStop: pastDeadline,
       onAction: (action, observation, index) => {
         console.log(
           `  ${String(spent + index).padStart(4)}  ${action.padEnd(14)} ${observation.state}` +
@@ -178,7 +213,10 @@ try {
       levelsCompleted: env.last.levelsCompleted,
       winLevels: env.last.winLevels,
     });
+    // A deadline stop ends the campaign, not just this attempt: retrying would
+    // spend the remaining budget on a card that is about to close.
     if (result.state === "WIN" || result.stoppedBecause === "budget") break;
+    if (result.stoppedBecause === "deadline") break;
   }
 } finally {
   // Always close: an open scorecard holds the run and the numbers never land.
@@ -190,6 +228,12 @@ const manifestPath = writeRunManifest(manifest, outDir);
 
 console.log(`\nscorecard   ${cardId}`);
 console.log(`actions     ${spent} of ${args.budget}`);
+console.log(
+  `card open   ${Math.round((Date.now() - cardOpenedAt) / 1000)}s of ${CARD_TTL_MS / 1000}s` +
+    (attempts.some((a) => a.stoppedBecause === "deadline")
+      ? "  (stopped early to stay inside the scorecard window)"
+      : ""),
+);
 console.log(`attempts    ${JSON.stringify(attempts)}`);
 console.log(`vetoed      ${vetoes} presses the frugal policy refused to pay for`);
 if (!args.dryRun) {
