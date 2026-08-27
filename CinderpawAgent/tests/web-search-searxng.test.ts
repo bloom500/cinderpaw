@@ -20,7 +20,7 @@ const ORIGIN = "http://127.0.0.1:8888";
 // inherit a slot claimed by another file.
 beforeEach(() => {
   __resetDdgPacer();
-  process.env.FERAL_DDG_MIN_INTERVAL_MS = "0";
+  process.env.CINDERPAW_DDG_MIN_INTERVAL_MS = "0";
 });
 
 /** Minimal ToolContext with a stubbed fetch — no network in tests. */
@@ -115,7 +115,7 @@ describe("web_search / SearXNG", () => {
 
     expect(res.ok).toBe(false);
     expect(res.error).toBe("no_results");
-    expect(res.content).toContain("FERAL_SEARXNG_URL");
+    expect(res.content).toContain("CINDERPAW_SEARXNG_URL");
   });
 
   test("a broken SearXNG degrades to DDG and says so, rather than dying", async () => {

@@ -130,7 +130,7 @@ describe("write_file is idempotent", () => {
 // ───────────────────────────────────────────── autonomous ask_user (item 4)
 
 describe("autonomous ask_user does not block", () => {
-  afterEach(() => { delete process.env.FERAL_AUTONOMOUS; });
+  afterEach(() => { delete process.env.CINDERPAW_AUTONOMOUS; });
 
   const questions = [{
     question: "Which format?",
@@ -138,8 +138,8 @@ describe("autonomous ask_user does not block", () => {
     multiSelect: false,
   }];
 
-  test("with FERAL_AUTONOMOUS it takes the recommended option and never calls the bridge", async () => {
-    process.env.FERAL_AUTONOMOUS = "true";
+  test("with CINDERPAW_AUTONOMOUS it takes the recommended option and never calls the bridge", async () => {
+    process.env.CINDERPAW_AUTONOMOUS = "true";
     const tool = createAskUserTool();
     let bridgeCalled = false;
     // A bridge that would HANG forever if consulted — proves we never wait.
@@ -157,7 +157,7 @@ describe("autonomous ask_user does not block", () => {
   });
 
   test("autonomous works even with NO bridge (headless walk-away)", async () => {
-    process.env.FERAL_AUTONOMOUS = "true";
+    process.env.CINDERPAW_AUTONOMOUS = "true";
     const tool = createAskUserTool();
     const ctx = { sessionId: "s" } as unknown as ToolContext; // no askUser
     const r = await tool.execute({ questions }, ctx);
@@ -246,7 +246,7 @@ describe("agent loop crash-resume", () => {
   });
 
   test("autonomous decisions are appended to the final answer as an audit block", async () => {
-    process.env.FERAL_AUTONOMOUS = "true";
+    process.env.CINDERPAW_AUTONOMOUS = "true";
     const h = loopHarness([
       toolBlock("ask_user", { questions: [{ question: "Deploy to prod?", options: [{ label: "Staging first", recommended: true }, { label: "Prod" }], multiSelect: false }] }),
       "I proceeded with staging.",
@@ -257,6 +257,6 @@ describe("agent loop crash-resume", () => {
       expect(answer).toContain("Decisions I made on your behalf");
       expect(answer).toContain("Deploy to prod?");
       expect(answer).toContain("Staging first");
-    } finally { h.restore(); h.db.close(); delete process.env.FERAL_AUTONOMOUS; }
+    } finally { h.restore(); h.db.close(); delete process.env.CINDERPAW_AUTONOMOUS; }
   });
 });

@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, feralHome, scratchRoot, searxngOrigin } from "./config.ts";
+import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, feralHome, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -172,7 +172,7 @@ interface AppConfig {
 }
 
 /** The agent's own home: RSI git substrate, SQLite db, SOUL/identity. */
-const FERAL_HOME = feralHome();
+const CINDERPAW_HOME = feralHome();
 
 /**
  * Sidecar version, surfaced verbatim in the runtime identity doc emitted
@@ -208,7 +208,7 @@ const BOOT_EPOCH_MS = Date.now();
  * ponytail: 200 is the number the old warning told operators to use, so it is
  * the value already known to work; the point of the constant is that we now
  * apply it instead of asking. Local primaries are uncapped — see
- * `fractalMaxLeaves`. Raise via FERAL_FRACTAL_BENCH_MAX_LEAVES on a
+ * `fractalMaxLeaves`. Raise via CINDERPAW_FRACTAL_BENCH_MAX_LEAVES on a
  * long-context provider where the whole corpus does fit.
  */
 const CLOUD_REBUILD_LEAF_CAP = 200;
@@ -216,16 +216,16 @@ const CLOUD_REBUILD_LEAF_CAP = 200;
 /**
  * Resolve the agent's filesystem sandbox roots.
  *
- * - `FERAL_WORKSPACE` is a path-list (`;` on Windows, `:` elsewhere). When
+ * - `CINDERPAW_WORKSPACE` is a path-list (`;` on Windows, `:` elsewhere). When
  *   unset it defaults to the launch cwd PLUS the user's home directory — the
  *   agent is a local assistant and should be able to work anywhere the user
- *   can, not just in one project folder. Set FERAL_WORKSPACE to RESTRICT.
+ *   can, not just in one project folder. Set CINDERPAW_WORKSPACE to RESTRICT.
  * - A dedicated scratch dir under ~/.feral/workspace is ALWAYS added, so a
  *   task always has somewhere it fully owns to read/write even if cwd is
  *   read-only.
  * - Self-protection wall: broad roots are fine because the real guarantee
  *   moved to CALL TIME — resolveAllowedPath (tool-permissions.ts) denies any
- *   target inside ~/.feral (except scratch), ~/.ssh, or FERAL_FS_DENY on every
+ *   target inside ~/.feral (except scratch), ~/.ssh, or CINDERPAW_FS_DENY on every
  *   single access. Here we only drop roots that sit ENTIRELY inside ~/.feral
  *   (every call through them would fail anyway — better to warn at boot).
  */
@@ -233,7 +233,7 @@ const CLOUD_REBUILD_LEAF_CAP = 200;
 /** True iff `child` is `parent` or lies beneath it. Appends a separator before
  *  the prefix test so a filesystem root (`"/"` / `"C:\\"`, which already ends
  *  in a separator) doesn't produce a double-separator prefix that never
- *  matches — the trailing-separator bug that let `FERAL_WORKSPACE=/` slip the
+ *  matches — the trailing-separator bug that let `CINDERPAW_WORKSPACE=/` slip the
  *  self-protection wall. */
 function isWithin(child: string, parent: string): boolean {
   if (child === parent) return true;
@@ -242,7 +242,7 @@ function isWithin(child: string, parent: string): boolean {
 }
 
 export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
-  const raw = env.FERAL_WORKSPACE;
+  const raw = env.CINDERPAW_WORKSPACE;
   const requested = raw && raw.trim()
     ? raw.split(delimiter).map((s) => s.trim()).filter(Boolean)
     : [process.cwd(), homedir()];
@@ -269,7 +269,7 @@ export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
     if (home !== undefined) {
       console.warn(
         `[config] dropping workspace root "${r}" — it is inside ${home} ` +
-          `(agent state/identity). Point FERAL_WORKSPACE at a project dir instead.`,
+          `(agent state/identity). Point CINDERPAW_WORKSPACE at a project dir instead.`,
       );
       return false;
     }
@@ -308,7 +308,7 @@ function loadConfig(): AppConfig {
   // default would start it on an empty database sitting next to a full one —
   // which presents itself to the person as every conversation being gone. So
   // the old file wins whenever it is there and the new one is not.
-  const dbEnv = env.FERAL_DB ?? defaultDbPath();
+  const dbEnv = env.CINDERPAW_DB ?? defaultDbPath();
   const dbPath = dbEnv === ":memory:" ? ":memory:" : resolve(dbEnv);
 
   return {
@@ -318,33 +318,33 @@ function loadConfig(): AppConfig {
     inference: {
       primary: {
         // Default to the bundled Rust/llama.cpp engine (OpenAI-compatible API on
-        // 11435). Override with FERAL_PROVIDER/FERAL_BASE_URL to target external
+        // 11435). Override with CINDERPAW_PROVIDER/CINDERPAW_BASE_URL to target external
         // Ollama (11434) or any other OpenAI-compatible server.
-        provider: env.FERAL_PROVIDER ?? "openai_compatible",
+        provider: env.CINDERPAW_PROVIDER ?? "openai_compatible",
         // The id is still substituted so every downstream config field has a
         // shape, but the readiness line below no longer presents it as a model
         // that exists — see `isPlaceholderModel`.
-        model: env.FERAL_MODEL ?? "qwen2.5:7b",
-        baseUrl: env.FERAL_BASE_URL ?? "http://127.0.0.1:11435",
+        model: env.CINDERPAW_MODEL ?? "qwen2.5:7b",
+        baseUrl: env.CINDERPAW_BASE_URL ?? "http://127.0.0.1:11435",
         // Optional API key for cloud providers (OpenAI-compatible
         // / Anthropic / Nvidia NIM). Ignored for `ollama`.
         //
-        // Set FERAL_TRUSTED_BASE_URLS below to bound where this key can
+        // Set CINDERPAW_TRUSTED_BASE_URLS below to bound where this key can
         // travel: with a list configured, neither boot nor a later
         // `set_model` can point inference outside it. WITHOUT one — the
         // default — the only gate is the host channel that carries
         // `set_model`, which is loopback-only + bearer token (`api.rs`).
         // Do not read the allowlist as protection you have not enabled.
-        ...(env.FERAL_API_KEY ? { apiKey: env.FERAL_API_KEY } : {}),
+        ...(env.CINDERPAW_API_KEY ? { apiKey: env.CINDERPAW_API_KEY } : {}),
       },
-      ...(env.FERAL_FALLBACK_MODEL
+      ...(env.CINDERPAW_FALLBACK_MODEL
         ? {
             fallback: {
-              provider: env.FERAL_FALLBACK_PROVIDER ?? "ollama",
-              model: env.FERAL_FALLBACK_MODEL,
-              baseUrl: env.FERAL_FALLBACK_BASE_URL ?? "http://localhost:11434",
-              ...(env.FERAL_FALLBACK_API_KEY
-                ? { apiKey: env.FERAL_FALLBACK_API_KEY }
+              provider: env.CINDERPAW_FALLBACK_PROVIDER ?? "ollama",
+              model: env.CINDERPAW_FALLBACK_MODEL,
+              baseUrl: env.CINDERPAW_FALLBACK_BASE_URL ?? "http://localhost:11434",
+              ...(env.CINDERPAW_FALLBACK_API_KEY
+                ? { apiKey: env.CINDERPAW_FALLBACK_API_KEY }
                 : {}),
             },
           }
@@ -366,24 +366,24 @@ function loadConfig(): AppConfig {
         // turn cleanly and surface a `budget_exceeded` event so the UI
         // can ask the user whether to continue. No silent bricking.
         //
-        // Override: FERAL_BUDGET_CONVERSATION / FERAL_BUDGET_DAY / *_POLICY
+        // Override: CINDERPAW_BUDGET_CONVERSATION / CINDERPAW_BUDGET_DAY / *_POLICY
         // env vars. Pass an explicit number to lower (or raise) the cap;
         // pass `Infinity` (the previous default) for the unbounded
         // pre-P1-#1 behavior if a power user really wants it.
-        perConversation: Number(env.FERAL_BUDGET_CONVERSATION ?? 5_000_000),
-        perDay: Number(env.FERAL_BUDGET_DAY ?? 50_000_000),
+        perConversation: Number(env.CINDERPAW_BUDGET_CONVERSATION ?? 5_000_000),
+        perDay: Number(env.CINDERPAW_BUDGET_DAY ?? 50_000_000),
         onExhausted:
-          env.FERAL_BUDGET_POLICY === "stop" ? "stop" : "compress_and_continue",
+          env.CINDERPAW_BUDGET_POLICY === "stop" ? "stop" : "compress_and_continue",
       },
       // Requests-per-minute cap. Unset (0) means the router uses the published
       // caps it knows about — NVIDIA NIM's free tier is 40 RPM — and leaves
       // every other endpoint, the local engine above all, unthrottled.
-      rateLimitRpm: Number(env.FERAL_RATE_LIMIT_RPM ?? 0),
+      rateLimitRpm: Number(env.CINDERPAW_RATE_LIMIT_RPM ?? 0),
       // Comma-separated allowlist of inference endpoints. Omitted → defaults to
       // exactly the configured primary/fallback targets.
-      ...(env.FERAL_TRUSTED_BASE_URLS
+      ...(env.CINDERPAW_TRUSTED_BASE_URLS
         ? {
-            trustedBaseUrls: env.FERAL_TRUSTED_BASE_URLS.split(",")
+            trustedBaseUrls: env.CINDERPAW_TRUSTED_BASE_URLS.split(",")
               .map((u) => u.trim())
               .filter(Boolean),
           }
@@ -485,22 +485,22 @@ export async function boot(transportOverride?: Transport) {
   // --- Layer 3: Sandbox (built first) ---
   const audit = new AuditLog(db.raw);
   // Loopback origins the SSRF guard may reach: the user's own SearXNG, plus
-  // anything else they declared with FERAL_TRUSTED_LOCAL_ORIGINS. Both come
+  // anything else they declared with CINDERPAW_TRUSTED_LOCAL_ORIGINS. Both come
   // from the operator's environment — never from the model, a tool argument or
   // a fetched page — and both are exact-origin, so trusting one local service
   // does not trust the rest of the loopback interface.
   const searxng = searxngOrigin();
-  const declaredLocal = cfgList("FERAL_TRUSTED_LOCAL_ORIGINS").map((o) =>
+  const declaredLocal = cfgList("CINDERPAW_TRUSTED_LOCAL_ORIGINS").map((o) =>
     o.replace(/\/$/, ""),
   );
   const egress = new EgressProxy(audit.logger, {
     trustedLocalOrigins: [...(searxng ? [searxng] : []), ...declaredLocal],
-    externalWriteBudget: cfgInt("FERAL_EXTERNAL_WRITE_BUDGET"),
-    unattendedWriteDenyHosts: cfgList("FERAL_WRITE_CONFIRM_HOSTS"),
-    unattended: cfgBool("FERAL_AUTONOMOUS"),
-    dryRunWrites: cfgBool("FERAL_DRY_RUN"),
+    externalWriteBudget: cfgInt("CINDERPAW_EXTERNAL_WRITE_BUDGET"),
+    unattendedWriteDenyHosts: cfgList("CINDERPAW_WRITE_CONFIRM_HOSTS"),
+    unattended: cfgBool("CINDERPAW_AUTONOMOUS"),
+    dryRunWrites: cfgBool("CINDERPAW_DRY_RUN"),
   });
-  if (cfgBool("FERAL_DRY_RUN")) {
+  if (cfgBool("CINDERPAW_DRY_RUN")) {
     log("egress: DRY RUN — state-changing requests will be logged, not sent");
   }
   // Benchmark mode changes two things a stranger would otherwise discover as
@@ -508,12 +508,12 @@ export async function boot(transportOverride?: Transport) {
   // out loud, at the top, every time.
   const benchRun = benchmarkRunId();
   if (benchRun !== null) {
-    const benchHosts = cfgList("FERAL_BENCHMARK_ALLOW_HOSTS");
+    const benchHosts = cfgList("CINDERPAW_BENCHMARK_ALLOW_HOSTS");
     log(`BENCHMARK MODE: run "${benchRun}"`);
     log(`  data dir: ${feralHome()}  (isolated from other runs — invariant I13)`);
     log(
       benchHosts.length === 0
-        ? "  network: NOTHING is reachable — FERAL_BENCHMARK_ALLOW_HOSTS is empty"
+        ? "  network: NOTHING is reachable — CINDERPAW_BENCHMARK_ALLOW_HOSTS is empty"
         : `  network: only ${benchHosts.join(", ")}`,
     );
   }
@@ -525,7 +525,7 @@ export async function boot(transportOverride?: Transport) {
   log(
     searxng
       ? `web_search backend: SearXNG @ ${searxng}`
-      : "web_search backend: DuckDuckGo (keyless default; set FERAL_SEARXNG_URL for a self-hosted one)",
+      : "web_search backend: DuckDuckGo (keyless default; set CINDERPAW_SEARXNG_URL for a self-hosted one)",
   );
   // NB: deliberately NOT named `process` to avoid shadowing the global
   // Node `process` object (which we still need below for process.env).
@@ -536,7 +536,7 @@ export async function boot(transportOverride?: Transport) {
   // to a cloud model. A transient cloud failure (e.g. MiniMax 429 rate-limit)
   // then degrades to the on-device model instead of hard-failing the turn.
   //
-  // This used to read FERAL_MODEL / FERAL_BASE_URL whenever the boot primary
+  // This used to read CINDERPAW_MODEL / CINDERPAW_BASE_URL whenever the boot primary
   // was NOT loopback — but those env vars ARE the cloud route in exactly that
   // case (Rust boots the sidecar on the persisted BYOK route). So the "local
   // fallback" was a keyless copy of the boot-time CLOUD provider: after
@@ -548,12 +548,12 @@ export async function boot(transportOverride?: Transport) {
   // separately. No loopback target → no fallback, and a cloud failure surfaces
   // as itself.
   //
-  // FERAL_LOCAL_MODEL is required, not defaulted: Rust only sets it once the
+  // CINDERPAW_LOCAL_MODEL is required, not defaulted: Rust only sets it once the
   // engine has actually answered /v1/models. Guessing a model id here would
   // build a fallback that 404s on the one turn it exists to rescue, and its
   // failure would mask the real cloud error — the same class of bug as F9.
-  const localBaseUrl = cfgPath("FERAL_LOCAL_BASE_URL");
-  const localModel = cfgPath("FERAL_LOCAL_MODEL");
+  const localBaseUrl = cfgPath("CINDERPAW_LOCAL_BASE_URL");
+  const localModel = cfgPath("CINDERPAW_LOCAL_MODEL");
   const localFallbackTarget: ModelTarget | undefined = isLoopbackUrl(
     config.inference.primary.baseUrl,
   )
@@ -563,7 +563,7 @@ export async function boot(transportOverride?: Transport) {
           provider: "openai_compatible",
           model: localModel,
           baseUrl: localBaseUrl,
-          apiKey: cfgPath("FERAL_LOCAL_API_KEY") ?? undefined,
+          apiKey: cfgPath("CINDERPAW_LOCAL_API_KEY") ?? undefined,
         }
       : undefined;
 
@@ -641,16 +641,16 @@ export async function boot(transportOverride?: Transport) {
   // costs time rather than a hard provider rejection, and the full corpus
   // gives the best tree.
   const fractalMaxLeaves = ((): number => {
-    const explicit = cfgInt("FERAL_FRACTAL_BENCH_MAX_LEAVES");
+    const explicit = cfgInt("CINDERPAW_FRACTAL_BENCH_MAX_LEAVES");
     if (explicit > 0) return explicit;
-    const baseUrl = cfgPath("FERAL_BASE_URL") ?? "";
+    const baseUrl = cfgPath("CINDERPAW_BASE_URL") ?? "";
     const isLoopback = baseUrl === "" || /^(https?:\/\/)?(127\.|localhost)/i.test(baseUrl);
     if (isLoopback) return 0; // uncapped — on-device summariser
     log(
-      `[bench-cap] cloud primary (${baseUrl}) with no FERAL_FRACTAL_BENCH_MAX_LEAVES — ` +
+      `[bench-cap] cloud primary (${baseUrl}) with no CINDERPAW_FRACTAL_BENCH_MAX_LEAVES — ` +
         `capping the fractal rebuild at ${CLOUD_REBUILD_LEAF_CAP} leaves so the provider ` +
         `cannot reject the whole corpus and leave an empty tree (0% recall). ` +
-        `Set FERAL_FRACTAL_BENCH_MAX_LEAVES explicitly to override.`,
+        `Set CINDERPAW_FRACTAL_BENCH_MAX_LEAVES explicitly to override.`,
     );
     return CLOUD_REBUILD_LEAF_CAP;
   })();
@@ -704,7 +704,7 @@ export async function boot(transportOverride?: Transport) {
   // transport, the Rust host runs the OS action behind its security gate, and
   // the `desktop_control_response` is routed back to the bridge below. The
   // `control_app` tool is only registered when the user has opted in (see
-  // FERAL_ENABLE_DESKTOP_CONTROL); the bridge itself is always created so the
+  // CINDERPAW_ENABLE_DESKTOP_CONTROL); the bridge itself is always created so the
   // response-routing wiring is unconditional.
   const desktopControl = new DesktopControlBridgeImpl((e) => sendHolder.current(e));
   // Capability bridge. 60s rather than the desktop bridge's 30: an install
@@ -787,8 +787,8 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createGrepTool(config.workspaceRoots));
   // shell_exec: argv-only program runner (NO shell — no injection surface),
   // scoped to the workspace roots and a binary whitelist. On by default so the
-  // agent can actually run things; set FERAL_ENABLE_SHELL_EXEC=false to disable.
-  if (process.env.FERAL_ENABLE_SHELL_EXEC !== "false") {
+  // agent can actually run things; set CINDERPAW_ENABLE_SHELL_EXEC=false to disable.
+  if (readEnv("CINDERPAW_ENABLE_SHELL_EXEC") !== "false") {
     registry.register(createShellExecTool(config.workspaceRoots));
     // tool_forge: the agent creates/modifies/deletes its OWN tools. Same
     // trust class as shell_exec (arbitrary code in a sandboxed subprocess),
@@ -809,8 +809,8 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createGitBranchTool(config.workspaceRoots));
   // http_request: open egress by default ("*" = any public host; the egress
   // proxy still blocks loopback/private/link-local, rate-limits, and audits
-  // every call). Set FERAL_HTTP_DOMAINS to RESTRICT to a comma-separated list.
-  const httpDomains = (process.env.FERAL_HTTP_DOMAINS ?? "")
+  // every call). Set CINDERPAW_HTTP_DOMAINS to RESTRICT to a comma-separated list.
+  const httpDomains = (readEnv("CINDERPAW_HTTP_DOMAINS") ?? "")
     .split(",").map((d) => d.trim()).filter(Boolean);
   registry.register(createHttpRequestTool(httpDomains.length > 0 ? httpDomains : ["*"]));
   // time_date + calculator: pure utilities, no permissions
@@ -818,12 +818,12 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createCalculatorTool());
   registry.register(createWebSearchTool({ searxngOrigin: searxng }));
   // fetch_url: open egress by default, same posture as http_request above.
-  // Set FERAL_FETCH_DOMAINS to RESTRICT.
-  const fetchDomains = (process.env.FERAL_FETCH_DOMAINS ?? "")
+  // Set CINDERPAW_FETCH_DOMAINS to RESTRICT.
+  const fetchDomains = (readEnv("CINDERPAW_FETCH_DOMAINS") ?? "")
     .split(",").map((d) => d.trim()).filter(Boolean);
   registry.register(createFetchUrlTool(fetchDomains.length > 0 ? fetchDomains : ["*"]));
   // read_webpage: Jina Reader — extracts clean markdown from any URL (no API key needed)
-  const jinaApiKey = process.env.FERAL_JINA_API_KEY;
+  const jinaApiKey = readEnv("CINDERPAW_JINA_API_KEY");
   registry.register(createReadWebpageTool(jinaApiKey));
   // deep_research: DeepResearch-style iterative loop (search → read → extract → synthesize)
   registry.register(createDeepResearchTool(router, jinaApiKey));
@@ -834,10 +834,10 @@ export async function boot(transportOverride?: Transport) {
   // read_skill: Claude Code-style on-demand body loader for locally-installed
   // skills. The system prompt only carries a short menu; the LLM calls this
   // tool to load the full SKILL.md body of any skill it wants to apply.
-  registry.register(createReadSkillTool(join(FERAL_HOME, "skills")));
+  registry.register(createReadSkillTool(join(CINDERPAW_HOME, "skills")));
   // list_skills: the drawer index. Skills are no longer dumped into every
   // prompt; the model calls this to discover ids, then read_skill to load one.
-  registry.register(createListSkillsTool(join(FERAL_HOME, "skills")));
+  registry.register(createListSkillsTool(join(CINDERPAW_HOME, "skills")));
   // Capability acquisition. Registered unconditionally: the tools check for
   // the host bridge themselves and report "not available on this transport"
   // rather than vanishing, so a model that reasonably expects to be able to
@@ -873,13 +873,13 @@ export async function boot(transportOverride?: Transport) {
 
   // control_app — OS-level desktop control via the accessibility tree. This
   // is powerful (it can click/type into any non-denylisted app), so it is
-  // OPT-IN, exactly like shell_exec: enable with FERAL_ENABLE_DESKTOP_CONTROL=true.
+  // OPT-IN, exactly like shell_exec: enable with CINDERPAW_ENABLE_DESKTOP_CONTROL=true.
   // The Rust host ALSO independently gates every call on the same flag plus an
   // app allow/deny policy, so even if this registration is reached the host is
   // the final authority. Default OFF.
-  if (cfgBool("FERAL_ENABLE_DESKTOP_CONTROL")) {
+  if (cfgBool("CINDERPAW_ENABLE_DESKTOP_CONTROL")) {
     registry.register(createControlAppTool());
-    log("control_app enabled (FERAL_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
+    log("control_app enabled (CINDERPAW_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
   }
 
   // recall — read-only on-demand semantic search over past conversations,
@@ -937,7 +937,7 @@ export async function boot(transportOverride?: Transport) {
 
   // notebook: the RLM design — a persistent JS interpreter with every other
   // tool bound as an async function, so the agent composes tool calls in code
-  // instead of one per turn. Off by default; FERAL_ENABLE_NOTEBOOK=true.
+  // instead of one per turn. Off by default; CINDERPAW_ENABLE_NOTEBOOK=true.
   //
   // Registered after delegate_task so `registry.list()` is complete and the
   // notebook's children can reach the same tools a delegated subagent can.
@@ -945,7 +945,7 @@ export async function boot(transportOverride?: Transport) {
   // a child still gets its own working memory, filtered registry and budget —
   // read-only by default, exactly like delegate_task, so code that spawns
   // workers cannot quietly acquire write access the parent never granted.
-  if (cfgBool("FERAL_ENABLE_NOTEBOOK")) {
+  if (cfgBool("CINDERPAW_ENABLE_NOTEBOOK")) {
     const notebookSubagent = new Subagent({
       router,
       allTools: registry.list(),
@@ -1007,7 +1007,7 @@ export async function boot(transportOverride?: Transport) {
         return r;
       },
     }));
-    log("notebook: enabled (FERAL_ENABLE_NOTEBOOK=true), rlm() wired");
+    log("notebook: enabled (CINDERPAW_ENABLE_NOTEBOOK=true), rlm() wired");
   }
 
   // Lead-handling tools for the public connector mode (WhatsApp "business"
@@ -1015,7 +1015,7 @@ export async function boot(transportOverride?: Transport) {
   // profile (see PUBLIC_ALLOWED_TOOLS in transports/connectors.ts). The shared
   // LeadDesk lets escalate/schedule reach the live connector (owner ping +
   // conversation pause); records land under ~/.feral/leads/.
-  const leadsDir = join(FERAL_HOME, "leads");
+  const leadsDir = join(CINDERPAW_HOME, "leads");
   const leadDesk = new LeadDesk();
   registry.register(createCaptureLeadTool(leadsDir));
   registry.register(createEscalateToHumanTool(leadDesk, leadsDir));
@@ -1023,12 +1023,12 @@ export async function boot(transportOverride?: Transport) {
 
   // --- Proactive subsystem (X1) ---
   // MoodEngine + InnerThoughtsLoop used to be wired into core by default
-  // (FERAL_INNER_THOUGHTS_ENABLED !== "false"). That burned inference on
+  // (CINDERPAW_INNER_THOUGHTS_ENABLED !== "false"). That burned inference on
   // every idle cycle, contended with the global MODEL mutex (P6), and
   // contradicted the "no-compromise privacy" pitch. They are now an
   // explicit, opt-in subsystem:
   //
-  //   FERAL_PROACTIVE_ENABLED=true  → load + wire mood + inner-thoughts
+  //   CINDERPAW_PROACTIVE_ENABLED=true  → load + wire mood + inner-thoughts
   //   default (unset / =false)        → neither module is loaded or run
   //
   // The modules themselves are kept on disk (mood.ts, inner-thoughts.ts)
@@ -1036,34 +1036,34 @@ export async function boot(transportOverride?: Transport) {
   // so a sidecar that never opts in pays zero cost — no eager class
   // definitions, no startup work, no `setInterval` ticking, no router
   // contention, no audit-log writes from `#persistThought`.
-  const proactiveEnabled = cfgBool("FERAL_PROACTIVE_ENABLED");
+  const proactiveEnabled = cfgBool("CINDERPAW_PROACTIVE_ENABLED");
   let mood: import("./core/mood.ts").MoodEngine | null = null;
   let innerThoughts: import("./core/inner-thoughts.ts").InnerThoughtsLoop | null = null;
   if (proactiveEnabled) {
     const { MoodEngine } = await import("./core/mood.ts");
     const { InnerThoughtsLoop } = await import("./core/inner-thoughts.ts");
     mood = new MoodEngine();
-    log("mood engine enabled (FERAL_PROACTIVE_ENABLED=true)");
+    log("mood engine enabled (CINDERPAW_PROACTIVE_ENABLED=true)");
 
     // Inner thoughts loop — heavily gated so it surfaces at most 2-3
     // messages per day, NEVER interrupts active conversations, and only
     // fires when there's genuine signal in mood + recent activity.
     // See InnerThoughtsLoop for gate details.
     innerThoughts = new InnerThoughtsLoop(router, episodic, mood, db.raw, {
-      intervalMs: Number(process.env.FERAL_THOUGHTS_INTERVAL_MS ?? 2 * 60 * 1000),
+      intervalMs: Number(readEnv("CINDERPAW_THOUGHTS_INTERVAL_MS") ?? 2 * 60 * 1000),
       // 10 min idle — definitely a real break, not just the user looking
       // away from the screen for a second.
-      minIdleMs: Number(process.env.FERAL_THOUGHTS_MIN_IDLE_MS ?? 10 * 60_000),
+      minIdleMs: Number(readEnv("CINDERPAW_THOUGHTS_MIN_IDLE_MS") ?? 10 * 60_000),
       // 4 hours between messages — caps cadence at ~1 per idle period.
-      cooldownMs: Number(process.env.FERAL_THOUGHTS_COOLDOWN_MS ?? 4 * 60 * 60_000),
+      cooldownMs: Number(readEnv("CINDERPAW_THOUGHTS_COOLDOWN_MS") ?? 4 * 60 * 60_000),
       // Hard daily cap: 2-3 proactive messages per UTC day. The user
-      // can override higher (FERAL_THOUGHTS_DAILY_CAP=10) or lower (=0
+      // can override higher (CINDERPAW_THOUGHTS_DAILY_CAP=10) or lower (=0
       // to effectively disable emits). The four gates together produce
       // a maximally non-spammy agent when the user opts in.
-      dailyCap: Number(process.env.FERAL_THOUGHTS_DAILY_CAP ?? 3),
-      moodGateThreshold: Number(process.env.FERAL_THOUGHTS_MOOD_THRESHOLD ?? 0.5),
+      dailyCap: Number(readEnv("CINDERPAW_THOUGHTS_DAILY_CAP") ?? 3),
+      moodGateThreshold: Number(readEnv("CINDERPAW_THOUGHTS_MOOD_THRESHOLD") ?? 0.5),
     });
-    log("inner-thoughts loop enabled (opt-in via FERAL_PROACTIVE_ENABLED)");
+    log("inner-thoughts loop enabled (opt-in via CINDERPAW_PROACTIVE_ENABLED)");
   }
 
   // --- Memory extractor (async, fire-and-forget after each turn) ---
@@ -1188,7 +1188,7 @@ export async function boot(transportOverride?: Transport) {
   // alive. The transport's onMessage handler should treat absence of
   // heartbeats for N intervals as a hang signal.
   const heartbeat = new HeartbeatLoop({
-    intervalMs: Number(process.env.FERAL_HEARTBEAT_INTERVAL_MS ?? 30_000),
+    intervalMs: Number(readEnv("CINDERPAW_HEARTBEAT_INTERVAL_MS") ?? 30_000),
     getActiveSessions: () => agent.activeSessionCount,
   });
 
@@ -1209,8 +1209,8 @@ export async function boot(transportOverride?: Transport) {
   // recorded as a timeout. Sized from the real budgets rather than a flat
   // constant, so raising either one does not silently break the other.
   const cronJobTimeoutMs = Number(
-    process.env.FERAL_CRON_JOB_TIMEOUT_MS ??
-      turnBudgetMs() * (cfgInt("FERAL_UNATTENDED_CONTINUATIONS") + 1) + 60_000,
+    readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ??
+      turnBudgetMs() * (cfgInt("CINDERPAW_UNATTENDED_CONTINUATIONS") + 1) + 60_000,
   );
   /**
    * The world's opinion on "is it done", for a turn that claimed it was.
@@ -1564,8 +1564,8 @@ export async function boot(transportOverride?: Transport) {
       }
       return deliverCron(target, content, job, ctx);
     },
-    tickIntervalMs: Number(process.env.FERAL_CRON_TICK_MS ?? 30_000),
-    jobTimeoutMs: Number(process.env.FERAL_CRON_JOB_TIMEOUT_MS ?? 5 * 60_000),
+    tickIntervalMs: Number(readEnv("CINDERPAW_CRON_TICK_MS") ?? 30_000),
+    jobTimeoutMs: Number(readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ?? 5 * 60_000),
   });
 
   // --- Layer 4: Transport ---
@@ -1600,7 +1600,7 @@ export async function boot(transportOverride?: Transport) {
     approvals: new CoworkApprovalRepo(db.raw),
     agents: coworkAgents,
     emitEvent: (event) => transport.send(event),
-    timeoutMs: Number(process.env.FERAL_CRON_JOB_TIMEOUT_MS ?? 5 * 60_000),
+    timeoutMs: Number(readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ?? 5 * 60_000),
     log,
   });
   hooks.on("before_tool_call", coworkApprovalService.gate);
@@ -1674,7 +1674,7 @@ export async function boot(transportOverride?: Transport) {
           }),
         prompt,
         `${sessionId}-${Date.now()}`,
-        { deadlineMs: Number(process.env.FERAL_CRON_JOB_TIMEOUT_MS ?? 5 * 60_000) },
+        { deadlineMs: Number(readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ?? 5 * 60_000) },
       );
       if (runError) throw new Error(runError);
       return { text: run.text, finished: run.finished };
@@ -1730,12 +1730,12 @@ export async function boot(transportOverride?: Transport) {
   void fractalMemory
     .rebuildIfStale()
     .catch((e) => log(`fractal: initial rebuild error: ${String(e)}`));
-  // Dev-only benchmark gate (FERAL_RUN_FRACTAL_BENCH=1). Runs INSIDE the live
+  // Dev-only benchmark gate (CINDERPAW_RUN_FRACTAL_BENCH=1). Runs INSIDE the live
   // sidecar because embeddings only work here (the embed bridge needs Rust).
   // Builds the tree if needed, scores flat FTS5 vs the fractal hybrid on a
   // generated (or supplied) query set, writes a JSON report next to the tree,
   // and logs the ship/no-ship verdict. Never affects normal startup.
-  if (process.env.FERAL_RUN_FRACTAL_BENCH) {
+  if (readEnv("CINDERPAW_RUN_FRACTAL_BENCH")) {
     void (async () => {
       try {
         const fs = require("node:fs") as typeof import("node:fs");
@@ -1744,12 +1744,12 @@ export async function boot(transportOverride?: Transport) {
           log("fractal-bench: no tree (no embedding model on disk?) — skipping");
           return;
         }
-        const queriesPath = process.env.FERAL_FRACTAL_BENCH_QUERIES;
+        const queriesPath = readEnv("CINDERPAW_FRACTAL_BENCH_QUERIES");
         const report = await fractalMemory.benchmark({
           infer: routerInfer(router),
           querySetJsonl: queriesPath ? fs.readFileSync(queriesPath, "utf8") : undefined,
-          count: Number(process.env.FERAL_FRACTAL_BENCH_COUNT) || 50,
-          seed: Number(process.env.FERAL_FRACTAL_BENCH_SEED) || 1,
+          count: Number(readEnv("CINDERPAW_FRACTAL_BENCH_COUNT")) || 50,
+          seed: Number(readEnv("CINDERPAW_FRACTAL_BENCH_SEED")) || 1,
         });
         const outPath = require("node:path").join(dataDir, "fractal-bench-report.json");
         fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
@@ -1775,8 +1775,8 @@ export async function boot(transportOverride?: Transport) {
   const dreamCfg = resolveDreamConfig(process.env);
   const activityMonitor = new ActivityMonitor({ errorWindowMs: dreamCfg.errorWindowMs });
   const dreamTelemetryPath =
-    process.env.FERAL_RSI_TELEMETRY ??
-    join(FERAL_HOME, "rsi", "dream.jsonl");
+    readEnv("CINDERPAW_RSI_TELEMETRY") ??
+    join(CINDERPAW_HOME, "rsi", "dream.jsonl");
   // Carries the in-flight episode's start time + trigger from the
   // scheduler's `start` callback to the run-end telemetry append.
   // Dream Cycle glue (telemetry + started/ended events + cooldown threading)
@@ -1804,9 +1804,9 @@ export async function boot(transportOverride?: Transport) {
   // L6 Meta Evolution — the MetaGenome that steers HOW the RSI searches
   // (docs/2026-07-04 spec). `dream_batch` drives the episode iteration
   // budget live (the getter re-reads the genome at each episode start)
-  // unless the operator pinned it via FERAL_RSI_MAX_ITER.
+  // unless the operator pinned it via CINDERPAW_RSI_MAX_ITER.
   const metaEvolution = new MetaEvolution({ log, policy: governancePolicy });
-  if (process.env.FERAL_RSI_MAX_ITER === undefined) {
+  if (readEnv("CINDERPAW_RSI_MAX_ITER") === undefined) {
     Object.defineProperty(episodeOpts, "maxIterations", {
       get: () =>
         Math.min(metaEvolution.current().dream_batch, governancePolicy().budgets.episodeMaxIterations),
@@ -1844,11 +1844,11 @@ export async function boot(transportOverride?: Transport) {
   // dream episode ends, propose ONE patch over the agent's own rsi/
   // sources and run it through the full contract (walls → worktree →
   // Rust score → substrate ratchet → approval queue). Dev-mode: requires
-  // FERAL_CODE_RSI_REPO (the source monorepo) and a LOCAL primary model
+  // CINDERPAW_CODE_RSI_REPO (the source monorepo) and a LOCAL primary model
   // (spec §2.5: no network during proposal). At most one round in flight.
   let codeRsiBusy = false;
   const maybeCodeRsiRound = async (): Promise<void> => {
-    const repoRoot = cfgPath("FERAL_CODE_RSI_REPO");
+    const repoRoot = cfgPath("CINDERPAW_CODE_RSI_REPO");
     if (!repoRoot || codeRsiBusy) return;
     if (!router.isPrimaryLocal) {
       log("code-rsi: skipped — proposal requires a LOCAL primary model (spec §2.5)");
@@ -2007,7 +2007,7 @@ export async function boot(transportOverride?: Transport) {
         // term. The check that is supposed to stop a run for being out of time
         // reads this column, and a null cannot be out of time.
         deadlineAt: (() => {
-          const ms = cfgInt("FERAL_MISSION_DEADLINE_MS");
+          const ms = cfgInt("CINDERPAW_MISSION_DEADLINE_MS");
           return ms > 0 ? Date.now() + ms : null;
         })(),
         continuationBudget: maxContinuations(),
@@ -2280,7 +2280,7 @@ export async function boot(transportOverride?: Transport) {
     // dead end: the app looks up, names a model, and refuses the first message
     // with "no model loaded". The user is not told what to do because nothing
     // ever admitted there was a problem.
-    const noModel = isPlaceholderModel(process.env.FERAL_MODEL);
+    const noModel = isPlaceholderModel(readEnv("CINDERPAW_MODEL"));
     log(
       `ready — transport=${config.transport} ` +
         (noModel
@@ -2289,7 +2289,7 @@ export async function boot(transportOverride?: Transport) {
           : `model=${config.inference.primary.model} `) +
         `workspace=${config.workspaceRoots.join(", ")}`,
     );
-    // X1 fix: inner-thoughts is opt-in via FERAL_PROACTIVE_ENABLED.
+    // X1 fix: inner-thoughts is opt-in via CINDERPAW_PROACTIVE_ENABLED.
     if (innerThoughts) {
       innerThoughts.setEmit((event) => transport.send(event));
       innerThoughts.start();
@@ -2341,10 +2341,10 @@ export async function boot(transportOverride?: Transport) {
 
     // Dream Cycle: arm the event-driven scheduler ONLY when the user opted
     // in (CINDERPAW_DREAMS_ENABLED=true, the master switch from Settings)
-    // AND a real model is configured. Off when FERAL_RSI_PASSIVE=false or
+    // AND a real model is configured. Off when CINDERPAW_RSI_PASSIVE=false or
     // only a placeholder model is present (avoids spinning on empty
     // responses). On a cloud (non-loopback) endpoint, dreaming is
-    // additionally refused unless FERAL_RSI_ALLOW_CLOUD is explicitly set
+    // additionally refused unless CINDERPAW_RSI_ALLOW_CLOUD is explicitly set
     // (anti-burn). `start()` only arms the trigger poll — it does NOT
     // launch an episode immediately.
     //
@@ -2352,14 +2352,14 @@ export async function boot(transportOverride?: Transport) {
     // every machine with a model configured, which is a background engine
     // most people did not know existed, running unasked. Opt-in, local or
     // cloud alike.
-    if (process.env.CINDERPAW_DREAMS_ENABLED !== "true") {
+    if (readEnv("CINDERPAW_DREAMS_ENABLED") !== "true") {
       log("rsi dream: not arming scheduler (dreaming is opt-in — enable it in Settings → Agent → Cinderpaw's Dreams)");
     } else {
     const decision = shouldAutostartPassive(process.env);
     if (!decision.enabled) {
       log(`rsi dream: not arming scheduler (${decision.reason})`);
     } else {
-      const baseUrl = cfgPath("FERAL_BASE_URL") ?? "";
+      const baseUrl = cfgPath("CINDERPAW_BASE_URL") ?? "";
       let isLoopback = baseUrl === "";
       try {
         const h = new URL(baseUrl).hostname;

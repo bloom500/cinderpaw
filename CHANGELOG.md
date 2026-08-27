@@ -32,7 +32,7 @@
   like a fresh install.
 
   The old names keep working where they can. `feral` stays as a second name for
-  the command, every `FERAL_*` environment variable is still read (the
+  the command, every `CINDERPAW_*` environment variable is still read (the
   `CINDERPAW_*` one wins, and the old one warns once), and a `~/.local/share/feral`
   bundle from before the rename is still found. See RENAME-PLAN.md.
 
@@ -369,7 +369,7 @@ prove the behaviour instead of code that looks correct.
   to be answered with "I don't have a tool for that" for a server you could see
   was connected.
 - **`shell_exec` tells the truth about its timeout,** and the 5-minute ceiling
-  is now raisable (`FERAL_SHELL_MAX_TIMEOUT_MS`) for builds that legitimately
+  is now raisable (`CINDERPAW_SHELL_MAX_TIMEOUT_MS`) for builds that legitimately
   run longer.
 - **Discord DMs reach the agent.** They never had. The connector asked Discord
   for direct-message events but not for the one extra flag that lets an
@@ -395,7 +395,7 @@ prove the behaviour instead of code that looks correct.
   the gateway itself, which is the only thing that knows.
 - **The endpoint allowlist stays an allowlist after you switch models.** If you
   pin the servers Cinderpaw is permitted to send your conversation to
-  (`FERAL_TRUSTED_BASE_URLS`), that list used to be quietly thrown away and
+  (`CINDERPAW_TRUSTED_BASE_URLS`), that list used to be quietly thrown away and
   replaced the first time the model was changed — and the check that was
   supposed to enforce it then validated the new address against itself, so it
   could never refuse anything. The list now holds across model switches: a
@@ -596,7 +596,7 @@ it is deliberately excluded from the auto-updater, so it does not update itself.
   its prompt, grammar and schemas when it changes.
 - **New `remember` tool**, so the agent can write to memory directly instead of
   waiting for the asynchronous extractor. `recall` searches facts too.
-- **`FERAL_HOME` is honoured.** It was documented but ignored by eight modules
+- **`CINDERPAW_HOME` is honoured.** It was documented but ignored by eight modules
   (SOUL/IDENTITY, onboarding, the memory graph, the four RSI roots), so an
   isolated profile still read and wrote the real one.
 - **Resume works.** `resume_get` always returned null — nothing ever recorded
@@ -667,10 +667,10 @@ is not a feature.
 
 - **Allow-by-default with a deny wall at call time.** `fetch_url` and
   `http_request` are always registered with open egress (behind an SSRF guard,
-  a rate limit and an audit trail); `FERAL_FETCH_DOMAINS` /
-  `FERAL_HTTP_DOMAINS` now *restrict* rather than enable. Workspace roots
+  a rate limit and an audit trail); `CINDERPAW_FETCH_DOMAINS` /
+  `CINDERPAW_HTTP_DOMAINS` now *restrict* rather than enable. Workspace roots
   default to the launch directory plus your home, with a hard deny wall on
-  `~/.feral` (except scratch), `~/.ssh` and anything in `FERAL_FS_DENY`.
+  `~/.feral` (except scratch), `~/.ssh` and anything in `CINDERPAW_FS_DENY`.
 - **New `connectors_manage` and `product_info` tools**, so the agent can
   configure its own connectors and answer questions about Cinderpaw itself.
 
@@ -727,7 +727,7 @@ is not a feature.
 
   Waits are announced as a `rate_limited` event, so a multi-second pause reads
   as a pause and not as a hang, and a stop cancels the wait instead of making
-  the user sit through it. Override the cap with `FERAL_RATE_LIMIT_RPM` if you
+  the user sit through it. Override the cap with `CINDERPAW_RATE_LIMIT_RPM` if you
   are on a paid tier or share one key with something outside Cinderpaw.
 
 ### Privacy
@@ -742,7 +742,7 @@ safely.
 
 - **The sidecar protocol is versioned and schema-checked**, and a test fails the
   build if the Rust and TypeScript halves of it drift apart.
-- **One typed config module.** Every `FERAL_*` variable is declared in one
+- **One typed config module.** Every `CINDERPAW_*` variable is declared in one
   place with a type and a default, and `docs/CONFIGURATION.md` is generated from
   it — a new variable that is not documented fails CI.
 - **MCP is unified on the sidecar.** There were two MCP implementations; the
@@ -766,7 +766,7 @@ safely.
 
 ### Safety smoke e2e tests (B5)
 
-- **Four new `FERAL_E2E`-gated e2e files** in `CinderpawAgent/tests/`,
+- **Four new `CINDERPAW_E2E`-gated e2e files** in `CinderpawAgent/tests/`,
   one per safety path the marketing copy promises:
   - `l0-journal-tamper.e2e.test.ts` — flip one byte in a chained
     journal file, assert `verifyJournal` flags the row AND
@@ -789,7 +789,7 @@ safely.
     per spec; the pure decision + persistence contracts are pinned.
   Default `bun test` skips all four (skip pattern mirrors
   `fractal-scale.test.ts`); run explicitly with
-  `FERAL_E2E=1 bun test CinderpawAgent/tests/*.e2e.test.ts`.
+  `CINDERPAW_E2E=1 bun test CinderpawAgent/tests/*.e2e.test.ts`.
   Granular tests already exist in `rsi-seam-adapter.test.ts`,
   `rsi-governance.test.ts`, `rsi-governance-integration.test.ts`,
   `rsi-journal-chain.test.ts`, and
@@ -843,18 +843,18 @@ safely.
 
 - **New `docs/CONFIGURATION.md`** (B2 of
   `docs/2026-07-09-v1-architecture-hardening-spec.md`). Catalogs all
-  95 `FERAL_*` env vars that source code reads, grouped by domain,
+  95 `CINDERPAW_*` env vars that source code reads, grouped by domain,
   with type/default for every var and an explicit threat note for
-  every security-critical knob (`FERAL_ENABLE_SHELL_EXEC`,
-  `FERAL_ENABLE_CODE_EXEC`, `FERAL_ENABLE_DESKTOP_CONTROL`,
-  `FERAL_DESKTOP_CONTROL_*`, `FERAL_DB_KEY`, `FERAL_AGENT_WORKSPACE`,
-  `FERAL_WORKSPACE`, `FERAL_FETCH_DOMAINS`, `FERAL_HTTP_DOMAINS`,
-  `FERAL_TRUSTED_BASE_URLS`, `FERAL_SHELL_WHITELIST`,
-  `FERAL_PROACTIVE_ENABLED`, `FERAL_INNER_THOUGHTS_ENABLED`,
-  `FERAL_JINA_API_KEY`, `FERAL_PII_REDACTION`). The
-  `FERAL_WORKSPACE` (TS list) vs `FERAL_AGENT_WORKSPACE` (Rust single
+  every security-critical knob (`CINDERPAW_ENABLE_SHELL_EXEC`,
+  `CINDERPAW_ENABLE_CODE_EXEC`, `CINDERPAW_ENABLE_DESKTOP_CONTROL`,
+  `CINDERPAW_DESKTOP_CONTROL_*`, `CINDERPAW_DB_KEY`, `CINDERPAW_AGENT_WORKSPACE`,
+  `CINDERPAW_WORKSPACE`, `CINDERPAW_FETCH_DOMAINS`, `CINDERPAW_HTTP_DOMAINS`,
+  `CINDERPAW_TRUSTED_BASE_URLS`, `CINDERPAW_SHELL_WHITELIST`,
+  `CINDERPAW_PROACTIVE_ENABLED`, `CINDERPAW_INNER_THOUGHTS_ENABLED`,
+  `CINDERPAW_JINA_API_KEY`, `CINDERPAW_PII_REDACTION`). The
+  `CINDERPAW_WORKSPACE` (TS list) vs `CINDERPAW_AGENT_WORKSPACE` (Rust single
   path) trap is called out in its own section.
-- **`scripts/check-env-docs.mjs`** greps source for `FERAL_*` and
+- **`scripts/check-env-docs.mjs`** greps source for `CINDERPAW_*` and
   diffs against a fenced `feral-env-vars` block in the doc. Wired
   into the bun suite via `CinderpawAgent/tests/env-docs.test.ts` — any
   new env var that isn't added to the doc fails CI.
@@ -969,7 +969,7 @@ need to update — only macOS Intel users are affected.
 - **Workspace scanner improvements** — detect hardcoded secrets, API keys,
   and code security anti-patterns.
 - **Live smoke tests** for the dream-cycle pipeline and real-GGUF model
-  load (`FERAL_SMOKE_GGUF`-gated).
+  load (`CINDERPAW_SMOKE_GGUF`-gated).
 - **Boot stability probe** — automated observation of startup panics and
   steady-state health.
 
@@ -1091,7 +1091,7 @@ For contributors and reviewers:
   full context and allocated up front — roughly 90 GB for a 4B model, which
   instantly exhausted memory (a kernel panic and reboot on macOS, a near-hang
   on Windows). The load-time context is now capped to a safe default (8192,
-  raisable via `FERAL_MAX_CONTEXT`), clamped to what the model actually
+  raisable via `CINDERPAW_MAX_CONTEXT`), clamped to what the model actually
   supports.
 
 ## v0.2.2
@@ -1390,7 +1390,7 @@ Two real bugs that affected the local-model experience were fixed.
 - **Reduced-motion support.** All canvas animations respect `prefers-reduced-motion`.
 
 ### Agent
-- **Token cap removed.** No more daily or per-conversation token budget. Feral Agent runs on BYOK (user pays own provider), so capping was pointless and caused agent sessions to silently stall. Budget can be re-enabled via `FERAL_BUDGET_DAY` / `FERAL_BUDGET_CONVERSATION` env vars if needed.
+- **Token cap removed.** No more daily or per-conversation token budget. Feral Agent runs on BYOK (user pays own provider), so capping was pointless and caused agent sessions to silently stall. Budget can be re-enabled via `CINDERPAW_BUDGET_DAY` / `CINDERPAW_BUDGET_CONVERSATION` env vars if needed.
 - **CI sidecar fix.** Release builds now compile the Feral Agent sidecar from the vendored `CinderpawAgent/` directory in the monorepo instead of cloning an outdated external repository. Eliminates a class of "agent not responding in production release" bugs.
 
 ### UI fixes

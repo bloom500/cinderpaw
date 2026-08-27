@@ -41,6 +41,7 @@ import { AgentLoop } from "./agent-loop.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import type { HookRegistry } from "./hook-registry.ts";
 import type { AuditLog } from "../egress/audit-log.ts";
+import { readEnv } from "../config.ts";
 import type { EgressProxy } from "../egress/egress-proxy.ts";
 import type { ProcessSandbox } from "../types.ts";
 import type {
@@ -64,14 +65,14 @@ import type {
  * and made it configurable via env so power users / test setups can tune
  * it without a code change.
  *
- *   FERAL_SUBAGENT_MAX_SUMMARY_CHARS=<int>   default 4000
+ *   CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS=<int>   default 4000
  *
  * Set to a negative number to disable truncation entirely (use with
  * caution — a 50k-char subagent answer will land in the parent's next
  * prompt verbatim).
  */
 const MAX_SUMMARY_CHARS = Number(
-  process.env.FERAL_SUBAGENT_MAX_SUMMARY_CHARS ?? 4000,
+  readEnv("CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS") ?? 4000,
 );
 
 export interface SubagentDeps {

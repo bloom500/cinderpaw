@@ -15,12 +15,12 @@
  *
  * LIVE SMOKE (manual, with a real local model loaded): make a dream fire in
  * seconds instead of waiting out the 3-minute idle default —
- *   FERAL_RSI_IDLE_MS=5000 FERAL_RSI_POLL_MS=1000 FERAL_RSI_COOLDOWN_MS=1000
+ *   CINDERPAW_RSI_IDLE_MS=5000 CINDERPAW_RSI_POLL_MS=1000 CINDERPAW_RSI_COOLDOWN_MS=1000
  * Launch the app, stop touching it for ~6s, then watch for:
  *   - stderr:  "rsi dream: arming event-driven scheduler …"
  *   - stdout:  {type:"dream_cycle", phase:"started"/"ended", …}
  *   - UI:      typing-bar mascot enters its `dreaming` pose + a toast
- *   - file:    a new line in ~/.feral/rsi/dream.jsonl (or $FERAL_RSI_TELEMETRY)
+ *   - file:    a new line in ~/.feral/rsi/dream.jsonl (or $CINDERPAW_RSI_TELEMETRY)
  * The dream-cycle-e2e test automates this same path with the LLM engine faked.
  */
 

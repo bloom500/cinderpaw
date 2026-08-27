@@ -1,8 +1,8 @@
 /**
  * One mode instead of four scattered switches, and three answers instead of two.
  *
- * Permissiveness used to be spread across `FERAL_SHELL_WHITELIST="*"`,
- * `FERAL_ENABLE_SHELL_EXEC`, the catastrophic denylist and the blast-radius
+ * Permissiveness used to be spread across `CINDERPAW_SHELL_WHITELIST="*"`,
+ * `CINDERPAW_ENABLE_SHELL_EXEC`, the catastrophic denylist and the blast-radius
  * guard — four knobs with no name for the state they add up to, and no way for
  * a user to say the one thing they most often mean: *look, but do not touch*.
  *
@@ -93,16 +93,16 @@ export function resetPermissionModeCache(): void {
 /**
  * The mode this process runs in.
  *
- * Order: `FERAL_PERMISSION_MODE` names it directly; then the historical knobs,
+ * Order: `CINDERPAW_PERMISSION_MODE` names it directly; then the historical knobs,
  * so an existing install keeps behaving exactly as it did (a wildcard shell
  * whitelist has always meant "the operator took the brakes off"); then
  * `settings.json`, which is the only one a user can change without a restart.
  * Default `workspace_write`.
  */
 export function permissionMode(env: NodeJS.ProcessEnv = process.env): PermissionMode {
-  const fromEnv = named(env.FERAL_PERMISSION_MODE);
+  const fromEnv = named(env.CINDERPAW_PERMISSION_MODE);
   if (fromEnv) return fromEnv;
-  if ((env.FERAL_SHELL_WHITELIST ?? "").trim() === "*") return "full_access";
+  if ((env.CINDERPAW_SHELL_WHITELIST ?? "").trim() === "*") return "full_access";
   return settingsMode() ?? "workspace_write";
 }
 
@@ -172,5 +172,5 @@ export function decideOutsideWorkspace(path: string, mode: PermissionMode): Deci
 export function canAskAHuman(hasBridge: boolean): boolean {
   // Walk-away mode auto-answers ordinary questions, but never this class — see
   // the module docstring, and `ask_user`'s own escalation rule.
-  return hasBridge && !cfgBool("FERAL_AUTONOMOUS");
+  return hasBridge && !cfgBool("CINDERPAW_AUTONOMOUS");
 }

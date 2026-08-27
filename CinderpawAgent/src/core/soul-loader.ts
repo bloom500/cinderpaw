@@ -89,7 +89,7 @@ export function resolveSoulPaths(homeDir?: string): SoulPaths {
 /**
  * The profile dir to read overrides from. `homeDir` stays the test-isolation
  * seam (an OS home, `.feral` appended); omitting it — every production caller —
- * goes through `feralHome()`, so FERAL_HOME is honored. It previously defaulted
+ * goes through `feralHome()`, so CINDERPAW_HOME is honored. It previously defaulted
  * to `homedir()`, which is why an isolated profile still loaded the real user's
  * SOUL.md and IDENTITY.md.
  */

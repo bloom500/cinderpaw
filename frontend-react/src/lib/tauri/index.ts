@@ -506,7 +506,7 @@ export interface CodePatch {
   patch: string;
   commitHash: string;
   createdAt: number;
-  /** Host note (e.g. "applied", "live apply unavailable: FERAL_CODE_RSI_REPO not set"). */
+  /** Host note (e.g. "applied", "live apply unavailable: CINDERPAW_CODE_RSI_REPO not set"). */
   note?: string;
   /** Resolution-side error, when status === 'apply_failed'. */
   error?: string;

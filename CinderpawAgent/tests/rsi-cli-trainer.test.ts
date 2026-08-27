@@ -423,7 +423,7 @@ describe("CliTrainer.train — failure paths", () => {
           outputDir: tmp,
           hyperparameters: {},
         }),
-      ).rejects.toThrow(/FERAL_LORA_TRAINER_BIN/);
+      ).rejects.toThrow(/CINDERPAW_LORA_TRAINER_BIN/);
       expect(calls).toHaveLength(0);
     } finally {
       if (saved !== undefined) process.env[TRAINER_BIN_ENV] = saved;

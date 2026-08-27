@@ -12,7 +12,7 @@ pub struct Settings {
     pub version: String,
     /// Opt-in for OS-level desktop control (the `control_app` tool). Gated
     /// exactly like `shell_exec`: OFF by default. When true, the host process
-    /// exports `FERAL_ENABLE_DESKTOP_CONTROL=true` before spawning the sidecar,
+    /// exports `CINDERPAW_ENABLE_DESKTOP_CONTROL=true` before spawning the sidecar,
     /// which both registers the tool in the sidecar AND opens the Rust command
     /// gate (the two must agree). `#[serde(default)]` keeps older settings.json
     /// files (written before this field existed) loading cleanly.
@@ -21,25 +21,25 @@ pub struct Settings {
     /// "YOLO mode" for desktop control: when true, state-changing actions
     /// (click/type/send_keys/perform_action) run WITHOUT the per-action
     /// confirmation prompt. False (default) = Safe mode = confirm each action.
-    /// Maps to `FERAL_DESKTOP_CONTROL_CONFIRM=false` in the sidecar env.
+    /// Maps to `CINDERPAW_DESKTOP_CONTROL_CONFIRM=false` in the sidecar env.
     /// `launch` still always confirms (process creation) regardless.
     #[serde(default)]
     pub desktop_control_yolo: bool,
     /// Per-conversation token budget passed to the sidecar as
-    /// `FERAL_BUDGET_CONVERSATION`. `None` = unlimited (Infinity); `Some(n)`
+    /// `CINDERPAW_BUDGET_CONVERSATION`. `None` = unlimited (Infinity); `Some(n)`
     /// caps the conversation at n tokens and surfaces a `budget_exceeded` event
     /// when reached. Default: None (unlimited — the user is responsible for
     /// their own inference costs on a local/BYOK setup).
     #[serde(default)]
     pub token_budget_conversation: Option<u64>,
     /// USD spend cap for the passive RSI background engine, exported to the
-    /// sidecar as `FERAL_RSI_MAX_COST_USD`. `Some(0.0)` (default) = local-only:
+    /// sidecar as `CINDERPAW_RSI_MAX_COST_USD`. `Some(0.0)` (default) = local-only:
     /// the free loopback engine runs forever, any paid cloud spend halts. A
     /// positive value allows bounded cloud spend. `None` = no cap (advanced).
     #[serde(default = "default_rsi_budget")]
     pub rsi_max_cost_usd: Option<f64>,
     /// Let the background self-improvement loop run when the model is a CLOUD
-    /// model, exported as `FERAL_RSI_ALLOW_CLOUD`. False by default: dreaming
+    /// model, exported as `CINDERPAW_RSI_ALLOW_CLOUD`. False by default: dreaming
     /// on a paid route spends the user's money while they are away, and nobody
     /// should discover that on an invoice.
     ///

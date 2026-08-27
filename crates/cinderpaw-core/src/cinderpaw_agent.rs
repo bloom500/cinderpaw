@@ -247,7 +247,7 @@ fn load_byok_provider_endpoint(provider_id: &str) -> Option<ByokEndpoint> {
     if cfg.api_key.is_empty() {
         tracing::warn!(
             provider = %provider_id,
-            "FERAL_BYOK_PROVIDER set but no API key in keychain — falling back to local engine"
+            "CINDERPAW_BYOK_PROVIDER set but no API key in keychain — falling back to local engine"
         );
         return None;
     }
@@ -277,8 +277,8 @@ fn load_byok_provider_endpoint(provider_id: &str) -> Option<ByokEndpoint> {
 
 /// Decide which API key the sidecar gets. If the base URL is loopback, hand it
 /// the local bearer token (the gated server expects it). For any remote host,
-/// REQUIRE an explicit `FERAL_API_KEY` — silently forwarding the local token to
-/// a third party would leak a credential. `env_key` is `FERAL_API_KEY` if set.
+/// REQUIRE an explicit `CINDERPAW_API_KEY` — silently forwarding the local token to
+/// a third party would leak a credential. `env_key` is `CINDERPAW_API_KEY` if set.
 /// True only when `base_url`'s HOST is loopback — never merely contains the word.
 ///
 /// This used to be `base_url.contains("127.0.0.1") || contains("localhost")`,
@@ -317,7 +317,7 @@ fn resolve_sidecar_api_key(
     } else {
         env_key.ok_or_else(|| {
             format!(
-                "FERAL_API_KEY must be set when FERAL_BASE_URL is not loopback \
+                "CINDERPAW_API_KEY must be set when CINDERPAW_BASE_URL is not loopback \
                  (got: {base_url}). Refusing to send the local API bearer token \
                  to a remote endpoint."
             )
@@ -342,7 +342,7 @@ pub async fn spawn(
         // builds the sidecar and copies it to `binaries/`. If you see
         // this error it almost always means the script failed silently
         // or the CinderpawAgent/ directory is missing on disk. Re-run with
-        // `FERAL_FORCE_SIDECAR_BUILD=1 cargo tauri dev` to force a
+        // `CINDERPAW_FORCE_SIDECAR_BUILD=1 cargo tauri dev` to force a
         // rebuild, or invoke the script directly:
         //   node src-tauri/scripts/build-sidecar.mjs
         concat!(
@@ -359,17 +359,17 @@ pub async fn spawn(
     // Option A (code-RSI in production): when the dev knob is unset, try to
     // provision the BUNDLED sources into ~/.feral/self-src and export the
     // path — the sidecar and this supervisor's apply/revert/rebuild handlers
-    // all read FERAL_CODE_RSI_REPO from the environment. Any miss (dev run
+    // all read CINDERPAW_CODE_RSI_REPO from the environment. Any miss (dev run
     // without a bundle, no git) logs and leaves code-RSI off, as before.
     // Any previously-downloaded portable git/bun goes on OUR PATH first —
     // children (sidecar, worktree evals, rebuild scripts) inherit it.
     crate::toolchain::activate_portable();
     let bundled_src = crate::rsi::self_src::find_bundled_src(&extra_bin_dirs).is_some();
-    if crate::env::env_var("FERAL_CODE_RSI_REPO").map(|v| v.trim().is_empty()).unwrap_or(true) {
+    if crate::env::env_var("CINDERPAW_CODE_RSI_REPO").map(|v| v.trim().is_empty()).unwrap_or(true) {
         match crate::rsi::self_src::provision(&extra_bin_dirs) {
             Ok(root) => {
                 tracing::info!("cinderpaw-agent: self-src provisioned at {:?} (code-RSI enabled)", root);
-                std::env::set_var("FERAL_CODE_RSI_REPO", &root);
+                std::env::set_var("CINDERPAW_CODE_RSI_REPO", &root);
             }
             Err(reason) => {
                 // Provisioning retries on every spawn — a missing git resolves
@@ -382,7 +382,7 @@ pub async fn spawn(
     // explicit dev repo), make sure the tools its stages spawn exist —
     // portable download in the background when missing, zero terminal, zero
     // admin. No-op when git+bun are already present.
-    if bundled_src || crate::env::env_var("FERAL_CODE_RSI_REPO").map(|v| !v.trim().is_empty()).unwrap_or(false) {
+    if bundled_src || crate::env::env_var("CINDERPAW_CODE_RSI_REPO").map(|v| !v.trim().is_empty()).unwrap_or(false) {
         crate::toolchain::ensure_background();
     }
 
@@ -392,53 +392,53 @@ pub async fn spawn(
     // the provider + base URL + API key. Defaults preserve the pre-change
     // behavior (point at the bundled llama.cpp on loopback). The headless
     // gateway (or any host) can now point the sidecar at a cloud provider
-    // by setting FERAL_BASE_URL/FERAL_API_KEY/FERAL_MODEL before boot —
+    // by setting CINDERPAW_BASE_URL/CINDERPAW_API_KEY/CINDERPAW_MODEL before boot —
     // e.g. for testing the Discord connector against a fast model without
     // burning the local GPU.
     // Optional: use a configured cloud provider (BYOK) instead of the bundled
-    // local engine. `FERAL_BYOK_PROVIDER=minimax` loads that provider's base
+    // local engine. `CINDERPAW_BYOK_PROVIDER=minimax` loads that provider's base
     // URL + API key (from the OS keychain, in-process — the key never touches
     // the command line or the env we log) + default model. This makes the
     // headless gateway a true peer of the desktop app: same configured
-    // providers, one brain. Explicit FERAL_BASE_URL/API_KEY/MODEL still win.
+    // providers, one brain. Explicit CINDERPAW_BASE_URL/API_KEY/MODEL still win.
     // Persisted route (settings.json `active_route`, written by
     // `POST /runtime/model` and guided setup): `"provider:model"` boots the
     // sidecar on that BYOK provider; `"local:…"` (or absent) keeps the
-    // default local engine. Explicit FERAL_BYOK_PROVIDER still wins.
+    // default local engine. Explicit CINDERPAW_BYOK_PROVIDER still wins.
     let persisted_route = crate::settings::load().active_route.and_then(|r| {
         let (pid, model) = r.split_once(':')?;
         (pid != "local").then(|| (pid.to_string(), model.to_string()))
     });
-    let env_byok = crate::env::env_var("FERAL_BYOK_PROVIDER");
+    let env_byok = crate::env::env_var("CINDERPAW_BYOK_PROVIDER");
     let route_is_source = env_byok.is_none() && persisted_route.is_some();
     let byok = env_byok
         .or_else(|| persisted_route.as_ref().map(|(pid, _)| pid.clone()))
         .and_then(|pid| load_byok_provider_endpoint(&pid));
 
-    let provider = crate::env::env_var("FERAL_PROVIDER")
+    let provider = crate::env::env_var("CINDERPAW_PROVIDER")
         .unwrap_or_else(|| "openai_compatible".to_string());
-    let base_url = crate::env::env_var("FERAL_BASE_URL")
+    let base_url = crate::env::env_var("CINDERPAW_BASE_URL")
         .or_else(|| byok.as_ref().map(|b| b.base_url.clone()))
         .unwrap_or_else(|| format!("http://127.0.0.1:{api_port}"));
     // Normalize exactly like load_byok_provider_endpoint: the sidecar appends
     // `/v1/chat/completions` itself, so a user-supplied `…/v1` (every
     // provider's documented base URL, e.g. MiniMax) doubles to
     // `/v1/v1/chat/completions` and 404s. The keychain path already stripped
-    // this; FERAL_BASE_URL from env — the documented server path — did not.
+    // this; CINDERPAW_BASE_URL from env — the documented server path — did not.
     let base_url = base_url
         .trim_end_matches('/')
         .trim_end_matches("/v1")
         .to_string();
-    let env_or_byok_key = crate::env::env_var("FERAL_API_KEY")
+    let env_or_byok_key = crate::env::env_var("CINDERPAW_API_KEY")
         .or_else(|| byok.as_ref().map(|b| b.api_key.clone()));
     let api_key = resolve_sidecar_api_key(&base_url, api_token, env_or_byok_key)?;
 
-    // FERAL_WORKSPACE is deliberately NOT set here. It used to be pinned to
+    // CINDERPAW_WORKSPACE is deliberately NOT set here. It used to be pinned to
     // ~/.feral/workspace (the scratch dir), which silently reduced the agent's
     // filesystem to a sandbox nobody's files live in — the #1 "the agent can't
     // do anything" complaint. The sidecar's own default (launch cwd + the
     // user's home, with the call-time deny wall over ~/.feral and ~/.ssh) is
-    // the intended posture; a user-set FERAL_WORKSPACE in the host environment
+    // the intended posture; a user-set CINDERPAW_WORKSPACE in the host environment
     // still passes through via normal env inheritance.
     let mut cmd = tokio::process::Command::new(&binary);
     cmd.env("CINDERPAW_DB", &db_path)
@@ -446,12 +446,12 @@ pub async fn spawn(
         .env("CINDERPAW_BASE_URL", &base_url)
         .env("CINDERPAW_API_KEY", &api_key);
 
-    // FERAL_MODEL discovery is for the bundled llama.cpp (/v1/models on
+    // CINDERPAW_MODEL discovery is for the bundled llama.cpp (/v1/models on
     // loopback). For a remote provider the user is expected to set
-    // FERAL_MODEL explicitly; we still call discover_active_model as a
+    // CINDERPAW_MODEL explicitly; we still call discover_active_model as a
     // best-effort (some clouds expose OpenAI-compatible /v1/models) but
-    // honour FERAL_MODEL when present so the caller can override.
-    let model_name = if let Some(m) = crate::env::env_var("FERAL_MODEL") {
+    // honour CINDERPAW_MODEL when present so the caller can override.
+    let model_name = if let Some(m) = crate::env::env_var("CINDERPAW_MODEL") {
         m
     } else if let Some((_, m)) = persisted_route.as_ref().filter(|_| route_is_source && byok.is_some()) {
         // The persisted route names the exact model the user verified/picked
@@ -471,7 +471,7 @@ pub async fn spawn(
     // Where the bundled local engine lives, ALWAYS — even when the sidecar
     // boots on a cloud route. The sidecar uses this (and only this) as its
     // degrade-to-local fallback. It used to derive that fallback from
-    // FERAL_BASE_URL/FERAL_MODEL, which on a cloud route are the cloud's, so
+    // CINDERPAW_BASE_URL/CINDERPAW_MODEL, which on a cloud route are the cloud's, so
     // "fall back to local" silently re-called the boot-time cloud provider
     // after the user had switched away from it (blocker F9).
     let local_url = format!("http://127.0.0.1:{api_port}");
@@ -519,18 +519,18 @@ pub async fn spawn(
         // unreachable through the gateway, which is every real install. The
         // agent then stopped mid-task to ask a question nobody was there to
         // answer, and looked like it had wedged.
-        "FERAL_AUTONOMOUS",
-        "FERAL_ENABLE_DESKTOP_CONTROL",
-        "FERAL_DESKTOP_CONTROL_CONFIRM",
-        "FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
-        "FERAL_ENABLE_SHELL_EXEC",
+        "CINDERPAW_AUTONOMOUS",
+        "CINDERPAW_ENABLE_DESKTOP_CONTROL",
+        "CINDERPAW_DESKTOP_CONTROL_CONFIRM",
+        "CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS",
+        "CINDERPAW_ENABLE_SHELL_EXEC",
         // read_only | workspace_write | full_access. The sidecar reads this for
         // every shell command's intent check and for the cwd bound.
         //
         // Listing it here changes nothing today, and the commit that added it
         // claimed otherwise — that the three-mode system was "unreachable
         // through the gateway, which is every real install". That was wrong, and
-        // measuring it took two minutes: `FERAL_PERMISSION_MODE=read_only` set
+        // measuring it took two minutes: `CINDERPAW_PERMISSION_MODE=read_only` set
         // in the shell, gateway restarted on the July-11 host that does NOT list
         // it, and write_file came back "read-only mode: may not write". There is
         // no `env_clear()` on this Command, so the sidecar inherits the whole
@@ -539,12 +539,12 @@ pub async fn spawn(
         // Kept because it is explicit and free: if anyone ever scrubs this
         // Command's environment, the vars on this list are the ones that must
         // survive. It is documentation, not a fix.
-        "FERAL_PERMISSION_MODE",
-        // shell_exec: FERAL_SHELL_WHITELIST RESTRICTS to a named set (any
+        "CINDERPAW_PERMISSION_MODE",
+        // shell_exec: CINDERPAW_SHELL_WHITELIST RESTRICTS to a named set (any
         // binary is the default now, see the tool's loadShellWhitelist);
-        // FERAL_SHELL_DENYLIST overrides the catastrophic-command guard.
-        "FERAL_SHELL_WHITELIST",
-        "FERAL_SHELL_DENYLIST",
+        // CINDERPAW_SHELL_DENYLIST overrides the catastrophic-command guard.
+        "CINDERPAW_SHELL_WHITELIST",
+        "CINDERPAW_SHELL_DENYLIST",
     ] {
         if let Ok(val) = std::env::var(key) {
             cmd.env(key, val);
@@ -1001,7 +1001,7 @@ fn handle_rsi_engine_event(
 /// Faza 3 Slices 2+3, the apply side. Called for every `code_patch_resolved`
 /// line; only `status: "applied"` acts. On an applied patch:
 ///   1. writes the watchdog marker (Slice 3 — the crash window starts now);
-///   2. if the dev-repo knob `FERAL_CODE_RSI_REPO` is set, schedules a
+///   2. if the dev-repo knob `CINDERPAW_CODE_RSI_REPO` is set, schedules a
 ///      `PlannedExit::Rebuild` and kills the sidecar.
 fn handle_code_patch_resolved(
     v: &serde_json::Value,
@@ -1024,7 +1024,7 @@ fn handle_code_patch_resolved(
         tracing::warn!("cinderpaw-agent: failed to write watchdog marker: {e}");
     }
 
-    let repo = crate::env::env_var("FERAL_CODE_RSI_REPO").unwrap_or_default();
+    let repo = crate::env::env_var("CINDERPAW_CODE_RSI_REPO").unwrap_or_default();
     if repo.trim().is_empty() {
         return;
     }
@@ -1171,9 +1171,9 @@ async fn revert_bad_patch(
     marker: &crate::rsi::watchdog::PatchMarker,
 ) {
     let id = &marker.patch_id;
-    let repo = crate::env::env_var("FERAL_CODE_RSI_REPO").unwrap_or_default();
+    let repo = crate::env::env_var("CINDERPAW_CODE_RSI_REPO").unwrap_or_default();
     if repo.trim().is_empty() {
-        tracing::warn!("cinderpaw-agent: watchdog fired for '{id}' but FERAL_CODE_RSI_REPO is unset — cannot revert");
+        tracing::warn!("cinderpaw-agent: watchdog fired for '{id}' but CINDERPAW_CODE_RSI_REPO is unset — cannot revert");
         return;
     }
     let store = crate::rsi::watchdog::default_pending_store_path();
@@ -1458,7 +1458,7 @@ mod tests {
             assert_eq!(
                 resolve_sidecar_api_key(url, "local-secret", None).unwrap(),
                 "local-secret",
-                "loopback must reuse the local bearer token even without FERAL_API_KEY"
+                "loopback must reuse the local bearer token even without CINDERPAW_API_KEY"
             );
         }
     }
@@ -1489,10 +1489,10 @@ mod tests {
 
     #[test]
     fn sidecar_api_key_remote_requires_explicit_key() {
-        // No FERAL_API_KEY for a remote host → refuse, never leak the local token.
+        // No CINDERPAW_API_KEY for a remote host → refuse, never leak the local token.
         let err = resolve_sidecar_api_key("https://api.openai.com/v1", "local-secret", None)
             .unwrap_err();
-        assert!(err.contains("FERAL_API_KEY must be set"));
+        assert!(err.contains("CINDERPAW_API_KEY must be set"));
         assert!(!err.contains("local-secret"), "error must not echo the local token");
         // With an explicit key, it is used verbatim (local token never forwarded).
         assert_eq!(

@@ -89,7 +89,7 @@ export interface EgressProxyConfig {
    * Exact origins (scheme + host + port) the OPERATOR has declared they run
    * themselves — the only way a loopback/private destination is ever reachable.
    * Exists for self-hosted sidecar services (a SearXNG instance backing
-   * web_search, `FERAL_SEARXNG_URL`), which live on localhost by design and
+   * web_search, `CINDERPAW_SEARXNG_URL`), which live on localhost by design and
    * would otherwise be blocked by our own SSRF guard.
    *
    * The exemption is deliberately narrow:
@@ -133,7 +133,7 @@ export interface EgressProxyConfig {
    *
    * Deliberately generous by default so no existing setup breaks: the point is
    * to bound a runaway, not to police normal use. Tune with
-   * FERAL_EXTERNAL_WRITE_BUDGET; 0 disables the cap.
+   * CINDERPAW_EXTERNAL_WRITE_BUDGET; 0 disables the cap.
    */
   externalWriteBudget: number;
   /**
@@ -157,7 +157,7 @@ export interface EgressProxyConfig {
    */
   unattendedWriteDenyHosts: string[];
   /**
-   * True when nobody is at the machine (mirrors FERAL_AUTONOMOUS). Only
+   * True when nobody is at the machine (mirrors CINDERPAW_AUTONOMOUS). Only
    * consulted for `unattendedWriteDenyHosts`.
    */
   unattended: boolean;
@@ -326,7 +326,7 @@ export class EgressProxy {
     ) {
       block(
         `"${parsed.hostname}" may not be CHANGED while running unattended — the owner ` +
-          `listed it as consequential (FERAL_WRITE_CONFIRM_HOSTS). Reading it is fine. ` +
+          `listed it as consequential (CINDERPAW_WRITE_CONFIRM_HOSTS). Reading it is fine. ` +
           `Do the parts of the task that do not change it, then stop and report what ` +
           `needs a human.`,
       );
@@ -341,7 +341,7 @@ export class EgressProxy {
             `This is a SAFETY STOP, not a permission denial — ${parsed.hostname} is allowed, ` +
             `but an unattended run should not keep changing things outside this machine ` +
             `without a human seeing the result. Report what you have done so far and stop. ` +
-            `Raise FERAL_EXTERNAL_WRITE_BUDGET if this workload genuinely needs more.`,
+            `Raise CINDERPAW_EXTERNAL_WRITE_BUDGET if this workload genuinely needs more.`,
         );
       }
       this.#writes.set(sessionId, spent + 1);
@@ -398,7 +398,7 @@ export class EgressProxy {
         const body = JSON.stringify({
           dry_run: true,
           message:
-            "FERAL_DRY_RUN is on: this state-changing request was recorded and NOT sent. " +
+            "CINDERPAW_DRY_RUN is on: this state-changing request was recorded and NOT sent. " +
             "Nothing changed on the far end. Continue as if you had made the call, but do " +
             "not claim the change happened — say it was a dry run.",
           would_have_sent: { method: init?.method, url },
@@ -710,7 +710,7 @@ export function hostMatchesWhitelist(host: string, whitelist: string[]): boolean
  * are `"*"` — so during a benchmark the agent can reach a search engine, a
  * forum, or a page containing the answer, and nothing in the results would
  * show it. Benchmark mode replaces all of that with one list: while
- * `FERAL_BENCHMARK_RUN_ID` is set, these are the only hosts that exist.
+ * `CINDERPAW_BENCHMARK_RUN_ID` is set, these are the only hosts that exist.
  *
  * It is a NARROWING, never a widening. Everything the normal path refuses —
  * the SSRF guard, the per-tool allowlist, the rate limit — still refuses.
@@ -728,13 +728,13 @@ export function hostMatchesWhitelist(host: string, whitelist: string[]): boolean
 export function benchmarkHostRefusal(host: string, who: string): string | null {
   const runId = benchmarkRunId();
   if (runId === null) return null;
-  const allowed = cfgList("FERAL_BENCHMARK_ALLOW_HOSTS");
+  const allowed = cfgList("CINDERPAW_BENCHMARK_ALLOW_HOSTS");
   if (hostMatchesWhitelist(host.toLowerCase(), allowed)) return null;
   return (
     `benchmark mode (run "${runId}") allows no network except ` +
-    `FERAL_BENCHMARK_ALLOW_HOSTS; ${who} tried to reach "${host}". ` +
+    `CINDERPAW_BENCHMARK_ALLOW_HOSTS; ${who} tried to reach "${host}". ` +
     (allowed.length === 0
-      ? "FERAL_BENCHMARK_ALLOW_HOSTS is empty, so every host is refused — " +
+      ? "CINDERPAW_BENCHMARK_ALLOW_HOSTS is empty, so every host is refused — " +
         "set it to the hosts this run legitimately needs (model API, scorecard API)."
       : `Currently allowed: ${allowed.join(", ")}.`)
   );

@@ -1,7 +1,7 @@
 /**
  * L5 — Governance freeze / fail-closed (B5 e2e smoke, assembled version).
  *
- * Env-gated: FERAL_E2E=1 bun test tests/l5-governance-fail-closed.e2e.test.ts
+ * Env-gated: CINDERPAW_E2E=1 bun test tests/l5-governance-fail-closed.e2e.test.ts
  *
  * Drives the governance loader through every failure mode and asserts
  * the fail-closed contract from §B5.2 of the hardening spec:
@@ -42,7 +42,7 @@ import {
   loadPolicy,
 } from "../src/rsi/l5-gov/governance.ts";
 
-const ENABLED = process.env.FERAL_E2E === "1";
+const ENABLED = process.env.CINDERPAW_E2E === "1";
 
 const tmpDirs: string[] = [];
 afterEach(() => {
@@ -54,7 +54,7 @@ function freshDir(prefix: string): string {
   return d;
 }
 
-describe("L5 — governance freeze / fail-closed (FERAL_E2E)", () => {
+describe("L5 — governance freeze / fail-closed (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "missing policy.json → builtin fail-closed, every governanceCheck refused",
     () => {

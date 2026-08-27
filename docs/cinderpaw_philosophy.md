@@ -1,4 +1,4 @@
-# FERAL_PHILOSOPHY.md
+# CINDERPAW_PHILOSOPHY.md
 
 > Why Cinderpaw is the way it is. Written for future contributors, so the
 > answer to "should we remove X?" exists before the PR does. Not for

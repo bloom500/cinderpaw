@@ -52,7 +52,7 @@ const DEFAULT_CONFIG: ProcessSandboxConfig = {
   // ponytail: calibration knob. 5 min covers `bun install` and most test runs,
   // but a cold `cargo build` on a real project routinely exceeds it and the
   // agent then sees a killed process it cannot distinguish from a failure.
-  // Raise with FERAL_SHELL_MAX_TIMEOUT_MS on machines that need it.
+  // Raise with CINDERPAW_SHELL_MAX_TIMEOUT_MS on machines that need it.
   maxTimeoutMs: readMaxTimeoutMs(),
   maxOutputBytes: 1_048_576, // 1 MB
     safeBaseEnv: {
@@ -83,7 +83,7 @@ const DEFAULT_CONFIG: ProcessSandboxConfig = {
  *
  * ponytail: a fixed list, not a filesystem crawl or a registry walk. Add a
  * directory when a real install turns up missing, or point
- * FERAL_SHELL_PATH_EXTRA at it — that knob is the upgrade path, and it exists
+ * CINDERPAW_SHELL_PATH_EXTRA at it — that knob is the upgrade path, and it exists
  * because no fixed list survives contact with every machine.
  */
 function safePath(): string {
@@ -110,7 +110,7 @@ function safePath(): string {
   const known = new Set(
     base.split(sep).filter(Boolean).map((d) => (win ? d.toLowerCase() : d).replace(/[\\/]+$/, "")),
   );
-  const add = [...wellKnown, ...cfgList("FERAL_SHELL_PATH_EXTRA")]
+  const add = [...wellKnown, ...cfgList("CINDERPAW_SHELL_PATH_EXTRA")]
     .map((d) => d.trim())
     .filter((d) => d.length > 0)
     .filter((d) => !known.has((win ? d.toLowerCase() : d).replace(/[\\/]+$/, "")))
@@ -126,7 +126,7 @@ function safePath(): string {
  * nor let a wedged process hold a tool slot for the life of the sidecar.
  */
 function readMaxTimeoutMs(): number {
-  const raw = cfgInt("FERAL_SHELL_MAX_TIMEOUT_MS");
+  const raw = cfgInt("CINDERPAW_SHELL_MAX_TIMEOUT_MS");
   if (!Number.isFinite(raw) || raw <= 0) return 300_000;
   return Math.min(3_600_000, Math.max(60_000, raw));
 }

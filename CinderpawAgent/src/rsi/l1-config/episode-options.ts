@@ -54,7 +54,7 @@ export function episodeBudgetCaps(opts: EpisodeOptions): BudgetCaps {
 }
 
 /** Build the episode config from the sidecar's environment. Each numeric
- *  field reads its own FERAL_RSI_* knob and falls back to the default on
+ *  field reads its own CINDERPAW_RSI_* knob and falls back to the default on
  *  anything that doesn't parse as a finite positive (or, for the cost
  *  cap, non-negative) number — same rules as `passiveStartOptions`. */
 export function episodeStartOptions(
@@ -70,16 +70,16 @@ export function episodeStartOptions(
   };
   return {
     goal: STANDING_GOAL,
-    maxIterations: positive(env.FERAL_RSI_MAX_ITER, 40),
-    maxTotalTokens: positive(env.FERAL_RSI_MAX_TOKENS, 2_000_000),
+    maxIterations: positive(env.CINDERPAW_RSI_MAX_ITER, 40),
+    maxTotalTokens: positive(env.CINDERPAW_RSI_MAX_TOKENS, 2_000_000),
     // 0 is the meaningful "local-only" sentinel — use nonNegative so an
     // operator can explicitly set $0 to forbid any cloud spend without
     // it falling back to the default.
-    maxTotalCostUsd: nonNegative(env.FERAL_RSI_MAX_COST_USD, 0),
+    maxTotalCostUsd: nonNegative(env.CINDERPAW_RSI_MAX_COST_USD, 0),
     // Concurrency cap. Default 1; clamp any override to a sane 1..4 so
     // a dream can't starve the chat by accident. Mirrors passiveStartOptions.
-    concurrency: Math.max(1, Math.min(4, Math.floor(positive(env.FERAL_RSI_CONCURRENCY, 1)))),
-    maxWallClockMs: positive(env.FERAL_RSI_EPISODE_MS, 8 * 60_000),
-    plateauIterations: positive(env.FERAL_RSI_PLATEAU_ITERS, 12),
+    concurrency: Math.max(1, Math.min(4, Math.floor(positive(env.CINDERPAW_RSI_CONCURRENCY, 1)))),
+    maxWallClockMs: positive(env.CINDERPAW_RSI_EPISODE_MS, 8 * 60_000),
+    plateauIterations: positive(env.CINDERPAW_RSI_PLATEAU_ITERS, 12),
   };
 }

@@ -6,7 +6,7 @@
 //! carries the sidecar sources as Tauri resources; this module copies
 //! them to `~/.feral/self-src/` on first spawn, turns that copy into a
 //! git repo (the substrate/worktree machinery requires one), and hands
-//! the path back so the supervisor can export `FERAL_CODE_RSI_REPO`.
+//! the path back so the supervisor can export `CINDERPAW_CODE_RSI_REPO`.
 //!
 //! Fail-open by design: any miss (no bundled sources — e.g. a dev run,
 //! no git on PATH) returns Err with a named reason and the caller logs

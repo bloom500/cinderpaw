@@ -47,7 +47,7 @@ function log(message: string): void {
  */
 import pkgJson from "../package.json" with { type: "json" };
 function sidecarVersion(): string {
-  return cfgPath("FERAL_VERSION") ?? ((pkgJson as { version?: string }).version || "0.0.0-dev");
+  return cfgPath("CINDERPAW_VERSION") ?? ((pkgJson as { version?: string }).version || "0.0.0-dev");
 }
 
 /**
@@ -660,7 +660,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
 
       // Faza 2 Slice 5 — the code-patch approval gate. Store + apply live in
       // `pending-patches.ts`; this is only the IPC seam. Live apply needs the
-      // real source repo (dev-mode knob FERAL_CODE_RSI_REPO); without it an
+      // real source repo (dev-mode knob CINDERPAW_CODE_RSI_REPO); without it an
       // approval is recorded but the patch stays un-applied.
       case "rsi_code_patches_list": {
         const { sendCodePatches } = await codePatchGate();
@@ -695,9 +695,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               ack(resolved.status);
               return;
             }
-            const repoRoot = cfgPath("FERAL_CODE_RSI_REPO");
+            const repoRoot = cfgPath("CINDERPAW_CODE_RSI_REPO");
             if (!repoRoot) {
-              ack("approved", "live apply unavailable: set FERAL_CODE_RSI_REPO to the source repo");
+              ack("approved", "live apply unavailable: set CINDERPAW_CODE_RSI_REPO to the source repo");
               return;
             }
             const { applyPatchLive } = await import("./rsi/l3-code/pending-patches.ts");
@@ -1324,13 +1324,13 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             activityMonitor.recordError(Date.now());
           }
         };
-        // Unattended: FERAL_AUTONOMOUS already means "nobody is at the machine
+        // Unattended: CINDERPAW_AUTONOMOUS already means "nobody is at the machine
         // to answer ask_user". The same fact means nobody is here to type
         // "continue" either, so a turn cut short by the wall-clock budget must
         // be resumed rather than delivered as the answer. Continuation only
         // fires on an outcome that was actually cut off, so an ordinary message
         // costs exactly one turn as before.
-        if (cfgBool("FERAL_AUTONOMOUS")) {
+        if (cfgBool("CINDERPAW_AUTONOMOUS")) {
           // A durable row, exactly as a connector message gets one. This path
           // used to call runUnattended with NO options at all: no recorder, so
           // nothing survived the process; no stall guard, so a run producing

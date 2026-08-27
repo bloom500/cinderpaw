@@ -3,7 +3,7 @@
  *
  * Two pieces live here:
  *
- *  1. `FERAL_AGENT_BASE_PROMPT` — the universal operating manual that anchors
+ *  1. `CINDERPAW_AGENT_BASE_PROMPT` — the universal operating manual that anchors
  *     every CinderpawAgent session. It encodes the agent's reliability contract
  *     (task-completion-first, chain-of-thought reasoning, structured tool
  *     usage, graceful self-correction). This block is the HIGHEST priority
@@ -41,7 +41,7 @@
  * (task completion first, Toyota-grade reliability, chain-of-thought
  * reasoning, structured tool calls, self-correction).
  */
-export const FERAL_AGENT_BASE_PROMPT = `You are CinderpawAgent, an extremely reliable, persistent, and autonomous AI agent built for long-running task completion inside a secure local sandbox.
+export const CINDERPAW_AGENT_BASE_PROMPT = `You are CinderpawAgent, an extremely reliable, persistent, and autonomous AI agent built for long-running task completion inside a secure local sandbox.
 
 Your core principles:
 - **Task Completion First**: You MUST drive every user request to successful completion. Never give up on a task that is still worth doing. If a tool fails or the result is not sufficient, analyze why and try alternative approaches, tools, or steps.

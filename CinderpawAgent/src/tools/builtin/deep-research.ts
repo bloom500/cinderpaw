@@ -12,7 +12,7 @@
  *   duckduckgo.com — the keyless search fallback (see ddg-lite.ts)
  *
  * Optional env vars:
- *   FERAL_JINA_API_KEY — Bearer token; enables Jina Search and raises Reader limits
+ *   CINDERPAW_JINA_API_KEY — Bearer token; enables Jina Search and raises Reader limits
  */
 
 import type { Tool, ToolManifest } from "../../types.ts";

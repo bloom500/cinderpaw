@@ -920,12 +920,12 @@ mod stt_prompt_probe {
     /// Run against the exact file that failed, so this is the real audio and not
     /// a re-enactment. Pass the path:
     ///
-    ///     FERAL_STT_PROBE=C:\Users\Darius\.feral\voice\<id>.webm \
+    ///     CINDERPAW_STT_PROBE=C:\Users\Darius\.feral\voice\<id>.webm \
     ///       cargo test -p feral --lib probe_whisper_prompt -- --ignored --nocapture
     #[tokio::test]
     #[ignore = "sends a stored recording to Groq"]
     async fn probe_whisper_prompt() {
-        let path = std::env::var("FERAL_STT_PROBE").expect("set FERAL_STT_PROBE to a .webm path");
+        let path = std::env::var("CINDERPAW_STT_PROBE").expect("set CINDERPAW_STT_PROBE to a .webm path");
         let key = byok::byok_get("groq").expect("no groq key stored");
         let bytes = std::fs::read(&path).expect("read the recording");
         let client = reqwest::Client::new();

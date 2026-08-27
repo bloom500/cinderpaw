@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn bootstrap_writes_genesis_row() {
-        // Hermetic: FERAL_HOME points at a temp dir, so this exercises
+        // Hermetic: CINDERPAW_HOME points at a temp dir, so this exercises
         // the real production paths (rsi_sandbox_bounds_path etc.)
         // without touching the developer's ~/.feral/rsi.
         crate::rsi::test_support::with_temp_feral_home(|_root| {

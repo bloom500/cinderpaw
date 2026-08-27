@@ -7,7 +7,7 @@
 > **Companion docs:**
 > - [docs/CONTRIBUTOR_GUIDE.md](./CONTRIBUTOR_GUIDE.md) — long-form
 >   contributor guide, runtime narrative, dev workflow, build pipeline.
-> - [docs/CONFIGURATION.md](./CONFIGURATION.md) — every `FERAL_*` env var.
+> - [docs/CONFIGURATION.md](./CONFIGURATION.md) — every `CINDERPAW_*` env var.
 > - [docs/invariants.md](./invariants.md) — the BRSI safety contracts.
 > - [docs/brsi-spec.md](./brsi-spec.md) — Bounded RSI, conceptual foundation.
 

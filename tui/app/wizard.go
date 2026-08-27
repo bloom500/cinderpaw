@@ -743,7 +743,7 @@ type WizardState struct {
 	// HealthCheckLatency is the wall time for phase 1 (parallel checks).
 	// StreamLatency is the wall time for the streaming round-trip.
 	// StreamVerified is true when the streaming response contained
-	// the expected deterministic token (FERAL_OK).
+	// the expected deterministic token (CINDERPAW_OK).
 	HealthCheckLatency time.Duration
 	StreamLatency      time.Duration
 	StreamVerified     bool

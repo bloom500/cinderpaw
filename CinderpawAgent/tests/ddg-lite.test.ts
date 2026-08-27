@@ -14,7 +14,7 @@ import { __resetDdgPacer, ddgLiteSearch, parseDdgLite } from "../src/tools/built
 // test's 5s gap makes the next test wait it out.
 beforeEach(() => {
   __resetDdgPacer();
-  process.env.FERAL_DDG_MIN_INTERVAL_MS = "0";
+  process.env.CINDERPAW_DDG_MIN_INTERVAL_MS = "0";
 });
 
 const FIXTURE = `
@@ -115,7 +115,7 @@ describe("ddgLiteSearch pacing", () => {
   });
 
   test("parallel callers are serialised with a gap, not burst", async () => {
-    process.env.FERAL_DDG_MIN_INTERVAL_MS = "60";
+    process.env.CINDERPAW_DDG_MIN_INTERVAL_MS = "60";
     const at: number[] = [];
     const fetch = (async () => {
       at.push(Date.now());
@@ -155,7 +155,7 @@ describe("ddgLiteSearch pacing", () => {
   });
 
   test("an abort while waiting for a slot does not wedge later callers", async () => {
-    process.env.FERAL_DDG_MIN_INTERVAL_MS = "10000";
+    process.env.CINDERPAW_DDG_MIN_INTERVAL_MS = "10000";
     const fetch = (async () => okRes()) as never;
 
     await ddgLiteSearch(fetch, "first"); // claims the slot
@@ -165,7 +165,7 @@ describe("ddgLiteSearch pacing", () => {
     expect(await pending).toEqual({ results: [], throttled: false });
 
     // The queue must still be usable rather than permanently rejected.
-    process.env.FERAL_DDG_MIN_INTERVAL_MS = "0";
+    process.env.CINDERPAW_DDG_MIN_INTERVAL_MS = "0";
     __resetDdgPacer();
     const after = await ddgLiteSearch(fetch, "after");
     expect(after.results).toHaveLength(2);

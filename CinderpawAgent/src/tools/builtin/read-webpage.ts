@@ -3,7 +3,7 @@
  *
  * Routes all requests through r.jina.ai (Jina Reader proxy), which handles
  * JavaScript rendering, cookie walls, and HTML-to-markdown conversion server-side.
- * No API key required for basic use; set FERAL_JINA_API_KEY for higher rate limits.
+ * No API key required for basic use; set CINDERPAW_JINA_API_KEY for higher rate limits.
  *
  * All network access goes through ctx.fetch (the egress proxy), which enforces
  * the domain allowlist, blocks SSRF, and audits every request.

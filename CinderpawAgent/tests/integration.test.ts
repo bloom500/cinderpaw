@@ -121,7 +121,7 @@ afterEach(() => { restoreFetch?.(); restoreFetch = null; });
 
 // web_search's DDG path is paced (5s between queries by default) via
 // module-level state — neutralise it so this suite doesn't sit and wait.
-process.env.FERAL_DDG_MIN_INTERVAL_MS = "0";
+process.env.CINDERPAW_DDG_MIN_INTERVAL_MS = "0";
 
 // ---------------------------------------------------------------------------
 
@@ -319,7 +319,7 @@ describe("full pipeline: message → tool call → sandbox → audit → respons
   });
 
   test("inner-thoughts loop is off by default (feature flag)", () => {
-    expect(process.env.FERAL_INNER_THOUGHTS_ENABLED === "true").toBe(false);
+    expect(process.env.CINDERPAW_INNER_THOUGHTS_ENABLED === "true").toBe(false);
   });
 
   // -------------------------------------------------------------------------

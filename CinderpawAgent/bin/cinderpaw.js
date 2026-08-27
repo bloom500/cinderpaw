@@ -127,7 +127,7 @@ if (!exe) {
 }
 
 // Report a single coherent version: the npm package version is the source of
-// truth. The Rust `version` command prefers FERAL_VERSION when set.
+// truth. The Rust `version` command prefers CINDERPAW_VERSION when set.
 let version = "";
 try {
   const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
@@ -138,7 +138,7 @@ try {
 
 const res = spawnSync(exe, process.argv.slice(2), {
   stdio: "inherit",
-  env: version ? { ...process.env, FERAL_VERSION: version } : process.env,
+  env: version ? { ...process.env, CINDERPAW_VERSION: version } : process.env,
 });
 
 if (res.error) {

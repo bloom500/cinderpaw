@@ -7,7 +7,7 @@ and how builds and releases work.
 
 > **For the layer model (L0–L6), Faza ↔ L-layer translation, file map
 > and glossary, see [ARCHITECTURE.md](../ARCHITECTURE.md). For every
-> `FERAL_*` env var, see [CONFIGURATION.md](./CONFIGURATION.md). For the
+> `CINDERPAW_*` env var, see [CONFIGURATION.md](./CONFIGURATION.md). For the
 > Go terminal client (user guide + build instructions), see [TUI.md](./TUI.md).**
 
 > This guide's "three runtimes" narrative predates the Go TUI (`tui/`), a
@@ -107,7 +107,7 @@ Cinderpaw is one repo, three runtimes, three languages:
 > ⚠️ **The sidecar gotcha:** `cargo tauri dev` does **not** rebuild the sidecar
 > when you change TS code. After any `CinderpawAgent/` change run
 > `node src-tauri/scripts/build-sidecar.mjs` (or
-> `FERAL_FORCE_SIDECAR_BUILD=1 cargo tauri dev`) so the compiled binary in
+> `CINDERPAW_FORCE_SIDECAR_BUILD=1 cargo tauri dev`) so the compiled binary in
 > `src-tauri/binaries/` is fresh. Also: `bun --compile` does not bundle `.md`
 > or other asset files — text assets must be imported with
 > `import x from "./file.md" with { type: "text" }` (see `soul-loader.ts`).

@@ -155,7 +155,7 @@ Usage:
 
 Environment:
   CINDERPAW_HOME         State directory (default: ~/.cinderpaw).
-                         FERAL_HOME is still read, for machines that set it.
+                         CINDERPAW_HOME is still read, for machines that set it.
   CINDERPAW_BRAIN=1      Force-enable Brain Stack using brain.json.
   NO_COLOR               Disable ANSI colors in TUI output.
 

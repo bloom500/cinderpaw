@@ -2,7 +2,7 @@
 
 Cinderpaw's L2 personal-adaptation pipeline (dataset → train → A/B eval gate →
 human review → promote) is fully wired. Training activates the moment you
-point `FERAL_LORA_TRAINER_BIN` at any executable that implements the
+point `CINDERPAW_LORA_TRAINER_BIN` at any executable that implements the
 contract below. This page is the authoritative spec for that contract
 (source of truth: `CinderpawAgent/src/rsi/l2-adapt/trainers/cli-trainer.ts`).
 
@@ -30,7 +30,7 @@ Requirements: NVIDIA GPU (8 GB+ VRAM for a 7B base), CUDA driver, Python
 **Base model resolution**: Cinderpaw passes the loaded GGUF as `--base`, but
 training happens on the original Hugging Face weights. The trainer reads
 the GGUF's `general.base_model.*` provenance metadata to find the HF repo
-id; when the GGUF lacks it, set `FERAL_LORA_HF_BASE` to the repo id the
+id; when the GGUF lacks it, set `CINDERPAW_LORA_HF_BASE` to the repo id the
 GGUF was converted from (e.g. `Qwen/Qwen2.5-7B-Instruct`).
 
 ## Why it isn't installed by default
@@ -65,7 +65,7 @@ Cinderpaw invokes the trainer as ONE child process:
   exit 0.
 - Optional metrics: any stdout line of the form `metric:<name>=<float>`
   (e.g. `metric:loss=0.42`) is captured for the review card.
-- Timeout: `FERAL_LORA_TRAIN_TIMEOUT_MS` (default 1h). A timeout or
+- Timeout: `CINDERPAW_LORA_TRAIN_TIMEOUT_MS` (default 1h). A timeout or
   non-zero exit fails the cycle cleanly — the registry and eval gate
   never see a half-written adapter.
 
@@ -86,7 +86,7 @@ Cinderpaw invokes the trainer as ONE child process:
    ```
 
    The script probes `--version`, then persists
-   `FERAL_LORA_TRAINER_BIN` for your shell profile and prints the value
+   `CINDERPAW_LORA_TRAINER_BIN` for your shell profile and prints the value
    to set in the desktop app's environment.
 3. Restart Cinderpaw. `self_lora` / the Settings → Training card will show
    the trainer as available; trigger a cycle with at least 10 usable

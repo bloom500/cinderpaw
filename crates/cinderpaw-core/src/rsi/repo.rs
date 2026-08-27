@@ -803,7 +803,7 @@ mod tests {
     }
 
     /// The keystone test: bootstrap the git substrate into a temp
-    /// FERAL_HOME and assert the on-disk layout + genesis commit are
+    /// CINDERPAW_HOME and assert the on-disk layout + genesis commit are
     /// exactly what every later phase (ratchet, lineage, diff) relies
     /// on. This is the verification the original delivery lacked — the
     /// bootstrap was wired into setup() but never exercised by a test,

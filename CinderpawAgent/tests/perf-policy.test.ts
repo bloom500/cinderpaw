@@ -46,47 +46,47 @@ describe("resolvePerfPolicy — defaults", () => {
 });
 
 describe("resolvePerfPolicy — env overrides", () => {
-  test("FERAL_TTFT_DEADLINE_MS overrides both targets", () => {
+  test("CINDERPAW_TTFT_DEADLINE_MS overrides both targets", () => {
     const local = resolvePerfPolicy({
       isCloud: false,
-      env: { FERAL_TTFT_DEADLINE_MS: "12345" },
+      env: { CINDERPAW_TTFT_DEADLINE_MS: "12345" },
     });
     const cloud = resolvePerfPolicy({
       isCloud: true,
-      env: { FERAL_TTFT_DEADLINE_MS: "12345" },
+      env: { CINDERPAW_TTFT_DEADLINE_MS: "12345" },
     });
     expect(local.ttftDeadlineMs).toBe(12345);
     expect(cloud.ttftDeadlineMs).toBe(12345);
   });
 
-  test("FERAL_TOTAL_DEADLINE_MS overrides both targets", () => {
+  test("CINDERPAW_TOTAL_DEADLINE_MS overrides both targets", () => {
     const p = resolvePerfPolicy({
       isCloud: false,
-      env: { FERAL_TOTAL_DEADLINE_MS: "600000" },
+      env: { CINDERPAW_TOTAL_DEADLINE_MS: "600000" },
     });
     expect(p.totalDeadlineMs).toBe(600_000);
   });
 
-  test("FERAL_STALL_MS overrides both targets", () => {
+  test("CINDERPAW_STALL_MS overrides both targets", () => {
     const p = resolvePerfPolicy({
       isCloud: true,
-      env: { FERAL_STALL_MS: "9999" },
+      env: { CINDERPAW_STALL_MS: "9999" },
     });
     expect(p.stallMs).toBe(9999);
   });
 
-  test("FERAL_CLOUD_IDLE_TIMEOUT_MS still overrides cloud stallMs (back-compat)", () => {
+  test("CINDERPAW_CLOUD_IDLE_TIMEOUT_MS still overrides cloud stallMs (back-compat)", () => {
     const p = resolvePerfPolicy({
       isCloud: true,
-      env: { FERAL_CLOUD_IDLE_TIMEOUT_MS: "7777" },
+      env: { CINDERPAW_CLOUD_IDLE_TIMEOUT_MS: "7777" },
     });
     expect(p.stallMs).toBe(7777);
   });
 
-  test("FERAL_STALL_MS wins over FERAL_CLOUD_IDLE_TIMEOUT_MS when both are set", () => {
+  test("CINDERPAW_STALL_MS wins over CINDERPAW_CLOUD_IDLE_TIMEOUT_MS when both are set", () => {
     const p = resolvePerfPolicy({
       isCloud: true,
-      env: { FERAL_CLOUD_IDLE_TIMEOUT_MS: "7777", FERAL_STALL_MS: "8888" },
+      env: { CINDERPAW_CLOUD_IDLE_TIMEOUT_MS: "7777", CINDERPAW_STALL_MS: "8888" },
     });
     expect(p.stallMs).toBe(8888);
   });
@@ -95,9 +95,9 @@ describe("resolvePerfPolicy — env overrides", () => {
     const p = resolvePerfPolicy({
       isCloud: false,
       env: {
-        FERAL_TTFT_DEADLINE_MS: "not-a-number",
-        FERAL_TOTAL_DEADLINE_MS: "-100",
-        FERAL_STALL_MS: "0",
+        CINDERPAW_TTFT_DEADLINE_MS: "not-a-number",
+        CINDERPAW_TOTAL_DEADLINE_MS: "-100",
+        CINDERPAW_STALL_MS: "0",
       },
     });
     expect(p.ttftDeadlineMs).toBe(__TEST_DEFAULTS.local.ttftDeadlineMs);
@@ -108,7 +108,7 @@ describe("resolvePerfPolicy — env overrides", () => {
   test("empty string env values fall back to defaults", () => {
     const p = resolvePerfPolicy({
       isCloud: true,
-      env: { FERAL_TTFT_DEADLINE_MS: "" },
+      env: { CINDERPAW_TTFT_DEADLINE_MS: "" },
     });
     expect(p.ttftDeadlineMs).toBe(__TEST_DEFAULTS.cloud.ttftDeadlineMs);
   });

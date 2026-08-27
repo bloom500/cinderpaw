@@ -103,7 +103,7 @@ pub struct PairingFieldDef {
 pub struct OAuthClientIDSource {
     /// `"env"` or `"keychain"`.
     pub kind: String,
-    /// Reference name — env var name (e.g. `"FERAL_DISCORD_CLIENT_ID"`)
+    /// Reference name — env var name (e.g. `"CINDERPAW_DISCORD_CLIENT_ID"`)
     /// or keychain account (e.g. `"discord_client_id"`). Serialised to
     /// JSON as `"ref"` for human readability on the wire; the trailing
     /// underscore is the Rust convention for reserved-keyword field

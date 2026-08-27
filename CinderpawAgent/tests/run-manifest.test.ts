@@ -69,14 +69,14 @@ describe("hashConfig", () => {
 
 describe("captureEnv", () => {
   test("NEVER records a credential value, only whether it is set", () => {
-    const captured = captureEnv({ FERAL_DB_KEY: "super-secret-base64-key" });
-    expect(captured.FERAL_DB_KEY).toBe(REDACTED);
+    const captured = captureEnv({ CINDERPAW_DB_KEY: "super-secret-base64-key" });
+    expect(captured.CINDERPAW_DB_KEY).toBe(REDACTED);
     // The whole point: a manifest is published next to a scorecard.
     expect(JSON.stringify(captured)).not.toContain("super-secret-base64-key");
   });
 
   test("records credentials as unset rather than omitting them — presence changes behaviour", () => {
-    expect(captureEnv({}).FERAL_DB_KEY).toBe(REDACTED_UNSET);
+    expect(captureEnv({}).CINDERPAW_DB_KEY).toBe(REDACTED_UNSET);
   });
 
   test("captures only documented CONFIG_SCHEMA names, never the whole environment", () => {
@@ -89,8 +89,8 @@ describe("captureEnv", () => {
   });
 
   test("keeps the value of a non-credential setting — that IS the reproducibility info", () => {
-    const captured = captureEnv({ FERAL_EMBED_GPU_LAYERS: "0" });
-    expect(captured.FERAL_EMBED_GPU_LAYERS).toBe("0");
+    const captured = captureEnv({ CINDERPAW_EMBED_GPU_LAYERS: "0" });
+    expect(captured.CINDERPAW_EMBED_GPU_LAYERS).toBe("0");
   });
 });
 

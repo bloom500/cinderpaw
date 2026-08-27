@@ -1,3 +1,4 @@
+import { readEnv } from "../config.ts";
 /**
  * Privacy tag stripping — adapted from claude-mem (thedotmack/claude-mem).
  *
@@ -142,7 +143,7 @@ export function redactPII(input: string): RedactResult {
   return { text, redactions, kinds: [...kinds] };
 }
 
-/** True when PII redaction is enabled (default on; `FERAL_PII_REDACTION=off`). */
+/** True when PII redaction is enabled (default on; `CINDERPAW_PII_REDACTION=off`). */
 export function piiRedactionEnabled(): boolean {
-  return process.env.FERAL_PII_REDACTION !== "off";
+  return readEnv("CINDERPAW_PII_REDACTION") !== "off";
 }

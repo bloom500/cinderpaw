@@ -1,7 +1,7 @@
 /**
  * FMS scale bench — Pathway 4 PR-C Task C.4.
  *
- * Env-gated: FERAL_FMS_BENCH=1 bun test tests/fractal-scale.test.ts
+ * Env-gated: CINDERPAW_FMS_BENCH=1 bun test tests/fractal-scale.test.ts
  *
  * Tests LeafStore + dedup performance at 10k and 100k leaf scale.
  * Does NOT test FractalMemory.query() (needs embeddings/GPU).
@@ -11,7 +11,7 @@ import { performance } from "node:perf_hooks";
 import { LeafStore, type LeafRecord } from "../src/memory/fractal/leaf-store.ts";
 import { dedupAcrossSessions } from "../src/memory/fractal/cross-session-dedup.ts";
 
-const ENABLED = process.env.FERAL_FMS_BENCH === "1";
+const ENABLED = process.env.CINDERPAW_FMS_BENCH === "1";
 
 function p99(sorted: number[]): number {
   const idx = Math.ceil(sorted.length * 0.99) - 1;
@@ -35,7 +35,7 @@ function makeRecord(id: number): LeafRecord {
   };
 }
 
-describe("FMS scale (FERAL_FMS_BENCH=1)", () => {
+describe("FMS scale (CINDERPAW_FMS_BENCH=1)", () => {
   it.skipIf(!ENABLED)("LeafStore: upsert 10k records p99 < 20ms", () => {
     const store = new LeafStore(":memory:");
     const timings: number[] = [];

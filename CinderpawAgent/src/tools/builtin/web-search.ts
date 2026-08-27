@@ -7,7 +7,7 @@
  * rate-limits, and audits every request.
  *
  * Two backends, in preference order:
- *   1. a SearXNG instance the user runs (`FERAL_SEARXNG_URL`) — a metasearch
+ *   1. a SearXNG instance the user runs (`CINDERPAW_SEARXNG_URL`) — a metasearch
  *      aggregator over Google/Bing/DDG/etc., and the queries never leave the
  *      user's machine, which is the whole point of a local-first agent;
  *   2. DuckDuckGo Lite (see ddg-lite.ts) — keyless, zero setup, so search works
@@ -28,7 +28,7 @@ import { DDG_DOMAIN, DDG_THROTTLED_HINT, ddgLiteSearch, type DdgResult } from ".
  *  install should never be told to go install something. */
 const SETUP_HINT =
   " For better results (several engines, and queries that never leave this " +
-  "machine), run a SearXNG instance and point FERAL_SEARXNG_URL at it — " +
+  "machine), run a SearXNG instance and point CINDERPAW_SEARXNG_URL at it — " +
   "free, no API key. See docs/CONFIGURATION.md.";
 
 export interface WebSearchOpts {

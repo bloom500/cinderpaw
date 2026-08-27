@@ -11,7 +11,7 @@
  * so its name lives here as well, for the one place the UI has to show a path
  * before the backend has told it one.
  *
- * What is deliberately NOT here: the bundle identifier, the `FERAL_*`
+ * What is deliberately NOT here: the bundle identifier, the `CINDERPAW_*`
  * environment variables, the `feral://` event channel names and the CLI binary
  * name. Those are technical identities with migration cost, and they move in a
  * later phase with a migrator beside them. See RENAME-PLAN.md.
@@ -29,7 +29,7 @@ export const AGENT_DEFAULT_NAME = APP_NAME;
  * UI shows a path that does not exist.
  *
  * Only for display fallbacks: the real path always comes from the backend,
- * which honours `FERAL_HOME` and portable installs. A hardcoded `~/.feral`
+ * which honours `CINDERPAW_HOME` and portable installs. A hardcoded `~/.feral`
  * here outlived the migration and was still on the Settings screen.
  */
 export const APP_HOME_DIR_NAME = '.cinderpaw' as const;

@@ -48,7 +48,7 @@ const DEFAULT_AGENT_NAME = "Cinderpaw";
  *
  * `homeDir` is the test-isolation seam (an OS home, the profile dir appended).
  * Omitting it — every production caller — resolves through `feralHome()` so
- * FERAL_HOME is honored; it used to read $HOME directly, which meant an
+ * CINDERPAW_HOME is honored; it used to read $HOME directly, which meant an
  * isolated profile still picked up the real user's onboarding record.
  */
 export function loadUserConfig(homeDir?: string): UserConfig {

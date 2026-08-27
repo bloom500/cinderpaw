@@ -19,10 +19,10 @@ sidecar process**, triggered by an env var, where the embed bridge works.
 ## Running it
 
 Embeddings must be available — i.e. `bge-small-en-v1.5.Q8_0.gguf` is in the
-models dir (or `FERAL_EMBED_MODEL` points at a GGUF). Then launch the app with:
+models dir (or `CINDERPAW_EMBED_MODEL` points at a GGUF). Then launch the app with:
 
 ```
-FERAL_RUN_FRACTAL_BENCH=1 <launch the app / sidecar>
+CINDERPAW_RUN_FRACTAL_BENCH=1 <launch the app / sidecar>
 ```
 
 On startup the sidecar builds the tree if needed, runs the gate, logs the
@@ -32,10 +32,10 @@ verdict, and writes `data/fractal-bench-report.json`.
 
 | Var | Default | Meaning |
 |---|---|---|
-| `FERAL_RUN_FRACTAL_BENCH` | (off) | Set to any value to run the gate at startup. |
-| `FERAL_FRACTAL_BENCH_QUERIES` | (none) | Path to a hand-labelled JSONL query set. Overrides generation. |
-| `FERAL_FRACTAL_BENCH_COUNT` | `50` | Number of queries to generate when no JSONL is given. |
-| `FERAL_FRACTAL_BENCH_SEED` | `1` | Seed for deterministic query sampling. |
+| `CINDERPAW_RUN_FRACTAL_BENCH` | (off) | Set to any value to run the gate at startup. |
+| `CINDERPAW_FRACTAL_BENCH_QUERIES` | (none) | Path to a hand-labelled JSONL query set. Overrides generation. |
+| `CINDERPAW_FRACTAL_BENCH_COUNT` | `50` | Number of queries to generate when no JSONL is given. |
+| `CINDERPAW_FRACTAL_BENCH_SEED` | `1` | Seed for deterministic query sampling. |
 
 ## Query sets — two sources
 

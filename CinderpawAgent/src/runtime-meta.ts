@@ -23,7 +23,7 @@ import { cfgPath } from "./config.ts";
 import pkgJson from "../package.json" with { type: "json" };
 
 export const VERSION: string =
-  cfgPath("FERAL_VERSION") ??
+  cfgPath("CINDERPAW_VERSION") ??
   ((pkgJson as { version?: string }).version || "0.0.0-dev");
 
 /** Diagnostics go to stderr; stdout is reserved for the transport protocol. */

@@ -194,7 +194,7 @@ export async function runLoraTrainingCycle(
     return {
       ok: false,
       reason:
-        `trainer '${trainer.name}' unavailable on this machine — set FERAL_LORA_TRAINER_BIN ` +
+        `trainer '${trainer.name}' unavailable on this machine — set CINDERPAW_LORA_TRAINER_BIN ` +
         `to a binary implementing the trainer contract (docs/LORA_TRAINER.md; ` +
         `scripts/setup-lora-trainer validates + registers it)`,
     };

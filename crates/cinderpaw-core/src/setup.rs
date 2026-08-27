@@ -581,13 +581,13 @@ async fn verify_local(
             // Same env mirror as the /runtime/model local path, so
             // runtime_status reports the verified route.
             unsafe {
-                std::env::set_var("FERAL_PROVIDER", "openai_compatible");
+                std::env::set_var("CINDERPAW_PROVIDER", "openai_compatible");
                 std::env::set_var(
-                    "FERAL_BASE_URL",
+                    "CINDERPAW_BASE_URL",
                     format!("http://127.0.0.1:{}", runtime.settings.api_port),
                 );
-                std::env::set_var("FERAL_MODEL", &loaded.name);
-                std::env::remove_var("FERAL_BYOK_PROVIDER");
+                std::env::set_var("CINDERPAW_MODEL", &loaded.name);
+                std::env::remove_var("CINDERPAW_BYOK_PROVIDER");
             }
             // Persist the boot route so a restart keeps the verified local
             // model (and clears any stale cloud route).

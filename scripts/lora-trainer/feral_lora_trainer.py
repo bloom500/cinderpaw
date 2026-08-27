@@ -36,8 +36,8 @@ DEFAULTS = {
 
 TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 
-HF_BASE_ENV = "FERAL_LORA_HF_BASE"
-CONVERT_ENV = "FERAL_LORA_CONVERT_SCRIPT"
+HF_BASE_ENV = "CINDERPAW_LORA_HF_BASE"
+CONVERT_ENV = "CINDERPAW_LORA_CONVERT_SCRIPT"
 
 
 def log(msg: str) -> None:
@@ -54,7 +54,7 @@ def die(msg: str) -> "NoReturn":  # noqa: F821 - py3.10 compat, annotation only
 def resolve_hf_base(base: str) -> str:
     """Map Feral's --base (the loaded local GGUF) to a HF model id.
 
-    Order: FERAL_LORA_HF_BASE env override > GGUF metadata > the value
+    Order: CINDERPAW_LORA_HF_BASE env override > GGUF metadata > the value
     itself when it isn't a .gguf (already a HF id / local HF dir).
     """
     override = os.environ.get(HF_BASE_ENV, "").strip()

@@ -9,10 +9,10 @@
 // Security / SetupMode / ConfigHandling / Resume / Hardware / every
 // other step (no per-step row lines, no per-step boxes that drift).
 //
-// Auto-collapses to ASCII-only borders when FERAL_ASCII=1 / TERM=dumb /
+// Auto-collapses to ASCII-only borders when CINDERPAW_ASCII=1 / TERM=dumb /
 // non-UTF-8 locale (the same gate ui.GlyphSet already enforces). Branded
 // lipgloss colors come from styles.go's Accent/AccentDim/Text/Meta. The
-// header strip and footer stay usable when FERAL_ASCII=1 (no Unicode
+// header strip and footer stay usable when CINDERPAW_ASCII=1 (no Unicode
 // symbols in this file — only `+`, `-`, `|`, `=`, `>`).
 package ui
 

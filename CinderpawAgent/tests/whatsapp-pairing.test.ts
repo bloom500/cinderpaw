@@ -13,16 +13,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WhatsAppConnector } from "../src/transports/connectors.ts";
 
-const original = process.env.FERAL_HOME;
+const original = process.env.CINDERPAW_HOME;
 const made: string[] = [];
 
 afterEach(() => {
-  if (original === undefined) delete process.env.FERAL_HOME;
-  else process.env.FERAL_HOME = original;
+  if (original === undefined) delete process.env.CINDERPAW_HOME;
+  else process.env.CINDERPAW_HOME = original;
   for (const d of made.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-/** A FERAL_HOME whose whatsapp-auth holds exactly `creds`, or nothing. */
+/** A CINDERPAW_HOME whose whatsapp-auth holds exactly `creds`, or nothing. */
 function homeWith(creds: string | null): string {
   const home = mkdtempSync(join(tmpdir(), "feral-wa-"));
   made.push(home);
@@ -30,7 +30,7 @@ function homeWith(creds: string | null): string {
     mkdirSync(join(home, "whatsapp-auth"), { recursive: true });
     writeFileSync(join(home, "whatsapp-auth", "creds.json"), creds, "utf8");
   }
-  process.env.FERAL_HOME = home;
+  process.env.CINDERPAW_HOME = home;
   return home;
 }
 

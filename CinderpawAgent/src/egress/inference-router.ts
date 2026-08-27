@@ -159,7 +159,7 @@ export class InferenceRouter {
   #fallback: ModelTarget | undefined;
   #trusted: Set<string>;
   /**
-   * The operator's EXPLICIT allowlist (`FERAL_TRUSTED_BASE_URLS`), kept
+   * The operator's EXPLICIT allowlist (`CINDERPAW_TRUSTED_BASE_URLS`), kept
    * separately from `#trusted` because `#trusted` is derived and gets rebuilt
    * on every hot-swap. Before F-03 that rebuild seeded itself from the very
    * target it was about to validate, so a `set_model` silently discarded the

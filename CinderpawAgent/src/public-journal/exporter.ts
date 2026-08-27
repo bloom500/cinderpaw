@@ -177,25 +177,25 @@ export interface ExporterConfig {
  *  than half-configuring — a publisher that silently no-ops is worse than one
  *  that refuses to start. */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ExporterConfig {
-  const url = env.FERAL_PUBLIC_JOURNAL_URL?.trim();
-  const token = env.FERAL_PUBLIC_JOURNAL_TOKEN?.trim();
-  if (!url) throw new Error("FERAL_PUBLIC_JOURNAL_URL is not set");
-  if (!token) throw new Error("FERAL_PUBLIC_JOURNAL_TOKEN is not set");
+  const url = env.CINDERPAW_PUBLIC_JOURNAL_URL?.trim();
+  const token = env.CINDERPAW_PUBLIC_JOURNAL_TOKEN?.trim();
+  if (!url) throw new Error("CINDERPAW_PUBLIC_JOURNAL_URL is not set");
+  if (!token) throw new Error("CINDERPAW_PUBLIC_JOURNAL_TOKEN is not set");
   assertTransportSafe(url);
 
-  const publisher = (env.FERAL_PUBLIC_JOURNAL_PUBLISHER?.trim() || "cubby") as Publisher;
+  const publisher = (env.CINDERPAW_PUBLIC_JOURNAL_PUBLISHER?.trim() || "cubby") as Publisher;
   if (publisher !== "cubby" && publisher !== "paw") {
     throw new Error(`unknown publisher "${publisher}" (expected "cubby" or "paw")`);
   }
 
-  const limitRaw = Number(env.FERAL_PUBLIC_JOURNAL_LIMIT ?? DEFAULT_BATCH_LIMIT);
+  const limitRaw = Number(env.CINDERPAW_PUBLIC_JOURNAL_LIMIT ?? DEFAULT_BATCH_LIMIT);
   return {
     url,
     token,
     publisher,
-    journalDir: env.FERAL_PUBLIC_JOURNAL_DIR?.trim() || defaultJournalDir(),
+    journalDir: env.CINDERPAW_PUBLIC_JOURNAL_DIR?.trim() || defaultJournalDir(),
     cursorFile: cursorPath(),
-    agentVersion: env.FERAL_PUBLIC_JOURNAL_VERSION?.trim() || null,
+    agentVersion: env.CINDERPAW_PUBLIC_JOURNAL_VERSION?.trim() || null,
     limit: Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : DEFAULT_BATCH_LIMIT,
   };
 }
@@ -207,7 +207,7 @@ export function assertTransportSafe(url: string): void {
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error(`FERAL_PUBLIC_JOURNAL_URL is not a valid URL: ${url}`);
+    throw new Error(`CINDERPAW_PUBLIC_JOURNAL_URL is not a valid URL: ${url}`);
   }
   // `[::1]` is loopback too — and `hostname` keeps the brackets, so neither
   // literal comparison matched it. The demo over IPv6 was refused as unsafe

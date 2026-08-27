@@ -180,7 +180,7 @@ export function RsiEngineStatusPanel() {
       )}
 
       <p className="text-micro text-text-muted">
-        Engine autostarts on launch and re-reads <code className="text-text-secondary">FERAL_RSI_MAX_COST_USD</code> on every restart. Set the USD cap in the section above.
+        Engine autostarts on launch and re-reads <code className="text-text-secondary">CINDERPAW_RSI_MAX_COST_USD</code> on every restart. Set the USD cap in the section above.
       </p>
     </div>
   );

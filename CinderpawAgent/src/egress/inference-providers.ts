@@ -22,7 +22,7 @@ import type {
   StreamProgressEvent,
 } from "../types.ts";
 import { resolvePerfPolicy, type PerfPolicy } from "./perf-policy.ts";
-import { cfgInt } from "../config.ts";
+import { cfgInt, readEnv } from "../config.ts";
 import { log } from "../runtime-meta.ts";
 
 // Defined here (not imported from inference-router) to avoid a circular dep.
@@ -47,11 +47,11 @@ class InferenceError extends Error {
 
 // Idle-stream timeout for cloud (non-loopback) targets. Local engines can be
 // slow on first-token (cold KV-cache load); cloud APIs should respond in seconds.
-// ponytail: fixed env read at module load; set FERAL_CLOUD_IDLE_TIMEOUT_MS to override.
+// ponytail: fixed env read at module load; set CINDERPAW_CLOUD_IDLE_TIMEOUT_MS to override.
 // Kept for back-compat with the old idleAbortController — the new
 // `deadlineController` honors it via the resolver's
-// `FERAL_CLOUD_IDLE_TIMEOUT_MS` env override (see perf-policy.ts).
-const _cit = cfgInt("FERAL_CLOUD_IDLE_TIMEOUT_MS");
+// `CINDERPAW_CLOUD_IDLE_TIMEOUT_MS` env override (see perf-policy.ts).
+const _cit = cfgInt("CINDERPAW_CLOUD_IDLE_TIMEOUT_MS");
 const CLOUD_IDLE_MS: number = _cit > 0 ? _cit : 60_000;
 
 // ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ export class OllamaProvider implements InferenceProvider {
     // forced a 16,384-token context window on every Ollama call when the
     // main loop's maxTokensPerCall was raised. Read it from a dedicated
     // env var with a sensible default instead. Operators can override with
-    // FERAL_OLLAMA_NUM_CTX to match the model card.
+    // CINDERPAW_OLLAMA_NUM_CTX to match the model card.
     const numCtx = readOllamaNumCtx();
     const useNativeTools = !!(req.openAITools && req.openAITools.length > 0);
     const messages = req.messages.map((m) => {
@@ -429,7 +429,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       body.tool_choice = "auto";
     }
 
-    // Loopback deadline comes from the perf policy (FERAL_TOTAL_DEADLINE_MS
+    // Loopback deadline comes from the perf policy (CINDERPAW_TOTAL_DEADLINE_MS
     // tunable) — a hardcoded value here silently bypassed the knob and killed
     // slow-hardware prefills (RSI evals on CPU rigs died at exactly 300s).
     const raw = (await postJson(
@@ -1179,15 +1179,15 @@ export function stripToolsFromSystemPrompt(systemPrompt: string): string {
  * are now sourced independently:
  *
  *   - num_predict  = req.maxTokens            (per-completion output cap)
- *   - num_ctx      = FERAL_OLLAMA_NUM_CTX     (context window, default 8192)
+ *   - num_ctx      = CINDERPAW_OLLAMA_NUM_CTX     (context window, default 8192)
  *
- * Operators targeting a specific model card should set FERAL_OLLAMA_NUM_CTX
+ * Operators targeting a specific model card should set CINDERPAW_OLLAMA_NUM_CTX
  * to match (e.g. 32768 for a Qwen2.5-32B context, 131072 for a long-context
  * model). The default 8192 is a safe middle ground for the 7B-class
  * models the bundled llama.cpp engine targets.
  */
 function readOllamaNumCtx(): number {
-  const raw = process.env.FERAL_OLLAMA_NUM_CTX;
+  const raw = readEnv("CINDERPAW_OLLAMA_NUM_CTX");
   if (raw === undefined || raw === "") return 8192;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return 8192;

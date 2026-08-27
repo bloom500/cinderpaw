@@ -20,17 +20,17 @@
  * preflight below) rather than burn your afternoon discovering it.
  *
  * The sidecar does NOT read ~/.feral/byok.json — the Rust host resolves the
- * BYOK route and hands the sidecar FERAL_PROVIDER / FERAL_MODEL /
- * FERAL_BASE_URL / FERAL_API_KEY. This script spawns the sidecar directly, so
+ * BYOK route and hands the sidecar CINDERPAW_PROVIDER / CINDERPAW_MODEL /
+ * CINDERPAW_BASE_URL / CINDERPAW_API_KEY. This script spawns the sidecar directly, so
  * it has to do the same job. It resolves the base URL and model from
  * byok.json (both non-secret), and takes the KEY from the environment:
  *
- *   FERAL_BYOK_PROVIDER=minimax FERAL_API_KEY=sk-... node scripts/walkaway-bench.mjs
+ *   CINDERPAW_BYOK_PROVIDER=minimax CINDERPAW_API_KEY=sk-... node scripts/walkaway-bench.mjs
  *
  * The key is deliberately NOT read out of the OS keychain. A benchmark script
  * has no business extracting credentials, and one that did would be a fine
  * template for something that is not a benchmark script. Export it for the one
- * command, or set FERAL_BASE_URL / FERAL_MODEL / FERAL_API_KEY yourself and
+ * command, or set CINDERPAW_BASE_URL / CINDERPAW_MODEL / CINDERPAW_API_KEY yourself and
  * skip byok.json entirely.
  *
  * If inference does not come up the run is reported as HARNESS/INFRA and NOT
@@ -64,10 +64,10 @@ const SIDECAR_ENTRY = join(ROOT, "CinderpawAgent", "src", "index.ts");
  * version of this script then reported as "the file was never created". A
  * harness that misattributes its own breakage as an agent failure is worse
  * than no harness: it manufactures the number it exists to measure.
- * Override with FERAL_BENCH_BUN if bun lives somewhere unusual.
+ * Override with CINDERPAW_BENCH_BUN if bun lives somewhere unusual.
  */
 function resolveBun() {
-  if (process.env.FERAL_BENCH_BUN) return process.env.FERAL_BENCH_BUN;
+  if (process.env.CINDERPAW_BENCH_BUN) return process.env.CINDERPAW_BENCH_BUN;
   const probe = spawnSync(process.platform === "win32" ? "where.exe" : "which", ["bun"], {
     encoding: "utf8",
   });
@@ -114,7 +114,7 @@ const PROVIDER_BASE_URL = {
  * Work out which model the bench should run against.
  *
  * Explicit env always wins. Otherwise: read byok.json (base URL + default
- * model only — never a secret) for the provider named by FERAL_BYOK_PROVIDER.
+ * model only — never a secret) for the provider named by CINDERPAW_BYOK_PROVIDER.
  * Returns the env block to hand the sidecar, or a string explaining what is
  * missing.
  */
@@ -138,27 +138,27 @@ function sidecarBaseUrl(url) {
 
 function resolveRoute() {
   const explicit = {
-    FERAL_BASE_URL: process.env.FERAL_BASE_URL,
-    FERAL_MODEL: process.env.FERAL_MODEL,
-    FERAL_API_KEY: process.env.FERAL_API_KEY,
-    FERAL_PROVIDER: process.env.FERAL_PROVIDER ?? "openai_compatible",
+    CINDERPAW_BASE_URL: process.env.CINDERPAW_BASE_URL,
+    CINDERPAW_MODEL: process.env.CINDERPAW_MODEL,
+    CINDERPAW_API_KEY: process.env.CINDERPAW_API_KEY,
+    CINDERPAW_PROVIDER: process.env.CINDERPAW_PROVIDER ?? "openai_compatible",
   };
-  if (explicit.FERAL_BASE_URL && explicit.FERAL_MODEL) {
-    return { env: { ...explicit, FERAL_BASE_URL: sidecarBaseUrl(explicit.FERAL_BASE_URL) } };
+  if (explicit.CINDERPAW_BASE_URL && explicit.CINDERPAW_MODEL) {
+    return { env: { ...explicit, CINDERPAW_BASE_URL: sidecarBaseUrl(explicit.CINDERPAW_BASE_URL) } };
   }
 
-  const id = process.env.FERAL_BYOK_PROVIDER;
+  const id = process.env.CINDERPAW_BYOK_PROVIDER;
   if (!id) {
     return {
       error: [
-        "no model configured. Either set FERAL_BASE_URL + FERAL_MODEL (+ FERAL_API_KEY),",
-        "  or set FERAL_BYOK_PROVIDER=<id> to read the route from <profile>/byok.json.",
+        "no model configured. Either set CINDERPAW_BASE_URL + CINDERPAW_MODEL (+ CINDERPAW_API_KEY),",
+        "  or set CINDERPAW_BYOK_PROVIDER=<id> to read the route from <profile>/byok.json.",
         `  known providers: ${Object.keys(PROVIDER_BASE_URL).join(", ")}`,
       ].join(String.fromCharCode(10)),
     };
   }
   const file = join(agentHome(), "byok.json");
-  if (!existsSync(file)) return { error: `FERAL_BYOK_PROVIDER=${id} but ${file} does not exist` };
+  if (!existsSync(file)) return { error: `CINDERPAW_BYOK_PROVIDER=${id} but ${file} does not exist` };
   let cfg;
   try {
     cfg = JSON.parse(readFileSync(file, "utf8"));
@@ -168,29 +168,29 @@ function resolveRoute() {
   const entry = cfg?.providers?.[id];
   if (!entry) return { error: `byok.json has no provider "${id}"` };
   const baseUrl = entry.base_url ?? PROVIDER_BASE_URL[id];
-  if (!baseUrl) return { error: `no base URL known for provider "${id}" — set FERAL_BASE_URL` };
-  const model = explicit.FERAL_MODEL ?? entry.default_model;
-  if (!model) return { error: `provider "${id}" has no default_model — set FERAL_MODEL` };
+  if (!baseUrl) return { error: `no base URL known for provider "${id}" — set CINDERPAW_BASE_URL` };
+  const model = explicit.CINDERPAW_MODEL ?? entry.default_model;
+  if (!model) return { error: `provider "${id}" has no default_model — set CINDERPAW_MODEL` };
   // byok.json does NOT hold the key (it lives in the OS keychain), so the key
   // still has to come from the environment. This is the common stumble, so the
   // message says exactly that rather than letting the first task 401.
-  const apiKey = explicit.FERAL_API_KEY;
+  const apiKey = explicit.CINDERPAW_API_KEY;
   if (!apiKey) {
     return {
       error: [
         `found the "${id}" route in byok.json (${baseUrl}, ${model}) but no API key.`,
         "  byok.json never stores keys — they live in the OS keychain, and this script",
         "  deliberately does not read credentials. Export it for this one command:",
-        `    FERAL_API_KEY=... FERAL_BYOK_PROVIDER=${id} node scripts/walkaway-bench.mjs`,
+        `    CINDERPAW_API_KEY=... CINDERPAW_BYOK_PROVIDER=${id} node scripts/walkaway-bench.mjs`,
       ].join(String.fromCharCode(10)),
     };
   }
   return {
     env: {
-      FERAL_PROVIDER: "openai_compatible",
-      FERAL_BASE_URL: sidecarBaseUrl(baseUrl),
-      FERAL_MODEL: model,
-      FERAL_API_KEY: apiKey,
+      CINDERPAW_PROVIDER: "openai_compatible",
+      CINDERPAW_BASE_URL: sidecarBaseUrl(baseUrl),
+      CINDERPAW_MODEL: model,
+      CINDERPAW_API_KEY: apiKey,
     },
   };
 }
@@ -207,7 +207,7 @@ async function preflight(routeEnv) {
   // Built the same way inference-providers.ts builds it, deliberately: a
   // preflight that probes a different URL than the sidecar uses can pass while
   // every task 404s, which is worse than having no preflight.
-  const url = `${routeEnv.FERAL_BASE_URL}/v1/chat/completions`;
+  const url = `${routeEnv.CINDERPAW_BASE_URL}/v1/chat/completions`;
   // An explicit controller rather than AbortSignal.timeout: the latter leaves a
   // live timer handle, and exiting while it is mid-close trips a libuv
   // assertion that aborts the process with 127 — which automation reads as
@@ -219,10 +219,10 @@ async function preflight(routeEnv) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(routeEnv.FERAL_API_KEY ? { authorization: `Bearer ${routeEnv.FERAL_API_KEY}` } : {}),
+        ...(routeEnv.CINDERPAW_API_KEY ? { authorization: `Bearer ${routeEnv.CINDERPAW_API_KEY}` } : {}),
       },
       body: JSON.stringify({
-        model: routeEnv.FERAL_MODEL,
+        model: routeEnv.CINDERPAW_MODEL,
         messages: [{ role: "user", content: "reply with the single word: ok" }],
         max_tokens: 8,
       }),
@@ -244,8 +244,8 @@ async function preflight(routeEnv) {
 /**
  * Give the isolated run a working brain.
  *
- * Each task gets its own FERAL_HOME so memory cannot leak between runs — but
- * FERAL_HOME is also where the provider config and BYOK keys live, so a naive
+ * Each task gets its own CINDERPAW_HOME so memory cannot leak between runs — but
+ * CINDERPAW_HOME is also where the provider config and BYOK keys live, so a naive
  * isolation produced "Inference unavailable: primary inference failed and no
  * fallback configured" and measured nothing at all. (That is what the first
  * smoke run of this script actually reported, in two minutes, which is the
@@ -269,7 +269,7 @@ async function preflight(routeEnv) {
  * had not been updated in weeks, or none at all.
  */
 function agentHome() {
-  const override = process.env.CINDERPAW_HOME || process.env.FERAL_HOME;
+  const override = process.env.CINDERPAW_HOME || process.env.CINDERPAW_HOME;
   if (override) return override;
   const modern = join(homedir(), ".cinderpaw");
   const legacy = join(homedir(), ".feral");
@@ -568,39 +568,39 @@ function runTask(task, workspace, logPath, timeoutMs, routeEnv, needsMockAds = f
       env: {
         ...process.env,
         // The whole point: no human to answer ask_user.
-        FERAL_AUTONOMOUS: "true",
+        CINDERPAW_AUTONOMOUS: "true",
         // The resolved route. Passed explicitly because the isolated home has
         // no model selection in it, and because the sidecar never reads
         // byok.json — normally the Rust host hands it exactly these four.
         // Missing them was the whole reason the first run reported
         // "Inference unavailable" against a default of qwen2.5:7b.
         ...routeEnv,
-        FERAL_WORKSPACE: workspace,
-        FERAL_ENABLE_SHELL_EXEC: "true",
+        CINDERPAW_WORKSPACE: workspace,
+        CINDERPAW_ENABLE_SHELL_EXEC: "true",
         // Endurance is the thing being measured, so the per-TURN budget has to
         // be smaller than the per-TASK budget — otherwise the task timeout
         // always fires first, no turn is ever cut short, and the continuation
         // path is never exercised at all. A third of the task window gives each
         // task room for the initial turn plus continuations inside its own
-        // deadline. Override with FERAL_BENCH_TURN_BUDGET_MS.
-        FERAL_TURN_BUDGET_MS:
-          process.env.FERAL_BENCH_TURN_BUDGET_MS ?? String(Math.round(timeoutMs / 3)),
+        // deadline. Override with CINDERPAW_BENCH_TURN_BUDGET_MS.
+        CINDERPAW_TURN_BUDGET_MS:
+          process.env.CINDERPAW_BENCH_TURN_BUDGET_MS ?? String(Math.round(timeoutMs / 3)),
         // The mock ads API is on loopback, which the SSRF guard blocks by
         // default and should. The operator (this script) declares it — exact
         // origin, nothing else on 127.0.0.1 becomes reachable.
         ...(needsMockAds
           ? {
-              FERAL_TRUSTED_LOCAL_ORIGINS: `http://127.0.0.1:${MOCK_ADS_PORT}`,
-              FERAL_HTTP_DOMAINS: "127.0.0.1",
+              CINDERPAW_TRUSTED_LOCAL_ORIGINS: `http://127.0.0.1:${MOCK_ADS_PORT}`,
+              CINDERPAW_HTTP_DOMAINS: "127.0.0.1",
               // Deliberately tight for this task: the correct answer is TWO
               // state-changing calls. A budget of 8 leaves room to retry a
               // failed request without leaving room for a runaway loop, and
               // makes "it hit the safety stop" a visible, distinct outcome.
-              FERAL_EXTERNAL_WRITE_BUDGET: "8",
+              CINDERPAW_EXTERNAL_WRITE_BUDGET: "8",
             }
           : {}),
         // Isolate state so one task cannot poison the next through memory.
-        FERAL_HOME: benchHome,
+        CINDERPAW_HOME: benchHome,
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -829,7 +829,7 @@ if (route.error) {
   stop(2, `walk-away bench cannot start — ${route.error}`);
 }
 if (!route.error) {
-  process.stdout.write(`preflight: ${route.env.FERAL_MODEL} @ ${route.env.FERAL_BASE_URL} ... `);
+  process.stdout.write(`preflight: ${route.env.CINDERPAW_MODEL} @ ${route.env.CINDERPAW_BASE_URL} ... `);
   const preflightError = await preflight(route.env);
   if (preflightError) {
     stop(2, `FAILED\n\n  ${preflightError}\n\nNothing was run.`);

@@ -6,9 +6,9 @@
  *   bun scripts/publish-public-journal.ts --dry-run  # print, send nothing
  *
  * Environment (see docs/public-journal.md):
- *   FERAL_PUBLIC_JOURNAL_URL    https endpoint of the landing-page ingest route
- *   FERAL_PUBLIC_JOURNAL_TOKEN  shared secret, must match the site's
- *   FERAL_PUBLIC_JOURNAL_PUBLISHER  "cubby" (default) or "paw"
+ *   CINDERPAW_PUBLIC_JOURNAL_URL    https endpoint of the landing-page ingest route
+ *   CINDERPAW_PUBLIC_JOURNAL_TOKEN  shared secret, must match the site's
+ *   CINDERPAW_PUBLIC_JOURNAL_PUBLISHER  "cubby" (default) or "paw"
  *
  * Run it on a timer rather than as a service if you prefer — it is stateless
  * apart from the cursor file, so a missed run only delays events.

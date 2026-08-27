@@ -84,19 +84,19 @@ describe("RealProcessSandbox — environment filtering", () => {
     const result = isWin
       ? await sandbox.run(manifest, "sess-env-1", {
           executable: "cmd",
-          args: ["/c", "echo", "%FERAL_TEST_VAR%"],
-          env: { FERAL_TEST_VAR: "visible", LD_PRELOAD: "/tmp/evil.so" },
+          args: ["/c", "echo", "%CINDERPAW_TEST_VAR%"],
+          env: { CINDERPAW_TEST_VAR: "visible", LD_PRELOAD: "/tmp/evil.so" },
         })
       : await sandbox.run(manifest, "sess-env-1", {
           executable: "sh",
-          args: ["-c", 'echo "${FERAL_TEST_VAR:-GONE}" "${LD_PRELOAD:-GONE}"'],
-          env: { FERAL_TEST_VAR: "visible", LD_PRELOAD: "/tmp/evil.so" },
+          args: ["-c", 'echo "${CINDERPAW_TEST_VAR:-GONE}" "${LD_PRELOAD:-GONE}"'],
+          env: { CINDERPAW_TEST_VAR: "visible", LD_PRELOAD: "/tmp/evil.so" },
         });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("visible");
     // LD_PRELOAD must not have leaked to the child. POSIX: "GONE" (unset)
-    // Windows: literal "%FERAL_TEST_VAR%" with no echo of LD_PRELOAD.
+    // Windows: literal "%CINDERPAW_TEST_VAR%" with no echo of LD_PRELOAD.
     if (isWin) {
       expect(result.stdout).not.toContain("evil.so");
     } else {

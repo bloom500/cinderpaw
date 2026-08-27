@@ -1975,7 +1975,7 @@ func (a *App) pollDownload() tea.Cmd {
 //   all three run concurrently so the user perceives lower latency.
 //
 //   Phase 2 (sequential): deterministic streaming round-trip. Sends
-//   "Return exactly: FERAL_OK" and verifies the response contains the
+//   "Return exactly: CINDERPAW_OK" and verifies the response contains the
 //   expected token (StreamVerified).
 //
 // Sends WizardHealthProgress for each check status change and returns a
@@ -2079,14 +2079,14 @@ func (a *App) startWizardHealthCheck() tea.Cmd {
 			}
 		}
 
-		// ── Phase 2: Streaming — "Return exactly: FERAL_OK" ──
+		// ── Phase 2: Streaming — "Return exactly: CINDERPAW_OK" ──
 		streamStart := time.Now()
 		checks[3].Status = CheckRunning
 		sendProgress()
 
 		chunks := make(chan api.Chunk, 100)
 		done := make(chan error, 1)
-		go api.StreamChat(url, token, "Return exactly: FERAL_OK", "test-it", chunks, done)
+		go api.StreamChat(url, token, "Return exactly: CINDERPAW_OK", "test-it", chunks, done)
 
 		var resp strings.Builder
 		timeout := time.After(60 * time.Second)
@@ -2150,11 +2150,11 @@ func (a *App) startWizardHealthCheck() tea.Cmd {
 			}
 		}
 
-		// Deterministic verification: does the response contain FERAL_OK?
-		verified := strings.Contains(strings.ToUpper(s), "FERAL_OK")
+		// Deterministic verification: does the response contain CINDERPAW_OK?
+		verified := strings.Contains(strings.ToUpper(s), "CINDERPAW_OK")
 		checks[3].Status = CheckPassed
 		if verified {
-			checks[3].Message = fmt.Sprintf("responds %s FERAL_OK", ui.G.OK)
+			checks[3].Message = fmt.Sprintf("responds %s CINDERPAW_OK", ui.G.OK)
 		} else {
 			checks[3].Message = "responds (unexpected)"
 		}

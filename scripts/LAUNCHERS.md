@@ -11,7 +11,7 @@ REM 2. Force CMake → Ninja (the Ninja that ships with VS2022 BuildTools lives
 REM    under Common7\IDE\, not the VC root, so it has to be prepended to PATH).
 set "PATH=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;%PATH%"
 set "CMAKE_GENERATOR=Ninja"
-REM 3. FERAL_* knobs — the actual reason this launcher exists.
+REM 3. CINDERPAW_* knobs — the actual reason this launcher exists.
 REM 4. cd to the repo, RELATIVE to this file, then cargo tauri dev.
 cd /d "%~dp0src-tauri"
 cargo tauri dev
@@ -54,21 +54,21 @@ Unlike the Vulkan launcher, this one does NOT source vcvars64 itself —
 invoke from a developer prompt or after `vcvars64` is sourced manually,
 because CUDA's `vcvarsall.bat` chains awkwardly with VS BuildTools'
 `vcvars64.bat`. Compile arch list is configurable via
-`FERAL_CUDA_ARCHS` (default `75;86;89` for Turing/Ampere/Ada — trim to
+`CINDERPAW_CUDA_ARCHS` (default `75;86;89` for Turing/Ampere/Ada — trim to
 your card to cut compile time).
 
 **Context pool auto-caps at 1 on GPU** (each pooled context = full KV
 cache in VRAM; the 2nd context on small cards OOMs with
 `create context: null reference from llama.cpp`). The default is safe
 for any GPU. Users with 24 GB+ cards can opt into 2 parallel decode
-contexts via `FERAL_MAX_LOCAL_CONTEXTS=2` (see
+contexts via `CINDERPAW_MAX_LOCAL_CONTEXTS=2` (see
 `docs/agents-memory/project_local_models_gpu.md`).
 
 **Env:**
 
 ```
 CARGO_TARGET_DIR=D:\fb
-FERAL_CUDA_ARCHS=75;86;89
+CINDERPAW_CUDA_ARCHS=75;86;89
 CMAKE_GENERATOR=Ninja
 ```
 
@@ -95,7 +95,7 @@ class of card — see `project_local_models_gpu.md`. Chat (VibeThinker-3B,
 cache in VRAM; the 2nd context on small cards OOMs with
 `create context: null reference from llama.cpp`). The default is safe
 for any GPU. Users with 24 GB+ cards can opt into 2 parallel decode
-contexts via `FERAL_MAX_LOCAL_CONTEXTS=2` (see
+contexts via `CINDERPAW_MAX_LOCAL_CONTEXTS=2` (see
 `docs/agents-memory/project_local_models_gpu.md`).
 
 **Env:**
@@ -111,7 +111,7 @@ cd /d "D:\FeralLocalAI\src-tauri"
 cargo tauri dev --features inference-vulkan
 ```
 
-The launcher does NOT preset `FERAL_EMBED_GPU_LAYERS` — let the host's
+The launcher does NOT preset `CINDERPAW_EMBED_GPU_LAYERS` — let the host's
 auto-detection decide. To override manually, set it before invoking the
 launcher and the host will leave it alone.
 
@@ -122,21 +122,21 @@ launcher and the host will leave it alone.
 The Dream Cycle dev launcher. Builds + runs the app from `D:\FeralLocalAI`
 (NOT the old `wt-29286b1b` worktree) with the RSI scheduler tuned SHORT so a
 full dream cycle is observable in ~1 minute. Local-only (cloud refused unless
-`FERAL_RSI_ALLOW_CLOUD` is also set).
+`CINDERPAW_RSI_ALLOW_CLOUD` is also set).
 
 **Env:**
 
 ```
-FERAL_RSI_PASSIVE=true
-FERAL_RSI_IDLE_MS=15000
-FERAL_RSI_COOLDOWN_MS=30000
-FERAL_RSI_POLL_MS=5000
-FERAL_RSI_EPISODE_MS=60000
-FERAL_RSI_ERROR_THRESHOLD=2
-FERAL_RSI_MAX_COST_USD=0
-FERAL_FRACTAL_BENCH_MAX_LEAVES=200
-FERAL_EMBED_GPU_LAYERS=0
-FERAL_EMBED_CHUNK=32
+CINDERPAW_RSI_PASSIVE=true
+CINDERPAW_RSI_IDLE_MS=15000
+CINDERPAW_RSI_COOLDOWN_MS=30000
+CINDERPAW_RSI_POLL_MS=5000
+CINDERPAW_RSI_EPISODE_MS=60000
+CINDERPAW_RSI_ERROR_THRESHOLD=2
+CINDERPAW_RSI_MAX_COST_USD=0
+CINDERPAW_FRACTAL_BENCH_MAX_LEAVES=200
+CINDERPAW_EMBED_GPU_LAYERS=0
+CINDERPAW_EMBED_CHUNK=32
 ```
 
 **Command:**
@@ -164,11 +164,11 @@ stays cheap. The default dev launcher.
 **Env:**
 
 ```
-FERAL_RSI_PASSIVE=true
-FERAL_RSI_MAX_COST_USD=2.00
-FERAL_FRACTAL_BENCH_MAX_LEAVES=200
-FERAL_EMBED_GPU_LAYERS=0
-FERAL_EMBED_CHUNK=32
+CINDERPAW_RSI_PASSIVE=true
+CINDERPAW_RSI_MAX_COST_USD=2.00
+CINDERPAW_FRACTAL_BENCH_MAX_LEAVES=200
+CINDERPAW_EMBED_GPU_LAYERS=0
+CINDERPAW_EMBED_CHUNK=32
 ```
 
 **Command:**
@@ -180,7 +180,7 @@ cargo tauri dev
 
 ### `run-app-ui-prod.bat`  *(deleted)*
 
-PROD profile: NO `FERAL_FRACTAL_BENCH_MAX_LEAVES` (full 2697-leaf rebuild),
+PROD profile: NO `CINDERPAW_FRACTAL_BENCH_MAX_LEAVES` (full 2697-leaf rebuild),
 RSI off, MiniMax cloud router via wrapper. Tree-builder's
 `MAX_CLUSTER_ITEMS_CHARS` cap keeps each cluster-summary request inside the
 provider's context window.
@@ -188,9 +188,9 @@ provider's context window.
 **Env:**
 
 ```
-FERAL_RSI_PASSIVE=false
-FERAL_EMBED_GPU_LAYERS=0
-FERAL_EMBED_CHUNK=32
+CINDERPAW_RSI_PASSIVE=false
+CINDERPAW_EMBED_GPU_LAYERS=0
+CINDERPAW_EMBED_CHUNK=32
 ```
 
 **Command:**
@@ -202,18 +202,18 @@ cargo tauri dev
 
 ### `run-bench-cpu.bat`  *(deleted)*
 
-CPU fractal bench — `FERAL_RUN_FRACTAL_BENCH=1` with `FERAL_FRACTAL_BENCH_COUNT=12`,
+CPU fractal bench — `CINDERPAW_RUN_FRACTAL_BENCH=1` with `CINDERPAW_FRACTAL_BENCH_COUNT=12`,
 RSI off, embed chunk 32.
 
 **Env:**
 
 ```
-FERAL_RUN_FRACTAL_BENCH=1
-FERAL_FRACTAL_BENCH_COUNT=12
-FERAL_FRACTAL_BENCH_MAX_LEAVES=200
-FERAL_EMBED_GPU_LAYERS=0
-FERAL_RSI_PASSIVE=false
-FERAL_EMBED_CHUNK=32
+CINDERPAW_RUN_FRACTAL_BENCH=1
+CINDERPAW_FRACTAL_BENCH_COUNT=12
+CINDERPAW_FRACTAL_BENCH_MAX_LEAVES=200
+CINDERPAW_EMBED_GPU_LAYERS=0
+CINDERPAW_RSI_PASSIVE=false
+CINDERPAW_EMBED_CHUNK=32
 ```
 
 **Command:**
@@ -233,9 +233,9 @@ loaded onto the GPU.
 
 ```
 CARGO_TARGET_DIR=D:\fb
-FERAL_RUN_FRACTAL_BENCH=1
-FERAL_FRACTAL_BENCH_COUNT=12
-FERAL_EMBED_GPU_LAYERS=999
+CINDERPAW_RUN_FRACTAL_BENCH=1
+CINDERPAW_FRACTAL_BENCH_COUNT=12
+CINDERPAW_EMBED_GPU_LAYERS=999
 ```
 
 **Command:**
@@ -247,17 +247,17 @@ cargo tauri dev --features inference-vulkan
 
 ### `run-bench-minimax.bat`  *(deleted)*
 
-CPU + MiniMax M3 (cloud query-gen via `FERAL_*` env), RSI off, embed chunk 32.
+CPU + MiniMax M3 (cloud query-gen via `CINDERPAW_*` env), RSI off, embed chunk 32.
 
 **Env:**
 
 ```
-FERAL_RUN_FRACTAL_BENCH=1
-FERAL_FRACTAL_BENCH_COUNT=12
-FERAL_FRACTAL_BENCH_MAX_LEAVES=200
-FERAL_EMBED_GPU_LAYERS=0
-FERAL_RSI_PASSIVE=false
-FERAL_EMBED_CHUNK=32
+CINDERPAW_RUN_FRACTAL_BENCH=1
+CINDERPAW_FRACTAL_BENCH_COUNT=12
+CINDERPAW_FRACTAL_BENCH_MAX_LEAVES=200
+CINDERPAW_EMBED_GPU_LAYERS=0
+CINDERPAW_RSI_PASSIVE=false
+CINDERPAW_EMBED_CHUNK=32
 ```
 
 **Command:**
@@ -295,13 +295,13 @@ leaves and the sweep runs against the OLD topology).
 **Env:**
 
 ```
-FERAL_TREE_BRANCH=16
-FERAL_RUN_FRACTAL_BENCH=1
-FERAL_FRACTAL_BENCH_COUNT=12
-FERAL_FRACTAL_BENCH_SEED=1
-FERAL_EMBED_GPU_LAYERS=0
-FERAL_RSI_PASSIVE=false
-FERAL_EMBED_CHUNK=32
+CINDERPAW_TREE_BRANCH=16
+CINDERPAW_RUN_FRACTAL_BENCH=1
+CINDERPAW_FRACTAL_BENCH_COUNT=12
+CINDERPAW_FRACTAL_BENCH_SEED=1
+CINDERPAW_EMBED_GPU_LAYERS=0
+CINDERPAW_RSI_PASSIVE=false
+CINDERPAW_EMBED_CHUNK=32
 ```
 
 **Pre-step:**
@@ -325,7 +325,7 @@ New report → `%USERPROFILE%\.feral\agent\fractal-bench-report.json`.
 
 1. Pick the closest existing recipe above as a template (the skeleton is
    identical for every profile).
-2. Adjust `FERAL_*` knobs only — DO NOT touch the `vcvars64` call or the Ninja
+2. Adjust `CINDERPAW_*` knobs only — DO NOT touch the `vcvars64` call or the Ninja
    PATH prepend unless you have a reason that survives "the build still
    references the right `cl.exe`/ninja.exe on a fresh shell".
 3. Run from the repo root (`D:\FeralLocalAI`), not from inside `src-tauri`.

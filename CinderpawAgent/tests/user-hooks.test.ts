@@ -18,16 +18,16 @@ import { join } from "node:path";
 import { HookRegistry } from "../src/core/hook-registry.ts";
 import { installUserHooks, userHooksPath } from "../src/core/user-hooks.ts";
 
-const saved = process.env.FERAL_HOME;
+const saved = process.env.CINDERPAW_HOME;
 afterEach(() => {
-  if (saved === undefined) delete process.env.FERAL_HOME;
-  else process.env.FERAL_HOME = saved;
+  if (saved === undefined) delete process.env.CINDERPAW_HOME;
+  else process.env.CINDERPAW_HOME = saved;
 });
 
 /** A scratch ~/.feral containing this hooks file. Returns the directory. */
 async function withHooks(contents: unknown): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), "feral-uhooks-"));
-  process.env.FERAL_HOME = home;
+  process.env.CINDERPAW_HOME = home;
   await writeFile(
     userHooksPath(),
     typeof contents === "string" ? contents : JSON.stringify(contents),
@@ -169,7 +169,7 @@ describe("user hooks", () => {
 
   test("no file at all installs nothing, silently", async () => {
     const home = await mkdtemp(join(tmpdir(), "feral-uhooks-none-"));
-    process.env.FERAL_HOME = home;
+    process.env.CINDERPAW_HOME = home;
     const logged: string[] = [];
     const registry = new HookRegistry();
     expect(installUserHooks(registry, (m) => logged.push(m))).toBe(0);

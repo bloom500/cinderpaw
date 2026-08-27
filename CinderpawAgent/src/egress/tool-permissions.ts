@@ -217,7 +217,7 @@ function modePermits(
  *     BOTH ~/.cinderpaw and ~/.feral are walled off, because the rename
  *     migration never deletes the old one.
  *   - ~/.ssh (private keys)
- *   - anything listed in FERAL_FS_DENY (path-list, same separator as PATH)
+ *   - anything listed in CINDERPAW_FS_DENY (path-list, same separator as PATH)
  * Privileged built-ins that must write inside ~/.feral (e.g. connectors_manage)
  * do NOT route through resolveAllowedPath — they own their fixed path.
  */
@@ -234,7 +234,7 @@ function deniedPaths(): { deny: string[]; exempt: string[] } {
   const deny = [
     ...homes,
     realpathBestEffort(resolve(homedir(), ".ssh")),
-    ...cfgList("FERAL_FS_DENY").map((p) => realpathBestEffort(p)),
+    ...cfgList("CINDERPAW_FS_DENY").map((p) => realpathBestEffort(p)),
   ];
   return { deny, exempt: homes.map((h) => join(h, "workspace")) };
 }
@@ -251,7 +251,7 @@ function deniedPaths(): { deny: string[]; exempt: string[] } {
  *     the root must not be followed. We resolve the REAL path of the target
  *     (following symlinks) and check containment against THAT.
  *   - the deny wall: targets inside ~/.feral (non-scratch), ~/.ssh, or
- *     FERAL_FS_DENY are refused regardless of the allowed roots.
+ *     CINDERPAW_FS_DENY are refused regardless of the allowed roots.
  */
 export function resolveAllowedPath(
   manifest: ToolManifest,

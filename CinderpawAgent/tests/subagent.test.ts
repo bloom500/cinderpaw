@@ -374,7 +374,7 @@ describe("Subagent.run", () => {
   test("summary is short (≤ 4000 chars by default) for parent context budget", async () => {
     // X4 fix: the previous default of 500 chars was too tight for
     // research delegations. Default is now 4,000 chars, configurable
-    // via FERAL_SUBAGENT_MAX_SUMMARY_CHARS. The truncation marker is
+    // via CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS. The truncation marker is
     // appended when the cap fires.
     const big = "x".repeat(8000);
     const d = makeDeps(stubRouter([big]), ["echo_a"]);
@@ -400,25 +400,25 @@ describe("Subagent.run", () => {
     d.db.close();
   });
 
-  test("summary cap is configurable via FERAL_SUBAGENT_MAX_SUMMARY_CHARS", async () => {
+  test("summary cap is configurable via CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS", async () => {
     // X4 fix: the env override is read at module load time, so this
     // test exercises the same `Number(...)` coercion path that the
     // module uses. The default-4000 test above covers the default;
     // this one documents the env wiring by setting the var before
     // importing (Bun's import cache means a sibling file must set it,
     // which is a known constraint of env-at-module-load patterns).
-    const oldVal = process.env.FERAL_SUBAGENT_MAX_SUMMARY_CHARS;
-    process.env.FERAL_SUBAGENT_MAX_SUMMARY_CHARS = "100";
+    const oldVal = process.env.CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS;
+    process.env.CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS = "100";
     const expected = 100 + "\n…(truncated)".length;
     try {
       // Read the env the same way subagent.ts does, so a future
       // refactor that breaks the env-plumbing is caught here.
-      const parsed = Number(process.env.FERAL_SUBAGENT_MAX_SUMMARY_CHARS);
+      const parsed = Number(process.env.CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS);
       expect(parsed).toBe(100);
       expect(expected).toBeGreaterThan(100);
     } finally {
-      if (oldVal === undefined) delete process.env.FERAL_SUBAGENT_MAX_SUMMARY_CHARS;
-      else process.env.FERAL_SUBAGENT_MAX_SUMMARY_CHARS = oldVal;
+      if (oldVal === undefined) delete process.env.CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS;
+      else process.env.CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS = oldVal;
     }
   });
 

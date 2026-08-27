@@ -8,7 +8,7 @@
  * actually ran with: not the commit, not the models, not the seed, not the
  * budgets, and not the machine-level environment. One documented example of
  * why that matters lives in OPUS_CHECKPOINT_20260824.md - a
- * `setx FERAL_EMBED_GPU_LAYERS 0` applied outside git that changed how
+ * `setx CINDERPAW_EMBED_GPU_LAYERS 0` applied outside git that changed how
  * embeddings behaved on the dev box and appears in no commit anywhere.
  *
  * So: INVARIANT G. A harness writes a manifest beside its results, or it
@@ -48,7 +48,7 @@ export const REDACTED_UNSET = "<redacted:unset>";
 /**
  * Name-shaped secret detection. Deliberately independent of CONFIG_SCHEMA's
  * `security` flag: that flag marks "security-relevant", which includes
- * things like FERAL_WORKSPACE whose VALUE is reproducibility information we
+ * things like CINDERPAW_WORKSPACE whose VALUE is reproducibility information we
  * want to keep. This pattern targets the narrower "this is a credential".
  */
 const SECRET_NAME = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_PAT$|AUTH)/i;

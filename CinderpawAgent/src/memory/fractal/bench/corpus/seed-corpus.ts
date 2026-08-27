@@ -11,12 +11,13 @@
  * asserts that alignment and refuses to run against a non-empty DB (which would
  * shift every id and invalidate the gold labels).
  *
- * Run:  FERAL_DB=data/bench-corpus.db bun run src/memory/fractal/bench/corpus/seed-corpus.ts
+ * Run:  CINDERPAW_DB=data/bench-corpus.db bun run src/memory/fractal/bench/corpus/seed-corpus.ts
  */
 import { openDatabase } from "../../../../db.ts";
 import { EpisodicMemory } from "../../../episodic.ts";
+import { readEnv } from "../../../../config.ts";
 
-const dbPath = process.env.FERAL_DB ?? "data/bench-corpus.db";
+const dbPath = readEnv("CINDERPAW_DB") ?? "data/bench-corpus.db";
 const here = new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 const fs = require("node:fs") as typeof import("node:fs");
 const path = require("node:path") as typeof import("node:path");

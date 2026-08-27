@@ -15,14 +15,14 @@
  *     one had the OS shells on it and `sh -c "<anything>"` runs anything — it
  *     blocked direct calls to `ffmpeg` while permitting the same work one
  *     wrapper away. See loadShellWhitelist for the full argument.
- *     `FERAL_SHELL_WHITELIST="git,node,…"` restricts to a named set when that
+ *     `CINDERPAW_SHELL_WHITELIST="git,node,…"` restricts to a named set when that
  *     is genuinely wanted.
  *   - Requested binaries are still resolved through the forced-safe PATH at
  *     call time, so PATH-hijack is closed with or without a list.
  *   - cwd is bound to allowedPaths, unless the operator chose `full_access`.
  *   - stdout/stderr are capped at the sandbox output limit (1 MB default).
  *   - timeoutMs is hard-clamped to the sandbox ceiling.
- *   - The tool is registered by DEFAULT; set FERAL_ENABLE_SHELL_EXEC=false to
+ *   - The tool is registered by DEFAULT; set CINDERPAW_ENABLE_SHELL_EXEC=false to
  *     disable it entirely (see boot.ts).
  *
  * What actually holds the line, and it is not a list of program names:
@@ -35,7 +35,7 @@
  *   3. `read_only` mode refuses every mutating intent, by classification, at
  *      call time — the mode for a surface where the speaker is not the owner.
  *   4. A best-effort denylist of catastrophic commands (rm -rf /, mkfs, disk
- *      overwrite, fork bomb; override via FERAL_SHELL_DENYLIST). A footgun
+ *      overwrite, fork bomb; override via CINDERPAW_SHELL_DENYLIST). A footgun
  *      guard, NOT a security boundary: encoding or `python -c` walks past it.
  *
  * Input shapes accepted (in priority order):
@@ -54,7 +54,7 @@ import type { Tool, ToolManifest } from "../../types.ts";
 import { resolve, join, sep } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { resolveExecutables } from "../../core/executables.ts";
-import { feralHome } from "../../config.ts";
+import { feralHome, readEnv } from "../../config.ts";
 import { classifyCommand, recordIntent } from "../../core/command-intent.ts";
 import {
   canAskAHuman,
@@ -83,11 +83,11 @@ import {
  * intent; the catastrophic denylist runs over the whole joined argv; and no
  * non-owner profile carries this tool (PUBLIC_ALLOWED_TOOLS omits it).
  *
- * `FERAL_SHELL_WHITELIST="git,node,…"` still RESTRICTS to a named set. That is
+ * `CINDERPAW_SHELL_WHITELIST="git,node,…"` still RESTRICTS to a named set. That is
  * the only reason the knob survives — going the other way needs no knob now.
  */
 function loadShellWhitelist(): string[] {
-  const env = (process.env.FERAL_SHELL_WHITELIST ?? "").trim();
+  const env = (readEnv("CINDERPAW_SHELL_WHITELIST") ?? "").trim();
   // The wildcard is passed through literally (NOT through resolveExecutables,
   // which would try to resolve "*" as a program). The ProcessSandbox still
   // resolves each requested binary through the safe PATH at call time.
@@ -110,11 +110,11 @@ const ANY_BINARY = SAFE_BINARIES.includes("*");
  * `python -c "os.system(...)"`). Kept deliberately TIGHT so it never blocks
  * ordinary work (`rm -rf node_modules` is fine; `rm -rf /` is not). The scan
  * runs on the whole joined argv, so shell payloads (`sh -c "rm -rf /"`) are
- * covered too. Override the set with FERAL_SHELL_DENYLIST (comma-separated
+ * covered too. Override the set with CINDERPAW_SHELL_DENYLIST (comma-separated
  * regexes); set it empty to disable entirely.
  */
 function loadDenylist(): RegExp[] {
-  const env = process.env.FERAL_SHELL_DENYLIST;
+  const env = readEnv("CINDERPAW_SHELL_DENYLIST");
   if (env !== undefined) {
     return env.split(",").map((s) => s.trim()).filter(Boolean).map((s) => new RegExp(s, "i"));
   }
@@ -299,7 +299,7 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
     // permissions, and they used to ride one flag: taking the binary list off
     // silently unbound cwd from the workspace as well. Which binary may run is
     // now the default; where it may run stays the operator's explicit call,
-    // named as such. `FERAL_SHELL_WHITELIST="*"` still resolves to full_access
+    // named as such. `CINDERPAW_SHELL_WHITELIST="*"` still resolves to full_access
     // (see permissionMode), so an existing YOLO install is unchanged.
     allowAnyCwd: permissionMode() === "full_access",
   };
@@ -330,7 +330,7 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       },
       timeout_ms: {
         type: "number",
-        description: "Timeout in milliseconds (default 120000 = 2min; max 300000 = 5min unless the host raised it via FERAL_SHELL_MAX_TIMEOUT_MS). Values above the max are clamped, not rejected. For a build or install, pass a larger value.",
+        description: "Timeout in milliseconds (default 120000 = 2min; max 300000 = 5min unless the host raised it via CINDERPAW_SHELL_MAX_TIMEOUT_MS). Values above the max are clamped, not rejected. For a build or install, pass a larger value.",
         required: false,
       },
       env: {
@@ -370,7 +370,7 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
           content:
             "shell_exec: refused — command matches the catastrophic-command " +
             "denylist (e.g. rm -rf /, mkfs, disk overwrite, fork bomb). " +
-            "Override with FERAL_SHELL_DENYLIST if this is intentional.",
+            "Override with CINDERPAW_SHELL_DENYLIST if this is intentional.",
           error: "destructive_command",
         };
       }
@@ -441,7 +441,7 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
           ok: false,
           content:
             "shell_exec: binary \"" + binary + "\" is not in the safe-binary whitelist. " +
-            "Set FERAL_SHELL_WHITELIST in your environment to allow it, " +
+            "Set CINDERPAW_SHELL_WHITELIST in your environment to allow it, " +
             "or use a more specific tool (git_*, code_quality, etc).",
           error: "binary_not_whitelisted",
         };

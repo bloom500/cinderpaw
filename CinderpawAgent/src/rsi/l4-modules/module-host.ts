@@ -18,7 +18,7 @@
  * runtime refuse mismatched pairs explicitly.
  *
  * Determinism aid: Math.random is replaced with a seeded PRNG
- * (FERAL_MODULE_SEED env); wall-clock stays readable (spec §4).
+ * (CINDERPAW_MODULE_SEED env); wall-clock stays readable (spec §4).
  */
 
 import { readFileSync } from "node:fs";
@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const moduleDir = process.argv[2] ?? ".";
-const seed = (Number(process.env["FERAL_MODULE_SEED"] ?? "1") >>> 0) || 1;
+const seed = (Number(process.env["CINDERPAW_MODULE_SEED"] ?? "1") >>> 0) || 1;
 
 // mulberry32 — tiny, seedable, good enough for module determinism.
 function mulberry32(a: number): () => number {

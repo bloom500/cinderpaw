@@ -197,7 +197,7 @@ the old simple self-improvement loop. It is NOT user-triggered:
 
 - The sidecar autostarts the engine on boot when a real model is
   present (placeholder/empty model → skip, to avoid learning from empty
-  responses). Kill switch: `FERAL_RSI_PASSIVE=false`.
+  responses). Kill switch: `CINDERPAW_RSI_PASSIVE=false`.
 - There is no user-typed goal. The standing objective is fixed:
   improve the agent's own general-purpose configuration against the
   frozen eval suite (quality + reliability up, cost + latency down).

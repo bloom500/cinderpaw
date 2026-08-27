@@ -113,8 +113,8 @@ describe("readAttachments", () => {
   });
 
   test("long documents are truncated in-band, so a partial read is visible", async () => {
-    const prev = process.env.FERAL_ATTACHMENT_MAX_CHARS;
-    process.env.FERAL_ATTACHMENT_MAX_CHARS = "100";
+    const prev = process.env.CINDERPAW_ATTACHMENT_MAX_CHARS;
+    process.env.CINDERPAW_ATTACHMENT_MAX_CHARS = "100";
     try {
       serve({ [`${CDN}/a/big.txt`]: "x".repeat(5_000) });
       const out = await readAttachments([
@@ -124,8 +124,8 @@ describe("readAttachments", () => {
       expect(out.text).toContain("5000 characters total");
       expect(out.text.length).toBeLessThan(600);
     } finally {
-      if (prev === undefined) delete process.env.FERAL_ATTACHMENT_MAX_CHARS;
-      else process.env.FERAL_ATTACHMENT_MAX_CHARS = prev;
+      if (prev === undefined) delete process.env.CINDERPAW_ATTACHMENT_MAX_CHARS;
+      else process.env.CINDERPAW_ATTACHMENT_MAX_CHARS = prev;
     }
   });
 

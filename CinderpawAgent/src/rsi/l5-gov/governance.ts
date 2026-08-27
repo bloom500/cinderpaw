@@ -155,7 +155,7 @@ export function defaultGenesisPolicy(now: number = Date.now()): GovernancePolicy
     ...builtinFailClosedPolicy(now),
     policyId: "gp-1",
     frozen: { l1: false, l2: false, l3: false, l4: false, l6: false },
-    // Budgets sit AT the G0 walls: pre-L5, the env knobs (FERAL_RSI_*)
+    // Budgets sit AT the G0 walls: pre-L5, the env knobs (CINDERPAW_RSI_*)
     // were the only budget authority — a genesis tighter than the walls
     // would silently override them. Tightening is a later policy's job.
     budgets: { ...G0_BUDGET_MAX },

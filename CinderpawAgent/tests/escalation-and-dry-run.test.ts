@@ -40,7 +40,7 @@ function proxy(overrides = {}) {
   return { p, audit };
 }
 
-const AUTONOMOUS = "FERAL_AUTONOMOUS";
+const AUTONOMOUS = "CINDERPAW_AUTONOMOUS";
 afterEach(() => {
   delete process.env[AUTONOMOUS];
 });

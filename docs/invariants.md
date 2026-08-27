@@ -411,7 +411,7 @@ shared data.
 
 **Per-run isolation (ACTIVE).** The benchmark half of this invariant
 landed first, because a benchmark campaign is where cross-run leakage
-turns into a wrong published number. With `FERAL_BENCHMARK_RUN_ID` set,
+turns into a wrong published number. With `CINDERPAW_BENCHMARK_RUN_ID` set,
 `feralHome()` returns `<home>/runs/<runId>`, and every profile-dir
 consumer — the DB, journal, skill sink, connector store, `paths()` —
 derives from that one function, so they all move together. Run N's

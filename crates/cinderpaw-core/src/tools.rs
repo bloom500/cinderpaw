@@ -28,7 +28,7 @@ impl ToolType {
             Self::WebSearch => "Search the web via DuckDuckGo.",
             Self::FileRead => "Read a UTF-8 file from inside the agent workspace (paths are confined to it).",
             Self::FileWrite => "Write text to a file inside the agent workspace (paths are confined to it).",
-            Self::CodeExecute => "Execute Python code (disabled unless FERAL_ENABLE_CODE_EXEC=true; runs with a minimal env).",
+            Self::CodeExecute => "Execute Python code (disabled unless CINDERPAW_ENABLE_CODE_EXEC=true; runs with a minimal env).",
             Self::HttpRequest => "HTTP GET/POST to a PUBLIC host (loopback/private/link-local addresses are blocked).",
         }
     }
@@ -260,19 +260,19 @@ fn urlencoding(s: &str) -> String {
 // (including via `..` or a symlink, because we canonicalize before comparing).
 
 /// Root directory the agent's file tools are confined to. Defaults to
-/// `~/.cinderpaw/workspace`; override with `FERAL_AGENT_WORKSPACE` /
+/// `~/.cinderpaw/workspace`; override with `CINDERPAW_AGENT_WORKSPACE` /
 /// `CINDERPAW_AGENT_WORKSPACE` (absolute path) to widen access deliberately —
 /// opt-in, never default-on.
 ///
 /// Read uncached: this bounds what the agent may touch, and it is consulted on
 /// every file operation rather than once at startup.
 fn agent_workspace_root() -> std::path::PathBuf {
-    if let Some(p) = crate::env::env_var_uncached("FERAL_AGENT_WORKSPACE") {
+    if let Some(p) = crate::env::env_var_uncached("CINDERPAW_AGENT_WORKSPACE") {
         let pb = std::path::PathBuf::from(&p);
         if pb.is_absolute() {
             return pb;
         }
-        tracing::warn!(path = %p, "FERAL_AGENT_WORKSPACE ignored: not an absolute path");
+        tracing::warn!(path = %p, "CINDERPAW_AGENT_WORKSPACE ignored: not an absolute path");
     }
     crate::paths::cinderpaw_agent_workspace_path()
 }
@@ -324,7 +324,7 @@ fn confine_path(path: &str, must_exist: bool) -> Result<std::path::PathBuf> {
     if !canonical.starts_with(&root) {
         return Err(anyhow!(
             "access denied: path escapes the agent workspace ({}). \
-             Set FERAL_AGENT_WORKSPACE to an absolute path to widen access.",
+             Set CINDERPAW_AGENT_WORKSPACE to an absolute path to widen access.",
             root.display()
         ));
     }
@@ -376,13 +376,13 @@ fn file_write(args: Value) -> Result<String> {
 }
 
 /// `code_execute` runs arbitrary host code, so it is opt-in: it stays disabled
-/// unless `FERAL_ENABLE_CODE_EXEC` is `true`/`1`. Mirrors the sidecar's
-/// `FERAL_ENABLE_SHELL_EXEC` gate — a generic code runner is never default-on.
+/// unless `CINDERPAW_ENABLE_CODE_EXEC` is `true`/`1`. Mirrors the sidecar's
+/// `CINDERPAW_ENABLE_SHELL_EXEC` gate — a generic code runner is never default-on.
 fn code_exec_enabled() -> bool {
     matches!(
         // Uncached for the same reason as the workspace root: this is a gate on
         // running arbitrary host code, checked per call, not a startup setting.
-        crate::env::env_var_uncached("FERAL_ENABLE_CODE_EXEC").as_deref(),
+        crate::env::env_var_uncached("CINDERPAW_ENABLE_CODE_EXEC").as_deref(),
         Some("true") | Some("1")
     )
 }
@@ -391,7 +391,7 @@ async fn code_execute(args: Value) -> Result<String> {
     if !code_exec_enabled() {
         return Err(anyhow!(
             "code_execute is disabled. It runs arbitrary code on the host; \
-             set FERAL_ENABLE_CODE_EXEC=true to enable it explicitly."
+             set CINDERPAW_ENABLE_CODE_EXEC=true to enable it explicitly."
         ));
     }
     let lang = args.get("lang").and_then(|v| v.as_str()).unwrap_or("python");
@@ -405,7 +405,7 @@ async fn code_execute(args: Value) -> Result<String> {
         .to_string();
 
     // Build a child with a MINIMAL environment. The parent env is never
-    // inherited wholesale — it carries FERAL_API_KEY (the local API bearer
+    // inherited wholesale — it carries CINDERPAW_API_KEY (the local API bearer
     // token) and any provider secrets, which arbitrary code must not see.
     let mut cmd = tokio::process::Command::new("python");
     cmd.args(["-c", &code]);
@@ -779,17 +779,17 @@ mod security_tests {
     #[test]
     fn code_exec_disabled_by_default() {
         // The gate reads the env each call; with the var unset it must be off.
-        std::env::remove_var("FERAL_ENABLE_CODE_EXEC");
+        std::env::remove_var("CINDERPAW_ENABLE_CODE_EXEC");
         assert!(!code_exec_enabled());
     }
 
     #[test]
     fn confines_file_paths_to_workspace() {
         // Isolated workspace via the documented override. This is the only test
-        // that touches FERAL_AGENT_WORKSPACE, so no cross-test env race.
+        // that touches CINDERPAW_AGENT_WORKSPACE, so no cross-test env race.
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().canonicalize().unwrap();
-        std::env::set_var("FERAL_AGENT_WORKSPACE", &root);
+        std::env::set_var("CINDERPAW_AGENT_WORKSPACE", &root);
 
         // A file inside the workspace resolves fine (write path: must_exist=false).
         let inside = confine_path("notes.txt", false).unwrap();
@@ -802,7 +802,7 @@ mod security_tests {
         #[cfg(unix)]
         assert!(confine_path("/etc/passwd", true).is_err());
 
-        std::env::remove_var("FERAL_AGENT_WORKSPACE");
+        std::env::remove_var("CINDERPAW_AGENT_WORKSPACE");
     }
 }
 

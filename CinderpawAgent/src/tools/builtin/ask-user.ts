@@ -241,7 +241,7 @@ export function createAskUserTool(): Tool {
       const mustEscalate = questions.some(
         (q) => (q as AskUserQuestion).forceEscalate === true,
       );
-      if (cfgBool("FERAL_AUTONOMOUS") && mustEscalate && !ctx.askUser) {
+      if (cfgBool("CINDERPAW_AUTONOMOUS") && mustEscalate && !ctx.askUser) {
         // Fail CLOSED, and say why in terms the agent can act on: this is not
         // a tool malfunction, it is the one class of decision it may not take
         // alone. Same discipline as the forge's consent gate.
@@ -256,14 +256,14 @@ export function createAskUserTool(): Tool {
           error: "escalation_required",
         };
       }
-      if (cfgBool("FERAL_AUTONOMOUS") && !mustEscalate) {
+      if (cfgBool("CINDERPAW_AUTONOMOUS") && !mustEscalate) {
         answers = questions.map((q) => {
           const rec = q.options.find((o: { label: string; recommended?: boolean }) => o.recommended);
           const picked = rec ?? q.options[0];
           return { question: q.question, selected: picked ? [picked.label] : [] };
         });
         autoResolved = true;
-        autoResolveReason = "autonomous mode (FERAL_AUTONOMOUS) — auto-selected the recommended option without waiting for the user";
+        autoResolveReason = "autonomous mode (CINDERPAW_AUTONOMOUS) — auto-selected the recommended option without waiting for the user";
         for (let i = 0; i < questions.length; i++) {
           const picked = answers[i]?.selected?.[0] ?? "(none)";
           log(`autonomous: ask_user "${(questions[i] as AskUserQuestion).question}" → "${picked}"`);
@@ -273,7 +273,7 @@ export function createAskUserTool(): Tool {
           ok: false,
           content:
             "ask_user: the current transport does not support interactive questions " +
-            "(no askUser bridge in the tool context). Set FERAL_AUTONOMOUS=true to " +
+            "(no askUser bridge in the tool context). Set CINDERPAW_AUTONOMOUS=true to " +
             "auto-answer with the recommended option instead of blocking.",
           error: "no_ask_user_bridge",
         };

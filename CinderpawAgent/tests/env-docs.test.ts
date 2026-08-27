@@ -1,7 +1,7 @@
 /**
  * env-docs.test.ts — B2 spec gate.
  *
- * Every `FERAL_*` env var referenced in source MUST be listed in the
+ * Every `CINDERPAW_*` env var referenced in source MUST be listed in the
  * canonical fence inside `docs/CONFIGURATION.md`. Otherwise the doc
  * silently rots when someone adds a new var.
  *
@@ -37,7 +37,7 @@ function findRepoRoot() {
 const REPO_ROOT = findRepoRoot();
 
 describe("docs/CONFIGURATION.md env-var coverage", () => {
-  test("no FERAL_* env var in source is missing from the doc", () => {
+  test("no CINDERPAW_* env var in source is missing from the doc", () => {
     const script = join(REPO_ROOT, "scripts", "check-env-docs.mjs");
     const out = spawnSync("node", [script, "--strict"], {
       encoding: "utf8",

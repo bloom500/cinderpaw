@@ -1,7 +1,7 @@
 /**
  * L4 — Module quarantine watchdog (B5 e2e smoke, assembled version).
  *
- * Env-gated: FERAL_E2E=1 bun test tests/l4-module-quarantine.e2e.test.ts
+ * Env-gated: CINDERPAW_E2E=1 bun test tests/l4-module-quarantine.e2e.test.ts
  *
  * Drives the seam-adapter watchdog end-to-end:
  *   1. Registry is repointed to a deliberately-failing module id.
@@ -27,7 +27,7 @@ import { ModuleRegistry } from "../src/rsi/l4-modules/module-registry.ts";
 import { SeamAdapter } from "../src/rsi/l4-modules/seam-adapter.ts";
 import type { SpawnResult } from "../src/rsi/l4-modules/module-host-client.ts";
 
-const ENABLED = process.env.FERAL_E2E === "1";
+const ENABLED = process.env.CINDERPAW_E2E === "1";
 
 const tmpDirs: string[] = [];
 afterEach(() => {
@@ -39,7 +39,7 @@ function freshDir(prefix: string): string {
   return d;
 }
 
-describe("L4 — module quarantine watchdog (FERAL_E2E)", () => {
+describe("L4 — module quarantine watchdog (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "host-spawn failure × maxStrikes → builtin + audit row + history watchdog row",
     async () => {

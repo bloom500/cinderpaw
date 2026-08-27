@@ -3,12 +3,12 @@
  * check-env-docs.mjs — B2 spec gate, extended by R3.
  *
  * The configuration doc (`docs/CONFIGURATION.md`) MUST list every
- * `FERAL_*` env var that appears in source. The spec calls for a
+ * `CINDERPAW_*` env var that appears in source. The spec calls for a
  * machine-checkable drift detector so the doc cannot silently rot
  * when someone adds a new env var.
  *
  * Strategy (unchanged from B2):
- *   1. Grep CinderpawAgent/src, src-tauri/src, crates/ for `FERAL_[A-Z_]+`
+ *   1. Grep CinderpawAgent/src, src-tauri/src, crates/ for `CINDERPAW_[A-Z_]+`
  *      (rg --no-filename; fall back to a node walker if rg is missing).
  *   2. Parse `docs/CONFIGURATION.md` and extract the canonical list
  *      from a fenced ```feral-env-vars ... ``` block near the top of the
@@ -17,7 +17,7 @@
  *   3. Diff source-set vs doc-set. Report:
  *        MISSING (in source, not in doc) — failure
  *        UNLISTED (in doc, not in source) — informational
- *      Test sentinels (`FERAL_DOES_NOT_EXIST_XYZ`, `FERAL_TEST_*`) are
+ *      Test sentinels (`CINDERPAW_DOES_NOT_EXIST_XYZ`, `CINDERPAW_TEST_*`) are
  *      hard-coded excludes; add to this list only with consensus.
  *
  * R3 additions — the TS side now has a single source of truth,
@@ -56,8 +56,8 @@ const SOURCE_ROOTS = [
   "crates",
 ];
 const TEST_SENTINELS = new Set([
-  "FERAL_DOES_NOT_EXIST_XYZ",
-  "FERAL_TEST_BAD__",
+  "CINDERPAW_DOES_NOT_EXIST_XYZ",
+  "CINDERPAW_TEST_BAD__",
 ]);
 
 function rgAvailable() {
@@ -70,10 +70,10 @@ function rgAvailable() {
 }
 
 function harvestVars() {
-  const re = /FERAL_[A-Z][A-Z0-9_]+/g;
+  const re = /CINDERPAW_[A-Z][A-Z0-9_]+/g;
   const found = new Set();
   const filterBarePrefix = (name) => {
-    if (name === "FERAL_RSI_") return false;
+    if (name === "CINDERPAW_RSI_") return false;
     if (/_$/.test(name)) return false;
     return true;
   };
@@ -91,7 +91,7 @@ function harvestVars() {
         "ts",
         "-t",
         "rs",
-        "FERAL_[A-Z][A-Z0-9_]+",
+        "CINDERPAW_[A-Z][A-Z0-9_]+",
         "CinderpawAgent/src",
         "src-tauri/src",
         "crates",

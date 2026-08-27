@@ -1,3 +1,4 @@
+import { readEnv } from "../config.ts";
 /**
  * TUI rendering primitives — Cinderpaw headless slice 5.1.
  *
@@ -29,7 +30,7 @@
 /** True when ANSI escape codes should be emitted. */
 export function shouldUseColor(): boolean {
   if (process.env.NO_COLOR !== undefined) return false;
-  if (process.env.FERAL_NO_COLOR !== undefined) return false;
+  if (readEnv("CINDERPAW_NO_COLOR") !== undefined) return false;
   // No TTY = piped/redirected. Logs should be readable as plain text.
   if (!process.stdout.isTTY) return false;
   return true;

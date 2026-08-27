@@ -45,6 +45,7 @@ import { LeafStore, type LeafRecord, type LeafSummary } from "./leaf-store.ts";
 import type { EvictionPolicy } from "./eviction.ts";
 import { appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { readEnv } from "../../config.ts";
 
 /** Options for {@link FractalMemory.benchmark}. */
 export interface FractalBenchmarkOptions {
@@ -119,7 +120,7 @@ export interface FractalMemoryDeps {
    * benchmark's query generation — so the gate measures a self-consistent
    * subset. Production leaves this unset (the live tree covers the whole
    * corpus); the Fractal Memory benchmark wires it from
-   * `FERAL_FRACTAL_BENCH_MAX_LEAVES` to get real numbers in minutes on CPU
+   * `CINDERPAW_FRACTAL_BENCH_MAX_LEAVES` to get real numbers in minutes on CPU
    * instead of hours over the full corpus. Unset/0 = no cap.
    */
   maxLeaves?: number;
@@ -692,8 +693,8 @@ export class FractalMemory {
       hit_count: r.provenance.hit_count,
       vec: r.vec,
     }));
-    const mergeThreshold = opts.mergeThreshold ?? Number(process.env.FERAL_FMS_MERGE_THRESHOLD ?? "0.92");
-    const spanThresholdMs = opts.spanThresholdMs ?? Number(process.env.FERAL_FMS_DEDUP_SPAN_MS ?? String(30 * 24 * 60 * 60 * 1000));
+    const mergeThreshold = opts.mergeThreshold ?? Number(readEnv("CINDERPAW_FMS_MERGE_THRESHOLD") ?? "0.92");
+    const spanThresholdMs = opts.spanThresholdMs ?? Number(readEnv("CINDERPAW_FMS_DEDUP_SPAN_MS") ?? String(30 * 24 * 60 * 60 * 1000));
     const groups = dedupAcrossSessions(dedupLeaves, {
       mergeThreshold,
       spanThresholdMs,
@@ -1020,7 +1021,7 @@ function cosineSafe(a: Float32Array, b: Float32Array): number {
 
 /** Read MERGE_THRESHOLD from env, falling back to 0.92. */
 function readMergeThreshold(): number {
-  const raw = process.env.FERAL_MERGE_THRESHOLD;
+  const raw = readEnv("CINDERPAW_MERGE_THRESHOLD");
   if (!raw) return 0.92;
   const v = Number(raw);
   if (!Number.isFinite(v) || v <= 0 || v > 1) return 0.92;

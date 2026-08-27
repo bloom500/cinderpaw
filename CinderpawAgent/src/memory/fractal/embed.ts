@@ -22,6 +22,7 @@
  *     directly to `embed(texts, invoker)`.
  */
 import type { RsiBridge } from "../../rsi/infra/bridge.ts";
+import { readEnv } from "../../config.ts";
 
 /**
  * Function that takes a batch of texts and returns one L2-normalized
@@ -37,10 +38,10 @@ let defaultInvoker: EmbedInvoker | null = null;
 export function setEmbedInvoker(invoker: EmbedInvoker): void {
   defaultInvoker = invoker;
   // Pathway 4 PR-C C.5: warn if Vulkan GPU layers are not explicitly disabled.
-  if (!process.env.FERAL_EMBED_GPU_LAYERS) {
+  if (!readEnv("CINDERPAW_EMBED_GPU_LAYERS")) {
     console.warn(
-      "[embed] FERAL_EMBED_GPU_LAYERS is unset — Vulkan embed may crash on this hardware. " +
-      "Set FERAL_EMBED_GPU_LAYERS=0 for CPU-only (canonical on RX 580).",
+      "[embed] CINDERPAW_EMBED_GPU_LAYERS is unset — Vulkan embed may crash on this hardware. " +
+      "Set CINDERPAW_EMBED_GPU_LAYERS=0 for CPU-only (canonical on RX 580).",
     );
   }
 }

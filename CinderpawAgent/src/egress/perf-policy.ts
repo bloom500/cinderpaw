@@ -81,7 +81,7 @@ function readEnvNumber(
  *
  * Env precedence: any positive integer in the matching env var wins;
  * otherwise the target-specific default. The cloud `stallMs` keeps
- * reading `FERAL_CLOUD_IDLE_TIMEOUT_MS` (back-compat — the existing
+ * reading `CINDERPAW_CLOUD_IDLE_TIMEOUT_MS` (back-compat — the existing
  * cloud-side timer was named that and we don't want to silently
  * re-scope it).
  */
@@ -90,17 +90,17 @@ export function resolvePerfPolicy(args: ResolveArgs): PerfPolicy {
   const base = args.isCloud ? DEFAULTS.cloud : DEFAULTS.local;
 
   const ttftDeadlineMs =
-    readEnvNumber(env, "FERAL_TTFT_DEADLINE_MS") ?? base.ttftDeadlineMs;
+    readEnvNumber(env, "CINDERPAW_TTFT_DEADLINE_MS") ?? base.ttftDeadlineMs;
   const totalDeadlineMs =
-    readEnvNumber(env, "FERAL_TOTAL_DEADLINE_MS") ?? base.totalDeadlineMs;
-  // `FERAL_STALL_MS` is the new general stall setting (works for local AND
-  // cloud). `FERAL_CLOUD_IDLE_TIMEOUT_MS` is the legacy cloud-only back-compat
+    readEnvNumber(env, "CINDERPAW_TOTAL_DEADLINE_MS") ?? base.totalDeadlineMs;
+  // `CINDERPAW_STALL_MS` is the new general stall setting (works for local AND
+  // cloud). `CINDERPAW_CLOUD_IDLE_TIMEOUT_MS` is the legacy cloud-only back-compat
   // knob — when both are set we let the newer, more general one win so an
   // operator migrating doesn't see surprising flip-flops.
   const stallMs =
-    readEnvNumber(env, "FERAL_STALL_MS") ??
+    readEnvNumber(env, "CINDERPAW_STALL_MS") ??
     (args.isCloud
-      ? readEnvNumber(env, "FERAL_CLOUD_IDLE_TIMEOUT_MS")
+      ? readEnvNumber(env, "CINDERPAW_CLOUD_IDLE_TIMEOUT_MS")
       : undefined) ??
     base.stallMs;
 

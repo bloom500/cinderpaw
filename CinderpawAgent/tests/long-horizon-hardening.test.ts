@@ -70,12 +70,12 @@ describe("buildCapabilityIndex — the agent must know what it can do", () => {
 
 describe("turnBudgetMs — bounds time, not just iterations", () => {
   const withEnv = (v: string | undefined, fn: () => void) => {
-    const prev = process.env.FERAL_TURN_BUDGET_MS;
-    if (v === undefined) delete process.env.FERAL_TURN_BUDGET_MS;
-    else process.env.FERAL_TURN_BUDGET_MS = v;
+    const prev = process.env.CINDERPAW_TURN_BUDGET_MS;
+    if (v === undefined) delete process.env.CINDERPAW_TURN_BUDGET_MS;
+    else process.env.CINDERPAW_TURN_BUDGET_MS = v;
     try { fn(); } finally {
-      if (prev === undefined) delete process.env.FERAL_TURN_BUDGET_MS;
-      else process.env.FERAL_TURN_BUDGET_MS = prev;
+      if (prev === undefined) delete process.env.CINDERPAW_TURN_BUDGET_MS;
+      else process.env.CINDERPAW_TURN_BUDGET_MS = prev;
     }
   };
 

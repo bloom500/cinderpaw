@@ -85,7 +85,7 @@ func TestPrintScreens(t *testing.T) {
 				}},
 				{Role: RoleUser, Text: "second"},
 				{Role: RoleAssistant, Tools: []ToolCall{
-					{ID: "t4", Name: "grep", Main: "FERAL_EMBED_GPU_LAYERS", Status: ToolDone, StartedAt: time.Now().Add(-3 * time.Second), EndedAt: time.Now().Add(-2900 * time.Millisecond), Preview: "src-tauri/src/inference.rs:42:env_or(\"FERAL_EMBED_GPU_LAYERS\", \"0\")"},
+					{ID: "t4", Name: "grep", Main: "CINDERPAW_EMBED_GPU_LAYERS", Status: ToolDone, StartedAt: time.Now().Add(-3 * time.Second), EndedAt: time.Now().Add(-2900 * time.Millisecond), Preview: "src-tauri/src/inference.rs:42:env_or(\"CINDERPAW_EMBED_GPU_LAYERS\", \"0\")"},
 				}},
 			}
 			a.openToolViewer()

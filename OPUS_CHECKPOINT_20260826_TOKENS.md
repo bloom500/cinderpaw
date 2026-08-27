@@ -47,7 +47,7 @@ This had been an open unknown twice in the session ("the mechanism is there,
 I cannot tell you it saves anything"). It does. So the 70% prefix is partly
 amortised, and the thing to do about caching is not to improve it but to
 PROTECT it: provider fallback and mid-session model switches break it.
-`FERAL_BRAIN` (per-turn routing) is `false` by default — if it is ever turned
+`CINDERPAW_BRAIN` (per-turn routing) is `false` by default — if it is ever turned
 on, measure the cache first.
 
 ## Notebook: preliminary, unfavourable

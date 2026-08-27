@@ -369,7 +369,7 @@ fn pairing_field_def_roundtrip() {
 fn oauth_client_id_source_roundtrip() {
     let s = OAuthClientIDSource {
         kind: "env".into(),
-        ref_name: "FERAL_DISCORD_CLIENT_ID".into(),
+        ref_name: "CINDERPAW_DISCORD_CLIENT_ID".into(),
     };
     let json = serde_json::to_string(&s).expect("serialise");
     // The Rust field is `ref_name` (Rust identifier rules forbid a

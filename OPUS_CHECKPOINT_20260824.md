@@ -118,7 +118,7 @@ code, nothing wired into index.ts / rsi/repl.ts / core / brain / rsi.
   text palette too.
 
 ## Machine-level change (outside git — Opus should know)
-- `setx FERAL_EMBED_GPU_LAYERS 0` (user env). Root cause found via the new
+- `setx CINDERPAW_EMBED_GPU_LAYERS 0` (user env). Root cause found via the new
   log file: Vulkan embed crashed the ENTIRE sidecar at first embed attempt on
   this RX 580 box → that is why FMS fact capture died Aug 20 while
   conversations continued (graph mtime moved Aug 22, leaves stuck Aug 20 —

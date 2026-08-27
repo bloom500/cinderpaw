@@ -120,7 +120,7 @@ describe("path permission enforcement", () => {
   });
 });
 
-describe("call-time deny wall (~/.feral, ~/.ssh, FERAL_FS_DENY)", () => {
+describe("call-time deny wall (~/.feral, ~/.ssh, CINDERPAW_FS_DENY)", () => {
   // Broad root: the user's whole home dir — the lax-sandbox default.
   const homeManifest: ToolManifest = {
     name: "read_file",
@@ -129,13 +129,13 @@ describe("call-time deny wall (~/.feral, ~/.ssh, FERAL_FS_DENY)", () => {
     networkAccess: false,
     allowedPaths: [homedir()],
   };
-  const FERAL_HOME = join(homedir(), APP_HOME_DIR_NAME);
+  const CINDERPAW_HOME = join(homedir(), APP_HOME_DIR_NAME);
 
   test("targets inside ~/.feral are denied even under an allowed root", () => {
     for (const p of [
-      join(FERAL_HOME, "connectors.json"),
-      join(FERAL_HOME, "rsi", "repo", "x.ts"),
-      FERAL_HOME,
+      join(CINDERPAW_HOME, "connectors.json"),
+      join(CINDERPAW_HOME, "rsi", "repo", "x.ts"),
+      CINDERPAW_HOME,
     ]) {
       expect(() => resolveAllowedPath(homeManifest, "fs:read", p)).toThrow(
         PermissionDeniedError,
@@ -147,7 +147,7 @@ describe("call-time deny wall (~/.feral, ~/.ssh, FERAL_FS_DENY)", () => {
     const p = resolveAllowedPath(
       homeManifest,
       "fs:write",
-      join(FERAL_HOME, "workspace", "notes.txt"),
+      join(CINDERPAW_HOME, "workspace", "notes.txt"),
     );
     expect(p.endsWith("notes.txt")).toBe(true);
   });
@@ -158,15 +158,15 @@ describe("call-time deny wall (~/.feral, ~/.ssh, FERAL_FS_DENY)", () => {
     ).toThrow(PermissionDeniedError);
   });
 
-  test("FERAL_FS_DENY extends the wall", () => {
+  test("CINDERPAW_FS_DENY extends the wall", () => {
     const extra = join(homedir(), "very-secret-dir");
-    process.env.FERAL_FS_DENY = extra;
+    process.env.CINDERPAW_FS_DENY = extra;
     try {
       expect(() =>
         resolveAllowedPath(homeManifest, "fs:read", join(extra, "f.txt")),
       ).toThrow(PermissionDeniedError);
     } finally {
-      delete process.env.FERAL_FS_DENY;
+      delete process.env.CINDERPAW_FS_DENY;
     }
   });
 

@@ -193,7 +193,7 @@ export interface ToolContext {
    * work happens in the Rust host, behind a security gate; the sidecar reaches
    * it by emitting a `desktop_control_request` event and awaiting the matching
    * `desktop_control_response` (same request/response shape as `askUser`).
-   * Present only when desktop control is enabled (`FERAL_ENABLE_DESKTOP_CONTROL`)
+   * Present only when desktop control is enabled (`CINDERPAW_ENABLE_DESKTOP_CONTROL`)
    * and the transport is the Tauri host. Undefined otherwise — the
    * `control_app` tool refuses to run without it.
    */
@@ -1153,7 +1153,7 @@ export interface InboundMessage {
     // Faza 2 Slice 5 — the code-patch approval gate. `list` asks for the
     // pending queue (sidecar replies with one `code_patches` event);
     // `resolve` approves/rejects patch `id` (payload `patchAction`), and an
-    // approval also live-applies when FERAL_CODE_RSI_REPO is set. The
+    // approval also live-applies when CINDERPAW_CODE_RSI_REPO is set. The
     // sidecar replies with `code_patch_resolved` + a refreshed `code_patches`.
     | "rsi_code_patches_list" | "rsi_code_patch_resolve"
     // Faza 4 (L2 LoRA) — the personal-adaptation gate. `train` runs one
@@ -1376,7 +1376,7 @@ export interface AskUserQuestion {
   /** Allow multiple selections. */
   multiSelect: boolean;
   /**
-   * "A human must answer this one." Walk-away mode (FERAL_AUTONOMOUS) answers
+   * "A human must answer this one." Walk-away mode (CINDERPAW_AUTONOMOUS) answers
    * questions by itself so a long task is not blocked by an absent user; a
    * question marked this way is exempt and waits for a real person, or fails
    * closed when there is nobody to wait for.
@@ -1719,7 +1719,7 @@ export type OutboundEvent =
   // values: pending | approved | rejected | applied | apply_failed |
   // reverted — an approval auto-applies when the host repo is configured,
   // so the ack usually reports "applied" or "apply_failed", and "approved"
-  // only when live apply is unavailable (no FERAL_CODE_RSI_REPO).
+  // only when live apply is unavailable (no CINDERPAW_CODE_RSI_REPO).
   | {
       type: "code_patches";
       patches: Array<{

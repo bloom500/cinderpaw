@@ -209,16 +209,16 @@ describe("control_app tool", () => {
 
   it("allows prompt-less execution only with the explicit env opt-out", async () => {
     const tool = createControlAppTool();
-    const prev = process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK;
-    process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK = "true";
+    const prev = process.env.CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK;
+    process.env.CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK = "true";
     try {
       const { ctx, requests } = makeCtx({ onRequest: () => ({ ok: true }) });
       const res = await tool.execute({ action: "click", element_id: "1:2.3" }, ctx);
       expect(res.ok).toBe(true);
       expect(requests).toHaveLength(1);
     } finally {
-      if (prev === undefined) delete process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK;
-      else process.env.FERAL_DESKTOP_CONTROL_NO_PROMPT_OK = prev;
+      if (prev === undefined) delete process.env.CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK;
+      else process.env.CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK = prev;
     }
   });
 
@@ -282,8 +282,8 @@ describe("isRecoverable", () => {
   it("treats deterministic refusals / config / arg errors as unrecoverable", () => {
     for (const msg of [
       'desktop control: "cmd.exe" is on the security denylist',
-      "desktop control: \"foo\" is not in FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
-      "desktop control is disabled. Set FERAL_ENABLE_DESKTOP_CONTROL=true",
+      "desktop control: \"foo\" is not in CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS",
+      "desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true",
       'control_app: action "get_tree" requires a numeric "pid".',
       "desktop control: element does not support setting a value",
       "control_app: the user declined the \"click\" action.",

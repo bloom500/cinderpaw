@@ -43,7 +43,7 @@ import { makeInvokeAgent, type InvokeRouter } from "./infra/invoke-agent.ts";
 import { builtinPlanSteps, itemsToHits, liveSeamAdapter, repliesToSteps } from "./l4-modules/seam-runtime.ts";
 import { spawnModuleHost } from "./l4-modules/module-host-client.ts";
 import { selectCrossoverPairs } from "./l1-config/crossover-selection.ts";
-import { cfgPath } from "../config.ts";
+import { cfgPath, readEnv } from "../config.ts";
 import { PopulationManager, type GenomeSpec } from "./l1-config/population-manager.ts";
 import { EventBus } from "./infra/event-bus.ts";
 import { TasteMiner, makeTasteDeps } from "./l1-config/taste-miner.ts";
@@ -237,7 +237,7 @@ export class RsiSidecar {
    *  models like Qwen3.5 will happily burn the whole window "reasoning").
    *  ponytail: flat env knob; per-spec budgets if Tier 1/2 ever need more. */
   private evalTokenBudget(): number {
-    const n = Number(process.env.FERAL_RSI_EVAL_TOKEN_BUDGET);
+    const n = Number(readEnv("CINDERPAW_RSI_EVAL_TOKEN_BUDGET"));
     return n > 0 ? n : 1024;
   }
 
@@ -355,7 +355,7 @@ export class RsiSidecar {
       getSpecs,
       runSuite,
       genomeId: genome.id,
-      modelId: process.env.FERAL_BYOK_PROVIDER ?? "live-router",
+      modelId: readEnv("CINDERPAW_BYOK_PROVIDER") ?? "live-router",
     };
   }
 
@@ -544,13 +544,13 @@ export class RsiSidecar {
     };
 
     // ── Compose ───────────────────────────────────────────────────────
-    const baseUrl = cfgPath("FERAL_BASE_URL") ?? "";
+    const baseUrl = cfgPath("CINDERPAW_BASE_URL") ?? "";
     let isLoopback = false;
     try {
       const host = new URL(baseUrl).hostname;
       isLoopback = host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
     } catch { isLoopback = false; }
-    const pricePer1kUsd = blendedPricePer1kUsd(process.env.FERAL_MODEL ?? "", isLoopback);
+    const pricePer1kUsd = blendedPricePer1kUsd(readEnv("CINDERPAW_MODEL") ?? "", isLoopback);
 
     // One cycle id per engine run — stamped on every per-candidate Journal
     // row this episode's Contract FSM writes. Same `c-<ISO>` shape as the
@@ -974,7 +974,7 @@ function boxMullerRandom(): number {
  *  (Tier 0 alone scores ~50 with random completions) and short enough
  *  to surface before the user gives up on the engine. */
 function readStagnationThreshold(): number {
-  const raw = process.env.FERAL_RSI_STAGNATION_THRESHOLD;
+  const raw = readEnv("CINDERPAW_RSI_STAGNATION_THRESHOLD");
   if (!raw) return 10;
   const v = Number(raw);
   if (!Number.isFinite(v) || v <= 0) return 10;
@@ -998,7 +998,7 @@ export function mirrorEngineEvents(bus: EventBus, send: EmitFn): () => void {
   // ── Stagnation tracking (Pathway 4 PR-A Task A.2) ────────────────────
   // The mirror emits a single `stagnation` event the first time the
   // engine has run N iterations without producing a champion (where
-  // N = FERAL_RSI_STAGNATION_THRESHOLD, default 10). Subsequent
+  // N = CINDERPAW_RSI_STAGNATION_THRESHOLD, default 10). Subsequent
   // iterations in the same period do NOT re-emit — the agent sees
   // one clear signal per stagnation period, not spam. A successful
   // ratchet resets the counter so a fresh stagnation can fire later.

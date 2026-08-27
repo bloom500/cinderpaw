@@ -12,7 +12,7 @@
  *      sane for a local Ollama-class box where the dream runs on the same
  *      machine the user is typing on: a 3-minute idle gate, a 10-minute
  *      cooldown between episodes, three errors-in-window as the wake-up
- *      trigger, and a 30s poll. Operators tighten these via FERAL_RSI_*
+ *      trigger, and a 30s poll. Operators tighten these via CINDERPAW_RSI_*
  *      knobs; they cannot accidentally uncap the scheduler by leaving the
  *      env empty — invalid / negative / non-numeric values fall back to
  *      the default. Same `positive` / `nonNegative` discipline as
@@ -21,8 +21,8 @@
  *   2. `dreamCloudGate(env, input)` — the cloud anti-burn safety net. Auto-
  *      dreaming is allowed by default ONLY when the active model endpoint
  *      is loopback (local). On a cloud (non-loopback) endpoint it is
- *      refused unless the operator explicitly sets FERAL_RSI_ALLOW_CLOUD.
- *      This sits ON TOP OF the existing FERAL_RSI_PASSIVE kill-switch and
+ *      refused unless the operator explicitly sets CINDERPAW_RSI_ALLOW_CLOUD.
+ *      This sits ON TOP OF the existing CINDERPAW_RSI_PASSIVE kill-switch and
  *      real-model check, which the caller (boot wiring) applies separately
  *      — we do NOT re-implement those here.
  *
@@ -57,9 +57,9 @@ export interface DreamConfig {
    *  always wins" semantics flip this on. */
   stopOnActivity: boolean;
   /** Periodic "schedule" wake interval (ms) — the BRSI §2.8 schedule trigger.
-   *  Undefined (the default: FERAL_RSI_SCHEDULE_MS unset/invalid) disables it,
+   *  Undefined (the default: CINDERPAW_RSI_SCHEDULE_MS unset/invalid) disables it,
    *  so idle/error stay the only automatic triggers and Faza-1 behaviour is
-   *  unchanged. Set e.g. FERAL_RSI_SCHEDULE_MS=604800000 for a weekly wake. */
+   *  unchanged. Set e.g. CINDERPAW_RSI_SCHEDULE_MS=604800000 for a weekly wake. */
   scheduleIntervalMs?: number;
 }
 
@@ -105,7 +105,7 @@ const finite = (v: string | undefined, dflt: number): number => {
   return Number.isFinite(n) ? n : dflt;
 };
 
-/** Boolean parser for FERAL_RSI_* flags. Strict on purpose: only the
+/** Boolean parser for CINDERPAW_RSI_* flags. Strict on purpose: only the
  *  literal strings "true" and "1" (case-insensitive, whitespace-trimmed)
  *  are truthy. Anything else — "yes", "on", "enabled", "True " — is
  *  false. Operators who want the gate open have to write it explicitly;
@@ -117,40 +117,40 @@ const truthy = (v: string | undefined): boolean => {
 };
 
 /** Build the scheduler config from the sidecar's environment. Each
- *  numeric field reads its own FERAL_RSI_* knob and falls back to the
+ *  numeric field reads its own CINDERPAW_RSI_* knob and falls back to the
  *  default on anything that doesn't parse as a finite positive number
  *  (the `positive` parser refuses 0, negatives, NaN, Infinity, "" and
  *  non-numeric strings). `errorThreshold` uses the `finite` helper
  *  instead so 0 and negatives pass through to the `Math.max(1, ...)`
- *  clamp — a typo like FERAL_RSI_ERROR_THRESHOLD=0 must NOT re-introduce
+ *  clamp — a typo like CINDERPAW_RSI_ERROR_THRESHOLD=0 must NOT re-introduce
  *  the "dream on every error" thrashing this scheduler replaces. */
 export function resolveDreamConfig(
   env: Record<string, string | undefined>,
 ): DreamConfig {
   return {
-    idleThresholdMs: positive(env.FERAL_RSI_IDLE_MS, 3 * 60_000),
-    cooldownMs: positive(env.FERAL_RSI_COOLDOWN_MS, 10 * 60_000),
+    idleThresholdMs: positive(env.CINDERPAW_RSI_IDLE_MS, 3 * 60_000),
+    cooldownMs: positive(env.CINDERPAW_RSI_COOLDOWN_MS, 10 * 60_000),
     errorThreshold: Math.max(
       1,
-      Math.floor(finite(env.FERAL_RSI_ERROR_THRESHOLD, 3)),
+      Math.floor(finite(env.CINDERPAW_RSI_ERROR_THRESHOLD, 3)),
     ),
-    errorWindowMs: positive(env.FERAL_RSI_ERROR_WINDOW_MS, 15 * 60_000),
-    pollMs: positive(env.FERAL_RSI_POLL_MS, 30_000),
-    stopOnActivity: truthy(env.FERAL_RSI_STOP_ON_ACTIVITY),
+    errorWindowMs: positive(env.CINDERPAW_RSI_ERROR_WINDOW_MS, 15 * 60_000),
+    pollMs: positive(env.CINDERPAW_RSI_POLL_MS, 30_000),
+    stopOnActivity: truthy(env.CINDERPAW_RSI_STOP_ON_ACTIVITY),
     // 0/unset/invalid → undefined → schedule trigger disabled (Faza-1 default).
-    scheduleIntervalMs: positive(env.FERAL_RSI_SCHEDULE_MS, 0) || undefined,
+    scheduleIntervalMs: positive(env.CINDERPAW_RSI_SCHEDULE_MS, 0) || undefined,
   };
 }
 
 /** The cloud anti-burn gate. Sits ON TOP OF the existing
- *  FERAL_RSI_PASSIVE kill-switch + real-model check, which the CALLER
+ *  CINDERPAW_RSI_PASSIVE kill-switch + real-model check, which the CALLER
  *  applies separately — we do NOT re-implement those here.
  *
  *  Rule:
  *    - Loopback (local) endpoint → dream allowed. Reasoning: the dream
  *      runs on the operator's own machine, costs nothing, and the worst
  *      case is a slow CPU during a user-imagined pause.
- *    - Cloud endpoint, FERAL_RSI_ALLOW_CLOUD explicitly truthy → dream
+ *    - Cloud endpoint, CINDERPAW_RSI_ALLOW_CLOUD explicitly truthy → dream
  *      allowed. The operator opted in by name; the message tells them
  *      exactly which knob did it.
  *    - Cloud endpoint, no opt-in → dream refused. The reason string
@@ -170,15 +170,15 @@ export function dreamCloudGate(
       reason: "local model (loopback) — dream allowed",
     };
   }
-  if (truthy(env.FERAL_RSI_ALLOW_CLOUD)) {
+  if (truthy(env.CINDERPAW_RSI_ALLOW_CLOUD)) {
     return {
       enabled: true,
-      reason: "cloud model — explicitly opted in via FERAL_RSI_ALLOW_CLOUD",
+      reason: "cloud model — explicitly opted in via CINDERPAW_RSI_ALLOW_CLOUD",
     };
   }
   return {
     enabled: false,
     reason:
-      "cloud model — auto-dream disabled (set FERAL_RSI_ALLOW_CLOUD=true to allow)",
+      "cloud model — auto-dream disabled (set CINDERPAW_RSI_ALLOW_CLOUD=true to allow)",
   };
 }

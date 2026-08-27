@@ -77,13 +77,13 @@ when Ollama is not reachable:
 {"type":"ping"}
 {"type":"message","id":"m1","content":"hello","sessionId":"test"}
 {"type":"shutdown"}
-'@ | FERAL_DB=":memory:" bun run src/index.ts
+'@ | CINDERPAW_DB=":memory:" bun run src/index.ts
 ```
 
 **Bash / Git Bash:**
 ```bash
 printf '{"type":"ping"}\n{"type":"message","id":"m1","content":"hello","sessionId":"test"}\n{"type":"shutdown"}\n' \
-  | FERAL_DB=":memory:" bun run src/index.ts
+  | CINDERPAW_DB=":memory:" bun run src/index.ts
 ```
 
 Expected output (no Ollama running):
@@ -143,29 +143,29 @@ Set via environment variables (or a `.env` file — Bun reads it automatically):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `FERAL_DB` | `data/feral.db` | SQLite path (`:memory:` for ephemeral) |
-| `FERAL_WORKSPACE` | cwd | root directory `read_file` may access |
-| `FERAL_MODEL` | `qwen2.5:7b` | primary model name |
-| `FERAL_BASE_URL` | `http://localhost:11434` | primary inference endpoint |
-| `FERAL_PROVIDER` | `ollama` | `ollama` or any OpenAI-compatible API |
-| `FERAL_FALLBACK_MODEL` | — | enables a fallback target when set |
-| `FERAL_FALLBACK_BASE_URL` | `http://localhost:11434` | fallback endpoint |
-| `FERAL_TRUSTED_BASE_URLS` | configured targets | comma-separated inference allowlist |
-| `FERAL_BUDGET_CONVERSATION` | `50000` | per-conversation token cap |
-| `FERAL_BUDGET_DAY` | `500000` | per-day token cap |
-| `FERAL_BUDGET_POLICY` | `compress_and_continue` | or `stop` |
-| `FERAL_FETCH_DOMAINS` | — | comma-separated domain allowlist for `fetch_url` (e.g. `example.com,api.github.com`) |
-| `FERAL_INNER_THOUGHTS_ENABLED` | `false` | `true` to enable proactive loop (V2) |
-| `FERAL_THOUGHTS_INTERVAL_MS` | `300000` | inner-thoughts tick interval |
+| `CINDERPAW_DB` | `data/feral.db` | SQLite path (`:memory:` for ephemeral) |
+| `CINDERPAW_WORKSPACE` | cwd | root directory `read_file` may access |
+| `CINDERPAW_MODEL` | `qwen2.5:7b` | primary model name |
+| `CINDERPAW_BASE_URL` | `http://localhost:11434` | primary inference endpoint |
+| `CINDERPAW_PROVIDER` | `ollama` | `ollama` or any OpenAI-compatible API |
+| `CINDERPAW_FALLBACK_MODEL` | — | enables a fallback target when set |
+| `CINDERPAW_FALLBACK_BASE_URL` | `http://localhost:11434` | fallback endpoint |
+| `CINDERPAW_TRUSTED_BASE_URLS` | configured targets | comma-separated inference allowlist |
+| `CINDERPAW_BUDGET_CONVERSATION` | `50000` | per-conversation token cap |
+| `CINDERPAW_BUDGET_DAY` | `500000` | per-day token cap |
+| `CINDERPAW_BUDGET_POLICY` | `compress_and_continue` | or `stop` |
+| `CINDERPAW_FETCH_DOMAINS` | — | comma-separated domain allowlist for `fetch_url` (e.g. `example.com,api.github.com`) |
+| `CINDERPAW_INNER_THOUGHTS_ENABLED` | `false` | `true` to enable proactive loop (V2) |
+| `CINDERPAW_THOUGHTS_INTERVAL_MS` | `300000` | inner-thoughts tick interval |
 
 Example `.env` for development:
 
 ```env
-FERAL_DB=data/dev.db
-FERAL_MODEL=qwen2.5:7b
-FERAL_BASE_URL=http://localhost:11434
-FERAL_WORKSPACE=/Users/you/projects
-FERAL_BUDGET_CONVERSATION=100000
+CINDERPAW_DB=data/dev.db
+CINDERPAW_MODEL=qwen2.5:7b
+CINDERPAW_BASE_URL=http://localhost:11434
+CINDERPAW_WORKSPACE=/Users/you/projects
+CINDERPAW_BUDGET_CONVERSATION=100000
 ```
 
 ---
@@ -261,7 +261,7 @@ traffic only — all diagnostics go to stderr.
 
 - [ ] **Inner thoughts** — enable the proactive loop; add mood decay +
       `shouldBeProactive()` gate (code exists, flagged off with
-      `FERAL_INNER_THOUGHTS_ENABLED=true`)
+      `CINDERPAW_INNER_THOUGHTS_ENABLED=true`)
 - [ ] **Vector search** — `sqlite-vec` for semantic similarity in recall
       (schema-compatible slot already in `semantic.ts`)
 - [ ] **Additional transports** — Telegram, WhatsApp (stubs exist in

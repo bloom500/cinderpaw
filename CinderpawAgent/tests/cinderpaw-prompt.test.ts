@@ -2,7 +2,7 @@
  * Tests for the CinderpawAgent base system prompt and continuation helpers.
  *
  * Covers:
- *   1. `FERAL_AGENT_BASE_PROMPT` — universal prompt content + key phrases
+ *   1. `CINDERPAW_AGENT_BASE_PROMPT` — universal prompt content + key phrases
  *   2. `buildMidConversationReminder` — the longer SUMMARY/GOAL/LAST-RESULT payload
  *   3. Integration with `buildSystemPrompt` — base is FIRST, never replaced by SOUL
  *   4. Integration with `AgentLoop` — the tool result lives in the transcript
@@ -17,7 +17,7 @@ import { join } from "node:path";
 
 import { AgentLoop, buildSystemPrompt } from "../src/core/agent-loop.ts";
 import {
-  FERAL_AGENT_BASE_PROMPT,
+  CINDERPAW_AGENT_BASE_PROMPT,
   buildMidConversationReminder,
 } from "../src/core/cinderpaw-prompt.ts";
 import { AuditLog } from "../src/egress/audit-log.ts";
@@ -63,34 +63,34 @@ const sampleUser: UserConfig = {
 };
 
 // ---------------------------------------------------------------------------
-// 1. FERAL_AGENT_BASE_PROMPT — content tests
+// 1. CINDERPAW_AGENT_BASE_PROMPT — content tests
 // ---------------------------------------------------------------------------
 
-describe("FERAL_AGENT_BASE_PROMPT", () => {
+describe("CINDERPAW_AGENT_BASE_PROMPT", () => {
   it("identifies the agent as CinderpawAgent", () => {
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("You are CinderpawAgent");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("You are CinderpawAgent");
   });
 
   it("encodes the three core principles", () => {
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("Task Completion First");
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("Reliability like a Toyota");
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("Think step-by-step, act decisively");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("Task Completion First");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("Reliability like a Toyota");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("Think step-by-step, act decisively");
   });
 
   it("includes the chain-of-thought / reasoning & planning section", () => {
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("Reasoning & Planning");
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("Anticipate possible failures and prepare fallbacks");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("Reasoning & Planning");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("Anticipate possible failures and prepare fallbacks");
   });
 
   it("includes the tool-usage rules", () => {
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("Tool Usage Rules (CRITICAL)");
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("ALWAYS output tool calls in the precise format");
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("Never hallucinate tool results");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("Tool Usage Rules (CRITICAL)");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("ALWAYS output tool calls in the precise format");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("Never hallucinate tool results");
   });
 
   it("includes the self-correction / persistence section", () => {
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("Self-Correction & Persistence");
-    expect(FERAL_AGENT_BASE_PROMPT).toContain("If you get stuck");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("Self-Correction & Persistence");
+    expect(CINDERPAW_AGENT_BASE_PROMPT).toContain("If you get stuck");
   });
 });
 

@@ -24,8 +24,8 @@
  * quietly finished on a different one is a number that cannot be published. So
  * this talks to a single target and fails loudly instead.
  *
- * BENCHMARK MODE. With FERAL_BENCHMARK_RUN_ID set, three.arcprize.org and the
- * model host must both be in FERAL_BENCHMARK_ALLOW_HOSTS or every request fails
+ * BENCHMARK MODE. With CINDERPAW_BENCHMARK_RUN_ID set, three.arcprize.org and the
+ * model host must both be in CINDERPAW_BENCHMARK_ALLOW_HOSTS or every request fails
  * closed — correct behaviour that looks exactly like a broken client.
  */
 
@@ -118,7 +118,7 @@ const version = JSON.parse(
   await import("node:fs/promises").then((fs) => fs.readFile(path.join(REPO_ROOT, "package.json"), "utf8")),
 ).version;
 const manifest = createRunManifest({
-  runId: process.env.FERAL_BENCHMARK_RUN_ID ?? `arc-${Date.now()}`,
+  runId: process.env.CINDERPAW_BENCHMARK_RUN_ID ?? `arc-${Date.now()}`,
   harness: { name: "cinderpaw-arc-agi-3", version },
   repoRoot: REPO_ROOT,
   config: { benchmark: "arc-agi-3", game: args.game, retries: args.retries, dryRun: !!args.dryRun },

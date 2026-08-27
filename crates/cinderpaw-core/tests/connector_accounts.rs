@@ -112,12 +112,12 @@ fn an_error_keeps_its_words_and_outranks_the_clock() {
     }
 }
 
-/// One test owns the disk, because `FERAL_HOME` is process-global and cargo
+/// One test owns the disk, because `CINDERPAW_HOME` is process-global and cargo
 /// runs tests in parallel threads.
 #[test]
 fn a_machine_that_never_paired_anything_answers_disconnected_then_roundtrips() {
     let tmp = tempfile::tempdir().unwrap();
-    std::env::set_var("FERAL_HOME", tmp.path());
+    std::env::set_var("CINDERPAW_HOME", tmp.path());
 
     // First run: no file at all.
     assert!(load_accounts().is_empty());
@@ -146,5 +146,5 @@ fn a_machine_that_never_paired_anything_answers_disconnected_then_roundtrips() {
     std::fs::write(tmp.path().join("connector-accounts.json"), "{ not json").unwrap();
     assert!(load_accounts().is_empty());
 
-    std::env::remove_var("FERAL_HOME");
+    std::env::remove_var("CINDERPAW_HOME");
 }

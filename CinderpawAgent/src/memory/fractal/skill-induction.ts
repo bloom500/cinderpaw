@@ -114,7 +114,7 @@ export class JsonlSkillSink implements SkillSink {
  * Per-run persistence location (fractal-leaves convention, run-scoped).
  *
  * Derived from `feralHome()`, not from `homedir()` directly. Reading the home
- * dir here meant an isolated profile (FERAL_HOME) still wrote its induced
+ * dir here meant an isolated profile (CINDERPAW_HOME) still wrote its induced
  * skills into the real profile's directory — the one place in the sidecar
  * where agent state escaped its own home, and the one kind of state whose
  * whole purpose is to not leak between runs.

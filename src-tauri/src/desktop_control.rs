@@ -16,7 +16,7 @@
 //! see [`security`]:
 //!
 //!   * **Opt-in.** The agent-facing `control_app` tool is only registered when
-//!     `FERAL_ENABLE_DESKTOP_CONTROL=true` (mirrors `shell_exec`). The Tauri
+//!     `CINDERPAW_ENABLE_DESKTOP_CONTROL=true` (mirrors `shell_exec`). The Tauri
 //!     commands themselves additionally refuse to run unless the same flag is
 //!     set, so the React UI can't reach them by accident either.
 //!   * **Hard denylist.** Security-sensitive targets can NEVER be driven,
@@ -24,7 +24,7 @@
 //!     confused-deputy), the Windows UAC/consent + credential UIs, the OS
 //!     keychain, and well-known password managers. Reads and writes against
 //!     these are blocked.
-//!   * **Optional allowlist.** When `FERAL_DESKTOP_CONTROL_ALLOWED_APPS` is
+//!   * **Optional allowlist.** When `CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS` is
 //!     set (comma-separated process names), ONLY those apps may be driven.
 //!     Unset → every app except the denylist.
 //!   * **Secure-field redaction.** Password / secure-text fields are never
@@ -191,10 +191,10 @@ pub mod security {
     ];
 
     /// Env var holding the optional comma-separated allowlist of process names.
-    pub const ALLOWLIST_ENV: &str = "FERAL_DESKTOP_CONTROL_ALLOWED_APPS";
+    pub const ALLOWLIST_ENV: &str = "CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS";
 
     /// Env flag that must be exactly "true" to enable desktop control at all.
-    pub const ENABLE_ENV: &str = "FERAL_ENABLE_DESKTOP_CONTROL";
+    pub const ENABLE_ENV: &str = "CINDERPAW_ENABLE_DESKTOP_CONTROL";
 
     /// True when desktop control is enabled for this process.
     pub fn is_enabled() -> bool {
@@ -408,7 +408,7 @@ pub async fn send_keys(element_id: String, keys: String) -> Result<(), String> {
 /// Launch a desktop application by executable name or absolute path.
 ///
 /// Security: this is process creation, so it is tightly constrained —
-///   * desktop control must be enabled (`FERAL_ENABLE_DESKTOP_CONTROL`);
+///   * desktop control must be enabled (`CINDERPAW_ENABLE_DESKTOP_CONTROL`);
 ///   * `app` is treated as a SINGLE program token — never a shell command line.
 ///     Shell metacharacters are rejected and no arguments are forwarded, so
 ///     there is no command chaining / injection (unlike a real shell);

@@ -2,7 +2,7 @@
  * DuckDuckGo Lite — the keyless search backend Cinderpaw ships with.
  *
  * Why this exists: before it, a default install had NO working web search at
- * all. `web_search` needed a self-hosted SearXNG (`FERAL_SEARXNG_URL`), which
+ * all. `web_search` needed a self-hosted SearXNG (`CINDERPAW_SEARXNG_URL`), which
  * nobody has on first run; its no-backend path called DuckDuckGo's *Instant
  * Answer* API, a disambiguation service that returns nothing for real queries;
  * and its declared escalation, `deep_research`, searches through `s.jina.ai`,
@@ -160,7 +160,7 @@ export function __resetDdgPacer(): void {
 }
 
 function minIntervalMs(): number {
-  const raw = cfgInt("FERAL_DDG_MIN_INTERVAL_MS");
+  const raw = cfgInt("CINDERPAW_DDG_MIN_INTERVAL_MS");
   return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MIN_INTERVAL_MS;
 }
 
@@ -219,4 +219,4 @@ export const DDG_THROTTLED_HINT =
   "couple of minutes. Cinderpaw already paces its queries to stay under the limit, " +
   "so hitting this means unusually heavy searching (or another client on the " +
   "same connection). For search with no rate limit at all, run a SearXNG " +
-  "instance and set FERAL_SEARXNG_URL — see docs/CONFIGURATION.md.";
+  "instance and set CINDERPAW_SEARXNG_URL — see docs/CONFIGURATION.md.";

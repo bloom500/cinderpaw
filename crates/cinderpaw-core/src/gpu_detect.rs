@@ -53,7 +53,7 @@ pub fn detect() -> GpuInfo {
 ///
 /// UNIDENTIFIED GPUs ARE FLAGGED. This reverses the earlier reading that it
 /// is "conservative" to attempt the GPU and let the user set
-/// `FERAL_EMBED_GPU_LAYERS=0` themselves. That is only conservative for
+/// `CINDERPAW_EMBED_GPU_LAYERS=0` themselves. That is only conservative for
 /// someone who already knows the variable exists. The two ways to be wrong
 /// are not comparable:
 ///

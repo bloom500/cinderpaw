@@ -21,6 +21,7 @@
  */
 import type { Leaf, TreeNode } from "./types.ts";
 import { kmeans as defaultKmeans } from "./kmeans.ts";
+import { readEnv } from "../../config.ts";
 
 /**
  * Max children per parent. Spec recommends ~8, but on a wide corpus a small
@@ -29,11 +30,11 @@ import { kmeans as defaultKmeans } from "./kmeans.ts";
  * branch widens every level → more, finer top-level clusters → finer routing.
  *
  * Read at call-time (not module-load) so a bench launcher can set
- * `FERAL_TREE_BRANCH=16` without code changes. Default 8; clamped to >=2 (a
+ * `CINDERPAW_TREE_BRANCH=16` without code changes. Default 8; clamped to >=2 (a
  * branch of 1 never reduces the level and would loop forever).
  */
 function defaultBranch(): number {
-  const n = Number(process.env.FERAL_TREE_BRANCH);
+  const n = Number(readEnv("CINDERPAW_TREE_BRANCH"));
   return Number.isFinite(n) && n >= 2 ? Math.floor(n) : 8;
 }
 /**
@@ -47,10 +48,10 @@ function defaultBranch(): number {
  * and the request/response round-trip deadlocked mid-build (the response came
  * back to the sidecar with a dropped id → the embed Promise never resolved).
  * A smaller chunk keeps each line well within pipe limits. Override with
- * FERAL_EMBED_CHUNK for tuning/diagnosis.
+ * CINDERPAW_EMBED_CHUNK for tuning/diagnosis.
  */
 const EMBED_CHUNK = (() => {
-  const n = Number(process.env.FERAL_EMBED_CHUNK);
+  const n = Number(readEnv("CINDERPAW_EMBED_CHUNK"));
   return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 32;
 })();
 /**
@@ -60,13 +61,13 @@ const EMBED_CHUNK = (() => {
  * those would blow the chat provider's context window and MiniMax
  * rejects the whole build with `context window exceeds limit (2013)`.
  * Default 800 chars ≈ 200 tokens, plenty for a one-line thematic summary
- * even after stripping boilerplate. Override with `FERAL_TREE_ITEM_MAX_CHARS`.
+ * even after stripping boilerplate. Override with `CINDERPAW_TREE_ITEM_MAX_CHARS`.
  *
  * Read at call-time (not module-load time) so tests can override the
  * env var without dynamic-import gymnastics.
  */
 function maxItemChars(): number {
-  const n = Number(process.env.FERAL_TREE_ITEM_MAX_CHARS);
+  const n = Number(readEnv("CINDERPAW_TREE_ITEM_MAX_CHARS"));
   return Number.isFinite(n) && n >= 100 ? Math.floor(n) : 800;
 }
 /**
@@ -77,10 +78,10 @@ function maxItemChars(): number {
  * (truncating the boundary item to fit if needed). Default 12 000 chars
  * ≈ 3 000 tokens, safely inside any 8k+ provider context window even
  * with a non-trivial system prompt + RAPTOR instructions. Override with
- * `FERAL_TREE_CLUSTER_MAX_CHARS`.
+ * `CINDERPAW_TREE_CLUSTER_MAX_CHARS`.
  */
 function maxClusterItemsChars(): number {
-  const n = Number(process.env.FERAL_TREE_CLUSTER_MAX_CHARS);
+  const n = Number(readEnv("CINDERPAW_TREE_CLUSTER_MAX_CHARS"));
   return Number.isFinite(n) && n >= 500 ? Math.floor(n) : 12_000;
 }
 /**

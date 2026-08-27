@@ -171,7 +171,7 @@ function unverifiedPrompt(detail: string): string {
  * moved underneath it.
  */
 export function maxContinuations(): number {
-  return Math.max(0, cfgInt("FERAL_UNATTENDED_CONTINUATIONS"));
+  return Math.max(0, cfgInt("CINDERPAW_UNATTENDED_CONTINUATIONS"));
 }
 
 /**
@@ -233,7 +233,7 @@ export async function runUnattended(
   // passed nothing, so an autonomous run reached over a connector had no
   // wall-clock bound at all, only a continuation count. A counter cannot
   // express "stop at 6am", which is the thing a walk-away run actually needs.
-  const configured = cfgInt("FERAL_MISSION_DEADLINE_MS");
+  const configured = cfgInt("CINDERPAW_MISSION_DEADLINE_MS");
   const deadlineMs = opts.deadlineMs ?? (configured > 0 ? configured : undefined);
   const deadline = deadlineMs !== undefined ? Date.now() + deadlineMs : Infinity;
   const turns: TurnRecord[] = [];

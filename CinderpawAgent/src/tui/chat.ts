@@ -112,7 +112,7 @@ export async function runChat(): Promise<void> {
     process.exit(1);
   }
 
-  const model = cfgPath("FERAL_MODEL")!;
+  const model = cfgPath("CINDERPAW_MODEL")!;
   console.log();
   console.log(renderStatusBar(model, width, useColor));
   console.log();
@@ -180,8 +180,8 @@ export async function runChat(): Promise<void> {
         return;
 
       case "/model": {
-        const cfg = cfgPath("FERAL_MODEL")!;
-        const prov = cfgPath("FERAL_PROVIDER")!;
+        const cfg = cfgPath("CINDERPAW_MODEL")!;
+        const prov = cfgPath("CINDERPAW_PROVIDER")!;
         console.log(secondary(`  ${prov}/${cfg}`, clr));
         console.log();
         break;

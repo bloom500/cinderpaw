@@ -38,13 +38,13 @@ function scripted(outcomes: TurnOutcome[]): { run: RunTurn; prompts: string[]; i
 }
 
 describe("runUnattended", () => {
-  const prev = process.env.FERAL_UNATTENDED_CONTINUATIONS;
+  const prev = process.env.CINDERPAW_UNATTENDED_CONTINUATIONS;
   beforeEach(() => {
-    process.env.FERAL_UNATTENDED_CONTINUATIONS = "3";
+    process.env.CINDERPAW_UNATTENDED_CONTINUATIONS = "3";
   });
   afterEach(() => {
-    if (prev === undefined) delete process.env.FERAL_UNATTENDED_CONTINUATIONS;
-    else process.env.FERAL_UNATTENDED_CONTINUATIONS = prev;
+    if (prev === undefined) delete process.env.CINDERPAW_UNATTENDED_CONTINUATIONS;
+    else process.env.CINDERPAW_UNATTENDED_CONTINUATIONS = prev;
   });
 
   test("a task that completes first time runs exactly one turn", async () => {
@@ -102,7 +102,7 @@ describe("runUnattended", () => {
   });
 
   test("a stuck turn with no budget left is not replanned", async () => {
-    process.env.FERAL_UNATTENDED_CONTINUATIONS = "0";
+    process.env.CINDERPAW_UNATTENDED_CONTINUATIONS = "0";
     const agent = scripted(["stuck"]);
     const run = await runUnattended(agent.run, "do the thing", "m");
 
@@ -112,8 +112,8 @@ describe("runUnattended", () => {
   });
 
   test("the configured mission deadline bounds a run nobody passed one for", async () => {
-    process.env.FERAL_UNATTENDED_CONTINUATIONS = "10";
-    process.env.FERAL_MISSION_DEADLINE_MS = "1";
+    process.env.CINDERPAW_UNATTENDED_CONTINUATIONS = "10";
+    process.env.CINDERPAW_MISSION_DEADLINE_MS = "1";
     try {
       // The turn has to consume real wall clock: the deadline is checked
       // between turns, and a scripted turn that returns in under a millisecond
@@ -132,12 +132,12 @@ describe("runUnattended", () => {
       expect(run.stoppedBecause).toBe("deadline");
       expect(run.finished).toBe(false);
     } finally {
-      delete process.env.FERAL_MISSION_DEADLINE_MS;
+      delete process.env.CINDERPAW_MISSION_DEADLINE_MS;
     }
   });
 
   test("an explicit deadline still wins over the configured one", async () => {
-    process.env.FERAL_MISSION_DEADLINE_MS = "1";
+    process.env.CINDERPAW_MISSION_DEADLINE_MS = "1";
     try {
       const agent = scripted(["out_of_time", "completed"]);
       const run = await runUnattended(agent.run, "do the thing", "m", {
@@ -147,7 +147,7 @@ describe("runUnattended", () => {
       expect(agent.prompts).toHaveLength(2);
       expect(run.finished).toBe(true);
     } finally {
-      delete process.env.FERAL_MISSION_DEADLINE_MS;
+      delete process.env.CINDERPAW_MISSION_DEADLINE_MS;
     }
   });
 
@@ -177,7 +177,7 @@ describe("runUnattended", () => {
   });
 
   test("continuations can be disabled entirely", async () => {
-    process.env.FERAL_UNATTENDED_CONTINUATIONS = "0";
+    process.env.CINDERPAW_UNATTENDED_CONTINUATIONS = "0";
     const agent = scripted(["out_of_time", "completed"]);
     const run = await runUnattended(agent.run, "task", "m");
 
@@ -569,7 +569,7 @@ describe("renderDigest", () => {
     expect(out).toContain("2 turns");
     expect(out).toContain("1 automatic continuation");
     expect(out).toContain("27 actions");
-    expect(out).toContain("FERAL_UNATTENDED_CONTINUATIONS");
+    expect(out).toContain("CINDERPAW_UNATTENDED_CONTINUATIONS");
     // The agent's own words come last.
     expect(out.trimEnd()).toEndWith("I updated the report.");
   });

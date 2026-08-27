@@ -3,7 +3,7 @@
  *
  * Pins the wire shape of the new "stagnation" rsi_engine_event emitted
  * when the engine has run N iterations without producing a champion
- * (default N = FERAL_RSI_STAGNATION_THRESHOLD or 10).
+ * (default N = CINDERPAW_RSI_STAGNATION_THRESHOLD or 10).
  *
  * What this test guards:
  *   1. No emission before the threshold.
@@ -13,7 +13,7 @@
  *      baseline_too_strong_for_eval_suite).
  *   4. No re-emit on subsequent iterations in the same period
  *      (one per stagnation period — agent shouldn't see spam).
- *   5. Respects the FERAL_RSI_STAGNATION_THRESHOLD env override.
+ *   5. Respects the CINDERPAW_RSI_STAGNATION_THRESHOLD env override.
  *
  * The tests use a fake `send` capture and drive the engine via
  * `mirrorEngineEvents` directly — the bus plumbing and engine
@@ -40,14 +40,14 @@ const baseGenome = "g1";
 describe("mirrorEngineEvents — stagnation detection", () => {
   let prevThreshold: string | undefined;
   beforeEach(() => {
-    prevThreshold = process.env.FERAL_RSI_STAGNATION_THRESHOLD;
-    delete process.env.FERAL_RSI_STAGNATION_THRESHOLD;
+    prevThreshold = process.env.CINDERPAW_RSI_STAGNATION_THRESHOLD;
+    delete process.env.CINDERPAW_RSI_STAGNATION_THRESHOLD;
   });
   afterEach(() => {
     if (prevThreshold === undefined) {
-      delete process.env.FERAL_RSI_STAGNATION_THRESHOLD;
+      delete process.env.CINDERPAW_RSI_STAGNATION_THRESHOLD;
     } else {
-      process.env.FERAL_RSI_STAGNATION_THRESHOLD = prevThreshold;
+      process.env.CINDERPAW_RSI_STAGNATION_THRESHOLD = prevThreshold;
     }
   });
 
@@ -193,8 +193,8 @@ describe("mirrorEngineEvents — stagnation detection", () => {
     detach();
   });
 
-  test("respects FERAL_RSI_STAGNATION_THRESHOLD env override (set to 3)", async () => {
-    process.env.FERAL_RSI_STAGNATION_THRESHOLD = "3";
+  test("respects CINDERPAW_RSI_STAGNATION_THRESHOLD env override (set to 3)", async () => {
+    process.env.CINDERPAW_RSI_STAGNATION_THRESHOLD = "3";
     const bus = new EventBus();
     const { send, sent } = makeFakeSend();
     const detach = mirrorEngineEvents(bus, send);

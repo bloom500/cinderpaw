@@ -7,7 +7,7 @@
  *     builtins and MCP tools are untouchable (checked against the live
  *     registry, not just the store).
  *   - Same trust class as shell_exec: registered only under the
- *     FERAL_ENABLE_SHELL_EXEC gate (see boot.ts). Execution runs in a
+ *     CINDERPAW_ENABLE_SHELL_EXEC gate (see boot.ts). Execution runs in a
  *     subprocess through the ProcessSandbox — see custom-tools.ts for
  *     what that sandbox does and does NOT confine.
  *   - SHAPE gate: the name/params/description must validate.
@@ -17,8 +17,8 @@
  *     *does* — the subprocess runs with the user's own authority, so a
  *     smoke run is a correctness check, never a containment one. Fails
  *     CLOSED when no askUser bridge exists, unless
- *     FERAL_FORGE_NO_PROMPT_OK=true (headless opt-in, mirroring
- *     FERAL_DESKTOP_CONTROL_NO_PROMPT_OK).
+ *     CINDERPAW_FORGE_NO_PROMPT_OK=true (headless opt-in, mirroring
+ *     CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK).
  *   - SMOKE gate: the tool is run ONCE with caller-supplied `test_args`
  *     and must return the documented {ok, content} envelope. A tool that
  *     cannot complete one call is not a tool — it is not registered, and
@@ -142,7 +142,7 @@ async function confirmForge(
   record: CustomToolRecord,
   ctx: ToolContext,
 ): Promise<boolean> {
-  if (!ctx.askUser) return cfgBool("FERAL_FORGE_NO_PROMPT_OK");
+  if (!ctx.askUser) return cfgBool("CINDERPAW_FORGE_NO_PROMPT_OK");
   const verb = action === "create" ? "wrote a new tool" : "rewrote its tool";
   const question: AskUserQuestion = {
     question:

@@ -129,39 +129,39 @@ describe("subsystem catalog", () => {
     // Set explicitly rather than deleted: the notebook is ON by default as of
     // 2026-08-26 (it is the largest lever on token cost), so "unset" no longer
     // means "off" and deleting the variable would test the wrong branch.
-    const before = process.env.FERAL_ENABLE_NOTEBOOK;
-    process.env.FERAL_ENABLE_NOTEBOOK = "false";
+    const before = process.env.CINDERPAW_ENABLE_NOTEBOOK;
+    process.env.CINDERPAW_ENABLE_NOTEBOOK = "false";
     try {
       const h = healthNotebook();
       expect(h.available).toBe(true);
       expect(h.detail).toContain("disabled");
     } finally {
-      if (before === undefined) delete process.env.FERAL_ENABLE_NOTEBOOK;
-      else process.env.FERAL_ENABLE_NOTEBOOK = before;
+      if (before === undefined) delete process.env.CINDERPAW_ENABLE_NOTEBOOK;
+      else process.env.CINDERPAW_ENABLE_NOTEBOOK = before;
     }
   });
 
   test("unset means ENABLED — the default that ships", () => {
-    const before = process.env.FERAL_ENABLE_NOTEBOOK;
-    delete process.env.FERAL_ENABLE_NOTEBOOK;
+    const before = process.env.CINDERPAW_ENABLE_NOTEBOOK;
+    delete process.env.CINDERPAW_ENABLE_NOTEBOOK;
     try {
       expect(healthNotebook().detail).toContain("enabled");
     } finally {
-      if (before !== undefined) process.env.FERAL_ENABLE_NOTEBOOK = before;
+      if (before !== undefined) process.env.CINDERPAW_ENABLE_NOTEBOOK = before;
     }
   });
 
   test("healthNotebook reports the snapshot count once enabled", () => {
-    const before = process.env.FERAL_ENABLE_NOTEBOOK;
-    process.env.FERAL_ENABLE_NOTEBOOK = "true";
+    const before = process.env.CINDERPAW_ENABLE_NOTEBOOK;
+    process.env.CINDERPAW_ENABLE_NOTEBOOK = "true";
     try {
       const h = healthNotebook();
       expect(h.available).toBe(true);
       expect(h.detail).toContain("enabled");
       expect(h.detail).toMatch(/\d+ session snapshot/);
     } finally {
-      if (before === undefined) delete process.env.FERAL_ENABLE_NOTEBOOK;
-      else process.env.FERAL_ENABLE_NOTEBOOK = before;
+      if (before === undefined) delete process.env.CINDERPAW_ENABLE_NOTEBOOK;
+      else process.env.CINDERPAW_ENABLE_NOTEBOOK = before;
     }
   });
 

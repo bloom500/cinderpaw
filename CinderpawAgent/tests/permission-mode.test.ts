@@ -18,10 +18,10 @@ import { permissionMode, resetPermissionModeCache } from "../src/core/permission
 
 const saved = { ...process.env };
 afterEach(() => {
-  process.env.FERAL_PERMISSION_MODE = saved.FERAL_PERMISSION_MODE;
-  process.env.FERAL_AUTONOMOUS = saved.FERAL_AUTONOMOUS;
-  if (saved.FERAL_PERMISSION_MODE === undefined) delete process.env.FERAL_PERMISSION_MODE;
-  if (saved.FERAL_AUTONOMOUS === undefined) delete process.env.FERAL_AUTONOMOUS;
+  process.env.CINDERPAW_PERMISSION_MODE = saved.CINDERPAW_PERMISSION_MODE;
+  process.env.CINDERPAW_AUTONOMOUS = saved.CINDERPAW_AUTONOMOUS;
+  if (saved.CINDERPAW_PERMISSION_MODE === undefined) delete process.env.CINDERPAW_PERMISSION_MODE;
+  if (saved.CINDERPAW_AUTONOMOUS === undefined) delete process.env.CINDERPAW_AUTONOMOUS;
 });
 
 /** A tool context whose sandbox records whether anything was ever spawned. */
@@ -43,11 +43,11 @@ function ctxFor(tool: { manifest: unknown }, askUser?: unknown) {
 
 describe("resolving the mode", () => {
   test("named explicitly, or inherited from the historical knobs", () => {
-    process.env.FERAL_PERMISSION_MODE = "read_only";
+    process.env.CINDERPAW_PERMISSION_MODE = "read_only";
     expect(permissionMode()).toBe("read_only");
-    delete process.env.FERAL_PERMISSION_MODE;
+    delete process.env.CINDERPAW_PERMISSION_MODE;
     // An existing install that took the brakes off keeps its behaviour.
-    expect(permissionMode({ FERAL_SHELL_WHITELIST: "*" } as NodeJS.ProcessEnv)).toBe("full_access");
+    expect(permissionMode({ CINDERPAW_SHELL_WHITELIST: "*" } as NodeJS.ProcessEnv)).toBe("full_access");
     expect(permissionMode({} as NodeJS.ProcessEnv)).toBe("workspace_write");
   });
 
@@ -57,15 +57,15 @@ describe("resolving the mode", () => {
     // That made "read-only for a public connector" a per-launch ceremony nobody
     // would perform. The process that ENFORCES the mode reads it instead.
     const home = await mkdtemp(join(tmpdir(), "feral-mode-"));
-    process.env.FERAL_HOME = home;
-    delete process.env.FERAL_PERMISSION_MODE;
+    process.env.CINDERPAW_HOME = home;
+    delete process.env.CINDERPAW_PERMISSION_MODE;
     try {
       await writeFile(join(home, "settings.json"), JSON.stringify({ permission_mode: "read_only" }));
       resetPermissionModeCache();
       expect(permissionMode({} as NodeJS.ProcessEnv)).toBe("read_only");
 
       // The env var still wins — an operator's launch beats a stored preference.
-      expect(permissionMode({ FERAL_PERMISSION_MODE: "full_access" } as NodeJS.ProcessEnv))
+      expect(permissionMode({ CINDERPAW_PERMISSION_MODE: "full_access" } as NodeJS.ProcessEnv))
         .toBe("full_access");
 
       // A typo must not brick the agent: unknown value, then unparseable file,
@@ -77,7 +77,7 @@ describe("resolving the mode", () => {
       resetPermissionModeCache();
       expect(permissionMode({} as NodeJS.ProcessEnv)).toBe("workspace_write");
     } finally {
-      delete process.env.FERAL_HOME;
+      delete process.env.CINDERPAW_HOME;
       resetPermissionModeCache();
     }
   });
@@ -85,7 +85,7 @@ describe("resolving the mode", () => {
 
 describe("read-only mode", () => {
   test("reads run, writes do not — and the refusal says which is which", async () => {
-    process.env.FERAL_PERMISSION_MODE = "read_only";
+    process.env.CINDERPAW_PERMISSION_MODE = "read_only";
     const root = await mkdtemp(join(tmpdir(), "feral-ro-"));
     const tool = createShellExecTool([root]);
 
@@ -101,7 +101,7 @@ describe("read-only mode", () => {
   });
 
   test("the file tools are covered too, at the shared gate", async () => {
-    process.env.FERAL_PERMISSION_MODE = "read_only";
+    process.env.CINDERPAW_PERMISSION_MODE = "read_only";
     const root = await mkdtemp(join(tmpdir(), "feral-ro-fs-"));
     const tool = createWriteFileTool([root]);
     const { ctx } = ctxFor(tool);
@@ -115,7 +115,7 @@ describe("read-only mode", () => {
   });
 
   test("an unclassifiable binary is refused rather than assumed harmless", async () => {
-    process.env.FERAL_PERMISSION_MODE = "read_only";
+    process.env.CINDERPAW_PERMISSION_MODE = "read_only";
     const root = await mkdtemp(join(tmpdir(), "feral-ro-unk-"));
     const tool = createShellExecTool([root]);
     const { ctx, state } = ctxFor(tool);
@@ -129,8 +129,8 @@ describe("destruction outside the workspace is a human's call", () => {
   const outside = process.platform === "win32" ? "C:\\Users\\Someone\\Docs" : "/home/someone/Docs";
 
   test("with nobody to ask, it refuses instead of approving itself", async () => {
-    process.env.FERAL_PERMISSION_MODE = "workspace_write";
-    process.env.FERAL_AUTONOMOUS = "true";
+    process.env.CINDERPAW_PERMISSION_MODE = "workspace_write";
+    process.env.CINDERPAW_AUTONOMOUS = "true";
     const root = await mkdtemp(join(tmpdir(), "feral-warn-"));
     const tool = createShellExecTool([root]);
     // A bridge EXISTS — walk-away mode is what makes it unusable for this
@@ -144,8 +144,8 @@ describe("destruction outside the workspace is a human's call", () => {
   });
 
   test("asked and declined: nothing runs", async () => {
-    process.env.FERAL_PERMISSION_MODE = "workspace_write";
-    delete process.env.FERAL_AUTONOMOUS;
+    process.env.CINDERPAW_PERMISSION_MODE = "workspace_write";
+    delete process.env.CINDERPAW_AUTONOMOUS;
     const root = await mkdtemp(join(tmpdir(), "feral-warn-no-"));
     const tool = createShellExecTool([root]);
     const { ctx, state } = ctxFor(tool, {
@@ -158,8 +158,8 @@ describe("destruction outside the workspace is a human's call", () => {
   });
 
   test("asked and approved: it runs", async () => {
-    process.env.FERAL_PERMISSION_MODE = "workspace_write";
-    delete process.env.FERAL_AUTONOMOUS;
+    process.env.CINDERPAW_PERMISSION_MODE = "workspace_write";
+    delete process.env.CINDERPAW_AUTONOMOUS;
     const root = await mkdtemp(join(tmpdir(), "feral-warn-yes-"));
     const tool = createShellExecTool([root]);
     let asked = 0;

@@ -49,7 +49,7 @@ Every tool call passes a security layer before execution:
 - **Path containment** — filesystem tools resolve against declared roots with
   `realpath` symlink-following; traversal is rejected before any disk access.
 - **Process sandbox** — `shell_exec` is **off by default**
-  (`FERAL_ENABLE_SHELL_EXEC`), argv-only (no shell interpretation), restricted
+  (`CINDERPAW_ENABLE_SHELL_EXEC`), argv-only (no shell interpretation), restricted
   to a binary whitelist, with a scrubbed environment (`LD_PRELOAD`,
   `NODE_OPTIONS`, `PYTHONPATH` etc. stripped) and output caps.
 - **Audit log** — every tool call, network request, and inference call is

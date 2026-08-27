@@ -29,7 +29,7 @@
  *     surfaced less than `cooldownMs` ago. Prevents ping-pong spam.
  *
  * The user can disable the loop entirely with
- * `FERAL_INNER_THOUGHTS_ENABLED=false` if they want a strictly
+ * `CINDERPAW_INNER_THOUGHTS_ENABLED=false` if they want a strictly
  * reactive agent.
  */
 

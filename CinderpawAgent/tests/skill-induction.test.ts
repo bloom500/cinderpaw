@@ -116,7 +116,7 @@ describe("induceReusableSkill", () => {
   test("default sink path is scoped to the run, inside the agent's own home", () => {
     const p = defaultSinkPath(RUN);
     expect(p.endsWith(path.join("agent", "runs", RUN, "raptor-skills.jsonl"))).toBe(true);
-    // Not homedir() directly: an isolated profile (FERAL_HOME) must not write
+    // Not homedir() directly: an isolated profile (CINDERPAW_HOME) must not write
     // its induced skills into the real profile's directory.
     expect(p.startsWith(feralHome())).toBe(true);
     // Two runs must never resolve to the same file — that IS the isolation.

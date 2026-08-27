@@ -1,7 +1,7 @@
 /**
  * connectors_manage — the agent's self-service connector door.
  *
- * Uses FERAL_HOME-independent configPath (~/.feral/connectors.json is fixed),
+ * Uses CINDERPAW_HOME-independent configPath (~/.feral/connectors.json is fixed),
  * so these tests intercept at the tool level: list redaction, configure
  * round-trip, unknown id rejection, and reload() being poked after a save.
  *

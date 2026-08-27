@@ -99,7 +99,7 @@ describe("parity: permissions", () => {
         { content: toolCall("write_file", { path: "{{ws}}/fix.txt", content: "changed" }) },
         { content: "Read-only mode — reporting instead of changing." },
       ],
-      env: { FERAL_PERMISSION_MODE: "read_only" },
+      env: { CINDERPAW_PERMISSION_MODE: "read_only" },
     });
     expect(out.sent.join("\n")).toContain("read-only");
     await expect(readFile(join(out.workspace, "fix.txt"), "utf8")).rejects.toThrow();

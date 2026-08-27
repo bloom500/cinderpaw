@@ -61,11 +61,11 @@ export function resolvePerfPolicy(args: ResolveArgs): PerfPolicy {
   const env = args.env ?? readFrontendEnv();
   const base = args.isCloud ? DEFAULTS.cloud : DEFAULTS.local;
 
-  const ttftDeadlineMs = readEnvNumber(env, 'FERAL_TTFT_DEADLINE_MS') ?? base.ttftDeadlineMs;
-  const totalDeadlineMs = readEnvNumber(env, 'FERAL_TOTAL_DEADLINE_MS') ?? base.totalDeadlineMs;
+  const ttftDeadlineMs = readEnvNumber(env, 'CINDERPAW_TTFT_DEADLINE_MS') ?? base.ttftDeadlineMs;
+  const totalDeadlineMs = readEnvNumber(env, 'CINDERPAW_TOTAL_DEADLINE_MS') ?? base.totalDeadlineMs;
   const stallMs =
-    readEnvNumber(env, 'FERAL_STALL_MS') ??
-    (args.isCloud ? readEnvNumber(env, 'FERAL_CLOUD_IDLE_TIMEOUT_MS') : undefined) ??
+    readEnvNumber(env, 'CINDERPAW_STALL_MS') ??
+    (args.isCloud ? readEnvNumber(env, 'CINDERPAW_CLOUD_IDLE_TIMEOUT_MS') : undefined) ??
     base.stallMs;
 
   let effectiveTtft = ttftDeadlineMs;

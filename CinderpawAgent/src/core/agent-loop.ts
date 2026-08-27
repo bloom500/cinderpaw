@@ -24,7 +24,7 @@ import {
   InferenceError,
 } from "../egress/inference-router.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
-import { cfgInt } from "../config.ts";
+import { cfgInt, readEnv } from "../config.ts";
 import { SESSION_RESET_MARK, type EpisodicMemory } from "../memory/episodic.ts";
 import { memoryScope } from "../memory/semantic.ts";
 import type { RecallResult } from "../memory/recall.ts";
@@ -68,7 +68,7 @@ import type { SoulConfig } from "./soul-loader.ts";
 import type { UserConfig } from "./user-loader.ts";
 import { buildUserPromptBlock } from "./user-loader.ts";
 import {
-  FERAL_AGENT_BASE_PROMPT,
+  CINDERPAW_AGENT_BASE_PROMPT,
 } from "./cinderpaw-prompt.ts";
 import { buildToolCallGrammar, TOOL_CALL_TRIGGERS } from "./tool-grammar.ts";
 import { createToolDrawerTools } from "../tools/builtin/tool-drawer.ts";
@@ -94,7 +94,7 @@ export interface AgentLoopConfig {
    * engine can only emit a valid tool-call JSON once the model opens one —
    * prose answers stay unconstrained. Off by default: it requires the bundled
    * llama.cpp engine (the grammar field is a no-op on other backends) and the
-   * text parser remains the proven fallback. Enable with FERAL_TOOL_GRAMMAR=true.
+   * text parser remains the proven fallback. Enable with CINDERPAW_TOOL_GRAMMAR=true.
    */
   useToolGrammar: boolean;
   /**
@@ -153,9 +153,9 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
   // Grammar-constrained decoding is on by default. The grammar fields are
   // Cinderpaw extension fields honored by the bundled llama.cpp engine; standard
   // OpenAI-compatible servers and Anthropic silently ignore unknown body fields.
-  // Set FERAL_TOOL_GRAMMAR=false to disable (e.g. when targeting a strict
+  // Set CINDERPAW_TOOL_GRAMMAR=false to disable (e.g. when targeting a strict
   // server that rejects unknown JSON fields).
-  useToolGrammar: process.env.FERAL_TOOL_GRAMMAR !== "false",
+  useToolGrammar: readEnv("CINDERPAW_TOOL_GRAMMAR") !== "false",
   // P2: see the docstrings above for the rationale. 64 sessions × ~8KB
   // compressed transcript each ≈ 500KB worst case — trivial, but the
   // cap is a hard backstop against pathological clients. 30 min idle
@@ -330,7 +330,7 @@ export class AgentLoop {
   // bound the transcript only to control cost and latency, not to avoid a
   // crash. Default is conservative for Claude-class 200K models; users on
   // 1M models (or anyone wanting zero compression) override with
-  // FERAL_CLOUD_TRANSCRIPT_BUDGET=900000 (or higher).
+  // CINDERPAW_CLOUD_TRANSCRIPT_BUDGET=900000 (or higher).
   static readonly CLOUD_TRANSCRIPT_BUDGET = 200_000;
 
   readonly #router: InferenceRouter;
@@ -2038,7 +2038,7 @@ export class AgentLoop {
   /**
    * Token budget for the live transcript, sized to the model's REAL context.
    *
-   * Local engines load with a small KV cache — Rust caps it at FERAL_MAX_CONTEXT
+   * Local engines load with a small KV cache — Rust caps it at CINDERPAW_MAX_CONTEXT
    * (default 8192, see inference.rs `DEFAULT_MAX_CONTEXT`) — and the prompt that
    * actually hits the model is system + tool schemas + drawers + transcript +
    * this turn's output. The tool schemas are NOT counted by
@@ -2047,16 +2047,16 @@ export class AgentLoop {
    * call, the transcript grows unbounded until it overflows the KV cache — the
    * "local model crashes every 5-10 prompts / on complex tasks" failure.
    *
-   * For sub-8K-context models, lower FERAL_MAX_CONTEXT to match (calibration
+   * For sub-8K-context models, lower CINDERPAW_MAX_CONTEXT to match (calibration
    * knob — the real model context isn't always the cap).
    */
   #transcriptBudget(): number {
     if (!this.#router.isPrimaryLocal) {
-      return Number(process.env.FERAL_CLOUD_TRANSCRIPT_BUDGET) || AgentLoop.CLOUD_TRANSCRIPT_BUDGET;
+      return Number(readEnv("CINDERPAW_CLOUD_TRANSCRIPT_BUDGET")) || AgentLoop.CLOUD_TRANSCRIPT_BUDGET;
     }
     // Prefer the engine's real active window (forwarded by Rust on set_model);
     // fall back to the env / conservative default before the first set_model.
-    const ctx = this.#router.contextWindow || cfgInt("FERAL_MAX_CONTEXT");
+    const ctx = this.#router.contextWindow || cfgInt("CINDERPAW_MAX_CONTEXT");
     const outputReserve = Math.min(this.#config.maxTokensPerCall, 2048);
     // ponytail: covers the CORE advertised tool schemas (~2-3K) plus headroom
     // for a few drawer-loaded tools — not counted by estimatedTokens(). Was
@@ -2404,8 +2404,8 @@ export class AgentLoop {
     // That is the "forgets file paths it wrote earlier / repeats actions it
     // already completed" report. Head+tail sampling keeps the framing AND the
     // recent work; the head is small because the tail is what the next turn
-    // needs. Raise FERAL_SUMMARY_EXCERPT_CHARS on big-context models.
-    const transcript = summaryExcerpt(msgs, cfgInt("FERAL_SUMMARY_EXCERPT_CHARS") || 24_000);
+    // needs. Raise CINDERPAW_SUMMARY_EXCERPT_CHARS on big-context models.
+    const transcript = summaryExcerpt(msgs, cfgInt("CINDERPAW_SUMMARY_EXCERPT_CHARS") || 24_000);
     const res = await this.#router.complete({
       sessionId,
       messages: [
@@ -2647,7 +2647,7 @@ export class AgentLoop {
  *
  * The system prompt is composed of layered blocks, in this strict order:
  *
- *   1. `FERAL_AGENT_BASE_PROMPT` — the universal CinderpawAgent operating manual.
+ *   1. `CINDERPAW_AGENT_BASE_PROMPT` — the universal CinderpawAgent operating manual.
  *      Always present, always the HIGHEST priority layer. Encodes the
  *      reliability contract (task-completion-first, chain-of-thought
  *      reasoning, structured tool calls, self-correction). It cannot be
@@ -2692,7 +2692,7 @@ export function buildSystemPrompt(
 
   return [
     "## CinderpawAgent base (highest priority — always on)",
-    FERAL_AGENT_BASE_PROMPT,
+    CINDERPAW_AGENT_BASE_PROMPT,
     "",
     identity,
     userBlock,
@@ -2742,7 +2742,7 @@ export function buildSystemPrompt(
  * worker it can spawn workers would send it after a function that is not there.
  *
  * Returns "" when the notebook is not registered — which is the default, since
- * the tool only exists under FERAL_ENABLE_NOTEBOOK. Nobody who has not turned
+ * the tool only exists under CINDERPAW_ENABLE_NOTEBOOK. Nobody who has not turned
  * the notebook on pays a token for this.
  */
 /** A subagent's session, by the id `Subagent.run` mints for it. */
@@ -3669,12 +3669,12 @@ export function sanitizeInferParams(raw: {
  *
  * ponytail: 20 min covers every real multi-step task observed (a 5-file project
  * with tests lands well under it) while capping a wedged loop at something a
- * human will wait through. Raise with FERAL_TURN_BUDGET_MS on a box doing
+ * human will wait through. Raise with CINDERPAW_TURN_BUDGET_MS on a box doing
  * genuinely long builds; the bound only stops NEW iterations, so a single slow
  * tool is never cut off mid-run.
  */
 export function turnBudgetMs(): number {
-  const raw = cfgInt("FERAL_TURN_BUDGET_MS");
+  const raw = cfgInt("CINDERPAW_TURN_BUDGET_MS");
   if (!Number.isFinite(raw) || raw <= 0) return 20 * 60_000;
   return Math.min(6 * 3_600_000, Math.max(60_000, raw));
 }

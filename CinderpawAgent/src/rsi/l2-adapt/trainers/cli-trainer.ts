@@ -24,10 +24,10 @@ import { bunExec, type ExecFn } from "../../l3-code/code-sandbox.ts";
 import type { TrainerBackend } from "../lora-registry.ts";
 
 /** Env var that points at the trainer binary when no override is given. */
-export const TRAINER_BIN_ENV = "FERAL_LORA_TRAINER_BIN";
+export const TRAINER_BIN_ENV = "CINDERPAW_LORA_TRAINER_BIN";
 
 /** Env var that overrides the per-job training timeout (ms). */
-export const TRAIN_TIMEOUT_ENV = "FERAL_LORA_TRAIN_TIMEOUT_MS";
+export const TRAIN_TIMEOUT_ENV = "CINDERPAW_LORA_TRAIN_TIMEOUT_MS";
 
 /** Default per-job training timeout — training is slow on CPU; 1h ceiling. */
 export const DEFAULT_TRAIN_TIMEOUT_MS = 3_600_000;
@@ -47,7 +47,7 @@ const METRIC_LINE =
   /^metric:([^=\s]+)=(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*$/;
 
 export interface CliTrainerOptions {
-  /** Path to the trainer binary. Defaults to env `FERAL_LORA_TRAINER_BIN`. */
+  /** Path to the trainer binary. Defaults to env `CINDERPAW_LORA_TRAINER_BIN`. */
   binPath?: string;
   /** Inject a fake exec in tests; production uses `bunExec`. */
   exec?: ExecFn;

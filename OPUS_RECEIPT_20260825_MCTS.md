@@ -197,7 +197,7 @@ M  docs/agents-memory/project_arc_agi3_campaign.md (status Step 3)
   ia perechile demonstrative ale task-ului curent și produce dataset de
   fine-tuning în formatul CONTRACTULUI REAL din `docs/LORA_TRAINER.md`
   (JSONL `{"prompt","response"}`, consumat de
-  `FERAL_LORA_TRAINER_BIN finetune --data <file>`).
+  `CINDERPAW_LORA_TRAINER_BIN finetune --data <file>`).
 - Scrie AMBELE: `ttt_dataset.jsonl` (contract) + `ttt_dataset.json`
   (cerut literal de Darius, mirror lizibil), în tmpdir sau `--out-dir`.
 - CLI: `--task <task.json> [--out-dir]`, mesaje umane pe stdout.

@@ -1,7 +1,7 @@
 /**
  * L3 — Crash → auto-revert watchdog (B5 e2e smoke, assembled version).
  *
- * Env-gated: FERAL_E2E=1 bun test tests/l3-watchdog.e2e.test.ts
+ * Env-gated: CINDERPAW_E2E=1 bun test tests/l3-watchdog.e2e.test.ts
  *
  * The watchdog decision (`should_revert`, `marker_expired`) and its
  * persistence helpers (`load_marker` / `save_marker` /
@@ -49,14 +49,14 @@ import { fileURLToPath } from "node:url";
  * job runs these same 23 watchdog tests on both ubuntu and windows — strictly
  * more than this wrapper ever gave. What the file adds is one command locally:
  *
- *   FERAL_E2E=1 FERAL_E2E_RUST=1 bun test tests/l3-watchdog.e2e.test.ts
+ *   CINDERPAW_E2E=1 CINDERPAW_E2E_RUST=1 bun test tests/l3-watchdog.e2e.test.ts
  */
-// NOT RUN IN CI. `FERAL_E2E_RUST` is set by no workflow, because this suite
+// NOT RUN IN CI. `CINDERPAW_E2E_RUST` is set by no workflow, because this suite
 // needs a built Rust binary that the JS leg does not have. That is a defensible
 // trade-off, but an undocumented one is a trap: the next person to change the
 // watchdog sees a test file, assumes it guards them, and finds out otherwise in
 // production. If you touch the watchdog, run the line above by hand.
-const ENABLED = process.env.FERAL_E2E === "1" && process.env.FERAL_E2E_RUST === "1";
+const ENABLED = process.env.CINDERPAW_E2E === "1" && process.env.CINDERPAW_E2E_RUST === "1";
 
 function findRepoRoot(): string {
   let cur = dirname(fileURLToPath(import.meta.url));
@@ -71,7 +71,7 @@ function findRepoRoot(): string {
 
 const REPO_ROOT = findRepoRoot();
 
-describe("L3 — crash → auto-revert watchdog (FERAL_E2E)", () => {
+describe("L3 — crash → auto-revert watchdog (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "crates/feral-core/src/rsi/watchdog.rs unit tests pass on this box",
     () => {
@@ -99,7 +99,7 @@ describe("L3 — crash → auto-revert watchdog (FERAL_E2E)", () => {
             ...process.env,
             // Faza 3's full-cycle test isn't wired through here; we just
             // cover the pure-decision + persistence contracts.
-            FERAL_SKIP_SIDECAR_BUILD: "1",
+            CINDERPAW_SKIP_SIDECAR_BUILD: "1",
           },
         },
       );

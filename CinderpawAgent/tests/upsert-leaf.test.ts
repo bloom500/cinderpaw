@@ -16,7 +16,7 @@
  *   2. Near-duplicate (cosine >= threshold) → merge + seed, no insert.
  *   3. Far-away (cosine < threshold) → insert + grow.
  *   4. Idempotency on (text, first_seen_at).
- *   5. `FERAL_MERGE_THRESHOLD` env override is honoured.
+ *   5. `CINDERPAW_MERGE_THRESHOLD` env override is honoured.
  *   6. Reconciler fires `upsertLeaf` for the fact path with the right
  *      text shape (`"key: value"`), embedding from the embed stub, and
  *      provenance fields populated.
@@ -243,7 +243,7 @@ describe("FractalMemory.upsertLeaf", () => {
     }
   });
 
-  test("respects FERAL_MERGE_THRESHOLD env override", async () => {
+  test("respects CINDERPAW_MERGE_THRESHOLD env override", async () => {
     const seed: Leaf = {
       id: 100,
       text: "language: ro",
@@ -257,7 +257,7 @@ describe("FractalMemory.upsertLeaf", () => {
     // under the default 0.92 — but if we raise the threshold, the same
     // upsert should insert. We model both directions.
     const probe = vec([0.7, 0.7, 0]); // unit-norm-ish (0.7^2+0.7^2=0.98), cosine to seed = 0.7/0.99 ≈ 0.707
-    process.env.FERAL_MERGE_THRESHOLD = "0.99"; // higher than the probe cosine
+    process.env.CINDERPAW_MERGE_THRESHOLD = "0.99"; // higher than the probe cosine
     const resultHigh = await fm.upsertLeaf({
       text: "x: y",
       embedding: Array.from(probe),
@@ -270,7 +270,7 @@ describe("FractalMemory.upsertLeaf", () => {
     });
     expect(resultHigh.kind).toBe("grow"); // threshold 0.99 > 0.707 cosine → insert
 
-    delete process.env.FERAL_MERGE_THRESHOLD;
+    delete process.env.CINDERPAW_MERGE_THRESHOLD;
   });
 
   test("mutation_seq bumps on insert, not on merge", async () => {

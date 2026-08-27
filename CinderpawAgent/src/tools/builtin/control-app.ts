@@ -17,20 +17,20 @@
  *     ask_user, is the correct fit and still routes through ToolRegistry.)
  *   - State-changing actions (click / type / perform_action) are confirmed with
  *     the user through `ask_user` before they run, unless
- *     FERAL_DESKTOP_CONTROL_CONFIRM=false. Read actions never prompt. When a
+ *     CINDERPAW_DESKTOP_CONTROL_CONFIRM=false. Read actions never prompt. When a
  *     transport has no askUser bridge, a required confirmation fails CLOSED
- *     (action denied) unless FERAL_DESKTOP_CONTROL_NO_PROMPT_OK=true opts into
+ *     (action denied) unless CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK=true opts into
  *     prompt-less execution for trusted/headless setups.
  *   - Any value that could be a secret typed into a password field is redacted
  *     (`[REDACTED]`) in this tool's own audit entries; the host independently
  *     refuses to read secure-field values back to the model.
  *
- * The tool is only registered when FERAL_ENABLE_DESKTOP_CONTROL=true (see
+ * The tool is only registered when CINDERPAW_ENABLE_DESKTOP_CONTROL=true (see
  * index.ts), matching the opt-in posture of shell_exec.
  */
 
 import type { Tool, ToolResult, AskUserQuestion } from "../../types.ts";
-import { cfgBool } from "../../config.ts";
+import { cfgBool, readEnv } from "../../config.ts";
 
 type Action =
   | "list_windows"
@@ -48,7 +48,7 @@ const WRITE_ACTIONS: ReadonlySet<Action> = new Set<Action>(["click", "type", "se
 
 /**
  * Actions that ALWAYS require user confirmation, even when
- * FERAL_DESKTOP_CONTROL_CONFIRM=false. `launch` creates a process, a higher
+ * CINDERPAW_DESKTOP_CONTROL_CONFIRM=false. `launch` creates a process, a higher
  * bar than clicking a button, so it is never silently auto-approved.
  */
 const ALWAYS_CONFIRM: ReadonlySet<Action> = new Set<Action>(["launch"]);
@@ -108,9 +108,13 @@ export function isRecoverable(message: string): boolean {
   const m = message.toLowerCase();
   const PERMANENT = [
     "denylist", // security denylist — never controllable
-    "allowlist", // not in FERAL_DESKTOP_CONTROL_ALLOWED_APPS
-    "is not in feral",
-    "control is disabled", // FERAL_ENABLE_DESKTOP_CONTROL not set
+    "allowlist", // not in CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS
+    // Keyed on the variable's stable tail, not on the brand: this matcher was
+    // spelled "is not in feral" and stopped recognising its own refusal the
+    // day the variable became CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS — the
+    // agent then retried an action policy had permanently denied.
+    "allowed_apps",
+    "control is disabled", // CINDERPAW_ENABLE_DESKTOP_CONTROL not set
     "requires", // missing required arg (model error)
     "unknown action",
     "unsupported action",
@@ -331,10 +335,10 @@ export function createControlAppTool(): Tool {
       }
 
       // Confirmation gate for state-changing actions. `launch` always confirms
-      // (process creation), regardless of FERAL_DESKTOP_CONTROL_CONFIRM.
+      // (process creation), regardless of CINDERPAW_DESKTOP_CONTROL_CONFIRM.
       const confirmNeeded =
         WRITE_ACTIONS.has(action) &&
-        (ALWAYS_CONFIRM.has(action) || process.env.FERAL_DESKTOP_CONTROL_CONFIRM !== "false");
+        (ALWAYS_CONFIRM.has(action) || readEnv("CINDERPAW_DESKTOP_CONTROL_CONFIRM") !== "false");
       if (confirmNeeded) {
         const confirmed = await confirmWrite(action, args, ctx);
         if (!confirmed) {
@@ -382,7 +386,7 @@ async function confirmWrite(
     // state-changing action and we cannot obtain it; the host denylist is a
     // separate gate, not a substitute for per-action consent. A trusted/headless
     // transport that genuinely has no askUser bridge can opt out explicitly.
-    return cfgBool("FERAL_DESKTOP_CONTROL_NO_PROMPT_OK");
+    return cfgBool("CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK");
   }
   const target = typeof args.element_id === "string" ? args.element_id : "(focused element)";
   const detail =

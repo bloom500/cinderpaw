@@ -5,7 +5,7 @@
  * provenance-bearing `LeafSummary[]` from `FractalMemory.leaves()` (the C.0
  * durable store). Two impls: `NoEviction` (test/opt-out) and
  * `AgeAndHitCountEviction` (production default). `selectPolicyFromEnv()` picks
- * via `FERAL_FMS_EVICTION`.
+ * via `CINDERPAW_FMS_EVICTION`.
  *
  * Boundaries pinned explicitly: age uses strict `>` (exactly at threshold is
  * NOT old enough), hit-count uses strict `<` (exactly at threshold is NOT low).
@@ -29,7 +29,7 @@ function leaf(over: Partial<LeafSummary> & { id: number }): LeafSummary {
   };
 }
 
-afterEach(() => { delete process.env.FERAL_FMS_EVICTION; });
+afterEach(() => { delete process.env.CINDERPAW_FMS_EVICTION; });
 
 describe("EvictionPolicy", () => {
   test("NoEviction never selects leaves", () => {
@@ -65,13 +65,13 @@ describe("EvictionPolicy", () => {
     expect(policy.select(leaves, now)).toEqual([]); // not < threshold
   });
 
-  test("respects env override FERAL_FMS_EVICTION=NoEviction", () => {
-    process.env.FERAL_FMS_EVICTION = "NoEviction";
+  test("respects env override CINDERPAW_FMS_EVICTION=NoEviction", () => {
+    process.env.CINDERPAW_FMS_EVICTION = "NoEviction";
     expect(selectPolicyFromEnv()).toBeInstanceOf(NoEviction);
   });
 
   test("default policy (env unset) is AgeAndHitCountEviction", () => {
-    delete process.env.FERAL_FMS_EVICTION;
+    delete process.env.CINDERPAW_FMS_EVICTION;
     expect(selectPolicyFromEnv()).toBeInstanceOf(AgeAndHitCountEviction);
   });
 });

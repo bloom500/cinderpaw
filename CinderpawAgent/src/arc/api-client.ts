@@ -40,8 +40,8 @@
  * rather than making every policy in the codebase learn a payload type for the
  * benefit of one action.
  *
- * BENCHMARK MODE. When `FERAL_BENCHMARK_RUN_ID` is set the network narrows to
- * `FERAL_BENCHMARK_ALLOW_HOSTS` at both exits (Val 2.3). `three.arcprize.org`
+ * BENCHMARK MODE. When `CINDERPAW_BENCHMARK_RUN_ID` is set the network narrows to
+ * `CINDERPAW_BENCHMARK_ALLOW_HOSTS` at both exits (Val 2.3). `three.arcprize.org`
  * must be in that list or every request here fails closed — which is the
  * correct behaviour, and this comment exists so the failure is diagnosable in
  * one read instead of one afternoon.

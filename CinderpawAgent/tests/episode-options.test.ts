@@ -43,31 +43,31 @@ describe("episodeStartOptions — defaults", () => {
 });
 
 describe("episodeStartOptions — env overrides", () => {
-  test("FERAL_RSI_MAX_ITER overrides maxIterations", () => {
-    expect(episodeStartOptions({ FERAL_RSI_MAX_ITER: "10" }).maxIterations).toBe(10);
-    expect(episodeStartOptions({ FERAL_RSI_MAX_ITER: "500" }).maxIterations).toBe(500);
+  test("CINDERPAW_RSI_MAX_ITER overrides maxIterations", () => {
+    expect(episodeStartOptions({ CINDERPAW_RSI_MAX_ITER: "10" }).maxIterations).toBe(10);
+    expect(episodeStartOptions({ CINDERPAW_RSI_MAX_ITER: "500" }).maxIterations).toBe(500);
   });
 
-  test("FERAL_RSI_MAX_TOKENS overrides maxTotalTokens", () => {
-    expect(episodeStartOptions({ FERAL_RSI_MAX_TOKENS: "100000" }).maxTotalTokens).toBe(100_000);
+  test("CINDERPAW_RSI_MAX_TOKENS overrides maxTotalTokens", () => {
+    expect(episodeStartOptions({ CINDERPAW_RSI_MAX_TOKENS: "100000" }).maxTotalTokens).toBe(100_000);
   });
 
-  test("FERAL_RSI_EPISODE_MS overrides maxWallClockMs", () => {
-    expect(episodeStartOptions({ FERAL_RSI_EPISODE_MS: "120000" }).maxWallClockMs).toBe(120_000);
+  test("CINDERPAW_RSI_EPISODE_MS overrides maxWallClockMs", () => {
+    expect(episodeStartOptions({ CINDERPAW_RSI_EPISODE_MS: "120000" }).maxWallClockMs).toBe(120_000);
   });
 
-  test("FERAL_RSI_PLATEAU_ITERS overrides plateauIterations", () => {
-    expect(episodeStartOptions({ FERAL_RSI_PLATEAU_ITERS: "3" }).plateauIterations).toBe(3);
+  test("CINDERPAW_RSI_PLATEAU_ITERS overrides plateauIterations", () => {
+    expect(episodeStartOptions({ CINDERPAW_RSI_PLATEAU_ITERS: "3" }).plateauIterations).toBe(3);
   });
 
   test("all knobs can be set together and don't bleed into each other", () => {
     const o = episodeStartOptions({
-      FERAL_RSI_MAX_ITER: "7",
-      FERAL_RSI_MAX_TOKENS: "8000",
-      FERAL_RSI_MAX_COST_USD: "1.25",
-      FERAL_RSI_CONCURRENCY: "2",
-      FERAL_RSI_EPISODE_MS: "30000",
-      FERAL_RSI_PLATEAU_ITERS: "5",
+      CINDERPAW_RSI_MAX_ITER: "7",
+      CINDERPAW_RSI_MAX_TOKENS: "8000",
+      CINDERPAW_RSI_MAX_COST_USD: "1.25",
+      CINDERPAW_RSI_CONCURRENCY: "2",
+      CINDERPAW_RSI_EPISODE_MS: "30000",
+      CINDERPAW_RSI_PLATEAU_ITERS: "5",
     });
     expect(o).toEqual({
       goal: STANDING_GOAL,
@@ -84,10 +84,10 @@ describe("episodeStartOptions — env overrides", () => {
 describe("episodeStartOptions — invalid values fall back to defaults", () => {
   test("non-numeric strings fall back to the default", () => {
     const o = episodeStartOptions({
-      FERAL_RSI_MAX_ITER: "abc",
-      FERAL_RSI_MAX_TOKENS: "many",
-      FERAL_RSI_EPISODE_MS: "",
-      FERAL_RSI_PLATEAU_ITERS: "NaN",
+      CINDERPAW_RSI_MAX_ITER: "abc",
+      CINDERPAW_RSI_MAX_TOKENS: "many",
+      CINDERPAW_RSI_EPISODE_MS: "",
+      CINDERPAW_RSI_PLATEAU_ITERS: "NaN",
     });
     expect(o.maxIterations).toBe(40);
     expect(o.maxTotalTokens).toBe(2_000_000);
@@ -99,10 +99,10 @@ describe("episodeStartOptions — invalid values fall back to defaults", () => {
     // The positive parser treats 0 as "missing" — you can't ask for
     // "0 iterations" or "0 tokens" in a meaningful way.
     const o = episodeStartOptions({
-      FERAL_RSI_MAX_ITER: "0",
-      FERAL_RSI_MAX_TOKENS: "-5",
-      FERAL_RSI_EPISODE_MS: "0",
-      FERAL_RSI_PLATEAU_ITERS: "-1",
+      CINDERPAW_RSI_MAX_ITER: "0",
+      CINDERPAW_RSI_MAX_TOKENS: "-5",
+      CINDERPAW_RSI_EPISODE_MS: "0",
+      CINDERPAW_RSI_PLATEAU_ITERS: "-1",
     });
     expect(o.maxIterations).toBe(40);
     expect(o.maxTotalTokens).toBe(2_000_000);
@@ -112,8 +112,8 @@ describe("episodeStartOptions — invalid values fall back to defaults", () => {
 
   test("Infinity and NaN fall back to the default", () => {
     const o = episodeStartOptions({
-      FERAL_RSI_MAX_ITER: "Infinity",
-      FERAL_RSI_MAX_TOKENS: "NaN",
+      CINDERPAW_RSI_MAX_ITER: "Infinity",
+      CINDERPAW_RSI_MAX_TOKENS: "NaN",
     });
     expect(o.maxIterations).toBe(40);
     expect(o.maxTotalTokens).toBe(2_000_000);
@@ -126,20 +126,20 @@ describe("episodeStartOptions — cost cap (the nonNegative exception)", () => {
   });
 
   test("explicit 0 is honoured — operators can pin to local-only", () => {
-    expect(episodeStartOptions({ FERAL_RSI_MAX_COST_USD: "0" }).maxTotalCostUsd).toBe(0);
+    expect(episodeStartOptions({ CINDERPAW_RSI_MAX_COST_USD: "0" }).maxTotalCostUsd).toBe(0);
   });
 
   test("negative values fall back to 0 (nonNegative refuses < 0)", () => {
-    expect(episodeStartOptions({ FERAL_RSI_MAX_COST_USD: "-1" }).maxTotalCostUsd).toBe(0);
+    expect(episodeStartOptions({ CINDERPAW_RSI_MAX_COST_USD: "-1" }).maxTotalCostUsd).toBe(0);
   });
 
   test("positive values pass through (including fractional)", () => {
-    expect(episodeStartOptions({ FERAL_RSI_MAX_COST_USD: "5" }).maxTotalCostUsd).toBe(5);
-    expect(episodeStartOptions({ FERAL_RSI_MAX_COST_USD: "0.25" }).maxTotalCostUsd).toBe(0.25);
+    expect(episodeStartOptions({ CINDERPAW_RSI_MAX_COST_USD: "5" }).maxTotalCostUsd).toBe(5);
+    expect(episodeStartOptions({ CINDERPAW_RSI_MAX_COST_USD: "0.25" }).maxTotalCostUsd).toBe(0.25);
   });
 
   test("malformed strings fall back to 0", () => {
-    expect(episodeStartOptions({ FERAL_RSI_MAX_COST_USD: "free" }).maxTotalCostUsd).toBe(0);
+    expect(episodeStartOptions({ CINDERPAW_RSI_MAX_COST_USD: "free" }).maxTotalCostUsd).toBe(0);
   });
 });
 
@@ -149,26 +149,26 @@ describe("episodeStartOptions — concurrency clamp", () => {
   });
 
   test("explicit values in 1..4 are honoured", () => {
-    expect(episodeStartOptions({ FERAL_RSI_CONCURRENCY: "2" }).concurrency).toBe(2);
-    expect(episodeStartOptions({ FERAL_RSI_CONCURRENCY: "4" }).concurrency).toBe(4);
+    expect(episodeStartOptions({ CINDERPAW_RSI_CONCURRENCY: "2" }).concurrency).toBe(2);
+    expect(episodeStartOptions({ CINDERPAW_RSI_CONCURRENCY: "4" }).concurrency).toBe(4);
   });
 
   test("values above 4 are clamped down to 4", () => {
-    expect(episodeStartOptions({ FERAL_RSI_CONCURRENCY: "9" }).concurrency).toBe(4);
-    expect(episodeStartOptions({ FERAL_RSI_CONCURRENCY: "99" }).concurrency).toBe(4);
+    expect(episodeStartOptions({ CINDERPAW_RSI_CONCURRENCY: "9" }).concurrency).toBe(4);
+    expect(episodeStartOptions({ CINDERPAW_RSI_CONCURRENCY: "99" }).concurrency).toBe(4);
   });
 
   test("values below 1 (including 0) are clamped up to 1", () => {
-    expect(episodeStartOptions({ FERAL_RSI_CONCURRENCY: "0" }).concurrency).toBe(1);
-    expect(episodeStartOptions({ FERAL_RSI_CONCURRENCY: "-3" }).concurrency).toBe(1);
+    expect(episodeStartOptions({ CINDERPAW_RSI_CONCURRENCY: "0" }).concurrency).toBe(1);
+    expect(episodeStartOptions({ CINDERPAW_RSI_CONCURRENCY: "-3" }).concurrency).toBe(1);
   });
 
   test("non-numeric values fall back to the default of 1", () => {
-    expect(episodeStartOptions({ FERAL_RSI_CONCURRENCY: "abc" }).concurrency).toBe(1);
+    expect(episodeStartOptions({ CINDERPAW_RSI_CONCURRENCY: "abc" }).concurrency).toBe(1);
   });
 
   test("fractional values are floored before clamping", () => {
     // 2.9 → floor → 2 → clamp → 2.
-    expect(episodeStartOptions({ FERAL_RSI_CONCURRENCY: "2.9" }).concurrency).toBe(2);
+    expect(episodeStartOptions({ CINDERPAW_RSI_CONCURRENCY: "2.9" }).concurrency).toBe(2);
   });
 });

@@ -133,7 +133,7 @@ async function download(url: string, maxBytes: number): Promise<Uint8Array | nul
 
 /** Cut to the configured ceiling, saying so in-band so the model knows. */
 function clip(text: string, name: string): string {
-  const max = cfgInt("FERAL_ATTACHMENT_MAX_CHARS");
+  const max = cfgInt("CINDERPAW_ATTACHMENT_MAX_CHARS");
   if (text.length <= max) return text;
   return (
     text.slice(0, max) +

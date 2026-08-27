@@ -1,5 +1,5 @@
 {
-  "//": "Feral Brain Stack config — drop into ~/.feral/brain.json (or $FERAL_HOME/brain.json). Loaded by loadBrainConfig(). `feral setup` writes this shape for you.",
+  "//": "Feral Brain Stack config — drop into ~/.feral/brain.json (or $CINDERPAW_HOME/brain.json). Loaded by loadBrainConfig(). `feral setup` writes this shape for you.",
   "enabled": true,
   "//mode": "budget = prefer cheap/local, balanced = capability weighted by cost, quality = best capability wins",
   "mode": "balanced",

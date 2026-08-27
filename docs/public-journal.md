@@ -113,8 +113,8 @@ cannot leave a stale "online" on the page.
 See `docs/CONFIGURATION.md` §3b. The minimum:
 
 ```bash
-export FERAL_PUBLIC_JOURNAL_URL="https://your-site/api/public-journal/ingest"
-export FERAL_PUBLIC_JOURNAL_TOKEN="<the token the site expects>"
+export CINDERPAW_PUBLIC_JOURNAL_URL="https://your-site/api/public-journal/ingest"
+export CINDERPAW_PUBLIC_JOURNAL_TOKEN="<the token the site expects>"
 ```
 
 With those unset the exporter refuses to start, so nothing leaves the machine by
@@ -142,7 +142,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/root/.cinderpaw/self-src/CinderpawAgent
-Environment=FERAL_PUBLIC_JOURNAL_URL=https://your-site/api/public-journal/ingest
+Environment=CINDERPAW_PUBLIC_JOURNAL_URL=https://your-site/api/public-journal/ingest
 EnvironmentFile=/root/.cinderpaw/public-journal.env
 ExecStart=/root/.bun/bin/bun scripts/publish-public-journal.ts --watch
 Restart=on-failure

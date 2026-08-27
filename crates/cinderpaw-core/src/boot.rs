@@ -195,7 +195,7 @@ fn build_and_persist_api_token() -> Arc<str> {
 /// driver bug that no Cinderpaw-side work-around fixes (see
 /// `docs/agents-memory/project_local_models_gpu.md`). The chat
 /// inference path on the same GPU is fine; only the embed path is
-/// the problem. We set `FERAL_EMBED_GPU_LAYERS=0` BEFORE the embed
+/// the problem. We set `CINDERPAW_EMBED_GPU_LAYERS=0` BEFORE the embed
 /// model is lazily loaded (`inference.rs::load_embedding` reads it via
 /// `std::env` at first use), so the crash never happens. Only active
 /// on a Vulkan build (`inference-vulkan` feature); a CPU build ignores
@@ -203,13 +203,13 @@ fn build_and_persist_api_token() -> Arc<str> {
 /// overwrite a pre-set env var).
 #[cfg(feature = "inference-vulkan")]
 fn fragile_amd_embed_guard() {
-    if crate::env::env_var_os("FERAL_EMBED_GPU_LAYERS").is_none() {
+    if crate::env::env_var_os("CINDERPAW_EMBED_GPU_LAYERS").is_none() {
         let info = crate::gpu_detect::detect();
         if crate::gpu_detect::should_force_cpu_embed(&info) {
-            std::env::set_var("FERAL_EMBED_GPU_LAYERS", "0");
+            std::env::set_var("CINDERPAW_EMBED_GPU_LAYERS", "0");
             tracing::info!(
                 gpu = %info.name,
-                "pinning embeddings to CPU (FERAL_EMBED_GPU_LAYERS=0) — this GPU is \
+                "pinning embeddings to CPU (CINDERPAW_EMBED_GPU_LAYERS=0) — this GPU is \
                  either known-fragile for the Vulkan embed path or could not be \
                  identified; chat inference still uses the GPU. Set the variable \
                  yourself to override."
@@ -294,40 +294,40 @@ fn export_settings_env(settings: &Settings) {
     // command gate (`desktop_control.rs` reads it per request). Off by
     // default; the Settings toggle flips this and restarts the sidecar.
     if settings.desktop_control_enabled {
-        std::env::set_var("FERAL_ENABLE_DESKTOP_CONTROL", "true");
+        std::env::set_var("CINDERPAW_ENABLE_DESKTOP_CONTROL", "true");
     }
     // YOLO mode (no per-action confirmation) is read by the sidecar, so
     // export it before spawn too. Safe mode (default) leaves it unset.
     if settings.desktop_control_yolo {
-        std::env::set_var("FERAL_DESKTOP_CONTROL_CONFIRM", "false");
+        std::env::set_var("CINDERPAW_DESKTOP_CONTROL_CONFIRM", "false");
     }
     // Token budget: always set the env so the sidecar picks it up.
     // None = unlimited (Infinity); Some(n) = hard cap at n tokens.
     match settings.token_budget_conversation {
-        Some(n) => std::env::set_var("FERAL_BUDGET_CONVERSATION", n.to_string()),
-        None => std::env::set_var("FERAL_BUDGET_CONVERSATION", "Infinity"),
+        Some(n) => std::env::set_var("CINDERPAW_BUDGET_CONVERSATION", n.to_string()),
+        None => std::env::set_var("CINDERPAW_BUDGET_CONVERSATION", "Infinity"),
     }
     // RSI background spend cap. Some(0.0)/default = local-only;
     // Some(n) = allow $n cloud spend; None = no cap (remove the var).
     match settings.rsi_max_cost_usd {
-        Some(n) => std::env::set_var("FERAL_RSI_MAX_COST_USD", format!("{n}")),
-        None => std::env::remove_var("FERAL_RSI_MAX_COST_USD"),
+        Some(n) => std::env::set_var("CINDERPAW_RSI_MAX_COST_USD", format!("{n}")),
+        None => std::env::remove_var("CINDERPAW_RSI_MAX_COST_USD"),
     }
     // Cloud dreaming. Written on every export, both ways, because the toggle
     // has to be able to turn the loop OFF again — and this function runs more
     // than once per process, so "only set it when true" would make the first
     // switch-on permanent for the session.
     //
-    // An externally supplied `FERAL_RSI_ALLOW_CLOUD` still wins: that is how
-    // CI and `FERAL_RSI_ALLOW_CLOUD=true feral` have always worked, and the
+    // An externally supplied `CINDERPAW_RSI_ALLOW_CLOUD` still wins: that is how
+    // CI and `CINDERPAW_RSI_ALLOW_CLOUD=true feral` have always worked, and the
     // value is captured once, before we overwrite it with our own.
     static EXTERNAL_ALLOW_CLOUD: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-    let external = EXTERNAL_ALLOW_CLOUD.get_or_init(|| crate::env::env_var("FERAL_RSI_ALLOW_CLOUD"));
+    let external = EXTERNAL_ALLOW_CLOUD.get_or_init(|| crate::env::env_var("CINDERPAW_RSI_ALLOW_CLOUD"));
     let value = match external {
         Some(v) => v.clone(),
         None => if settings.rsi_allow_cloud_dreams { "true" } else { "false" }.to_string(),
     };
-    std::env::set_var("FERAL_RSI_ALLOW_CLOUD", value);
+    std::env::set_var("CINDERPAW_RSI_ALLOW_CLOUD", value);
     // MASTER dream switch, always written both ways (same reasoning as the
     // cloud toggle above). Off by default: the sidecar's arm decision refuses
     // to start the scheduler unless this is explicitly "true" — dreaming is
@@ -387,6 +387,6 @@ mod tests {
         let settings = build_settings();
         assert!(settings.api_server_enabled,
             "build_runtime must force api_server_enabled on — \
-             the Feral Agent sidecar hardcodes FERAL_BASE_URL=127.0.0.1:api_port");
+             the Feral Agent sidecar hardcodes CINDERPAW_BASE_URL=127.0.0.1:api_port");
     }
 }

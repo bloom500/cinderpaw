@@ -15,8 +15,8 @@
  *   - `MAX_CLUSTER_ITEMS_CHARS` truncates the whole `items` array so
  *     even the densest cluster's prompt stays within budget.
  *
- * Both are env-configurable via `FERAL_TREE_ITEM_MAX_CHARS` and
- * `FERAL_TREE_CLUSTER_MAX_CHARS`. Defaults: 800 chars/item,
+ * Both are env-configurable via `CINDERPAW_TREE_ITEM_MAX_CHARS` and
+ * `CINDERPAW_TREE_CLUSTER_MAX_CHARS`. Defaults: 800 chars/item,
  * 12 000 chars/cluster — well inside any reasonable provider window
  * even with a non-trivial system prompt.
  */
@@ -40,9 +40,9 @@ function longLeaves(n: number, perLeafChars: number): Leaf[] {
 }
 
 describe("buildTree — context-window cap on cluster summaries", () => {
-  it("truncates each leaf text to FERAL_TREE_ITEM_MAX_CHARS before joining a cluster", async () => {
-    process.env.FERAL_TREE_ITEM_MAX_CHARS = "500";
-    process.env.FERAL_TREE_CLUSTER_MAX_CHARS = "12000";
+  it("truncates each leaf text to CINDERPAW_TREE_ITEM_MAX_CHARS before joining a cluster", async () => {
+    process.env.CINDERPAW_TREE_ITEM_MAX_CHARS = "500";
+    process.env.CINDERPAW_TREE_CLUSTER_MAX_CHARS = "12000";
 
     // Spy on summarize: capture the items array per call.
     const calls: string[][] = [];
@@ -70,13 +70,13 @@ describe("buildTree — context-window cap on cluster summaries", () => {
       expect(item.length).toBeLessThanOrEqual(500);
     }
 
-    delete process.env.FERAL_TREE_ITEM_MAX_CHARS;
-    delete process.env.FERAL_TREE_CLUSTER_MAX_CHARS;
+    delete process.env.CINDERPAW_TREE_ITEM_MAX_CHARS;
+    delete process.env.CINDERPAW_TREE_CLUSTER_MAX_CHARS;
   });
 
-  it("stops adding items to a cluster summary once FERAL_TREE_CLUSTER_MAX_CHARS is hit", async () => {
-    process.env.FERAL_TREE_ITEM_MAX_CHARS = "1000";
-    process.env.FERAL_TREE_CLUSTER_MAX_CHARS = "2000";
+  it("stops adding items to a cluster summary once CINDERPAW_TREE_CLUSTER_MAX_CHARS is hit", async () => {
+    process.env.CINDERPAW_TREE_ITEM_MAX_CHARS = "1000";
+    process.env.CINDERPAW_TREE_CLUSTER_MAX_CHARS = "2000";
 
     const calls: string[][] = [];
     const summarize = async (items: string[]) => {
@@ -105,14 +105,14 @@ describe("buildTree — context-window cap on cluster summaries", () => {
     // not a "send nothing").
     expect(firstCall.length).toBeGreaterThanOrEqual(1);
 
-    delete process.env.FERAL_TREE_ITEM_MAX_CHARS;
-    delete process.env.FERAL_TREE_CLUSTER_MAX_CHARS;
+    delete process.env.CINDERPAW_TREE_ITEM_MAX_CHARS;
+    delete process.env.CINDERPAW_TREE_CLUSTER_MAX_CHARS;
   });
 
   it("default caps (no env vars) still keep cluster summary input bounded", async () => {
     // No env vars set — must use the safe defaults.
-    delete process.env.FERAL_TREE_ITEM_MAX_CHARS;
-    delete process.env.FERAL_TREE_CLUSTER_MAX_CHARS;
+    delete process.env.CINDERPAW_TREE_ITEM_MAX_CHARS;
+    delete process.env.CINDERPAW_TREE_CLUSTER_MAX_CHARS;
 
     const calls: string[][] = [];
     const summarize = async (items: string[]) => {

@@ -100,7 +100,7 @@ export class SemanticMemory {
    * Write or overwrite a single fact about the user. High-confidence PII in the
    * value (card / IBAN / CNP / email / phone) is redacted before persistence
    * (M-2) so durable memory never silently retains it. Disable with
-   * `FERAL_PII_REDACTION=off`.
+   * `CINDERPAW_PII_REDACTION=off`.
    */
   upsert(key: string, value: string, scope = ""): void {
     if (!key.trim()) return;

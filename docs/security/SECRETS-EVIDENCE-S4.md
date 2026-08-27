@@ -12,7 +12,7 @@ Legend:
 
 ---
 
-## 1. DB field-encryption key (`FERAL_DB_KEY`, 32 random bytes)
+## 1. DB field-encryption key (`CINDERPAW_DB_KEY`, 32 random bytes)
 
 The AES-256-GCM key that encrypts the `semantic.value` column at rest.
 
@@ -22,8 +22,8 @@ The AES-256-GCM key that encrypts the `semantic.value` column at rest.
 | `src-tauri/src/db_key.rs:29`                         | RD  | `e.get_password()` — read existing key from keychain                  |
 | `src-tauri/src/db_key.rs:36-39`                      | WR  | `getrandom::getrandom(&mut buf)` — generate 32 random bytes           |
 | `src-tauri/src/db_key.rs:40`                         | WR  | `e.set_password(&b64)` — persist new key                              |
-| `src-tauri/src/cinderpaw_agent.rs:299-300`               | ENV | `cmd.env("FERAL_DB_KEY", db_key)` — pass to sidecar via env var       |
-| `CinderpawAgent/src/sandbox/field-crypto.ts:34`          | RD  | `process.env.FERAL_DB_KEY` — sidecar reads the env var                |
+| `src-tauri/src/cinderpaw_agent.rs:299-300`               | ENV | `cmd.env("CINDERPAW_DB_KEY", db_key)` — pass to sidecar via env var       |
+| `CinderpawAgent/src/sandbox/field-crypto.ts:34`          | RD  | `process.env.CINDERPAW_DB_KEY` — sidecar reads the env var                |
 | `CinderpawAgent/src/sandbox/field-crypto.ts:37`          | MEM | `Buffer.from(raw, "base64")` — decode to 32-byte Buffer               |
 | `CinderpawAgent/src/sandbox/field-crypto.ts:54`          | MEM | `createCipheriv("aes-256-gcm", KEY, iv)` — encrypt                    |
 | `CinderpawAgent/src/sandbox/field-crypto.ts:79`          | MEM | `createDecipheriv("aes-256-gcm", KEY, iv)` — decrypt                  |
@@ -34,7 +34,7 @@ The AES-256-GCM key that encrypts the `semantic.value` column at rest.
 / Linux Secret Service) — `keyring` crate v2.
 
 **Surface:** the key NEVER touches the React frontend. The frontend never sees
-`FERAL_DB_KEY`, never sees the keychain entry, and the only path that touches
+`CINDERPAW_DB_KEY`, never sees the keychain entry, and the only path that touches
 the encrypted column is `CinderpawAgent/src/memory/semantic.ts` (which only ever
 sees ciphertext strings + an opaque Buffer in process memory).
 

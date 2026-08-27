@@ -155,8 +155,8 @@ NOT the end of the task:
 - **Automatic continuations.** When a turn hits the time limit with work left,
   the runtime starts another turn on the same session (transcript, task list and
   checkpoint all intact) and tells it to pick up where it stopped rather than
-  start over. Budget: `FERAL_UNATTENDED_CONTINUATIONS`.
-- **A wall-clock deadline.** `FERAL_MISSION_DEADLINE_MS` stops a run at a real
+  start over. Budget: `CINDERPAW_UNATTENDED_CONTINUATIONS`.
+- **A wall-clock deadline.** `CINDERPAW_MISSION_DEADLINE_MS` stops a run at a real
   time rather than after a number of turns.
 - **One replan.** If the same action keeps returning the same result, the run is
   not "out of time", it is refuted — it gets exactly one turn to state what it
@@ -286,7 +286,7 @@ token footnote), `/restart` (restart the runtime).
   with the owning process id), so the app's own sidecar cannot open it and dies
   at startup. Fix: `feral gateway stop`, or close the other Cinderpaw, then restart
   the app. Two instances that genuinely need to coexist need separate profiles —
-  a different `FERAL_HOME` and a different `api_port` each.
+  a different `CINDERPAW_HOME` and a different `api_port` each.
 - **The banner does not clear by itself.** After the runtime comes back, the
   "went offline" message can stay on screen until the app is restarted — and
   closing the window is not enough, since it keeps running in the system tray.

@@ -17,7 +17,7 @@ set -eu
 # older one is not marked as migrated").
 app_home() {
   if [ -n "${CINDERPAW_HOME:-}" ]; then printf '%s\n' "$CINDERPAW_HOME"; return; fi
-  if [ -n "${FERAL_HOME:-}" ]; then printf '%s\n' "$FERAL_HOME"; return; fi
+  if [ -n "${CINDERPAW_HOME:-}" ]; then printf '%s\n' "$CINDERPAW_HOME"; return; fi
   MODERN="${HOME}/.cinderpaw"
   LEGACY="${HOME}/.feral"
   if [ -d "$MODERN" ]; then printf '%s\n' "$MODERN"
@@ -34,12 +34,12 @@ persist_env() {
     */zsh) PROFILE="${HOME}/.zshrc" ;;
     */bash) PROFILE="${HOME}/.bashrc" ;;
   esac
-  LINE="export FERAL_LORA_TRAINER_BIN=\"$RESOLVED\""
-  if ! grep -qsF "FERAL_LORA_TRAINER_BIN" "$PROFILE" 2>/dev/null; then
+  LINE="export CINDERPAW_LORA_TRAINER_BIN=\"$RESOLVED\""
+  if ! grep -qsF "CINDERPAW_LORA_TRAINER_BIN" "$PROFILE" 2>/dev/null; then
     printf '\n# Feral LoRA trainer (docs/LORA_TRAINER.md)\n%s\n' "$LINE" >> "$PROFILE"
     echo "[setup-lora-trainer] appended to $PROFILE"
   else
-    echo "[setup-lora-trainer] $PROFILE already sets FERAL_LORA_TRAINER_BIN - update it manually if the path changed:"
+    echo "[setup-lora-trainer] $PROFILE already sets CINDERPAW_LORA_TRAINER_BIN - update it manually if the path changed:"
   fi
   echo "  $LINE"
   echo "Restart Feral (and your shell) to pick it up."
@@ -124,5 +124,5 @@ probe "$LAUNCHER"
 persist_env "$LAUNCHER"
 echo ""
 echo "NOTE: training resolves the HF base model from the GGUF's metadata."
-echo "If your GGUF lacks provenance metadata, set FERAL_LORA_HF_BASE to the"
+echo "If your GGUF lacks provenance metadata, set CINDERPAW_LORA_HF_BASE to the"
 echo "HF repo id it was converted from (e.g. Qwen/Qwen2.5-7B-Instruct)."

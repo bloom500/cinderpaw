@@ -21,7 +21,7 @@ numbers that go into PLAN.md.
    default; smaller (e.g. `qwen2.5:0.5b`) is fine for a smoke.
    The Tauri shell starts the bundled llama.cpp engine on
    `http://127.0.0.1:11435` automatically; override with
-   `FERAL_MODEL=... FERAL_BASE_URL=...` for an external provider.
+   `CINDERPAW_MODEL=... CINDERPAW_BASE_URL=...` for an external provider.
 
 ## Step 1 — build the sidecar
 

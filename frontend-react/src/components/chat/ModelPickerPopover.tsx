@@ -19,7 +19,7 @@ import { BackendBadge } from '@/components/BackendBadge';
 // Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
 // a local pick must target THIS (not external Ollama on 11434) so the agent uses
 // the model loaded in the Models tab.
-const FERAL_API_BASE = 'http://localhost:11435';
+const CINDERPAW_API_BASE = 'http://localhost:11435';
 const LOCAL_PROVIDER_ID = 'feral-local';
 
 function formatBytes(n: number): string {
@@ -104,7 +104,7 @@ export function ModelPickerPopover() {
       await feralSetModel({
         source: 'openai_compatible',
         model: m.name,
-        baseUrl: FERAL_API_BASE,
+        baseUrl: CINDERPAW_API_BASE,
         providerId: LOCAL_PROVIDER_ID,
       });
     } catch (err) {

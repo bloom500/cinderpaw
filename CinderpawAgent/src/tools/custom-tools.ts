@@ -35,7 +35,7 @@
  *
  * Trust class: identical to shell_exec (arbitrary code, OS-level ambient
  * authority). That is why boot registers the forge + custom tools ONLY
- * under the same FERAL_ENABLE_SHELL_EXEC gate — this feature adds
+ * under the same CINDERPAW_ENABLE_SHELL_EXEC gate — this feature adds
  * persistence and a first-class tool interface, not a new capability the
  * agent didn't already have through `shell_exec`.
  *
@@ -337,7 +337,7 @@ export function createCustomTool(
           cwd: workspaceRoots[0],
           stdin: JSON.stringify(args ?? {}),
           // The child reads this to build its egress whitelist. It survives
-          // the sandbox's env filter (FERAL_* is neither a blocked prefix nor
+          // the sandbox's env filter (CINDERPAW_* is neither a blocked prefix nor
           // a blocked exact name) and is the ONLY thing the child is told
           // about the network.
           env: { [TOOL_DOMAINS_ENV]: allowedDomains.join(",") },
@@ -364,7 +364,7 @@ export function createCustomTool(
  * Confirm one call of a still-experimental forged tool. Same fail-closed
  * discipline as the forge's creation gate (`confirmForge`) and control_app's
  * `confirmWrite`: no bridge to ask through → denied, unless a headless
- * deployment opted in with FERAL_FORGE_NO_PROMPT_OK.
+ * deployment opted in with CINDERPAW_FORGE_NO_PROMPT_OK.
  *
  * The prompt shows the ARGUMENTS, because that is what differs between a
  * benign call and a harmful one — the code was already reviewed at creation.
@@ -375,7 +375,7 @@ async function confirmQuarantinedCall(
   ctx: Parameters<Tool["execute"]>[1],
   seen: number,
 ): Promise<"once" | "always" | "deny"> {
-  if (!ctx.askUser) return cfgBool("FERAL_FORGE_NO_PROMPT_OK") ? "once" : "deny";
+  if (!ctx.askUser) return cfgBool("CINDERPAW_FORGE_NO_PROMPT_OK") ? "once" : "deny";
   let rendered: string;
   try {
     rendered = JSON.stringify(args ?? {}).slice(0, 300);

@@ -23,7 +23,7 @@ import (
 // directory instead of their own. Four of them failed exactly that way on the
 // first attempt.
 func TestMain(m *testing.M) {
-	if os.Getenv("CINDERPAW_HOME") == "" && os.Getenv("FERAL_HOME") == "" {
+	if os.Getenv("CINDERPAW_HOME") == "" && os.Getenv("CINDERPAW_HOME") == "" {
 		dir, err := os.MkdirTemp("", "cinderpaw-tui-test-home-")
 		if err != nil {
 			panic("cannot create a temp home for tests: " + err.Error())

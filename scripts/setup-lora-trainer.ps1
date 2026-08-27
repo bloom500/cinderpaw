@@ -21,7 +21,7 @@ $ErrorActionPreference = 'Stop'
 # older one is not marked as migrated").
 function Get-AppHome {
     $override = $env:CINDERPAW_HOME
-    if (-not $override) { $override = $env:FERAL_HOME }
+    if (-not $override) { $override = $env:CINDERPAW_HOME }
     if ($override) { return $override }
     $modern = Join-Path $env:USERPROFILE '.cinderpaw'
     $legacy = Join-Path $env:USERPROFILE '.feral'
@@ -39,8 +39,8 @@ function Register-Trainer([string]$bin) {
         Write-Error "probe failed: '$bin --version' exited $($proc.ExitCode). The trainer must answer --version with exit 0 (see docs/LORA_TRAINER.md)."
         exit 1
     }
-    [Environment]::SetEnvironmentVariable('FERAL_LORA_TRAINER_BIN', $bin, 'User')
-    Write-Host "[setup-lora-trainer] OK - FERAL_LORA_TRAINER_BIN set (user scope) to:"
+    [Environment]::SetEnvironmentVariable('CINDERPAW_LORA_TRAINER_BIN', $bin, 'User')
+    Write-Host "[setup-lora-trainer] OK - CINDERPAW_LORA_TRAINER_BIN set (user scope) to:"
     Write-Host "  $bin"
     Write-Host "Restart Feral (and any open terminals) to pick it up."
 }
@@ -125,5 +125,5 @@ if ($LASTEXITCODE -ne 0) {
 Register-Trainer $launcher
 Write-Host ""
 Write-Host "NOTE: training resolves the HF base model from the GGUF's metadata."
-Write-Host "If your GGUF lacks provenance metadata, set FERAL_LORA_HF_BASE to the"
+Write-Host "If your GGUF lacks provenance metadata, set CINDERPAW_LORA_HF_BASE to the"
 Write-Host "HF repo id it was converted from (e.g. Qwen/Qwen2.5-7B-Instruct)."

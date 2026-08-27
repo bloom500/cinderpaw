@@ -1,16 +1,16 @@
 /**
  * Brain config loader — Brain Stack slice 5.
  *
- * Reads `~/.feral/brain.json` (or `$FERAL_HOME/brain.json`) and returns a
+ * Reads `~/.feral/brain.json` (or `$CINDERPAW_HOME/brain.json`) and returns a
  * `BrainConfig`. Opt-in: when the file is absent, Brain Stack stays
  * disabled and the agent-loop falls through to the existing path
  * (`router.complete()` with `#primary` / `#fallback`).
  *
  * Env escape hatch for headless testing:
- *   - `FERAL_BRAIN=1` forces enable. If brain.json is missing, we throw
+ *   - `CINDERPAW_BRAIN=1` forces enable. If brain.json is missing, we throw
  *     (explicit "I asked for brain mode but there's no config"); if it
  *     is present, its `enabled` flag is forced to true regardless.
- *   - Without `FERAL_BRAIN`, brain.json presence is the opt-in signal.
+ *   - Without `CINDERPAW_BRAIN`, brain.json presence is the opt-in signal.
  *     The file's `enabled` flag determines whether Brain is actually on
  *     (allows a user to ship brain.json with `enabled: false` to
  *     pre-stage config without turning it on).
@@ -54,7 +54,7 @@ const VALID_MODES: ReadonlySet<Mode> = new Set<Mode>([
 const DEFAULT_MODE: Mode = "balanced";
 
 /**
- * Default location for brain.json: `$FERAL_HOME/brain.json` if set,
+ * Default location for brain.json: `$CINDERPAW_HOME/brain.json` if set,
  * else `~/.feral/brain.json`. Exported so callers (and tests) can
  * discover the same path the loader would use.
  */
@@ -87,22 +87,22 @@ export interface LoadBrainConfigOptions {
 
 /**
  * Load the Brain Stack config from disk. Returns `null` when Brain is
- * opted-out (file absent AND no FERAL_BRAIN; OR file present with
- * `enabled: false` AND no FERAL_BRAIN).
+ * opted-out (file absent AND no CINDERPAW_BRAIN; OR file present with
+ * `enabled: false` AND no CINDERPAW_BRAIN).
  *
  * Throws on:
- *   - FERAL_BRAIN=1 but no brain.json (explicit request, missing config)
+ *   - CINDERPAW_BRAIN=1 but no brain.json (explicit request, missing config)
  *   - brain.json present but malformed (parse error, wrong shape)
  *
  * Does NOT throw on:
- *   - brain.json absent without FERAL_BRAIN (just opt-out, return null)
+ *   - brain.json absent without CINDERPAW_BRAIN (just opt-out, return null)
  */
 export function loadBrainConfig(
   opts: LoadBrainConfigOptions = {},
 ): BrainConfig | null {
   const brainPath = opts.brainPath ?? defaultBrainPath();
   const env = opts.env ?? process.env;
-  const forcedEnable = env.FERAL_BRAIN === "1";
+  const forcedEnable = env.CINDERPAW_BRAIN === "1";
 
   let raw: string;
   try {
@@ -112,8 +112,8 @@ export function loadBrainConfig(
     if (forcedEnable) {
       throw new Error(
         code === "ENOENT" || code === undefined
-          ? `FERAL_BRAIN=1 but brain.json not found at ${brainPath}`
-          : `FERAL_BRAIN=1 but brain.json could not be read at ${brainPath} (${code})`,
+          ? `CINDERPAW_BRAIN=1 but brain.json not found at ${brainPath}`
+          : `CINDERPAW_BRAIN=1 but brain.json could not be read at ${brainPath} (${code})`,
       );
     }
     // ONLY "the file is not there" means opted out. Any other failure — no

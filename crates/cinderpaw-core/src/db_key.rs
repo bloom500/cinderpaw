@@ -2,7 +2,7 @@
 //!
 //! A random 256-bit key kept in the OS keychain (Windows Credential Manager /
 //! macOS Keychain / Linux Secret Service — same backend as BYOK in `byok.rs`)
-//! and handed to the sidecar via the `FERAL_DB_KEY` env var. The sidecar uses
+//! and handed to the sidecar via the `CINDERPAW_DB_KEY` env var. The sidecar uses
 //! it to encrypt the highest-density PII column (semantic memory values) with
 //! AES-256-GCM, so a copy of the SQLite file alone — backed up, synced, or
 //! leaked — does not reveal those facts. Episodic/conversation text stays

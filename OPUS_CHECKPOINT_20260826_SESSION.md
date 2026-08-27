@@ -11,8 +11,8 @@ cowork, and all of today's work — it is the tip, not a side branch.
   only red was never the merge: `cargo check` fails in any fresh worktree
   because `src-tauri/binaries/cinderpaw-agent-<triple>.exe` is a gitignored
   build artifact. Both verify scripts now build the sidecar first.
-- **Val 2.3 + 2.4 — DONE.** `FERAL_BENCHMARK_RUN_ID` turns on both isolations:
-  the network narrows to `FERAL_BENCHMARK_ALLOW_HOSTS` at BOTH exits (egress
+- **Val 2.3 + 2.4 — DONE.** `CINDERPAW_BENCHMARK_RUN_ID` turns on both isolations:
+  the network narrows to `CINDERPAW_BENCHMARK_ALLOW_HOSTS` at BOTH exits (egress
   proxy AND inference router — model traffic uses the global fetch and never
   touches the proxy), and `feralHome()` returns `<home>/runs/<runId>`.
 - **Val 3 — NOT STARTED**, by decision: no official ARC run until the systems
@@ -33,7 +33,7 @@ Go TUI never learned. Consequences, all fixed:
   legacy dir — after the cleanup that made the Rust host refuse to boot.
 - **Both test suites wrote into the live profile.** `bun test` overwrote a real
   connector allowlist; `go test` recreated `~/.feral`. Both isolated now, both
-  setting the WEAKER variable (`FERAL_HOME`/`HOME`) so per-test overrides win.
+  setting the WEAKER variable (`CINDERPAW_HOME`/`HOME`) so per-test overrides win.
 - Three TS tests hardcoded `.feral` themselves, which is why none of it was
   caught.
 
@@ -139,7 +139,7 @@ at 41.9%** — that had been an open unknown twice.
   it for `tool_start` returns zero whether or not tools ran — it cost one wrong
   conclusion here. `costReport(db, {since})` is the instrument.
 - Verify before fixing. Two "bugs" this session were already fixed, and the
-  Brain-Stack cache concern was wrong (`FERAL_BRAIN` defaults to false).
+  Brain-Stack cache concern was wrong (`CINDERPAW_BRAIN` defaults to false).
 - Do NOT write files containing backslashes through Python heredocs. It
   silently mangled a regex escape twice today, in a test whose whole job was
   proving a regex escape.

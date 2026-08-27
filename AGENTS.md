@@ -66,7 +66,7 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   recipe that finally worked (cl 14.44 + Ninja + short `CARGO_TARGET_DIR`).
   Re-use when next fighting llama.cpp × MSVC.
 - **`project_local_models_gpu.md`** — the on-disk models, the bge-small
-  Vulkan crash, the `FERAL_EMBED_GPU_LAYERS=0` knob, and the
+  Vulkan crash, the `CINDERPAW_EMBED_GPU_LAYERS=0` knob, and the
   `discover_active_model` "wrong chat model" footgun (now fixed).
 - **`project_brsi_evolution.md`** — the BRSI (Bounded RSI) work: locked
   decisions (D1-D10), audit summary of the existing engine, refactor
@@ -132,7 +132,7 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   `api.SaveConnectorConfig`.**
 - **`project_tui_wizard_f3.md`** — F3 wizard health check (4-phase granular
   checks: API reachable → auth valid → model accessible → streaming
-  round-trip with deterministic `FERAL_OK` prompt), model picker with
+  round-trip with deterministic `CINDERPAW_OK` prompt), model picker with
   search, finish screen with bear compact + connection benchmark timing
   metrics. Implemented 2026-07-06.
 - **`project_substrate_introspection.md`** — `self.*` runtime

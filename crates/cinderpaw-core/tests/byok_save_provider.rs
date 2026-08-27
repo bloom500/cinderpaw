@@ -20,7 +20,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use cinderpaw_core::byok::{self, ByokSettings, ProviderConfig};
 
-/// Process-global serialisation for tests that mutate `FERAL_HOME`.
+/// Process-global serialisation for tests that mutate `CINDERPAW_HOME`.
 /// A panicking test inside the closure is fine: the drop guard restores
 /// the prior value before another test acquires the lock.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -33,8 +33,8 @@ struct EnvGuard {
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         match self.prev.take() {
-            Some(v) => std::env::set_var("FERAL_HOME", v),
-            None => std::env::remove_var("FERAL_HOME"),
+            Some(v) => std::env::set_var("CINDERPAW_HOME", v),
+            None => std::env::remove_var("CINDERPAW_HOME"),
         }
     }
 }
@@ -45,8 +45,8 @@ fn with_temp_feral_home<R>(f: impl FnOnce(&Path) -> R) -> R {
         .prefix("feral-byok-test-")
         .tempdir()
         .expect("tempdir");
-    let prev = std::env::var_os("FERAL_HOME");
-    std::env::set_var("FERAL_HOME", tmp.path());
+    let prev = std::env::var_os("CINDERPAW_HOME");
+    std::env::set_var("CINDERPAW_HOME", tmp.path());
     let _guard = EnvGuard {
         prev,
         _lock: lock,

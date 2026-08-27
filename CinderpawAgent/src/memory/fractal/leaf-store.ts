@@ -13,7 +13,7 @@
  *     step-2 fixtures and unit tests fast and hermetic.
  *   - Mutations persist via an ATOMIC full rewrite (`<path>.tmp` + rename).
  *     Full rewrite (not append) because records are updated in place on a
- *     merge; the store stays bounded by eviction (≤ FERAL_FMS_MAX_LEAVES).
+ *     merge; the store stays bounded by eviction (≤ CINDERPAW_FMS_MAX_LEAVES).
  *   - `load()` is tolerant of corrupt lines — a bad line is skipped and
  *     counted, never throws (a partially-written file must not crash boot).
  */

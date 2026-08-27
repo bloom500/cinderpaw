@@ -107,7 +107,7 @@ export async function spawnModuleHost(opts: SpawnOpts): Promise<SpawnResult> {
     // determinism seed and the be-bun switch (inert for a real bun).
     env: {
       PATH: process.env["PATH"] ?? "",
-      FERAL_MODULE_SEED: String(opts.seed ?? 1),
+      CINDERPAW_MODULE_SEED: String(opts.seed ?? 1),
       BUN_BE_BUN: "1",
     },
     stdin: "pipe",

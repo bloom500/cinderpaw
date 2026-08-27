@@ -513,7 +513,7 @@ pub(crate) async fn feral_lora_review_resolve(
 /// Faza 4 (L2 LoRA) — run one training cycle (dataset → trainer → paired eval
 /// → review card). Fire-and-forget; progress lands as a `lora_train_result`
 /// line + a refreshed `lora_reviews`. Training needs a local primary model and
-/// FERAL_LORA_TRAINER_BIN on the sidecar's env — without them the sidecar
+/// CINDERPAW_LORA_TRAINER_BIN on the sidecar's env — without them the sidecar
 /// reports a clear "training unavailable" reason instead of erroring here.
 #[tauri::command]
 #[specta::specta]

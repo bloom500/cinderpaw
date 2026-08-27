@@ -19,19 +19,19 @@ import {
 
 describe("shouldAutostartPassive", () => {
   test("enabled with a real model", () => {
-    const d = shouldAutostartPassive({ FERAL_MODEL: "gemma-4-e4b-it" });
+    const d = shouldAutostartPassive({ CINDERPAW_MODEL: "gemma-4-e4b-it" });
     expect(d.enabled).toBe(true);
   });
 
-  test("disabled via FERAL_RSI_PASSIVE=false (the kill switch)", () => {
-    const d = shouldAutostartPassive({ FERAL_MODEL: "gemma-4", FERAL_RSI_PASSIVE: "false" });
+  test("disabled via CINDERPAW_RSI_PASSIVE=false (the kill switch)", () => {
+    const d = shouldAutostartPassive({ CINDERPAW_MODEL: "gemma-4", CINDERPAW_RSI_PASSIVE: "false" });
     expect(d.enabled).toBe(false);
     expect(d.reason).toContain("disabled");
   });
 
   test("disabled when no real model is configured (placeholder)", () => {
-    expect(shouldAutostartPassive({ FERAL_MODEL: "feral-local" }).enabled).toBe(false);
-    expect(shouldAutostartPassive({ FERAL_MODEL: "" }).enabled).toBe(false);
+    expect(shouldAutostartPassive({ CINDERPAW_MODEL: "feral-local" }).enabled).toBe(false);
+    expect(shouldAutostartPassive({ CINDERPAW_MODEL: "" }).enabled).toBe(false);
     expect(shouldAutostartPassive({}).enabled).toBe(false);
   });
 });
@@ -47,35 +47,35 @@ describe("passiveStartOptions", () => {
 
   test("env overrides are honoured and concurrency is clamped to 1..4", () => {
     const o = passiveStartOptions({
-      FERAL_RSI_MAX_ITER: "500",
-      FERAL_RSI_CONCURRENCY: "99",
+      CINDERPAW_RSI_MAX_ITER: "500",
+      CINDERPAW_RSI_CONCURRENCY: "99",
     });
     expect(o.maxIterations).toBe(500);
     expect(o.concurrency).toBe(4); // clamped
   });
 
   test("garbage env values fall back to defaults", () => {
-    const o = passiveStartOptions({ FERAL_RSI_MAX_ITER: "abc", FERAL_RSI_CONCURRENCY: "-3" });
+    const o = passiveStartOptions({ CINDERPAW_RSI_MAX_ITER: "abc", CINDERPAW_RSI_CONCURRENCY: "-3" });
     expect(o.maxIterations).toBeGreaterThan(1000);
     expect(o.concurrency).toBe(1);
   });
 });
 
 describe("passiveStartOptions cost cap", () => {
-  test("defaults to $0 (local-only) when FERAL_RSI_MAX_COST_USD is unset", () => {
-    const o = passiveStartOptions({ FERAL_MODEL: "feral-local-7b" });
+  test("defaults to $0 (local-only) when CINDERPAW_RSI_MAX_COST_USD is unset", () => {
+    const o = passiveStartOptions({ CINDERPAW_MODEL: "feral-local-7b" });
     expect(o.maxTotalCostUsd).toBe(0);
   });
   test("reads a positive cap from the env", () => {
-    const o = passiveStartOptions({ FERAL_MODEL: "gpt-4o", FERAL_RSI_MAX_COST_USD: "2.5" });
+    const o = passiveStartOptions({ CINDERPAW_MODEL: "gpt-4o", CINDERPAW_RSI_MAX_COST_USD: "2.5" });
     expect(o.maxTotalCostUsd).toBe(2.5);
   });
   test("honors an explicit $0 cap", () => {
-    const o = passiveStartOptions({ FERAL_RSI_MAX_COST_USD: "0" });
+    const o = passiveStartOptions({ CINDERPAW_RSI_MAX_COST_USD: "0" });
     expect(o.maxTotalCostUsd).toBe(0);
   });
   test("treats a malformed cap as $0 (safe default)", () => {
-    const o = passiveStartOptions({ FERAL_MODEL: "x", FERAL_RSI_MAX_COST_USD: "abc" });
+    const o = passiveStartOptions({ CINDERPAW_MODEL: "x", CINDERPAW_RSI_MAX_COST_USD: "abc" });
     expect(o.maxTotalCostUsd).toBe(0);
   });
 });

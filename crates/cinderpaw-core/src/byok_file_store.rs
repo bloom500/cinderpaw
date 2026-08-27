@@ -183,11 +183,11 @@ pub fn file_store_used() -> bool {
 mod tests {
     use super::*;
 
-    /// `FERAL_HOME` is process-global and every test module in this crate's lib
+    /// `CINDERPAW_HOME` is process-global and every test module in this crate's lib
     /// binary shares it, so the lock that serialises them has to be shared too.
     /// This module used to keep its OWN mutex and its own guard — a copy that
     /// looked identical and locked nothing the RSI tests respected. Both halves
-    /// ran in parallel threads of the same process, each pointing `FERAL_HOME`
+    /// ran in parallel threads of the same process, each pointing `CINDERPAW_HOME`
     /// somewhere else: the byok tests read keys back out of a directory the RSI
     /// tests had just swapped away, and the RSI tests fell through to the real
     /// `~/.feral` and failed to find a repo there on any machine that didn't

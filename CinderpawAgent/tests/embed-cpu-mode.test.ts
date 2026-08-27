@@ -3,7 +3,7 @@
  *
  * Documents that embedding works correctly via a mock invoker (CPU path).
  * The real Vulkan path crashes on this dev box (RX 580 + llama.cpp × AMDVLK);
- * FERAL_EMBED_GPU_LAYERS=0 is the canonical knob.
+ * CINDERPAW_EMBED_GPU_LAYERS=0 is the canonical knob.
  */
 import { describe, it, expect, beforeEach } from "bun:test";
 import { embed, resetEmbedCache } from "../src/memory/fractal/embed.ts";

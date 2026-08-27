@@ -30,7 +30,7 @@ pub struct EnvOverrides {
     pub ttft_ms: Option<u64>,
     pub total_ms: Option<u64>,
     pub stall_ms: Option<u64>,
-    /// Legacy `FERAL_CLOUD_IDLE_TIMEOUT_MS`. Only honored on cloud.
+    /// Legacy `CINDERPAW_CLOUD_IDLE_TIMEOUT_MS`. Only honored on cloud.
     pub cloud_idle_ms: Option<u64>,
 }
 
@@ -38,10 +38,10 @@ impl EnvOverrides {
     /// Snapshot the relevant env vars. Cheap; doesn't lock anything.
     pub fn from_env() -> Self {
         Self {
-            ttft_ms: read_env_optional("FERAL_TTFT_DEADLINE_MS"),
-            total_ms: read_env_optional("FERAL_TOTAL_DEADLINE_MS"),
-            stall_ms: read_env_optional("FERAL_STALL_MS"),
-            cloud_idle_ms: read_env_optional("FERAL_CLOUD_IDLE_TIMEOUT_MS"),
+            ttft_ms: read_env_optional("CINDERPAW_TTFT_DEADLINE_MS"),
+            total_ms: read_env_optional("CINDERPAW_TOTAL_DEADLINE_MS"),
+            stall_ms: read_env_optional("CINDERPAW_STALL_MS"),
+            cloud_idle_ms: read_env_optional("CINDERPAW_CLOUD_IDLE_TIMEOUT_MS"),
         }
     }
 }
@@ -107,9 +107,9 @@ fn read_env_optional(name: &str) -> Option<u64> {
 /// 30 s stall).
 ///
 /// Env precedence: any positive integer in the matching env var wins;
-/// otherwise the target-specific default. `FERAL_STALL_MS` (the new
+/// otherwise the target-specific default. `CINDERPAW_STALL_MS` (the new
 /// general stall setting) takes precedence over the legacy
-/// `FERAL_CLOUD_IDLE_TIMEOUT_MS` when both are set, so an operator
+/// `CINDERPAW_CLOUD_IDLE_TIMEOUT_MS` when both are set, so an operator
 /// migrating doesn't see surprising flip-flops.
 pub fn perf_policy(is_cloud: bool) -> PerfPolicy {
     perf_policy_with_env(is_cloud, &EnvOverrides::from_env())
@@ -135,8 +135,8 @@ pub fn perf_policy_with_env(is_cloud: bool, env: &EnvOverrides) -> PerfPolicy {
     let ttft_deadline_ms = env.ttft_ms.unwrap_or(base_ttft);
     let total_deadline_ms = env.total_ms.unwrap_or(base_total);
 
-    // Stall precedence: `FERAL_STALL_MS` (new, general) wins; the legacy
-    // `FERAL_CLOUD_IDLE_TIMEOUT_MS` (cloud-only) is the back-compat knob.
+    // Stall precedence: `CINDERPAW_STALL_MS` (new, general) wins; the legacy
+    // `CINDERPAW_CLOUD_IDLE_TIMEOUT_MS` (cloud-only) is the back-compat knob.
     let stall_ms = env
         .stall_ms
         .or(if is_cloud { env.cloud_idle_ms } else { None })
@@ -263,19 +263,19 @@ mod tests {
         // EnvOverrides pre-parses values, so the resolver never sees
         // invalid strings — but the parsing helper itself must reject
         // non-positive or non-numeric input. Mirror the TS test here.
-        assert_eq!(read_env_optional("FERAL_DOES_NOT_EXIST_XYZ"), None);
+        assert_eq!(read_env_optional("CINDERPAW_DOES_NOT_EXIST_XYZ"), None);
         // Set a malformed value to verify `read_env_optional` returns None.
         // We touch process env in this one test; it's serial because we
         // also `remove_var` immediately after.
-        env::set_var("__FERAL_TEST_BAD__", "not-a-number");
-        assert_eq!(read_env_optional("__FERAL_TEST_BAD__"), None);
-        env::set_var("__FERAL_TEST_BAD__", "-100");
-        assert_eq!(read_env_optional("__FERAL_TEST_BAD__"), None);
-        env::set_var("__FERAL_TEST_BAD__", "0");
-        assert_eq!(read_env_optional("__FERAL_TEST_BAD__"), None);
-        env::set_var("__FERAL_TEST_BAD__", "12345");
-        assert_eq!(read_env_optional("__FERAL_TEST_BAD__"), Some(12_345));
-        env::remove_var("__FERAL_TEST_BAD__");
+        env::set_var("__CINDERPAW_TEST_BAD__", "not-a-number");
+        assert_eq!(read_env_optional("__CINDERPAW_TEST_BAD__"), None);
+        env::set_var("__CINDERPAW_TEST_BAD__", "-100");
+        assert_eq!(read_env_optional("__CINDERPAW_TEST_BAD__"), None);
+        env::set_var("__CINDERPAW_TEST_BAD__", "0");
+        assert_eq!(read_env_optional("__CINDERPAW_TEST_BAD__"), None);
+        env::set_var("__CINDERPAW_TEST_BAD__", "12345");
+        assert_eq!(read_env_optional("__CINDERPAW_TEST_BAD__"), Some(12_345));
+        env::remove_var("__CINDERPAW_TEST_BAD__");
 
         // Resolver falls back when override is None — same outcome.
         let p = perf_policy_with_env(false, &empty_env());

@@ -1714,7 +1714,7 @@ fn check_models() -> Check {
 /// enforces: `{ enabled: bool, mode: string, registry: array }`. This is the
 /// one check that would have caught the P0 where the old `cinderpaw setup` wrote
 /// `{ primary, fallback, capabilities }` — a shape the runtime rejects, so
-/// `cinderpaw chat` / `FERAL_BRAIN=1` threw on first run. Doctor runs offline
+/// `cinderpaw chat` / `CINDERPAW_BRAIN=1` threw on first run. Doctor runs offline
 /// (no sidecar), so it parses the file itself rather than asking the gateway.
 ///
 /// Absent brain.json is a WARN, not a FAIL: Brain Stack is opt-in.

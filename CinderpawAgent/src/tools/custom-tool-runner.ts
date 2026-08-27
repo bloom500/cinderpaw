@@ -32,7 +32,7 @@ export const CUSTOM_TOOL_RUNNER_FLAG = "--custom-tool-runner";
  * manifest's `networkAccess: false` a statement about the child rather than
  * about the ctx it wasn't given.
  */
-export const TOOL_DOMAINS_ENV = "FERAL_TOOL_ALLOWED_DOMAINS";
+export const TOOL_DOMAINS_ENV = "CINDERPAW_TOOL_ALLOWED_DOMAINS";
 
 /**
  * Route the child's `fetch` through the same EgressProxy the in-process tools

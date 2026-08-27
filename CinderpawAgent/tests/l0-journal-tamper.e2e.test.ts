@@ -1,7 +1,7 @@
 /**
  * L0 — Journal tamper detection (B5 e2e smoke, assembled version).
  *
- * Env-gated: FERAL_E2E=1 bun test tests/l0-journal-tamper.e2e.test.ts
+ * Env-gated: CINDERPAW_E2E=1 bun test tests/l0-journal-tamper.e2e.test.ts
  *
  * Two contracts pinned here (the granular tests live in
  * `rsi-journal-chain.test.ts`; this file is the assembled end-to-end
@@ -28,7 +28,7 @@ import {
 } from "../src/rsi/infra/journal.ts";
 import { defaultReadWindow } from "../src/rsi/l6-meta/meta-evolution.ts";
 
-const ENABLED = process.env.FERAL_E2E === "1";
+const ENABLED = process.env.CINDERPAW_E2E === "1";
 
 const tmpDirs: string[] = [];
 afterEach(() => {
@@ -54,7 +54,7 @@ function entry(cycleId: string, ts: number): JournalEntry {
   };
 }
 
-describe("L0 — journal tamper detection (FERAL_E2E)", () => {
+describe("L0 — journal tamper detection (CINDERPAW_E2E)", () => {
   it.skipIf(!ENABLED)(
     "a byte-tampered row is flagged by verifyJournal AND excluded by defaultReadWindow",
     async () => {

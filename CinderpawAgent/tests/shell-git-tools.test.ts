@@ -127,7 +127,7 @@ describe("shell_exec (argv-only)", () => {
     // an existing directory is added, a missing one is not.
     const real = mkdtempSync(join(tmpdir(), "feral-path-"));
     const fake = join(tmpdir(), "feral-path-does-not-exist");
-    process.env.FERAL_SHELL_PATH_EXTRA = `${real},${fake}`;
+    process.env.CINDERPAW_SHELL_PATH_EXTRA = `${real},${fake}`;
     try {
       const mod = await import(`../src/egress/process-sandbox.ts?bust=${Date.now()}`);
       const sandbox = new mod.RealProcessSandbox(() => {});
@@ -145,7 +145,7 @@ describe("shell_exec (argv-only)", () => {
       expect(out.stdout).toContain(real);
       expect(out.stdout).not.toContain(fake);
     } finally {
-      delete process.env.FERAL_SHELL_PATH_EXTRA;
+      delete process.env.CINDERPAW_SHELL_PATH_EXTRA;
       rmSync(real, { recursive: true, force: true });
     }
   });

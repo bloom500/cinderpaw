@@ -54,13 +54,13 @@ func TestSteadyStateFrameHasNoBoxDrawing(t *testing.T) {
 // TestAsciiModeEmitsNoNonAsciiBytes — spec §22 acceptance #19, exercised
 // against the real glyph table (not just the Ascii struct in ui/glyphs_test.go).
 func TestAsciiModeEmitsNoNonAsciiBytes(t *testing.T) {
-	t.Setenv("FERAL_ASCII", "1")
+	t.Setenv("CINDERPAW_ASCII", "1")
 	// ui.G is resolved once at package init, before t.Setenv can take
 	// effect — this test documents the current limitation rather than
 	// re-resolving it, since ui.G is a package var by design (spec §25.3
 	// doesn't call for a re-pick-on-demand API). Skip with a clear reason
 	// so CI output explains the gap instead of silently passing green.
-	t.Skip("ui.G is resolved at package init; process-level FERAL_ASCII=1 is exercised manually per the phase's exit criteria (spec §23), not by this in-process test")
+	t.Skip("ui.G is resolved at package init; process-level CINDERPAW_ASCII=1 is exercised manually per the phase's exit criteria (spec §23), not by this in-process test")
 }
 
 // TestHeaderCollapsesAtNarrowWidths — spec §22 acceptance #20 (80×24

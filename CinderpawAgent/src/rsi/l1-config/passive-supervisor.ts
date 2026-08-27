@@ -11,7 +11,7 @@
  * This module is the lifecycle brain, kept pure + injectable:
  *
  *   - `shouldAutostartPassive(env)` — the boot-time gate. Off when
- *     explicitly disabled (the FERAL_RSI_PASSIVE=false kill switch) or
+ *     explicitly disabled (the CINDERPAW_RSI_PASSIVE=false kill switch) or
  *     when no real model is configured (a placeholder model returns
  *     empty responses — spinning the engine would just burn cycles
  *     learning from nothing; see the empty-response telemetry).
@@ -58,7 +58,7 @@ export const LEGACY_PLACEHOLDER_MODEL = "feral-local";
  * Is this model id a stand-in rather than something that can answer?
  *
  * Exported because two halves of the process used to disagree about it. RSI
- * read an unset `FERAL_MODEL` and correctly reported "no real model
+ * read an unset `CINDERPAW_MODEL` and correctly reported "no real model
  * configured"; boot substituted `qwen2.5:7b` — an id nobody has installed —
  * and announced itself ready with it. A fresh install therefore said "ready",
  * named a model, and failed the first message. One rule, one answer.
@@ -73,14 +73,14 @@ export function isPlaceholderModel(model: string | undefined): boolean {
 export function shouldAutostartPassive(
   env: Record<string, string | undefined>,
 ): PassiveDecision {
-  if ((env.FERAL_RSI_PASSIVE ?? "").toLowerCase() === "false") {
-    return { enabled: false, reason: "disabled via FERAL_RSI_PASSIVE=false" };
+  if ((env.CINDERPAW_RSI_PASSIVE ?? "").toLowerCase() === "false") {
+    return { enabled: false, reason: "disabled via CINDERPAW_RSI_PASSIVE=false" };
   }
-  const model = (env.FERAL_MODEL ?? "").trim();
+  const model = (env.CINDERPAW_MODEL ?? "").trim();
   if (isPlaceholderModel(model)) {
     return {
       enabled: false,
-      reason: "no real model configured (placeholder/empty FERAL_MODEL)",
+      reason: "no real model configured (placeholder/empty CINDERPAW_MODEL)",
     };
   }
   return { enabled: true, reason: `model=${model}` };
@@ -110,12 +110,12 @@ export function passiveStartOptions(
   };
   return {
     goal: STANDING_GOAL,
-    maxIterations: positive(env.FERAL_RSI_MAX_ITER, 100_000),
-    maxTotalTokens: positive(env.FERAL_RSI_MAX_TOKENS, 1_000_000_000),
-    maxTotalCostUsd: nonNegative(env.FERAL_RSI_MAX_COST_USD, 0),
+    maxIterations: positive(env.CINDERPAW_RSI_MAX_ITER, 100_000),
+    maxTotalTokens: positive(env.CINDERPAW_RSI_MAX_TOKENS, 1_000_000_000),
+    maxTotalCostUsd: nonNegative(env.CINDERPAW_RSI_MAX_COST_USD, 0),
     // Compute cap: the user chose always-on, so concurrency is the only
     // throttle. Default 1; clamp any override to a sane 1..4.
-    concurrency: Math.max(1, Math.min(4, Math.floor(positive(env.FERAL_RSI_CONCURRENCY, 1)))),
+    concurrency: Math.max(1, Math.min(4, Math.floor(positive(env.CINDERPAW_RSI_CONCURRENCY, 1)))),
   };
 }
 

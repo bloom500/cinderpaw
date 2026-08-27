@@ -78,12 +78,12 @@ vector, producing a ranking, is already the implemented architecture. The score 
 
 ## 3. How Brain activates today
 
-`brain-config.ts:defaultBrainPath()` resolves `$FERAL_HOME/brain.json`, else
+`brain-config.ts:defaultBrainPath()` resolves `$CINDERPAW_HOME/brain.json`, else
 `~/.feral/brain.json`.
 
-- File absent and `FERAL_BRAIN` unset → `loadBrainConfig()` returns `null`.
+- File absent and `CINDERPAW_BRAIN` unset → `loadBrainConfig()` returns `null`.
 - File present → its own `enabled` flag decides.
-- `FERAL_BRAIN=1` → force-enable; **throws** if the file is missing.
+- `CINDERPAW_BRAIN=1` → force-enable; **throws** if the file is missing.
 
 Wiring, `boot.ts:987`:
 

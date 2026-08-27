@@ -2,7 +2,7 @@
  * Field-level encryption for sensitive DB columns at rest (H-1).
  *
  * The host (Rust) provisions a 256-bit key in the OS keychain and hands it to
- * this process as `FERAL_DB_KEY` (base64). We encrypt the highest-density PII
+ * this process as `CINDERPAW_DB_KEY` (base64). We encrypt the highest-density PII
  * column — semantic memory values — with AES-256-GCM so a stolen copy of the
  * SQLite file alone does not reveal those facts. Episodic/conversation text is
  * FTS-indexed and stays plaintext; it is covered by full-disk encryption.
@@ -32,7 +32,7 @@ const TAG_BYTES = 16;
  * semantic ops are infrequent, so the cost is irrelevant and testability wins.
  */
 function loadKey(): Buffer | null {
-  const raw = cfgPath("FERAL_DB_KEY");
+  const raw = cfgPath("CINDERPAW_DB_KEY");
   if (!raw) return null;
   try {
     const key = Buffer.from(raw, "base64");

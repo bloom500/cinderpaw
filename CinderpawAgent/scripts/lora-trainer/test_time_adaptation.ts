@@ -8,7 +8,7 @@
  * implemented. What this does is take the demonstration pairs of one task
  * and materialize a fine-tuning dataset in the authoritative trainer
  * contract format (docs/LORA_TRAINER.md): JSONL, one {"prompt","response"}
- * per line, consumed by `FERAL_LORA_TRAINER_BIN finetune --data <file>`
+ * per line, consumed by `CINDERPAW_LORA_TRAINER_BIN finetune --data <file>`
  * (bundled trainer install: scripts/setup-lora-trainer.sh / .ps1).
  *
  * Anyone planning a "+TTT" benchmark column should read the paragraph above
@@ -201,7 +201,7 @@ function main(): void {
     console.log(`[ttt] task "${result.taskName}": ${result.recordCount} demonstration pairs`);
     console.log(`[ttt] trainer-ready dataset (contract JSONL): ${result.jsonlPath}`);
     console.log(`[ttt] inspectable mirror: ${result.jsonPath}`);
-    console.log("[ttt] next step: FERAL_LORA_TRAINER_BIN finetune --data <jsonl above>");
+    console.log("[ttt] next step: CINDERPAW_LORA_TRAINER_BIN finetune --data <jsonl above>");
   } catch (e) {
     console.error(`[ttt] ${(e as Error).message}`);
     process.exitCode = 1;

@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 /// Root of all Feral on-disk state. Defaults to `~/.feral`.
 ///
-/// Honors the `FERAL_HOME` environment variable when set: its value is
+/// Honors the `CINDERPAW_HOME` environment variable when set: its value is
 /// used as the `.feral` root verbatim (no `.feral` suffix appended), so
-/// `FERAL_HOME=/tmp/x` puts the RSI substrate at `/tmp/x/rsi`. Two uses:
+/// `CINDERPAW_HOME=/tmp/x` puts the RSI substrate at `/tmp/x/rsi`. Two uses:
 ///
 /// 1. **Relocatable data dir** for portable installs / custom storage.
 /// 2. **Hermetic tests** — the RSI test suite points this at a `TempDir`
@@ -14,11 +14,11 @@ use std::path::PathBuf;
 /// in-process by the Rust host that owns the sandbox. The agent runs as
 /// a separate sidecar subprocess; it inherits env at spawn and has no
 /// API to mutate the host's environment afterward, so it cannot redirect
-/// the sandbox root by setting `FERAL_HOME`.
+/// the sandbox root by setting `CINDERPAW_HOME`.
 pub fn feral_dir() -> PathBuf {
-    // Both names are honoured — see `crate::env`. Someone who set FERAL_HOME in
+    // Both names are honoured — see `crate::env`. Someone who set CINDERPAW_HOME in
     // a shell profile a year ago must not find the app quietly ignoring it.
-    if let Some(over) = crate::env::env_var_os("FERAL_HOME") {
+    if let Some(over) = crate::env::env_var_os("CINDERPAW_HOME") {
         if !over.is_empty() {
             return PathBuf::from(over);
         }
@@ -216,7 +216,7 @@ pub fn rsi_plan_path() -> PathBuf {
 /// `~/.feral/rsi/dream.jsonl` — one JSONL line per completed Dream Cycle
 /// episode. Written by the sidecar (`dream-telemetry.ts`); read back by the
 /// `rsi_dream_telemetry` command for the Cinderpaw's Dreams UI panel. NOTE: the
-/// sidecar honors a `FERAL_RSI_TELEMETRY` override (dev/test only); the host
+/// sidecar honors a `CINDERPAW_RSI_TELEMETRY` override (dev/test only); the host
 /// reads the default path here, which is correct for normal installs.
 pub fn rsi_dream_telemetry_path() -> PathBuf {
     rsi_dir().join("dream.jsonl")

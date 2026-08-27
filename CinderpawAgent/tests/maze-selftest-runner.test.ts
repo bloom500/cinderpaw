@@ -185,6 +185,6 @@ describe("runBaseline + scoring", () => {
     expect(m.models.policy).toBe("oracle-bfs");
     expect(m.notes.join(" ")).toContain("NOT an ARC-AGI-3");
     // A manifest is published next to a scorecard — it must never carry a key.
-    expect(m.config.env.FERAL_DB_KEY).toMatch(/^<redacted:/);
+    expect(m.config.env.CINDERPAW_DB_KEY).toMatch(/^<redacted:/);
   }, 45000);
 });

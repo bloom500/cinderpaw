@@ -10,6 +10,7 @@
  */
 
 import type { LeafSummary } from "./leaf-store.ts";
+import { readEnv } from "../../config.ts";
 
 export interface EvictionPolicy {
   /** Stable id, recorded in the evicted-leaf audit log. */
@@ -57,12 +58,12 @@ export const DEFAULT_AGE_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_HIT_COUNT_THRESHOLD = 2;
 
 /**
- * Pick the eviction policy from `FERAL_FMS_EVICTION`. `"NoEviction"` / `"none"`
+ * Pick the eviction policy from `CINDERPAW_FMS_EVICTION`. `"NoEviction"` / `"none"`
  * opt out; anything else (including unset) is the production
  * `AgeAndHitCountEviction` default.
  */
 export function selectPolicyFromEnv(): EvictionPolicy {
-  const raw = (process.env.FERAL_FMS_EVICTION ?? "").trim().toLowerCase();
+  const raw = (readEnv("CINDERPAW_FMS_EVICTION") ?? "").trim().toLowerCase();
   if (raw === "noeviction" || raw === "none") return new NoEviction();
   return new AgeAndHitCountEviction(DEFAULT_AGE_THRESHOLD_MS, DEFAULT_HIT_COUNT_THRESHOLD);
 }

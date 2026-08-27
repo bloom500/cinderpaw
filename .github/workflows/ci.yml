@@ -47,7 +47,7 @@ jobs:
         working-directory: ${{ matrix.step.workdir }}
         run: ${{ matrix.step.typecheck }}
 
-      # FERAL_E2E turns on the fail-closed safety suites — journal tampering,
+      # CINDERPAW_E2E turns on the fail-closed safety suites — journal tampering,
       # the watchdog, module quarantine, governance. They are the tests that
       # demonstrate the rails hold, and they were gated behind a variable no
       # workflow set, so they had never run here once. They pass; nothing would
@@ -57,7 +57,7 @@ jobs:
       # applies to a step the other leg does not have is free, and a condition
       # here is one more thing to get wrong later.
       #
-      # FERAL_FMS_BENCH turns on the Fractal Memory scale suites. They were
+      # CINDERPAW_FMS_BENCH turns on the Fractal Memory scale suites. They were
       # gated behind a variable nothing set, so the 10k/100k upsert and recall
       # timings never ran here — which is how a hot-path change that made recall
       # several times slower could land without a single red mark. Benchmarks
@@ -66,8 +66,8 @@ jobs:
         working-directory: ${{ matrix.step.workdir }}
         run: ${{ matrix.step.test }}
         env:
-          FERAL_E2E: "1"
-          FERAL_FMS_BENCH: "1"
+          CINDERPAW_E2E: "1"
+          CINDERPAW_FMS_BENCH: "1"
 
   # The Go TUI (`cinderpaw chat`, the guided setup, the connector wizard) — 16k
   # lines with its own suite, built by install.sh and bundled with the desktop

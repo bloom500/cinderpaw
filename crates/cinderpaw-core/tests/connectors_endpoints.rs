@@ -1,7 +1,7 @@
 //! R6 — `/runtime/connectors` GET/POST contract tests.
 //!
 //! Mirrors `tests/api_stability.rs`'s full-router + bearer-token pattern
-//! and `tests/byok_save_provider.rs`'s hermetic `FERAL_HOME` tempdir
+//! and `tests/byok_save_provider.rs`'s hermetic `CINDERPAW_HOME` tempdir
 //! pattern (both established conventions; not new ones invented here).
 
 use axum::body::{to_bytes, Body};
@@ -12,10 +12,10 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "test-token";
 
-/// Process-global serialisation for tests that mutate `FERAL_HOME`.
+/// Process-global serialisation for tests that mutate `CINDERPAW_HOME`.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-/// Restores the prior `FERAL_HOME` (or removes it) when dropped. Held across
+/// Restores the prior `CINDERPAW_HOME` (or removes it) when dropped. Held across
 /// `.await` points for the lifetime of the test body — safe here because
 /// `#[tokio::test]` defaults to a current-thread runtime (no `Send` bound on
 /// the test future), matching `rsi::test_support::with_temp_feral_home`'s
@@ -28,8 +28,8 @@ struct EnvGuard {
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         match self.prev.take() {
-            Some(v) => std::env::set_var("FERAL_HOME", v),
-            None => std::env::remove_var("FERAL_HOME"),
+            Some(v) => std::env::set_var("CINDERPAW_HOME", v),
+            None => std::env::remove_var("CINDERPAW_HOME"),
         }
     }
 }
@@ -40,8 +40,8 @@ fn temp_feral_home() -> (tempfile::TempDir, EnvGuard) {
         .prefix("feral-connectors-test-")
         .tempdir()
         .expect("tempdir");
-    let prev = std::env::var_os("FERAL_HOME");
-    std::env::set_var("FERAL_HOME", tmp.path());
+    let prev = std::env::var_os("CINDERPAW_HOME");
+    std::env::set_var("CINDERPAW_HOME", tmp.path());
     (tmp, EnvGuard { prev, _lock: lock })
 }
 

@@ -568,7 +568,7 @@ static API_AUTOLOAD_IN_FLIGHT: std::sync::atomic::AtomicBool =
 /// no model chosen → 503, never a guess.
 ///
 /// Waits out a concurrent load (UI or another request) up to
-/// `FERAL_MODEL_WAIT_MS` (default 120s).
+/// `CINDERPAW_MODEL_WAIT_MS` (default 120s).
 /// Which model may we load for this request? Only one the user chose: the id
 /// they named, else the one they last selected (`chosen`, from `active_route`).
 /// Deliberately has NO "first model on disk" arm — that arm is what let any
@@ -639,7 +639,7 @@ async fn wait_for_model(state: &ApiState, requested: &str) -> bool {
         // Fall through to the wait loop — a concurrent UI load may still land.
     }
 
-    let deadline_ms = crate::env::env_var("FERAL_MODEL_WAIT_MS")
+    let deadline_ms = crate::env::env_var("CINDERPAW_MODEL_WAIT_MS")
         .and_then(|v| v.trim().parse::<u64>().ok())
         .unwrap_or(120_000);
     let start = std::time::Instant::now();
@@ -2471,8 +2471,8 @@ async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
     // / "local" instead of relying on the backend label alone. The provider
     // is set at sidecar spawn time; a runtime switch updates the sidecar
     // but not this env var, so we also report the agent_model change below.
-    let provider = crate::env::env_var("FERAL_PROVIDER").unwrap_or_else(|| "openai_compatible".to_string());
-    let byok_provider = crate::env::env_var("FERAL_BYOK_PROVIDER");
+    let provider = crate::env::env_var("CINDERPAW_PROVIDER").unwrap_or_else(|| "openai_compatible".to_string());
+    let byok_provider = crate::env::env_var("CINDERPAW_BYOK_PROVIDER");
     Json(json!({
         "model": model,
         // What the sidecar actually infers with (local GGUF name or a cloud
@@ -2486,7 +2486,7 @@ async fn runtime_status(State(state): State<ApiState>) -> impl IntoResponse {
         // for its status line.
         "provider": provider,
         // BYOK provider id (e.g. "nvidia", "minimax") when the gateway was
-        // started with FERAL_BYOK_PROVIDER set. Null on a vanilla local boot.
+        // started with CINDERPAW_BYOK_PROVIDER set. Null on a vanilla local boot.
         "byok_provider": byok_provider,
         "gpu": crate::inference::gpu_active(),
         "rsi_engine": rsi_engine,
@@ -2686,10 +2686,10 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
         // SAFETY: we are single-threaded inside the router task at this point
         // and `provider_id` is not borrowed anywhere else after this block.
         unsafe {
-            std::env::set_var("FERAL_PROVIDER", provider_kind);
-            std::env::set_var("FERAL_BASE_URL", &base_url);
-            std::env::set_var("FERAL_MODEL", &model);
-            std::env::set_var("FERAL_BYOK_PROVIDER", &provider_id);
+            std::env::set_var("CINDERPAW_PROVIDER", provider_kind);
+            std::env::set_var("CINDERPAW_BASE_URL", &base_url);
+            std::env::set_var("CINDERPAW_MODEL", &model);
+            std::env::set_var("CINDERPAW_BYOK_PROVIDER", &provider_id);
         }
         // Env vars die with the process — persist the route so a gateway
         // restart boots the sidecar on the SAME model (2026-07-11: restarts
@@ -2774,10 +2774,10 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
     // doesn't keep reporting the previous cloud provider after a /model call
     // goes back to a local GGUF.
     unsafe {
-        std::env::set_var("FERAL_PROVIDER", "openai_compatible");
-        std::env::set_var("FERAL_BASE_URL", format!("http://127.0.0.1:{}", state.runtime.settings.api_port));
-        std::env::set_var("FERAL_MODEL", &loaded.name);
-        std::env::remove_var("FERAL_BYOK_PROVIDER");
+        std::env::set_var("CINDERPAW_PROVIDER", "openai_compatible");
+        std::env::set_var("CINDERPAW_BASE_URL", format!("http://127.0.0.1:{}", state.runtime.settings.api_port));
+        std::env::set_var("CINDERPAW_MODEL", &loaded.name);
+        std::env::remove_var("CINDERPAW_BYOK_PROVIDER");
     }
     // Persist so a restart doesn't resurrect a stale cloud route.
     let mut s = crate::settings::load();

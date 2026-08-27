@@ -16,12 +16,12 @@ function walkTsFiles(dir: string): string[] {
   return out;
 }
 
-// Grandfathered: vars read directly via process.env.FERAL_* outside
+// Grandfathered: vars read directly via process.env.CINDERPAW_* outside
 // config.ts as of R3. Shrink this list opportunistically; do NOT add to it.
 //
 // Every name below falls into one of two buckets:
 //   1. Not migrated in this pass (grandfathered for real).
-//   2. A literal `process.env.FERAL_X` read whose semantics don't fit the
+//   2. A literal `process.env.CINDERPAW_X` read whose semantics don't fit the
 //      cfgBool/cfgInt/cfgPath/cfgList contract without changing behavior
 //      (inverse-toggle booleans, dynamic non-literal defaults resolved via
 //      `?? fallbackExpr()`, or a genuine cross-call-site default conflict) —
@@ -30,77 +30,77 @@ const GRANDFATHERED = new Set<string>([
   // Inverse-toggle booleans (default ON, "false"/"off" disables) — cfgBool's
   // "1"/"true" = on convention would silently flip on any other non-empty
   // value (e.g. "0", "no"). Left as-is rather than risk a security regression.
-  "FERAL_ENABLE_SHELL_EXEC",
-  "FERAL_DESKTOP_CONTROL_CONFIRM",
-  "FERAL_PII_REDACTION",
-  "FERAL_TOOL_GRAMMAR",
+  "CINDERPAW_ENABLE_SHELL_EXEC",
+  "CINDERPAW_DESKTOP_CONTROL_CONFIRM",
+  "CINDERPAW_PII_REDACTION",
+  "CINDERPAW_TOOL_GRAMMAR",
   // Same var, conflicting effective default across call sites — see report.
   // rsi/sidecar.ts:551 intentionally keeps its own "" fallback for pricing
-  // lookup; the other FERAL_MODEL call sites were migrated to cfgPath.
-  "FERAL_MODEL",
+  // lookup; the other CINDERPAW_MODEL call sites were migrated to cfgPath.
+  "CINDERPAW_MODEL",
   // Not migrated: general env harvest / non-security, non-top-10.
-  "FERAL_AGENT_BASE_PROMPT",
-  "FERAL_API_KEY",
-  "FERAL_BUDGET_CONVERSATION",
-  "FERAL_BUDGET_DAY",
-  "FERAL_BUDGET_POLICY",
-  "FERAL_BYOK_PROVIDER",
-  "FERAL_CLOUD_TRANSCRIPT_BUDGET",
-  "FERAL_CRON_JOB_TIMEOUT_MS",
-  "FERAL_CRON_TICK_MS",
-  "FERAL_DB",
-  "FERAL_DESKTOP_CONTROL_ALLOWED_APPS",
-  "FERAL_EMBED_CHUNK",
-  "FERAL_EMBED_GPU_LAYERS",
-  "FERAL_FALLBACK_API_KEY",
-  "FERAL_FALLBACK_BASE_URL",
-  "FERAL_FALLBACK_MODEL",
-  "FERAL_FALLBACK_PROVIDER",
-  "FERAL_FETCH_DOMAINS",
-  "FERAL_FMS_DEDUP_SPAN_MS",
-  "FERAL_FMS_EVICTION",
-  "FERAL_FMS_MERGE_THRESHOLD",
-  "FERAL_FRACTAL_BENCH_COUNT",
-  "FERAL_FRACTAL_BENCH_QUERIES",
-  "FERAL_FRACTAL_BENCH_SEED",
-  "FERAL_HEARTBEAT_INTERVAL_MS",
-  "FERAL_HTTP_DOMAINS",
-  "FERAL_JINA_API_KEY",
-  "FERAL_LORA_TRAINER_BIN",
-  "FERAL_LORA_TRAIN_TIMEOUT_MS",
-  "FERAL_MERGE_THRESHOLD",
-  "FERAL_MODULE_SEED",
-  "FERAL_NO_COLOR",
-  "FERAL_OLLAMA_NUM_CTX",
-  "FERAL_RSI_EVAL_TOKEN_BUDGET",
-  "FERAL_RSI_MAX_ITER",
-  "FERAL_RSI_STAGNATION_THRESHOLD",
-  "FERAL_RSI_TELEMETRY",
-  "FERAL_RUN_FRACTAL_BENCH",
-  "FERAL_SHELL_DENYLIST",
-  "FERAL_SHELL_WHITELIST",
-  "FERAL_SUBAGENT_MAX_SUMMARY_CHARS",
-  "FERAL_THOUGHTS_COOLDOWN_MS",
-  "FERAL_THOUGHTS_DAILY_CAP",
-  "FERAL_THOUGHTS_INTERVAL_MS",
-  "FERAL_THOUGHTS_MIN_IDLE_MS",
-  "FERAL_THOUGHTS_MOOD_THRESHOLD",
-  "FERAL_TRUSTED_BASE_URLS",
+  "CINDERPAW_AGENT_BASE_PROMPT",
+  "CINDERPAW_API_KEY",
+  "CINDERPAW_BUDGET_CONVERSATION",
+  "CINDERPAW_BUDGET_DAY",
+  "CINDERPAW_BUDGET_POLICY",
+  "CINDERPAW_BYOK_PROVIDER",
+  "CINDERPAW_CLOUD_TRANSCRIPT_BUDGET",
+  "CINDERPAW_CRON_JOB_TIMEOUT_MS",
+  "CINDERPAW_CRON_TICK_MS",
+  "CINDERPAW_DB",
+  "CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS",
+  "CINDERPAW_EMBED_CHUNK",
+  "CINDERPAW_EMBED_GPU_LAYERS",
+  "CINDERPAW_FALLBACK_API_KEY",
+  "CINDERPAW_FALLBACK_BASE_URL",
+  "CINDERPAW_FALLBACK_MODEL",
+  "CINDERPAW_FALLBACK_PROVIDER",
+  "CINDERPAW_FETCH_DOMAINS",
+  "CINDERPAW_FMS_DEDUP_SPAN_MS",
+  "CINDERPAW_FMS_EVICTION",
+  "CINDERPAW_FMS_MERGE_THRESHOLD",
+  "CINDERPAW_FRACTAL_BENCH_COUNT",
+  "CINDERPAW_FRACTAL_BENCH_QUERIES",
+  "CINDERPAW_FRACTAL_BENCH_SEED",
+  "CINDERPAW_HEARTBEAT_INTERVAL_MS",
+  "CINDERPAW_HTTP_DOMAINS",
+  "CINDERPAW_JINA_API_KEY",
+  "CINDERPAW_LORA_TRAINER_BIN",
+  "CINDERPAW_LORA_TRAIN_TIMEOUT_MS",
+  "CINDERPAW_MERGE_THRESHOLD",
+  "CINDERPAW_MODULE_SEED",
+  "CINDERPAW_NO_COLOR",
+  "CINDERPAW_OLLAMA_NUM_CTX",
+  "CINDERPAW_RSI_EVAL_TOKEN_BUDGET",
+  "CINDERPAW_RSI_MAX_ITER",
+  "CINDERPAW_RSI_STAGNATION_THRESHOLD",
+  "CINDERPAW_RSI_TELEMETRY",
+  "CINDERPAW_RUN_FRACTAL_BENCH",
+  "CINDERPAW_SHELL_DENYLIST",
+  "CINDERPAW_SHELL_WHITELIST",
+  "CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS",
+  "CINDERPAW_THOUGHTS_COOLDOWN_MS",
+  "CINDERPAW_THOUGHTS_DAILY_CAP",
+  "CINDERPAW_THOUGHTS_INTERVAL_MS",
+  "CINDERPAW_THOUGHTS_MIN_IDLE_MS",
+  "CINDERPAW_THOUGHTS_MOOD_THRESHOLD",
+  "CINDERPAW_TRUSTED_BASE_URLS",
   // tree-builder.ts's readers clamp out-of-range values to a floor
   // (n >= 2 / n >= 100 / n >= 500) before falling back to their default;
   // cfgInt has no clamp hook, so a mechanical swap would silently accept
-  // e.g. FERAL_TREE_BRANCH=1 instead of falling back to 8.
-  "FERAL_TREE_BRANCH",
-  "FERAL_TREE_ITEM_MAX_CHARS",
-  "FERAL_TREE_CLUSTER_MAX_CHARS",
+  // e.g. CINDERPAW_TREE_BRANCH=1 instead of falling back to 8.
+  "CINDERPAW_TREE_BRANCH",
+  "CINDERPAW_TREE_ITEM_MAX_CHARS",
+  "CINDERPAW_TREE_CLUSTER_MAX_CHARS",
 ]);
 
 describe("config.ts", () => {
-  test("no new process.env.FERAL_ reads outside config.ts and the grandfathered list", () => {
+  test("no new process.env.CINDERPAW_ reads outside config.ts and the grandfathered list", () => {
     const offenders: string[] = [];
     for (const file of walkTsFiles(SRC)) {
       const text = readFileSync(file, "utf8");
-      const matches = text.matchAll(/process\.env\.(FERAL_[A-Z_]*)/g);
+      const matches = text.matchAll(/process\.env\.(CINDERPAW_[A-Z_]*)/g);
       for (const m of matches) {
         if (!GRANDFATHERED.has(m[1]!)) offenders.push(`${file}: ${m[1]}`);
       }

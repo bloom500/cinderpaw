@@ -19,9 +19,9 @@
  *     node scripts/build-sidecar.mjs
  *
  * Env overrides:
- *     FERAL_SKIP_SIDECAR_BUILD=1   Skip the build entirely (CI cache step, etc.)
- *     FERAL_FORCE_SIDECAR_BUILD=1  Always rebuild, even if dist binary is newer
- *     FERAL_SIDECAR_TARGET=<rust-triple>
+ *     CINDERPAW_SKIP_SIDECAR_BUILD=1   Skip the build entirely (CI cache step, etc.)
+ *     CINDERPAW_FORCE_SIDECAR_BUILD=1  Always rebuild, even if dist binary is newer
+ *     CINDERPAW_SIDECAR_TARGET=<rust-triple>
  *         Build the sidecar FOR that target instead of for this machine.
  *         Needed by the macOS Intel release build, which cross-compiles
  *         x86_64 from an Apple Silicon runner because GitHub no longer
@@ -43,8 +43,8 @@ const __dirname = dirname(__filename);
 // src-tauri/scripts → src-tauri/ (then ../CinderpawAgent)
 const TAURI_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(TAURI_DIR, "..");
-const FERAL_AGENT_DIR = join(REPO_ROOT, "CinderpawAgent");
-const DIST_DIR = join(FERAL_AGENT_DIR, "dist");
+const CINDERPAW_AGENT_DIR = join(REPO_ROOT, "CinderpawAgent");
+const DIST_DIR = join(CINDERPAW_AGENT_DIR, "dist");
 const BINARIES_DIR = join(TAURI_DIR, "binaries");
 
 /** Map (platform, arch) → the Rust target triple of THIS machine. */
@@ -82,7 +82,7 @@ function bunTargetFor(triple) {
 }
 
 const HOST_TRIPLE = hostTriple();
-const TRIPLE = process.env.FERAL_SIDECAR_TARGET || HOST_TRIPLE;
+const TRIPLE = process.env.CINDERPAW_SIDECAR_TARGET || HOST_TRIPLE;
 const CROSS = TRIPLE !== HOST_TRIPLE;
 const BUN_TARGET = bunTargetFor(TRIPLE);
 const IS_WINDOWS_TARGET = TRIPLE.includes("windows");
@@ -122,13 +122,13 @@ function newerThan(a, b) {
 }
 
 function main() {
-  if (process.env.FERAL_SKIP_SIDECAR_BUILD === "1") {
-    log("FERAL_SKIP_SIDECAR_BUILD=1 — skipping sidecar build");
+  if (process.env.CINDERPAW_SKIP_SIDECAR_BUILD === "1") {
+    log("CINDERPAW_SKIP_SIDECAR_BUILD=1 — skipping sidecar build");
     return;
   }
 
-  if (!existsSync(FERAL_AGENT_DIR)) {
-    log(`FATAL: CinderpawAgent/ not found at ${FERAL_AGENT_DIR}`);
+  if (!existsSync(CINDERPAW_AGENT_DIR)) {
+    log(`FATAL: CinderpawAgent/ not found at ${CINDERPAW_AGENT_DIR}`);
     process.exit(1);
   }
 
@@ -142,20 +142,20 @@ function main() {
   }
 
   // Skip the bun build if the dist binary is already newer than every
-  // CinderpawAgent source file. `FERAL_FORCE_SIDECAR_BUILD=1` overrides.
+  // CinderpawAgent source file. `CINDERPAW_FORCE_SIDECAR_BUILD=1` overrides.
   //
   // A cross-build always rebuilds: a dist binary left over from a native build
   // is the WRONG ARCHITECTURE, and mtime cannot see that. Shipping it would
   // produce an app whose sidecar cannot execute on the machine it was built
   // for — and the failure would only show up on a user's Intel Mac.
-  let needBuild = process.env.FERAL_FORCE_SIDECAR_BUILD === "1" || CROSS;
+  let needBuild = process.env.CINDERPAW_FORCE_SIDECAR_BUILD === "1" || CROSS;
   if (!needBuild && existsSync(distBinaryPath)) {
     // Cheap heuristic: if CinderpawAgent/src has any .ts file newer than the
     // dist binary, rebuild. We only walk one level deep — this is good
     // enough for the typical "I just edited a TS file" trigger.
     const distMtime = statSync(distBinaryPath).mtimeMs;
     // Glob the CinderpawAgent source tree via a tiny shell-free walk.
-    const srcRoot = join(FERAL_AGENT_DIR, "src");
+    const srcRoot = join(CINDERPAW_AGENT_DIR, "src");
     const isStale = walkIsStale(srcRoot, distMtime);
     if (isStale) {
       needBuild = true;
@@ -182,7 +182,7 @@ function main() {
         "--outfile",
         join("dist", distBinaryName),
       ],
-      FERAL_AGENT_DIR,
+      CINDERPAW_AGENT_DIR,
     );
   }
 

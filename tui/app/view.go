@@ -1840,7 +1840,7 @@ func renderWizCloudKey(w *WizardState, width int) string {
 	}
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-	b.WriteString(wizLine("  tip: or set FERAL_BYOK_KEY in your environment"))
+	b.WriteString(wizLine("  tip: or set CINDERPAW_BYOK_KEY in your environment"))
 	b.WriteByte('\n')
 	return b.String()
 }

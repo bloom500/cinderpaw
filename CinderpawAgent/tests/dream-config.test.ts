@@ -6,7 +6,7 @@
  *      a. Empty env yields the exact defaults documented in
  *         `dream-config.ts`. The boot wiring assumes these values when
  *         no operator override is set, so they must be stable.
- *      b. Each FERAL_RSI_* knob honours a valid override and falls back
+ *      b. Each CINDERPAW_RSI_* knob honours a valid override and falls back
  *         to its default on anything that doesn't parse as a positive
  *         finite number (same `positive` discipline as
  *         `episode-options.ts`).
@@ -17,7 +17,7 @@
  *         whitespace-trimmed) are truthy. "yes", "on", "" all return false.
  *   2. `dreamCloudGate`:
  *      a. Loopback → enabled, reason mentions "loopback" / "local".
- *      b. Cloud + FERAL_RSI_ALLOW_CLOUD="true" or "1" → enabled, reason
+ *      b. Cloud + CINDERPAW_RSI_ALLOW_CLOUD="true" or "1" → enabled, reason
  *         mentions the knob name.
  *      c. Cloud + no opt-in (undefined / "false" / "0") → disabled,
  *         reason names the knob that would unlock it.
@@ -51,38 +51,38 @@ describe("resolveDreamConfig — defaults", () => {
 });
 
 describe("resolveDreamConfig — env overrides (each knob)", () => {
-  test("FERAL_RSI_IDLE_MS overrides idleThresholdMs", () => {
-    expect(resolveDreamConfig({ FERAL_RSI_IDLE_MS: "90000" }).idleThresholdMs).toBe(90_000);
-    expect(resolveDreamConfig({ FERAL_RSI_IDLE_MS: "600000" }).idleThresholdMs).toBe(600_000);
+  test("CINDERPAW_RSI_IDLE_MS overrides idleThresholdMs", () => {
+    expect(resolveDreamConfig({ CINDERPAW_RSI_IDLE_MS: "90000" }).idleThresholdMs).toBe(90_000);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_IDLE_MS: "600000" }).idleThresholdMs).toBe(600_000);
   });
 
-  test("FERAL_RSI_COOLDOWN_MS overrides cooldownMs", () => {
-    expect(resolveDreamConfig({ FERAL_RSI_COOLDOWN_MS: "300000" }).cooldownMs).toBe(300_000);
-    expect(resolveDreamConfig({ FERAL_RSI_COOLDOWN_MS: "1200000" }).cooldownMs).toBe(1_200_000);
+  test("CINDERPAW_RSI_COOLDOWN_MS overrides cooldownMs", () => {
+    expect(resolveDreamConfig({ CINDERPAW_RSI_COOLDOWN_MS: "300000" }).cooldownMs).toBe(300_000);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_COOLDOWN_MS: "1200000" }).cooldownMs).toBe(1_200_000);
   });
 
-  test("FERAL_RSI_ERROR_WINDOW_MS overrides errorWindowMs", () => {
+  test("CINDERPAW_RSI_ERROR_WINDOW_MS overrides errorWindowMs", () => {
     expect(
-      resolveDreamConfig({ FERAL_RSI_ERROR_WINDOW_MS: "60000" }).errorWindowMs,
+      resolveDreamConfig({ CINDERPAW_RSI_ERROR_WINDOW_MS: "60000" }).errorWindowMs,
     ).toBe(60_000);
     expect(
-      resolveDreamConfig({ FERAL_RSI_ERROR_WINDOW_MS: "3600000" }).errorWindowMs,
+      resolveDreamConfig({ CINDERPAW_RSI_ERROR_WINDOW_MS: "3600000" }).errorWindowMs,
     ).toBe(3_600_000);
   });
 
-  test("FERAL_RSI_POLL_MS overrides pollMs", () => {
-    expect(resolveDreamConfig({ FERAL_RSI_POLL_MS: "5000" }).pollMs).toBe(5_000);
-    expect(resolveDreamConfig({ FERAL_RSI_POLL_MS: "60000" }).pollMs).toBe(60_000);
+  test("CINDERPAW_RSI_POLL_MS overrides pollMs", () => {
+    expect(resolveDreamConfig({ CINDERPAW_RSI_POLL_MS: "5000" }).pollMs).toBe(5_000);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_POLL_MS: "60000" }).pollMs).toBe(60_000);
   });
 
   test("all numeric knobs can be set together and don't bleed into each other", () => {
     const c = resolveDreamConfig({
-      FERAL_RSI_IDLE_MS: "120000",
-      FERAL_RSI_COOLDOWN_MS: "300000",
-      FERAL_RSI_ERROR_THRESHOLD: "5",
-      FERAL_RSI_ERROR_WINDOW_MS: "1800000",
-      FERAL_RSI_POLL_MS: "15000",
-      FERAL_RSI_STOP_ON_ACTIVITY: "true",
+      CINDERPAW_RSI_IDLE_MS: "120000",
+      CINDERPAW_RSI_COOLDOWN_MS: "300000",
+      CINDERPAW_RSI_ERROR_THRESHOLD: "5",
+      CINDERPAW_RSI_ERROR_WINDOW_MS: "1800000",
+      CINDERPAW_RSI_POLL_MS: "15000",
+      CINDERPAW_RSI_STOP_ON_ACTIVITY: "true",
     });
     expect(c).toEqual({
       idleThresholdMs: 120_000,
@@ -98,10 +98,10 @@ describe("resolveDreamConfig — env overrides (each knob)", () => {
 describe("resolveDreamConfig — invalid numeric values fall back to defaults", () => {
   test("non-numeric strings fall back to the default", () => {
     const c = resolveDreamConfig({
-      FERAL_RSI_IDLE_MS: "abc",
-      FERAL_RSI_COOLDOWN_MS: "many",
-      FERAL_RSI_ERROR_WINDOW_MS: "NaN",
-      FERAL_RSI_POLL_MS: "soon",
+      CINDERPAW_RSI_IDLE_MS: "abc",
+      CINDERPAW_RSI_COOLDOWN_MS: "many",
+      CINDERPAW_RSI_ERROR_WINDOW_MS: "NaN",
+      CINDERPAW_RSI_POLL_MS: "soon",
     });
     expect(c.idleThresholdMs).toBe(3 * 60_000);
     expect(c.cooldownMs).toBe(10 * 60_000);
@@ -111,10 +111,10 @@ describe("resolveDreamConfig — invalid numeric values fall back to defaults", 
 
   test("empty strings fall back to the default", () => {
     const c = resolveDreamConfig({
-      FERAL_RSI_IDLE_MS: "",
-      FERAL_RSI_COOLDOWN_MS: "",
-      FERAL_RSI_ERROR_WINDOW_MS: "",
-      FERAL_RSI_POLL_MS: "",
+      CINDERPAW_RSI_IDLE_MS: "",
+      CINDERPAW_RSI_COOLDOWN_MS: "",
+      CINDERPAW_RSI_ERROR_WINDOW_MS: "",
+      CINDERPAW_RSI_POLL_MS: "",
     });
     expect(c.idleThresholdMs).toBe(3 * 60_000);
     expect(c.cooldownMs).toBe(10 * 60_000);
@@ -124,10 +124,10 @@ describe("resolveDreamConfig — invalid numeric values fall back to defaults", 
 
   test('"0" values fall back to the default (positive parser refuses 0)', () => {
     const c = resolveDreamConfig({
-      FERAL_RSI_IDLE_MS: "0",
-      FERAL_RSI_COOLDOWN_MS: "0",
-      FERAL_RSI_ERROR_WINDOW_MS: "0",
-      FERAL_RSI_POLL_MS: "0",
+      CINDERPAW_RSI_IDLE_MS: "0",
+      CINDERPAW_RSI_COOLDOWN_MS: "0",
+      CINDERPAW_RSI_ERROR_WINDOW_MS: "0",
+      CINDERPAW_RSI_POLL_MS: "0",
     });
     expect(c.idleThresholdMs).toBe(3 * 60_000);
     expect(c.cooldownMs).toBe(10 * 60_000);
@@ -137,10 +137,10 @@ describe("resolveDreamConfig — invalid numeric values fall back to defaults", 
 
   test("negative values fall back to the default (positive parser refuses < 0)", () => {
     const c = resolveDreamConfig({
-      FERAL_RSI_IDLE_MS: "-1",
-      FERAL_RSI_COOLDOWN_MS: "-60000",
-      FERAL_RSI_ERROR_WINDOW_MS: "-1000",
-      FERAL_RSI_POLL_MS: "-30",
+      CINDERPAW_RSI_IDLE_MS: "-1",
+      CINDERPAW_RSI_COOLDOWN_MS: "-60000",
+      CINDERPAW_RSI_ERROR_WINDOW_MS: "-1000",
+      CINDERPAW_RSI_POLL_MS: "-30",
     });
     expect(c.idleThresholdMs).toBe(3 * 60_000);
     expect(c.cooldownMs).toBe(10 * 60_000);
@@ -150,10 +150,10 @@ describe("resolveDreamConfig — invalid numeric values fall back to defaults", 
 
   test("Infinity and NaN strings fall back to the default", () => {
     const c = resolveDreamConfig({
-      FERAL_RSI_IDLE_MS: "Infinity",
-      FERAL_RSI_COOLDOWN_MS: "-Infinity",
-      FERAL_RSI_ERROR_WINDOW_MS: "NaN",
-      FERAL_RSI_POLL_MS: "Infinity",
+      CINDERPAW_RSI_IDLE_MS: "Infinity",
+      CINDERPAW_RSI_COOLDOWN_MS: "-Infinity",
+      CINDERPAW_RSI_ERROR_WINDOW_MS: "NaN",
+      CINDERPAW_RSI_POLL_MS: "Infinity",
     });
     expect(c.idleThresholdMs).toBe(3 * 60_000);
     expect(c.cooldownMs).toBe(10 * 60_000);
@@ -171,38 +171,38 @@ describe("resolveDreamConfig — errorThreshold clamp (min 1, floored)", () => {
     // The min-1 clamp fires before the default fallback — the operator
     // wrote "0" which is invalid, but we still salvage a meaningful
     // threshold rather than silently using 3.
-    expect(resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: "0" }).errorThreshold).toBe(1);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: "0" }).errorThreshold).toBe(1);
   });
 
   test('"-2" → 1 (positive parser refuses negatives, then min-1 clamp)', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: "-2" }).errorThreshold).toBe(1);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: "-2" }).errorThreshold).toBe(1);
   });
 
   test('"5" → 5 (valid override honoured exactly)', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: "5" }).errorThreshold).toBe(5);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: "5" }).errorThreshold).toBe(5);
   });
 
   test('"1" → 1 (boundary — exactly the min, not clamped)', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: "1" }).errorThreshold).toBe(1);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: "1" }).errorThreshold).toBe(1);
   });
 
   test('"2.9" → 2 (floored before clamping)', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: "2.9" }).errorThreshold).toBe(2);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: "2.9" }).errorThreshold).toBe(2);
   });
 
   test('"100" → 100 (large values are not clamped upward)', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: "100" }).errorThreshold).toBe(100);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: "100" }).errorThreshold).toBe(100);
   });
 
   test('"abc" / "" / "NaN" → 3 (the default; the positive parser fell back)', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: "abc" }).errorThreshold).toBe(3);
-    expect(resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: "" }).errorThreshold).toBe(3);
-    expect(resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: "NaN" }).errorThreshold).toBe(3);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: "abc" }).errorThreshold).toBe(3);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: "" }).errorThreshold).toBe(3);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: "NaN" }).errorThreshold).toBe(3);
   });
 });
 
 describe("resolveDreamConfig — errorThreshold table-driven (the salvage path)", () => {
-  // Single source of truth for how every FERAL_RSI_ERROR_THRESHOLD string
+  // Single source of truth for how every CINDERPAW_RSI_ERROR_THRESHOLD string
   // maps to a numeric `errorThreshold`. The chain in dream-config.ts is:
   //   finite(env, 3) → accepts any finite number including 0/negatives
   //   Math.floor(...) → rounds toward −∞
@@ -214,7 +214,7 @@ describe("resolveDreamConfig — errorThreshold table-driven (the salvage path)"
   //   * non-finite / unparseable → fall back to the default 3
   //
   // Adding or removing a row is a contract change — a regression here means
-  // a typo like `FERAL_RSI_ERROR_THRESHOLD=0` could re-introduce the
+  // a typo like `CINDERPAW_RSI_ERROR_THRESHOLD=0` could re-introduce the
   // "dream on every error" thrashing this scheduler replaces.
   type Row = { env: string; expected: number; note: string };
   const TABLE: Row[] = [
@@ -245,9 +245,9 @@ describe("resolveDreamConfig — errorThreshold table-driven (the salvage path)"
   ];
 
   for (const row of TABLE) {
-    test(`FERAL_RSI_ERROR_THRESHOLD="${row.env}" → ${row.expected}  (${row.note})`, () => {
+    test(`CINDERPAW_RSI_ERROR_THRESHOLD="${row.env}" → ${row.expected}  (${row.note})`, () => {
       expect(
-        resolveDreamConfig({ FERAL_RSI_ERROR_THRESHOLD: row.env }).errorThreshold,
+        resolveDreamConfig({ CINDERPAW_RSI_ERROR_THRESHOLD: row.env }).errorThreshold,
       ).toBe(row.expected);
     });
   }
@@ -315,7 +315,7 @@ describe("dreamCloudGate — ALLOW_CLOUD typo & non-allowlist truth table", () =
     const label = row.input === undefined ? "(unset)" : `"${row.input}"`;
     test(`cloud + ALLOW_CLOUD=${label} → enabled=${row.expectedEnabled}  (${row.note})`, () => {
       const env: Record<string, string | undefined> =
-        row.input === undefined ? {} : { FERAL_RSI_ALLOW_CLOUD: row.input };
+        row.input === undefined ? {} : { CINDERPAW_RSI_ALLOW_CLOUD: row.input };
       const d = dreamCloudGate(env, { isLoopback: false });
       expect(d.enabled).toBe(row.expectedEnabled);
     });
@@ -341,16 +341,16 @@ describe("dreamCloudGate — full loopback × ALLOW_CLOUD matrix", () => {
     { isLoopback: true,  allowCloud: "yes",      expectedEnabled: true,  reasonMustInclude: "loopback" },
     { isLoopback: true,  allowCloud: "true",     expectedEnabled: true,  reasonMustInclude: "loopback" },
     // ── Cloud + opted-in ──────────────────────────────────────────────────
-    { isLoopback: false, allowCloud: "true",     expectedEnabled: true,  reasonMustInclude: "feral_rsi_allow_cloud" },
-    { isLoopback: false, allowCloud: "1",        expectedEnabled: true,  reasonMustInclude: "feral_rsi_allow_cloud" },
-    { isLoopback: false, allowCloud: "  TRUE ",  expectedEnabled: true,  reasonMustInclude: "feral_rsi_allow_cloud" },
+    { isLoopback: false, allowCloud: "true",     expectedEnabled: true,  reasonMustInclude: "cinderpaw_rsi_allow_cloud" },
+    { isLoopback: false, allowCloud: "1",        expectedEnabled: true,  reasonMustInclude: "cinderpaw_rsi_allow_cloud" },
+    { isLoopback: false, allowCloud: "  TRUE ",  expectedEnabled: true,  reasonMustInclude: "cinderpaw_rsi_allow_cloud" },
     // ── Cloud + not opted-in (refusal — the safety default) ──────────────
-    { isLoopback: false, allowCloud: undefined,  expectedEnabled: false, reasonMustInclude: "feral_rsi_allow_cloud" },
-    { isLoopback: false, allowCloud: "",         expectedEnabled: false, reasonMustInclude: "feral_rsi_allow_cloud" },
-    { isLoopback: false, allowCloud: "false",    expectedEnabled: false, reasonMustInclude: "feral_rsi_allow_cloud" },
-    { isLoopback: false, allowCloud: "0",        expectedEnabled: false, reasonMustInclude: "feral_rsi_allow_cloud" },
-    { isLoopback: false, allowCloud: "yes",      expectedEnabled: false, reasonMustInclude: "feral_rsi_allow_cloud" },
-    { isLoopback: false, allowCloud: "on",       expectedEnabled: false, reasonMustInclude: "feral_rsi_allow_cloud" },
+    { isLoopback: false, allowCloud: undefined,  expectedEnabled: false, reasonMustInclude: "cinderpaw_rsi_allow_cloud" },
+    { isLoopback: false, allowCloud: "",         expectedEnabled: false, reasonMustInclude: "cinderpaw_rsi_allow_cloud" },
+    { isLoopback: false, allowCloud: "false",    expectedEnabled: false, reasonMustInclude: "cinderpaw_rsi_allow_cloud" },
+    { isLoopback: false, allowCloud: "0",        expectedEnabled: false, reasonMustInclude: "cinderpaw_rsi_allow_cloud" },
+    { isLoopback: false, allowCloud: "yes",      expectedEnabled: false, reasonMustInclude: "cinderpaw_rsi_allow_cloud" },
+    { isLoopback: false, allowCloud: "on",       expectedEnabled: false, reasonMustInclude: "cinderpaw_rsi_allow_cloud" },
   ];
 
   for (const cell of MATRIX) {
@@ -359,7 +359,7 @@ describe("dreamCloudGate — full loopback × ALLOW_CLOUD matrix", () => {
       `isLoopback=${cell.isLoopback}, ALLOW_CLOUD=${envStr} → enabled=${cell.expectedEnabled}, reason contains "${cell.reasonMustInclude}"`,
       () => {
         const env: Record<string, string | undefined> =
-          cell.allowCloud === undefined ? {} : { FERAL_RSI_ALLOW_CLOUD: cell.allowCloud };
+          cell.allowCloud === undefined ? {} : { CINDERPAW_RSI_ALLOW_CLOUD: cell.allowCloud };
         const d = dreamCloudGate(env, { isLoopback: cell.isLoopback });
         expect(d.enabled).toBe(cell.expectedEnabled);
         expect(d.reason.toLowerCase()).toContain(cell.reasonMustInclude);
@@ -372,63 +372,63 @@ describe("dreamCloudGate — full loopback × ALLOW_CLOUD matrix", () => {
     // endpoint must win. (This is the same contract as the existing test
     // above, but stated as a branch-order invariant so a future swap that
     // short-circuits on ALLOW_CLOUD first fails this assertion.)
-    const d = dreamCloudGate({ FERAL_RSI_ALLOW_CLOUD: "false" }, { isLoopback: true });
+    const d = dreamCloudGate({ CINDERPAW_RSI_ALLOW_CLOUD: "false" }, { isLoopback: true });
     expect(d.enabled).toBe(true);
-    expect(d.reason.toLowerCase()).not.toContain("feral_rsi_allow_cloud");
+    expect(d.reason.toLowerCase()).not.toContain("cinderpaw_rsi_allow_cloud");
   });
 });
 
 describe("resolveDreamConfig — stopOnActivity boolean (strict truthy)", () => {
   test('"true" → true', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "true" }).stopOnActivity).toBe(true);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "true" }).stopOnActivity).toBe(true);
   });
 
   test('"1" → true', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "1" }).stopOnActivity).toBe(true);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "1" }).stopOnActivity).toBe(true);
   });
 
   test('"TRUE" → true (case-insensitive)', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "TRUE" }).stopOnActivity).toBe(true);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "TRUE" }).stopOnActivity).toBe(true);
   });
 
   test('"True" → true (mixed case)', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "True" }).stopOnActivity).toBe(true);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "True" }).stopOnActivity).toBe(true);
   });
 
   test('"  true  " → true (whitespace-trimmed)', () => {
     expect(
-      resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "  true  " }).stopOnActivity,
+      resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "  true  " }).stopOnActivity,
     ).toBe(true);
   });
 
   test('" 1 " → true (whitespace-trimmed around "1")', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: " 1 " }).stopOnActivity).toBe(true);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: " 1 " }).stopOnActivity).toBe(true);
   });
 
   test('"false" → false', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "false" }).stopOnActivity).toBe(false);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "false" }).stopOnActivity).toBe(false);
   });
 
   test('"0" → false', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "0" }).stopOnActivity).toBe(false);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "0" }).stopOnActivity).toBe(false);
   });
 
   test('"" → false (empty string)', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "" }).stopOnActivity).toBe(false);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "" }).stopOnActivity).toBe(false);
   });
 
   test('"yes" → false (not in the strict allow-list)', () => {
     // Strict on purpose: a typo / legacy alias must not accidentally
     // enable aggressive cancellation.
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "yes" }).stopOnActivity).toBe(false);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "yes" }).stopOnActivity).toBe(false);
   });
 
   test('"on" → false', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "on" }).stopOnActivity).toBe(false);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "on" }).stopOnActivity).toBe(false);
   });
 
   test('"enabled" → false', () => {
-    expect(resolveDreamConfig({ FERAL_RSI_STOP_ON_ACTIVITY: "enabled" }).stopOnActivity).toBe(false);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_STOP_ON_ACTIVITY: "enabled" }).stopOnActivity).toBe(false);
   });
 
   test("undefined → false (default)", () => {
@@ -436,7 +436,7 @@ describe("resolveDreamConfig — stopOnActivity boolean (strict truthy)", () => 
   });
 
   test("an unrelated env key does not flip stopOnActivity", () => {
-    expect(resolveDreamConfig({ FERAL_RSI_POLL_MS: "5000" }).stopOnActivity).toBe(false);
+    expect(resolveDreamConfig({ CINDERPAW_RSI_POLL_MS: "5000" }).stopOnActivity).toBe(false);
   });
 });
 
@@ -450,16 +450,16 @@ describe("dreamCloudGate — local (loopback) branch", () => {
     expect(d.reason.toLowerCase()).toContain("local");
   });
 
-  test("isLoopback=true beats a missing FERAL_RSI_ALLOW_CLOUD (no opt-in needed)", () => {
+  test("isLoopback=true beats a missing CINDERPAW_RSI_ALLOW_CLOUD (no opt-in needed)", () => {
     // The whole point of the loopback branch: dreams are free and
-    // local, so we don't gate on FERAL_RSI_ALLOW_CLOUD here.
+    // local, so we don't gate on CINDERPAW_RSI_ALLOW_CLOUD here.
     const d = dreamCloudGate({}, { isLoopback: true });
     expect(d.enabled).toBe(true);
   });
 
-  test("isLoopback=true still wins even if FERAL_RSI_ALLOW_CLOUD is explicitly false", () => {
+  test("isLoopback=true still wins even if CINDERPAW_RSI_ALLOW_CLOUD is explicitly false", () => {
     const d = dreamCloudGate(
-      { FERAL_RSI_ALLOW_CLOUD: "false" },
+      { CINDERPAW_RSI_ALLOW_CLOUD: "false" },
       { isLoopback: true },
     );
     expect(d.enabled).toBe(true);
@@ -467,29 +467,29 @@ describe("dreamCloudGate — local (loopback) branch", () => {
 });
 
 describe("dreamCloudGate — cloud + opted-in branch", () => {
-  test('cloud + FERAL_RSI_ALLOW_CLOUD="true" → enabled, reason mentions the knob', () => {
+  test('cloud + CINDERPAW_RSI_ALLOW_CLOUD="true" → enabled, reason mentions the knob', () => {
     const d = dreamCloudGate(
-      { FERAL_RSI_ALLOW_CLOUD: "true" },
+      { CINDERPAW_RSI_ALLOW_CLOUD: "true" },
       { isLoopback: false },
     );
     expect(d.enabled).toBe(true);
     expect(d.reason).not.toBe("");
-    expect(d.reason).toContain("FERAL_RSI_ALLOW_CLOUD");
+    expect(d.reason).toContain("CINDERPAW_RSI_ALLOW_CLOUD");
     expect(d.reason.toLowerCase()).toContain("cloud");
   });
 
-  test('cloud + FERAL_RSI_ALLOW_CLOUD="1" → enabled (the second truthy value)', () => {
+  test('cloud + CINDERPAW_RSI_ALLOW_CLOUD="1" → enabled (the second truthy value)', () => {
     const d = dreamCloudGate(
-      { FERAL_RSI_ALLOW_CLOUD: "1" },
+      { CINDERPAW_RSI_ALLOW_CLOUD: "1" },
       { isLoopback: false },
     );
     expect(d.enabled).toBe(true);
-    expect(d.reason).toContain("FERAL_RSI_ALLOW_CLOUD");
+    expect(d.reason).toContain("CINDERPAW_RSI_ALLOW_CLOUD");
   });
 
-  test('cloud + FERAL_RSI_ALLOW_CLOUD="TRUE" → enabled (case-insensitive)', () => {
+  test('cloud + CINDERPAW_RSI_ALLOW_CLOUD="TRUE" → enabled (case-insensitive)', () => {
     const d = dreamCloudGate(
-      { FERAL_RSI_ALLOW_CLOUD: "TRUE" },
+      { CINDERPAW_RSI_ALLOW_CLOUD: "TRUE" },
       { isLoopback: false },
     );
     expect(d.enabled).toBe(true);
@@ -497,44 +497,44 @@ describe("dreamCloudGate — cloud + opted-in branch", () => {
 });
 
 describe("dreamCloudGate — cloud + not opted-in branch (the refusal)", () => {
-  test("cloud + no FERAL_RSI_ALLOW_CLOUD → disabled, reason names the knob", () => {
+  test("cloud + no CINDERPAW_RSI_ALLOW_CLOUD → disabled, reason names the knob", () => {
     const d = dreamCloudGate({}, { isLoopback: false });
     expect(d.enabled).toBe(false);
     expect(d.reason).not.toBe("");
     // The reason must tell the operator exactly which knob to set —
     // otherwise the next debugging session becomes a grep exercise.
-    expect(d.reason).toContain("FERAL_RSI_ALLOW_CLOUD");
+    expect(d.reason).toContain("CINDERPAW_RSI_ALLOW_CLOUD");
     expect(d.reason.toLowerCase()).toContain("cloud");
   });
 
-  test('cloud + FERAL_RSI_ALLOW_CLOUD="false" → disabled (not a truthy opt-in)', () => {
+  test('cloud + CINDERPAW_RSI_ALLOW_CLOUD="false" → disabled (not a truthy opt-in)', () => {
     const d = dreamCloudGate(
-      { FERAL_RSI_ALLOW_CLOUD: "false" },
+      { CINDERPAW_RSI_ALLOW_CLOUD: "false" },
       { isLoopback: false },
     );
     expect(d.enabled).toBe(false);
-    expect(d.reason).toContain("FERAL_RSI_ALLOW_CLOUD");
+    expect(d.reason).toContain("CINDERPAW_RSI_ALLOW_CLOUD");
   });
 
-  test('cloud + FERAL_RSI_ALLOW_CLOUD="0" → disabled', () => {
+  test('cloud + CINDERPAW_RSI_ALLOW_CLOUD="0" → disabled', () => {
     const d = dreamCloudGate(
-      { FERAL_RSI_ALLOW_CLOUD: "0" },
-      { isLoopback: false },
-    );
-    expect(d.enabled).toBe(false);
-  });
-
-  test('cloud + FERAL_RSI_ALLOW_CLOUD="" → disabled (empty string is not an opt-in)', () => {
-    const d = dreamCloudGate(
-      { FERAL_RSI_ALLOW_CLOUD: "" },
+      { CINDERPAW_RSI_ALLOW_CLOUD: "0" },
       { isLoopback: false },
     );
     expect(d.enabled).toBe(false);
   });
 
-  test('cloud + FERAL_RSI_ALLOW_CLOUD="yes" → disabled (not in the strict allow-list)', () => {
+  test('cloud + CINDERPAW_RSI_ALLOW_CLOUD="" → disabled (empty string is not an opt-in)', () => {
     const d = dreamCloudGate(
-      { FERAL_RSI_ALLOW_CLOUD: "yes" },
+      { CINDERPAW_RSI_ALLOW_CLOUD: "" },
+      { isLoopback: false },
+    );
+    expect(d.enabled).toBe(false);
+  });
+
+  test('cloud + CINDERPAW_RSI_ALLOW_CLOUD="yes" → disabled (not in the strict allow-list)', () => {
+    const d = dreamCloudGate(
+      { CINDERPAW_RSI_ALLOW_CLOUD: "yes" },
       { isLoopback: false },
     );
     expect(d.enabled).toBe(false);
@@ -545,7 +545,7 @@ describe("dreamCloudGate — cloud + not opted-in branch (the refusal)", () => {
     // "allowed via opt-in" without checking the boolean field.
     const refused = dreamCloudGate({}, { isLoopback: false });
     const optedIn = dreamCloudGate(
-      { FERAL_RSI_ALLOW_CLOUD: "true" },
+      { CINDERPAW_RSI_ALLOW_CLOUD: "true" },
       { isLoopback: false },
     );
     expect(refused.reason).not.toBe(optedIn.reason);

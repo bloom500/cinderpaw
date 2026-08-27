@@ -7,14 +7,14 @@
  *
  * Covers:
  *   - brain.json absent → null (opt-out)
- *   - brain.json absent + FERAL_BRAIN=1 → throws (explicit request, missing config)
+ *   - brain.json absent + CINDERPAW_BRAIN=1 → throws (explicit request, missing config)
  *   - brain.json present + enabled:true → returns the config
- *   - brain.json present + enabled:false + FERAL_BRAIN unset → null (opt-out)
- *   - brain.json present + enabled:false + FERAL_BRAIN=1 → enabled:true (override)
+ *   - brain.json present + enabled:false + CINDERPAW_BRAIN unset → null (opt-out)
+ *   - brain.json present + enabled:false + CINDERPAW_BRAIN=1 → enabled:true (override)
  *   - malformed JSON → throws
  *   - wrong shape (enabled not boolean, mode not in set, registry not array) → throws
- *   - defaultBrainPath respects FERAL_HOME
- *   - FERAL_BRAIN is read from the env override in opts
+ *   - defaultBrainPath respects CINDERPAW_HOME
+ *   - CINDERPAW_BRAIN is read from the env override in opts
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -67,12 +67,12 @@ const VALID_CONFIG = {
 // ---------------------------------------------------------------------------
 
 describe("loadBrainConfig — opt-in via file presence", () => {
-  test("brain.json absent + no FERAL_BRAIN → null (opt-out)", () => {
+  test("brain.json absent + no CINDERPAW_BRAIN → null (opt-out)", () => {
     const result = loadBrainConfig({ brainPath, env: {} });
     expect(result).toBeNull();
   });
 
-  test("brain.json absent + FERAL_BRAIN unset → null (env doesn't force)", () => {
+  test("brain.json absent + CINDERPAW_BRAIN unset → null (env doesn't force)", () => {
     const result = loadBrainConfig({ brainPath, env: {} });
     expect(result).toBeNull();
   });
@@ -86,7 +86,7 @@ describe("loadBrainConfig — opt-in via file presence", () => {
     expect(result?.registry).toHaveLength(1);
   });
 
-  test("brain.json present + enabled:false + no FERAL_BRAIN → null (off via file)", () => {
+  test("brain.json present + enabled:false + no CINDERPAW_BRAIN → null (off via file)", () => {
     writeBrain({ ...VALID_CONFIG, enabled: false });
     const result = loadBrainConfig({ brainPath, env: {} });
     expect(result).toBeNull();
@@ -94,35 +94,35 @@ describe("loadBrainConfig — opt-in via file presence", () => {
 });
 
 // ---------------------------------------------------------------------------
-// FERAL_BRAIN env escape hatch (for headless testing)
+// CINDERPAW_BRAIN env escape hatch (for headless testing)
 // ---------------------------------------------------------------------------
 
-describe("loadBrainConfig — FERAL_BRAIN env escape hatch", () => {
-  test("FERAL_BRAIN=1 + brain.json absent → throws (explicit request, missing config)", () => {
+describe("loadBrainConfig — CINDERPAW_BRAIN env escape hatch", () => {
+  test("CINDERPAW_BRAIN=1 + brain.json absent → throws (explicit request, missing config)", () => {
     expect(() =>
-      loadBrainConfig({ brainPath, env: { FERAL_BRAIN: "1" } }),
-    ).toThrow(/FERAL_BRAIN=1 but brain.json not found/);
+      loadBrainConfig({ brainPath, env: { CINDERPAW_BRAIN: "1" } }),
+    ).toThrow(/CINDERPAW_BRAIN=1 but brain.json not found/);
   });
 
-  test("FERAL_BRAIN=1 + file present + enabled:true → returned as-is", () => {
+  test("CINDERPAW_BRAIN=1 + file present + enabled:true → returned as-is", () => {
     writeBrain(VALID_CONFIG);
-    const result = loadBrainConfig({ brainPath, env: { FERAL_BRAIN: "1" } });
+    const result = loadBrainConfig({ brainPath, env: { CINDERPAW_BRAIN: "1" } });
     expect(result?.enabled).toBe(true);
   });
 
-  test("FERAL_BRAIN=1 + file present + enabled:false → enabled is FORCED true", () => {
+  test("CINDERPAW_BRAIN=1 + file present + enabled:false → enabled is FORCED true", () => {
     writeBrain({ ...VALID_CONFIG, enabled: false });
-    const result = loadBrainConfig({ brainPath, env: { FERAL_BRAIN: "1" } });
+    const result = loadBrainConfig({ brainPath, env: { CINDERPAW_BRAIN: "1" } });
     expect(result?.enabled).toBe(true);
   });
 
-  test("FERAL_BRAIN=0 (not '1') → does NOT force enable", () => {
+  test("CINDERPAW_BRAIN=0 (not '1') → does NOT force enable", () => {
     writeBrain({ ...VALID_CONFIG, enabled: false });
-    const result = loadBrainConfig({ brainPath, env: { FERAL_BRAIN: "0" } });
+    const result = loadBrainConfig({ brainPath, env: { CINDERPAW_BRAIN: "0" } });
     expect(result).toBeNull();
   });
 
-  test("FERAL_BRAIN unset + file enabled:true → enabled stays true (no forced override)", () => {
+  test("CINDERPAW_BRAIN unset + file enabled:true → enabled stays true (no forced override)", () => {
     writeBrain(VALID_CONFIG);
     const result = loadBrainConfig({ brainPath, env: {} });
     expect(result?.enabled).toBe(true);
@@ -185,18 +185,18 @@ describe("loadBrainConfig — shape validation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// defaultBrainPath — FERAL_HOME override
+// defaultBrainPath — CINDERPAW_HOME override
 // ---------------------------------------------------------------------------
 
 describe("defaultBrainPath", () => {
-  test("uses $FERAL_HOME/brain.json when FERAL_HOME is set", () => {
+  test("uses $CINDERPAW_HOME/brain.json when CINDERPAW_HOME is set", () => {
     const customHome = join(tmpDir, "custom-feral-home");
     const path = defaultBrainPath.call(null);
     // We can't easily test the env override without polluting process.env,
     // so just assert the function returns a string ending in 'brain.json'.
     expect(typeof path).toBe("string");
     expect(path.endsWith("brain.json")).toBe(true);
-    // The function uses process.env.FERAL_HOME internally — assert the
+    // The function uses process.env.CINDERPAW_HOME internally — assert the
     // shape, not the exact path. (Mutation of process.env is racy.)
     void customHome;
   });
@@ -207,34 +207,34 @@ describe("defaultBrainPath", () => {
 // ---------------------------------------------------------------------------
 
 describe("loadBrainConfig — uses opts.env, not process.env", () => {
-  test("opts.env.FERAL_BRAIN=1 is honoured even when process.env.FERAL_BRAIN is unset", () => {
+  test("opts.env.CINDERPAW_BRAIN=1 is honoured even when process.env.CINDERPAW_BRAIN is unset", () => {
     writeBrain({ ...VALID_CONFIG, enabled: false });
-    const before = process.env.FERAL_BRAIN;
-    delete process.env.FERAL_BRAIN;
+    const before = process.env.CINDERPAW_BRAIN;
+    delete process.env.CINDERPAW_BRAIN;
     try {
       const result = loadBrainConfig({
         brainPath,
-        env: { FERAL_BRAIN: "1" },
+        env: { CINDERPAW_BRAIN: "1" },
       });
       expect(result?.enabled).toBe(true);
     } finally {
-      if (before !== undefined) process.env.FERAL_BRAIN = before;
+      if (before !== undefined) process.env.CINDERPAW_BRAIN = before;
     }
   });
 
-  test("opts.env can override an absent FERAL_BRAIN even if process.env has it", () => {
+  test("opts.env can override an absent CINDERPAW_BRAIN even if process.env has it", () => {
     writeBrain({ ...VALID_CONFIG, enabled: false });
-    const before = process.env.FERAL_BRAIN;
-    process.env.FERAL_BRAIN = "1"; // force enable
+    const before = process.env.CINDERPAW_BRAIN;
+    process.env.CINDERPAW_BRAIN = "1"; // force enable
     try {
-      // opts.env explicitly says no FERAL_BRAIN — should win over process.env.
+      // opts.env explicitly says no CINDERPAW_BRAIN — should win over process.env.
       const result = loadBrainConfig({ brainPath, env: {} });
       expect(result).toBeNull();
     } finally {
       if (before !== undefined) {
-        process.env.FERAL_BRAIN = before;
+        process.env.CINDERPAW_BRAIN = before;
       } else {
-        delete process.env.FERAL_BRAIN;
+        delete process.env.CINDERPAW_BRAIN;
       }
     }
   });

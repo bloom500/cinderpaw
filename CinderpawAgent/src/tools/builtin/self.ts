@@ -232,7 +232,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "Per-episode summary in `~/.feral/rsi/dream.jsonl` (tokens, ratchets, errors, emptyResponses, resources).",
     ],
     safety: [
-      "Hard wall-clock ceiling (FERAL_TOTAL_DEADLINE_MS).",
+      "Hard wall-clock ceiling (CINDERPAW_TOTAL_DEADLINE_MS).",
       "Hard token budget per cycle.",
       "Per-cycle eval gates (no candidate escapes Tier 0).",
       "Resource monitor can abort early on disk/RAM pressure.",
@@ -343,7 +343,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
   },
   notebook: {
     purpose:
-      "The RLM notebook — a long-lived JavaScript interpreter (`node:vm`) per session, with every other tool bound as an async function, so tool calls are composed as program logic instead of one per turn. Opt-in via FERAL_ENABLE_NOTEBOOK; absent entirely when off.",
+      "The RLM notebook — a long-lived JavaScript interpreter (`node:vm`) per session, with every other tool bound as an async function, so tool calls are composed as program logic instead of one per turn. Opt-in via CINDERPAW_ENABLE_NOTEBOOK; absent entirely when off.",
     inputs: [
       "A cell of JavaScript from the model (`notebook` tool, `code` argument).",
       "The session's live tool registry — one injected function per registered tool, itself excluded.",
@@ -362,9 +362,9 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "A hardened vm, NOT a jail against an adversary who controls the source — the threat model is careless model-written code.",
     ],
     promotion:
-      "Human decision, not evolution: the notebook is off unless FERAL_ENABLE_NOTEBOOK is set. Nothing promotes it automatically.",
+      "Human decision, not evolution: the notebook is off unless CINDERPAW_ENABLE_NOTEBOOK is set. Nothing promotes it automatically.",
     rollback:
-      "Unset FERAL_ENABLE_NOTEBOOK and the tool is never registered; the agent loop, BRSI and FMS are untouched by its absence. Per-session state is a plain JSON file that can be deleted.",
+      "Unset CINDERPAW_ENABLE_NOTEBOOK and the tool is never registered; the agent loop, BRSI and FMS are untouched by its absence. Per-session state is a plain JSON file that can be deleted.",
     inspect: ["self_describe", "self_subsystem"],
   },
   rsi: {
@@ -977,8 +977,8 @@ function healthDreams(paths: ShapePaths = {}): SubsystemHealth {
  * that never wanted a notebook, which is how a health check stops being read.
  */
 function healthNotebook(): SubsystemHealth {
-  if (!cfgBool("FERAL_ENABLE_NOTEBOOK")) {
-    return { available: true, detail: "disabled (FERAL_ENABLE_NOTEBOOK unset)" };
+  if (!cfgBool("CINDERPAW_ENABLE_NOTEBOOK")) {
+    return { available: true, detail: "disabled (CINDERPAW_ENABLE_NOTEBOOK unset)" };
   }
   let snapshots = 0;
   try {

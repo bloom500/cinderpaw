@@ -17,7 +17,7 @@ import { tauri, type ByokProvider, type ModelInfo } from '@/lib/tauri';
 // loaded in the Models tab. We route local models through the OpenAI-compatible
 // path (/v1/chat/completions) — Cinderpaw's /api/chat emits SSE, which the agent's
 // `ollama` provider (expecting NDJSON) cannot parse.
-const FERAL_API_BASE = 'http://localhost:11435';
+const CINDERPAW_API_BASE = 'http://localhost:11435';
 // Sentinel provider id — the backend ignores it for the openai_compatible
 // source (it keys off baseUrl), but the CinderpawModelSelection type requires one.
 const LOCAL_PROVIDER_ID = 'feral-local';
@@ -56,7 +56,7 @@ export function CinderpawModelSelector() {
       await setModel({
         source: 'openai_compatible',
         model: m.name,
-        baseUrl: FERAL_API_BASE,
+        baseUrl: CINDERPAW_API_BASE,
         providerId: LOCAL_PROVIDER_ID,
       });
     } catch (err) {

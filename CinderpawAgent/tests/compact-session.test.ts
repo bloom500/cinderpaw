@@ -68,8 +68,8 @@ describe("AgentLoop.compactSession (/compact)", () => {
     // A roomy context so the AUTOMATIC pre-send compaction stays out of the
     // way (with the default 8K local budget the big system prompt makes
     // handle() compact every turn, leaving nothing for the manual pass).
-    const prev = process.env.FERAL_MAX_CONTEXT;
-    process.env.FERAL_MAX_CONTEXT = "65536";
+    const prev = process.env.CINDERPAW_MAX_CONTEXT;
+    process.env.CINDERPAW_MAX_CONTEXT = "65536";
     const { agent, cleanup } = buildAgent();
     // Three ~600-token turns of VARIED text (BPE collapses repeated chars,
     // so "x".repeat(n) counts as almost nothing): big enough to clear the
@@ -82,8 +82,8 @@ describe("AgentLoop.compactSession (/compact)", () => {
       await agent.handle("s2", varied(m), m, () => {});
     }
     expect(await agent.compactSession("s2")).toBe("compacted");
-    if (prev === undefined) delete process.env.FERAL_MAX_CONTEXT;
-    else process.env.FERAL_MAX_CONTEXT = prev;
+    if (prev === undefined) delete process.env.CINDERPAW_MAX_CONTEXT;
+    else process.env.CINDERPAW_MAX_CONTEXT = prev;
     cleanup();
   });
 });

@@ -34,7 +34,7 @@ const WINDOW_MS = 60_000;
  * keyed by hostname.
  *
  * NVIDIA NIM's free tier is 40 RPM. Endpoints absent from this table are
- * unlimited unless `FERAL_RATE_LIMIT_RPM` says otherwise — notably the local
+ * unlimited unless `CINDERPAW_RATE_LIMIT_RPM` says otherwise — notably the local
  * engine, which has no cap and must never be throttled.
  */
 export const DEFAULT_RPM_BY_HOST: Readonly<Record<string, number>> = {

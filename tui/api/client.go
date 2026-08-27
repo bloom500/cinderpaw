@@ -54,7 +54,7 @@ type StatusSnapshot struct {
 	// the local engine or a cloud endpoint.
 	Provider string `json:"provider,omitempty"`
 	// ByokProvider is the configured BYOK provider id when the gateway
-	// was started with FERAL_BYOK_PROVIDER set (e.g. "nvidia", "minimax").
+	// was started with CINDERPAW_BYOK_PROVIDER set (e.g. "nvidia", "minimax").
 	// Empty for a vanilla local boot.
 	ByokProvider string `json:"byok_provider,omitempty"`
 	// AgentModel is the model id the sidecar actually infers with — for

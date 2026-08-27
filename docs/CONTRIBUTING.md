@@ -6,7 +6,7 @@ deliberately short.
 > Deep dive: [Contributor Guide](./CONTRIBUTOR_GUIDE.md) — IPC protocols, test
 > matrix, build & release flow.
 > Layer map (L0–L6), file locations, glossary: [ARCHITECTURE.md](../ARCHITECTURE.md).
-> Every `FERAL_*` env var with threat notes: [CONFIGURATION.md](./CONFIGURATION.md).
+> Every `CINDERPAW_*` env var with threat notes: [CONFIGURATION.md](./CONFIGURATION.md).
 
 ---
 
@@ -33,7 +33,7 @@ cd ../CinderpawAgent && bun install
 cargo tauri dev                       # from src-tauri/ or repo root
 ```
 
-Sidecar looking stale? `FERAL_FORCE_SIDECAR_BUILD=1 cargo tauri dev`
+Sidecar looking stale? `CINDERPAW_FORCE_SIDECAR_BUILD=1 cargo tauri dev`
 (or directly: `node src-tauri/scripts/build-sidecar.mjs`).
 
 GPU inference is a **compile-time** feature — default builds are CPU-only and
