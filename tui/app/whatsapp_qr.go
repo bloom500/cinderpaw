@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"feral-tui/ui"
+	"cinderpaw-tui/ui"
 )
 
 // WhatsApp QR pairing surface. The sidecar mirrors each fresh Baileys pairing

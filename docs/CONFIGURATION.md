@@ -141,8 +141,8 @@ they remain hand-maintained here and are still covered by
 | Var | Type | Default | Security | Description |
 |---|---|---|---|---|
 | `FERAL_DB_KEY` | string | `null` | yes | 32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB. |
-| `FERAL_WORKSPACE` | list | `null` | yes | TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.feral, ~/.ssh and FERAL_FS_DENY regardless of roots. |
-| `FERAL_FS_DENY` | list | `null` | yes | Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.feral + ~/.ssh deny wall. |
+| `FERAL_WORKSPACE` | list | `null` | yes | TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.cinderpaw, ~/.ssh and CINDERPAW_FS_DENY regardless of roots. |
+| `FERAL_FS_DENY` | list | `null` | yes | Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.cinderpaw + ~/.ssh deny wall. |
 | `FERAL_ENABLE_SHELL_EXEC` | bool | `true` | yes | Registers shell_exec (argv-only, whitelisted). On by default; set to "false" to disable. Doc note: an earlier draft of this doc said default off — the code's actual default is ON. |
 | `FERAL_ENABLE_NOTEBOOK` | bool | `false` | yes | Registers `notebook`, a persistent JavaScript interpreter with every other tool bound as an async function, so the agent can compose tool calls in code instead of one per turn. Off by default; set to "true" to enable. Cells run in an isolated vm context with no ambient fetch/process/require, and every capability still goes through the tool registry and its permission checks — but it is a hardened context, not a jail against hostile input. |
 | `FERAL_ENABLE_DESKTOP_CONTROL` | bool | `false` | yes | Registers control_app (OS accessibility-tree control). Off by default; set to "true" to enable. |
@@ -228,7 +228,7 @@ they remain hand-maintained here and are still covered by
 | `FERAL_RSI_SCHEDULE_MS` | int | `null` |  | Force a fixed schedule (e.g. weekly wake). |
 | `FERAL_RSI_STAGNATION_THRESHOLD` | int | `null` |  | Hard stagnation threshold. |
 | `FERAL_RSI_STOP_ON_ACTIVITY` | bool | `false` |  | Pause RSI when the user is active. |
-| `FERAL_RSI_TELEMETRY` | path | `null` |  | Telemetry JSONL file path override (default ~/.feral/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch. |
+| `FERAL_RSI_TELEMETRY` | path | `null` |  | Telemetry JSONL file path override (default ~/.cinderpaw/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch. |
 | `FERAL_CODE_RSI_REPO` | path | `null` |  | Source repo for code-RSI to propose/apply against; without it, code-RSI rounds and live-apply are unavailable. |
 | `FERAL_MODULE_SEED` | int | `1` |  | Deterministic seed for module selection (module-host.ts). |
 | `FERAL_CRON_TICK_MS` | int | `30_000` |  | Tick interval for the cron scheduler. |

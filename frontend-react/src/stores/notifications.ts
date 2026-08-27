@@ -32,7 +32,7 @@ interface NotificationStore {
  *
  * Errors used to stay until dismissed, on the theory that a failure is too
  * important to let slip past. In practice that made them furniture: a
- * "feral-agent is not running" from one bad moment sat on the screen through
+ * "cinderpaw-agent is not running" from one bad moment sat on the screen through
  * everything that came after, including the part where it started working
  * again. A notice that outlives the condition it reports stops being read.
  *

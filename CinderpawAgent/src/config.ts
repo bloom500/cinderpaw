@@ -17,8 +17,10 @@
 // scripts/gen-config-docs.mjs — do not hand-edit the table between the
 // <!-- TS-SCHEMA-TABLE --> markers.
 
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { APP_HOME_DIR_NAME, LEGACY_HOME_DIR_NAME } from "./brand.ts";
 
 export interface ConfigEntry {
   name: string;
@@ -33,9 +35,9 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   { name: "FERAL_DB_KEY", type: "string", default: null,
     description: "32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB.", security: true },
   { name: "FERAL_WORKSPACE", type: "list", default: null,
-    description: "TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.feral, ~/.ssh and FERAL_FS_DENY regardless of roots.", security: true },
+    description: "TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.cinderpaw, ~/.ssh and CINDERPAW_FS_DENY regardless of roots.", security: true },
   { name: "FERAL_FS_DENY", type: "list", default: null,
-    description: "Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.feral + ~/.ssh deny wall.", security: true },
+    description: "Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.cinderpaw + ~/.ssh deny wall.", security: true },
   { name: "FERAL_ENABLE_SHELL_EXEC", type: "bool", default: true,
     description: "Registers shell_exec (argv-only, whitelisted). On by default; set to \"false\" to disable. Doc note: an earlier draft of this doc said default off — the code's actual default is ON.", security: true },
   { name: "FERAL_ENABLE_NOTEBOOK", type: "bool", default: false,
@@ -219,7 +221,7 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   { name: "FERAL_RSI_STOP_ON_ACTIVITY", type: "bool", default: false,
     description: "Pause RSI when the user is active.", security: false },
   { name: "FERAL_RSI_TELEMETRY", type: "path", default: null,
-    description: "Telemetry JSONL file path override (default ~/.feral/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch.", security: false },
+    description: "Telemetry JSONL file path override (default ~/.cinderpaw/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch.", security: false },
   { name: "FERAL_CODE_RSI_REPO", type: "path", default: null,
     description: "Source repo for code-RSI to propose/apply against; without it, code-RSI rounds and live-apply are unavailable.", security: false },
 
@@ -355,7 +357,43 @@ export function cfgList(name: string): string[] {
  * re-deriving the path.
  */
 export function feralHome(): string {
-  return resolve(cfgPath("FERAL_HOME") ?? join(homedir(), ".feral"));
+  const override = cfgPath("FERAL_HOME");
+  if (override) return resolve(override);
+  const home = homedir();
+  const current = join(home, APP_HOME_DIR_NAME);
+  // A sidecar-only install (headless, TUI, CI) never runs the desktop host's
+  // migrator, so the old name may still be the ONLY home there is. Prefer the
+  // new one, fall back to the old when it exists and the new one does not, and
+  // create the new one on a machine that has neither.
+  if (!existsSync(current) && existsSync(join(home, LEGACY_HOME_DIR_NAME))) {
+    return resolve(join(home, LEGACY_HOME_DIR_NAME));
+  }
+  return resolve(current);
+}
+
+/**
+ * EVERY directory that is "the agent's own home", current and legacy.
+ *
+ * Anything that means "the agent must not read its own profile" has to use
+ * this and not `feralHome()`. The migration copies `~/.feral` into
+ * `~/.cinderpaw` and deliberately never deletes the source, so on every
+ * migrated machine the old directory keeps a full copy of the connector
+ * tokens, the byok.json API keys and the conversations — forever. Walling off
+ * only the current one leaves the other one readable by the agent's own fs
+ * tools, and which one that is flipped silently on the day the host migrated.
+ *
+ * Denying a directory that does not exist costs nothing. Denying only one of
+ * them costs the person their keys.
+ */
+export function agentProfileDirs(): string[] {
+  const home = homedir();
+  return [
+    ...new Set([
+      feralHome(),
+      resolve(join(home, APP_HOME_DIR_NAME)),
+      resolve(join(home, LEGACY_HOME_DIR_NAME)),
+    ]),
+  ];
 }
 
 /**

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cinderpaw-tui/api"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,8 +37,8 @@ func TestPreflightFreshInstall(t *testing.T) {
 
 func TestPreflightByokFileEmpty(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
-	mustWrite(t, filepath.Join(dir, ".feral", "byok.json"), "")
+	mustMkdir(t, filepath.Join(dir, api.HomeDirName))
+	mustWrite(t, filepath.Join(dir, api.HomeDirName, "byok.json"), "")
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 
@@ -55,8 +56,8 @@ func TestPreflightByokFileEmpty(t *testing.T) {
 
 func TestPreflightByokFileInvalidJSON(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
-	mustWrite(t, filepath.Join(dir, ".feral", "byok.json"), `{ not json `)
+	mustMkdir(t, filepath.Join(dir, api.HomeDirName))
+	mustWrite(t, filepath.Join(dir, api.HomeDirName, "byok.json"), `{ not json `)
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 
@@ -80,12 +81,12 @@ func TestPreflightByokFileInvalidJSON(t *testing.T) {
 
 func TestPreflightByokFileUnknownProvider(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
+	mustMkdir(t, filepath.Join(dir, api.HomeDirName))
 	// `nonesuch` is not in CloudProviders today; this matches the
 	// contract that Phase 1 catalog sync catches when byok::CATALOG_VERSION
 	// bumps and a removed provider surfaces here.
 	byok := `{"providers":{"nonesuch":{"api_key":"abc","enabled":true}}}`
-	mustWrite(t, filepath.Join(dir, ".feral", "byok.json"), byok)
+	mustWrite(t, filepath.Join(dir, api.HomeDirName, "byok.json"), byok)
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 
@@ -106,9 +107,9 @@ func TestPreflightByokFileKnownProvider(t *testing.T) {
 	// surface a notice. The catalog surface (`hasExistingConfig`) is
 	// what gates the WizConfigHandling screen, not the preflight.
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
+	mustMkdir(t, filepath.Join(dir, api.HomeDirName))
 	byok := `{"providers":{"openai":{"api_key":"abc","enabled":true}}}`
-	mustWrite(t, filepath.Join(dir, ".feral", "byok.json"), byok)
+	mustWrite(t, filepath.Join(dir, api.HomeDirName, "byok.json"), byok)
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 
@@ -119,10 +120,10 @@ func TestPreflightByokFileKnownProvider(t *testing.T) {
 
 func TestPreflightProgressVersionStale(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
+	mustMkdir(t, filepath.Join(dir, api.HomeDirName))
 	// wizardProgressVersion is currently 3; write v2 — older, must
 	// surface as warn so the user knows why their progress reset.
-	mustWrite(t, filepath.Join(dir, ".feral", wizardProgressFile), "v2:1")
+	mustWrite(t, filepath.Join(dir, api.HomeDirName, wizardProgressFile), "v2:1")
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 
@@ -140,8 +141,8 @@ func TestPreflightProgressVersionStale(t *testing.T) {
 
 func TestPreflightProgressVersionFuture(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
-	mustWrite(t, filepath.Join(dir, ".feral", wizardProgressFile), "v999:7")
+	mustMkdir(t, filepath.Join(dir, api.HomeDirName))
+	mustWrite(t, filepath.Join(dir, api.HomeDirName, wizardProgressFile), "v999:7")
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 
@@ -159,9 +160,9 @@ func TestPreflightProgressVersionFuture(t *testing.T) {
 
 func TestPreflightProgressVersionMatch(t *testing.T) {
 	dir := t.TempDir()
-	mustMkdir(t, filepath.Join(dir, ".feral"))
+	mustMkdir(t, filepath.Join(dir, api.HomeDirName))
 	// Match the current version; no notice expected.
-	mustWrite(t, filepath.Join(dir, ".feral", wizardProgressFile), "v"+intToStr(wizardProgressVersion)+":1")
+	mustWrite(t, filepath.Join(dir, api.HomeDirName, wizardProgressFile), "v"+intToStr(wizardProgressVersion)+":1")
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
 

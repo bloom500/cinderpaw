@@ -25,11 +25,7 @@ type Settings struct {
 }
 
 func LoadSettings() (*Settings, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(filepath.Join(home, ".feral", "settings.json"))
+	data, err := os.ReadFile(HomePath("settings.json"))
 	if err != nil {
 		return &Settings{APIPort: DefaultPort}, nil
 	}
@@ -149,7 +145,7 @@ type ToolDone struct {
 
 // SessionSummary is one row in `/runtime/sessions` — the welcome screen
 // renders the most-recent N of these. Mirrors the shape stored in
-// `~/.feral/conversations/index.json` (see frontend-react/src/stores/conversations.ts).
+// `~/.cinderpaw/conversations/index.json` (see frontend-react/src/stores/conversations.ts).
 type SessionSummary struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
@@ -194,18 +190,14 @@ type rawStatus struct {
 }
 
 func ReadToken() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	data, err := os.ReadFile(filepath.Join(home, ".feral", "api-token"))
+	data, err := os.ReadFile(HomePath("api-token"))
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(data)), nil
 }
 
-// EnsureToken returns the existing API token at `~/.feral/api-token` or, on
+// EnsureToken returns the existing API token at `~/.cinderpaw/api-token` or, on
 // first run, generates a fresh 32-byte URL-safe random token, writes it
 // 0600-permissioned, and returns it. This is the Sprint 2 first-run
 // bootstrap (audit C-3) — a new user who runs `feral chat` with no prior
@@ -220,11 +212,10 @@ func EnsureToken(seed []byte) (string, error) {
 	if existing, err := ReadToken(); err == nil && existing != "" {
 		return existing, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	dir := Home()
+	if dir == "" {
+		return "", errors.New("cannot find home directory")
 	}
-	dir := filepath.Join(home, ".feral")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -713,7 +704,7 @@ func TriggerDream(baseURL, token string) error {
 
 // FetchSessions returns the most-recent conversations (default 5) so the
 // welcome screen can render a "recent" list. The host endpoint reads the
-// `~/.feral/conversations/index.json` written by the desktop app.
+// `~/.cinderpaw/conversations/index.json` written by the desktop app.
 func FetchSessions(baseURL, token string, limit int) ([]SessionSummary, error) {
 	if limit <= 0 {
 		limit = 5
@@ -1068,7 +1059,7 @@ func FetchConnectorCatalog(baseURL, token string) (*CatalogResult, error) {
 	return fetchCatalog(baseURL, token, "/runtime/connectors/catalog", ConnectorCatalogVersionExpected)
 }
 
-// ConnectorFileConfig is the on-disk format of `~/.feral/connectors.json`.
+// ConnectorFileConfig is the on-disk format of `~/.cinderpaw/connectors.json`.
 // Mirrors the Rust `ConnectorConfigFile` shape in src-tauri/src/connectors.rs.
 type ConnectorFileConfig struct {
 	Connectors []ConnectorFileEntry `json:"connectors"`
@@ -1084,7 +1075,7 @@ type ConnectorFileEntry struct {
 }
 
 // SaveConnectorConfig persists a connector's secrets and enabled flag to
-// `~/.feral/connectors.json`, then pokes the gateway to reload. F4
+// `~/.cinderpaw/connectors.json`, then pokes the gateway to reload. F4
 // chat-platform connector counterpart to the cloud-provider keychain path
 // (SaveByokKey + /runtime/byok/save). Phase 2 of the terminal-onboarding
 // slice replaces this file-only writer with a keychain-backed endpoint
@@ -1092,11 +1083,10 @@ type ConnectorFileEntry struct {
 // will be deleted then; the file-shape type and the reload call survive
 // in a narrower form.
 func SaveConnectorConfig(id string, secrets map[string]string, enable bool) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot find home directory: %w", err)
+	dir := Home()
+	if dir == "" {
+		return errors.New("cannot find home directory")
 	}
-	dir := filepath.Join(home, ".feral")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("cannot create %s: %w", dir, err)
 	}

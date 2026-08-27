@@ -193,7 +193,7 @@ function truncateVisible(text: string, max: number): string {
  * Render the header line at the top of the TUI — a full-width rule with
  * the wordmark on the left and live status on the right:
  *
- *   ◉ FERAL ─────────────────────  MiniMax-M3 · balanced · 12.4k ─
+ *   ◉ CINDERPAW ────────────────  MiniMax-M3 · balanced · 12.4k ─
  *
  * No box corners: a scrolling chat can't be framed, so orphaned corners
  * would just read as broken. A single full-width rule reads as an
@@ -206,7 +206,7 @@ export function renderStatusBar(
   useColor = shouldUseColor(),
 ): string {
   const safeWidth = Math.max(24, width);
-  const wordmark = "◉ FERAL";
+  const wordmark = "◉ CINDERPAW";
   // Reserve: wordmark + " " + (≥3 dashes) + " " + status + " " + tail dash.
   const fixed = wordmark.length + 1 + 1 + 1 + 1; // spaces around dashes + status + tail
   const room = safeWidth - fixed - 3; // 3 = minimum dash run

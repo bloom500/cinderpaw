@@ -6,6 +6,7 @@
  * tools are blocked, budgets are enforced, and everything is audited.
  */
 
+import { APP_HOME_DIR_NAME } from "../src/brand.ts";
 import { describe, expect, test } from "bun:test";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -128,7 +129,7 @@ describe("call-time deny wall (~/.feral, ~/.ssh, FERAL_FS_DENY)", () => {
     networkAccess: false,
     allowedPaths: [homedir()],
   };
-  const FERAL_HOME = join(homedir(), ".feral");
+  const FERAL_HOME = join(homedir(), APP_HOME_DIR_NAME);
 
   test("targets inside ~/.feral are denied even under an allowed root", () => {
     for (const p of [

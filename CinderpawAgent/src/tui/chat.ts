@@ -105,7 +105,7 @@ export async function runChat(): Promise<void> {
     console.error(`  could not start: ${err instanceof Error ? err.message : String(err)}`);
     console.error(
       muted(
-        "  check the route with `feral providers`, and that the model host is reachable.",
+        "  check the route with `cinderpaw providers`, and that the model host is reachable.",
         useColor,
       ),
     );

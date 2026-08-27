@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 )
 
 func captureStdout(t *testing.T, fn func()) string {
@@ -138,7 +138,7 @@ func TestRunPlainExitsOnExitCommand(t *testing.T) {
 	withStdin(t, "/exit\n", func() {
 		out = captureStdout(t, func() { runPlain("", "") })
 	})
-	if !strings.Contains(out, "feral") {
+	if !strings.Contains(out, "cinderpaw") {
 		t.Fatalf("expected banner in output, got %q", out)
 	}
 }
@@ -174,5 +174,3 @@ func TestMainFlagParsing(t *testing.T) {
 		t.Fatal("expected no --plain flag")
 	}
 }
-
-

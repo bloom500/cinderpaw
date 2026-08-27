@@ -7,6 +7,7 @@
  * ~/.ssh, FERAL_FS_DENY — tested in sandbox.test.ts). Here we only assert
  * that roots sitting INSIDE ~/.feral are still dropped at registration.
  */
+import { APP_HOME_DIR_NAME } from "../src/brand.ts";
 import { test, expect } from "bun:test";
 import { resolve, delimiter, parse } from "node:path";
 import { homedir } from "node:os";
@@ -15,7 +16,7 @@ import { homedir } from "node:os";
 // the whole agent module graph — see the note in index.ts.
 import { loadWorkspaceRoots } from "../src/boot.ts";
 
-const FERAL_HOME = resolve(homedir(), ".feral");
+const FERAL_HOME = resolve(homedir(), APP_HOME_DIR_NAME);
 const SCRATCH = resolve(FERAL_HOME, "workspace");
 
 test("explicit FERAL_WORKSPACE list is honored and scratch is always added", () => {

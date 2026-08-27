@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cinderpaw-tui/api"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,7 +37,7 @@ func TestLoadWizardProgressRejectsOldFormat(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := filepath.Join(tmp, api.HomeDirName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestLoadWizardProgressRejectsWrongVersion(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := filepath.Join(tmp, api.HomeDirName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestLoadWizardProgressRejectsOutOfRange(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := filepath.Join(tmp, api.HomeDirName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestHasExistingConfigTrueOnWizardDone(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := filepath.Join(tmp, api.HomeDirName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +133,7 @@ func TestHasExistingConfigTrueOnByok(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := filepath.Join(tmp, api.HomeDirName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}

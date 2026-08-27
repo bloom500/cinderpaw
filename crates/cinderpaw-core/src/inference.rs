@@ -883,8 +883,7 @@ mod backend {
     /// process-global env var. Production callers go through
     /// `effective_pool_cap`.
     fn max_contexts_env() -> Option<usize> {
-        std::env::var("FERAL_MAX_LOCAL_CONTEXTS")
-            .ok()
+        crate::env::env_var("FERAL_MAX_LOCAL_CONTEXTS")
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n >= 1)
     }
@@ -1001,7 +1000,7 @@ mod backend {
     /// wins; otherwise the bundled/downloaded default in the models dir. `None`
     /// when absent — the caller then falls back to lexical retrieval.
     fn embedding_model_path() -> Option<PathBuf> {
-        if let Ok(p) = std::env::var("FERAL_EMBED_MODEL") {
+        if let Some(p) = crate::env::env_var("FERAL_EMBED_MODEL") {
             let pb = PathBuf::from(p);
             if pb.is_file() {
                 return Some(pb);
@@ -1027,8 +1026,7 @@ mod backend {
             LlamaBackend::init().map_err(|e| anyhow!("llama backend init: {}", e))
         })?;
         // Default 999 = "all layers" (bge has ~12; any GPU fits it whole).
-        let gpu_layers: u32 = std::env::var("FERAL_EMBED_GPU_LAYERS")
-            .ok()
+        let gpu_layers: u32 = crate::env::env_var("FERAL_EMBED_GPU_LAYERS")
             .and_then(|v| v.parse().ok())
             .unwrap_or(999);
         let params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
@@ -1382,8 +1380,7 @@ mod backend {
         let explicit_cap = max_context
             .filter(|v| *v >= 512)
             .or_else(|| {
-                std::env::var("FERAL_MAX_CONTEXT")
-                    .ok()
+                crate::env::env_var("FERAL_MAX_CONTEXT")
                     .and_then(|v| v.trim().parse::<u32>().ok())
                     .filter(|v| *v >= 512)
             });
@@ -1546,7 +1543,7 @@ mod backend {
         // guessed from the filename.
         let chat_template = model.chat_template(None).ok();
         let max = effective_pool_cap(gpu_active_now);
-        if gpu_active_now && max == 1 && std::env::var_os("FERAL_MAX_LOCAL_CONTEXTS").is_none() {
+        if gpu_active_now && max == 1 && crate::env::env_var_os("FERAL_MAX_LOCAL_CONTEXTS").is_none() {
             tracing::info!(
                 "GPU offload active — capping context pool at 1 (each context = full KV cache in VRAM; \
                  set FERAL_MAX_LOCAL_CONTEXTS=N to override for cards with enough VRAM for parallel decodes)"

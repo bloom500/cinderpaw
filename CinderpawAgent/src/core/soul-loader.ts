@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { feralHome } from "../config.ts";
+import { APP_HOME_DIR_NAME } from "../brand.ts";
 // @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
 import bundledSoul from "../SOUL.md" with { type: "text" };
 // @ts-expect-error — Bun's text import attribute, not typed by @types/bun yet.
@@ -93,7 +94,7 @@ export function resolveSoulPaths(homeDir?: string): SoulPaths {
  * SOUL.md and IDENTITY.md.
  */
 function profileDir(homeDir?: string): string {
-  return homeDir === undefined ? feralHome() : join(homeDir, ".feral");
+  return homeDir === undefined ? feralHome() : join(homeDir, APP_HOME_DIR_NAME);
 }
 
 /**

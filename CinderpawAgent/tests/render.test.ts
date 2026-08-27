@@ -143,7 +143,7 @@ describe("horizontalRuleBottom", () => {
 describe("renderStatusBar (no color)", () => {
   test("contains wordmark and content", () => {
     const r = renderStatusBar("hello world", 40, false);
-    expect(r).toContain("◉ FERAL");
+    expect(r).toContain("◉ CINDERPAW");
     expect(r).toContain("hello world");
     // Full-width rule, no orphaned box corners.
     expect(r).not.toContain("╭");

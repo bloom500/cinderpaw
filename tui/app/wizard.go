@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"feral-tui/api"
-	"feral-tui/ui"
+	"cinderpaw-tui/api"
+	"cinderpaw-tui/ui"
 )
 
 // wizardProgressFile stores the last completed step so Ctrl+C mid-wizard
@@ -196,7 +196,7 @@ func prevPathStep(ws *WizardState) WizardStep {
 //      so resume can rebuild the branched path (P0.4).
 const wizardProgressVersion = 4
 
-// feralHomeDir returns ~/.feral/ and ensures the directory exists.
+// feralHomeDir returns the profile directory and ensures it exists.
 // Like feralHome but returns the string only (no error) for use in places
 // that don't propagate errors, e.g. ConfigHandling Reset. Errors are
 // silently swallowed: the worst case is a no-op reset, which the next
@@ -209,15 +209,15 @@ func feralHomeDir() string {
 	return dir
 }
 
-// feralHome returns ~/.feral/ and ensures the directory exists.
-// Uses os.UserHomeDir() instead of os.ExpandEnv("~") because the
-// latter does NOT expand ~ on Windows (ONB-001 fix).
+// feralHome returns the profile directory and ensures it exists.
+// Resolution lives in api.Home() so the TUI, the desktop host and the sidecar
+// cannot disagree about where a person's data is — which is exactly what
+// happened while the rename was half-done.
 func feralHome() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot find home directory: %w", err)
+	dir := api.Home()
+	if dir == "" {
+		return "", fmt.Errorf("cannot find home directory")
 	}
-	dir := filepath.Join(home, ".feral")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("cannot create %s: %w", dir, err)
 	}

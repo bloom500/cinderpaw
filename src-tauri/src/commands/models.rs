@@ -633,7 +633,7 @@ pub(crate) async fn feral_set_model(
         let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(msg).await.map_err(|e| e.to_string())?;

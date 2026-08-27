@@ -10,6 +10,7 @@
  *      parent-escape / shell-metacharacter inputs.
  *   5. The same tenant id always resolves to the same paths (pure).
  */
+import { APP_HOME_DIR_NAME } from "../src/brand.ts";
 import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -38,7 +39,7 @@ describe("paths() — v1 shared layout", () => {
 
   test("root is under ~/.feral/rsi/", () => {
     const root = paths().root;
-    expect(root).toBe(join(homedir(), ".feral", "rsi"));
+    expect(root).toBe(join(homedir(), APP_HOME_DIR_NAME, "rsi"));
   });
 
   test("every path field is under the root", () => {

@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 )
 
 // Phase 1 (2026-07-07): tests for the wizard catalog cache behavior.

@@ -39,6 +39,16 @@ pub enum MigrationOutcome {
     AlreadyMigrated,
     /// Copied this many files.
     Migrated { files: u64, bytes: u64 },
+    /// Both homes hold real data and the old one carries no marker.
+    ///
+    /// The new home wins and NOTHING is touched. This used to be fatal, on the
+    /// reasoning that guessing means overwriting one of them — but choosing the
+    /// new home overwrites nothing at all, and dying here bricked the app on
+    /// the second launch for everyone whose sidecar re-created `~/.feral` after
+    /// the host had already migrated. An app that refuses to open is not the
+    /// safer app; it is the same lost archive with an extra step. The person is
+    /// told on screen that a leftover folder is sitting there.
+    LeftoverLegacyHome { legacy: PathBuf },
 }
 
 /// Migrate if there is something to migrate. Safe to call on every boot.
@@ -78,15 +88,13 @@ pub fn migrate_between(old: &Path, new: &Path) -> Result<MigrationOutcome> {
         return Ok(MigrationOutcome::AlreadyMigrated);
     }
     if new.exists() && !is_empty_skeleton(new) {
-        // Both present, the new one has real content, and the old one is not
-        // marked done. Ambiguous, and guessing means overwriting one of them.
-        // Ask the person instead.
-        bail!(
-            "both {} and {} exist, and the older one is not marked as migrated. \
-             Cinderpaw will not overwrite either. Move one aside and start again.",
-            old.display(),
-            new.display()
-        );
+        // Both hold real data and the old one is unmarked. Migrating would
+        // overwrite the new home, so we do not migrate — but we also do not
+        // stop. The new home is the live one by construction: only a build
+        // that has already renamed itself ever creates it. Nothing here is
+        // deleted or moved; the caller surfaces the leftover as a sentence on
+        // screen instead of a window that never appears.
+        return Ok(MigrationOutcome::LeftoverLegacyHome { legacy: old.to_path_buf() });
     }
 
     // A directory tree with no files in it is not data, it is the empty
@@ -336,15 +344,28 @@ mod tests {
     }
 
     #[test]
-    fn refuses_when_both_exist_and_the_old_one_is_not_marked() {
+    fn keeps_the_new_home_and_touches_nothing_when_both_exist_unmarked() {
+        // This used to be fatal. It is the shape every install landed in once
+        // the sidecar re-created `~/.feral` after the host had migrated: the
+        // app refused to open, and the only instruction was "move one aside".
+        // Both folders must survive byte for byte, and the caller must be told
+        // WHICH folder is the leftover so it can say so on screen.
         let dir = tempfile::TempDir::new().unwrap();
         let old = dir.path().join(".feral");
         let new = dir.path().join(".cinderpaw");
         write(&old, "settings.json", b"{}");
         write(&new, "settings.json", b"other");
-        let err = migrate_between(&old, &new).unwrap_err().to_string();
-        assert!(err.contains("will not overwrite"), "got: {err}");
+        assert_eq!(
+            migrate_between(&old, &new).unwrap(),
+            MigrationOutcome::LeftoverLegacyHome { legacy: old.clone() }
+        );
         assert_eq!(std::fs::read(new.join("settings.json")).unwrap(), b"other");
+        assert_eq!(std::fs::read(old.join("settings.json")).unwrap(), b"{}");
+        // And it must stay that way on every later boot, not migrate on the next.
+        assert!(matches!(
+            migrate_between(&old, &new).unwrap(),
+            MigrationOutcome::LeftoverLegacyHome { .. }
+        ));
     }
 
     #[test]
@@ -371,15 +392,22 @@ mod tests {
     }
 
     #[test]
-    fn one_real_file_in_the_new_folder_still_blocks() {
+    fn one_real_file_anywhere_in_the_new_folder_stops_the_copy() {
+        // A single file nested arbitrarily deep still counts as real content:
+        // the new home is never overwritten. What changed is the consequence —
+        // the copy is skipped and the new home is used, instead of the app
+        // refusing to start.
         let dir = tempfile::TempDir::new().unwrap();
         let old = dir.path().join(".feral");
         let new = dir.path().join(".cinderpaw");
         write(&old, "a.json", b"old");
         write(&new, "deep/nested/thing.json", b"new");
-        let err = migrate_between(&old, &new).unwrap_err().to_string();
-        assert!(err.contains("will not overwrite"), "got: {err}");
+        assert_eq!(
+            migrate_between(&old, &new).unwrap(),
+            MigrationOutcome::LeftoverLegacyHome { legacy: old.clone() }
+        );
         assert_eq!(std::fs::read(new.join("deep/nested/thing.json")).unwrap(), b"new");
+        assert_eq!(std::fs::read(old.join("a.json")).unwrap(), b"old");
     }
 
     #[test]

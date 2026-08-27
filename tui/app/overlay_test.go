@@ -1,7 +1,7 @@
 package app
 
 import (
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 	"fmt"
 	"strings"
 	"testing"

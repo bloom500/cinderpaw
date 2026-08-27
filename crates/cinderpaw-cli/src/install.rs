@@ -123,7 +123,7 @@ pub fn update() -> i32 {
             1
         }
         Kind::Dev { tree } => {
-            eprintln!("{WARN}feral: this is a build from {}, not an install.{RESET}", show(&tree));
+            eprintln!("{WARN}cinderpaw: this is a build from {}, not an install.{RESET}", show(&tree));
             eprintln!("       update it the way you built it:");
             eprintln!("         git -C {} pull && cargo build --release -p cinderpaw-cli", show(&tree));
             1
@@ -161,18 +161,18 @@ fn run_installer(script: &Path) -> i32 {
     match std::process::Command::new("bash").arg(script).arg("--headless").status() {
         Ok(s) if s.success() => {}
         Ok(s) => {
-            eprintln!("{FAIL}feral: the installer failed{RESET} (exit {})", s.code().unwrap_or(-1));
+            eprintln!("{FAIL}cinderpaw: the installer failed{RESET} (exit {})", s.code().unwrap_or(-1));
             return s.code().unwrap_or(1);
         }
         Err(e) => {
-            eprintln!("{FAIL}feral: could not run {}{RESET}: {e}", script.display());
+            eprintln!("{FAIL}cinderpaw: could not run {}{RESET}: {e}", script.display());
             eprintln!("       re-run it by hand:  bash {} --headless", script.display());
             return 1;
         }
     }
 
     if !was_online {
-        println!("{OK}feral: updated{RESET} — start it with: cinderpaw gateway start");
+        println!("{OK}cinderpaw: updated{RESET} — start it with: cinderpaw gateway start");
         return 0;
     }
     println!("  {ACCENT}restarting the gateway{RESET}  {DIM}{META}connectors reconnect on the new build{RESET}");
@@ -182,7 +182,7 @@ fn run_installer(script: &Path) -> i32 {
         Some(exe) => match std::process::Command::new(exe).args(["gateway", "restart"]).status() {
             Ok(s) => s.code().unwrap_or(0),
             Err(e) => {
-                eprintln!("{FAIL}feral: updated, but the restart failed{RESET}: {e}");
+                eprintln!("{FAIL}cinderpaw: updated, but the restart failed{RESET}: {e}");
                 eprintln!("       run:  cinderpaw gateway restart");
                 1
             }
@@ -249,7 +249,7 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
         }),
         Kind::MacApp => manual.push("rm -rf /Applications/Cinderpaw.app"),
         Kind::Dev { tree } => {
-            eprintln!("{WARN}feral: this is a build tree, not an install{RESET} ({})", show(tree));
+            eprintln!("{WARN}cinderpaw: this is a build tree, not an install{RESET} ({})", show(tree));
             eprintln!("       nothing here was installed, so nothing is removed — delete the");
             eprintln!("       checkout yourself if that is what you meant.");
             if !purge {
@@ -268,7 +268,7 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
     targets.sort();
     targets.dedup();
     if targets.is_empty() && manual.is_empty() {
-        println!("{META}feral: nothing to remove{RESET}");
+        println!("{META}cinderpaw: nothing to remove{RESET}");
         return 0;
     }
 

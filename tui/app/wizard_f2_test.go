@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cinderpaw-tui/api"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,7 +147,7 @@ func TestHasPartialProgressFalseWhenDone(t *testing.T) {
 
 	saveWizardProgress(WizCloudProvider, SetupManual, WizChoiceCloud)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := filepath.Join(tmp, api.HomeDirName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}

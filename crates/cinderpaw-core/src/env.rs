@@ -61,6 +61,31 @@ pub fn env_var(legacy_name: &str) -> Option<String> {
     resolved
 }
 
+/// `env_var` without the cache, for a value that is genuinely read per call
+/// rather than once at startup.
+///
+/// `FERAL_AGENT_WORKSPACE` is the reason this exists: it bounds which files the
+/// agent's tools may touch, it is consulted on every file operation, and a
+/// cached answer would mean a change to it is not observed until the process
+/// restarts. A security boundary that lags behind its own setting is worse than
+/// one that costs an environment read.
+pub fn env_var_uncached(legacy_name: &str) -> Option<String> {
+    let modern = modern_name(legacy_name);
+    match std::env::var(&modern) {
+        Ok(v) => Some(v),
+        Err(_) => match std::env::var(legacy_name) {
+            Ok(v) => {
+                tracing::warn!(
+                    "{legacy_name} is the old name for {modern} and still works, but it \
+                     will stop working in a future release — rename it when convenient."
+                );
+                Some(v)
+            }
+            Err(_) => None,
+        },
+    }
+}
+
 /// `env_var`, as an `OsString`, for values that are paths.
 pub fn env_var_os(legacy_name: &str) -> Option<std::ffi::OsString> {
     let modern = modern_name(legacy_name);

@@ -18,7 +18,7 @@
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { cfgList, feralHome } from "../config.ts";
+import { agentProfileDirs, cfgList } from "../config.ts";
 import { permissionMode } from "../core/permission-mode.ts";
 
 /**
@@ -220,13 +220,17 @@ function modePermits(
  * do NOT route through resolveAllowedPath — they own their fixed path.
  */
 function deniedPaths(): { deny: string[]; exempt: string[] } {
-  const home = realpathBestEffort(feralHome());
+  // BOTH profile dirs, always — see `agentProfileDirs`. Guarding only the
+  // current one left the migrated-away copy of byok.json and connectors.json
+  // readable by the agent's own fs tools, and which directory that was flipped
+  // silently the day the host migrated.
+  const homes = agentProfileDirs().map((h) => realpathBestEffort(h));
   const deny = [
-    home,
+    ...homes,
     realpathBestEffort(resolve(homedir(), ".ssh")),
     ...cfgList("FERAL_FS_DENY").map((p) => realpathBestEffort(p)),
   ];
-  return { deny, exempt: [join(home, "workspace")] };
+  return { deny, exempt: homes.map((h) => join(h, "workspace")) };
 }
 
 /**

@@ -1,7 +1,7 @@
 package app
 
 // The GUIDED first-run flow (OpenClaw parity, 2026-07-10 spec Part 5) —
-// the TUI face of the same server-side ladder `feral setup` and the desktop
+// the TUI face of the same server-side ladder `cinderpaw setup` and the desktop
 // "Found on your machine" section consume (/runtime/setup/detect|verify|ack).
 // Shape: security ack (one-time) → detect → auto-test the ladder with a
 // REAL completion → manual stage on failure → summary → chat. The classic
@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"feral-tui/api"
-	"feral-tui/ui"
+	"cinderpaw-tui/api"
+	"cinderpaw-tui/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -103,7 +103,7 @@ func (a *App) startGuided() tea.Cmd {
 
 // guidedVerifyCmd tests one candidate (and persists it server-side on
 // success). Cloud routes are additionally activated on the live sidecar —
-// best-effort, mirroring `feral setup` (a cold sidecar picks the persisted
+// best-effort, mirroring `cinderpaw setup` (a cold sidecar picks the persisted
 // route up on next start).
 func (a *App) guidedVerifyCmd(idx int, c api.SetupCandidate, apiKey string) tea.Cmd {
 	base, token := a.BaseURL, a.Token
@@ -236,7 +236,7 @@ func (a *App) handleGuidedMsg(msg tea.Msg) (bool, tea.Cmd) {
 		case "complete":
 			c := *g.pendingDownload
 			// Synthetic local candidate for the file we just fetched — the
-			// same shape `feral setup` builds after its download rung.
+			// same shape `cinderpaw setup` builds after its download rung.
 			raw := fmt.Sprintf(
 				`{"kind":"local_gguf","id":"local:%s","label":%q,"detail":"just downloaded","model":%q}`,
 				c.DownloadFile, c.DownloadLabel, c.DownloadFile)
@@ -473,14 +473,14 @@ func (a *App) renderGuided() string {
 			line("")
 			if g.Skipped {
 				line(ui.MetaStyle.Render("To add AI later: set OPENAI_API_KEY or ANTHROPIC_API_KEY, download a"))
-				line(ui.MetaStyle.Render("local model in the desktop app, or run `feral setup`."))
+				line(ui.MetaStyle.Render("local model in the desktop app, or run `cinderpaw setup`."))
 			} else {
 				line(ui.OkMark.Render(ui.G.OK+" "+g.VerifiedLabel+" is ready") +
 					ui.MetaStyle.Render(" — AI check: "+g.VerifiedMsg))
 			}
 			line("")
 			line(ui.AccentStyle.Render("Next steps"))
-			line(ui.MetaStyle.Render("Add a connector:  /connectors add   (or `feral connectors set discord`)"))
+			line(ui.MetaStyle.Render("Add a connector:  /connectors add   (or `cinderpaw connectors set discord`)"))
 			line(ui.MetaStyle.Render("Desktop app:      launch Cinderpaw from the Start Menu"))
 			line(ui.MetaStyle.Render("Health check:     /doctor"))
 		}

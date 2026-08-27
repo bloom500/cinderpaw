@@ -16,6 +16,7 @@
  * Real disk I/O on purpose — we want to exercise `appendFileSync` and
  * the missing-dir / ENOTDIR branches on the actual platform, not a mock.
  */
+import { APP_HOME_DIR_NAME } from "../src/brand.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -274,7 +275,7 @@ describe("path helpers", () => {
   });
 
   test("defaultJournalDir sits under ~/.feral/rsi/journal/", () => {
-    expect(defaultJournalDir().endsWith(join(".feral", "rsi", "journal"))).toBe(true);
+    expect(defaultJournalDir().endsWith(join(APP_HOME_DIR_NAME, "rsi", "journal"))).toBe(true);
   });
 });
 

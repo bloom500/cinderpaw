@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 )
 
 func guidedApp() *App {
