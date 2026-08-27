@@ -210,10 +210,14 @@ export interface OpenScorecardOptions {
  * both belong to whatever drives the campaign, so they are written down at the
  * call it constrains rather than in a document nobody opens:
  *
- * 1. **A card auto-closes after 15 minutes.** At roughly one model call per
- *    action that is a few hundred actions, not a campaign. Open one card per
- *    game (or per short segment) and close it; a single card held open across
- *    five games expires part-way through and everything after that is lost.
+ * 1. **The 15-minute auto-close is NOT a clock on play.** The docs say a card
+ *    auto-closes after fifteen minutes, and the obvious reading — that play
+ *    stops there — is wrong. Measured against the live API: 220 actions over
+ *    17 minutes, every one returning 200, and the close reported `actions: 220`
+ *    with `level_actions: [220,0,...]`. Everything after minute fifteen was
+ *    recorded. The auto-close finalises an ABANDONED card so its results show
+ *    up, which is the same thing rule 2 is about from the other side. Do not
+ *    reintroduce a deadline: it cost fifty presses a game for nothing.
  *
  * 2. **Killing the run loses the results.** The docs are explicit that
  *    premature termination stops the scorecard results from being displayed.

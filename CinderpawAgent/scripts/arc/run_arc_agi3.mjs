@@ -139,15 +139,6 @@ function makeComplete(model, reasoningEffort, providerOnly) {
       // coin flip on whether an answer came back — variance that would land in
       // the score as if it were the agent's.
       providerOnly,
-      // The number that decides whether this benchmark is runnable at all.
-      // Measured on z-ai/glm-5.3-flash with a real 64x64 grid:
-      //   unbounded  191.3s, 16,000 output tokens, content EMPTY
-      //   256         2.5s,      38 output tokens, "ACTION1"
-      // Unbounded is not "slower but better" — the thinking eats the whole
-      // reply and the answer never arrives, so every press would have been the
-      // parser's fallback. It is also 15x the cost and, at 191s per action,
-      // three hours per game against a card that closes in fifteen minutes.
-      reasoningMaxTokens,
       temperature: 0,
     });
     promptTokens += response.promptTokens ?? 0;
@@ -160,16 +151,17 @@ function makeComplete(model, reasoningEffort, providerOnly) {
 
 const args = parseArgs(process.argv.slice(2));
 
-// The provider aborts a cloud call after 60s (CLOUD_IDLE_MS). With no token cap
-// a reasoning model can think for longer than that on a 64x64 grid — measured
-// at 191s — and the abort surfaces as a bare AbortError, which reads as a
-// network fault rather than "it was still thinking".
+// The provider aborts a cloud call after 60s (CLOUD_IDLE_MS), and with no token
+// cap a reasoning model thinks for longer than that on a real 64x64 grid —
+// measured at 191s — with the abort surfacing as a bare AbortError that reads
+// like a network fault rather than "it was still thinking".
 //
-// That constant is resolved when its module is first evaluated, and ESM
-// evaluates every static import before a single line of this file runs. So the
-// provider is imported DYNAMICALLY, below, after this assignment — a static
-// import here would be hoisted above it and read the old default.
-process.env.CINDERPAW_CLOUD_IDLE_TIMEOUT_MS ??= "600000";
+// CINDERPAW_CLOUD_IDLE_TIMEOUT_MS raises it, and it has to be set in the
+// ENVIRONMENT, not here: `config.ts` snapshots the environment when it is first
+// imported and `run-manifest.ts` imports it statically, so an assignment in
+// this file is already too late however early it sits. It lives in .env, which
+// bun loads before the script runs — the only point early enough. Setting it
+// from here was tried and silently did nothing, which cost a pilot run.
 const { OpenAICompatibleProvider } = await import("../../src/egress/inference-providers.ts");
 
 if (args.list) {
@@ -248,19 +240,16 @@ const cardId = await openScorecard({
 });
 const cardOpenedAt = Date.now();
 
-// A card auto-closes 15 minutes after it is opened and every action after that
-// is unscored - the run happily keeps playing into a card the server has
-// already filed. The budget is in presses and this limit is in minutes, so
-// nothing about --budget can protect against it.
+// NO DEADLINE. The docs say "scorecards auto close after 15 minutes" and this
+// runner used to stop 45s short of that, which would have cut every game off
+// at roughly fifty presses.
 //
-// The margin is not politeness: the deadline is checked BETWEEN actions, and
-// the action that follows the check is a model call plus a round trip. Stopping
-// 45s early costs a handful of presses; stopping 5s late loses everything after
-// the close.
-const CARD_TTL_MS = 15 * 60_000;
-const CARD_MARGIN_MS = 45_000;
-const cardDeadline = cardOpenedAt + CARD_TTL_MS - CARD_MARGIN_MS;
-const pastDeadline = () => Date.now() >= cardDeadline;
+// Measured instead of believed: one card, 220 actions over 17 minutes, every
+// one returning 200, and the close response reported `actions: 220` with
+// `level_actions: [220,0,0,0,0,0,0]`. The card recorded everything after minute
+// fifteen. The auto-close finalises an ABANDONED card so its results appear —
+// it is not a clock on play, which is also the only reading compatible with
+// anyone running thousands of actions on one game.
 
 // Close the card on the way out of a signal too.
 //
@@ -299,7 +288,6 @@ try {
       env,
       policy,
       maxActions: remaining,
-      shouldStop: pastDeadline,
       onAction: (action, observation, index) => {
         console.log(
           `  ${String(spent + index).padStart(4)}  ${action.padEnd(14)} ${observation.state}` +
@@ -316,10 +304,7 @@ try {
       levelsCompleted: env.last.levelsCompleted,
       winLevels: env.last.winLevels,
     });
-    // A deadline stop ends the campaign, not just this attempt: retrying would
-    // spend the remaining budget on a card that is about to close.
     if (result.state === "WIN" || result.stoppedBecause === "budget") break;
-    if (result.stoppedBecause === "deadline") break;
   }
 } finally {
   // Always close: an open scorecard holds the run and the numbers never land.
@@ -331,12 +316,7 @@ const manifestPath = writeRunManifest(manifest, outDir);
 
 console.log(`\nscorecard   ${cardId}`);
 console.log(`actions     ${spent} of ${args.budget}`);
-console.log(
-  `card open   ${Math.round((Date.now() - cardOpenedAt) / 1000)}s of ${CARD_TTL_MS / 1000}s` +
-    (attempts.some((a) => a.stoppedBecause === "deadline")
-      ? "  (stopped early to stay inside the scorecard window)"
-      : ""),
-);
+console.log(`card open   ${Math.round((Date.now() - cardOpenedAt) / 1000)}s`);
 console.log(`attempts    ${JSON.stringify(attempts)}`);
 console.log(`vetoed      ${vetoes} presses the frugal policy refused to pay for`);
 if (args.imagination !== false) {
