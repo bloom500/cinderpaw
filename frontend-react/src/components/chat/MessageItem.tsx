@@ -133,7 +133,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             tail not at all. Apple's user bubble is the accent colour for
             exactly this reason: the shape has to read before the tail can
             mean anything. */}
-        <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-brand text-bg-primary shadow-md">
+        <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-brand focus:outline-none focus-visible:outline-none text-bg-primary shadow-md">
           <BubbleTail className="absolute right-[-11px] bottom-0 text-brand" />
           {images.length > 0 && (
             <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
@@ -315,7 +315,7 @@ function FeedbackButtons({ messageId }: { messageId: string }) {
         aria-pressed={vote === 'up'}
         onClick={() => setFeedback(messageId, 'up')}
         className={cn(
-          'p-1 rounded hover:bg-bg-hover transition-colors',
+          'p-1 rounded hover:bg-bg-hover transition-colors focus:outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand',
           vote === 'up' ? 'text-brand' : 'text-text-muted hover:text-text-secondary',
         )}
       >
@@ -327,7 +327,7 @@ function FeedbackButtons({ messageId }: { messageId: string }) {
         aria-pressed={vote === 'down'}
         onClick={() => setFeedback(messageId, 'down')}
         className={cn(
-          'p-1 rounded hover:bg-bg-hover transition-colors',
+          'p-1 rounded hover:bg-bg-hover transition-colors focus:outline-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand',
           vote === 'down' ? 'text-error' : 'text-text-muted hover:text-text-secondary',
         )}
       >

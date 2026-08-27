@@ -1558,6 +1558,34 @@ export async function boot(transportOverride?: Transport) {
   // conversational, one persistent session per agent so context compounds.
   const coworkAgents = new CoworkAgentRepo(db.raw);
   const coworkMailbox = new CoworkMailboxRepo(db.raw);
+  /**
+   * Every cowork event leaves through here so it carries NAMES, not ids.
+   *
+   * The emitters downstream (worker loop, approval gate) know an agent by the
+   * id they were handed; the person reading the transcript panel named their
+   * teammate "Atlas" and should never be shown `demo-agent-atlas`. Resolving
+   * it once, at the single exit, is what keeps every surface honest instead
+   * of each one growing its own lookup.
+   */
+  const coworkNameOf = (id: string): string | undefined =>
+    id && id !== "human" && id !== "unknown"
+      ? coworkAgents.list().find((a) => a.id === id)?.name
+      : undefined;
+  const emitCoworkEvent = (event: import("./types.ts").OutboundEvent): void => {
+    if (event.type !== "cowork_event") {
+      transport.send(event);
+      return;
+    }
+    const from = typeof event.data.fromAgentId === "string" ? event.data.fromAgentId : "";
+    transport.send({
+      ...event,
+      data: {
+        ...event.data,
+        agentName: coworkNameOf(event.agentId),
+        fromAgentName: coworkNameOf(from),
+      },
+    });
+  };
   // S4 — deterministic approval gate on the tool-call path. Registered on
   // the shared hook registry: it passes every non-cowork session through
   // untouched and every unclassifiable call through, so with zero cowork
@@ -1565,7 +1593,7 @@ export async function boot(transportOverride?: Transport) {
   const coworkApprovalService = new CoworkApprovalService({
     approvals: new CoworkApprovalRepo(db.raw),
     agents: coworkAgents,
-    emitEvent: (event) => transport.send(event),
+    emitEvent: emitCoworkEvent,
     timeoutMs: Number(process.env.FERAL_CRON_JOB_TIMEOUT_MS ?? 5 * 60_000),
     log,
   });
@@ -1584,7 +1612,7 @@ export async function boot(transportOverride?: Transport) {
     agents: coworkAgents,
     mailbox: coworkMailbox,
     handoffs: new CoworkHandoffService(db.raw),
-    emitEvent: (event) => transport.send(event),
+    emitEvent: emitCoworkEvent,
     runTurn: async (_agentRec, prompt, sessionId) => {
       // `handleTurn()` never throws — it emits `error` events instead
       // (same contract cron relies on). Capture and rethrow so the worker
@@ -1595,6 +1623,21 @@ export async function boot(transportOverride?: Transport) {
         (text, messageId) =>
           agent.handleTurn(sessionId, text, messageId, (event) => {
             if (event.type === "error") runError = event.message;
+            // A teammate's turn is otherwise a black box: the panel can say
+            // "Atlas is working" but not whether it is reading a file or
+            // stuck on a network call, which is the half that tells a slow
+            // turn from a dead one. `tool_progress` is the only tool event
+            // carrying a sessionId, and `cowork:<id>` is what attributes it.
+            if (event.type === "tool_start" || event.type === "tool_done") {
+              transport.send({
+                type: "tool_progress",
+                sessionId,
+                tool: event.tool,
+                stage: event.type === "tool_done" ? "done" : "start",
+                progress: null,
+                message: "",
+              });
+            }
           }),
         prompt,
         `${sessionId}-${Date.now()}`,
@@ -2153,6 +2196,12 @@ export async function boot(transportOverride?: Transport) {
     // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
     // `cowork_approval_resolve` here).
     coworkApprovals: coworkApprovalService,
+    // S6 — the panel talks to the mailbox directly (send a message, replay a
+    // thread) instead of routing everything through a main-agent turn.
+    coworkAgents,
+    coworkMailbox,
+    coworkRuntime,
+    emitCoworkEvent,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path

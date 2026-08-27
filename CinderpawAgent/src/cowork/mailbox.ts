@@ -38,6 +38,7 @@ export class CoworkMailboxRepo {
   readonly #updateStatus: ReturnType<Database["query"]>;
   readonly #get: ReturnType<Database["query"]>;
   readonly #lastInThread: ReturnType<Database["query"]>;
+  readonly #thread: ReturnType<Database["query"]>;
 
   constructor(db: Database) {
     this.#insert = db.query(`
@@ -64,6 +65,12 @@ export class CoworkMailboxRepo {
       WHERE thread_id = ?
       ORDER BY created_at DESC, rowid DESC
       LIMIT 1
+    `);
+    // Oldest first: a transcript is read top to bottom, unlike an inbox.
+    this.#thread = db.query(`
+      SELECT * FROM cowork_mailbox
+      WHERE thread_id = ?
+      ORDER BY created_at ASC, rowid ASC
     `);
     this.#outbox = db.query(`
       SELECT * FROM cowork_mailbox
@@ -121,6 +128,18 @@ export class CoworkMailboxRepo {
         : this.#inbox.all(toAgentId)
     ) as MailboxRow[];
     return rows.map(fromRow);
+  }
+
+  /**
+   * Every message in one thread, oldest first.
+   *
+   * This is what replays the transcript panel after a restart: the live
+   * `cowork_event` stream only exists while the app is running, so without
+   * it a person who reopens a chat sees an empty panel and no way to tell
+   * whether their teammate ever answered.
+   */
+  thread(threadId: string): CoworkMessage[] {
+    return (this.#thread.all(threadId) as MailboxRow[]).map(fromRow);
   }
 
   /** Messages sent BY an agent, newest first. */

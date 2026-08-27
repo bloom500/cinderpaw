@@ -1168,6 +1168,16 @@ export interface InboundMessage {
     // `approvalAction` is the verdict. Unknown/already-resolved ids are a
     // harmless no-op in the handler (late double-click must not error).
     | "cowork_approval_resolve"
+    // Agent Cowork S6 — the person talking to a teammate DIRECTLY, without
+    // spending a main-agent turn to retype what they already wrote.
+    // `coworkTo` is a teammate id or name, `content` the body,
+    // `coworkThreadId` keeps a follow-up in the same conversation.
+    | "cowork_send_message"
+    // Replay one thread's mailbox rows; the sidecar answers with one
+    // `cowork_history` event. Without it the transcript panel is empty after
+    // every restart, with no way to tell "nobody answered" from "the app
+    // forgot".
+    | "cowork_history"
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
@@ -1250,6 +1260,12 @@ export interface InboundMessage {
   /** Cowork approval payload (type === "cowork_approval_resolve"); the
    *  request id rides the plain `id` field. */
   approvalAction?: "approve" | "reject";
+  /** Cowork direct-message payload (type === "cowork_send_message"): the
+   *  teammate (id or name) and the thread to keep it in. The body rides the
+   *  plain `content` field. `coworkThreadId` also selects the thread for
+   *  "cowork_history". */
+  coworkTo?: string;
+  coworkThreadId?: string;
   /** LoRA gate payloads. `loraAction` rides "rsi_lora_review_resolve" (the
    *  card id on the plain `id` field); `loraDomain` optionally scopes
    *  "rsi_lora_train" (default "general"). */
@@ -1492,6 +1508,26 @@ export type OutboundEvent =
       title: string;
       data: Record<string, unknown>;
       traceId?: string;
+    }
+  /**
+   * One thread's mailbox, replayed on request (`cowork_history`).
+   *
+   * Rows are the persisted truth, oldest first. `rows: []` is a real answer
+   * — this thread never used cowork — and the panel hides itself on it.
+   */
+  | {
+      type: "cowork_history";
+      threadId: string;
+      rows: {
+        id: string;
+        fromAgentId: string;
+        toAgentId: string;
+        fromAgentName?: string;
+        toAgentName?: string;
+        body: string;
+        status: string;
+        createdAt: number;
+      }[];
     }
   /**
    * A background worker spawned by the notebook's `rlm()`.

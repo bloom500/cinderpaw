@@ -216,6 +216,10 @@ const INBOUND_TYPES = [
   // Agent Cowork S4 — the user's approve/deny answer to a cowork approval
   // request (requestId on `id`, verdict on `approvalAction`).
   "cowork_approval_resolve",
+  // S6 — the person writing to a teammate directly, and the thread replay
+  // that makes the transcript survive a restart.
+  "cowork_send_message",
+  "cowork_history",
 ] as const satisfies readonly InboundMessage["type"][];
 
 /**

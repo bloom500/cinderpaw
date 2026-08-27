@@ -125,10 +125,26 @@ export function ensureFeralListener(): Promise<void> {
         if (parsed.id) inflight.get(parsed.id)?.onUsage?.(parsed.promptTokens, parsed.completionTokens);
         break;
       case 'tool_progress':
+        // A teammate's tools, not the user's turn: `cowork:<agentId>` sessions
+        // never appear in the chat stream, and their tool names are what the
+        // transcript panel shows to tell a slow turn from a stuck one.
+        if (parsed.sessionId?.startsWith('cowork:')) {
+          useCoworkTranscript.getState().ingestTool({
+            sessionId: parsed.sessionId,
+            tool: parsed.tool,
+            done: parsed.stage === 'done',
+          });
+          break;
+        }
         // #18: retry/backoff/fallback notes from long-running tools. These
         // carry a sessionId (not a message id), so route straight to the
         // chat store's most recent running bubble — previously dropped.
         if (parsed.message) useChat.getState().noteToolProgress(parsed.message);
+        break;
+      case 'cowork_history':
+        // The mailbox is the record; the live event stream only exists while
+        // the app runs. Replacing (not merging) is deliberate — see `hydrate`.
+        useCoworkTranscript.getState().hydrate(parsed.threadId, parsed.rows);
         break;
       case 'rlm_child':
         // A background worker from the notebook's `rlm()`. Like tool_progress

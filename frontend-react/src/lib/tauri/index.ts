@@ -649,6 +649,14 @@ export type CinderpawAgentEvent =
       threadId?: string;
       title: string;
       data: Record<string, unknown>;
+    }
+  // Agent Cowork S6 — one thread's mailbox replayed on request. `rows: []` is
+  // a real answer (this chat never used cowork), which is what lets the
+  // transcript panel stay hidden instead of guessing.
+  | {
+      type: 'cowork_history';
+      threadId: string;
+      rows: import('@/stores/coworkTranscript').CoworkHistoryRow[];
     };
 
 /** Display-safe snapshot of the Cinderpaw Agent's active LLM — no API keys. */
@@ -858,6 +866,14 @@ const raw = {
   // which is also what closes the chat bubble.
   feralCoworkApprovalResolve: (requestId: string, action: 'approve' | 'reject') =>
     invoke<void>('feral_cowork_approval_resolve', { request_id: requestId, action }),
+  // S6 — write to a teammate directly, and replay a thread. Both are
+  // fire-and-forget: the first answers with a `cowork_event`, the second with
+  // one `cowork_history` event. Both reject loudly (the Rust side validates)
+  // so the panel can put the reason on screen instead of in a log.
+  feralCoworkSendMessage: (to: string, body: string, threadId?: string | null) =>
+    invoke<void>('feral_cowork_send_message', { to, body, threadId: threadId ?? null }),
+  feralCoworkHistory: (threadId: string) =>
+    invoke<void>('feral_cowork_history', { threadId }),
   feralLoraTrain:         (domain?: string) =>
     invoke<void>('feral_lora_train', { domain: domain ?? null }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
@@ -1084,6 +1100,15 @@ export const tauri = {
      *  sidecar acks via the terminal cowork_event for that requestId. */
     coworkApprovalResolve: async (requestId: string, approve: boolean) =>
       raw.feralCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
+    /** S6 — send to a teammate without spending a main-agent turn on it. */
+    coworkSendMessage: async (to: string, body: string, threadId?: string) =>
+      raw.feralCoworkSendMessage(to, body, threadId ?? null),
+    /** S6 — replay one chat thread's cowork mailbox after a restart. */
+    coworkHistory: async (threadId: string) => raw.feralCoworkHistory(threadId),
+    /** A cowork turn runs under the session `cowork:<agentId>`, so stopping
+     *  one teammate is the ordinary stop path pointed at that session. */
+    coworkStop: async (agentId: string) =>
+      raw.feralStopGeneration(`cowork:${agentId}`),
   },
 
   rsi: {

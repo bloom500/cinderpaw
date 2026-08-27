@@ -98,7 +98,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkAgents, coworkMailbox, coworkRuntime, emitCoworkEvent,
     runHooks,
     brainDerived, brainBreaker,
   } = ctx;
@@ -724,6 +724,86 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         if (!resolved) {
           log(`cowork_approval_resolve: unknown or already-resolved request ${requestId}`);
         }
+        break;
+      }
+
+      // Agent Cowork S6 — the person writing to a teammate directly.
+      //
+      // Routing this through the main agent cost a whole model turn to retype
+      // a message the person had already written, and let the wording drift on
+      // the way. Here it goes straight into the mailbox, from "human".
+      //
+      // The event is emitted NOW rather than when the worker drains it: the
+      // tick is 15 seconds, and a chat where your own message takes fifteen
+      // seconds to appear reads as broken. The worker emits the same key when
+      // it picks the row up, which upserts rather than duplicates.
+      case "cowork_send_message": {
+        const to = (msg.coworkTo ?? "").trim();
+        const body = (msg.content ?? "").trim();
+        const threadId = (msg.coworkThreadId ?? "").trim() || null;
+        if (!to || !body) {
+          transport.send({ type: "error", message: "cowork_send_message needs a teammate and a message." });
+          break;
+        }
+        const needle = to.toLowerCase();
+        const roster = coworkAgents.list();
+        const target =
+          roster.find((a) => a.id.toLowerCase() === needle) ??
+          roster.find((a) => a.name.toLowerCase() === needle) ??
+          null;
+        if (!target) {
+          // On screen, not in the log: the person is standing at an input box
+          // waiting for an answer that is never coming.
+          transport.send({
+            type: "error",
+            message:
+              roster.length > 0
+                ? `No teammate "${to}". Configured: ${roster.map((a) => a.name).join(", ")}.`
+                : `No teammates are configured yet, so there is nobody to write to.`,
+          });
+          break;
+        }
+        const hops = coworkMailbox.lastHopsInThread(threadId) + 1;
+        const sent = coworkMailbox.send({
+          fromAgentId: "human",
+          toAgentId: target.id,
+          threadId,
+          body,
+          payloadJson: JSON.stringify({ coworkHops: hops }),
+        });
+        emitCoworkEvent({
+          type: "cowork_event",
+          eventType: "message_received",
+          agentId: target.id,
+          threadId: sent.threadId ?? undefined,
+          title: `Human → ${target.name}`,
+          data: { messageId: sent.id, fromAgentId: "human", body: sent.body },
+        });
+        // Do not make them wait out the tick for a message they just sent.
+        void coworkRuntime.tick().catch(() => {});
+        break;
+      }
+
+      // Replay one thread from the mailbox. An empty `rows` is a real answer
+      // (this chat never used cowork) and is what lets the panel stay hidden.
+      case "cowork_history": {
+        const threadId = (msg.coworkThreadId ?? "").trim();
+        if (!threadId) break;
+        const names = new Map(coworkAgents.list().map((a) => [a.id, a.name] as const));
+        transport.send({
+          type: "cowork_history",
+          threadId,
+          rows: coworkMailbox.thread(threadId).map((r) => ({
+            id: r.id,
+            fromAgentId: r.fromAgentId,
+            toAgentId: r.toAgentId,
+            fromAgentName: names.get(r.fromAgentId),
+            toAgentName: names.get(r.toAgentId),
+            body: r.body,
+            status: r.status,
+            createdAt: r.createdAt,
+          })),
+        });
         break;
       }
 

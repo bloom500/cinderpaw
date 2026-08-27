@@ -28,7 +28,7 @@ export const INBOUND_TYPES = [
   "resume_get", "compact_session", "rsi_response", "start_onboarding",
   "tool_confirmation_response", "feedback",
   "mcp_reload", "mcp_status", "mcp_list_tools", "mcp_call_tool",
-  "cowork_approval_resolve",
+  "cowork_approval_resolve", "cowork_send_message", "cowork_history",
 ] as const;
 
 export const OUTBOUND_TYPES = [
@@ -47,7 +47,7 @@ export const OUTBOUND_TYPES = [
   "connector_connection_failed", "memory_mode_changed",
   "permission_changed", "model_download_started",
   "model_download_progress", "model_download_finished",
-  "model_download_failed", "wizard_step_completed",
+  "model_download_failed", "wizard_step_completed", "cowork_history",
   "onboarding_goal_completed", "onboarding_all_goals_done",
   "onboarding_suggestion", "confirmation_required",
   "confirmation_granted", "confirmation_denied", "rate_limited", "hello",
