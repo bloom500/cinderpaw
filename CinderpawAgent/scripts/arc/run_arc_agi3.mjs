@@ -337,19 +337,57 @@ try {
     if (remaining <= 0) break;
     const env = await openArcGame({ gameId: args.game, cardId, jar });
     if (attempt > 0) await env.reset();
-    const result = await playLevel({
-      env,
-      policy,
-      maxActions: remaining,
-      shouldStop: overSpend,
-      onAction: (action, observation, index) => {
-        console.log(
-          `  ${String(spent + index).padStart(4)}  ${action.padEnd(14)} ${observation.state}` +
-            `  levels=${env.last.levelsCompleted}`,
-        );
-      },
-    });
-    spent += result.actions.length;
+
+    // KEEP PLAYING AFTER A WIN UNTIL THE GAME SAYS IT IS OVER.
+    //
+    // `playLevel` returns on any terminal state, and WIN is terminal. What WIN
+    // means is the one thing the docs never say: the whole game, or the level
+    // just cleared? The pages that would answer it 404, and no run has reached
+    // one yet to find out.
+    //
+    // Guessing either way is a bad trade. If WIN is per-level and we stop, we
+    // forfeit levels 2..N of every game we play well — and the game score is
+    // the weighted average over ALL levels, with the late ones weighted
+    // highest, so a clean level-1 win would score about 1/28th of what it
+    // should on a 7-level game. If WIN is the game and we keep going, the
+    // second call returns immediately on the same terminal state and costs
+    // nothing.
+    //
+    // So do not guess: ask the server. It reports `levelsCompleted` and
+    // `winLevels` on every frame, and "won but not all levels done" is exactly
+    // the case where play continues. Same env, same guid, same policy — the
+    // policy carrying over IS the point, that is the memory across levels.
+    let result;
+    for (;;) {
+      result = await playLevel({
+        env,
+        policy,
+        maxActions: args.budget - spent,
+        shouldStop: overSpend,
+        onAction: (action, observation, index) => {
+          console.log(
+            `  ${String(spent + index).padStart(4)}  ${action.padEnd(14)} ${observation.state}` +
+              `  levels=${env.last.levelsCompleted}/${env.last.winLevels}`,
+          );
+        },
+      });
+      spent += result.actions.length;
+      const more =
+        result.state === "WIN" &&
+        env.last.winLevels > 0 &&
+        env.last.levelsCompleted < env.last.winLevels &&
+        args.budget - spent > 0 &&
+        !overSpend() &&
+        // A pass that spent nothing made no progress, and the state it saw is
+        // the state the next pass will see. Without this, a server that reports
+        // WIN without advancing the level counter spins here forever at zero
+        // cost, which is the worst kind of hang: it looks like a working run.
+        result.actions.length > 0;
+      if (!more) break;
+      console.log(
+        `  -- level ${env.last.levelsCompleted}/${env.last.winLevels} cleared, continuing --`,
+      );
+    }
     attempts.push({
       attempt,
       state: result.state,
