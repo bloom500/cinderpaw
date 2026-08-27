@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { openArcGame, openScorecard, parseAction, listGames } from "../src/arc/api-client.ts";
+import { openArcGame, openScorecard, parseAction, listGames, ARC_MAX_RETRIES } from "../src/arc/api-client.ts";
 import { playLevel } from "../src/arc/play-level.ts";
 
 interface Recorded {
@@ -194,4 +194,73 @@ describe("it is an ArcEnvironment — the loop runs on it unchanged", () => {
     // would be an action spent off the books.
     expect(seen).toHaveLength(3);
   });
+});
+
+/**
+ * Surviving a bad minute.
+ *
+ * Running 25 games at once, ten died on `500 — the server is overloaded` inside
+ * the first minute, most before their second action. One bad response out of
+ * hundreds threw away every level of those games.
+ */
+describe("api-client — retrying a server that is briefly unwell", () => {
+  const okFrame = {
+    guid: "g1",
+    state: "NOT_FINISHED",
+    frame: [[[1, 2], [3, 4]]],
+    score: 0,
+    levels_completed: 0,
+    win_levels: 3,
+    available_actions: [1],
+  };
+
+  function flaky(failures: number, status = 500) {
+    let calls = 0;
+    const fetchImpl = (async (_url: string, _init: RequestInit) => {
+      calls++;
+      if (calls <= failures) {
+        return new Response("overloaded", { status, statusText: "Internal Server Error" });
+      }
+      return new Response(JSON.stringify(okFrame), { status: 200 });
+    }) as unknown as typeof fetch;
+    return { fetchImpl, calls: () => calls };
+  }
+
+  test("a transient 500 does not end the game", async () => {
+    const f = flaky(2);
+    const env = await openArcGame({ gameId: "g", cardId: "c", apiKey: "k", fetchImpl: f.fetchImpl });
+    expect(env.last.state).toBe("NOT_FINISHED");
+    expect(f.calls()).toBe(3); // two failures, then the answer
+  });
+
+  test("a 429 is retried too — being throttled is not being wrong", async () => {
+    const f = flaky(1, 429);
+    const env = await openArcGame({ gameId: "g", cardId: "c", apiKey: "k", fetchImpl: f.fetchImpl });
+    expect(env.last.state).toBe("NOT_FINISHED");
+    expect(f.calls()).toBe(2);
+  });
+
+  test("a 400 is NOT retried: repeating a wrong request just repeats it", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return new Response("bad game id", { status: 400, statusText: "Bad Request" });
+    }) as unknown as typeof fetch;
+    await expect(
+      openArcGame({ gameId: "nope", cardId: "c", apiKey: "k", fetchImpl }),
+    ).rejects.toThrow(/400/);
+    expect(calls).toBe(1);
+  });
+
+  // Generous timeout on purpose: this one walks the REAL backoff ladder
+  // (800ms, 1.6s, 3.2s, 6.4s), which is the behaviour under test. Faking the
+  // clock here would pin the retry count and prove nothing about the waiting,
+  // and the waiting is what stopped 25 processes rebuilding the same spike.
+  test("gives up eventually, and says what it last saw", async () => {
+    const f = flaky(99);
+    await expect(
+      openArcGame({ gameId: "g", cardId: "c", apiKey: "k", fetchImpl: f.fetchImpl }),
+    ).rejects.toThrow(/500/);
+    expect(f.calls()).toBe(ARC_MAX_RETRIES + 1);
+  }, 30_000);
 });

@@ -144,32 +144,81 @@ function requireKey(apiKey: string | undefined): string {
   return key;
 }
 
+/**
+ * Statuses worth trying again: the server is busy or briefly broken, not the
+ * request wrong. A 4xx other than 429 is our fault and retrying repeats it.
+ */
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+
+/** How many times to retry, and the base for exponential backoff. */
+export const ARC_MAX_RETRIES = 4;
+const RETRY_BASE_MS = 800;
+
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
 async function call<T>(
   path: string,
   init: { method: string; body?: unknown; apiKey: string; jar?: CookieJar; fetchImpl?: typeof fetch },
 ): Promise<T> {
   const doFetch = init.fetchImpl ?? fetch;
-  const cookie = init.jar?.header();
-  const response = await doFetch(`${BASE_URL}${path}`, {
-    method: init.method,
-    headers: {
-      "X-API-Key": init.apiKey,
-      ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...(cookie ? { Cookie: cookie } : {}),
-    },
-    ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
-  });
-  init.jar?.absorb(response);
-  if (!response.ok) {
+  let lastError = "";
+
+  // RETRY, AND WHY IT IS WORTH THE ONE RISK IT CARRIES.
+  //
+  // A single 500 used to end a game. Running 25 games at once, ten of them died
+  // on `500 Internal Server Error — the server is overloaded` inside the first
+  // minute, most of them before their second action. Hours of run and every
+  // level of those games, thrown away by one bad response out of hundreds.
+  //
+  // The risk is real and worth stating: a 500 on an ACTION is ambiguous. The
+  // server may have applied the press before failing to answer, so a retry can
+  // spend the same press twice, and presses are the score. But the alternative
+  // is losing the entire game — every level, weighted highest at the end — to
+  // protect against one duplicated action. A wasted press costs a fraction of
+  // one level's ratio; a lost game costs all of them. Retry wins, and it is not
+  // close.
+  //
+  // Backoff is exponential with jitter because the failure mode we actually met
+  // was self-inflicted load: 25 processes retrying in lockstep would rebuild
+  // the same spike that knocked them over.
+  for (let attempt = 0; attempt <= ARC_MAX_RETRIES; attempt++) {
+    const cookie = init.jar?.header();
+    let response: Response;
+    try {
+      response = await doFetch(`${BASE_URL}${path}`, {
+        method: init.method,
+        headers: {
+          "X-API-Key": init.apiKey,
+          ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
+          ...(cookie ? { Cookie: cookie } : {}),
+        },
+        ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+      });
+    } catch (err) {
+      // A dropped connection is the same class of problem as a 503.
+      lastError = `network error: ${String(err)}`;
+      if (attempt === ARC_MAX_RETRIES) break;
+      await sleep(RETRY_BASE_MS * 2 ** attempt + Math.random() * 400);
+      continue;
+    }
+    init.jar?.absorb(response);
+    if (response.ok) return (await response.json()) as T;
+
     // The body usually says why (bad key, closed scorecard, unknown game). It
     // is worth more than the status code alone and costs one await.
     const detail = await response.text().catch(() => "");
-    throw new Error(
-      `ARC-AGI-3 ${init.method} ${path} failed: ${response.status} ${response.statusText}` +
-        (detail ? ` — ${detail.slice(0, 400)}` : ""),
-    );
+    lastError =
+      `${response.status} ${response.statusText}` + (detail ? ` — ${detail.slice(0, 400)}` : "");
+    if (!RETRYABLE.has(response.status) || attempt === ARC_MAX_RETRIES) break;
+    // Honour Retry-After when the server bothers to say; it knows better.
+    const after = Number(response.headers.get("retry-after"));
+    const waitMs = Number.isFinite(after) && after > 0
+      ? after * 1000
+      : RETRY_BASE_MS * 2 ** attempt + Math.random() * 400;
+    await sleep(waitMs);
   }
-  return (await response.json()) as T;
+
+  throw new Error(`ARC-AGI-3 ${init.method} ${path} failed: ${lastError}`);
 }
 
 export interface ArcGameSummary {
