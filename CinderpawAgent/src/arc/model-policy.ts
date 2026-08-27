@@ -145,7 +145,15 @@ export interface SceneOptions {
 }
 
 const SCENE_DEFAULTS: Required<SceneOptions> = {
-  maxCells: 1200,
+  // Measured, after the first cap was set by fear rather than by a stopwatch.
+  // A real ARC frame (ls20) has 1,487 non-background cells and parses in 6ms;
+  // the old 1,200 turned perception OFF for every game we were about to run.
+  // The pathological case is cheap too: a scattered 64x64 grid is 819 objects
+  // in 32ms. CPU was never the problem.
+  maxCells: 3000,
+  // The output is. That same scattered grid yields 346,205 relations, and even
+  // the real frame yields 272 — which renders longer than the grid it
+  // describes. These two caps bound the PROMPT, which is the cost that matters.
   maxObjects: 40,
   maxRelations: 60,
 };
@@ -165,11 +173,10 @@ const SCENE_DEFAULTS: Required<SceneOptions> = {
  * - Background is the MOST COMMON cell, not hard-coded 0. A game whose
  *   playfield is colour 8 would otherwise come back as one enormous object
  *   containing everything, which is worse than no description.
- * - A grid with more than `maxCells` non-background cells is skipped entirely,
- *   BEFORE parsing. Relations are O(objects^2) and a noisy grid can produce
- *   thousands of objects — that is seconds of wall-clock per action against a
- *   scorecard that closes in fifteen minutes, to produce a wall of text no
- *   model can use.
+ * - A grid with more than `maxCells` non-background cells is skipped entirely.
+ *   Not for CPU — measured, parsing costs 6ms on a real frame and 32ms on a
+ *   pathological one — but because past that density the description stops
+ *   being a summary of anything.
  * - Past `maxObjects` the list is truncated and relations are dropped, with the
  *   truncation stated. A summary that silently omits half the scene is worse
  *   than one that admits it.
@@ -225,10 +232,16 @@ export function renderScene(
     relations: truncated ? [] : scene.relations.slice(0, maxRelations),
   };
   const text = formatSceneGraphYaml(summary);
-  return truncated
-    ? `${text}
-(${scene.objects.length} objects in total; the ${maxObjects} largest are listed)`
-    : text;
+  const notes: string[] = [];
+  if (truncated) {
+    notes.push(`${scene.objects.length} objects in total; the ${maxObjects} largest are listed`);
+  } else if (scene.relations.length > summary.relations.length) {
+    // Said out loud for the same reason the object count is: a list that stops
+    // early without saying so reads as a complete description of the scene.
+    notes.push(`${scene.relations.length} relations in total; ${summary.relations.length} listed`);
+  }
+  return notes.length > 0 ? `${text}
+(${notes.join("; ")})` : text;
 }
 
 export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {

@@ -172,16 +172,32 @@ describe("renderScene — the grid, described", () => {
     expect(renderScene([[0, 0], [0, 0]])).toBeNull();
   });
 
-  test("refuses a grid too noisy to summarise, before parsing it", () => {
-    // Relations are O(objects^2): a 64x64 of alternating cells is thousands of
-    // objects, which is seconds of wall-clock per action against a card that
-    // closes in fifteen minutes.
-    const noisy = Array.from({ length: 64 }, (_, r) =>
-      Array.from({ length: 64 }, (_, c) => ((r + c) % 2 === 0 ? 0 : 1)),
+  test("a scattered grid stays bounded instead of flooding the prompt", () => {
+    // The real bad case, measured: this shape parses to 819 objects and
+    // 346,205 relations. Parsing it costs 32ms — CPU was never the risk. The
+    // risk is a description longer than the grid it describes, so the caps
+    // bound the OUTPUT and the truncation is stated.
+    const scattered = Array.from({ length: 64 }, (_, r) =>
+      Array.from({ length: 64 }, (_, c) => ((r * 31 + c * 17) % 5 === 0 ? 3 : 0)),
     );
     const started = Date.now();
-    expect(renderScene(noisy)).toBeNull();
-    expect(Date.now() - started).toBeLessThan(200);
+    const text = renderScene(scattered);
+    expect(Date.now() - started).toBeLessThan(500);
+    if (text !== null) {
+      expect(text).toContain("objects in total");
+      // Bounded well under the 4,159 characters the raw grid costs.
+      expect(text.length).toBeLessThan(4000);
+    }
+  });
+
+  test("a real frame is described, not skipped", () => {
+    // ls20's opening frame measured 1,487 non-background cells. The first cap
+    // was 1,200, which silently turned perception off for every game in the
+    // benchmark — the cap was set by fear, and 6ms of measurement corrected it.
+    const dense = Array.from({ length: 64 }, (_, r) =>
+      Array.from({ length: 64 }, (_, c) => (r < 24 ? 4 : c % 3 === 0 ? 3 : 4)),
+    );
+    expect(renderScene(dense)).not.toBeNull();
   });
 
   test("truncates a long list and admits it, rather than omitting silently", () => {
