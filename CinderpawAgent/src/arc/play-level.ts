@@ -162,7 +162,11 @@ export async function playLevel(options: PlayLevelOptions): Promise<PlayResult> 
     // would charge for it is not something to find out during a scored run,
     // and a typo'd action silently costing a point is the kind of bug that
     // only shows up in the final number.
-    if (!env.actions.includes(action)) {
+    // ACTION6 carries its coordinates in the name ("ACTION6:12,30"), but
+    // `available_actions` only ever lists bare names, so the membership test
+    // has to compare the name alone. Comparing the whole string rejected every
+    // click the model asked for and ended the level with zero presses sent.
+    if (!env.actions.includes(action.split(":")[0]!)) {
       return {
         state: observation.state,
         actions: taken,

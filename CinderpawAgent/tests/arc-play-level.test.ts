@@ -86,6 +86,17 @@ describe("playLevel — the budget is the score", () => {
     expect(calls).toEqual([]);
     expect(r.stoppedBecause).toBe("invalid_action");
   });
+
+  test("ACTION6 with its coordinates is still ACTION6", async () => {
+    // The server lists bare names in available_actions but requires x,y on
+    // ACTION6, so the press we send never matches the list literally. Comparing
+    // the whole string ended every click game at its first click, zero presses
+    // sent, score zero.
+    const { e, calls } = env({ actions: ["ACTION1", "ACTION6"] });
+    const r = await playLevel({ env: e, policy: always("ACTION6:12,30"), maxActions: 3 });
+    expect(calls).toEqual(["ACTION6:12,30", "ACTION6:12,30", "ACTION6:12,30"]);
+    expect(r.stoppedBecause).toBe("budget");
+  });
 });
 
 describe("playLevel — what the policy is told", () => {
