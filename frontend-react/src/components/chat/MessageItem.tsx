@@ -44,13 +44,22 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
 
   return (
     <>
-      <img
-        src={src}
-        alt={alt}
-        loading="lazy"
+      {/* A real button, not a click handler on an <img>: the thumbnail was not
+          focusable and carried no role, so opening an attachment full-size was
+          mouse-only. Escape already closed the lightbox; nothing could open it. */}
+      <button
+        type="button"
         onClick={() => setOpen(true)}
-        className="max-h-52 max-w-full rounded-lg border border-border-subtle object-contain cursor-zoom-in transition-transform duration-200 hover:scale-[1.02]"
-      />
+        aria-label={`View ${alt || 'image'} full size`}
+        className="block cursor-zoom-in rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      >
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          className="max-h-52 max-w-full rounded-lg border border-border-subtle object-contain transition-transform duration-200 hover:scale-[1.02]"
+        />
+      </button>
       {open && (
         <div
           role="button"

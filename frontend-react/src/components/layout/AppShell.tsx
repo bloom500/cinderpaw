@@ -14,7 +14,7 @@ import { UpdateToast } from '@/components/UpdateToast';
 import { Toasts } from '@/components/Toasts';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { OnboardingOrchestrator } from '@/components/onboarding/OnboardingWizard';
-import { cn } from '@/lib/utils';
+import { cn, readLocal } from '@/lib/utils';
 
 // The `/40` these three carried never actually rendered: an opacity modifier on
 // a hex-in-a-var compiled to an unparseable colour, the declaration was dropped,
@@ -67,7 +67,7 @@ export function AppShell() {
   // Opt-out via Settings → General (privacy: the check contacts GitHub Releases).
   const checkForUpdate = useUpdater((s) => s.check);
   useEffect(() => {
-    if (localStorage.getItem('cinderpaw.autoUpdateCheck') !== 'off') void checkForUpdate();
+    if (readLocal('cinderpaw.autoUpdateCheck') !== 'off') void checkForUpdate();
   }, [checkForUpdate]);
 
   return (

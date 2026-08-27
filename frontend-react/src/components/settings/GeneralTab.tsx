@@ -8,7 +8,7 @@ import { useUI, type LangPref, type WhisperModel } from '@/stores/ui';
 import { useUpdater } from '@/stores/updater';
 import { useAppVersion } from '@/hooks/useAppVersion';
 import { useOnboarding } from '@/stores/onboarding';
-import { cn, SECONDARY_BUTTON } from '@/lib/utils';
+import { cn, SECONDARY_BUTTON, readLocal, writeLocal } from '@/lib/utils';
 import { APP_HOME_DIR_NAME } from '@/lib/brand';
 
 export function GeneralTab() {
@@ -44,7 +44,7 @@ export function GeneralTab() {
   };
 
   const [autoUpdateCheck, setAutoUpdateCheck] = useState(
-    localStorage.getItem('cinderpaw.autoUpdateCheck') !== 'off',
+    readLocal('cinderpaw.autoUpdateCheck') !== 'off',
   );
   const updateStatus = useUpdater((s) => s.status);
   const updateError  = useUpdater((s) => s.error);
@@ -110,7 +110,7 @@ export function GeneralTab() {
           checked={autoUpdateCheck}
           onChange={(e) => {
             setAutoUpdateCheck(e.target.checked);
-            localStorage.setItem('cinderpaw.autoUpdateCheck', e.target.checked ? 'on' : 'off');
+            writeLocal('cinderpaw.autoUpdateCheck', e.target.checked ? 'on' : 'off');
           }}
           className="h-4 w-4 accent-orange-500 shrink-0"
         />

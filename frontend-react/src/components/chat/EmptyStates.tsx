@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Info, X } from 'lucide-react';
 import { useUI } from '@/stores/ui';
+import { readLocal, writeLocal } from '@/lib/utils';
 
 const BYOK_DISCLAIMER_KEY = 'cinderpaw.agentByokDismissed';
 
@@ -9,12 +10,12 @@ const BYOK_DISCLAIMER_KEY = 'cinderpaw.agentByokDismissed';
 function AgentByokNote() {
   const navigate = useNavigate();
   const [dismissed, setDismissed] = useState(
-    () => localStorage.getItem(BYOK_DISCLAIMER_KEY) === 'true',
+    () => readLocal(BYOK_DISCLAIMER_KEY) === 'true',
   );
   if (dismissed) return null;
 
   const dismiss = () => {
-    localStorage.setItem(BYOK_DISCLAIMER_KEY, 'true');
+    writeLocal(BYOK_DISCLAIMER_KEY, 'true');
     setDismissed(true);
   };
 

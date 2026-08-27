@@ -27,3 +27,36 @@ export const SECONDARY_BUTTON =
   'px-3 py-1.5 rounded-md border border-border-default bg-bg-elevated shadow-sm ' +
   'text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary ' +
   'transition-colors disabled:opacity-50';
+
+/**
+ * Read and write a remembered UI preference without letting storage take the
+ * app down with it.
+ *
+ * `localStorage` is not always there. A private window, a browser told to
+ * block site data, a hardened webview: in those, reading the PROPERTY itself
+ * throws, before any method is called. Six files in this app already knew that
+ * and wrapped every access in try/catch. Five did not — and one of them was
+ * `AppShell`, at the root, inside a mount effect. There, the throw is not a
+ * lost preference; it is a white window.
+ *
+ * A missing value and an unreachable store are the same answer on purpose:
+ * `null`. Nothing that remembers a checkbox is worth a branch for which of
+ * those it was.
+ */
+export function readLocal(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort write. Failure means the choice is not remembered, never that
+ *  the interaction fails — the caller has already applied it in state. */
+export function writeLocal(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable — the setting still applies for this session */
+  }
+}

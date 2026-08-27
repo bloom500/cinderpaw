@@ -125,7 +125,18 @@ function TierPanel({
               <li
                 key={n.id}
                 onClick={() => setExpandedIdx(expanded ? null : i)}
-                className={`cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated ${expanded ? 'border-brand/50' : ''}`}
+                // Expanding a memory was mouse-only: a bare onClick on an <li>
+                // is not focusable and answers no key.
+                role="button"
+                tabIndex={0}
+                aria-expanded={expanded}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setExpandedIdx(expanded ? null : i);
+                  }
+                }}
+                className={`cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${expanded ? 'border-brand/50' : ''}`}
               >
                 <div className="flex items-baseline justify-between gap-3 text-xs">
                   <span className="font-mono text-brand">{formatClock(n.touched_at)}</span>

@@ -21,6 +21,7 @@ import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
 import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
 import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
 import { useCinderpawStore } from '@/stores/cinderpaw';
+import { readLocal } from '@/lib/utils';
 
 export function ChatPage() {
   const { id } = useParams();
@@ -136,7 +137,7 @@ export function ChatPage() {
         // previously unreachable (the "New agent" button navigated here and
         // nothing mounted it). Sequenced below so it never stacks on top of
         // the first-run wizard. Skip if already dismissed/completed (survives CTRL+R).
-        else if (!localStorage.getItem(ONBOARDING_KEY)) setShowAgentOnboarding(true);
+        else if (!readLocal(ONBOARDING_KEY)) setShowAgentOnboarding(true);
       });
     }
 
