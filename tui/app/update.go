@@ -102,7 +102,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// first launch. The GUIDED flow is the default (OpenClaw parity);
 		// `--wizard` (the `feral setup --classic` path) forces the classic
 		// step-by-step wizard.
-		marker, err := wizardDonePath()
+		marker, err := WizardDonePath()
 		if err == nil {
 			if _, statErr := os.Stat(marker); os.IsNotExist(statErr) {
 				if a.ForceClassicWizard {
@@ -2622,7 +2622,7 @@ func (a *App) finishWizard() {
 	a.State = StateReady
 
 	// Write wizard-done marker so subsequent launches skip the wizard (§2 J2.3).
-	marker, err := wizardDonePath()
+	marker, err := WizardDonePath()
 	if err == nil {
 		os.WriteFile(marker, []byte("done\n"), 0644)
 	}

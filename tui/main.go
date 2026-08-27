@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,7 +37,13 @@ func main() {
 
 	token, err := api.EnsureToken(nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cinderpaw: could not read or create API token at %s (%v)\n", api.HomePath("api-token"), err)
+		// Name the file, not just the failure: "could not read the token" sends a
+		// stranger looking in the wrong folder on a machine that has migrated.
+		where := "the profile directory"
+		if home, homeErr := api.Home(); homeErr == nil {
+			where = filepath.Join(home, "api-token")
+		}
+		fmt.Fprintf(os.Stderr, "cinderpaw: could not read or create API token at %s (%v)\n", where, err)
 		os.Exit(1)
 	}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -75,10 +82,10 @@ func main() {
 		// Remove the wizard-done marker so the TUI shows the wizard on
 		// next launch (including this one). The user can complete it or
 		// Ctrl+C — either way the marker is rewritten on completion.
-		// Was built by string concatenation with backslashes, so it only ever
-		// resolved on Windows — on macOS and Linux `--wizard` silently removed
-		// nothing and the wizard did not reappear.
-		if marker := api.HomePath(".wizard-done"); marker != "" {
+		// Resolved by the same function the wizard writes it with, instead of
+		// rebuilding the path here — the previous copy concatenated backslashes,
+		// so `--wizard` silently removed nothing off Windows.
+		if marker, err := app.WizardDonePath(); err == nil {
 			os.Remove(marker)
 		}
 	}

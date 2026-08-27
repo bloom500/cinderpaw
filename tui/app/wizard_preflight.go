@@ -26,7 +26,7 @@ import (
 	"strconv"
 	"strings"
 
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 )
 
 // preflightNotice is a single off-disk anomaly the wizard should

@@ -543,7 +543,7 @@ func (g *GuidedState) footerHint() string {
 func (a *App) finishGuided() {
 	a.Guided.Show = false
 	a.State = StateReady
-	if marker, err := wizardDonePath(); err == nil {
+	if marker, err := WizardDonePath(); err == nil {
 		os.WriteFile(marker, []byte("done\n"), 0644)
 	}
 	clearWizardProgress()

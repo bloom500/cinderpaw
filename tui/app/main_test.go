@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 )
 
 // TestMain gives this package's tests their own home directory.

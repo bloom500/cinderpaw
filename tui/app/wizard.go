@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"feral-tui/api"
-	"feral-tui/ui"
+	"cinderpaw-tui/api"
+	"cinderpaw-tui/ui"
 )
 
 // wizardProgressFile stores the last completed step so Ctrl+C mid-wizard
@@ -229,8 +229,8 @@ func wizardProgressPath() (string, error) {
 	return filepath.Join(home, wizardProgressFile), nil
 }
 
-// wizardDonePath returns the absolute path to the wizard-done marker.
-func wizardDonePath() (string, error) {
+// WizardDonePath returns the absolute path to the wizard-done marker.
+func WizardDonePath() (string, error) {
 	home, err := feralHome()
 	if err != nil {
 		return "", err
