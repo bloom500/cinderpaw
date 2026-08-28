@@ -58,18 +58,34 @@ if (mode === "open") {
     models: { policy: "see per-game manifests" },
     seed: 0,
   });
-  // The gate belongs on the official card only. A practice card is how you find
-  // out whether the code works at all, and refusing to open one because the
-  // working tree is dirty makes the safe path the annoying path — which is how
-  // a gate ends up switched off for the run that actually mattered.
+  // THERE IS NO SUCH THING AS A PRACTICE CARD. This gate used to apply only
+  // when --competition was passed, on the reasoning that a practice card is how
+  // you find out whether the code works at all and refusing to open one on a
+  // dirty tree makes the safe path the annoying path.
+  //
+  // The premise was false, and the server said so. Measured against the live
+  // API, three ways:
+  //
+  //     sent competition_mode=false     -> server reports competition_mode=true
+  //     sent competition_mode=true      -> server reports competition_mode=true
+  //     sent nothing                    -> field absent from the close response
+  //
+  // The server ignores `false`. Every card this repo opens is a competition
+  // card, so the gate that was meant to protect the leaderboard had a hole
+  // exactly the width of "leave the flag off" — a card opened from a dirty tree,
+  // unrecoverable from any commit, landing on the board anyway.
+  //
+  // So it refuses on ANY card now. The flag still selects what we ASK for, and
+  // it is still worth sending, but it no longer decides whether the tree has to
+  // be committed. It always does.
   const problems = reportabilityProblems(manifest).filter((p) => !p.includes("seed"));
   if (problems.length > 0) {
-    if (args.competition) {
-      console.error(`REFUSING TO OPEN A COMPETITION CARD:\n  ${problems.join("\n  ")}`);
-      console.error("An official run has to be recoverable from its commit. Commit first.");
-      process.exit(1);
-    }
-    console.error(`practice card, not publishable:\n  ${problems.join("\n  ")}`);
+    console.error(`REFUSING TO OPEN A SCORECARD:\n  ${problems.join("\n  ")}`);
+    console.error(
+      "Every card the server issues is a competition card — it ignores competition_mode=false —\n" +
+        "so any card can reach the leaderboard and must be recoverable from its commit. Commit first.",
+    );
+    process.exit(1);
   }
   const cardId = await openScorecard({
     jar,
