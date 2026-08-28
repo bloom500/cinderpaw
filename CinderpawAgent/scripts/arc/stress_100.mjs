@@ -55,17 +55,45 @@ function makeComplete(counter) {
     counter.calls++;
     const text = messages[messages.length - 1].content;
     const offered = /Buttons available now: (.+)/.exec(text)[1].split(", ");
-    if (counter.calls % 11 === 0) return "Hmm. I really am not sure what to do here.";
-    if (counter.calls % 17 === 0 && offered.includes("ACTION6")) return "ACTION6";
+
+    // THE ADVERSARIAL REPLIES, and why they are shaped exactly like this.
+    //
+    // A real press cost 65,536 completion tokens — the output ceiling — and
+    // ended mid-sentence inside its own reasoning. There was no answer. The old
+    // parser scanned the whole transcript, found a button name in the model's
+    // NOTES, and pressed it while recording `source: "model"`. Those are actions
+    // no model ever chose, sitting in a scorecard.
+    //
+    // A fake model that always answers cleanly cannot catch that coming back. So
+    // one reply in eleven is a truncated thinking block that NAMES every button,
+    // and one in thirteen closes its thinking and then says nothing. Both must
+    // come back as unparsed. `counter.undecidable` counts what was sent;
+    // `unparsed` counts what the policy noticed; the run asserts they match, and
+    // any gap is a press the harness invented.
+    if (counter.calls % 11 === 0) {
+      counter.undecidable++;
+      return `<think>Weighing ${offered.join(" against ")} — the first would move, the second`;
+    }
+    if (counter.calls % 13 === 0) {
+      counter.undecidable++;
+      return `<think>I think ${offered[0]} is right.</think>`;
+    }
+    if (counter.calls % 17 === 0 && offered.includes("ACTION6")) return "<think>where to click</think>ACTION6";
+
     const rows = text.split("\n").filter((l) => new RegExp(`^[0-9a-f]{${GRID}}$`).test(l));
     let r = -1, c = -1;
     rows.forEach((row, i) => {
       const j = row.indexOf("3");
       if (j >= 0) { r = i; c = j; }
     });
-    if (r < 0) return offered[0];
-    const want = c < GRID - 1 ? "ACTION4" : "ACTION2";
-    return offered.includes(want) ? want : offered[0];
+    const want = r < 0 ? offered[0] : c < GRID - 1 ? "ACTION4" : "ACTION2";
+    const answer = offered.includes(want) ? want : offered[0];
+    // The thinking deliberately names a DIFFERENT button from the answer. If the
+    // parser ever goes back to reading the whole reply, it takes the last mention
+    // anywhere — which is in here — and the hundred games diverge loudly instead
+    // of quietly playing someone else's move.
+    const decoy = offered.find((a) => a !== answer) ?? answer;
+    return `<think>${decoy} is tempting but wrong.</think>${answer}`;
   };
 }
 
@@ -84,7 +112,7 @@ for (let i = 0; i < args.games; i++) {
 const fetchImpl = makeServer(games, violations);
 const jar = new CookieJar();
 const apiKey = "stress-key";
-const counter = { calls: 0 };
+const counter = { calls: 0, undecidable: 0 };
 
 let unparsed = 0, vetoes = 0, coordGuesses = 0, exceptions = 0, retriedGames = 0;
 const listenersBefore = process.listenerCount("SIGINT");
@@ -184,6 +212,26 @@ for (const r of results) {
   }
 }
 
+// FALSE DECISIONS: replies that carried no answer but were not recognised as
+// such. Each one is a press the harness invented and attributed to the model —
+// the 65,536-token bug. This number is a release gate, not a statistic.
+const falseDecisions = Math.max(0, counter.undecidable - unparsed);
+if (falseDecisions > 0) {
+  violations.push(
+    `FALSE DECISIONS: ${counter.undecidable} replies had no answer but only ${unparsed} were ` +
+      `seen as unparsed — ${falseDecisions} presses were attributed to a model that did not choose them`,
+  );
+}
+// The mirror image matters too: more unparsed than undecidable would mean the
+// parser is rejecting answers the model really did give, which costs a real
+// press every time it happens.
+if (unparsed > counter.undecidable) {
+  violations.push(
+    `OVER-REJECTION: ${unparsed} unparsed against ${counter.undecidable} undecidable replies — ` +
+      `the parser is throwing away answers the model did give`,
+  );
+}
+
 const completed = results.filter((r) => r.attempts.length > 0).length;
 const won = results.filter((r) => r.attempts.at(-1)?.state === "WIN").length;
 const totalActions = Object.values(perGame).reduce((a, b) => a + b, 0);
@@ -193,6 +241,12 @@ console.log(`policy               ${args.sharedPolicy ? "SHARED across games (no
 console.log(`actions (server)     ${totalActions}`);
 console.log(`model calls          ${counter.calls}`);
 console.log(`unparsed replies     ${unparsed}`);
+// FALSE DECISIONS. Every reply the fake model sent with no answer in it must
+// have been NOTICED as having no answer. A gap means the harness turned a
+// truncated monologue into a press and filed it as the model's choice — the
+// 65,536-token bug, back. This is the metric that has to read 0 before any
+// score is published.
+console.log(`false decisions      ${falseDecisions}   (undecidable replies sent: ${counter.undecidable}, seen as unparsed: ${unparsed})`);
 console.log(`bare-ACTION6 filled  ${coordGuesses}`);
 console.log(`vetoes               ${vetoes}`);
 console.log(`retried games        ${retriedGames}`);

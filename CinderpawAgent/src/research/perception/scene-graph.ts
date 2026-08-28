@@ -281,12 +281,23 @@ export function parseSceneGraph(grid: number[][], background: number = 0): Scene
  * in an LLM prompt. Deterministic: identical graphs always serialize to
  * byte-identical strings.
  */
-export function formatSceneGraphYaml(g: SceneGraph): string {
+/**
+ * How a colour is written in this summary.
+ *
+ * Injected because the summary does not get to decide. Whoever renders the GRID
+ * decides, and the summary has to agree with it — an ARC prompt that wrote
+ * `color: 10` above a grid containing `a` cost one press 65,536 tokens of the
+ * model working out that they were the same thing, and then it ran out of
+ * tokens before answering. Callers with no grid to agree with keep the default.
+ */
+export type ColourFormatter = (colour: number | string) => string;
+
+export function formatSceneGraphYaml(g: SceneGraph, colour: ColourFormatter = String): string {
   const lines: string[] = [];
   lines.push(`scene: ${g.gridDimensions.rows}x${g.gridDimensions.cols}`);
 
   if (g.dominantColors.length > 0) {
-    lines.push(`colors: ${g.dominantColors.map((d) => `${d.color}x${d.count}`).join(", ")}`);
+    lines.push(`colors: ${g.dominantColors.map((d) => `${colour(d.color)}x${d.count}`).join(", ")}`);
   }
 
   if (g.objects.length > 0) {
@@ -298,7 +309,7 @@ export function formatSceneGraphYaml(g: SceneGraph): string {
           .filter(Boolean)
           .join("") || "-";
       lines.push(
-        `- id: ${o.id} color: ${o.color} shape: ${o.shapeCategory}` +
+        `- id: ${o.id} color: ${colour(o.color)} shape: ${o.shapeCategory}` +
           ` bbox: [${b.x},${b.y},${b.width},${b.height}] px: ${o.pixels.length} sym: ${sym}`,
       );
     }

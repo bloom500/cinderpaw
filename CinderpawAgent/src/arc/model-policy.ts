@@ -32,6 +32,7 @@ import {
   parseSceneGraph,
 } from "../research/perception/scene-graph.ts";
 import { biggestObjectCentre, centreOf, clickCandidates } from "./click-target.ts";
+import { colourChar } from "./colour.ts";
 
 /**
  * The candidate block, or null when there is nothing to offer.
@@ -60,7 +61,7 @@ export function renderClickCandidates(
   if (found.length === 0) return null;
   const lines = found.map(
     (c, i) =>
-      `  ${i + 1}. centre (${c.x},${c.y}) — colour ${c.colour}, ${c.shape}, ` +
+      `  ${i + 1}. centre (${c.x},${c.y}) — colour ${colourChar(c.colour)}, ${c.shape}, ` +
       `${c.width}x${c.height} box, ${c.cells} cells`,
   );
   return [
@@ -124,6 +125,12 @@ const SYSTEM = [
   "Each turn you see the current grid and the buttons that are available right now.",
   "Reply with exactly one button name and nothing else.",
   "A button that needs coordinates is written NAME:x,y with two integers from 0 to 63.",
+  // SAY THE ENCODING OUT LOUD. Making every renderer agree (colour.ts) stops the
+  // prompt contradicting itself; it does not tell the model what the characters
+  // MEAN. One press was spent deriving "color 10 is 'a' in hex?" from first
+  // principles and ran out of tokens before answering. One line is cheaper.
+  "Colours are single hex digits: 0-9 then a-f, so colour ten is written a.",
+  "Every colour you are shown — in the grid and in any description — uses that form.",
   "The game does not tell you which squares are clickable - work it out from the grid.",
   "If ACTION7 is offered it undoes your last move, which makes trying something",
   "uncertain cheap to take back.",
@@ -156,8 +163,9 @@ export function renderGrid(grid: readonly (readonly number[])[]): string {
     .join("\n");
 }
 
+/** One cell, through the single colour renderer. See colour.ts. */
 function cellChar(cell: number): string {
-  return Number.isInteger(cell) && cell >= 0 && cell <= 15 ? cell.toString(16) : "?";
+  return colourChar(cell);
 }
 
 /**
@@ -168,13 +176,68 @@ function cellChar(cell: number): string {
  * the caller offered are considered, so a hallucinated button cannot be
  * chosen — `playLevel` would end the level on it.
  */
-export function parseChoice(reply: string, offered: readonly string[]): string | null {
+/**
+ * The part of a reply that is an ANSWER, or null when there isn't one.
+ *
+ * THIS IS THE FIX FOR THE WORST BUG THIS HARNESS HAS HAD. A press cost 65,536
+ * completion tokens — exactly 2^16, the output ceiling — and the reply ended
+ * mid-sentence inside its own reasoning:
+ *
+ *     "...Wait colors list says 10x1805, 3x178, 14x147, 0x62, 9x6, 11x2, 15x2</think>"
+ *
+ * There was no answer. The model never decided anything; it ran out of room
+ * while thinking. But `parseChoice` scanned the WHOLE reply for the last
+ * mention of an offered action and found one — in the model's own notes, in the
+ * phrase "ACTION3/4/6/7 correspond to operations like fill, erase". So the
+ * harness pressed ACTION3, recorded `source: "model"`, and did not fire
+ * `onUnparsed`. The run log said the model chose that button. It did not.
+ *
+ * That is measurement contamination, and it is worse than any cost problem: a
+ * benchmark that spends too much can be optimised, a benchmark carrying
+ * actions the model never decided is not a benchmark. Every published number
+ * has to be defensible as "the model chose this", so the rule is semantic now
+ * rather than textual — a decision must appear WHERE A DECISION GOES, not
+ * anywhere in the transcript.
+ *
+ * The regions, and why each is drawn where it is:
+ *
+ *  - No `<think` at all: the whole reply is the answer. Plenty of models never
+ *    emit one, and treating their entire reply as reasoning would reject every
+ *    valid answer they give.
+ *  - A closed `</think>`: everything after the LAST one. Providers fold
+ *    `reasoning` back in as `<think>...</think>` (see inference-providers.ts),
+ *    so the answer is what survives it.
+ *  - An unterminated `<think`: null. This is truncation, and it is the exact
+ *    65,536-token case. Everything present is thinking; the answer was never
+ *    written.
+ *  - Nothing but whitespace after `</think>`: null. A model that closed its
+ *    thinking and then said nothing has not answered either.
+ */
+export function answerRegion(reply: string): string | null {
   if (typeof reply !== "string") return null;
+  const opened = reply.indexOf("<think");
+  if (opened === -1) return reply.trim() === "" ? null : reply;
+  const closed = reply.lastIndexOf("</think>");
+  // Closed before it opened means the tags are not a thinking block at all;
+  // treat the reply as ordinary text rather than inventing a region.
+  if (closed === -1 || closed < opened) return null;
+  const after = reply.slice(closed + "</think>".length);
+  return after.trim() === "" ? null : after;
+}
+
+/**
+ * Pick the action the reply names — from the ANSWER only. See `answerRegion`:
+ * a button named while thinking is not a decision, and treating it as one put
+ * presses in a scorecard that no model ever chose.
+ */
+export function parseChoice(reply: string, offered: readonly string[]): string | null {
+  const answer = answerRegion(reply);
+  if (answer === null) return null;
   let best: { index: number; action: string } | null = null;
   for (const action of offered) {
     // Coordinates may follow the name, so capture them when they are there.
     const pattern = new RegExp(`\\b${escapeRegExp(action)}\\b(?:\\s*[:\\s]\\s*(\\d{1,2})\\s*,\\s*(\\d{1,2}))?`, "gi");
-    for (const match of reply.matchAll(pattern)) {
+    for (const match of answer.matchAll(pattern)) {
       const index = match.index ?? 0;
       const chosen =
         match[1] !== undefined && match[2] !== undefined ? `${action}:${match[1]},${match[2]}` : action;
@@ -285,7 +348,9 @@ export function renderScene(
     // Relations between objects that are no longer listed describe nothing.
     relations: truncated ? [] : scene.relations.slice(0, maxRelations),
   };
-  const text = formatSceneGraphYaml(summary);
+  // Hex, the same as the grid. See colour.ts: two encodings in one prompt is
+  // what the 65,536-token press was mostly spent reconciling.
+  const text = formatSceneGraphYaml(summary, colourChar);
   const notes: string[] = [];
   if (truncated) {
     notes.push(`${scene.objects.length} objects in total; the ${maxObjects} largest are listed`);
