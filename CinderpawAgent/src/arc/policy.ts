@@ -398,6 +398,28 @@ const HUD_WARMUP = 6;
  * than the problem this solves. Past this share we conclude there is no HUD.
  */
 const HUD_MAX_SHARE = 0.25;
+/**
+ * How many presses a strip may fail to repaint and still count as a counter.
+ * It was `n === comparisons` - every press, no exceptions - and one exception
+ * is all it takes. Measured on the Luna canary (`arc-1787929749503`, ls20,
+ * 100 presses): rows 61 and 62 repainted in 98 of 99 comparisons and the next
+ * busiest real row in 9. Exact equality disqualified them forever on that one
+ * miss, so no HUD was ever found, every grid stayed unique, no action was ever
+ * seen as inert, and the run pressed ACTION2 87 times for 0 levels while the
+ * outcome feed reported "the grid changed" on every one of them.
+ *
+ * An ABSOLUTE budget, not a share. A share loosens as the run grows - 0.9 over
+ * 99 comparisons forgives nine misses - and that is how it starts eating real
+ * rows: measured on the 100-game stress, which has no counter in it by design,
+ * a 0.9 share invented 11 vetoes and cost 228 extra actions for the same 84
+ * wins. A counter misses rarely in absolute terms however long the game runs.
+ *
+ * ponytail: two is the smallest budget that covers the canary's one miss with
+ * room for a second. If a game ever ticks its counter more raggedly than this,
+ * the budget is the knob - raise it here, and re-run the stress to see what it
+ * costs on boards that have no counter at all.
+ */
+const HUD_MISS_BUDGET = 2;
 
 /**
  * Finds the parts of the grid the environment repaints on EVERY press, no
@@ -426,7 +448,7 @@ function createHudDetector() {
 
   const settled = (changes: Map<number, number>, limit: number): Set<number> => {
     if (comparisons < HUD_WARMUP) return new Set<number>();
-    const always = [...changes].filter(([, n]) => n === comparisons).map(([i]) => i);
+    const always = [...changes].filter(([, n]) => comparisons - n <= HUD_MISS_BUDGET).map(([i]) => i);
     // All of it "always changes" means none of it is a HUD — see HUD_MAX_SHARE.
     return always.length > limit * HUD_MAX_SHARE ? new Set<number>() : new Set(always);
   };

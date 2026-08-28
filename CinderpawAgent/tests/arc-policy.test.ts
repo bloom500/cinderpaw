@@ -392,6 +392,50 @@ describe("a counter drawn in the grid must not count as the game changing", () =
     expect(vetoed.length).toBeGreaterThan(0);
   });
 
+  test("a counter that misses one press is still a counter", async () => {
+    // The canary shape. Rows 61-62 of ls20 repainted in 98 of 99 comparisons;
+    // exact equality threw them away on that single miss, so the bar stayed in
+    // the key, every grid looked new, no action was ever inert, and 87 presses
+    // of one button were all reported effective. One exception must not
+    // disqualify a counter.
+    let at = 0;
+    let presses = 0;
+    let ticks = 0;
+    const view = (): ArcObservation => ({
+      grid: [
+        // Seven rows of board, then a monotonic move bar that fills and never
+        // shows a pattern twice, so nothing repeats by accident.
+        ...Array.from({ length: 7 }, (_, y) => Array.from({ length: 30 }, (_, x) => (y === 0 && x === at ? 1 : 0))),
+        Array.from({ length: 30 }, (_, x) => (x < ticks ? 1 : 0)),
+      ],
+      state: "NOT_FINISHED",
+    });
+    const env: ArcEnvironment = {
+      actions: ["ACTION1", "ACTION2"],
+      observe: view,
+      act: (a: string) => {
+        presses++;
+        // The one exception: the counter does not tick on the second press.
+        if (presses !== 2) ticks++;
+        if (a === "ACTION2") at++;
+        return view();
+      },
+    };
+    const vetoed: string[] = [];
+    const policy = createFrugalPolicy({
+      // Always ask for the wall: ACTION1 never moves anything.
+      inner: () => "ACTION1",
+      onVeto: (from) => vetoed.push(from),
+    });
+    await playLevel({ env, policy, maxActions: 24 });
+
+    // Not `vetoed.length > 0`. The one press the counter skipped makes the wall
+    // look inert by accident and fires exactly one veto even with the bug, so
+    // the weak assertion passes on a broken detector. Measured over 24 presses:
+    // 1 veto with `n === comparisons`, 13 with the miss budget.
+    expect(vetoed.length).toBeGreaterThan(4);
+  });
+
   test("an animated board is not mistaken for a HUD", async () => {
     // Every row repaints every press. Blanking all of them would make every
     // state identical, which is worse than the bug — so nothing is blanked.
