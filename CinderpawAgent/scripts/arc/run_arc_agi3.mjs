@@ -932,7 +932,12 @@ NOT REPORTABLE — this run may not be published:
 }
 if (agent) {
   const stats = agent.stats();
-  const policyCalls = usage ? usage.calls - stats.supervisorCalls : null;
+  // Read here rather than borrowing the outer `usage`, which is declared below
+  // this line: the reporting order is console-first, file-second, and a summary
+  // that reaches into a later binding is one reordering away from a crash at
+  // the very end of a paid run.
+  const spend = args.dryRun ? null : complete.usage();
+  const policyCalls = spend ? spend.calls - stats.supervisorCalls : null;
   console.log(
     `supervisor  ${stats.reviews} reviews in ${stats.supervisorCalls} calls` +
       (stats.supervisorFailures > 0 ? `, ${stats.supervisorFailures} FAILED` : "") +
@@ -941,7 +946,7 @@ if (agent) {
   // Said out loud on every agentic run, because it is the property that makes
   // the cost per press readable and the one an extra caller would break.
   console.log(
-    `calls       ${policyCalls} policy + ${stats.supervisorCalls} supervisor = ${usage ? usage.calls : "?"}` +
+    `calls       ${policyCalls} policy + ${stats.supervisorCalls} supervisor = ${spend ? spend.calls : "?"}` +
       (policyCalls === spent ? "  (policy calls == actions)" : `  MISMATCH: ${spent} actions`),
   );
   if (args.lessonsPath) {
