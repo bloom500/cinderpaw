@@ -41,7 +41,18 @@ const real = await import("node:fs/promises")
 const ids = real.length > 0 ? real : Array.from({ length: args.games }, (_, i) => `game-${i}`);
 
 const violations = [];
-const games = ids.map((id) => makeGame(id, rnd));
+// A Map keyed by game id — the shape `makeServer` looks games up in.
+//
+// Built by INDEX, then renamed: `makeGame` derives each game's brand colour
+// from `id % 10`, so it needs a number, while a rehearsal is only worth running
+// against the ids `games.txt` actually holds. Numbering the brand and naming
+// the game are separate concerns, and the brand stays unique either way.
+const games = new Map();
+ids.forEach((id, i) => {
+  const game = makeGame(i, rnd);
+  game.id = id;
+  games.set(id, game);
+});
 const handler = makeServer(games, violations);
 
 const server = Bun.serve({
