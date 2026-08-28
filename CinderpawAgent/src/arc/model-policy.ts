@@ -31,7 +31,45 @@ import {
   formatSceneGraphYaml,
   parseSceneGraph,
 } from "../research/perception/scene-graph.ts";
-import { biggestObjectCentre, centreOf } from "./click-target.ts";
+import { biggestObjectCentre, centreOf, clickCandidates } from "./click-target.ts";
+
+/**
+ * The candidate block, or null when there is nothing to offer.
+ *
+ * WHY IT IS A SHORTLIST AND NOT AN ANSWER. Choosing between named buttons costs
+ * this model 14-45 tokens. Choosing an x,y on the same grid cost it 27,163
+ * (effort medium) and 31,557 (effort low) — the effort knob is not the lever,
+ * and the 4,096-cell space is. So perception narrows the space. It must not
+ * close it:
+ *
+ *   - the list says what perception FOUND, not what is clickable, because
+ *     nobody knows what is clickable and the docs say the game will not tell us;
+ *   - the model is told in the same breath that it may press any coordinate,
+ *     including one not listed;
+ *   - the raw grid stays in the prompt above it, so the list can be checked
+ *     against the thing it claims to describe.
+ *
+ * Anything stronger and the score measures `parseSceneGraph` with the model as
+ * a rubber stamp — which would be a better number and a worthless result.
+ */
+export function renderClickCandidates(
+  grid: readonly (readonly number[])[],
+  max = 8,
+): string | null {
+  const found = clickCandidates(grid, max);
+  if (found.length === 0) return null;
+  const lines = found.map(
+    (c, i) =>
+      `  ${i + 1}. centre (${c.x},${c.y}) — colour ${c.colour}, ${c.shape}, ` +
+      `${c.width}x${c.height} box, ${c.cells} cells`,
+  );
+  return [
+    "Objects perception found on this grid, biggest first (x is the column, y is the row):",
+    ...lines,
+    "These are objects, NOT a list of what is clickable — the game does not say what is.",
+    "You may press any coordinate from 0 to 63, including one that is not listed.",
+  ].join("\n");
+}
 
 /** One turn of conversation, in the shape every provider in this repo takes. */
 export interface PolicyMessage {
@@ -70,6 +108,15 @@ export interface ModelPolicyOptions {
    * without it that looks identical to bad clicking.
    */
   onCoordinateGuess?: (action: string) => void;
+  /**
+   * Offer a shortlist of click targets when ACTION6 is available. `false` sends
+   * the model the bare 64x64 grid, which is what it got before this existed and
+   * what the measurement that motivated it was taken on — so the two are
+   * comparable by running the same game twice.
+   */
+  clickCandidates?: boolean;
+  /** A candidate list was rendered, for the run log. */
+  onClickCandidates?: (text: string) => void;
 }
 
 const SYSTEM = [
@@ -252,8 +299,17 @@ export function renderScene(
 }
 
 export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
-  const { complete, historyLength = 8, onExchange, onUnparsed, scene, onScene, onCoordinateGuess } =
-    options;
+  const {
+    complete,
+    historyLength = 8,
+    onExchange,
+    onUnparsed,
+    scene,
+    onScene,
+    onCoordinateGuess,
+    clickCandidates: offerCandidates = true,
+    onClickCandidates,
+  } = options;
 
   return async (observation: ArcObservation, ctx: PolicyContext): Promise<string | null> => {
     const offered = [...ctx.actions];
@@ -268,6 +324,14 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
     // the other.
     const described = scene === false ? null : renderScene(observation.grid, scene ?? {});
     if (described) onScene?.(described);
+    // Only when ACTION6 is actually on the table. A shortlist of places to click
+    // is noise in a turn where clicking is not offered, and prompt bytes are the
+    // one cost that is paid on EVERY call.
+    const candidates =
+      offerCandidates && ctx.actions.includes("ACTION6")
+        ? renderClickCandidates(observation.grid)
+        : null;
+    if (candidates) onClickCandidates?.(candidates);
     const messages: PolicyMessage[] = [
       { role: "system", content: SYSTEM },
       {
@@ -276,6 +340,7 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
           ...(described ? ["What is on the grid, as objects:", described, ""] : []),
           renderGrid(observation.grid),
           "",
+          ...(candidates ? [candidates, ""] : []),
           `Buttons available now: ${offered.join(", ")}`,
           `Presses remaining: ${Number.isFinite(ctx.remaining) ? ctx.remaining : "no limit"}`,
           recent.length > 0 ? `Your last presses: ${recent.join(", ")}` : "This is your first press.",

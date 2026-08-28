@@ -23,6 +23,10 @@
  *   --dry-run              play with a fixed policy, no model calls, no key needed
  *   --no-imagination       disable MCTS rehearsal (run twice to measure its delta)
  *   --no-perception        do not describe the grid as objects in the prompt
+ *   --no-click-candidates  do not offer a shortlist of click targets for ACTION6.
+ *                          Measured: choosing an x,y cost this model 27k-31k tokens
+ *                          against 14-45 for a named button, at BOTH medium and low
+ *                          effort. The flag exists so that delta stays measurable.
  *   --no-frugal            no transition table, no inertness inference, no move
  *                          learner. This is the CONTROL arm — but it is NOT a bare
  *                          model: the prompt, the hex grid, answer parsing, the
@@ -99,6 +103,7 @@ function parseArgs(argv) {
     else if (flag === "--retries") { args.retries = Number(value); i++; }
     else if (flag === "--no-imagination") args.imagination = false;
     else if (flag === "--no-perception") args.perception = false;
+    else if (flag === "--no-click-candidates") args.clickCandidates = false;
     else if (flag === "--no-frugal") args.frugal = false;
     else if (flag === "--reasoning-effort") { args.reasoningEffort = value; i++; }
     else if (flag === "--provider") { args.provider = value; i++; }
@@ -413,6 +418,11 @@ const inner = args.dryRun
       scene: args.perception === false ? false : {},
       onScene: () => { scenes++; },
       onCoordinateGuess: () => { guessedCoords++; (decision ??= freshDecision()).guessedCoords = true; },
+      // A shortlist of places to click, offered only when ACTION6 is available.
+      // Not the answer: the list says what perception FOUND, and the model is
+      // told it may press any coordinate at all. See click-target.ts.
+      clickCandidates: args.clickCandidates !== false,
+      onClickCandidates: () => { candidateLists++; },
       // The prompt is NOT kept: it is the grid, and the grid is already on the
       // frame line. The reply is the only part of the exchange that is not
       // reconstructible from what is already written down.
@@ -562,6 +572,7 @@ let spent = 0;
 /** Model usage already attributed to an earlier press, so each press gets its own. */
 const billed = { calls: 0, promptTokens: 0, completionTokens: 0, spend: 0 };
 let scenes = 0;
+let candidateLists = 0;
 let guessedCoords = 0;
 let learnPasses = 0;
 let learnMs = 0;
@@ -813,6 +824,14 @@ NOT REPORTABLE — this run may not be published:
     `perception  ${scenes} of ${usage.calls} prompts carried a scene description` +
       (args.perception === false ? " (disabled)" : ""),
   );
+  // The count that makes the ACTION6 experiment readable. A run where this is 0
+  // is the RAW arm whatever the flags say — a grid with nothing perception can
+  // pick out offers no shortlist, and that is indistinguishable in the token
+  // bill from having the feature switched off.
+  console.log(
+    `candidates  ${candidateLists} of ${usage.calls} prompts carried a click shortlist` +
+      (args.clickCandidates === false ? " (disabled)" : ""),
+  );
 }
 console.log(`manifest    ${manifestPath}`);
 
@@ -849,6 +868,7 @@ fs.writeFileSync(
         // off too. Recorded as what actually ran, not as what was typed.
         imagination: args.imagination !== false && args.frugal !== false,
         perception: args.perception !== false,
+        clickCandidates: args.clickCandidates !== false,
         // The control arm, recorded: "model + Cinderpaw" and "model alone"
         // produce the same shape of result file, and this is the only field
         // that tells them apart afterwards.
