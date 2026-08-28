@@ -64,13 +64,28 @@ let modelCalls = 0;
 
 /** The same greedy walker the stress harness uses, reading the prompt's grid. */
 function fakeReply(body) {
-  modelCalls++;
   const text = body.messages.at(-1).content;
-  const offered = /Buttons available now: (.+)/.exec(text)?.[1]?.split(", ") ?? ["ACTION1"];
+  const asked = /Buttons available now: (.+)/.exec(text)?.[1];
+  const offered = asked?.split(", ") ?? ["ACTION1"];
+  /**
+   * ONLY PRESSES ARE COUNTED, and the counter is what schedules the deliberate
+   * misbehaviour below.
+   *
+   * It used to count every call. That made the fake unable to compare two arms
+   * that differ in how many calls they make: adding a supervisor shifted every
+   * press's position in the schedule, so a rehearsal reported `bare` clearing 21
+   * levels and `agent` clearing 0 — on identical play, from a different
+   * sabotage pattern. A harness whose whole job is telling you what a change did
+   * must not change its own behaviour when the change adds a caller.
+   *
+   * A prompt with no "Buttons available now:" is not a press — it is a
+   * supervisor, or anything else that shares the completer.
+   */
+  if (asked) modelCalls++;
   // Badly behaved on a schedule, because real models are: one reply in eleven
   // names no button, one in seventeen forgets ACTION6's coordinates.
-  if (modelCalls % 11 === 0) return "I have thought about this at length and I am not sure.";
-  if (modelCalls % 17 === 0 && offered.includes("ACTION6")) return "Let me click. ACTION6";
+  if (asked && modelCalls % 11 === 0) return "I have thought about this at length and I am not sure.";
+  if (asked && modelCalls % 17 === 0 && offered.includes("ACTION6")) return "Let me click. ACTION6";
   const rows = text.split("\n").filter((l) => /^[0-9a-f]{6,64}$/.test(l));
   let r = -1, c = -1;
   rows.forEach((row, i) => { const j = row.indexOf("3"); if (j >= 0) { r = i; c = j; } });
