@@ -187,7 +187,10 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
    * The grid itself is kept, not just its key, because the search learns from
    * the grid and a key cannot be turned back into one.
    */
-  let pending: { from: string; action: string; grid: readonly (readonly number[])[] } | null = null;
+  let pending: { action: string; grid: readonly (readonly number[])[] } | null = null;
+  const hud = createHudDetector();
+  /** Identity of a grid, with the HUD cut out. See `createHudDetector`. */
+  const keyOf = (grid: readonly (readonly number[])[]): string => hud.key(grid);
   /**
    * One line per press, oldest first: what was pressed and whether the grid
    * moved. The table below has always known this and thrown it away, using it
@@ -198,15 +201,26 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
   const outcomes: string[] = [];
 
   return async (observation: ArcObservation, ctx: PolicyContext): Promise<string | null> => {
-    const here = gridKey(observation.grid);
+    // Learn what the environment repaints regardless of what we press, BEFORE
+    // anything is keyed. When that set changes, everything keyed under the old
+    // one is answering a different question and is thrown away — it was noise,
+    // not knowledge.
+    if (pending && hud.observe(pending.grid, observation.grid)) {
+      transitions.clear();
+      visited.clear();
+      perAction.clear();
+      outcomes.length = 0;
+    }
+    const here = keyOf(observation.grid);
 
     // The previous call's action landed us here. This is the only place the
     // table learns, and it learns from what happened rather than from what was
     // predicted.
     if (pending) {
-      transitions.set(edge(pending.from, pending.action), here);
+      const from = keyOf(pending.grid);
+      transitions.set(edge(from, pending.action), here);
       const stat = perAction.get(pending.action) ?? { inertIn: new Set<string>(), everMoved: false };
-      if (here === pending.from) stat.inertIn.add(pending.from);
+      if (here === from) stat.inertIn.add(from);
       else stat.everMoved = true;
       perAction.set(pending.action, stat);
       // The same observation, kept in the shape the search wants: the grid
@@ -216,7 +230,7 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
         history = recordOutcome(history, pending.action, cloneGrid(pending.grid), cloneGrid(observation.grid));
         pairsSinceLearn++;
       }
-      outcomes.push(`${pending.action} -> ${here === pending.from ? "nothing changed" : "the grid changed"}`);
+      outcomes.push(`${pending.action} -> ${here === from ? "nothing changed" : "the grid changed"}`);
       if (outcomes.length > OUTCOME_HISTORY) outcomes.shift();
       pending = null;
     }
@@ -272,7 +286,7 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
       // board or has never watched what is ahead of it. Null is not "nothing
       // happens" — it is no belief, and it must not reach the caller as one.
       const after = imagineMove(rules, action, cloneGrid(observation.grid));
-      return after ? gridKey(after) : null;
+      return after ? keyOf(after) : null;
     };
     const imaginedNoop = (action: string): boolean => predicted(action) === here;
     const imaginedRevisit = (action: string): boolean => {
@@ -322,7 +336,7 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
       }
     }
 
-    pending = { from: here, action: final, grid: observation.grid };
+    pending = { action: final, grid: observation.grid };
     return final;
   };
 }
@@ -352,4 +366,95 @@ function cloneGrid(grid: readonly (readonly number[])[]): number[][] {
  */
 function gridKey(grid: readonly (readonly number[])[]): string {
   return JSON.stringify(grid);
+}
+
+/**
+ * How many presses to watch before believing anything. Below this a row that
+ * happens to change twice looks identical to a counter, and condemning a real
+ * row costs us the state it encodes.
+ */
+const HUD_WARMUP = 6;
+/**
+ * The most of the board that may be written off as decoration. A game whose
+ * every row genuinely repaints is not a game with a HUD, it is an animated
+ * board, and blanking it would make every state identical — which is worse
+ * than the problem this solves. Past this share we conclude there is no HUD.
+ */
+const HUD_MAX_SHARE = 0.25;
+
+/**
+ * Finds the parts of the grid the environment repaints on EVERY press, no
+ * matter what was pressed: a move counter, a timer, a progress bar.
+ *
+ * This is not cosmetic. Such a region makes every grid unique forever, and the
+ * whole module above is built on recognising a grid it has seen before. With a
+ * counter in the key nothing is ever a repeat, so no action is ever observed to
+ * be a no-op, no state is ever a revisit, and the transition table, the inert
+ * detector and the move learner all collect entries that can never match. That
+ * is not a theory: on ARC game `bp35-0a0ad940` row 63 is a 64-press move bar
+ * and changed on 31 of 31 presses, while the busiest real row changed on 5. The
+ * run reported 0 vetoes, 0 trusted rules and 0 demotions over 32 presses, and
+ * 17 of those presses did nothing to the board at all.
+ *
+ * ponytail: whole rows and columns, not arbitrary regions. A counter has to
+ * tick every press to be a counter, and a strip is the shape they come in.
+ * If a game ever hides one in a corner box, this becomes a per-cell tally.
+ */
+function createHudDetector() {
+  let comparisons = 0;
+  const rowChanges = new Map<number, number>();
+  const colChanges = new Map<number, number>();
+  let rows = new Set<number>();
+  let cols = new Set<number>();
+
+  const settled = (changes: Map<number, number>, limit: number): Set<number> => {
+    if (comparisons < HUD_WARMUP) return new Set<number>();
+    const always = [...changes].filter(([, n]) => n === comparisons).map(([i]) => i);
+    // All of it "always changes" means none of it is a HUD — see HUD_MAX_SHARE.
+    return always.length > limit * HUD_MAX_SHARE ? new Set<number>() : new Set(always);
+  };
+
+  return {
+    /** Records one before/after pair. True when the HUD set moved, so the caller can forget what it keyed under the old one. */
+    observe(before: readonly (readonly number[])[], after: readonly (readonly number[])[]): boolean {
+      // A resize is a different board; nothing learned about the old one holds.
+      if (before.length !== after.length) return false;
+      comparisons++;
+      const width = after[0]?.length ?? 0;
+      const changedCols = new Set<number>();
+      for (let y = 0; y < after.length; y++) {
+        const a = before[y] ?? [];
+        const b = after[y] ?? [];
+        let rowMoved = false;
+        for (let x = 0; x < b.length; x++) {
+          if (a[x] !== b[x]) {
+            rowMoved = true;
+            changedCols.add(x);
+          }
+        }
+        if (rowMoved) rowChanges.set(y, (rowChanges.get(y) ?? 0) + 1);
+      }
+      for (const x of changedCols) colChanges.set(x, (colChanges.get(x) ?? 0) + 1);
+
+      const nextRows = settled(rowChanges, after.length);
+      const nextCols = settled(colChanges, width);
+      const moved = !sameSet(rows, nextRows) || !sameSet(cols, nextCols);
+      rows = nextRows;
+      cols = nextCols;
+      return moved;
+    },
+    /** The grid's identity with the HUD cut out. Identical to `gridKey` until a HUD is found. */
+    key(grid: readonly (readonly number[])[]): string {
+      if (rows.size === 0 && cols.size === 0) return gridKey(grid);
+      return JSON.stringify(
+        grid.map((row, y) => (rows.has(y) ? null : row.filter((_, x) => !cols.has(x)))),
+      );
+    },
+  };
+}
+
+function sameSet(a: ReadonlySet<number>, b: ReadonlySet<number>): boolean {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
 }

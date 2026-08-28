@@ -343,3 +343,75 @@ describe("outcome feedback — the inner policy is told what its presses did", (
     expect(longest).toBe(8);
   });
 });
+
+/**
+ * The bug that made every system above inert on a real game.
+ *
+ * ARC `bp35-0a0ad940` paints a 64-press move bar along the bottom row. It ticks
+ * on every press, so with it in the key no grid is ever seen twice: the run
+ * reported 0 vetoes, 0 learned rules and 0 demotions over 32 presses while 17
+ * of those presses did nothing to the board.
+ */
+describe("a counter drawn in the grid must not count as the game changing", () => {
+  /** A board with a wall (ACTION1) and a step (ACTION2), plus a move bar on the last row. */
+  function boardWithMoveBar() {
+    let at = 0;
+    let presses = 0;
+    const view = (): ArcObservation => ({
+      // Row 0 is the game. The last row is the bar: one more cell filled per press.
+      grid: [[at, 0, 0, 0], Array.from({ length: 4 }, (_, x) => (x < presses ? 1 : 0))],
+      state: "NOT_FINISHED",
+    });
+    return {
+      actions: ["ACTION1", "ACTION2"],
+      observe: view,
+      act: (a: string) => {
+        presses++;
+        if (a === "ACTION2") at++;
+        return view();
+      },
+    } satisfies ArcEnvironment;
+  }
+
+  test("the wall is still recognised as a wall, and the model is told so", async () => {
+    const env = boardWithMoveBar();
+    const seen: string[] = [];
+    const vetoed: string[] = [];
+    // Always ask for the wall. Without HUD detection the bar makes every press
+    // look effective, nothing is ever vetoed, and the outcome line always lies.
+    const policy = createFrugalPolicy({
+      inner: (_o, ctx) => {
+        seen.push(...(ctx.outcomes ?? []).slice(-1));
+        return "ACTION1";
+      },
+      onVeto: (from) => vetoed.push(from),
+    });
+    await playLevel({ env, policy, maxActions: 12 });
+
+    expect(seen.some((line) => line === "ACTION1 -> nothing changed")).toBe(true);
+    expect(vetoed.length).toBeGreaterThan(0);
+  });
+
+  test("an animated board is not mistaken for a HUD", async () => {
+    // Every row repaints every press. Blanking all of them would make every
+    // state identical, which is worse than the bug — so nothing is blanked.
+    let n = 0;
+    const env: ArcEnvironment = {
+      actions: ["ACTION1", "ACTION2"],
+      observe: () => ({ grid: [[n], [n], [n], [n]], state: "NOT_FINISHED" }),
+      act: () => {
+        n++;
+        return { grid: [[n], [n], [n], [n]], state: "NOT_FINISHED" as const };
+      },
+    };
+    const lines: string[] = [];
+    const policy = createFrugalPolicy({
+      inner: (_o, ctx) => {
+        lines.push(...(ctx.outcomes ?? []).slice(-1));
+        return "ACTION1";
+      },
+    });
+    await playLevel({ env, policy, maxActions: 12 });
+    expect(lines.every((l) => l.endsWith("the grid changed"))).toBe(true);
+  });
+})
