@@ -22,6 +22,19 @@ OUT="runs-arc/$STAMP"
 mkdir -p "$OUT/B"
 
 set -a; . ./.env; set +a
+
+# WHICH 25 GAMES. `runs-arc/` is gitignored, so on any machine but this one the
+# loop at the bottom read an empty list, played nothing, opened a scorecard and
+# closed it again — a run that looks like it happened and measured nothing.
+# games.txt is force-added to git now; this is the guard for the case where it
+# still is not there, because a silent empty run is the worst failure of the
+# three and the only one nobody notices.
+if [ ! -s runs-arc/games.txt ]; then
+  echo "runs-arc/games.txt is missing or empty — there is nothing to play." >&2
+  echo "Regenerate it with:  bun CinderpawAgent/scripts/arc/run_arc_agi3.mjs --list | cut -f1 > runs-arc/games.txt" >&2
+  exit 1
+fi
+
 COMMIT=$(git rev-parse HEAD)
 eval "$(bun CinderpawAgent/scripts/arc/arc_card.mjs open $COMPETITION \
           --source-url "https://github.com/cinderpaw/cinderpaw/commit/$COMMIT" \

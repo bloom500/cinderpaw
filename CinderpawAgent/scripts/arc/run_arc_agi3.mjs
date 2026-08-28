@@ -17,12 +17,15 @@
  *                          decides the score for the agent instead of measuring
  *                          it, and the number worth comparing against is
  *                          NVIDIA AVO's 6,624 actions over 25 games, ~265 each)
- *   --model   <name>       OpenRouter model (default deepseek/deepseek-v4-flash)
+ *   --model   <name>       OpenRouter model (default z-ai/glm-5.3-flash)
  *   --retries <n>          RESET and retry this many times after GAME_OVER (default 0)
  *   --tag     <text>       repeatable, attached to the scorecard
  *   --dry-run              play with a fixed policy, no model calls, no key needed
  *   --no-imagination       disable MCTS rehearsal (run twice to measure its delta)
  *   --no-perception        do not describe the grid as objects in the prompt
+ *   --no-frugal            no transition table, no vetoes: the model alone. This is
+ *                          the CONTROL ARM — without it nothing measured here can be
+ *                          attributed to Cinderpaw rather than to the model.
  *   --reasoning-effort <e> low | medium | high (default medium)
  *   --provider <name>      pin the OpenRouter upstream (default Z.AI)
  *   --max-spend <usd>      hard per-game spend cap (default 0.15)
@@ -63,7 +66,14 @@ function parseArgs(argv) {
     // chose rather than at one we measured.
     budget: Infinity,
     retries: 0,
-    model: "deepseek/deepseek-v4-flash",
+    // THE DECLARED MODEL FOR THIS EXPERIMENT, and the default for the same
+    // reason the provider below is: the launcher passes it explicitly, so a
+    // different default here is a trap that only springs when someone runs one
+    // game by hand — a probe played on another model, filed beside the run it
+    // was meant to explain. It also has to agree with `--provider`: Z.AI is
+    // this model's own first-party upstream, and the old default named a model
+    // Z.AI does not serve at all.
+    model: "z-ai/glm-5.3-flash",
     tags: [],
     learnBudgetMs: 20_000,
     // Per-GAME spend cap in USD. Present with a real default rather than
@@ -87,6 +97,7 @@ function parseArgs(argv) {
     else if (flag === "--retries") { args.retries = Number(value); i++; }
     else if (flag === "--no-imagination") args.imagination = false;
     else if (flag === "--no-perception") args.perception = false;
+    else if (flag === "--no-frugal") args.frugal = false;
     else if (flag === "--reasoning-effort") { args.reasoningEffort = value; i++; }
     else if (flag === "--provider") { args.provider = value; i++; }
     else if (flag === "--max-spend") { args.maxSpend = Number(value); i++; }
@@ -305,8 +316,30 @@ const manifest = createRunManifest({
   harness: { name: "cinderpaw-arc-agi-3", version },
   repoRoot: REPO_ROOT,
   config: { benchmark: "arc-agi-3", game: args.game, retries: args.retries, dryRun: !!args.dryRun },
-  budgets: { actions: args.budget === Infinity ? null : args.budget },
+  budgets: {
+    actions: args.budget === Infinity ? null : args.budget,
+    // The cap that actually stops this run. Recorded because it IS the limit
+    // whenever --budget is "none", which is the default and the shape every
+    // official run uses — a manifest listing only a null action budget reads
+    // as an unbounded run, which is the opposite of the truth.
+    maxSpendUsd: args.maxSpend,
+    learnBudgetMs: args.learnBudgetMs,
+  },
   models: args.dryRun ? {} : { policy: `openrouter/${args.model}` },
+  // NOT A CLAIM OF DETERMINISM. Nothing in the scored path is seeded, because
+  // nothing in it draws a random number: the frugal table, the move learner,
+  // perception and parseChoice are pure functions of the frames, and the model
+  // runs at temperature 0. `0` records "no RNG seeds any decision here" — and
+  // because that on its own would read as a promise the run cannot keep, the
+  // two things that ARE nondeterministic are written down beside it.
+  seed: 0,
+  notes: [
+    "Deterministic given the same frames: frugal table, move learner, scene graph, parseChoice.",
+    "NOT deterministic: the model itself (temperature 0 is not bit-reproducible on a shared upstream), " +
+      "and how many move-learning passes fit in --learn-budget, which is wall-clock and therefore " +
+      "machine- and load-dependent. A missed pass can only demote an action, never remove one.",
+    "Retry backoff uses unseeded jitter; it affects timing only, never a decision.",
+  ],
 });
 const problems = reportabilityProblems(manifest);
 if (problems.length > 0) {
@@ -337,6 +370,34 @@ const overSpend = () => !args.dryRun && complete.usage().spend >= args.maxSpend;
 
 let vetoes = 0;
 let unparsed = 0;
+/**
+ * WHY THE LAST ACTION WAS CHOSEN, held for exactly one press.
+ *
+ * The trace recorded WHAT was pressed and never WHY, so "the game died on
+ * action 37" could only ever be answered by guessing. Everything needed to
+ * answer it properly already existed as a callback nobody had subscribed to —
+ * `onExchange` carries the prompt and the reply, `onUnparsed` and
+ * `onCoordinateGuess` and `onVeto` each carry the one case where the press is
+ * NOT what the model said. Collected here, written onto the frame line, and
+ * reset after every press so a stale reason can never be attributed to a
+ * later action.
+ *
+ * The reply is truncated: a reasoning model's monologue is tens of kilobytes a
+ * turn and the frames file is meant to be tailed. The decision is at the end of
+ * a reply (parseChoice reads the LAST action named), so the tail is the half
+ * worth keeping.
+ */
+const REPLY_KEPT = 600;
+let decision = null;
+const freshDecision = () => ({
+  // A dry run has no model, and labelling its presses "model" would put a lie
+  // in the one file that exists to be believed.
+  source: args.dryRun ? "fixed-policy" : "model",
+  reply: null,
+  offered: null,
+  veto: null,
+  guessedCoords: false,
+});
 // The dry run needs an inner policy that is not a model. First offered action:
 // it exercises every seam (client, loop, frugal wrapper, scorecard) and proves
 // nothing about play, which is the honest division of labour for a smoke test.
@@ -344,20 +405,38 @@ const inner = args.dryRun
   ? (_observation, ctx) => ctx.actions[0] ?? null
   : createModelPolicy({
       complete,
-      onUnparsed: () => { unparsed++; },
+      onUnparsed: () => { unparsed++; (decision ??= freshDecision()).source = "unparsed-fallback"; },
       // Objects alongside the raw cells. Free in keypresses, and the same
       // reading the DSL and the rehearsal already work in.
       scene: args.perception === false ? false : {},
       onScene: () => { scenes++; },
-      onCoordinateGuess: () => { guessedCoords++; },
+      onCoordinateGuess: () => { guessedCoords++; (decision ??= freshDecision()).guessedCoords = true; },
+      // The prompt is NOT kept: it is the grid, and the grid is already on the
+      // frame line. The reply is the only part of the exchange that is not
+      // reconstructible from what is already written down.
+      onExchange: (prompt, reply) => {
+        const d = (decision ??= freshDecision());
+        d.reply = typeof reply === "string" ? reply.slice(-REPLY_KEPT) : null;
+        d.offered = /Buttons available now: (.+)/.exec(prompt.at(-1)?.content ?? "")?.[1] ?? null;
+      },
     });
 // MCTS rehearsal. Free in keypresses, NOT free in wall-clock — and the
 // scorecard closes 15 minutes after it opens — so the search gets a hard total
 // budget and the run reports what it bought. Off with --no-imagination, so the
 // delta it is responsible for can be measured by running the same game twice.
-const policy = createFrugalPolicy({
+//
+// --no-frugal hands `inner` straight to the loop instead. That is the CONTROL
+// ARM and it had no switch until now: with the wrapper always on, every number
+// this harness produced was "model + Cinderpaw" with no "model alone" to
+// subtract, so nothing could be attributed to either. It also has to bypass
+// imagination, which lives inside the wrapper — one flag, one meaning: the
+// model sees the game and nothing of ours stands between them.
+const policy = args.frugal === false ? inner : createFrugalPolicy({
   inner,
-  onVeto: () => { vetoes++; },
+  onVeto: (rejected, chosen) => {
+    vetoes++;
+    (decision ??= freshDecision()).veto = { rejected, chosen };
+  },
   imagination: args.imagination === false ? undefined : { learnBudgetMs: args.learnBudgetMs },
   onLearn: (info) => {
     learnPasses++;
@@ -456,6 +535,8 @@ console.log(`frames      ${framesPath}`);
 const encodeGrid = (grid) =>
   grid.map((row) => row.map((c) => (c & 15).toString(16)).join("")).join("\n");
 let spent = 0;
+/** Model usage already attributed to an earlier press, so each press gets its own. */
+const billed = { calls: 0, promptTokens: 0, completionTokens: 0, spend: 0 };
 let scenes = 0;
 let guessedCoords = 0;
 let learnPasses = 0;
@@ -510,6 +591,17 @@ try {
       // the case where play continues. Same env, same guid, same policy — the
       // policy carrying over IS the point, that is the memory across levels.
       let result;
+      // ACTIONS FOR THIS ATTEMPT, across every level it clears.
+      //
+      // `result` is only the LAST pass of the loop below, so recording
+      // `result.actions.length` as the attempt total reported 0 for an attempt
+      // that had just spent 24 presses clearing a level. The top-line
+      // `actionsSpent` was right and the per-attempt breakdown beside it was
+      // not — which is the worse of the two to get wrong, because it is the
+      // number anyone reads to work out where the presses went.
+      let attemptActions = 0;
+      /** Levels cleared when we last spent a free RESET on a sticky WIN. */
+      let levelsAtLastNudge = -1;
       for (;;) {
         result = await playLevel({
           env,
@@ -517,24 +609,53 @@ try {
           maxActions: args.budget - spent,
           shouldStop: overSpend,
           onAction: (action, observation, index) => {
-            frames.write(
-              JSON.stringify({
-                n: spent + index,
-                action,
-                state: observation.state,
-                levels: `${env.last.levelsCompleted}/${env.last.winLevels}`,
-                atMs: Date.now() - cardOpenedAt,
-                grid: encodeGrid(observation.grid),
-              }) + "\n",
-            );
-            trace.push({
+            // What this ONE press cost, not what the run has cost so far. The
+            // running total already prints at the end; a per-press figure is
+            // what makes "action 37 was the expensive one" answerable at all,
+            // and the total can be re-derived by summing these.
+            const usage = complete ? complete.usage() : null;
+            const cost = usage
+              ? {
+                  calls: usage.calls - billed.calls,
+                  promptTokens: usage.promptTokens - billed.promptTokens,
+                  completionTokens: usage.completionTokens - billed.completionTokens,
+                  spendUsd: Number((usage.spend - billed.spend).toFixed(6)),
+                  latencyMs: usage.latenciesMs.at(-1) ?? null,
+                }
+              : null;
+            if (usage) {
+              billed.calls = usage.calls;
+              billed.promptTokens = usage.promptTokens;
+              billed.completionTokens = usage.completionTokens;
+              billed.spend = usage.spend;
+            }
+            const why = decision ?? freshDecision();
+            const record = {
               n: spent + index,
               action,
               state: observation.state,
               levelsCompleted: env.last.levelsCompleted,
               winLevels: env.last.winLevels,
               atMs: Date.now() - cardOpenedAt,
-            });
+              // The actions OFFERED for this decision, which is not the set the
+              // next frame accepts — that one is on the next line already. The
+              // offered set is the only one that explains the choice.
+              offered: why.offered,
+              why,
+              cost,
+            };
+            frames.write(
+              JSON.stringify({
+                ...record,
+                levels: `${env.last.levelsCompleted}/${env.last.winLevels}`,
+                grid: encodeGrid(observation.grid),
+              }) + "\n",
+            );
+            trace.push(record);
+            // One reason belongs to one press. Cleared here so a press whose
+            // reason went missing reads as "model, no reply recorded" instead
+            // of inheriting the previous press's monologue.
+            decision = null;
             console.log(
               `  ${String(spent + index).padStart(4)}  ${action.padEnd(14)} ${observation.state}` +
                 `  levels=${env.last.levelsCompleted}/${env.last.winLevels}`,
@@ -542,18 +663,42 @@ try {
           },
         });
         spent += result.actions.length;
-        const more =
-          result.state === "WIN" &&
-          env.last.winLevels > 0 &&
-          env.last.levelsCompleted < env.last.winLevels &&
-          args.budget - spent > 0 &&
-          !overSpend() &&
-          // A pass that spent nothing made no progress, and the state it saw is
-          // the state the next pass will see. Without this, a server that reports
-          // WIN without advancing the level counter spins here forever at zero
-          // cost, which is the worst kind of hang: it looks like a working run.
-          result.actions.length > 0;
-        if (!more) break;
+        attemptActions += result.actions.length;
+        const levelsLeft =
+          result.state === "WIN" && env.last.winLevels > 0 && env.last.levelsCompleted < env.last.winLevels;
+        const affordable = args.budget - spent > 0 && !overSpend();
+        if (!levelsLeft || !affordable) break;
+
+        if (result.actions.length === 0) {
+          // A STICKY WIN, and the reason this branch is not just a guard.
+          //
+          // The zero-action guard used to end the game here, to stop a server
+          // that reports WIN without advancing the level counter from spinning
+          // forever at no cost. But it also fires on the OTHER reading of WIN,
+          // and that reading forfeits the run: if the frame keeps saying WIN
+          // after a level is cleared, playLevel returns on its terminal check
+          // before pressing anything, and a game with three levels stops at
+          // one — scoring roughly a sixth of what it cleared, because later
+          // levels are weighted highest.
+          //
+          // Which reading is right is still not documented and no live run has
+          // settled it. So do the one thing that is safe under BOTH: a RESET,
+          // which costs no action and which competition mode treats as a LEVEL
+          // reset, keeping the levels already cleared. If WIN was sticky, this
+          // is what moves on to level two. If the server was spinning, the
+          // level counter will not have moved by the next time we get here and
+          // the guard below stops for good.
+          if (env.last.levelsCompleted <= levelsAtLastNudge) {
+            console.log("  -- WIN with levels left, but a RESET changed nothing. Stopping. --");
+            break;
+          }
+          levelsAtLastNudge = env.last.levelsCompleted;
+          console.log(
+            `  -- level ${env.last.levelsCompleted}/${env.last.winLevels} cleared, still WIN: RESET to continue --`,
+          );
+          await env.reset();
+          continue;
+        }
         console.log(
           `  -- level ${env.last.levelsCompleted}/${env.last.winLevels} cleared, continuing --`,
         );
@@ -561,7 +706,7 @@ try {
       attempts.push({
         attempt,
         state: result.state,
-        actions: result.actions.length,
+        actions: attemptActions,
         stoppedBecause: result.stoppedBecause,
         levelsCompleted: env.last.levelsCompleted,
         winLevels: env.last.winLevels,
@@ -676,8 +821,14 @@ fs.writeFileSync(
         budget: args.budget === Infinity ? null : args.budget,
         maxSpend: args.maxSpend,
         retries: args.retries,
-        imagination: args.imagination !== false,
+        // Imagination lives INSIDE the frugal wrapper, so --no-frugal turns it
+        // off too. Recorded as what actually ran, not as what was typed.
+        imagination: args.imagination !== false && args.frugal !== false,
         perception: args.perception !== false,
+        // The control arm, recorded: "model + Cinderpaw" and "model alone"
+        // produce the same shape of result file, and this is the only field
+        // that tells them apart afterwards.
+        frugal: args.frugal !== false,
         dryRun: !!args.dryRun,
         learnBudgetMs: args.learnBudgetMs ?? null,
       },
