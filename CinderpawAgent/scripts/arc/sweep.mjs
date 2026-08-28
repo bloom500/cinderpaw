@@ -55,11 +55,32 @@ const GAMES_FILE = path.resolve(REPO_ROOT, "..", "runs-arc", "games.txt");
  *                reason.
  *
  * What `agent` still does NOT include, so nobody reads more into the name than
- * is there: MCTS/DSL program search and skill induction (the DSL is whole-grid
- * transforms — rotate, mirror, gravity — and cannot express "one sprite moved
- * one cell", which is why the search was measured inert on ARC-3), and the BRSI
- * dream cycle (self-modification mid-run would contradict the run manifest's
- * commit, which is the thing that makes the result reproducible).
+ * is there:
+ *
+ *  - MCTS/DSL program search and skill induction. The DSL is whole-grid
+ *    transforms — rotate, mirror, gravity, recolor — and cannot express "one
+ *    sprite moved one cell", which is why the search was measured inert on
+ *    ARC-3 and why `imagination-move.ts` exists instead. Skill induction
+ *    consumes verified DSL programs, so with nothing verified it has nothing
+ *    to induce.
+ *
+ *  - BRSI code evolution. Not for the reason it is tempting to give. The real
+ *    one is the policy wall: `DEFAULT_CODE_PATCH_POLICY.allowedDirPrefix` is
+ *    `"src/rsi/"`, so a code candidate may only patch `.ts` under `src/rsi/`,
+ *    at most 200 changed lines, never the enforcement chain. NOTHING THAT PLAYS
+ *    ARC LIVES THERE. BRSI improving itself cannot make this agent better at
+ *    this benchmark, and the wall that makes that true is the same wall that
+ *    makes self-modification safe at all.
+ *
+ *    Two more, either of which would be enough on its own: `evaluateCodePatch`
+ *    runs `git worktree add` + `bun install` + `bun test` + `tsc` per candidate
+ *    — this suite is ~3,600 tests — and 25 games run AT ONCE, so an evolution
+ *    window inside a sweep is 25 concurrent builds on the machine holding the
+ *    card. And a patch promoted mid-sweep changes what later-spawned games
+ *    import, so game 1 and game 25 would run different code on one scorecard.
+ *
+ *    The legal version is BETWEEN sweeps: propose, evaluate in a disposable
+ *    worktree, promote, and let the NEXT sweep run the improved code.
  */
 const ARMS = {
   bare: ["--no-frugal", "--no-perception", "--no-click-candidates", "--no-imagination"],
