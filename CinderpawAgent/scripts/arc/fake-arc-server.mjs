@@ -49,9 +49,16 @@ const server = Bun.serve({
   idleTimeout: 60,
   async fetch(request) {
     const url = new URL(request.url);
+    // HTTP lowercases header names; `makeServer` reads the exact spellings the
+    // client writes, because in-process it is handed the client's own object.
+    // Restoring them here keeps the fake auditing the same thing over the wire
+    // as it does in memory, instead of failing every request for "no key".
+    const headers = Object.fromEntries(request.headers);
+    if (headers["x-api-key"] !== undefined) headers["X-API-Key"] = headers["x-api-key"];
+    if (headers["cookie"] !== undefined) headers.Cookie = headers["cookie"];
     const init = {
       method: request.method,
-      headers: Object.fromEntries(request.headers),
+      headers,
       body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
     };
     return handler(`https://three.arcprize.org${url.pathname}${url.search}`, init);
