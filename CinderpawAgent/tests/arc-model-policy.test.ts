@@ -274,3 +274,36 @@ describe("createModelPolicy — ACTION6 always leaves with coordinates", () => {
     expect(chosen).toBe("ACTION6:11,2");
   });
 });
+
+describe("createModelPolicy — outcomes replace the bare press list", () => {
+  const prompt = async (over: Record<string, unknown>) => {
+    let sent = "";
+    const policy = createModelPolicy({
+      complete: async (messages) => {
+        sent = messages.map((m) => m.content).join("\n");
+        return "ACTION1";
+      },
+    });
+    await policy({ grid: [[1]], state: "NOT_FINISHED" }, { actions: ["ACTION1"], remaining: 5, taken: [], ...over });
+    return sent;
+  };
+
+  test("when the caller knows what happened, the model is told", async () => {
+    const sent = await prompt({
+      taken: ["ACTION1", "ACTION2"],
+      outcomes: ["ACTION1 -> nothing changed", "ACTION2 -> the grid changed"],
+    });
+    expect(sent).toContain("What your last presses did:");
+    expect(sent).toContain("- ACTION1 -> nothing changed");
+    expect(sent).toContain("- ACTION2 -> the grid changed");
+    // Two histories would be the same tokens twice, and the bare list is the
+    // ambiguous one — a press with no outcome reads as a press that did nothing.
+    expect(sent).not.toContain("Your last presses:");
+  });
+
+  test("without outcomes nothing changes — every existing caller is untouched", async () => {
+    expect(await prompt({ taken: ["ACTION1"] })).toContain("Your last presses: ACTION1");
+    expect(await prompt({})).toContain("This is your first press.");
+    expect(await prompt({ taken: ["ACTION1"], outcomes: [] })).toContain("Your last presses: ACTION1");
+  });
+});

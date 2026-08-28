@@ -306,3 +306,40 @@ describe("frugal policy — what it remembers across a level boundary", () => {
     expect(spent.length).toBeGreaterThan(0);
   });
 });
+
+describe("outcome feedback — the inner policy is told what its presses did", () => {
+  test("a wall reads as 'nothing changed', a step as 'the grid changed'", async () => {
+    const { env } = corridor(8);
+    const seen: (readonly string[] | undefined)[] = [];
+    // ACTION1 is the wall, ACTION2 walks. Alternating proves both spellings and
+    // proves the outcome is the PREVIOUS press, not the one being chosen.
+    let i = 0;
+    const policy = createFrugalPolicy({
+      inner: (_o, ctx) => {
+        seen.push(ctx.outcomes ? [...ctx.outcomes] : undefined);
+        return i++ % 2 === 0 ? "ACTION2" : "ACTION1";
+      },
+    });
+    await playLevel({ env, policy, maxActions: 4 });
+
+    expect(seen[0]).toEqual([]); // first press: nothing has happened yet
+    expect(seen[1]).toEqual(["ACTION2 -> the grid changed"]);
+    // The frugal veto can substitute an action, and what is logged must be what
+    // was actually pressed — so read the tail rather than assuming ACTION1.
+    expect(seen[2]?.length).toBe(2);
+    expect(seen[2]?.[0]).toBe("ACTION2 -> the grid changed");
+  });
+
+  test("the outcome log is bounded, so the prompt cannot grow without limit", async () => {
+    const { env } = corridor(200);
+    let longest = 0;
+    const policy = createFrugalPolicy({
+      inner: (_o, ctx) => {
+        longest = Math.max(longest, ctx.outcomes?.length ?? 0);
+        return "ACTION2";
+      },
+    });
+    await playLevel({ env, policy, maxActions: 30 });
+    expect(longest).toBe(8);
+  });
+});

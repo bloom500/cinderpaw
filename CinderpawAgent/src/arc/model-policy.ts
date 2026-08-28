@@ -383,6 +383,18 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
     if (offered.length === 0) return null;
 
     const recent = ctx.taken.slice(-historyLength);
+    // What the presses DID, when the caller can tell us. A press with no
+    // outcome beside it is indistinguishable from a press that did nothing, so
+    // without this the model re-derives what every button does on every turn —
+    // which is where the completion tokens went. Falls back to the bare list
+    // when nothing is watching the grid across turns (`--no-frugal`).
+    const outcomes = ctx.outcomes?.slice(-historyLength) ?? [];
+    const history =
+      outcomes.length > 0
+        ? [`What your last presses did:`, ...outcomes.map((line) => `- ${line}`)].join("\n")
+        : recent.length > 0
+          ? `Your last presses: ${recent.join(", ")}`
+          : "This is your first press.";
     // The description goes ABOVE the cells, and the cells stay. The summary is
     // a reading of the grid and can be wrong about what matters; the grid is
     // the ground truth and the model must always be able to check one against
@@ -408,7 +420,7 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
           ...(candidates ? [candidates, ""] : []),
           `Buttons available now: ${offered.join(", ")}`,
           `Presses remaining: ${Number.isFinite(ctx.remaining) ? ctx.remaining : "no limit"}`,
-          recent.length > 0 ? `Your last presses: ${recent.join(", ")}` : "This is your first press.",
+          history,
           "",
           "Which one button do you press? Answer with the name only.",
         ].join("\n"),

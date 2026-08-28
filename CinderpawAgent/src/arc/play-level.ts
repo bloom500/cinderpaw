@@ -63,6 +63,14 @@ export interface PolicyContext {
   readonly remaining: number;
   /** Every action taken so far, oldest first. */
   readonly taken: readonly string[];
+  /**
+   * What the recent actions DID, oldest first — e.g. `ACTION6:21,3 -> nothing
+   * changed`. Optional because only a wrapper that watches the grid across
+   * turns can know; `playLevel` itself never fills it in. Without it a policy
+   * sees eight scattered presses and cannot tell them from eight that did
+   * nothing, so it pays to re-deduce the buttons every single turn.
+   */
+  readonly outcomes?: readonly string[];
 }
 
 export interface PlayResult {

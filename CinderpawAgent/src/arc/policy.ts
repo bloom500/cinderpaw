@@ -78,6 +78,13 @@ import {
  */
 const INERT_AFTER = 3;
 
+/**
+ * How many press outcomes to carry forward. Matches the inner policy's default
+ * history length, so the outcome lines line up with the presses it is already
+ * being shown rather than adding a second, longer history.
+ */
+const OUTCOME_HISTORY = 8;
+
 /** Rehearsal settings. Absent = table only, exactly as before. */
 export interface ImaginationOptions {
   /**
@@ -181,6 +188,14 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
    * the grid and a key cannot be turned back into one.
    */
   let pending: { from: string; action: string; grid: readonly (readonly number[])[] } | null = null;
+  /**
+   * One line per press, oldest first: what was pressed and whether the grid
+   * moved. The table below has always known this and thrown it away, using it
+   * only to filter the offered list. Telling the inner policy is free — tens of
+   * prompt tokens — and it removes the question it otherwise re-answers every
+   * turn at thousands of completion tokens a press.
+   */
+  const outcomes: string[] = [];
 
   return async (observation: ArcObservation, ctx: PolicyContext): Promise<string | null> => {
     const here = gridKey(observation.grid);
@@ -201,6 +216,8 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
         history = recordOutcome(history, pending.action, cloneGrid(pending.grid), cloneGrid(observation.grid));
         pairsSinceLearn++;
       }
+      outcomes.push(`${pending.action} -> ${here === pending.from ? "nothing changed" : "the grid changed"}`);
+      if (outcomes.length > OUTCOME_HISTORY) outcomes.shift();
       pending = null;
     }
     visited.add(here);
@@ -289,7 +306,7 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
     // an empty answer ends the level.
     const offered = promising.length > 0 ? promising : moving.length > 0 ? moving : [...ctx.actions];
 
-    const choice = await inner(observation, { ...ctx, actions: offered });
+    const choice = await inner(observation, { ...ctx, actions: offered, outcomes });
     if (choice === null) return null;
 
     // The one override. A confirmed no-op costs a full action and returns the
