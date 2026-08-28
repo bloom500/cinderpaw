@@ -35,7 +35,18 @@ import fs from "node:fs";
 import { createModelPolicy } from "../../src/arc/model-policy.ts";
 import { OpenAICompatibleProvider } from "../../src/egress/inference-providers.ts";
 
-const args = { frames: null, line: 3, raw: false, both: false, effort: "medium", model: "z-ai/glm-5.3-flash", provider: "Z.AI" };
+const args = {
+  frames: null, line: 3, raw: false, both: false, effort: "medium",
+  model: "z-ai/glm-5.3-flash", provider: "Z.AI",
+  /**
+   * A CEILING ON THE ANSWER, which a scored run must not have and a shootout
+   * must. The question here is "does this model explode", and a model that hits
+   * the cap has already answered it — paying for the other 22,000 tokens buys
+   * nothing. Truncation is safe to spend now that it is READ correctly: a reply
+   * with no answer comes back unparsed instead of being mined for a button name.
+   */
+  maxTokens: null,
+};
 for (let i = 2; i < process.argv.length; i++) {
   const f = process.argv[i];
   if (f === "--frames") args.frames = process.argv[++i];
@@ -45,6 +56,8 @@ for (let i = 2; i < process.argv.length; i++) {
   else if (f === "--effort") args.effort = process.argv[++i];
   else if (f === "--model") args.model = process.argv[++i];
   else if (f === "--provider") args.provider = process.argv[++i];
+  else if (f === "--any-provider") args.provider = null;
+  else if (f === "--max-tokens") args.maxTokens = Number(process.argv[++i]);
   else throw new Error(`unknown flag ${f}`);
 }
 if (!args.frames) throw new Error("--frames <path to frames.jsonl> is required");
@@ -75,7 +88,10 @@ console.log(
     : "baseline    none — this is the last line, so no recorded press saw this grid",
 );
 console.log(`offered     ${offered.join(", ")}`);
-console.log(`model       ${args.model} via ${args.provider}, effort ${args.effort}\n`);
+console.log(
+  `model       ${args.model} via ${args.provider ?? "ANY (unpinned: tokens comparable, latency not)"}, ` +
+    `effort ${args.effort}${args.maxTokens ? `, max_tokens ${args.maxTokens}` : ""}\n`,
+);
 
 const pricingRes = await fetch("https://openrouter.ai/api/v1/models");
 const found = (await pricingRes.json()).data.find((m) => m.id === args.model);
@@ -96,7 +112,8 @@ async function askOnce(withCandidates) {
       sessionId: "arc-click-probe",
       messages,
       reasoningEffort: args.effort,
-      providerOnly: [args.provider],
+      ...(args.provider ? { providerOnly: [args.provider] } : {}),
+      ...(args.maxTokens ? { maxTokens: args.maxTokens } : {}),
       temperature: 0,
     });
     latencyMs = Date.now() - startedAt;
@@ -108,11 +125,21 @@ async function askOnce(withCandidates) {
   };
 
   let promptChars = 0;
+  // PARSED OR FALLBACK — without this the result is unreadable. A model that
+  // ran to the token ceiling answers nothing, and `createModelPolicy` then
+  // presses the FIRST offered action so the level is not conceded. That
+  // fallback and a genuine choice of the first action print identically, and
+  // two of the first four models in this shootout landed on exactly that
+  // ambiguity: "chose ACTION3" where ACTION3 is offered[0].
+  let unparsed = false;
+  let replyTail = "";
   const policy = createModelPolicy({
     complete,
     clickCandidates: withCandidates,
-    onExchange: (messages) => {
+    onUnparsed: () => { unparsed = true; },
+    onExchange: (messages, reply) => {
       promptChars = messages.map((m) => m.content).join("").length;
+      replyTail = typeof reply === "string" ? reply.slice(-160) : "";
     },
   });
   const chosen = await policy(
@@ -120,7 +147,7 @@ async function askOnce(withCandidates) {
     { actions: offered, remaining: Infinity, taken: [record.action] },
   );
   const spend = usage.promptTokens * inPer + usage.completionTokens * outPer;
-  return { chosen, ...usage, latencyMs, spend, promptChars };
+  return { chosen, ...usage, latencyMs, spend, promptChars, unparsed, replyTail };
 }
 
 const runs = args.both ? [false, true] : [!args.raw];
@@ -132,7 +159,8 @@ for (const withCandidates of runs) {
   results.push({ label, ...r });
   console.log(
     `\r${label.padEnd(12)} ${String(r.completionTokens).padStart(7)} completion tokens  ` +
-      `${String(Math.round(r.latencyMs / 1000)).padStart(4)}s  $${r.spend.toFixed(5)}  -> ${r.chosen}`,
+      `${String(Math.round(r.latencyMs / 1000)).padStart(4)}s  $${r.spend.toFixed(5)}  -> ` +
+      (r.unparsed ? `NO ANSWER (fallback pressed ${r.chosen})` : `chose ${r.chosen}`),
   );
 }
 
@@ -140,8 +168,10 @@ console.log("\n" + "=".repeat(70));
 for (const r of results) {
   console.log(
     `${r.label.padEnd(12)} prompt ${r.promptTokens} tok (${r.promptChars} chars), ` +
-      `completion ${r.completionTokens} tok, ${Math.round(r.latencyMs / 1000)}s, $${r.spend.toFixed(5)}, chose ${r.chosen}`,
+      `completion ${r.completionTokens} tok, ${Math.round(r.latencyMs / 1000)}s, $${r.spend.toFixed(5)}, ` +
+      (r.unparsed ? `NO ANSWER -> fallback ${r.chosen}` : `chose ${r.chosen}`),
   );
+  if (r.replyTail) console.log(`  reply tail: ${JSON.stringify(r.replyTail)}`);
 }
 // The comparison that matters is against the RECORDED press, because that one
 // was paid for in a real game rather than in a replay.
