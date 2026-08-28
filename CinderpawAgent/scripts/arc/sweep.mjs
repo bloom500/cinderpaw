@@ -36,18 +36,35 @@ const REPO_ROOT = path.resolve(HERE, "..", "..");
 const GAMES_FILE = path.resolve(REPO_ROOT, "..", "runs-arc", "games.txt");
 
 /**
- * What each arm turns off. The point of a benchmark run in two arms is to find
- * out whether the harness helps at all, so BARE has to be a real control: the
- * model, the grid, the buttons and answer parsing, and nothing else. If BARE
- * wins, that is the most valuable result available and it costs the same.
+ * What each arm turns off. The point of running in arms is to find out whether
+ * the harness helps at all, so BARE has to be a real control: the model, the
+ * grid, the buttons and answer parsing, and nothing else. If BARE wins, that is
+ * the most valuable result available and it costs the same.
+ *
+ * THE ARM NAMES ARE A CLAIM, so they say only what is true. `harness` is the
+ * scene graph, click candidates, the frugal policy and the move learner — the
+ * ARC-specific machinery in `src/arc/`. It is NOT the agent: FMS, the BRSI
+ * substrate, the coworker supervisor and subagents are not wired into the bench
+ * and none of them run here.
+ *
+ * `agent` is therefore listed and refuses, rather than being absent. An arm
+ * that does not exist yet is a result somebody publishes under the wrong name;
+ * an arm that stops and says what is missing is not.
  */
 const ARMS = {
   bare: ["--no-frugal", "--no-perception", "--no-click-candidates", "--no-imagination"],
-  cinderpaw: [],
+  harness: [],
+  agent: null,
 };
 
+const NOT_WIRED =
+  "--arm agent does not exist yet. The agentic runtime — FMS, BRSI, the coworker supervisor,\n" +
+  "subagents — is not wired into the bench: nothing in scripts/arc or src/arc calls any of it.\n" +
+  "Use --arm harness for the ARC machinery as it stands, and do not report that number as\n" +
+  "'full Cinderpaw'. See CHECKPOINT_20260828_ARC_MODEL_SELECTION.md section 7.";
+
 const args = {
-  arm: "cinderpaw",
+  arm: "harness",
   games: null,
   concurrency: 25,
   budget: 80,
@@ -78,6 +95,10 @@ for (let i = 0; i < argv.length; i++) {
 
 if (!(args.arm in ARMS)) {
   throw new Error(`--arm must be one of ${Object.keys(ARMS).join(", ")}, got "${String(args.arm)}"`);
+}
+if (ARMS[args.arm] === null) {
+  console.error(NOT_WIRED);
+  process.exit(2);
 }
 if (!Number.isInteger(args.concurrency) || args.concurrency < 1) {
   throw new Error(`--concurrency must be an integer >= 1, got ${String(args.concurrency)}`);
