@@ -86,6 +86,34 @@ export interface ModelPolicyOptions {
    * the history is only there so the model can tell it is repeating itself.
    */
   historyLength?: number;
+  /**
+   * How many past exchanges to carry as a real conversation — the model's own
+   * previous answers, in the message list, the way the official reference agent
+   * does it (`MESSAGE_LIMIT = 10`).
+   *
+   * ZERO BY DEFAULT, which is the single-turn prompt this policy has always
+   * sent. That default is not timidity: turning this on changes what the model
+   * is asked in a way that must be measured against the arm that does not have
+   * it, and every existing caller — the app, the CLI, the tests — is entitled
+   * to the behaviour it was written against.
+   *
+   * WHY IT MATTERS. Rebuilding the prompt from nothing every press means the
+   * model re-derives what the buttons do every press, which is where the
+   * completion tokens went: prompt tokens were flat at ~3,100 across a 32-press
+   * run while completion tokens climbed past 11,000. It also means the prompt
+   * prefix is never stable, so a gateway cache can never hit.
+   */
+  conversationTurns?: number;
+  /**
+   * A standing note from something that has looked at more than this turn — a
+   * supervisor, a previous game's lessons. Placed above the grid, and marked as
+   * advice rather than fact, because it is a reading of the game and the grid
+   * is the ground truth.
+   *
+   * A function, not a string: it is read once per press, so whatever produces
+   * it can change between presses without this policy knowing how.
+   */
+  strategy?: () => string | null;
   /** Every prompt and reply, for the run log. A bad score must be readable. */
   onExchange?: (prompt: PolicyMessage[], reply: string, chosen: string) => void;
   /**
@@ -374,7 +402,16 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
     onCoordinateGuess,
     clickCandidates: offerCandidates = true,
     onClickCandidates,
+    conversationTurns = 0,
+    strategy,
   } = options;
+
+  /**
+   * The rolling conversation, oldest first: what we asked, what it answered.
+   * Empty when `conversationTurns` is 0, which is the default — every existing
+   * caller keeps the single-turn prompt it has always sent.
+   */
+  const conversation: PolicyMessage[] = [];
 
   return async (observation: ArcObservation, ctx: PolicyContext): Promise<string | null> => {
     const offered = [...ctx.actions];
@@ -409,23 +446,30 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
         ? renderClickCandidates(observation.grid)
         : null;
     if (candidates) onClickCandidates?.(candidates);
-    const messages: PolicyMessage[] = [
-      { role: "system", content: SYSTEM },
-      {
-        role: "user",
-        content: [
-          ...(described ? ["What is on the grid, as objects:", described, ""] : []),
-          renderGrid(observation.grid),
-          "",
-          ...(candidates ? [candidates, ""] : []),
-          `Buttons available now: ${offered.join(", ")}`,
-          `Presses remaining: ${Number.isFinite(ctx.remaining) ? ctx.remaining : "no limit"}`,
-          history,
-          "",
-          "Which one button do you press? Answer with the name only.",
-        ].join("\n"),
-      },
-    ];
+    // Read once per press. Null and empty both mean "nothing to say", and
+    // neither may put an empty heading in the prompt.
+    const advice = strategy?.() ?? null;
+    const turn: PolicyMessage = {
+      role: "user",
+      content: [
+        ...(advice && advice.trim() !== ""
+          ? ["What you worked out earlier (advice, not fact — the grid is the truth):", advice.trim(), ""]
+          : []),
+        ...(described ? ["What is on the grid, as objects:", described, ""] : []),
+        renderGrid(observation.grid),
+        "",
+        ...(candidates ? [candidates, ""] : []),
+        `Buttons available now: ${offered.join(", ")}`,
+        `Presses remaining: ${Number.isFinite(ctx.remaining) ? ctx.remaining : "no limit"}`,
+        history,
+        "",
+        "Which one button do you press? Answer with the name only.",
+      ].join("\n"),
+    };
+    // The system prompt stays first and identical, so the prefix a gateway can
+    // cache is the longest it can be. The conversation sits between it and the
+    // turn, oldest first.
+    const messages: PolicyMessage[] = [{ role: "system", content: SYSTEM }, ...conversation, turn];
 
     const reply = await complete(messages);
     const parsed = parseChoice(reply, offered);
@@ -451,6 +495,28 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
       onCoordinateGuess?.(chosen);
     }
     onExchange?.(messages, reply, chosen);
+
+    // Carry the exchange forward — the model's OWN words, and a one-line stub
+    // where its grid used to be.
+    //
+    // WHAT IS KEPT AND WHY. The mechanism worth having is the model seeing what
+    // it already worked out, so it stops re-deriving the buttons from scratch.
+    // The mechanism is in the ASSISTANT turns. Keeping the user turns verbatim
+    // would re-send a 64x64 grid per remembered press — about 3,100 tokens each,
+    // so eight turns is ~25,000 prompt tokens on every call, roughly twice what
+    // a whole press costs today. The current grid is in the prompt already, and
+    // it is the only one that is still true.
+    //
+    // ponytail: the stub keeps the turn count and drops the pixels. If a game
+    // ever needs the model to compare two frames itself, keep the last ONE grid
+    // rather than all of them.
+    if (conversationTurns > 0) {
+      conversation.push({ role: "user", content: `[grid ${observation.grid.length} rows] I pressed ${chosen}.` });
+      conversation.push({ role: "assistant", content: reply });
+      // Two messages per turn, and the pair must never be split: a conversation
+      // starting on an assistant message is malformed for some gateways.
+      while (conversation.length > conversationTurns * 2) conversation.splice(0, 2);
+    }
     return chosen;
   };
 }

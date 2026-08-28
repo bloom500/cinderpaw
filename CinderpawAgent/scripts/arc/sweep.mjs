@@ -36,32 +36,38 @@ const REPO_ROOT = path.resolve(HERE, "..", "..");
 const GAMES_FILE = path.resolve(REPO_ROOT, "..", "runs-arc", "games.txt");
 
 /**
- * What each arm turns off. The point of running in arms is to find out whether
- * the harness helps at all, so BARE has to be a real control: the model, the
- * grid, the buttons and answer parsing, and nothing else. If BARE wins, that is
- * the most valuable result available and it costs the same.
+ * What each arm turns off, and what it turns on. The point of running in arms
+ * is to find out whether any of it helps, so BARE has to be a real control: the
+ * model, the grid, the buttons and answer parsing, and nothing else. If BARE
+ * wins, that is the most valuable result available and it costs the same.
  *
- * THE ARM NAMES ARE A CLAIM, so they say only what is true. `harness` is the
- * scene graph, click candidates, the frugal policy and the move learner — the
- * ARC-specific machinery in `src/arc/`. It is NOT the agent: FMS, the BRSI
- * substrate, the coworker supervisor and subagents are not wired into the bench
- * and none of them run here.
+ * THE ARM NAMES ARE A CLAIM, so they say only what is true.
  *
- * `agent` is therefore listed and refuses, rather than being absent. An arm
- * that does not exist yet is a result somebody publishes under the wrong name;
- * an arm that stops and says what is missing is not.
+ *  - `bare`    — the model and the glue. No scene graph, no click shortlist, no
+ *                transition table, no move learner.
+ *  - `harness` — that machinery, all of it. Still one prompt per press, still
+ *                one model call per action.
+ *  - `agent`   — plus the Cinderpaw runtime: a rolling conversation so the model
+ *                sees its own reasoning, a cowork supervisor that reviews what
+ *                the presses actually did, and lessons carried between games.
+ *                It spends model calls that are not presses; the runner reports
+ *                policy calls and supervisor calls separately for exactly that
+ *                reason.
+ *
+ * What `agent` still does NOT include, so nobody reads more into the name than
+ * is there: MCTS/DSL program search and skill induction (the DSL is whole-grid
+ * transforms — rotate, mirror, gravity — and cannot express "one sprite moved
+ * one cell", which is why the search was measured inert on ARC-3), and the BRSI
+ * dream cycle (self-modification mid-run would contradict the run manifest's
+ * commit, which is the thing that makes the result reproducible).
  */
 const ARMS = {
   bare: ["--no-frugal", "--no-perception", "--no-click-candidates", "--no-imagination"],
   harness: [],
-  agent: null,
+  // `--lessons` is appended per sweep below: the whole point of it is that all
+  // 25 games of ONE sweep share one file, and that two sweeps never share it.
+  agent: ["--conversation", "8", "--supervisor", "12"],
 };
-
-const NOT_WIRED =
-  "--arm agent does not exist yet. The agentic runtime — FMS, BRSI, the coworker supervisor,\n" +
-  "subagents — is not wired into the bench: nothing in scripts/arc or src/arc calls any of it.\n" +
-  "Use --arm harness for the ARC machinery as it stands, and do not report that number as\n" +
-  "'full Cinderpaw'. See CHECKPOINT_20260828_ARC_MODEL_SELECTION.md section 7.";
 
 const args = {
   arm: "harness",
@@ -74,6 +80,8 @@ const args = {
   competition: true,
   tags: [],
   dryRun: false,
+  /** A previous sweep's merged lessons, fed to every game of this one. */
+  seedLessons: null,
 };
 
 const argv = process.argv.slice(2);
@@ -90,15 +98,12 @@ for (let i = 0; i < argv.length; i++) {
   else if (flag === "--no-competition") args.competition = false;
   else if (flag === "--tag") { args.tags.push(value); i++; }
   else if (flag === "--dry-run") args.dryRun = true;
+  else if (flag === "--seed-lessons") { args.seedLessons = value; i++; }
   else throw new Error(`unknown flag "${flag}" — see the header of this file`);
 }
 
 if (!(args.arm in ARMS)) {
   throw new Error(`--arm must be one of ${Object.keys(ARMS).join(", ")}, got "${String(args.arm)}"`);
-}
-if (ARMS[args.arm] === null) {
-  console.error(NOT_WIRED);
-  process.exit(2);
 }
 if (!Number.isInteger(args.concurrency) || args.concurrency < 1) {
   throw new Error(`--concurrency must be an integer >= 1, got ${String(args.concurrency)}`);
@@ -252,6 +257,11 @@ async function playOne(game) {
     "--max-spend", perGameSpend.toFixed(4),
     "--tag", args.arm,
     ...ARMS[args.arm],
+    // One lessons file PER GAME. 25 writers on one file is a race, and 25 games
+    // that start together have nothing to teach each other in any case: lessons
+    // flow from one sweep to the next via --seed-lessons and the merge below.
+    ...(args.arm === "agent" ? ["--lessons", path.join(outDir, "lessons", `${game}.json`)] : []),
+    ...(args.arm === "agent" && args.seedLessons ? ["--prior-lessons", args.seedLessons] : []),
     ...(args.dryRun ? ["--dry-run"] : []),
   ];
   const res = await run("bun", argvGame, { log });
@@ -302,6 +312,21 @@ const totalActions = [...results.values()].reduce((sum, r) => sum + (r.summary?.
 const cleared = [...results.values()].filter((r) => (r.summary?.cleared ?? 0) > 0);
 const failed = [...results.entries()].filter(([, r]) => r.code !== 0);
 
+// Merge every game's lessons into one file this sweep can hand to the next.
+let mergedLessons = [];
+if (args.arm === "agent") {
+  const dir = path.join(outDir, "lessons");
+  for (const file of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+    try {
+      mergedLessons.push(...(JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")).lessons ?? []));
+    } catch {
+      // One unreadable game's lessons must not cost the other 24 theirs.
+    }
+  }
+  mergedLessons = [...new Set(mergedLessons)];
+  fs.writeFileSync(path.join(outDir, "lessons.json"), JSON.stringify({ lessons: mergedLessons }, null, 2));
+}
+
 const report = {
   sweepId,
   arm: args.arm,
@@ -311,6 +336,7 @@ const report = {
   wallClockSeconds: Math.round((Date.now() - startedAt) / 1000),
   config: { ...args, perGameSpend, gameCount: games.length },
   games: Object.fromEntries(results),
+  lessons: mergedLessons,
 };
 fs.writeFileSync(path.join(outDir, "sweep.json"), JSON.stringify(report, null, 2));
 
@@ -320,6 +346,10 @@ say(`games with a level cleared  ${cleared.length}`);
 say(`actions          ${totalActions}`);
 say(`spend            $${totalSpend.toFixed(4)} of $${args.maxSpendTotal.toFixed(2)}`);
 say(`wall clock       ${(report.wallClockSeconds / 60).toFixed(1)} min`);
+if (args.arm === "agent") {
+  say(`lessons          ${mergedLessons.length} merged  ${path.join(outDir, "lessons.json")}`);
+  say(`                 feed them to the next sweep with --seed-lessons`);
+}
 if (failed.length > 0) say(`failed games     ${failed.map(([g]) => g).join(", ")}  (see ${outDir})`);
 say(`report           ${path.join(outDir, "sweep.json")}`);
 say("");

@@ -130,6 +130,18 @@ export interface FrugalPolicyOptions {
   }) => void;
   /** A prediction actually changed the ranking. The delta, made countable. */
   onImagined?: (action: string, verdict: "noop" | "revisit") => void;
+  /**
+   * What each press DID, as it is learned — the same judgement the inner policy
+   * is handed as `ctx.outcomes`, published so something outside the press loop
+   * can read it too. Absent by default; nothing here changes when it is.
+   *
+   * This is the only place in the run that knows whether a press mattered, and
+   * knowing that is what a supervisor reviews and what one game can tell the
+   * next. Passing it out beats recomputing it: a second implementation of
+   * "did the board move" would have to rediscover the HUD, and the two would
+   * disagree the first time one of them was wrong.
+   */
+  onOutcome?: (info: { action: string; changed: boolean; presses: number }) => void;
 }
 
 /**
@@ -159,7 +171,7 @@ export interface FrugalPolicyOptions {
  * that costing levels, clear `perAction` on a level change and keep the rest.
  */
 export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
-  const { inner, onVeto, imagination, onLearn, onImagined } = options;
+  const { inner, onVeto, imagination, onLearn, onImagined, onOutcome } = options;
   const imagineMinPairs = Math.max(2, imagination?.minPairs ?? 2);
   const relearnEvery = Math.max(1, imagination?.relearnEvery ?? 4);
   const learnBudgetMs = imagination?.learnBudgetMs ?? 20_000;
@@ -199,6 +211,8 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
    * turn at thousands of completion tokens a press.
    */
   const outcomes: string[] = [];
+  /** Presses whose result has been seen. Not `taken.length`: the last press is still in flight. */
+  let pressCount = 0;
 
   return async (observation: ArcObservation, ctx: PolicyContext): Promise<string | null> => {
     // Learn what the environment repaints regardless of what we press, BEFORE
@@ -230,8 +244,11 @@ export function createFrugalPolicy(options: FrugalPolicyOptions): ArcPolicy {
         history = recordOutcome(history, pending.action, cloneGrid(pending.grid), cloneGrid(observation.grid));
         pairsSinceLearn++;
       }
-      outcomes.push(`${pending.action} -> ${here === from ? "nothing changed" : "the grid changed"}`);
+      const changed = here !== from;
+      outcomes.push(`${pending.action} -> ${changed ? "the grid changed" : "nothing changed"}`);
       if (outcomes.length > OUTCOME_HISTORY) outcomes.shift();
+      pressCount++;
+      onOutcome?.({ action: pending.action, changed, presses: pressCount });
       pending = null;
     }
     visited.add(here);

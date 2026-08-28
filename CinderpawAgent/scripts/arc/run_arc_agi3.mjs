@@ -61,6 +61,8 @@ import { openArcGame, openScorecard, closeScorecard, listGames, CookieJar } from
 import { playLevel } from "../../src/arc/play-level.ts";
 import { createFrugalPolicy } from "../../src/arc/policy.ts";
 import { createModelPolicy } from "../../src/arc/model-policy.ts";
+import { createArcAgentRuntime } from "../../src/arc/agent-runtime.ts";
+import { openDatabase } from "../../src/db.ts";
 import { createRunManifest, writeRunManifest, reportabilityProblems } from "../../src/core/run-manifest.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -82,6 +84,22 @@ function parseArgs(argv) {
     model: "z-ai/glm-5.3-flash",
     tags: [],
     learnBudgetMs: 20_000,
+    /**
+     * The agentic arm, all three off by default. Every one of them changes what
+     * the model is asked or spends a call that is not a press, so none may
+     * arrive by accident in an arm that is meant to be the control.
+     */
+    conversation: 0,
+    supervisor: 0,
+    lessonsPath: null,
+    /**
+     * Read from here, write to `--lessons`. Two paths, not one, because a sweep
+     * plays 25 games AT ONCE: a single shared file would have 25 writers racing
+     * on it, and every reader would see whatever happened to be on disk. Games
+     * that start together have nothing to teach each other anyway — lessons
+     * flow from one SWEEP to the next, not between siblings.
+     */
+    priorLessonsPath: null,
     // Per-GAME spend cap in USD. Present with a real default rather than
     // optional: an uncapped benchmark loop pointed at a paid API is one bad
     // reply away from spending everything, and the person running it is asleep.
@@ -110,6 +128,10 @@ function parseArgs(argv) {
     else if (flag === "--max-spend") { args.maxSpend = Number(value); i++; }
     else if (flag === "--any-provider") { args.provider = null; i++; }
     else if (flag === "--learn-budget") { args.learnBudgetMs = Number(value); i++; }
+    else if (flag === "--conversation") { args.conversation = Number(value); i++; }
+    else if (flag === "--supervisor") { args.supervisor = Number(value); i++; }
+    else if (flag === "--lessons") { args.lessonsPath = value; i++; }
+    else if (flag === "--prior-lessons") { args.priorLessonsPath = value; i++; }
     else if (flag === "--card") { args.card = value; i++; }
     else if (flag === "--cookie") { args.cookie = value; i++; }
     else throw new Error(`unknown flag "${flag}" — run with no arguments to see usage`);
@@ -122,6 +144,12 @@ function parseArgs(argv) {
   }
   if (!Number.isFinite(args.maxSpend) || args.maxSpend <= 0) {
     throw new Error(`--max-spend must be a positive number of dollars, got ${String(args.maxSpend)}`);
+  }
+  if (!Number.isInteger(args.conversation) || args.conversation < 0) {
+    throw new Error(`--conversation must be an integer >= 0 (0 = off), got ${String(args.conversation)}`);
+  }
+  if (!Number.isInteger(args.supervisor) || args.supervisor < 0) {
+    throw new Error(`--supervisor must be an integer >= 0 (0 = off), got ${String(args.supervisor)}`);
   }
   if (!["low", "medium", "high"].includes(args.reasoningEffort)) {
     throw new Error(`--reasoning-effort must be low, medium or high, got ${String(args.reasoningEffort)}`);
@@ -405,10 +433,49 @@ const freshDecision = () => ({
   veto: null,
   guessedCoords: false,
 });
+/**
+ * THE AGENTIC ARM. Built before the policy because the policy is handed its
+ * `strategy()`; null when nothing asked for it, and then not one line below
+ * behaves differently.
+ *
+ * `openDatabase(":memory:")` rather than the user's profile: a benchmark must
+ * not read or write the state of the machine that ran it, and an in-memory
+ * database gives the cowork tables without `boot()` and without a file anyone
+ * could later mistake for the agent's real memory.
+ */
+/** Declared before the policy so the agentic wrapper can read the level counter. */
+let env;
+let priorLessons = [];
+const readLessonsFrom = args.priorLessonsPath ?? args.lessonsPath;
+if (readLessonsFrom && fs.existsSync(readLessonsFrom)) {
+  try {
+    priorLessons = JSON.parse(fs.readFileSync(readLessonsFrom, "utf8")).lessons ?? [];
+  } catch (err) {
+    // Loud, and not fatal: a corrupt lessons file must not cost a paid run.
+    console.log(`  (lessons file unreadable, starting with none: ${String(err)})`);
+  }
+}
+let supervisorNotes = 0;
+const agent =
+  args.supervisor > 0 && !args.dryRun
+    ? createArcAgentRuntime({
+        complete,
+        db: openDatabase(":memory:").raw,
+        reviewEvery: args.supervisor,
+        priorLessons,
+        onReview: (note, atPress) => {
+          supervisorNotes++;
+          console.log(`  supervisor @${atPress}: ${note.replace(/\s+/g, " ").slice(0, 120)}`);
+        },
+        onReviewFailed: (reason, atPress) => console.log(`  supervisor @${atPress} FAILED: ${reason}`),
+        onBoundary: (trigger, levels) => console.log(`  ${trigger}: ${levels} level(s) cleared, consolidating`),
+      })
+    : null;
+
 // The dry run needs an inner policy that is not a model. First offered action:
 // it exercises every seam (client, loop, frugal wrapper, scorecard) and proves
 // nothing about play, which is the honest division of labour for a smoke test.
-const inner = args.dryRun
+const decide = args.dryRun
   ? (_observation, ctx) => ctx.actions[0] ?? null
   : createModelPolicy({
       complete,
@@ -423,6 +490,11 @@ const inner = args.dryRun
       // told it may press any coordinate at all. See click-target.ts.
       clickCandidates: args.clickCandidates !== false,
       onClickCandidates: () => { candidateLists++; },
+      // Zero unless asked: the single-turn prompt is what every measurement so
+      // far was taken on, and an arm that quietly changed it would not be
+      // comparable to any of them.
+      conversationTurns: args.conversation,
+      strategy: agent ? () => agent.strategy() : undefined,
       // The prompt is NOT kept: it is the grid, and the grid is already on the
       // frame line. The reply is the only part of the exchange that is not
       // reconstructible from what is already written down.
@@ -432,6 +504,31 @@ const inner = args.dryRun
         d.offered = /Buttons available now: (.+)/.exec(prompt.at(-1)?.content ?? "")?.[1] ?? null;
       },
     });
+/**
+ * The supervisor's turn goes HERE — between the frugal policy and the model.
+ *
+ * `playLevel`'s `onAction` is synchronous and cannot await a model call, and
+ * wrapping the outside would review one press stale: the frugal policy learns
+ * what the last press did at the START of its own call, so anything outside it
+ * sees a record that is one short. Inside, the order is exactly right —
+ * the outcome is recorded, then the review runs, then the model is asked with
+ * the note already in its prompt.
+ *
+ * It also means a level boundary is noticed before the first press of the next
+ * level rather than after it.
+ */
+let levelsSeen = 0;
+const inner = agent
+  ? async (observation, ctx) => {
+      if (env && env.last.levelsCompleted > levelsSeen) {
+        levelsSeen = env.last.levelsCompleted;
+        await agent.levelBoundary(levelsSeen);
+      }
+      await agent.tick();
+      return decide(observation, ctx);
+    }
+  : decide;
+
 // MCTS rehearsal. Free in keypresses, NOT free in wall-clock — and the
 // scorecard closes 15 minutes after it opens — so the search gets a hard total
 // budget and the run reports what it bought. Off with --no-imagination, so the
@@ -471,6 +568,7 @@ const policy = args.frugal === false ? inner : createFrugalPolicy({
     vetoes++;
     (decision ??= freshDecision()).veto = { rejected, chosen };
   },
+  onOutcome: agent ? (info) => agent.onOutcome(info) : undefined,
   imagination: args.imagination === false ? undefined : { learnBudgetMs: args.learnBudgetMs },
   onLearn: (info) => {
     learnPasses++;
@@ -597,7 +695,6 @@ let imagined = 0;
 // routes through: a failed attempt is recorded and the next retry starts from a
 // RESET, instead of the run ending. The frames and the manifest are already on
 // disk, and the scorecard still closes in the finally below.
-let env;
 try {
   env = await openArcGame({ gameId: args.game, cardId, jar });
   for (let attempt = 0; attempt <= args.retries; attempt++) {
@@ -833,6 +930,34 @@ NOT REPORTABLE — this run may not be published:
       (args.clickCandidates === false ? " (disabled)" : ""),
   );
 }
+if (agent) {
+  const stats = agent.stats();
+  const policyCalls = usage ? usage.calls - stats.supervisorCalls : null;
+  console.log(
+    `supervisor  ${stats.reviews} reviews in ${stats.supervisorCalls} calls` +
+      (stats.supervisorFailures > 0 ? `, ${stats.supervisorFailures} FAILED` : "") +
+      `; ${stats.boundaries} level boundary consolidation(s)`,
+  );
+  // Said out loud on every agentic run, because it is the property that makes
+  // the cost per press readable and the one an extra caller would break.
+  console.log(
+    `calls       ${policyCalls} policy + ${stats.supervisorCalls} supervisor = ${usage ? usage.calls : "?"}` +
+      (policyCalls === spent ? "  (policy calls == actions)" : `  MISMATCH: ${spent} actions`),
+  );
+  if (args.lessonsPath) {
+    const learned = agent.lessons();
+    // Merged, not replaced: the file is one run's contribution to a sweep, and
+    // a later game overwriting an earlier game's findings would make the last
+    // game the only one that ever taught anything.
+    // Prior lessons are carried through so a chain of sweeps accumulates, but
+    // this file is THIS game's own: nothing else writes to it, so there is no
+    // race to lose.
+    const merged = [...new Set([...priorLessons, ...learned.map((l) => `${args.game}: ${l}`)])];
+    fs.mkdirSync(path.dirname(args.lessonsPath), { recursive: true });
+    fs.writeFileSync(args.lessonsPath, JSON.stringify({ lessons: merged }, null, 2));
+    console.log(`lessons     ${learned.length} learned, ${merged.length} on file  ${args.lessonsPath}`);
+  }
+}
 console.log(`manifest    ${manifestPath}`);
 
 // EVERYTHING THIS RUN KNOWS, IN ONE MACHINE-READABLE FILE.
@@ -898,6 +1023,26 @@ fs.writeFileSync(
         guessedCoordinateClicks: guessedCoords,
         promptsWithScene: scenes,
         imagination: { passes: learnPasses, ms: learnMs, trustedRules, demotedPresses: imagined },
+        /**
+         * THE ACCOUNTING THAT MAKES THE AGENTIC ARM HONEST.
+         *
+         * Without a supervisor the run's invariant is `model calls == actions`,
+         * and that one line is why the cost-per-action figure means anything.
+         * A supervisor spends calls that are not presses, so the invariant
+         * splits: `policyCalls == actionsSpent`, and `supervisorCalls` is its
+         * own number that adds back up to `model.calls`. Folding them together
+         * would quietly halve the reported cost of a press.
+         */
+        agent: agent
+          ? {
+              ...agent.stats(),
+              policyCalls: usage ? usage.calls - agent.stats().supervisorCalls : null,
+              conversationTurns: args.conversation,
+              reviewEvery: args.supervisor,
+              priorLessons: priorLessons.length,
+              lessons: agent.lessons(),
+            }
+          : null,
       },
       model: usage && {
         name: args.model,
