@@ -535,6 +535,11 @@ const decide = args.dryRun
       // told it may press any coordinate at all. See click-target.ts.
       clickCandidates: args.clickCandidates !== false,
       onClickCandidates: () => { candidateLists++; },
+      // What the last presses DID reached the model. Only the frugal wrapper
+      // can know it, so this is 0 for --no-frugal by construction, and 0 for a
+      // broken wiring too — which is exactly why it is counted rather than
+      // assumed.
+      onOutcomes: () => { outcomeLists++; },
       // Zero unless asked: the single-turn prompt is what every measurement so
       // far was taken on, and an arm that quietly changed it would not be
       // comparable to any of them.
@@ -719,6 +724,7 @@ let spent = 0;
 const billed = { calls: 0, promptTokens: 0, completionTokens: 0, spend: 0 };
 let scenes = 0;
 let candidateLists = 0;
+let outcomeLists = 0;
 let guessedCoords = 0;
 let learnPasses = 0;
 let learnMs = 0;
@@ -988,6 +994,14 @@ NOT REPORTABLE — this run may not be published:
     `candidates  ${candidateLists} of ${usage.calls} prompts carried a click shortlist` +
       (args.clickCandidates === false ? " (disabled)" : ""),
   );
+  // The first press of a game has no outcome to report yet, so a healthy run
+  // reads one short of the call count, not equal to it. Zero on a --frugal run
+  // means the feed is broken, and that is a silent doubling of the token bill
+  // rather than a crash — the whole reason this line exists.
+  console.log(
+    `outcomes    ${outcomeLists} of ${usage.calls} prompts carried what the last presses DID` +
+      (args.frugal === false ? " (no-frugal: nothing watches the grid)" : ""),
+  );
 }
 if (agent) {
   const stats = agent.stats();
@@ -1086,6 +1100,7 @@ fs.writeFileSync(
           : false,
         guessedCoordinateClicks: guessedCoords,
         promptsWithScene: scenes,
+        promptsWithOutcomes: outcomeLists,
         imagination: { passes: learnPasses, ms: learnMs, trustedRules, demotedPresses: imagined },
         /**
          * THE ACCOUNTING THAT MAKES THE AGENTIC ARM HONEST.

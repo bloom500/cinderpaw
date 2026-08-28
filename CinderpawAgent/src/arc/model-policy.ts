@@ -146,6 +146,15 @@ export interface ModelPolicyOptions {
   clickCandidates?: boolean;
   /** A candidate list was rendered, for the run log. */
   onClickCandidates?: (text: string) => void;
+  /**
+   * The prompt carried what the last presses DID, rather than only their names.
+   * Counted for the same reason as the two above: without it, a run that
+   * silently lost the outcome feed — `--no-frugal`, a caller that drops the
+   * field, a wrapper reordered — looks exactly like a run that has it, right up
+   * until the completion-token bill arrives. This is the only place that
+   * difference is visible from outside.
+   */
+  onOutcomes?: (lines: readonly string[]) => void;
 }
 
 const SYSTEM = [
@@ -421,6 +430,7 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
     onCoordinateGuess,
     clickCandidates: offerCandidates = true,
     onClickCandidates,
+    onOutcomes,
     conversationTurns = 0,
     strategy,
   } = options;
@@ -445,6 +455,7 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
     // which is where the completion tokens went. Falls back to the bare list
     // when nothing is watching the grid across turns (`--no-frugal`).
     const outcomes = ctx.outcomes?.slice(-historyLength) ?? [];
+    if (outcomes.length > 0) onOutcomes?.(outcomes);
     const history =
       outcomes.length > 0
         ? [`What your last presses did:`, ...outcomes.map((line) => `- ${line}`)].join("\n")

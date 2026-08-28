@@ -306,6 +306,26 @@ describe("createModelPolicy — outcomes replace the bare press list", () => {
     expect(await prompt({})).toContain("This is your first press.");
     expect(await prompt({ taken: ["ACTION1"], outcomes: [] })).toContain("Your last presses: ACTION1");
   });
+
+  // The run report counts this callback to tell "the feed works" apart from
+  // "the feed silently died", so it has to fire on exactly the prompts that
+  // carried outcomes — never on the ones that fell back to the bare list.
+  test("onOutcomes fires only when outcomes actually reached the prompt", async () => {
+    const seen: string[][] = [];
+    const policy = createModelPolicy({
+      complete: async () => "ACTION1",
+      onOutcomes: (lines) => { seen.push([...lines]); },
+    });
+    const press = (over: Record<string, unknown>) =>
+      policy({ grid: [[1]], state: "NOT_FINISHED" }, { actions: ["ACTION1"], remaining: 5, taken: [], ...over });
+
+    await press({});
+    await press({ taken: ["ACTION1"], outcomes: [] });
+    expect(seen).toEqual([]);
+
+    await press({ taken: ["ACTION1"], outcomes: ["ACTION1 -> nothing changed"] });
+    expect(seen).toEqual([["ACTION1 -> nothing changed"]]);
+  });
 });
 
 /**
