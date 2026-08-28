@@ -82,25 +82,52 @@ function fakeReply(body) {
 const json = (body) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 
+/** What this process was asked to run, so the fake gateway can agree with it. */
+const flag = (name, fallback) => {
+  const at = process.argv.indexOf(name);
+  return at >= 0 && process.argv[at + 1] ? process.argv[at + 1] : fallback;
+};
+const wanted = { model: flag("--model", "z-ai/glm-5.3-flash"), provider: flag("--provider", "Z.AI") };
+
+/**
+ * Where the fake ARC server lives. The in-process one is right for a single
+ * runner, and WRONG for a sweep: every game is its own process, so each child
+ * would get its own empty server and the card the parent opened would not
+ * exist for any of them. `FAKE_ARC_URL` points them all at one shared server
+ * (`fake-arc-server.mjs`) instead.
+ *
+ * The interception stays here either way. Nothing in `src/` learns a base URL
+ * from the environment, so there is still no way to point a run someone
+ * believes is real at a server that is not.
+ */
+const shared = process.env.FAKE_ARC_URL;
+
 globalThis.fetch = async (input, init = {}) => {
   const url = typeof input === "string" ? input : input.url;
-  if (url.startsWith("https://three.arcprize.org")) return server(url, init);
+  if (url.startsWith("https://three.arcprize.org")) {
+    if (!shared) return server(url, init);
+    return realFetch(url.replace("https://three.arcprize.org", shared.replace(/\/$/, "")), init);
+  }
   if (!fakeModel || !url.startsWith("https://openrouter.ai")) return realFetch(input, init);
 
   if (url.endsWith("/endpoints")) {
     // Every provider the runner might be pinned to, so assertProviderServes
-    // passes for any --provider rather than only for the default.
-    return json({ data: { endpoints: [{ provider_name: "Z.AI" }, { provider_name: "Novita" }] } });
+    // passes for any --provider rather than only for the default. `wanted` is
+    // read from the command line because these are GET requests: there is no
+    // body to carry the caller's intent, and a fixed list meant a rehearsal
+    // failed on the preflight for every model but the default.
+    return json({
+      data: { endpoints: [...new Set([wanted.provider, "Z.AI", "Novita", "Meta"])].map((p) => ({ provider_name: p })) },
+    });
   }
   if (url.endsWith("/api/v1/models")) {
     // Real GLM 5.3 Flash prices, so the spend cap is exercised against the
     // arithmetic that will actually run rather than against a round number.
-    const model = JSON.parse(init.body ?? "{}").model;
     return json({
-      data: [
-        { id: model ?? "z-ai/glm-5.3-flash", pricing: { prompt: "0.000000075", completion: "0.00000025" } },
-        { id: "z-ai/glm-5.3-flash", pricing: { prompt: "0.000000075", completion: "0.00000025" } },
-      ],
+      data: [...new Set([wanted.model, "z-ai/glm-5.3-flash"])].map((id) => ({
+        id,
+        pricing: { prompt: "0.000000075", completion: "0.00000025" },
+      })),
     });
   }
   if (url.endsWith("/chat/completions")) {
