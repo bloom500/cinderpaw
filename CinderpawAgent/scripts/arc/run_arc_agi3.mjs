@@ -100,6 +100,29 @@ function parseArgs(argv) {
      * flow from one SWEEP to the next, not between siblings.
      */
     priorLessonsPath: null,
+    /**
+     * STOP BEFORE THE CARD DOES.
+     *
+     * `playLevel`'s `shouldStop` exists for exactly this and was wired only to
+     * spend: "Actions taken after it closes are not scored — the run keeps
+     * playing and the results are already gone." A card is proven to 60 minutes
+     * and no further, and 80 presses at the measured 41s each is 55 — so a full
+     * benchmark sits inside the evidence by about five minutes, and any game
+     * that runs slower than average spends the rest of its budget into a card
+     * that is already gone.
+     *
+     * Defaulted, not opt-in. A stranger running this has no way to know the
+     * card dies, gets no error when it does, and would read the silence as bad
+     * play. `--deadline none` turns it off for anyone who has better evidence.
+     */
+    deadlineMin: 55,
+    /**
+     * When the card was opened, for a run that JOINED one. A sweep opens the
+     * card and its 25 games start at different moments; each of them measuring
+     * the deadline from its own start would let the last one run an hour past
+     * the card's death.
+     */
+    cardOpenedAt: null,
     // Per-GAME spend cap in USD. Present with a real default rather than
     // optional: an uncapped benchmark loop pointed at a paid API is one bad
     // reply away from spending everything, and the person running it is asleep.
@@ -132,6 +155,8 @@ function parseArgs(argv) {
     else if (flag === "--supervisor") { args.supervisor = Number(value); i++; }
     else if (flag === "--lessons") { args.lessonsPath = value; i++; }
     else if (flag === "--prior-lessons") { args.priorLessonsPath = value; i++; }
+    else if (flag === "--deadline") { args.deadlineMin = value === "none" ? Infinity : Number(value); i++; }
+    else if (flag === "--card-opened-at") { args.cardOpenedAt = Number(value); i++; }
     else if (flag === "--card") { args.card = value; i++; }
     else if (flag === "--cookie") { args.cookie = value; i++; }
     else throw new Error(`unknown flag "${flag}" — run with no arguments to see usage`);
@@ -150,6 +175,12 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(args.supervisor) || args.supervisor < 0) {
     throw new Error(`--supervisor must be an integer >= 0 (0 = off), got ${String(args.supervisor)}`);
+  }
+  if (!(args.deadlineMin > 0)) {
+    throw new Error(`--deadline must be a positive number of minutes, or "none", got ${String(args.deadlineMin)}`);
+  }
+  if (args.cardOpenedAt !== null && !Number.isFinite(args.cardOpenedAt)) {
+    throw new Error(`--card-opened-at must be a millisecond timestamp, got ${String(args.cardOpenedAt)}`);
   }
   if (!["low", "medium", "high"].includes(args.reasoningEffort)) {
     throw new Error(`--reasoning-effort must be low, medium or high, got ${String(args.reasoningEffort)}`);
@@ -402,6 +433,20 @@ const complete = args.dryRun
  * fail to communicate is worse than one that is simply arithmetic.
  */
 const overSpend = () => !args.dryRun && complete.usage().spend >= args.maxSpend;
+/**
+ * The card's clock. Measured from when the CARD was opened — passed in when we
+ * joined someone else's — not from when this process started.
+ *
+ * `cardClockFrom` is set below, once the card exists; before that there is no
+ * deadline to be past, and answering `true` here would refuse to play at all.
+ */
+let cardClockFrom = null;
+const pastDeadline = () =>
+  cardClockFrom !== null &&
+  Number.isFinite(args.deadlineMin) &&
+  Date.now() - cardClockFrom >= args.deadlineMin * 60_000;
+/** Either currency running out ends the session. Money first: it is the cheaper check. */
+const sessionOver = () => overSpend() || pastDeadline();
 
 let vetoes = 0;
 let unparsed = 0;
@@ -604,6 +649,9 @@ const cardId = joining
       opaque: { manifest },
     });
 const cardOpenedAt = Date.now();
+// A joined card is older than this process. Using our own start would give the
+// last game of a sweep a fresh hour on a card that has minutes left.
+cardClockFrom = args.cardOpenedAt ?? cardOpenedAt;
 
 // NO DEADLINE. The docs say "scorecards auto close after 15 minutes" and this
 // runner used to stop 45s short of that, which would have cut every game off
@@ -739,7 +787,7 @@ try {
           env,
           policy,
           maxActions: args.budget - spent,
-          shouldStop: overSpend,
+          shouldStop: sessionOver,
           onAction: (action, observation, index) => {
             // What this ONE press cost, not what the run has cost so far. The
             // running total already prints at the end; a per-press figure is
@@ -798,7 +846,7 @@ try {
         attemptActions += result.actions.length;
         const levelsLeft =
           result.state === "WIN" && env.last.winLevels > 0 && env.last.levelsCompleted < env.last.winLevels;
-        const affordable = args.budget - spent > 0 && !overSpend();
+        const affordable = args.budget - spent > 0 && !sessionOver();
         if (!levelsLeft || !affordable) break;
 
         if (result.actions.length === 0) {
@@ -867,6 +915,17 @@ const manifestPath = writeRunManifest(manifest, outDir);
 console.log(`\nscorecard   ${cardId}`);
 console.log(`actions     ${spent} of ${budgetLabel}`);
 console.log(`card open   ${Math.round((Date.now() - cardOpenedAt) / 1000)}s`);
+// WHICH currency ran out. Without this a run that stopped on the clock and a
+// run that stopped on the wallet print the same "deadline" and are read the
+// same way — and only one of them means "raise the budget".
+if (pastDeadline()) {
+  console.log(
+    `deadline    stopped at the ${args.deadlineMin}-minute card deadline` +
+      (args.cardOpenedAt ? " (card opened before this process)" : ""),
+  );
+} else if (overSpend()) {
+  console.log(`deadline    not reached; the $${args.maxSpend.toFixed(4)} spend cap stopped this game`);
+}
 console.log(`attempts    ${JSON.stringify(attempts)}`);
 console.log(`vetoed      ${vetoes} presses the frugal policy refused to pay for`);
 if (args.imagination !== false) {

@@ -101,6 +101,8 @@ const args = {
   competition: true,
   tags: [],
   dryRun: false,
+  /** Minutes from card open after which every game stops, scored. See run_arc_agi3.mjs. */
+  deadline: 55,
   /** A previous sweep's merged lessons, fed to every game of this one. */
   seedLessons: null,
 };
@@ -120,6 +122,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (flag === "--tag") { args.tags.push(value); i++; }
   else if (flag === "--dry-run") args.dryRun = true;
   else if (flag === "--seed-lessons") { args.seedLessons = value; i++; }
+  else if (flag === "--deadline") { args.deadline = value === "none" ? "none" : Number(value); i++; }
   else throw new Error(`unknown flag "${flag}" — see the header of this file`);
 }
 
@@ -163,6 +166,7 @@ say(`arm            ${args.arm}${ARMS[args.arm].length ? "  (" + ARMS[args.arm].
 say(`games          ${games.length}, ${args.concurrency} at a time`);
 say(`model          ${args.model} via ${args.provider}`);
 say(`budget         ${args.budget} actions/game, $${perGameSpend.toFixed(4)}/game, $${args.maxSpendTotal.toFixed(2)} total`);
+say(`deadline       ${args.deadline} min from card open (proven card lifetime: 60)`);
 say(`logs           ${outDir}`);
 say("");
 
@@ -215,6 +219,7 @@ if (preload.length > 0) say(`preload        ${process.env.ARC_SWEEP_PRELOAD}  (c
 const cardArgv = [...preload, "scripts/arc/arc_card.mjs", "open", ...(args.competition ? ["--competition"] : [])];
 for (const tag of [args.arm, sweepId, ...args.tags]) cardArgv.push("--tag", tag);
 
+const cardOpenedAtMs = Date.now();
 const opened = await run("bun", cardArgv);
 if (opened.code !== 0) {
   process.stderr.write(opened.err);
@@ -277,6 +282,10 @@ async function playOne(game) {
     "--budget", String(args.budget),
     "--max-spend", perGameSpend.toFixed(4),
     "--tag", args.arm,
+    // The card's age, not this child's. A game spawned 20 minutes into a sweep
+    // has 35 minutes of card left, not 55.
+    "--card-opened-at", String(cardOpenedAtMs),
+    "--deadline", String(args.deadline),
     ...ARMS[args.arm],
     // One lessons file PER GAME. 25 writers on one file is a race, and 25 games
     // that start together have nothing to teach each other in any case: lessons
