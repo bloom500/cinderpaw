@@ -23,9 +23,11 @@
  *   --dry-run              play with a fixed policy, no model calls, no key needed
  *   --no-imagination       disable MCTS rehearsal (run twice to measure its delta)
  *   --no-perception        do not describe the grid as objects in the prompt
- *   --no-frugal            no transition table, no vetoes: the model alone. This is
- *                          the CONTROL ARM — without it nothing measured here can be
- *                          attributed to Cinderpaw rather than to the model.
+ *   --no-frugal            no transition table, no inertness inference, no move
+ *                          learner. This is the CONTROL arm — but it is NOT a bare
+ *                          model: the prompt, the hex grid, answer parsing, the
+ *                          unparsed fallback and ACTION6 click targeting are all
+ *                          still ours. See the note above `const policy =`.
  *   --reasoning-effort <e> low | medium | high (default medium)
  *   --provider <name>      pin the OpenRouter upstream (default Z.AI)
  *   --max-spend <usd>      hard per-game spend cap (default 0.15)
@@ -425,12 +427,34 @@ const inner = args.dryRun
 // budget and the run reports what it bought. Off with --no-imagination, so the
 // delta it is responsible for can be measured by running the same game twice.
 //
-// --no-frugal hands `inner` straight to the loop instead. That is the CONTROL
-// ARM and it had no switch until now: with the wrapper always on, every number
-// this harness produced was "model + Cinderpaw" with no "model alone" to
-// subtract, so nothing could be attributed to either. It also has to bypass
-// imagination, which lives inside the wrapper — one flag, one meaning: the
-// model sees the game and nothing of ours stands between them.
+// --no-frugal hands `inner` straight to the loop instead, which is the CONTROL
+// arm the experiment had no way to run: with the wrapper always on, every
+// number this harness produced was "model + Cinderpaw" with nothing to subtract
+// it from. It also bypasses imagination, which lives inside the wrapper.
+//
+// IT IS NOT A BARE MODEL, AND MUST NOT BE CALLED ONE. Measured, not assumed —
+// `--no-frugal --no-perception` still reported 3 presses whose ACTION6
+// coordinates WE chose and 5 replies that named no button and were turned into
+// a press anyway. What is still ours in the control arm:
+//
+//   - the system prompt, which explains the scoring, the press economics and
+//     what ACTION7 does;
+//   - the grid rendered as one hex digit a cell, which is a representation
+//     choice and half of what the model is reasoning over;
+//   - parseChoice, which reads the LAST button named and ignores buttons that
+//     were not offered, so a hallucinated action can never be sent;
+//   - the unparsed fallback, which presses an arbitrary offered button rather
+//     than conceding the level;
+//   - ACTION6 click targeting via `biggestObjectCentre`, which runs
+//     `parseSceneGraph` — so PERCEPTION IS STILL RUNNING even with
+//     --no-perception, which only removes the scene description from the
+//     PROMPT. There is no flag that turns this off and there should not be
+//     one: something has to choose a coordinate, and the alternative is the
+//     middle of the grid, which is also a choice.
+//
+// So the two arms are CONTROL = model + harness glue, and CINDERPAW = that plus
+// the frugal transition table, the inertness inference and the move learner.
+// The delta is attributable to those three things and to nothing else.
 const policy = args.frugal === false ? inner : createFrugalPolicy({
   inner,
   onVeto: (rejected, chosen) => {
