@@ -307,3 +307,40 @@ describe("createModelPolicy — outcomes replace the bare press list", () => {
     expect(await prompt({ taken: ["ACTION1"], outcomes: [] })).toContain("Your last presses: ACTION1");
   });
 });
+
+/**
+ * Measured live on game bp35 during the pilot. The model invented the
+ * coordinate syntax for buttons that do not take one, and said so in its own
+ * reasoning: "Selecting a coordinate-targeted ACTION3 on the f cell to test
+ * clickability over a global ACTION4."
+ *
+ * The harm is not the wasted press. `ACTION3:0,63` and `ACTION3` are different
+ * strings, so the transition table, the inertness inference and the outcome
+ * feedback treat them as different buttons and never learn that the button does
+ * nothing — the same failure a move counter drawn in the grid caused.
+ */
+describe("only the click action carries a point", () => {
+  const offered = ["ACTION1", "ACTION3", "ACTION4", "ACTION6"];
+
+  test("coordinates on a global button are dropped, the button is kept", () => {
+    expect(parseChoice("</think>ACTION3:0,63", offered)).toBe("ACTION3");
+    expect(parseChoice("</think>ACTION4:15,3", offered)).toBe("ACTION4");
+    expect(parseChoice("</think>ACTION1 12,7", offered)).toBe("ACTION1");
+  });
+
+  test("coordinates on the click action are kept", () => {
+    expect(parseChoice("</think>ACTION6:21,3", offered)).toBe("ACTION6:21,3");
+    expect(parseChoice("</think>ACTION6 40,9", offered)).toBe("ACTION6:40,9");
+  });
+
+  test("one button has one name, so the tables can learn it", () => {
+    // The whole point: three replies that mean the same press must produce the
+    // same string, or nothing downstream can count them together.
+    const same = ["</think>ACTION3", "</think>ACTION3:0,63", "</think>ACTION3:61,2"];
+    expect(new Set(same.map((r) => parseChoice(r, offered))).size).toBe(1);
+  });
+
+  test("a bare click action is still bare here — the caller fills it in", () => {
+    expect(parseChoice("</think>ACTION6", offered)).toBe("ACTION6");
+  });
+});

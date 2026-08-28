@@ -103,6 +103,18 @@ const args = {
   dryRun: false,
   /** Minutes from card open after which every game stops, scored. See run_arc_agi3.mjs. */
   deadline: 55,
+  /**
+   * RESET and play on after GAME_OVER, up to this many times.
+   *
+   * Not zero. Measured in the pilot: bp35 died at press 28 of an 80-press
+   * budget and the run ENDED there, leaving 52 paid-for presses unspent. On a
+   * benchmark whose late levels carry the most weight, a game that stops at its
+   * first death forfeits everything it had budget to reach.
+   *
+   * The budget is the real cap either way — a retry spends from the same 80, so
+   * this cannot cost more than the game was already allowed.
+   */
+  retries: 3,
   /** A previous sweep's merged lessons, fed to every game of this one. */
   seedLessons: null,
 };
@@ -123,6 +135,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (flag === "--dry-run") args.dryRun = true;
   else if (flag === "--seed-lessons") { args.seedLessons = value; i++; }
   else if (flag === "--deadline") { args.deadline = value === "none" ? "none" : Number(value); i++; }
+  else if (flag === "--retries") { args.retries = Number(value); i++; }
   else throw new Error(`unknown flag "${flag}" — see the header of this file`);
 }
 
@@ -167,6 +180,7 @@ say(`games          ${games.length}, ${args.concurrency} at a time`);
 say(`model          ${args.model} via ${args.provider}`);
 say(`budget         ${args.budget} actions/game, $${perGameSpend.toFixed(4)}/game, $${args.maxSpendTotal.toFixed(2)} total`);
 say(`deadline       ${args.deadline} min from card open (proven card lifetime: 60)`);
+say(`retries        ${args.retries} after GAME_OVER, spending from the same budget`);
 say(`logs           ${outDir}`);
 say("");
 
@@ -284,6 +298,7 @@ async function playOne(game) {
     "--tag", args.arm,
     // The card's age, not this child's. A game spawned 20 minutes into a sweep
     // has 35 minutes of card left, not 55.
+    "--retries", String(args.retries),
     "--card-opened-at", String(cardOpenedAtMs),
     "--deadline", String(args.deadline),
     ...ARMS[args.arm],

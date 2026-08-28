@@ -258,6 +258,13 @@ export function answerRegion(reply: string): string | null {
  * a button named while thinking is not a decision, and treating it as one put
  * presses in a scorecard that no model ever chose.
  */
+/**
+ * The one action that takes a point. The server answers 500 for a bare one and
+ * has no use for coordinates on any other button, so this is the environment's
+ * rule rather than a preference of ours.
+ */
+export const CLICK_ACTION = "ACTION6";
+
 export function parseChoice(reply: string, offered: readonly string[]): string | null {
   const answer = answerRegion(reply);
   if (answer === null) return null;
@@ -267,8 +274,20 @@ export function parseChoice(reply: string, offered: readonly string[]): string |
     const pattern = new RegExp(`\\b${escapeRegExp(action)}\\b(?:\\s*[:\\s]\\s*(\\d{1,2})\\s*,\\s*(\\d{1,2}))?`, "gi");
     for (const match of answer.matchAll(pattern)) {
       const index = match.index ?? 0;
+      // ONLY THE CLICK ACTION TAKES A POINT. Every other button is global, and
+      // coordinates after its name are the model inventing syntax — measured
+      // live on game bp35, with the model saying so out loud: "Selecting a
+      // coordinate-targeted ACTION3 on the f cell to test clickability."
+      //
+      // Dropping them is not pedantry. `ACTION3:0,63` and `ACTION3` are
+      // different strings, so the transition table, the inertness inference and
+      // the outcome feedback treat them as different buttons and never learn
+      // that the button does nothing — the same way a move counter drawn in the
+      // grid made every state unique. One button must have one name.
       const chosen =
-        match[1] !== undefined && match[2] !== undefined ? `${action}:${match[1]},${match[2]}` : action;
+        action === CLICK_ACTION && match[1] !== undefined && match[2] !== undefined
+          ? `${action}:${match[1]},${match[2]}`
+          : action;
       if (!best || index >= best.index) best = { index, action: chosen };
     }
   }
@@ -442,7 +461,7 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
     // is noise in a turn where clicking is not offered, and prompt bytes are the
     // one cost that is paid on EVERY call.
     const candidates =
-      offerCandidates && ctx.actions.includes("ACTION6")
+      offerCandidates && ctx.actions.includes(CLICK_ACTION)
         ? renderClickCandidates(observation.grid)
         : null;
     if (candidates) onClickCandidates?.(candidates);
@@ -489,9 +508,9 @@ export function createModelPolicy(options: ModelPolicyOptions): ArcPolicy {
     // The docs say the game "does not provide explicit X/Y coordinates for
     // active areas", so a click has to be inferred from the grid by whoever is
     // looking at it; this is that inference, made once, in the open.
-    if (chosen === "ACTION6") {
+    if (chosen === CLICK_ACTION) {
       const point = biggestObjectCentre(observation.grid) ?? centreOf(observation.grid);
-      chosen = `ACTION6:${point.x},${point.y}`;
+      chosen = `${CLICK_ACTION}:${point.x},${point.y}`;
       onCoordinateGuess?.(chosen);
     }
     onExchange?.(messages, reply, chosen);
