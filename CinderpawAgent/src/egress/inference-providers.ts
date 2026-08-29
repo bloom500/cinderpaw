@@ -211,16 +211,27 @@ export class OllamaProvider implements InferenceProvider {
     }
 
     const isCloud = !isLoopbackTarget(target);
-    const policy = resolvePerfPolicy({ isCloud });
+    // TTFT scaling needs the prompt size, and this call used to omit it — so
+    // `resolvePerfPolicy` fell back to the unscaled base on EVERY streamed
+    // request and the whole scaling mechanism was dead code. The old comment
+    // here said the count "isn't known until the first NDJSON chunk arrives",
+    // so scaling "kicks in on the second chunk onward" — but TTFT is the
+    // deadline for the FIRST token. A budget that only widens after the token
+    // it was guarding for has already arrived never guards anything: a big
+    // agent prompt got the flat 30 s cloud floor, which is what killed long
+    // completions with "Inference unavailable" and no explanation on screen.
+    //
+    // The provider's own count is authoritative but arrives too late to be
+    // useful here, so estimate from the messages we are about to send — the
+    // same `estimateTokens` this file already falls back to when a provider
+    // reports no usage. An estimate that is roughly right before the request
+    // beats an exact number that arrives after the timer has fired.
+    const policy = resolvePerfPolicy({ isCloud, promptTokens: estimateTokens(req.messages) });
     const dc = deadlineController({
       policy,
       externalSignal: req.signal,
       onProgress: req.onProgress,
       sessionId: req.sessionId,
-      // Prompt token count isn't known until the first NDJSON chunk
-      // arrives (Ollama reports it as `prompt_eval_count`); TTFT scaling
-      // therefore kicks in on the second chunk onward via resetIdle()
-      // bookkeeping. Same trade-off the cloud paths use.
     });
     let content = "";
     let promptTokens = 0;

@@ -23,12 +23,33 @@ describe('resolvePerfPolicy — defaults', () => {
     expect(p.stallMs).toBe(__TEST_DEFAULTS.cloud.stallMs);
   });
 
-  it('cloud deadlines are tighter than local', () => {
+  /**
+   * This used to assert the opposite — "cloud deadlines are tighter than
+   * local" — which was true when cloud meant a fast completion model and local
+   * meant a small GGUF on a laptop. A 2026 cloud reasoning model can think for
+   * minutes before its first token, so the tight cloud floor was cutting off
+   * working generations. The assertion is kept rather than deleted, inverted,
+   * so the new intent is pinned as deliberately as the old one was.
+   */
+  it('cloud gets the longer deadlines — a reasoning model thinks before it speaks', () => {
     const local = resolvePerfPolicy({ isCloud: false, env: EMPTY_ENV });
     const cloud = resolvePerfPolicy({ isCloud: true, env: EMPTY_ENV });
-    expect(cloud.ttftDeadlineMs).toBeLessThan(local.ttftDeadlineMs);
-    expect(cloud.totalDeadlineMs).toBeLessThan(local.totalDeadlineMs);
+    expect(cloud.ttftDeadlineMs).toBeGreaterThan(local.ttftDeadlineMs);
+    expect(cloud.totalDeadlineMs).toBeGreaterThan(local.totalDeadlineMs);
     expect(cloud.stallMs).toBeLessThanOrEqual(local.stallMs);
+  });
+
+  /**
+   * The total deadline must stay above TTFT on every profile. If they were
+   * equal, a response that took its full first-token budget would have no time
+   * left to actually produce an answer — the request would be killed for
+   * running long at the moment it started working.
+   */
+  it('every profile leaves room to answer after the first token', () => {
+    for (const isCloud of [false, true]) {
+      const p = resolvePerfPolicy({ isCloud, env: EMPTY_ENV });
+      expect(p.totalDeadlineMs).toBeGreaterThan(p.ttftDeadlineMs);
+    }
   });
 
   it('softWarnMs and heartbeatMs are stable across targets', () => {

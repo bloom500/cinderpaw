@@ -26,9 +26,17 @@ const DEFAULTS = {
     totalDeadlineMs: 300_000,
     stallMs: 45_000,
   },
+  // Raised from 30s/120s on 2026-08-29. The old pair was calibrated when
+  // "cloud" meant a fast completion model and "local" meant a small GGUF on a
+  // laptop — so cloud deadlines were deliberately the TIGHTER of the two. A
+  // 2026 cloud reasoning model routinely thinks for minutes before its first
+  // token, and the old floor cut it off mid-prefill with "Inference
+  // unavailable", a message that names no cause the user can act on. The
+  // relationship between the profiles is therefore inverted on purpose now:
+  // cloud is the slow one.
   cloud: {
-    ttftDeadlineMs: 30_000,
-    totalDeadlineMs: 120_000,
+    ttftDeadlineMs: 300_000,
+    totalDeadlineMs: 600_000,
     stallMs: 30_000,
   },
   /** Milliseconds added to prompt-token count for TTFT scaling. */

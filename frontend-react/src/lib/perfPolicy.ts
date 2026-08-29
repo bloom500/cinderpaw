@@ -36,7 +36,8 @@ export interface ResolveArgs {
 
 const DEFAULTS = {
   local:   { ttftDeadlineMs: 90_000,  totalDeadlineMs: 300_000, stallMs: 45_000 },
-  cloud:   { ttftDeadlineMs: 30_000,  totalDeadlineMs: 120_000, stallMs: 30_000 },
+  // Cloud is the SLOW profile now — see the note in the sidecar's perf-policy.ts.
+  cloud:   { ttftDeadlineMs: 300_000, totalDeadlineMs: 600_000, stallMs: 30_000 },
   perTokenPrefillMs: 4,
   softWarnMs:  20_000,
   heartbeatMs: 750,

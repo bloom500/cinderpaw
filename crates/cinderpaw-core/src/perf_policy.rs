@@ -53,8 +53,10 @@ mod defaults {
     pub(super) const LOCAL_TOTAL_DEADLINE_MS: u64 = 300_000;
     pub(super) const LOCAL_STALL_MS: u64 = 45_000;
 
-    pub(super) const CLOUD_TTFT_DEADLINE_MS: u64 = 30_000;
-    pub(super) const CLOUD_TOTAL_DEADLINE_MS: u64 = 120_000;
+    // See the note in perf-policy.ts: cloud is the SLOW profile now, not the
+    // tight one. A reasoning model's first token can be minutes away.
+    pub(super) const CLOUD_TTFT_DEADLINE_MS: u64 = 300_000;
+    pub(super) const CLOUD_TOTAL_DEADLINE_MS: u64 = 600_000;
     pub(super) const CLOUD_STALL_MS: u64 = 30_000;
 
     /// Milliseconds added to prompt-token count for TTFT scaling.
@@ -235,13 +237,36 @@ mod tests {
         assert_eq!(p.stall_ms, defaults::CLOUD_STALL_MS);
     }
 
+    /// Inverted on 2026-08-29, deliberately. This asserted that cloud was the
+    /// TIGHTER profile, which held when cloud meant a fast completion model and
+    /// local meant a small GGUF on a laptop. A 2026 cloud reasoning model can
+    /// think for minutes before its first token, so the tight cloud floor was
+    /// cutting off generations that were working. Kept and flipped rather than
+    /// deleted, so the new intent is pinned as firmly as the old one.
     #[test]
-    fn cloud_is_tighter_than_local() {
+    fn cloud_gets_the_longer_deadlines() {
         let local = perf_policy_with_env(false, &empty_env());
         let cloud = perf_policy_with_env(true, &empty_env());
-        assert!(cloud.ttft_deadline_ms < local.ttft_deadline_ms);
-        assert!(cloud.total_deadline_ms < local.total_deadline_ms);
+        assert!(cloud.ttft_deadline_ms > local.ttft_deadline_ms);
+        assert!(cloud.total_deadline_ms > local.total_deadline_ms);
         assert!(cloud.stall_ms <= local.stall_ms);
+    }
+
+    /// The total deadline must stay above TTFT on every profile: if they were
+    /// equal, a response that used its whole first-token budget would have no
+    /// time left to answer, and would be killed for running long at the moment
+    /// it started working.
+    #[test]
+    fn every_profile_leaves_room_to_answer() {
+        for is_cloud in [false, true] {
+            let p = perf_policy_with_env(is_cloud, &empty_env());
+            assert!(
+                p.total_deadline_ms > p.ttft_deadline_ms,
+                "is_cloud={is_cloud}: total {} must exceed ttft {}",
+                p.total_deadline_ms,
+                p.ttft_deadline_ms
+            );
+        }
     }
 
     #[test]
