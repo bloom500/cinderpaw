@@ -204,7 +204,21 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
           // completion, a host tool needs one call per round trip. Excluding
           // them here keeps the notebook useful for computation and forces the
           // domain calls out through the loop, where the host can answer them.
-          exclude: [NOTEBOOK_TOOL_NAME, ...hostToolNames()],
+          exclude: [NOTEBOOK_TOOL_NAME],
+          // Host tools exist and are callable — just not from in here. Bound to
+          // a stub that says so, rather than left undefined: measured on tau2's
+          // airline domain, the model reached for the notebook twice per task
+          // and burned a completion each time on `get_user_details is not
+          // defined`, which reads as "that tool is missing" and sends it
+          // hunting for a replacement. Two of 21 completions, on every task.
+          // The message turns a dead completion into a corrected one.
+          unavailable: hostToolNames().map((name) => ({
+            name,
+            reason:
+              `${name} is provided by the host and cannot be called from a notebook cell. ` +
+              `A host tool suspends until the host answers, which cannot happen while this ` +
+              `cell is still running. Call ${name} directly as a tool instead.`,
+          })),
           // One registry per session, so `list_subagents()` only ever shows a
           // parent its own direct children — upstream's rule.
           children: deps.runChild ? childrenFor(sessionId) : undefined,

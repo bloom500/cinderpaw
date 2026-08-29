@@ -915,3 +915,47 @@ describe("notify_parent — the child half of the mailbox", () => {
     await reg.drain();
   });
 });
+
+describe("host tools inside a cell", () => {
+  it("explains why they cannot be called instead of looking missing", async () => {
+    // Measured on tau2-bench's airline domain: the model reached for the
+    // notebook and composed the domain calls into one cell — exactly what the
+    // notebook is FOR — and got `get_user_details is not defined`. That reads
+    // as "the tool is missing", so it went hunting for a replacement instead of
+    // calling the tool it was holding. Two of 21 completions, every task.
+    //
+    // A host tool suspends until the host answers, and the host cannot answer
+    // while a cell is still running inside one tool call. So the binding exists
+    // and refuses, with the one sentence that makes the next move obvious.
+    const nb = new Notebook({
+      registry: fakeRegistry(),
+      sessionId: "s1",
+      unavailable: [
+        {
+          name: "get_user_details",
+          reason:
+            "get_user_details is provided by the host and cannot be called from a notebook cell. Call it directly as a tool instead.",
+        },
+      ],
+    });
+
+    const r = await nb.run("await get_user_details({ user_id: 'x' })");
+    expect(r.ok).toBe(false);
+    const text = JSON.stringify(r);
+    // The two things the model has to learn: it is NOT missing, and what to do.
+    expect(text).not.toMatch(/is not defined/);
+    expect(text).toMatch(/cannot be called from a notebook cell/);
+    expect(text).toMatch(/directly as a tool/);
+  });
+
+  it("still leaves the notebook itself undefined, so a cell cannot recurse", async () => {
+    const nb = new Notebook({
+      registry: fakeRegistry(),
+      sessionId: "s1",
+      exclude: ["notebook"],
+    });
+    const r = await nb.run("typeof notebook");
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe("undefined");
+  });
+});

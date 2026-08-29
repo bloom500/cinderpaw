@@ -89,6 +89,16 @@ export interface ReplOptions {
    * model can call the notebook from inside the notebook.
    */
   exclude?: readonly string[];
+  /**
+   * Tool names that exist but CANNOT be reached from a cell. Bound to a stub
+   * that throws an actionable message instead of being left undefined.
+   *
+   * Undefined is the wrong answer here: the tool does exist and the model can
+   * call it perfectly well — just not from in here. `x is not defined` says the
+   * opposite, and a model that believes a tool is missing goes looking for a
+   * replacement instead of doing the one thing that works.
+   */
+  unavailable?: readonly { name: string; reason: string }[];
   /** This parent's child registry. Omit to leave `rlm` out of the notebook. */
   children?: ChildRegistry;
   /** This notebook's depth. 0 is the root agent. */
@@ -227,6 +237,15 @@ export class Notebook {
     // surfaces as a returned ToolResult the model can branch on rather than an
     // exception that kills the cell.
     const excluded = new Set(opts.exclude ?? []);
+    // Bound BEFORE the real tools so a name can never be both; the real
+    // binding below would otherwise overwrite the explanation with a function
+    // that hangs forever, which is the bug this exists to prevent.
+    for (const { name, reason } of opts.unavailable ?? []) {
+      sandbox[toIdentifier(name)] = severed(async () => {
+        throw new Error(reason);
+      });
+      excluded.add(name);
+    }
     for (const tool of opts.registry.list()) {
       const name = tool.manifest.name;
       if (excluded.has(name)) continue;
