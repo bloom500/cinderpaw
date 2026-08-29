@@ -9,9 +9,22 @@ Working branch: `fix/arc-run-survives-errors` · last commit `9d65069`
 
 ---
 
-## 0. READ FIRST — nothing is committed
+## 0. The working tree — COMMITTED 2026-08-29
 
-Everything from this session is in the working tree only:
+Three commits on `fix/arc-run-survives-errors`, tests green before each
+(25 bun, 20 vitest, 15 cargo):
+
+- `9ae0eb5` DSML tool-call parsing (`agent-loop.ts` + new test)
+- `73e733f` perf policy across TS/Rust/React
+- `762d5d0` bench harness, `vendor/` ignored, this checkpoint
+
+Left deliberately untracked: `scripts/build-foundever-doc.py` and
+`Darius-Bloom-Foundever-Supporting-Document.docx` — a job-application document,
+unrelated to this work.
+
+<details><summary>Original warning, for the record</summary>
+
+Everything from this session was in the working tree only:
 
 ```
  M .gitignore                                    (adds vendor/)
@@ -30,8 +43,9 @@ Everything from this session is in the working tree only:
 ```
 
 `git stash` or a careless `git checkout` loses all of it. Commit before anything
-else. Three natural commits: the DSML parser fix, the perf-policy change, the
-benchmark harness. The Foundever document is unrelated to this work.
+else.
+
+</details>
 
 ---
 
@@ -81,55 +95,121 @@ arm does not have to be run by us — and cannot be accused of being sandbagged.
 
 ---
 
-## 2. The decisive constraint — read before writing the bridge
+## 2. The decisive constraint — CORRECTED 2026-08-29, later the same day
 
-`src/tau2/orchestrator/orchestrator.py:895` increments `step_count` **once per
-message transfer between roles** (AGENT→ENV, ENV→AGENT, AGENT→USER, USER→AGENT).
-`:744` ends the run with `TerminationReason.MAX_STEPS` when it hits the cap.
+**The design in the previous revision of this section and of §3 was wrong and
+would have produced a run scoring at most 7/50.** Kept here in full, because the
+reasoning that produced it is plausible and someone will re-derive it.
 
-Confirmed in the real transcript: the agent emitted 2 tool calls, which appear
-as 4 messages and therefore 4 steps.
+### What is actually graded
 
-**Cinderpaw executes its own tools internally.** Routed through an MCP bridge,
-those calls never pass through `step()` — so Cinderpaw could make 50 internal
-tool calls and the orchestrator would count ~5 steps, while the 77.3 % baseline
-is capped. That comparison is not defensible and must not be published.
+`src/tau2/evaluator/evaluator_env.py:86` does NOT hash the live environment the
+agent worked in. It builds a **fresh** environment and calls
 
-**Therefore the bridge MUST count each Cinderpaw tool call and refuse past the
-same budget, and report the count next to the score.** This is not a
-nice-to-have; write it first, not after seeing a number you like.
+```python
+predicted_environment.set_state(..., message_history=list(full_trajectory))
+```
 
-Residual uncertainty that cannot be closed from here: **OpenRouter does not
-publish its step limit.** The code has two different defaults — `orchestrator.py`
-uses 100, the CLI's `--max-steps` uses 200. Either ask them, or state our
-setting explicitly wherever the number is published, and describe the delta as
+and `src/tau2/environment/environment.py:319-350` walks that trajectory,
+pulls out every `AssistantMessage.tool_calls` with its matching `ToolMessage`,
+and **replays them** into the fresh environment. The DB that gets hashed is the
+replay, not the live object.
+
+> A tool call that is not in the orchestrator's trajectory does not exist at
+> grading time.
+
+All 50 airline tasks have `reward_basis = ('COMMUNICATE', 'DB')` — no ACTION
+component — so nothing else would have caught it. 43 of the 50 carry expected
+write actions. Verify both:
+
+```bash
+cd vendor/tau2-bench && python -c "import json,collections; t=json.load(open('data/tau2/domains/airline/tasks.json')); print(collections.Counter(tuple(sorted((x.get('evaluation_criteria') or {}).get('reward_basis') or [])) for x in t)); print(sum(1 for x in t if (x.get('evaluation_criteria') or {}).get('actions')))"
+```
+
+**The trap is that it fails quietly.** The 7 read-only tasks would still pass, so
+the bridge would look wired up and merely weak, not broken.
+
+### What this does to the step budget
+
+The previous revision worried that Cinderpaw executing tools internally would
+let it make 50 tool calls while the orchestrator counted ~5 steps, making the
+comparison against a capped baseline indefensible, and demanded a mirrored step
+budget written before any number was seen.
+
+That problem is now moot — and it was the same bug wearing a different hat.
+Because every graded tool call must pass through the orchestrator anyway,
+`step_count` counts Cinderpaw's calls **natively and identically to the
+baseline**. Confirmed at `orchestrator.py:895` (`step_count += 1` per message
+transfer) and `:744` (`>= max_steps` → `TerminationReason.MAX_STEPS`, checked
+only when `to_role != ENV`, so one agent tool call costs 2 steps and is checked
+on the return leg).
+
+No mirrored budget, no self-imposed refusal, no separate call count to publish.
+The honest comparison falls out of doing the thing correctly.
+
+Still open, unchanged: **OpenRouter does not publish its step limit.** The code
+carries two defaults — `orchestrator.py` 100, the CLI's `--max-steps` 200. Ask
+them, or state our setting wherever the number is published and call the delta
 approximate rather than like-for-like.
 
 ---
 
-## 3. What is NOT built
+## 3. What is NOT built — the bridge, redesigned
 
-The bridge. Three pieces:
+The requirement from §2 is now precise: **Cinderpaw must emit its domain tool
+calls to the orchestrator and receive the results back, rather than executing
+them.** The sidecar has no such mode — `src/dispatch.ts` has no host-provided
+tool passthrough, and its MCP client (`src/egress/mcp-client.ts:180`) is stdio
+only, spawning its own child; there is no HTTP/SSE transport to point at the
+parent.
 
-1. **MCP server** exposing the τ² domain tools, forwarding calls into the live
-   τ² environment. Cinderpaw's MCP client is standard stdio; config shape is
-   `{id, name, command, args, env, enabled}` in `<CINDERPAW_HOME>/mcp.json`
-   (`src/egress/mcp-manager.ts:42`). The server is a separate process while the
-   τ² environment lives in the parent Python process, so it needs a local socket
-   back to the parent.
-2. **τ² agent class.** Subclass `HalfDuplexAgent[State]`, implement
+But MCP over stdio IS an "emit a call, block for a result" protocol. So the
+tool calls round-trip through the orchestrator like this:
+
+```
+sidecar model calls mcp_book_reservation
+  -> MCP client -> stdio -> forwarder script -> socket -> agent process
+       agent process is blocked inside generate_next_message; it now RETURNS
+       AssistantMessage(tool_calls=[...]) to the orchestrator
+  -> orchestrator executes it in the live env, appends call+result to the
+     trajectory, step_count += 2
+  -> orchestrator calls generate_next_message(ToolMessage)
+  -> agent sends the result back down the socket -> forwarder -> MCP -> sidecar
+     resumes the same turn
+```
+
+Eventually the sidecar emits final text; the agent returns
+`AssistantMessage(content=...)` and the orchestrator hands it to the user
+simulator. The trajectory is real, so the replay grades correctly.
+
+The critical inversion versus the previous revision: **the forwarder must
+forward into the ORCHESTRATOR, not into the live environment.** Calling
+`tool(**args)` in the parent mutates the live DB — which is never graded — and
+writes nothing to the trajectory, which is.
+
+Three pieces:
+
+1. **Forwarder** — a small stdio MCP server exposing the τ² domain tools,
+   spawned by Cinderpaw via `<CINDERPAW_HOME>/mcp.json`
+   (`{id, name, command, args, env, enabled}`, `src/egress/mcp-manager.ts:42`).
+   Every `tools/call` blocks on a loopback socket to the agent process.
+2. **Socket server in the agent process** — one JSON line per request. It must
+   hold a pending call across `generate_next_message` boundaries, since the
+   answer only arrives on the orchestrator's next invocation.
+3. **τ² agent class** — subclass `HalfDuplexAgent[State]`, implement
    `get_init_state(message_history)` and
-   `generate_next_message(message, state) -> (AssistantMessage, State)`.
-   Register with `registry.register_agent_factory(factory, "cinderpaw")`.
-   Worked example: `examples/agents/minimal_text_agent.py`.
-3. **Step-budget mirror** (§2).
+   `generate_next_message(message, state) -> (AssistantMessage, State)`;
+   register with `registry.register_agent_factory(factory, "cinderpaw")`.
+   Worked example: `examples/agents/minimal_text_agent.py`. It owns one sidecar
+   process per task and keeps one `sessionId` for the whole conversation —
+   multi-turn on a session is supported (`src/dispatch.ts:1245`).
 
-Reusable from this session: the sidecar NDJSON protocol — send
-`{type:"message", id, sessionId, content}` on stdin, read `usage` / `tool_start`
-/ `tool_done` / `done` / `error` events on stdout. `scripts/polyglot-delta.mjs`
-and `scripts/walkaway-bench.mjs` are the worked JS versions; ~150 lines to
-restate in Python. Little else transfers — τ² does its own scoring, and the
-baseline is published so there are no arms to pair.
+Reusable: the sidecar NDJSON protocol — write
+`{type:"message", id, sessionId, content}` to stdin, read `usage` / `tool_start`
+/ `tool_done` / `done` / `error` from stdout. `scripts/walkaway-bench.mjs`
+(see `runTask`) and `scripts/polyglot-delta.mjs` are the worked JS versions;
+~150 lines to restate in Python. Note `done` with `incomplete: true` is NOT the
+end of a turn.
 
 ---
 
@@ -187,10 +267,13 @@ drive a decision here; it is the wrong axis.
 
 ## 7. Suggested order for the next session
 
-1. Commit the working tree (§0).
-2. Read `src/tau2/runner/batch.py` and `orchestrator.py` around `step_count` to
-   pin exactly which budget the bridge must mirror.
-3. Build the MCP bridge + agent class + step counter.
+1. ~~Commit the working tree (§0).~~ Done — `9ae0eb5` (DSML parser),
+   `73e733f` (perf policy), `762d5d0` (bench harness + this file).
+2. ~~Pin the step budget.~~ Done, and it changed the design — read §2 and §3
+   before writing a line of the bridge. The short version: what gets graded is
+   a REPLAY of the orchestrator's trajectory, so tools must round-trip through
+   the orchestrator, and the step budget then takes care of itself.
+3. Build the forwarder + socket + agent class (§3). No step counter needed.
 4. `--num-tasks 5` first. Compare shape against the stock `llm_agent` run of the
    same 5 tasks — same harness, same day, both numbers ours.
 5. Only then all 50, against the published 77.3 %.
