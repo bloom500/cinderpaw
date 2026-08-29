@@ -1179,6 +1179,10 @@ export interface InboundMessage {
   // type of its own rather than a flag on that one.
   type: "message" | "record_turn" | "ping" | "shutdown" | "set_model" | "stop"
     | "ask_user_response" | "ask_user_cancel"
+    // The host returning the result of a tool IT owns, paired to the
+    // `tool_request` event by `requestId`. Carries `content` on success or
+    // `error` on failure; see core/host-tool-bridge.ts.
+    | "tool_response"
     | "cron_add" | "cron_remove" | "cron_toggle" | "cron_list"
     | "desktop_control_response" | "capability_response" | "admin_response" | "connectors_reload"
     // PROVISIONAL — temporary Settings button to run the Fractal Memory Search
@@ -1512,6 +1516,13 @@ export type OutboundEvent =
     }
   | { type: "pong" }
   | { type: "error"; id?: string; message: string; traceId?: string }
+  /**
+   * A tool the HOST owns, for the host to run. The agent's tool call is
+   * suspended until the host replies with a `tool_response` carrying this `id`.
+   * Only ever emitted for tools declared via `CINDERPAW_HOST_TOOLS`; a normal
+   * install never sees one. See `core/host-tool-bridge.ts`.
+   */
+  | { type: "tool_request"; id: string; sessionId: string; tool: string; arguments: Record<string, unknown> }
   | { type: "ask_user"; id: string; sessionId: string; questions: AskUserQuestion[]; traceId?: string }
   | { type: "ask_user_cancelled"; id: string; sessionId: string; reason: string; traceId?: string }
   | { type: "usage"; id: string; sessionId: string; promptTokens: number; completionTokens: number; traceId?: string }

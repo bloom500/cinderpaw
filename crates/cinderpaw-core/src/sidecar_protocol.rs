@@ -7,6 +7,9 @@ pub const SIDECAR_PROTOCOL: u32 = 1;
 pub const INBOUND_TYPES: &[&str] = &[
     "message", "record_turn", "ping", "shutdown", "set_model", "stop",
     "ask_user_response", "ask_user_cancel",
+    // Host-owned tools: sidecar emits `tool_request`, host answers
+    // `tool_response`. See CinderpawAgent/src/core/host-tool-bridge.ts.
+    "tool_response",
     "cron_add", "cron_remove", "cron_toggle", "cron_list",
     "desktop_control_response", "connectors_reload",
     "fractal_benchmark", "fractal_cluster_leaves",
@@ -32,7 +35,7 @@ pub const INBOUND_TYPES: &[&str] = &[
 
 pub const OUTBOUND_TYPES: &[&str] = &[
     "chunk", "done", "tool_start", "tool_progress", "tool_done", "proactive",
-    "model_set", "model_error", "pong", "error", "ask_user",
+    "model_set", "model_error", "pong", "error", "ask_user", "tool_request",
     "ask_user_cancelled", "usage", "budget_warning", "budget_exceeded",
     "heartbeat", "stream_progress", "cron_fired", "cron_error",
     "desktop_control_request", "rsi_engine_event", "rsi_request",

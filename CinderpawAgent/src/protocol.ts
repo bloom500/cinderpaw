@@ -22,6 +22,9 @@ export const SIDECAR_PROTOCOL = 1;
 export const INBOUND_TYPES = [
   "message", "record_turn", "ping", "shutdown", "set_model", "stop",
   "ask_user_response", "ask_user_cancel",
+  // Host-owned tools (core/host-tool-bridge.ts): the sidecar emits
+  // `tool_request`, the host runs it and answers with `tool_response`.
+  "tool_response",
   "cron_add", "cron_remove", "cron_toggle", "cron_list",
   "desktop_control_response", "connectors_reload",
   "fractal_benchmark", "fractal_cluster_leaves",
@@ -43,7 +46,7 @@ export const INBOUND_TYPES = [
 
 export const OUTBOUND_TYPES = [
   "chunk", "done", "tool_start", "tool_progress", "tool_done", "proactive",
-  "model_set", "model_error", "pong", "error", "ask_user",
+  "model_set", "model_error", "pong", "error", "ask_user", "tool_request",
   "ask_user_cancelled", "usage", "budget_warning", "budget_exceeded",
   "heartbeat", "stream_progress", "cron_fired", "cron_error",
   "desktop_control_request", "rsi_engine_event", "rsi_request",

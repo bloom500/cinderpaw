@@ -98,7 +98,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents,
     runHooks,
     brainDerived, brainBreaker,
   } = ctx;
@@ -1103,6 +1103,25 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         } else {
           log(`ask_user_response: missing requestId or answers — ignored`);
         }
+        break;
+      }
+      case "tool_response": {
+        // The host ran a tool it owns and is handing back the result — see
+        // core/host-tool-bridge.ts. `error` and `content` are distinct on
+        // purpose: an error reaches the model as a failed tool call it can read
+        // and retry differently, while content is the tool's output.
+        if (!msg.requestId) {
+          log(`tool_response: missing requestId — ignored`);
+          break;
+        }
+        const routed =
+          typeof msg.error === "string"
+            ? hostTools.fail(msg.requestId, msg.error)
+            : hostTools.resolve(msg.requestId, msg.content ?? "");
+        // An unmatched id means the agent already gave up on that call (the
+        // registry's own 60s timeout, or a stop). Silence here is how a host
+        // ends up waiting forever on a conversation that already moved on.
+        if (!routed) log(`tool_response: no pending host tool call ${msg.requestId} — it already timed out or was cancelled`);
         break;
       }
       case "ask_user_cancel": {

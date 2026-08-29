@@ -142,6 +142,7 @@ import {
 import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
 import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
+import { HostToolBridge, loadHostTools } from "./core/host-tool-bridge.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
@@ -698,6 +699,13 @@ export async function boot(transportOverride?: Transport) {
     current: () => {},
   };
   const askUser = new AskUserBridgeImpl((e) => sendHolder.current(e));
+
+  // Host-owned tools (off unless CINDERPAW_HOST_TOOLS names a file). Same
+  // sendHolder plumbing as askUser: the call goes out over the transport, the
+  // host runs it, and `tool_response` routes the answer back. Always
+  // constructed so the response wiring is unconditional; it registers nothing
+  // until the host declares something.
+  const hostTools = new HostToolBridge((e) => sendHolder.current(e));
 
   // Desktop-control bridge — structural OS control of native apps via the Rust
   // host. Same sendHolder plumbing as askUser: the request flows out over the
@@ -2093,6 +2101,33 @@ export async function boot(transportOverride?: Transport) {
     registry.register(t);
   }
 
+  // Host-owned tools, LAST so they displace rather than collide.
+  //
+  // `registry.register` throws on a duplicate name, so registering these before
+  // the built-ins would turn any overlap into a dead sidecar at boot — and the
+  // overlap is not hypothetical: tau2's airline domain ships a `calculate`, and
+  // the names a host uses are usually fixed by its own policy document rather
+  // than chosen to avoid ours. The host is the authority on the tools it says
+  // it owns, so it wins, and every displacement is named on screen — a tool
+  // that quietly stopped being the tool it used to be is the kind of thing
+  // nobody discovers until it has already produced a wrong answer.
+  const hostToolsPath = process.env.CINDERPAW_HOST_TOOLS;
+  if (hostToolsPath) {
+    // Deliberately not caught: an unreadable or malformed declaration leaves
+    // the agent unable to do the only job it was started for, and that failure
+    // is indistinguishable from a bad model unless it is said out loud here.
+    const tools = loadHostTools(hostToolsPath, hostTools);
+    const displaced: string[] = [];
+    for (const t of tools) {
+      if (registry.unregister(t.manifest.name)) displaced.push(t.manifest.name);
+      registry.register(t);
+    }
+    log(`host tools: ${tools.length} from ${hostToolsPath} — ${tools.map((t) => t.manifest.name).join(", ")}`);
+    if (displaced.length > 0) {
+      log(`host tools: replaced built-in ${displaced.join(", ")} — the host's implementation is now the one that runs`);
+    }
+  }
+
   // Faza 2 Slice 5: the code-patch approval gate, created lazily on first
   // IPC touch (installs that never use code-RSI pay nothing). One store per
   // process, persisted next to the journal.
@@ -2225,7 +2260,7 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
-    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
     // `cowork_approval_resolve` here).
     coworkApprovals: coworkApprovalService,
@@ -2400,6 +2435,7 @@ export async function boot(transportOverride?: Transport) {
     }
     try {
       askUser.cancelAll("shutdown");
+      hostTools.cancelAll("shutdown");
     } catch {
       // ignore — bridge may already be empty
     }

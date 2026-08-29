@@ -50,10 +50,14 @@ interface JsonRpcNotification {
 // MCP protocol shapes (subset used for tool discovery + invocation)
 // ---------------------------------------------------------------------------
 
-interface MCPToolInputSchema {
+export interface MCPToolInputSchema {
   type: string;
   properties?: Record<string, { type?: string; description?: string; [k: string]: unknown }>;
   required?: string[];
+  /** Sibling definitions that `$ref` pointers inside `properties` resolve against.
+   *  Every pydantic-generated schema puts nested models here. */
+  $defs?: Record<string, unknown>;
+  definitions?: Record<string, unknown>;
 }
 
 export interface MCPToolDef {
@@ -477,23 +481,86 @@ export class MCPClient {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function schemaToParameters(
+/**
+ * Convert an external JSON-Schema tool definition into registry parameters.
+ *
+ * Exported because it is not MCP-specific: anything handing us JSON Schema
+ * (an MCP server, a host lending the agent its own tools — see
+ * `core/host-tool-bridge.ts`) needs exactly this conversion, and a second copy
+ * would be a second place for the nesting bug below to come back.
+ *
+ * `schema` is carried through VERBATIM, which is the whole point. The flat
+ * `{type, description}` pair is all the text-prompt path needs, but in
+ * native-tools mode the docs are stripped from the system prompt and the model
+ * sees only what lands in `ToolParameter.schema` (see its doc comment). Without
+ * it, a parameter like airline's `passengers` — an array of objects with three
+ * required fields — reaches the model as the bare word "array" and it has to
+ * invent the item shape. That is the documented main source of bad_args, and
+ * every pydantic-generated server hits it, not just tau2.
+ *
+ * `$ref`/`$defs` are inlined rather than passed through, because the refs point
+ * at a `$defs` block that lives on the schema ROOT while each parameter's
+ * schema is handed over as a detached subtree — the pointer would dangle and
+ * the model would see `{"$ref": "#/$defs/Passenger"}`, which is strictly worse
+ * than the bare type it replaced.
+ */
+export function schemaToParameters(
   schema: MCPToolInputSchema,
 ): Record<string, ToolParameter> {
   const params: Record<string, ToolParameter> = {};
   if (!schema.properties) return params;
 
+  const defs = (schema.$defs ?? schema.definitions ?? {}) as Record<string, unknown>;
   const required = new Set(schema.required ?? []);
   for (const [key, prop] of Object.entries(schema.properties)) {
-    const rawType = typeof prop.type === "string" ? prop.type : "string";
+    const inlined = inlineRefs(prop, defs) as { type?: unknown; description?: string };
+    const rawType = typeof inlined.type === "string" ? inlined.type : "string";
     const type = normalizeType(rawType);
     params[key] = {
       type,
       description: prop.description ?? key,
       required: required.has(key) ? true : false,
+      schema: inlined as Record<string, unknown>,
     };
   }
   return params;
+}
+
+/**
+ * Replace every `{"$ref": "#/$defs/Name"}` with the definition it names.
+ *
+ * `seen` breaks reference cycles: a self-referential model (a tree node, a
+ * linked list) is legal JSON Schema and would otherwise recurse until the stack
+ * gives out — taking down the whole sidecar at tool-registration time, on a
+ * schema the server is entitled to send. A cycle degrades to a plain object,
+ * which loses detail but keeps the agent running.
+ */
+function inlineRefs(node: unknown, defs: Record<string, unknown>, seen: ReadonlySet<string> = new Set()): unknown {
+  if (Array.isArray(node)) return node.map((n) => inlineRefs(n, defs, seen));
+  if (!node || typeof node !== "object") return node;
+
+  const obj = node as Record<string, unknown>;
+  const ref = obj.$ref;
+  if (typeof ref === "string") {
+    const name = ref.replace(/^#\/(?:\$defs|definitions)\//, "");
+    if (seen.has(name)) return { type: "object" };
+    const target = defs[name];
+    if (target === undefined) return { type: "object" };
+    // Any siblings of `$ref` (a local `description`, say) stay and win.
+    const { $ref: _drop, ...rest } = obj;
+    return {
+      ...(inlineRefs(target, defs, new Set([...seen, name])) as Record<string, unknown>),
+      ...rest,
+    };
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    // `$defs` itself is scaffolding for the refs we just inlined.
+    if (k === "$defs" || k === "definitions") continue;
+    out[k] = inlineRefs(v, defs, seen);
+  }
+  return out;
 }
 
 function normalizeType(
