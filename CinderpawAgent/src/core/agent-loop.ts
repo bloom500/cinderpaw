@@ -3283,7 +3283,12 @@ export function parseInvokeXml(input: string): ParsedToolCall[] {
     // looks like, and it was the one shape the parser could not read — the
     // docstring claimed the format by name while only the simplified variant
     // below was implemented.
-    const namedRe = /<(?:[A-Za-z_][\w.-]*:)?parameter\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?parameter>/g;
+    // `[^>]*` after the name, not `\s*`: DeepSeek v4 writes a type hint as a
+    // second attribute (`<parameter name="query" string="true">`). Anchoring
+    // straight to `>` read that tag as prose and the call lost its arguments —
+    // which is worse than not parsing it at all, because a tool then runs with
+    // an empty argument set instead of visibly failing.
+    const namedRe = /<(?:[A-Za-z_][\w.-]*:)?parameter\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?parameter>/g;
     let np: RegExpExecArray | null;
     while ((np = namedRe.exec(body)) !== null) {
       args[np[1] as string] = coerce(np[2] ?? "");
@@ -3408,6 +3413,22 @@ export function parseResponse(raw: string, allowedToolNames?: Iterable<string>):
     preScrubbed = preScrubbed.split(MINIMAX_DEBRIS).join("");
   }
 
+  // DeepSeek's DSML framing (observed live 2026-08-29, DeepSeek v4 Flash via
+  // OpenRouter, on a plain web-search request): structurally the same
+  // Anthropic-style invoke XML the parser below already reads, but every tag
+  // is fenced with U+FF5C FULLWIDTH VERTICAL LINE —
+  //
+  //     <｜DSML｜tool_calls><｜DSML｜invoke name="web_search">
+  //       <｜DSML｜parameter name="query" string="true">…</｜DSML｜parameter>
+  //     </｜DSML｜invoke></｜DSML｜tool_calls>
+  //
+  // The namespace tolerance below is `[A-Za-z_][\w.-]*:` — an ASCII name and a
+  // colon — so `｜DSML｜` slips past every matcher and the whole block was
+  // delivered to the person as raw markup instead of running the search.
+  // Normalising the fence here rather than widening each regex keeps the one
+  // shape the rest of this function is written against.
+  preScrubbed = preScrubbed.replace(/<(\/?)｜DSML｜/g, "<$1");
+
   // Namespace-tolerant everywhere `invoke` is looked for. The gate used to be
   // `/<\/?invoke\b/`, which a prefixed tag slips straight past — so the parser
   // below was never even asked about the shape it was written to read.
@@ -3421,7 +3442,10 @@ export function parseResponse(raw: string, allowedToolNames?: Iterable<string>):
       return {
         text: preScrubbed
           .replace(/<(?:[A-Za-z_][\w.-]*:)?invoke[\s\S]*?(?:<\/(?:[A-Za-z_][\w.-]*:)?invoke>|$)/g, "")
-          .replace(/<\/?(?:[A-Za-z_][\w.-]*:)?function_calls>/g, "")
+          // `tool_calls` alongside `function_calls`: DeepSeek wraps its invokes
+          // in the former. Left behind, the wrapper is markup the person reads
+          // as the answer — the exact leak this branch exists to prevent.
+          .replace(/<\/?(?:[A-Za-z_][\w.-]*:)?(?:function_calls|tool_calls)>/g, "")
           .trim(),
         toolCalls: xmlCalls,
         malformedToolCall: false,
