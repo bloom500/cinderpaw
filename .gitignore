@@ -129,3 +129,7 @@ runs-arc/
 # Cloned third-party benchmark harnesses (tau2-bench). Never committed: they
 # carry their own git history and a .env with live API keys.
 vendor/
+
+# Python bytecode from the tau2 harness.
+__pycache__/
+*.pyc
