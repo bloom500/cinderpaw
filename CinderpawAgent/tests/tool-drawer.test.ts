@@ -51,16 +51,32 @@ test("list_tools lists extended-only, minus already-loaded; load_tool mutates th
   expect(l2.content).toContain("control_app");
 });
 
-test("load_tool rejects core/unknown names and does not mutate state", async () => {
+test("load_tool tells a core name apart from an unknown one, and records the request either way it can honour", async () => {
   const loaded = new Map<string, Set<string>>();
   const [, loadTool] = createToolDrawerTools(fakeRegistry, loaded);
 
-  const r = await loadTool.execute({ names: ["read_file"] }, ctx("s1")); // core, not loadable
-  expect(r.ok).toBe(false);
-  expect(loaded.get("s1")).toBeUndefined();
+  // Already core. The model asked for the ability to call it and ALREADY HAS
+  // it, so this is a success with nothing to do — not a refusal. Answering
+  // false here (and calling it "Not optional/loadable") is what sent a
+  // tau2-bench agent hunting for a tool it was holding: it read the failure as
+  // "that tool does not exist", called list_tools, and then produced nothing
+  // at all for five completions until the turn was written off.
+  const r = await loadTool.execute({ names: ["read_file"] }, ctx("s1"));
+  expect(r.ok).toBe(true);
+  expect(r.content).toMatch(/already available/i);
+  // The request IS recorded, even though nothing was in the drawer: the agent
+  // loop treats this set as the escape hatch that beats intent selection, so a
+  // tool the model explicitly asked for cannot be withheld from it afterwards.
+  expect([...(loaded.get("s1") ?? [])]).toContain("read_file");
 
-  const r2 = await loadTool.execute({ names: [] }, ctx("s1"));
+  // Genuinely unknown stays a failure: there is nothing to call.
+  const r2 = await loadTool.execute({ names: ["no_such_tool"] }, ctx("s2"));
   expect(r2.ok).toBe(false);
+  expect(r2.content).toMatch(/no such tool/i);
+  expect(loaded.get("s2")).toBeUndefined();
+
+  const r3 = await loadTool.execute({ names: [] }, ctx("s1"));
+  expect(r3.ok).toBe(false);
 });
 
 test("list_tools honours the query filter", async () => {

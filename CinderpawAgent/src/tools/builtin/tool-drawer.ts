@@ -115,25 +115,77 @@ export function createToolDrawerTools(
         return { ok: false, content: "load_tool needs a non-empty 'names' array.", error: "bad_args" };
       }
       const valid = new Set(extendedRoster().map((t) => t.name));
-      const unknown = names.filter((n) => !valid.has(n));
+      const registered = new Set(registry.list().map((t) => t.manifest.name));
+      // "Already available" and "no such tool" are opposite facts, and this
+      // used to answer both with the same failure. A model that defensively
+      // pre-loads a tool it can already call was told it was "Not
+      // optional/loadable" — which reads as "that tool does not exist", not as
+      // "you already have it". Observed on tau2-bench: the first thing the
+      // agent did was load_tool the two domain tools it had been given, got
+      // this refusal, called list_tools, and then produced nothing at all for
+      // five straight completions before the turn was written off.
+      const alreadyCore = names.filter((n) => !valid.has(n) && registered.has(n));
+      const unknown = names.filter((n) => !valid.has(n) && !registered.has(n));
       if (unknown.length > 0) {
         return {
           ok: false,
           content:
-            `Not optional/loadable: ${unknown.join(", ")}. ` +
-            `Call list_tools to see valid names (core tools are already available).`,
+            `No such tool: ${unknown.join(", ")}. ` +
+            `Call list_tools to see what can be loaded.` +
+            (alreadyCore.length > 0
+              ? ` (${alreadyCore.join(", ")} need no loading — call them directly.)`
+              : ""),
           error: "bad_args",
         };
       }
+      // An explicit request is recorded even for a core tool, because "core"
+      // is not the same as "advertised this turn": the intent router withholds
+      // tools it did not select, and the agent loop's escape hatch is exactly
+      // this set — `loaded.has(name)` beats intent selection so the drawer, the
+      // recovery path for a wrong guess, cannot lose to it.
+      //
+      // Skipping the record is what kept a tau2-bench agent stuck after the
+      // refusal above was fixed: it was told the domain tools were "already
+      // available", the intent router went on withholding them, and every
+      // completion after that came back with no text, no reasoning and a call
+      // to a tool that was not on its list. Being told you have something and
+      // not being handed it is worse than being refused.
       let set = loadedTools.get(ctx.sessionId);
+      if (alreadyCore.length > 0) {
+        if (!set) {
+          set = new Set();
+          loadedTools.set(ctx.sessionId, set);
+        }
+        for (const n of alreadyCore) set.add(n);
+      }
+      if (alreadyCore.length === names.length) {
+        // Nothing to enable, and that is a SUCCESS: the model asked for the
+        // ability to call these and already has it. Answering ok:false here is
+        // what sent it looking for a tool it was holding.
+        return {
+          ok: true,
+          content:
+            `${alreadyCore.join(", ")} ${alreadyCore.length === 1 ? "is" : "are"} ` +
+            `already available — call ${alreadyCore.length === 1 ? "it" : "them"} directly.`,
+          data: { loaded: [...set!] },
+        };
+      }
       if (!set) {
         set = new Set();
         loadedTools.set(ctx.sessionId, set);
       }
-      for (const n of names) set.add(n);
+      // Only the drawered ones are actually being enabled. A mixed request
+      // used to report a core tool as "Enabled", which is a claim to have done
+      // something that never happened.
+      const loadable = names.filter((n) => valid.has(n));
+      for (const n of loadable) set.add(n);
       return {
         ok: true,
-        content: `Enabled: ${names.join(", ")}. They are now available to call.`,
+        content:
+          `Enabled: ${loadable.join(", ")}. They are now available to call.` +
+          (alreadyCore.length > 0
+            ? ` (${alreadyCore.join(", ")} needed no loading.)`
+            : ""),
         data: { loaded: [...set] },
       };
     },
