@@ -158,6 +158,17 @@ export function setHostToolNames(names: Iterable<string>): void {
   HOST_TOOL_NAMES = new Set(names);
 }
 
+/**
+ * The host's tool names, for callers that must treat them differently.
+ *
+ * The notebook is the one that matters: a host tool suspends until the host
+ * answers, and the host cannot answer while a notebook cell is still running
+ * inside a single tool call. See the exclusion in tools/builtin/notebook.ts.
+ */
+export function hostToolNames(): readonly string[] {
+  return [...HOST_TOOL_NAMES];
+}
+
 export const isExtendedTool = (name: string): boolean => {
   // Host mode: everything that is not the host's job, and not the drawer that
   // reaches the rest, goes behind the drawer. Expressed here rather than in

@@ -347,6 +347,35 @@ class CinderpawAgent(HalfDuplexAgent[CinderpawAgentState]):
     def _tail(state: CinderpawAgentState) -> str:
         return "\n".join(state.stderr_tail[-15:]) or "(nothing on stderr)"
 
+    def _dump_events(self, state: CinderpawAgentState) -> None:
+        """
+        Write the sidecar's event stream next to the run, one JSON line each.
+
+        tau2's own results.json records the CONVERSATION, which is exactly the
+        half that is empty when something goes wrong inside the agent: a turn
+        that produced no answer shows up there as a bland apology and nothing
+        else. Everything that explains it — which tools ran, how many
+        completions the turn took, how much of each was reasoning, where the
+        time went — lives only in this stream, and the first version of this
+        file threw it away. Two separate diagnoses had to be redone by hand
+        against a manually driven sidecar before this existed.
+        """
+        if not state.events:
+            return
+        out = Path(os.environ.get("CINDERPAW_TAU2_EVENT_DIR", tempfile.gettempdir()))
+        try:
+            out.mkdir(parents=True, exist_ok=True)
+            path = out / f"cinderpaw-events-{state.session_id}.jsonl"
+            with path.open("w", encoding="utf-8") as f:
+                for ev in state.events:
+                    f.write(json.dumps(ev) + "\n")
+                for line in state.stderr_tail:
+                    f.write(json.dumps({"type": "_stderr", "line": line}) + "\n")
+            logger.info(f"sidecar events for {state.session_id} -> {path}")
+        except OSError as e:
+            # Diagnostics must never be the reason a scored run dies.
+            logger.warning(f"could not write sidecar events: {e}")
+
     # ------------------------------------------------------------- the turn
 
     def generate_next_message(
@@ -449,6 +478,7 @@ class CinderpawAgent(HalfDuplexAgent[CinderpawAgentState]):
         """One sidecar per task, so it must die with the task or they pile up."""
         if state is None or state.proc is None:
             return
+        self._dump_events(state)
         try:
             self._send(state, {"type": "shutdown"})
             state.proc.wait(timeout=10)

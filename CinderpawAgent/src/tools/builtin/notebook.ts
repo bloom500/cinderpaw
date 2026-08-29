@@ -26,6 +26,7 @@ import { Notebook } from "../../rlm/repl.ts";
 import { ChildRegistry, type ChildTelemetry, type RunChild } from "../../rlm/children.ts";
 import type { ToolRegistry } from "../../tools/registry.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
+import { hostToolNames } from "../tiers.ts";
 
 export const NOTEBOOK_TOOL_NAME = "notebook";
 
@@ -185,7 +186,25 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
           registry: deps.registry(),
           sessionId,
           signal: ctx.signal,
-          exclude: [NOTEBOOK_TOOL_NAME],
+          // Host-owned tools are excluded alongside the notebook itself, and
+          // for a stronger reason than tidiness: they CANNOT work in here.
+          //
+          // A host tool suspends the call and waits for the host to answer over
+          // stdout/stdin. The host can only answer after the agent loop yields
+          // — in tau2-bench, after the orchestrator has been handed the tool
+          // call, executed it and called back. None of that can happen while a
+          // cell is still running inside a single tool call, so the await never
+          // resolves and the registry kills the notebook at its 60s timeout.
+          //
+          // Observed exactly that: the model loaded the notebook, wrote three
+          // domain calls into one cell — good instinct, it is what the notebook
+          // is FOR — and every turn died on "Tool aborted: timeout" with no
+          // answer and no tool call the harness could see. The two mechanisms
+          // want opposite things: the notebook composes many calls into one
+          // completion, a host tool needs one call per round trip. Excluding
+          // them here keeps the notebook useful for computation and forces the
+          // domain calls out through the loop, where the host can answer them.
+          exclude: [NOTEBOOK_TOOL_NAME, ...hostToolNames()],
           // One registry per session, so `list_subagents()` only ever shows a
           // parent its own direct children — upstream's rule.
           children: deps.runChild ? childrenFor(sessionId) : undefined,
