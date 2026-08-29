@@ -1356,7 +1356,7 @@ export class AgentLoop {
         }
       }
 
-      return { text: delivered, outcome, toolCallCount, incomplete: isContinuable(outcome) };
+      return { text: delivered, outcome, toolCallCount, incomplete: isContinuable(outcome), ...(diagnostic ? { diagnostic } : {}) };
     } catch (err) {
       // Checkpoint policy on a handled failure (crash is handled elsewhere — a
       // dead process leaves the row `running` on its own):

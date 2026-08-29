@@ -143,6 +143,7 @@ import { loadSoul, watchSoul, resolveSoulPaths } from "./core/soul-loader.ts";
 import { loadUserConfig } from "./core/user-loader.ts";
 import { AskUserBridgeImpl } from "./core/ask-user-bridge.ts";
 import { HostToolBridge, loadHostTools } from "./core/host-tool-bridge.ts";
+import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
@@ -2111,7 +2112,7 @@ export async function boot(transportOverride?: Transport) {
   // it owns, so it wins, and every displacement is named on screen — a tool
   // that quietly stopped being the tool it used to be is the kind of thing
   // nobody discovers until it has already produced a wrong answer.
-  const hostToolsPath = process.env.CINDERPAW_HOST_TOOLS;
+  const hostToolsPath = cfgPath("CINDERPAW_HOST_TOOLS");
   if (hostToolsPath) {
     // Deliberately not caught: an unreadable or malformed declaration leaves
     // the agent unable to do the only job it was started for, and that failure
@@ -2122,7 +2123,13 @@ export async function boot(transportOverride?: Transport) {
       if (registry.unregister(t.manifest.name)) displaced.push(t.manifest.name);
       registry.register(t);
     }
+    // Flip the tiering default: the host's tools are the job, Cinderpaw's own
+    // go behind the drawer. Capability is untouched — `list_tools`/`load_tool`
+    // still reach every one of them — but they stop being re-sent on every
+    // completion. See setHostToolNames for the measurement that motivated it.
+    setHostToolNames(tools.map((t) => t.manifest.name));
     log(`host tools: ${tools.length} from ${hostToolsPath} — ${tools.map((t) => t.manifest.name).join(", ")}`);
+    log(`host tools: built-ins demoted to the on-demand drawer for this run (list_tools/load_tool still reach them)`);
     if (displaced.length > 0) {
       log(`host tools: replaced built-in ${displaced.join(", ")} — the host's implementation is now the one that runs`);
     }

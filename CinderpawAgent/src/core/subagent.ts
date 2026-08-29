@@ -258,9 +258,20 @@ export class Subagent {
           }
         },
       );
-      const summary = rawAnswer.length > MAX_SUMMARY_CHARS
-        ? rawAnswer.slice(0, MAX_SUMMARY_CHARS) + "\n…(truncated)"
-        : rawAnswer;
+      // A subagent's answer is read by the PARENT AGENT, not by a person — so
+      // it is one of the two places that wants the operator-level reason rather
+      // than the reassuring version. The loop's delivered text is audience-safe
+      // by default now (see TurnResult.diagnostic in agent-loop.ts), which is
+      // right for a customer on a connector and useless here: "Something went
+      // wrong on my side" gives the parent nothing to decide a retry on. The
+      // `error` event already carried the real cause past us; put it back.
+      const withCause =
+        errorMessage && !rawAnswer.includes(errorMessage)
+          ? `${rawAnswer}\n\n${errorMessage}`
+          : rawAnswer;
+      const summary = withCause.length > MAX_SUMMARY_CHARS
+        ? withCause.slice(0, MAX_SUMMARY_CHARS) + "\n…(truncated)"
+        : withCause;
       // Status: if the agent loop emitted an error event, the run
       // failed (even though `handle()` returned a string). Otherwise
       // it's a completion. The "I reached the maximum number of

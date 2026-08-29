@@ -124,12 +124,55 @@ export const OWNER_ONLY_TOOLS = new Set<string>(["notebook"]);
 /** True when this tool must be withheld from any profiled (non-owner) session. */
 export const isOwnerOnlyTool = (name: string): boolean => OWNER_ONLY_TOOLS.has(name);
 
-export const isExtendedTool = (name: string): boolean =>
+/**
+ * Tools a HOST declared as the job (CINDERPAW_HOST_TOOLS). Empty on every
+ * ordinary install, which is the only state most people will ever be in.
+ */
+let HOST_TOOL_NAMES: ReadonlySet<string> = new Set<string>();
+
+/**
+ * The two tools that must stay advertised even in host mode, because they are
+ * how everything else is reached. Demoting the drawer into the drawer would
+ * make the demotion permanent.
+ */
+const DRAWER_TOOLS: ReadonlySet<string> = new Set(["list_tools", "load_tool"]);
+
+/**
+ * Declare the host's tools, flipping this file's default on its head.
+ *
+ * A host that hands over a tool set is saying "this is the job". Measured on
+ * tau2-bench's airline domain: the 14 domain tools ADD to Cinderpaw's own, so
+ * 56 of 97 tools get advertised and the fixed prefix goes from 12,051 to
+ * 16,488 tokens re-sent on EVERY completion — against roughly 4,800 for the
+ * reference agent on the identical task. The model then spent its budget
+ * reasoning over a toolbox the task never needed and produced no answer at all.
+ *
+ * So in host mode the rule at the top of this file simply points the other way:
+ * the host's tools are what move the task forward, and Cinderpaw's own are the
+ * ones it only needs to know EXIST. Nothing is removed — `list_tools` and
+ * `load_tool` still reach every built-in on demand, and the registry still
+ * executes anything by name. Only advertising changes, which is the entire
+ * point of tiering.
+ */
+export function setHostToolNames(names: Iterable<string>): void {
+  HOST_TOOL_NAMES = new Set(names);
+}
+
+export const isExtendedTool = (name: string): boolean => {
+  // Host mode: everything that is not the host's job, and not the drawer that
+  // reaches the rest, goes behind the drawer. Expressed here rather than in
+  // `isCoreTool` so the two predicates cannot disagree — they did once, and
+  // `list_tools` spent that release calling a tool optional while the prompt
+  // advertised it as core.
+  if (HOST_TOOL_NAMES.size > 0) {
+    return !HOST_TOOL_NAMES.has(name) && !DRAWER_TOOLS.has(name);
+  }
   // MCP tools (dynamic, registered by sandbox/mcp-manager.ts as `mcp_<tool>`)
   // always live in the drawer: a user with several extensions installed
   // would otherwise re-inflate the per-turn schema bloat this file exists
   // to prevent. `list_tools` → `load_tool` reaches them on demand.
-  EXTENDED_TOOLS.has(name) || name.startsWith("mcp_");
+  return EXTENDED_TOOLS.has(name) || name.startsWith("mcp_");
+};
 export const isConnectorTool = (name: string): boolean => CONNECTOR_TOOLS.has(name);
 
 /**

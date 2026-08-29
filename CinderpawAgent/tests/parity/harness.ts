@@ -55,8 +55,15 @@ export interface Scenario {
 }
 
 export interface Outcome {
-  /** The answer the user would have seen. */
+  /** The answer the user would have seen. Audience-safe: no model, no tokens. */
   answer: string;
+  /**
+   * The operator-facing reason a turn failed, carried beside the answer rather
+   * than inside it. A scenario about a FAILURE has to assert on both halves —
+   * that the person is not handed the machinery, and that the machinery is not
+   * thrown away. See TurnResult.diagnostic.
+   */
+  diagnostic?: string;
   /** Every request body the model was sent — what the agent said back to it. */
   sent: string[];
   /** The scenario's workspace, for asserting on files. */
@@ -140,13 +147,13 @@ export async function runScenario(scenario: Scenario): Promise<Outcome> {
     registry.register(createListDirectoryTool([workspace]));
 
     const agent = new AgentLoop(router, registry, episodic, {}, recall);
-    const answer = await agent.handle(
+    const turn = await agent.handleTurn(
       `parity-${scenario.name}`,
       scenario.prompt,
       `m-${scenario.name}`,
       () => {},
     );
-    return { answer, sent, workspace, completions: index };
+    return { answer: turn.text, diagnostic: turn.diagnostic, sent, workspace, completions: index };
   } finally {
     globalThis.fetch = originalFetch;
     for (const [k, v] of Object.entries(savedEnv)) {

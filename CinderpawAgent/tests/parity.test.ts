@@ -204,8 +204,14 @@ describe("parity: work that must not be thrown away", () => {
         { content: "" },
       ],
     });
-    expect(out.answer).toContain("1 tool call");
+    // Both halves, because the requirement has two of them now. The person is
+    // told there is something to check WITHOUT being handed the machinery —
+    // this same text answers Discord and, in a benchmark, a customer — while
+    // the detail that makes it actionable survives on the diagnostic.
+    expect(out.answer).toMatch(/check|finish/i);
     expect(out.answer).not.toContain("returned an empty response");
+    expect(out.answer).not.toMatch(/\bmodel\b|\btoken/i);
+    expect(out.diagnostic).toContain("1 tool call");
     expect(await readFile(join(out.workspace, "r.txt"), "utf8")).toBe("done");
   });
 });
