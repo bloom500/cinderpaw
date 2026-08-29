@@ -49,7 +49,15 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, copyFileSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+/**
+ * True only when this file was the command the user ran. `polyglot-delta.mjs`
+ * imports `runTask`/`resolveRoute`/`preflight` from here, and without this an
+ * import would also run the whole walk-away suite as a side effect.
+ */
+const isMain =
+  !!process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MOCK_ADS = join(dirname(fileURLToPath(import.meta.url)), "bench-mock-ads.mjs");
@@ -136,7 +144,7 @@ function sidecarBaseUrl(url) {
   return url.replace(new RegExp("/+$"), "").replace(new RegExp("/v1$"), "");
 }
 
-function resolveRoute() {
+export function resolveRoute() {
   const explicit = {
     CINDERPAW_BASE_URL: process.env.CINDERPAW_BASE_URL,
     CINDERPAW_MODEL: process.env.CINDERPAW_MODEL,
@@ -203,7 +211,7 @@ function resolveRoute() {
  * value of the bench is the number it produces, and a run that could never
  * have produced one should refuse to start.
  */
-async function preflight(routeEnv) {
+export async function preflight(routeEnv) {
   // Built the same way inference-providers.ts builds it, deliberately: a
   // preflight that probes a different URL than the sidecar uses can pass while
   // every task 404s, which is worse than having no preflight.
@@ -551,8 +559,12 @@ function runNode(args) {
  * than a polite request: "it was still going after 25 minutes" is a FAILURE,
  * not a longer wait.
  */
-function runTask(task, workspace, logPath, timeoutMs, routeEnv, needsMockAds = false) {
-  const benchHome = join(workspace, ".cinderpaw");
+export function runTask(task, workspace, logPath, timeoutMs, routeEnv, needsMockAds = false, opts = {}) {
+  // `opts.home` lets a caller SHARE one profile across tasks instead of
+  // isolating each one. That is the whole ON/OFF switch the delta harness
+  // needs: isolated home = the agent starts every task with no memory of the
+  // previous one; shared home = memory, notes and lessons accumulate.
+  const benchHome = opts.home ?? join(workspace, ".cinderpaw");
   seedProviderConfig(benchHome);
   return new Promise((done) => {
     const events = [];
@@ -601,6 +613,9 @@ function runTask(task, workspace, logPath, timeoutMs, routeEnv, needsMockAds = f
           : {}),
         // Isolate state so one task cannot poison the next through memory.
         CINDERPAW_HOME: benchHome,
+        // Per-arm overrides (ablations). Last, so an arm can override
+        // anything this function sets by default.
+        ...(opts.env ?? {}),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -675,7 +690,7 @@ const timeoutOverride = arg("timeout", null);
 
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outDir = join(ROOT, "bench-results", stamp);
-mkdirSync(outDir, { recursive: true });
+if (isMain) mkdirSync(outDir, { recursive: true });
 
 const selected = only ? TASKS.filter((t) => t.id === only) : TASKS;
 if (selected.length === 0) {
@@ -824,8 +839,8 @@ function stop(code, message) {
 
 // Refuse to start without a model rather than produce N identical inference
 // failures and call it a reliability measurement.
-const route = resolveRoute();
-if (route.error) {
+const route = isMain ? resolveRoute() : { error: "imported, not run" };
+if (isMain && route.error) {
   stop(2, `walk-away bench cannot start — ${route.error}`);
 }
 if (!route.error) {
