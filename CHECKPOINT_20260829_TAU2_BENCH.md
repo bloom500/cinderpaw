@@ -154,7 +154,13 @@ approximate rather than like-for-like.
 
 ---
 
-## 3. What is NOT built — the bridge, redesigned
+## 3. The bridge design — BUILT since this was written; see section 7
+
+> **Stale heading, kept for the reasoning.** This section said "what is NOT
+> built". It is built, shipped and proven (commits 0ba4ac3 and f1f1a24, with a
+> paired canary in section 7). The design below is what was actually
+> implemented, so it is still the right thing to read before touching it — only
+> the tense is wrong.
 
 The requirement from §2 is now precise: **Cinderpaw must emit its domain tool
 calls to the orchestrator and receive the results back, rather than executing
@@ -265,21 +271,160 @@ drive a decision here; it is the wrong axis.
 
 ---
 
-## 7. Suggested order for the next session
+## 7. Where this actually stands — 2026-08-29, end of session
 
-1. ~~Commit the working tree (§0).~~ Done — `9ae0eb5` (DSML parser),
-   `73e733f` (perf policy), `762d5d0` (bench harness + this file).
-2. ~~Pin the step budget.~~ Done, and it changed the design — read §2 and §3
-   before writing a line of the bridge. The short version: what gets graded is
-   a REPLAY of the orchestrator's trajectory, so tools must round-trip through
-   the orchestrator, and the step budget then takes care of itself.
-3. Build the forwarder + socket + agent class (§3). No step counter needed.
-4. `--num-tasks 5` first. Compare shape against the stock `llm_agent` run of the
-   same 5 tasks — same harness, same day, both numbers ours.
-5. Only then all 50, against the published 77.3 %.
+**The bridge is built, proven, and the paired canary has run. Verdict: READY
+for the full 50+50.** Nothing below is a plan; it is what happened, with the
+command that re-checks it.
 
-Expect Cinderpaw to be able to score **worse** than the baseline: a heavy
-scaffold on a benchmark tuned for plain tool calling means more context, more
-chances to violate policy, and more steps toward the cap that scores zero. That
-result would still be worth having. Decide now that it gets published either
-way.
+### The one command, when you are back
+
+```bash
+bash scripts/tau2/run_full_benchmark.sh
+```
+
+Both arms sequentially, then the matrix. ~$1.50 and ~4.7h (Cinderpaw ~3.1h,
+baseline ~1.6h). Nothing else needs deciding first.
+
+### Paired canary, five WRITE-HEAVY tasks (7, 8, 11, 12, 14)
+
+Not tasks 0-4: **none of the first five mutate anything**, so the default
+`--num-tasks 5` would have passed green without a single write ever crossing
+the replay — the exact path this session existed to fix.
+
+```
+ task  rew    db  comm  msgs  calls  wr    sec   |  llm_agent
+    7  0.0  True   0.0    32     12   3    166   |  0.0  True  comm 0.0
+    8  1.0  True   1.0    40     11   4    341   |  1.0
+   11  0.0 False   1.0    20      6   0    153   |  1.0  True
+   12  1.0  True   1.0    30      6   2    196   |  1.0
+   14  1.0  True   1.0    28      8   2    250   |  1.0
+
+  cinderpaw  solved 3/5  db 4/5  MAX_STEPS 0  infra 0  |  8.6 calls (2.2 wr)  221 s/task
+  llm_agent  solved 4/5  db 5/5  MAX_STEPS 0  infra 0  |  7.8 calls (1.6 wr)  113 s/task
+```
+
+Both arms ran on OUR harness the same day. The only variable is the agent —
+`llm_agent` is tau2's reference agent (14 domain tools, nothing else) and is a
+thermometer, not a product; it cannot run outside the airline domain.
+
+**Task 7 fails IDENTICALLY in both arms** (db True, communicate 0.0). That is
+not a Cinderpaw defect. The only Cinderpaw-specific failure is task 11, where
+it communicated correctly and never acted — 0 writes where the baseline made 1.
+
+### The gate, criterion by criterion
+
+| # | Criterion | Status |
+|---|---|---|
+| 1 | Zero infrastructural failures | PASS — both arms, 0 infra, 0 MAX_STEPS |
+| 2 | Writes survive the replay | PASS — 11 writes over 4 tasks, db_match 4/5 |
+| 3 | No systematic same-cause failure | PASS — task 7 fails in both arms; one Cinderpaw-only failure |
+| 4 | Cost and time predictable | PASS — $0.0203/task, 221s mean, slowest 1.5x mean |
+| 5 | Baseline runs clean | PASS — 0 infra, 0 MAX_STEPS |
+
+A one-task delta at n=5 is 20 points: noise, not a result.
+
+### Measured cost (do not re-estimate this)
+
+| | agent | user sim | per 50 |
+|---|---|---|---|
+| cinderpaw | $1.01 (252k prompt tok/task, from the event stream) | $0.12 | **$1.13** |
+| llm_agent | ~$0.25 (estimated) | $0.12 | **$0.37** |
+
+`agent_cost` reads **$0.0000** for the llm_agent arm — litellm returns no cost
+for `openrouter/z-ai/glm-5.3-flash`. That is untracked, NOT free; the
+$0.005/task figure comes from OpenRouter's published board and matches a prompt
+roughly a third the size of ours.
+
+### Why both arms, and when we can stop paying for the baseline
+
+Citing our Cinderpaw number against OpenRouter's published 77.3% would
+attribute every harness difference to the runtime — and we know of three: the
+user simulator routes through OpenRouter rather than Google directly, their
+`--max-steps` is unpublished (we use 200, the orchestrator default is 100), and
+their tau2 version and concurrency are unknown.
+
+The baseline arm is therefore a ONE-TIME harness validation, not a permanent
+tax. If the 50-task baseline lands near 77.3%, our harness reproduces theirs
+and later rounds can cite the published number and run Cinderpaw alone. Early
+signal is good but proves nothing: our llm_agent canary was 4/5 = 80% against a
+published 77.3%, at n=5.
+
+### What to watch at n=50 — flagged, deliberately NOT fixed
+
+- **Task 11's failure mode**: communicated, never acted. The only
+  Cinderpaw-only failure in the canary.
+- **Cinderpaw writes more**: 2.2 vs 1.6 mutations per task; on task 8, four
+  against one, both scoring db_match True. Redundant mutations that still land
+  on the correct state. n=50 says whether that is noise or a pattern.
+- **Cinderpaw is ~2x slower** (221s vs 113s). That is the scaffold's cost.
+
+### An honest expectation about the number
+
+The hope is >80%. Note what that requires: the reference agent scored 4/5 on
+the canary and the published GLM figure is 77.3%, so clearing 80% means beating
+a plain agent at plain tool calling — on a benchmark calibrated for exactly
+that, while carrying 10.8k tokens of prefix against its ~4.8k.
+
+The original warning stands, and was written before any number existed:
+Cinderpaw scoring WORSE is a live possibility. It is already decided that the
+result gets published either way. A scaffold built for long, tool-using,
+memory-carrying work that loses on short scripted tool calls is a precise and
+publishable claim about where it helps — more useful than another leaderboard
+percent.
+
+---
+
+## 8. What shipped this session
+
+Thirteen commits, `9d65069..5c84090`. Full suite green at each: 3,633 pass,
+0 fail, plus 15 cargo and 20 vitest.
+
+The bridge, and four bugs found by chasing the sidecar event stream rather than
+guessing. **None of them was the model reasoning too much**, which was the
+standing suspicion the whole time:
+
+| Commit | What it was |
+|---|---|
+| `0ba4ac3` | host tools: the sidecar suspends a call and lets the host run it |
+| `f1f1a24` | the tau2 agent + runner; tool calls round-trip through the orchestrator |
+| `1451cf4` | sections 2/3 corrected: the graded DB is a REPLAY of the trajectory |
+| `a2e31cf` | host tools flip tool tiering — 16,488 to 10,830 tokens of prefix |
+| `67cee1b` | a customer must never be told to "try a larger model" |
+| `21b780a`, `f717085` | a host tool cannot be awaited inside a notebook cell |
+| `b50b2b8` | load_tool: "already available" is not "no such tool" |
+
+`scripts/tau2/` holds the agent, the runner, `compare_arms.py` (shape first,
+reward last) and `run_full_benchmark.sh`. Sidecar events land in
+`CINDERPAW_TAU2_EVENT_DIR` — tau2's own results.json records the CONVERSATION,
+which is exactly the half that is empty when the failure is inside the agent.
+
+### What is NOT being tested, and must be said next to any number
+
+Each task gets a fresh `CINDERPAW_HOME`, so the profile is empty: **no MCP
+extensions, no skills, no soul, no cross-task memory, no settings**. Brain is
+`brain.json.disabled` even in the real profile. Active and proven in the run:
+the agent loop, tool registry, the drawer, working and fractal memory within a
+task, model routing, safety points, unattended continuations.
+
+Two deliberate changes for host mode: built-ins move behind the drawer
+(reachable via `list_tools`/`load_tool`), and the notebook cannot call domain
+tools. The second is a real loss — the notebook is the largest measured token
+lever and it is unavailable for exactly the tools that matter here.
+
+So the honest phrasing is **"Cinderpaw's agent loop"**, not "Cinderpaw".
+
+### Unrelated, still uncommitted, NOT mine
+
+Voice work by another agent sits uncommitted in this same working tree:
+`livekit.rs`, `livekit_agent.mjs`, `CallOverlay.tsx`, `VoiceEngineCard.tsx`,
+`tauri/index.ts`, `commands/livekit.rs`, `lib.rs`. There is no
+`fix/voice-badges-and-livekit-snappy` branch anywhere — local, bloom500 or
+origin. **We are sharing a worktree**; a `git add -A` here can swallow that
+work. Verified hunk by hunk that this session's commits did not.
+
+Static verification of it passed: frontend `tsc` clean, `VoiceEngineCard` 3/3,
+`cargo test -p cinderpaw-core livekit` 9/9,
+`the_catalog_goes_over_the_wire_in_camel_case` ok, `cargo check` clean. The
+manual steps (badges on screen, TTFM, partial transcript latency) were NOT done
+and are not claimed.
