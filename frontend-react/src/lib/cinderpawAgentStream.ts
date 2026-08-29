@@ -89,11 +89,22 @@ export function ensureCinderpawListener(): Promise<void> {
           const h = inflight.get(parsed.id);
           if (h) {
             inflight.delete(parsed.id);
+            // The desktop is the one surface whose reader owns the machine,
+            // so it is the one that re-joins the operator diagnostic to the
+            // answer. Everywhere else the two stay apart and only the answer
+            // is delivered — see the `diagnostic` note on the 'done' event.
+            // Keeping the reason off the person's screen entirely would be the
+            // worse failure of the two.
+            const shown = parsed.diagnostic
+              ? `${parsed.content}
+
+_${parsed.diagnostic}_`
+              : parsed.content;
             if (h.stopped) {
               if (h.onStopped) h.onStopped();
-              else h.onDone(parsed.content, true);
+              else h.onDone(shown, true);
             } else {
-              h.onDone(parsed.content, false);
+              h.onDone(shown, false);
             }
           }
         }

@@ -379,7 +379,13 @@ function unfinishedBanner(outcome: TurnOutcome, turnCount: number, replanned = f
     case "stopped":
       return `⏹️ **Stopped.** The run was cancelled after ${turnsRun}.`;
     case "no_answer":
-      return `⚠️ **Not finished.** After ${turnsRun} the model produced no usable answer.`;
+      // "the model" is the one word in this banner that belongs to the
+      // operator's world rather than the reader's. The rest of these lines
+      // describe the RUN, which is legitimately what the person who started it
+      // is owed; this one described the machinery. The actionable version
+      // (budgets, model names) rides on the turn's `diagnostic` instead — see
+      // TurnResult in agent-loop.ts.
+      return `⚠️ **Not finished.** After ${turnsRun} I couldn't produce a usable answer.`;
     default:
       return `⚠️ **Not finished.** Stopped after ${turnsRun}.`;
   }

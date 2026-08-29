@@ -1471,6 +1471,18 @@ export type OutboundEvent =
       outcome?: string;
       incomplete?: boolean;
       /**
+       * Why the turn failed, in the OPERATOR's vocabulary — token budgets,
+       * model names, files worth checking. Present only on a failed turn.
+       *
+       * Deliberately not part of `content`. `content` is delivered verbatim to
+       * whoever is on the other end, and that is not always the person who owns
+       * the machine: a connector chat or a benchmark's simulated customer was
+       * being told "Try a shorter prompt or a larger model" about a runtime
+       * they have no idea exists. A surface whose reader IS the operator (the
+       * desktop) should render this; one where a stranger is reading must not.
+       */
+      diagnostic?: string;
+      /**
        * True on the single event that closes an UNATTENDED run, as opposed to
        * one turn inside it. Consumers counting turns must skip it; consumers
        * waiting for the answer must accept it.

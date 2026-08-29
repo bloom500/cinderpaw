@@ -266,6 +266,25 @@ export interface TurnResult {
   toolCallCount: number;
   /** True when work remains and continuing the session is meaningful. */
   incomplete: boolean;
+  /**
+   * Why the turn failed, in the operator's language — token budgets, model
+   * names, files worth checking. NEVER part of `text`.
+   *
+   * These two used to be one string, and the string was the answer. So a turn
+   * that died on its token budget replied to whoever was on the other end with
+   * "Try a shorter prompt or a larger model" — fine on the desktop, where the
+   * reader owns the machine, and wrong everywhere else: a customer on a
+   * connector was being handed the internals of a runtime they have no idea
+   * exists, phrased as advice they cannot act on. Observed as an agent telling
+   * a tau2 airline customer exactly that, twice, mid-booking.
+   *
+   * Splitting them is not hiding the reason — dropping it into a log the person
+   * does not have open would be. `text` says, plainly and without jargon, that
+   * the turn did not finish; `diagnostic` rides alongside on the `done` event so
+   * the desktop can show the actionable version, and surfaces where a stranger
+   * is reading simply do not render it.
+   */
+  diagnostic?: string;
 }
 
 /** Whether an outcome should be re-invoked rather than reported as done. */
@@ -871,7 +890,8 @@ export class AgentLoop {
       // `#handle` is documented as never throwing, but a throw here must not
       // look like a completed turn to an unattended caller.
       return {
-        text: `(turn failed: ${String(err)})`,
+        text: "Something went wrong on my side and I couldn't finish that.",
+        diagnostic: `turn failed: ${String(err)}`,
         outcome: "no_answer",
         toolCallCount: 0,
         incomplete: false,
@@ -1223,7 +1243,7 @@ export class AgentLoop {
       // Self-terminating loop: no limit computation needed. #run() returns
       // naturally when the model produces a text-only turn (no tool calls).
       // The 500-ceiling inside #run() is an emergency backstop only.
-      const { text: runText, toolCallCount: runToolCount, outcome } = await this.#run(
+      const { text: runText, toolCallCount: runToolCount, outcome, diagnostic } = await this.#run(
         sessionId,
         memory,
         messageId,
@@ -1290,6 +1310,7 @@ export class AgentLoop {
         traceId,
         outcome,
         incomplete: isContinuable(outcome),
+        ...(diagnostic ? { diagnostic } : {}),
       });
 
       // Fire-and-forget: extract durable user facts from the turn just
@@ -1406,7 +1427,17 @@ export class AgentLoop {
           );
         }
       }
-      return { text: message, outcome: "no_answer", toolCallCount, incomplete: false };
+      // `message` names budgets, providers and exception text — the operator's
+      // vocabulary. It already went out on the `error` event, which is where a
+      // host that should see it looks; what comes back here is what gets
+      // DELIVERED as the reply, so it stays in the reader's vocabulary instead.
+      return {
+        text: "Something went wrong on my side and I couldn't finish that.",
+        diagnostic: message,
+        outcome: "no_answer",
+        toolCallCount,
+        incomplete: false,
+      };
     }
   }
 
@@ -1423,7 +1454,7 @@ export class AgentLoop {
      * unchanged for callers that don't opt into Brain.
      */
     routeTargets: { primary: ModelTarget; fallback?: ModelTarget } | null = null,
-  ): Promise<{ text: string; toolCallCount: number; outcome: TurnOutcome }> {
+  ): Promise<{ text: string; toolCallCount: number; outcome: TurnOutcome; diagnostic?: string }> {
     // Reset stop flag at the start of every run (ctx is per-handle, so this
     // only affects this session — the P3 fix for shared #lastStopped).
     ctx.stopped = false;
@@ -1757,12 +1788,18 @@ export class AgentLoop {
             // budget for reasoning is both wrong and, worse, it tells the
             // person nothing happened when files may have changed.
             return {
+              // Audience-safe: true, useful, and it names no machinery. Whoever
+              // is reading might be a customer who has never heard of a model.
               text:
                 toolCallCount > 0
-                  ? `(The model went silent after ${toolCallCount} tool call${toolCallCount === 1 ? "" : "s"} ` +
+                  ? "I did some of the work but wasn't able to finish this. Please check before relying on it."
+                  : "I wasn't able to answer that. Please try again.",
+              diagnostic:
+                toolCallCount > 0
+                  ? `The model went silent after ${toolCallCount} tool call${toolCallCount === 1 ? "" : "s"} ` +
                     `and never wrote an answer, even after several automatic retries. The work itself ran — ` +
-                    `check the files it touched before re-running this.)`
-                  : "(The model used all available tokens on reasoning and produced no answer, even after several automatic continuations. Try a shorter prompt or a larger model.)",
+                    `check the files it touched before re-running this.`
+                  : "The model used all available tokens on reasoning and produced no answer, even after several automatic continuations. Try a shorter prompt or a larger model.",
               toolCallCount,
               outcome: "no_answer",
             };
@@ -1778,9 +1815,13 @@ export class AgentLoop {
           return {
             text:
               toolCallCount > 0
-                ? `(The model went silent after ${toolCallCount} tool call${toolCallCount === 1 ? "" : "s"} ` +
-                  `and never wrote an answer. The work itself ran — check the files it touched before re-running this.)`
-                : "(The model returned an empty response.)",
+                ? "I did some of the work but wasn't able to finish this. Please check before relying on it."
+                : "I wasn't able to answer that. Please try again.",
+            diagnostic:
+              toolCallCount > 0
+                ? `The model went silent after ${toolCallCount} tool call${toolCallCount === 1 ? "" : "s"} ` +
+                  `and never wrote an answer. The work itself ran — check the files it touched before re-running this.`
+                : "The model returned an empty response.",
             toolCallCount,
             outcome: "no_answer",
           };

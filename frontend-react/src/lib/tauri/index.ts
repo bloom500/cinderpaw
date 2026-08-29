@@ -606,7 +606,12 @@ export interface AgentConfig {
 /** Parsed output event from the Cinderpaw Agent sidecar. */
 export type CinderpawAgentEvent =
   | { type: 'chunk';       id: string; content: string }
-  | { type: 'done';        id: string; content: string; stopped: boolean }
+  // `diagnostic` is the operator-facing reason a turn failed (token budget,
+  // model, files worth checking). The sidecar keeps it OUT of `content` so
+  // connectors and benchmarks — where the reader is not the person who owns
+  // the machine — deliver a clean answer. The desktop is the surface whose
+  // reader IS that person, so it is the one place that shows it.
+  | { type: 'done';        id: string; content: string; stopped: boolean; diagnostic?: string }
   // `sessionId` is optional and only present on newer sidecars. It is what
   // lets a surface attribute a call to WHO ran it — the cowork panel uses it
   // to show which tools a teammate is using, which the events could not say
