@@ -488,8 +488,14 @@ function Composer({
   // Follow the conversation when the user has not overridden the target.
   const touched = useRef(false);
   useEffect(() => {
-    if (!touched.current) setTo(defaultTo);
-  }, [defaultTo]);
+    // Also frozen once there is a draft in the box. `touched` alone only
+    // caught an explicit change of the select — so while you typed, any
+    // teammate who spoke moved `defaultTo`, and the half-written message was
+    // silently readdressed to whoever talked last. You do not get to see that
+    // happen: the select is a 10px control at the other end of the row.
+    // Starting to type IS choosing a recipient.
+    if (!touched.current && !text) setTo(defaultTo);
+  }, [defaultTo, text]);
 
   const send = async () => {
     const body = text.trim();
@@ -681,6 +687,10 @@ export function CoworkTranscriptPanel() {
   const [width, setWidth] = useState(readWidth);
   const [height, setHeight] = useState(readHeight);
   const [pos, setPos] = useState(readPos);
+  // Mirrors `pos` for the drag listeners, which are bound once and must not be
+  // rebuilt mid-gesture just to see the current value.
+  const posRef = useRef(pos);
+  posRef.current = pos;
   const scrollRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const resizingWidth = useRef(false);
@@ -899,7 +909,7 @@ export function CoworkTranscriptPanel() {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       try {
-        localStorage.setItem(PANEL_POS_KEY, JSON.stringify(pos));
+        localStorage.setItem(PANEL_POS_KEY, JSON.stringify(posRef.current));
       } catch {}
       // Keep didDrag true for the click that follows mouseup; toggle will clear it.
       if (didDrag.current) setTimeout(() => { didDrag.current = false; }, 0);
@@ -910,7 +920,13 @@ export function CoworkTranscriptPanel() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [pos]);
+    // Deliberately `[]`. This depended on `[pos]`, and `onMove` calls `setPos`
+    // — so every frame of a drag tore down both window listeners and added
+    // them again, sixty times a second, mid-gesture. The only thing `[pos]`
+    // bought was a fresh `pos` for the persist in `onUp`; `posRef` gives that
+    // without rebuilding the gesture underneath the hand holding it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -986,12 +1002,21 @@ export function CoworkTranscriptPanel() {
         aria-label="Open cowork transcript"
         aria-expanded={false}
         layoutId="cowork-panel"
-        initial={{ scale: 0.85, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.85, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 420, damping: 28 }}
-        style={{ top: pos.top, right: pos.right }}
-        className="absolute z-30 size-14 rounded-full shadow-lg
+        // `borderRadius` inline, and NOT via `rounded-full`, because this
+        // element shares `layoutId` with the expanded panel. A shared layout
+        // transition projects one box onto the other and scale-corrects it —
+        // but it can only correct a radius it can read, and a Tailwind class
+        // is not one. So the circle was drawn at the panel's rectangular
+        // radius for the length of the morph, and `ring-2` (a box-shadow,
+        // which follows border-radius) traced that rectangle: the square
+        // around the bubble. The panel already animates its radius inline;
+        // this is the other half of the same pair.
+        style={{ top: pos.top, right: pos.right, borderRadius: 9999 }}
+        initial={{ scale: 0.85, opacity: 0, borderRadius: 9999 }}
+        animate={{ scale: 1, opacity: 1, borderRadius: 9999 }}
+        exit={{ scale: 0.85, opacity: 0, borderRadius: 9999 }}
+        className="absolute z-30 size-14 shadow-lg
                    flex items-center justify-center cursor-pointer
                    ring-2 ring-bg-elevated
                    hover:scale-105 active:scale-95 transition-transform"

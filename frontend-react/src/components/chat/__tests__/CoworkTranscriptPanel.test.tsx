@@ -294,6 +294,39 @@ describe('CoworkTranscriptPanel', () => {
 });
 
 describe('talking to a teammate directly', () => {
+  test('a teammate speaking mid-sentence does NOT readdress the draft', async () => {
+    // The recipient follows whoever spoke last, which is right for an empty
+    // box and wrong the instant there is a draft in it: you begin a message to
+    // Atlas, Bolt answers something unrelated, and the send goes to Bolt. The
+    // only sign is a 10px select at the far end of the row, so the first time
+    // you learn about it is when the wrong teammate replies.
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'for you, Atlas');
+
+    useCoworkTranscript.setState({
+      exchanges: [
+        exchange({ id: 'm1' }),
+        exchange({
+          id: 'm2',
+          fromAgentId: 'demo-agent-bolt',
+          toAgentId: 'demo-agent-bolt',
+          toName: 'Bolt',
+          responseText: 'unrelated',
+          status: 'done',
+        }),
+      ],
+    });
+
+    await userEvent.keyboard('{Enter}');
+    expect(tauri.cinderpawAgent.coworkSendMessage).toHaveBeenCalledWith(
+      'demo-agent-atlas',
+      'for you, Atlas',
+      't1',
+    );
+  });
+
+
   test('sends to the teammate who spoke last, in the same thread', async () => {
     useCoworkTranscript.setState({
       exchanges: [exchange({ id: 'm1', responseText: 'done', status: 'done' })],
