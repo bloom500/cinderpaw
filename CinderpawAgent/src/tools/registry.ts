@@ -271,6 +271,15 @@ export class ToolRegistry {
     opts: ToolCallOptions = {},
   ): Promise<ToolResult> {
     const start = Date.now();
+    // A weak model sometimes serialises the WHOLE call into the name slot and
+    // leaves the arguments empty: name = '{"name":"get_reservation_details",
+    // "args":{"reservation_id":"OWZ4XL"}}', args = {}. Reporting that as
+    // `unknown_tool` is true but useless — the model has no way to see that the
+    // NAME was the problem, so it retries the same shape with different
+    // whitespace. Observed doing exactly that four times in a row on one task,
+    // never recovering. Unwrapping costs nothing and is done here because
+    // `call` is the one door every caller comes through.
+    ({ name, args } = unwrapDoubleEncodedCall(name, args, (n) => this.#tools.has(n)));
     const tool = this.#tools.get(name);
 
     if (!tool) {
@@ -842,4 +851,40 @@ function isRetryable(
     }
   }
   return false;
+}
+
+/**
+ * Undo a call the model serialised twice.
+ *
+ * Only fires when the name does not resolve AND the inner name does — so a
+ * genuinely missing tool still reports as missing, and a tool legitimately
+ * named with a leading brace (there are none, but the registry does not
+ * forbid it) still wins. Argument keys cover what the common wire formats
+ * call the payload; a wrapper with none is still worth unwrapping, because
+ * a no-argument tool is a real thing.
+ */
+export function unwrapDoubleEncodedCall(
+  name: string,
+  args: Record<string, unknown>,
+  known: (name: string) => boolean,
+): { name: string; args: Record<string, unknown> } {
+  if (typeof name !== "string" || known(name)) return { name, args };
+  const trimmed = name.trim();
+  if (!trimmed.startsWith("{")) return { name, args };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return { name, args };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { name, args };
+  const obj = parsed as Record<string, unknown>;
+  const inner = obj.name ?? obj.tool ?? obj.function;
+  if (typeof inner !== "string" || !known(inner)) return { name, args };
+  const payload = obj.args ?? obj.arguments ?? obj.parameters ?? obj.input;
+  const innerArgs =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : args;
+  return { name: inner, args: innerArgs };
 }

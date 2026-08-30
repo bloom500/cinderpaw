@@ -183,3 +183,23 @@ describe("the map cannot rot", () => {
     }
   });
 });
+
+describe("tools the classifier has never heard of", () => {
+  // The real shape this missed: with CINDERPAW_HOST_TOOLS set, the core set is
+  // the host's tools and NONE of them appear in any intent map. The old filter
+  // read that as "none of these are needed" and stripped the whole job.
+  const HOST = ["book_reservation", "search_direct_flight", "cancel_reservation", "get_user_details"];
+
+  test("a host's tools survive a message that looks like a different intent", () => {
+    const core = [...HOST, "list_tools", "load_tool"];
+    const out = selectTools({ text: "I'd like to book a one-way flight and read my details", coreTools: core });
+    for (const name of HOST) expect(out).toContain(name);
+  });
+
+  test("an unknown tool is kept even when a known one next to it is dropped", () => {
+    const core = ["read_file", "write_file", "git_commit", "some_mcp_tool", ...HOST];
+    const out = selectTools({ text: "search the web for the changelog and summarise it", coreTools: core });
+    expect(out).toContain("some_mcp_tool");
+    for (const name of HOST) expect(out).toContain(name);
+  });
+});

@@ -183,6 +183,25 @@ export function classifyToolIntents(text: string): Set<ToolIntent> {
   return found;
 }
 
+/**
+ * Every tool name this module was ever taught about.
+ *
+ * A core tool outside this set is one the classifier has no opinion on — an
+ * MCP server's tools, a forged tool, a host's domain tools — and Rule 1 (fail
+ * open) says no opinion means keep it. Treating unknown names as "positively
+ * not needed" was the inverse of this module's own contract, and it broke the
+ * case it was never tested on: with `CINDERPAW_HOST_TOOLS` set, the core set
+ * IS the host's tools, not one of which is named above. Any first message with
+ * a signal in it therefore stripped the entire job from the prompt, and the
+ * model spent round trips rediscovering its own tools through the drawer and
+ * guessing argument names until one was accepted. Measured on tau2's airline
+ * domain: five rejected `book_reservation` calls on a single task.
+ */
+const KNOWN_TOOLS: ReadonlySet<string> = new Set<string>([
+  ...ALWAYS_TOOLS,
+  ...Object.values(INTENT_TOOLS).flat(),
+]);
+
 export interface SelectToolsInput {
   /** The user's first real message of the session. */
   text: string;
@@ -211,7 +230,10 @@ export function selectTools(input: SelectToolsInput): string[] {
   // decides what to leave out, never what to add. A name in ALWAYS_TOOLS or an
   // intent map that is not in `core` (drawered, unregistered, renamed) is
   // dropped here rather than conjured into the prompt.
-  const selected = core.filter((name) => wanted.has(name));
+  // `!KNOWN_TOOLS.has(name)` is the fail-open half: this module only removes a
+  // tool it recognises. Anything else is outside its vocabulary, so it has no
+  // positive reason to withhold it and does not.
+  const selected = core.filter((name) => wanted.has(name) || !KNOWN_TOOLS.has(name));
 
   // Rule 1 again, at the other end: a selection that saves nothing worth the
   // risk of being wrong is not worth making. Under a third of the set removed,
