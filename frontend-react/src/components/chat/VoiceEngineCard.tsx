@@ -354,7 +354,13 @@ export function VoiceEngineCard({
                   )}
                 >
                   <span className="mt-0.5 text-text-secondary">
-                    {e.isLocal ? <Laptop size={18} /> : <Cloud size={18} />}
+                    {((e as unknown as { isLocal?: boolean; is_local?: boolean }).isLocal ??
+                      (e as unknown as { isLocal?: boolean; is_local?: boolean }).is_local ??
+                      false) ? (
+                      <Laptop size={18} />
+                    ) : (
+                      <Cloud size={18} />
+                    )}
                   </span>
                   <span className="flex-1">
                     <span className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
@@ -370,12 +376,18 @@ export function VoiceEngineCard({
                     <span
                       className={cn(
                         'mt-1 inline-block rounded px-1.5 py-0.5 text-micro',
-                        e.isLocal
+                        ((e as unknown as { isLocal?: boolean; is_local?: boolean }).isLocal ??
+                          (e as unknown as { isLocal?: boolean; is_local?: boolean }).is_local ??
+                          false)
                           ? 'bg-success/15 text-success'
                           : 'bg-warning/15 text-warning',
                       )}
                     >
-                      {e.isLocal ? t('call.onDevice') : t('call.leavesDevice')}
+                      {((e as unknown as { isLocal?: boolean; is_local?: boolean }).isLocal ??
+                      (e as unknown as { isLocal?: boolean; is_local?: boolean }).is_local ??
+                      false)
+                        ? t('call.onDevice')
+                        : t('call.leavesDevice')}
                     </span>
                   </span>
                 </button>

@@ -21,6 +21,58 @@ import type { CallPhase } from './useCallSession';
  */
 export const LIVEKIT_ENGINE_ID = 'livekit';
 
+/**
+ * What a call will be made with, read from the one place that holds it.
+ *
+ * Extracted so the warmup and the call cannot drift. Rust binds a warmed chain
+ * to these exact values and discards one warmed for anything else — so a
+ * warmup assembled even slightly differently from the call is not a small
+ * inefficiency, it is a warmup that never applies and a person who still waits
+ * the full boot. Two copies of this would drift on the first change.
+ *
+ * Read at call time rather than captured in a dep: a provider or voice picked
+ * while the pre-call screen is open has to apply to THIS call, not the next.
+ */
+function callArgs() {
+  const { s2sProvider, ttsVoice, ttsProvider, whisperModel, sttProvider, language } =
+    useUI.getState();
+  // In pipeline mode the voice belongs to the TTS ENGINE, not to the row — the
+  // row has no voices of its own. Filing it under the row would lose the choice
+  // the moment somebody switched engine, which is the same bug that made the
+  // old voice pill dead.
+  const pipeline = s2sProvider === 'pipeline';
+  const voiceKey = pipeline ? ttsProvider : s2sProvider;
+  return {
+    provider: s2sProvider,
+    voice: voiceKey ? (ttsVoice[voiceKey] ?? null) : null,
+    pipeline: pipeline
+      ? {
+          ttsEngine: ttsProvider,
+          sttModel: whisperModel,
+          sttProvider,
+          // Whisper treats language as an override, not a hint, and the app
+          // already knows which one the user reads the interface in. Left out,
+          // two words of Romanian come back as Japanese.
+          sttLanguage: language,
+        }
+      : undefined,
+  };
+}
+
+/**
+ * Boot the call machinery while the pre-call screen is up, so pressing Call is
+ * a join rather than a fifteen-second boot.
+ *
+ * Fire and forget, and safe to call again — Rust is idempotent and silent
+ * about failure, because the call itself will do the same work and report it
+ * properly. Exported so the overlay can re-warm when the person changes vendor
+ * or voice: the chain that is warm is warm for what was picked when it started.
+ */
+export function warmLiveKit(): void {
+  const a = callArgs();
+  void tauri.raw.warmLivekit(a.provider, a.voice, a.pipeline).catch(() => {});
+}
+
 /** The far end's own words for what it is doing, mapped to the overlay's four
  *  states. Anything unrecognised leaves the phase alone rather than inventing
  *  one: a wrong state on screen is worse than a stale one. */
@@ -119,6 +171,10 @@ export function useLiveKitCallSession() {
     setNotice(null);
     setHeard('');
     setPhase('ready');
+    // The screen appearing IS the signal to boot. Waiting for the button means
+    // the person watches the boot; starting here means they read the screen
+    // while it happens.
+    warmLiveKit();
   }, []);
 
   const begin = useCallback(async () => {
@@ -142,32 +198,8 @@ export function useLiveKitCallSession() {
       // Read at call time, not captured in a dep: a provider picked while
       // the pre-call screen is open has to apply to THIS call, not the
       // next one.
-      // Read at call time, not captured in a dep: a provider or voice picked
-      // while the pre-call screen is open has to apply to THIS call, not the
-      // next one. The voice is filed under the provider it belongs to.
-      const { s2sProvider, ttsVoice, ttsProvider, whisperModel, sttProvider, language } =
-        useUI.getState();
-      // In pipeline mode the voice belongs to the TTS ENGINE, not to the row —
-      // the row has no voices of its own. Filing it under the row would lose
-      // the choice the moment somebody switched engine, which is the same bug
-      // that made the old voice pill dead.
-      const pipeline = s2sProvider === 'pipeline';
-      const voiceKey = pipeline ? ttsProvider : s2sProvider;
-      const call = await tauri.raw.startLivekitCall(
-        s2sProvider,
-        voiceKey ? (ttsVoice[voiceKey] ?? null) : null,
-        pipeline
-          ? {
-              ttsEngine: ttsProvider,
-              sttModel: whisperModel,
-              sttProvider,
-              // Whisper treats language as an override, not a hint, and the app
-              // already knows which one the user reads the interface in. Left
-              // out, two words of Romanian come back as Japanese.
-              sttLanguage: language,
-            }
-          : undefined,
-      );
+      const args = callArgs();
+      const call = await tauri.raw.startLivekitCall(args.provider, args.voice, args.pipeline);
       if (mine !== generation.current) {
         // Hung up while starting — but Rust has ALREADY minted a room and
         // dispatched an agent for it. Returning without saying so leaves that

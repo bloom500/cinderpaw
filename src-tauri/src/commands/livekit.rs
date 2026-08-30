@@ -38,6 +38,18 @@ const IDLE_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(180);
 /// the thing being cancelled is "the intent to shut down", not a task.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// True while a warmup is booting a chain. See `warm_livekit`.
+static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Clears `WARMING` however the warmup leaves — including its early returns,
+/// which is the half a bare `store(false)` at the bottom would miss.
+struct WarmGuard;
+impl Drop for WarmGuard {
+    fn drop(&mut self) {
+        WARMING.store(false, Ordering::SeqCst);
+    }
+}
+
 /// One row in the voice-provider picker.
 #[derive(serde::Serialize, specta::Type)]
 pub struct S2sProviderInfo {
@@ -139,11 +151,31 @@ pub(crate) async fn start_livekit_call(
 ) -> Result<LiveKitCall, String> {
     GENERATION.fetch_add(1, Ordering::SeqCst);
 
+    let wanted = cinderpaw_core::livekit::session_spec(
+        provider.as_deref(),
+        voice.as_deref(),
+        tts_engine.as_deref(),
+        stt_model.as_deref(),
+        stt_provider.as_deref(),
+        stt_language.as_deref(),
+    );
+
     // Already warm: mint a fresh token and let the webview back in. The room is
     // recreated by the join, which is what makes LiveKit dispatch the agent
     // again — the worker never stopped being registered.
+    //
+    // Only when the chain is bound to what is being asked for. A running agent
+    // took its vendor, voice and engines from its environment and cannot be
+    // re-pointed; handing this one back after somebody switched vendor is a
+    // call that connects and then answers in the wrong voice, from the wrong
+    // account. A mismatch is torn down here and paid for once, which is what
+    // somebody who just changed a setting is expecting anyway.
     {
         let mut slot = state.livekit_call.lock();
+        if slot.as_ref().is_some_and(|s| s.spec != wanted) {
+            tracing::info!("livekit: the warm chain is for something else, taking it down");
+            drop(slot.take());
+        }
         if let Some(session) = slot.as_mut() {
             let token = session.rejoin("you");
             tracing::info!("livekit: rejoining the running call");
@@ -206,6 +238,121 @@ pub(crate) async fn start_livekit_call(
     drop(previous);
 
     Ok(call)
+}
+
+/// Bring the whole chain up while the pre-call screen is on, so pressing Call
+/// is a join and not a boot.
+///
+/// This used to run `ensure_agent` and stop — an npm install, which is already
+/// done on every machine after the first call. The fifteen to twenty seconds a
+/// person actually waits are the two things it never touched: the LiveKit
+/// server booting until it answers HTTP, and Node loading the Agents SDK, the
+/// vendor plugin and (for the pipeline) a voice-activity model. So the warmup
+/// warmed the one step that was already warm, and the button still cost the
+/// whole wait. It now does exactly what `start` does and parks the result where
+/// `start` looks first.
+///
+/// Idempotent and silent. Failure is deliberately swallowed: the real `start`
+/// does the same work and reports its own errors properly, and a warmup that
+/// raises a dialog interrupts somebody who has not asked for anything yet.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn warm_livekit(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider: Option<String>,
+    voice: Option<String>,
+    tts_engine: Option<String>,
+    stt_model: Option<String>,
+    stt_provider: Option<String>,
+    stt_language: Option<String>,
+) -> Result<(), String> {
+    // Two warmups racing would boot two servers and two agents, and only one
+    // can be parked — the other becomes orphan processes holding ports. The
+    // pre-call screen can mount more than once (a re-render, a reopened
+    // overlay), so this is a normal path, not a pathological one.
+    if WARMING.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let _guard = WarmGuard;
+
+    // Never touch a chain that already exists. It may be a live call.
+    if state.livekit_call.lock().is_some() {
+        return Ok(());
+    }
+    if cinderpaw_core::toolchain::find_node().is_none() {
+        return Ok(());
+    }
+    let extra: Vec<std::path::PathBuf> = app.path().resource_dir().ok().into_iter().collect();
+    // A missing server binary means a download. `start` does that and reports
+    // it; a background warmup must not silently pull megabytes on somebody
+    // else's connection.
+    if cinderpaw_core::livekit::find_server(&extra).is_none() {
+        return Ok(());
+    }
+
+    let brief =
+        cinderpaw_core::live::Briefing { current_task: None, workspace: None, context: None };
+    let emitter = app.clone();
+    let session = match cinderpaw_core::livekit::start(
+        &extra,
+        "you",
+        Some(cinderpaw_core::live::system_instruction(&brief)),
+        provider,
+        voice,
+        tts_engine,
+        stt_model,
+        stt_provider,
+        stt_language,
+        move |event| {
+            if let Err(e) = emitter.emit("cinderpaw://livekit-event", event) {
+                tracing::warn!("livekit: could not forward an agent event ({e})");
+            }
+        },
+        Some(state.runtime.clone()),
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::info!("livekit: warmup did not finish ({e}); the call will do it");
+            return Ok(());
+        }
+    };
+
+    // Between the await and here somebody may have pressed Call and booted
+    // their own chain. Theirs wins; this one is dropped, which kills its two
+    // children rather than leaving them holding ports.
+    {
+        let mut slot = state.livekit_call.lock();
+        if slot.is_some() {
+            drop(session);
+            return Ok(());
+        }
+        *slot = Some(session);
+    }
+    tracing::info!("livekit: warm, the next call is a join");
+
+    // A warm chain nobody uses must not outlive the screen that asked for it.
+    // The same timer the end of a call arms, for the same reason: somebody who
+    // opened the voice panel once should not be left with a voice server and a
+    // Node process for the rest of the session.
+    let armed_at = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(IDLE_SHUTDOWN).await;
+        if GENERATION.load(Ordering::SeqCst) != armed_at {
+            return; // a call came or went; that one owns the timer now
+        }
+        if let Some(state) = app.try_state::<AppState>() {
+            let previous = state.livekit_call.lock().take();
+            if previous.is_some() {
+                tracing::info!("livekit: warm but unused, taking the voice server down");
+            }
+            drop(previous);
+        }
+    });
+
+    Ok(())
 }
 
 /// Hang up, and let the machinery idle for a few minutes before taking it down.

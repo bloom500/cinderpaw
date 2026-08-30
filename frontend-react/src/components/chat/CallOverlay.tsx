@@ -27,6 +27,7 @@ import { MoltenOrb } from './MoltenOrb';
 import { CallToolScreen } from './CallToolScreen';
 import { CallArtifacts } from './CallArtifacts';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
+import { warmLiveKit } from '@/hooks/useLiveKitCallSession';
 import { speechLevel } from '@/hooks/useSpeechPlayer';
 import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
 import { tauri, type S2sProviderInfo, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
@@ -148,16 +149,35 @@ export function CallOverlay({
   const s2sProvider = useUI((s) => s.s2sProvider);
   const setS2sProvider = useUI((s) => s.setS2sProvider);
   const [s2sList, setS2sList] = useState<S2sProviderInfo[]>([]);
-  useEffect(() => {
-    let alive = true;
-    // Re-read on every mount rather than once per launch: pasting a key is the
-    // thing a person does BETWEEN two attempts at a call, and a cached list is
-    // how the app keeps saying "no key" after they added one.
-    void tauri.raw.listS2sProviders()
-      .then((l) => { if (alive) setS2sList(l); })
-      .catch(() => { if (alive) setS2sList([]); });
-    return () => { alive = false; };
+  const refreshS2s = useCallback(async () => {
+    try {
+      const l = await tauri.raw.listS2sProviders();
+      setS2sList(l);
+    } catch {
+      setS2sList([]);
+    }
   }, []);
+  useEffect(() => {
+    void refreshS2s();
+  }, [refreshS2s]);
+  // Pasted keys happen BETWEEN two attempts at a call. A list fetched once on
+  // mount and never again is how the app keeps saying "no key" after one was
+  // added: every later entry into the pre-call screen re-uses the stale value,
+  // flips `willEcho` true, shows the key field again and blocks the Call button
+  // even though the keychain now holds the key. Re-read whenever the overlay
+  // becomes the thing the person is looking at.
+  // Also warm the LiveKit machinery so the first `Call` does not pay 10-20s
+  // of server boot + npm install while the user watches a spinner.
+  useEffect(() => {
+    if (phase === 'ready') {
+      void refreshS2s();
+      // Re-warmed on every change of vendor or voice, not once on entry: a
+      // chain is warm FOR what was picked when it started, and Rust discards
+      // one warmed for anything else. Without the dependency, changing vendor
+      // on the pre-call screen silently put the full boot back on the button.
+      warmLiveKit();
+    }
+  }, [phase, refreshS2s, s2sProvider, ttsProvider, sttProvider]);
   // What will ACTUALLY run. Rust falls back to the first provider with a key
   // when nothing is picked, so the screen has to resolve it the same way or it
   // describes a call that is not the one about to happen.
@@ -289,6 +309,17 @@ export function CallOverlay({
       // engine that needs a region cannot be fixed from this panel; the "change
       // voice engine" link goes where it can.
       setKey('');
+      // Re-read so `connected` reflects the just-stored key. The optimistic
+      // `setReady(true)` alone left `s2sList` stale, so the next entry into
+      // `ready` flipped `willEcho` true and `ready` false again — the exact
+      // "asks for Gemini key every time" loop the user reported.
+      try {
+        const fresh = await tauri.raw.listS2sProviders();
+        setS2sList(fresh);
+      } catch {
+        // Keep optimistic true: the key is at least in the keychain now, even
+        // if the list could not be re-read.
+      }
       setReady(true);
     } catch {
       useNotifications.getState().push('error', t('voice.keySaveFailed'));
@@ -525,10 +556,21 @@ export function CallOverlay({
                 <EngineLine
                   label={t('call.provider')}
                   name={currentS2s?.label ?? t('call.providerNoneShort')}
-                  // An echo never leaves the machine, so claiming otherwise is
-                  // a privacy statement about traffic that does not exist. A
-                  // realtime vendor always does.
-                  local={willEcho}
+                  // This row only renders for a NON-pipeline provider, i.e. a
+                  // cloud realtime vendor. So the honest answer is fixed: when
+                  // this call runs, the audio goes to Google or OpenAI.
+                  //
+                  // `!connected` printed the green "on device" badge for a
+                  // vendor whose key is merely MISSING — which is the state a
+                  // fresh install is in, on the one line of this screen that
+                  // exists to be trusted about exactly that. A privacy promise
+                  // must never be made by a keychain lookup failing.
+                  //
+                  // The echo state is a separate fact and is already disclosed
+                  // twice: "(no key)" on the provider button and the willEcho
+                  // line under it. `null` still hides the badge when no
+                  // provider is known, rather than guessing.
+                  local={currentS2s ? false : null}
                   t={t}
                 />
               ) : (
@@ -540,7 +582,7 @@ export function CallOverlay({
                   <EngineLine
                     label={t('call.stt')}
                     name={sttProvider === 'groq' ? 'Groq · whisper-large-v3' : 'Whisper'}
-                    local={sttProvider !== 'groq'}
+                    local={sttProvider === 'local' ? true : sttProvider === 'groq' ? false : null}
                     t={t}
                     // Both halves of the call are configurable from here. Only the
                     // speaking half had a way in, so the engine that hears you — and
@@ -550,7 +592,13 @@ export function CallOverlay({
                   <EngineLine
                     label={t('call.tts')}
                     name={voice?.label ?? t('call.engineUnset')}
-                    local={voice ? voice.isLocal : null}
+                    local={
+                      voice
+                        ? ((voice as unknown as { isLocal?: boolean; is_local?: boolean }).isLocal ??
+                          (voice as unknown as { isLocal?: boolean; is_local?: boolean }).is_local ??
+                          false)
+                        : null
+                    }
                     t={t}
                     onChange={onChangeEngine}
                   />

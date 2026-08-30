@@ -535,6 +535,32 @@ logging:
     )
 }
 
+/// What a chain is bound to, as one comparable string.
+///
+/// The provider is RESOLVED rather than taken literally: `None` and an explicit
+/// pick of the vendor that would be resolved anyway are the same call, and a
+/// warm chain must not be thrown away over a difference that exists only in the
+/// spelling. Everything else is compared as given, because everything else is
+/// handed to the agent process verbatim.
+pub fn session_spec(
+    provider: Option<&str>,
+    voice: Option<&str>,
+    tts_engine: Option<&str>,
+    stt_model: Option<&str>,
+    stt_provider: Option<&str>,
+    stt_language: Option<&str>,
+) -> String {
+    let id = resolve_provider(provider).map(|(p, _)| p.id).unwrap_or("echo");
+    format!(
+        "{id}|{}|{}|{}|{}|{}",
+        voice.unwrap_or(""),
+        tts_engine.unwrap_or(""),
+        stt_model.unwrap_or(""),
+        stt_provider.unwrap_or(""),
+        stt_language.unwrap_or(""),
+    )
+}
+
 /// A running call: the server, the far end, and what the webview needs to join.
 ///
 /// Dropping it ends the call. Both children are killed rather than signalled
@@ -556,6 +582,15 @@ pub struct Session {
     /// "assistant" or "echo". The UI has to say which, because the difference
     /// is the whole difference between a product and a diagnostic.
     pub mode: String,
+    /// What this chain was started FOR — see `session_spec`.
+    ///
+    /// A running chain is bound to one vendor, one voice and one pair of
+    /// engines: they were handed to the agent process in its environment and
+    /// cannot be changed without restarting it. Without this field a warm
+    /// session is indistinguishable from the right warm session, and `rejoin`
+    /// hands back a Gemini call to somebody who just switched to OpenAI — a
+    /// call that connects, sounds wrong, and blames the vendor.
+    pub spec: String,
 }
 
 impl Session {
@@ -586,7 +621,7 @@ impl Drop for Session {
 ///
 /// ponytail: install on first use. Vendor it into the bundle when voice ships
 /// as a product feature rather than a self-test.
-async fn ensure_agent(
+pub(crate) async fn ensure_agent(
     node: &Path,
     provider: Option<&S2sProvider>,
 ) -> Result<PathBuf, String> {
@@ -705,6 +740,17 @@ pub async fn start(
 ) -> Result<Session, String> {
     let node = crate::toolchain::find_node().ok_or_else(|| "livekit-no-node".to_string())?;
 
+    // Taken before anything is consumed, so what the chain is bound to is
+    // recorded by the same call that binds it.
+    let spec = session_spec(
+        provider.as_deref(),
+        voice.as_deref(),
+        tts_engine.as_deref(),
+        stt_model.as_deref(),
+        stt_provider.as_deref(),
+        stt_language.as_deref(),
+    );
+
     let server_bin = match find_server(extra_bin_dirs) {
         Some(p) => p,
         None => fetch_server().await?,
@@ -744,7 +790,7 @@ pub async fn start(
     // confusing place three steps later.
     let http = format!("http://127.0.0.1:{}", ports.http);
     let mut up = false;
-    for _ in 0..60 {
+    for _ in 0..80 {
         if reqwest::get(&http).await.is_ok() {
             up = true;
             break;
@@ -760,7 +806,7 @@ pub async fn start(
                 if why.trim().is_empty() { "It stopped without saying why." } else { first_real_line(&why) }
             ));
         }
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
     }
     if !up {
         return Err("the LiveKit server did not come up".into());
@@ -937,7 +983,7 @@ pub async fn start(
     // registered can answer a question; that is a fact, not a string.
     let worker_health = format!("http://127.0.0.1:{}/", ports.worker);
     let mut ready = false;
-    for _ in 0..240 {
+    for _ in 0..200 {
         if reqwest::get(&worker_health).await.map(|r| r.status().is_success()).unwrap_or(false) {
             ready = true;
             break;
@@ -952,7 +998,7 @@ pub async fn start(
                 if why.trim().is_empty() { "It stopped without saying why." } else { first_real_line(&why) }
             ));
         }
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(75)).await;
     }
 
     if !ready {
@@ -979,6 +1025,7 @@ pub async fn start(
         token: mint_token(key, &secret, identity, &room, 60 * 60),
         room,
         mode: mode.to_string(),
+        spec,
     })
 }
 

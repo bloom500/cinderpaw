@@ -211,20 +211,71 @@ class LocalLLMStream extends llm.LLMStream {
           ? i.content.filter((c) => typeof c === 'string').join(' ')
           : String(i.content ?? ''),
       }));
+    // Stream, not wait-for-full: the non-streaming path blocked the turn for
+    // the whole generation (10-20s on a local 7B), so the screen stayed on the
+    // stale transcript until the answer was complete. Streaming puts the first
+    // token on screen in <1s and lets the TTS start while the rest is still
+    // being generated, which is the same reason every other surface streams.
     const res = await fetch(`${API_URL}/runtime/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
-      body: JSON.stringify({ messages, system: INSTRUCTIONS || undefined, stream: false }),
+      body: JSON.stringify({ messages, system: INSTRUCTIONS || undefined, stream: true }),
       signal: this.abortSignal,
     });
     if (!res.ok) throw new Error(`Local model failed: ${await res.text()}`);
-    const body = await res.json();
-    const text = body.content ?? body.text ?? body.message?.content ?? '';
-    this.queue.put({
-      id: String(++nextCallId),
-      delta: { role: 'assistant', content: String(text) },
-    });
-    this.queue.close();
+    // SSE: `data: {"content":"..."}` lines then `data: [DONE]`. Fall back to
+    // non-stream JSON if the server ever returns it.
+    const ctype = res.headers.get('content-type') || '';
+    if (!ctype.includes('text/event-stream') && !ctype.includes('event-stream')) {
+      const body = await res.json();
+      const text = body.content ?? body.text ?? body.message?.content ?? '';
+      this.queue.put({ id: String(++nextCallId), delta: { role: 'assistant', content: String(text) } });
+      this.queue.close();
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let sawAny = false;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t.startsWith('data:')) continue;
+          const payload = t.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+          try {
+            const ev = JSON.parse(payload);
+            // Sidecar emits `{content}` per chunk; be liberal.
+            const delta = ev.content ?? ev.text ?? ev.delta?.content ?? ev.choices?.[0]?.delta?.content ?? '';
+            if (delta) {
+              sawAny = true;
+              this.queue.put({ id: String(++nextCallId), delta: { role: 'assistant', content: String(delta) } });
+            }
+            if (ev.done) break;
+          } catch {
+            // Not JSON (e.g. keepalive) — ignore.
+          }
+        }
+        if (this.abortSignal?.aborted) break;
+      }
+    } finally {
+      // If the stream produced nothing (e.g. server fell back to non-SSE),
+      // try to parse whatever is left as JSON.
+      if (!sawAny && buf.trim()) {
+        try {
+          const ev = JSON.parse(buf);
+          const text = ev.content ?? ev.text ?? '';
+          if (text) this.queue.put({ id: String(++nextCallId), delta: { role: 'assistant', content: String(text) } });
+        } catch {}
+      }
+      this.queue.close();
+    }
   }
 }
 
@@ -578,7 +629,18 @@ async function pipeline(ctx) {
   // that after the room opens is seconds of a person waiting in silence. The
   // fallback is not dead code — a job can land on a process that was never
   // idled, and a call that works slowly beats a call that throws.
-  const vad = ctx.proc?.userData?.vad ?? (await PLUGIN.pipeline().then((s) => s.VAD.load()));
+  const loadVAD = async () => {
+    const silero = await PLUGIN.pipeline();
+    // Tune for snappy turn-taking: default minSilence ~500ms felt like the
+    // transcript was stuck; 300ms is still above breath noise and makes the
+    // partial → final transition visibly faster without cutting words.
+    try {
+      return await silero.VAD.load({ minSpeechDuration: 0.25, minSilenceDuration: 0.35 });
+    } catch {
+      return await silero.VAD.load();
+    }
+  };
+  const vad = ctx.proc?.userData?.vad ?? (await loadVAD());
   const session = new voice.AgentSession({
     stt: new LocalSTT(),
     llm: new LocalLLM(),
@@ -607,7 +669,11 @@ export default defineAgent({
     try {
       if (PIPELINE) {
         const silero = await PLUGIN.pipeline();
-        proc.userData.vad = await silero.VAD.load();
+        try {
+          proc.userData.vad = await silero.VAD.load({ minSpeechDuration: 0.25, minSilenceDuration: 0.35 });
+        } catch {
+          proc.userData.vad = await silero.VAD.load();
+        }
       } else if (API_KEY && PLUGIN[PROVIDER]) {
         await PLUGIN[PROVIDER]();
       }
