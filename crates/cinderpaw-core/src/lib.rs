@@ -7,6 +7,7 @@
 //! Invariants: docs/runtime-invariants.md.
 
 pub mod api;
+pub mod api_error;
 pub mod atomic_file;
 pub mod boot;
 pub mod brand;
