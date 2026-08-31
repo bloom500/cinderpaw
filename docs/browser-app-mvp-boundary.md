@@ -291,5 +291,29 @@ Before merging this branch:
 
 ---
 
+## Slices shipped (2026-08-31)
+
+### Slice 1 — Discovery + App Shell
+- **Landing page commit:** `5952182d` — `/app`, `/app/discover`, `lib/cinderpaw/{client,types,discovery}.ts`, BFF `/api/cinderpaw/health`, 5 UI primitives, 15 tests.
+- **Cinderpaw commit:** `664531c` — receipt only.
+- **Gateway changes:** none. Consumed existing `/runtime/status`, `/runtime/manifest`.
+
+### Slice 2 — Wizard Foundation
+- **Landing page commit:** `e18ee139` — 7 wizard pages, 8 BFF routes, `lib/cinderpaw/{catalog-version,wizard-progress,verify,wizard-disk}.ts`, client form with CINDERPAW_OK gate, 22 new tests (105 total).
+- **Cinderpaw commit:** `4dd6672` — receipt only.
+- **Gateway changes:** none. Consumed existing `/runtime/setup/{detect,verify}`, `/runtime/providers/catalog`, `/system_info`, `/runtime/models/install`, `/runtime/models/download/:id`.
+
+### Key decisions locked in
+- Wizard progress file format `v4:<step>:<mode>:<choice>` is shared with TUI; both clients read/write the same file.
+- BFF writes `~/.cinderpaw/.wizard-progress` directly (atomic 0600) — same legitimacy as TUI which writes directly.
+- CINDERPAW_OK gate: browser re-checks the deterministic token client-side; gateway's `ok: true` is necessary but not sufficient.
+- Provider catalog version pinned to `byok::CATALOG_VERSION = 1`.
+- Local model download path deferred to a later slice.
+
+### Pre-existing uncommitted changes in landing page repo
+- `app/api/public-journal/ingest/route.ts`, `lib/journal-store.ts`, `package.json`, `package-lock.json`, `lib/kv.ts` — not ours, left untouched.
+
+---
+
 *End of document. Update when MVP scope changes or when Mode B becomes a
 real release.*
