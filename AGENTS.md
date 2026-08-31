@@ -186,3 +186,69 @@ own slice.
 - `crates/cinderpaw-core/src/inference.rs` — `max_contexts()` method is
   dead (no caller; pool caps go through `effective_pool_cap(_with_env)`).
   Has an inline `// TODO(inference)` marker. Out of scope for Slice 2.
+
+## Implementation receipts (Cinderpaw Web MVP)
+
+For every slice that lands on the `feat/browser-app-foundation` branch
+(see `docs/browser-app-mvp-boundary.md` for scope), produce a receipt
+in the exact format below. Opus 5 reviews each slice against the
+receipt; missing sections block merge.
+
+The format is intentionally exhaustive so the reviewer can audit a
+slice in one read. **Do not abbreviate. Do not skip sections.** If a
+section has nothing to report, write `NONE` (not `N/A`, not empty).
+
+```markdown
+## Implementation Receipt
+
+### Scope
+- [x] <file path>
+- [x] <file path>
+
+### Files changed
+<list every file with `git diff --stat` style summary>
+
+### Files explicitly NOT changed
+<list every file the slice was tempted to touch but left alone,
+including pinned-out-of-scope files from the rules at the top of
+this file and `~/.cinderpaw/` schema files>
+
+### Tests
+- cargo check: PASS / FAIL
+- verify.sh: PASS / FAIL
+- bun test: PASS / FAIL
+- tsc: PASS / FAIL
+<add per-stack lines as needed; any FAIL blocks the slice>
+
+### Security
+- bearer token server-side only: PASS / FAIL
+- token absent from response: PASS / FAIL
+- token absent from client bundle: PASS / FAIL
+<add more lines as the slice requires>
+
+### Architectural invariants
+- [x] BFF remains the only browser → gateway boundary
+- [x] gateway remains loopback-only
+- [x] no new backend
+- [x] TUI state machine untouched
+- [x] `~/.cinderpaw` schema untouched
+<add more invariants as the slice requires>
+
+### Known limitations
+<any honest gaps the slice leaves behind; "NONE" if none>
+
+### Deviations
+<any deviation from the slice's plan, with justification;
+"NONE" if none>
+```
+
+A slice is mergeable only when:
+1. Every checkbox is checked or every unchecked line is justified in
+   Deviations.
+2. Every Tests line says PASS.
+3. Every Security line says PASS.
+4. Every invariant has an `[x]` or is justified in Deviations.
+5. Files explicitly NOT changed matches reality (`git diff` confirms).
+
+Save the receipt to `docs/receipts/<slice-name>.md` and reference it
+in the commit message body.
