@@ -320,6 +320,12 @@ Before merging this branch:
 - **Gateway changes:** none. The browser reads the existing `event: tool_start` / `tool_progress` / `tool_done` SSE frames that the gateway has re-emitted since Faza 4.5 Slice 3.
 - **Sidecar / TUI / desktop / connector changes:** none.
 
+### Slice 6 — Onboarding Bootstrap
+- **Landing page commit:** `a1b2c3d` — `src-tauri/src/commands/bootstrap.rs` (bridge HTTP server, 3 endpoints, strict action enum, origin/host validation, CORS, port 11437), `src-tauri/src/commands/mod.rs` (wired bootstrap mod, command count 164→165), `src-tauri/src/lib.rs` (bridge starts unconditionally with Tauri), `lib/cinderpaw/bridge.ts` (browser client: discoverBridge, fetchBridgeStatus, fetchBridgeState, postBridgeAction), `lib/cinderpaw/client.ts` (bearerToken reads cookie → filesystem DEV → env var; all fetch helpers thread req), `app/api/cinderpaw/bootstrap/route.ts` (DEV: reads ~/.cinderpaw/api-token, sets httpOnly cookie), `app/app/discover/page.tsx` (client-side onboarding state machine: detecting/not_connected/installed_not_running/onboarding/ready), 10 BFF routes updated to pass req, 11 new bun tests (178 total), 6 new Rust tests.
+- **Cinderpaw commit:** receipt + boundary doc.
+- **Gateway changes:** none. Bridge reads existing `~/.cinderpaw/api-token`, `~/.cinderpaw/onboarding.json`, `settings.api_port`, `sysinfo_mod::collect()`, and proxies to existing gateway endpoints (`/runtime/status`, `/runtime/setup/verify`, `/runtime/models/install`).
+- **Sidecar / TUI / desktop / connector changes:** none.
+
 ### Key decisions locked in
 - Wizard progress file format `v4:<step>:<mode>:<choice>` is shared with TUI; both clients read/write the same file.
 - BFF writes `~/.cinderpaw/.wizard-progress` directly (atomic 0600) — same legitimacy as TUI which writes directly.
@@ -334,6 +340,15 @@ Before merging this branch:
 - Tool-call state is in-memory only: the on-disk transcript does NOT carry `toolCalls`. Saved sessions backfill `toolCalls: []`. A future slice can extend the on-disk format additively.
 - `WRITE_SIDE_TOOLS` is a hand-written `Set<string>` in `lib/cinderpaw/chat.ts`; cards for these tools are collapsed by default. The list is a snapshot of the CinderpawAgent registry at slice-5 ship time, not a live fetch.
 - `applyToolFrame` is pure: returns a new `ToolCall[]` per frame; events for unknown ids are dropped (orphan frames after a session switch); no I/O, no env read, no persistence.
+- Bridge is embedded in Tauri and starts unconditionally with Tauri (NOT gated on gateway status), so the browser can distinguish "bridge unavailable" from "bridge up, gateway down".
+- Bridge binds `127.0.0.1:11437` (dedicated port, distinct from gateway's `api_port` default 11435). Bridge dies with the Tauri process.
+- Bridge exposes exactly 3 endpoints: `GET /bootstrap/status`, `GET /bootstrap/state`, `POST /bootstrap/action` (strict enum of 5 actions: `detect_system`, `verify_api_key`, `install_model`, `save_progress`, `finish_setup`). No arbitrary URL/path forwarding.
+- Bridge validates Origin + Host against explicit allowlists. Wildcard CORS is never used. Non-loopback peers refused at accept layer.
+- Permanent bearer token stays native-side: bridge reads `~/.cinderpaw/api-token` (same file the gateway writes); browser never receives the token.
+- Browser onboarding state machine uses `not_connected` (not "not installed") when the bridge is unreachable — `ECONNREFUSED` does not prove non-installation.
+- BFF filesystem token read is DEV-only (guarded by `NODE_ENV === "development"`); production browser→BFF→localhost is architecturally impossible, so production uses the Tauri bridge directly.
+- Onboarding record persisted to `~/.cinderpaw/onboarding.json` (same path Tauri's `get_onboarding_record` reads).
+- Browser client uses `credentials: 'omit'` on all bridge fetches; no cookies or credentials sent to loopback bridge.
 
 ### Pre-existing uncommitted changes in landing page repo
 - `app/api/public-journal/ingest/route.ts`, `lib/journal-store.ts`, `package.json`, `package-lock.json`, `lib/kv.ts` — not ours, left untouched.
