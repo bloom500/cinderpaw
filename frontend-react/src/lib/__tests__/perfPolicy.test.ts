@@ -30,14 +30,24 @@ describe('resolvePerfPolicy — defaults', () => {
     // After the TTFT bump (user report: reasoning models on OpenRouter get
     // killed mid-thought), cloud TTFT is now LARGER than local — reasoning
     // models can take minutes to produce the first token via cloud even
-    // when local models would already have started streaming. Other
-    // dimensions still follow the original relationship. See the paired Rust
-    // test `cloud_and_local_deadlines_diverge_per_use_case` in
+    // when local models would already have started streaming. The cloud total
+    // deadline then had to move too (120s → 600s, 2026-09-01 audit): a total
+    // timer below the TTFT timer fires first and makes the TTFT bump dead
+    // configuration (the request is killed at 120s and the user always sees
+    // total_timeout, never ttft_timeout). So both cloud ceilings are now
+    // larger than local; only the stall window stays tighter (network
+    // silence is a dead connection). See the paired Rust test
+    // `cloud_and_local_deadlines_diverge_per_use_case` in
     // `crates/feral-core/src/perf_policy.rs` for the same explanation.
     const local = resolvePerfPolicy({ isCloud: false, env: EMPTY_ENV });
     const cloud = resolvePerfPolicy({ isCloud: true, env: EMPTY_ENV });
-    expect(cloud.totalDeadlineMs).toBeLessThan(local.totalDeadlineMs);
+    expect(cloud.ttftDeadlineMs).toBeGreaterThan(local.ttftDeadlineMs);
+    expect(cloud.totalDeadlineMs).toBeGreaterThan(local.totalDeadlineMs);
     expect(cloud.stallMs).toBeLessThanOrEqual(local.stallMs);
+    // Coherence invariant: the total ceiling is never below base TTFT,
+    // otherwise the TTFT timer could never fire on either target.
+    expect(cloud.totalDeadlineMs).toBeGreaterThanOrEqual(cloud.ttftDeadlineMs);
+    expect(local.totalDeadlineMs).toBeGreaterThanOrEqual(local.ttftDeadlineMs);
   });
 
   it('softWarnMs and heartbeatMs are stable across targets', () => {

@@ -37,8 +37,18 @@ const DEFAULTS = {
     // below, so a small prompt still gives up fast if the endpoint is truly
     // dead — this only extends the ceiling for prompts that legitimately
     // take a while to think.
+    //
+    // totalDeadlineMs bumped 120_000 → 600_000 (10 min) on 2026-09-01 (audit):
+    // the TTFT bump above raised ttftDeadlineMs ABOVE the unchanged 120 s
+    // total deadline. `deadlineController` arms the total timer for
+    // totalDeadlineMs and it is never cleared, so a cloud request was hard-
+    // aborted at 120 s in every case — 180 s before the new TTFT timer could
+    // ever fire — making the 2026-08-22 bump dead configuration and ensuring
+    // the user always saw total_timeout, never ttft_timeout. The total
+    // deadline must be >= the largest scaled TTFT for the bump to mean
+    // anything; 600 s leaves 5 min of generation after a worst-case prefill.
     ttftDeadlineMs: 300_000,
-    totalDeadlineMs: 120_000,
+    totalDeadlineMs: 600_000,
     stallMs: 30_000,
   },
   /** Milliseconds added to prompt-token count for TTFT scaling. */

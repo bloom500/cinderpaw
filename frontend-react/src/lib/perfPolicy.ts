@@ -39,9 +39,18 @@ const DEFAULTS = {
   // cloud.ttftDeadlineMs bumped 30_000 → 300_000 (5 min) on 2026-08-22 —
   // reasoning models on OpenRouter (DeepSeek-R1, o1-style) and slow-first-
   // token cloud paths were killed before responding on complex prompts.
+  //
+  // cloud.totalDeadlineMs bumped 120_000 → 600_000 (10 min) on 2026-09-01
+  // (audit): the 2026-08-22 change raised TTFT ABOVE the unchanged 120 s total
+  // deadline. The total timer fires at 120 s regardless of liveness, so every
+  // cloud request was still hard-killed 180 s before the new TTFT ever armed
+  // — the bump was dead configuration, and the watchdog always reported
+  // total_timeout, never ttft_timeout. The total deadline must be >= the
+  // largest scaled TTFT (300 s base + prefill scaling) for the bump to mean
+  // anything; 600 s leaves 5 min of generation after a worst-case prefill.
   // Kept in lockstep with the TS sidecar and Rust host copies per the
   // three-layers-agree contract documented in perf-policy.ts.
-  cloud:   { ttftDeadlineMs: 300_000, totalDeadlineMs: 120_000, stallMs: 30_000 },
+  cloud:   { ttftDeadlineMs: 300_000, totalDeadlineMs: 600_000, stallMs: 30_000 },
   perTokenPrefillMs: 4,
   softWarnMs:  20_000,
   heartbeatMs: 750,

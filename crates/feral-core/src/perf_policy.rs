@@ -64,7 +64,18 @@ mod defaults {
     // frontend copies per the three-layers-agree contract at the top of
     // this file.
     pub(super) const CLOUD_TTFT_DEADLINE_MS: u64 = 300_000;
-    pub(super) const CLOUD_TOTAL_DEADLINE_MS: u64 = 120_000;
+    // CLOUD_TOTAL bumped 120_000 → 600_000 (10 min) on 2026-09-01 (audit):
+    // the 2026-08-22 TTFT bump raised CLOUD_TTFT above the unchanged 120 s
+    // total deadline. The total timer fires at total_deadline_ms
+    // unconditionally (src-tauri/src/commands/chat.rs: `elapsed_ms >=
+    // policy.total_deadline_ms`), so every cloud request was still aborted
+    // at 120 s — 180 s before the new TTFT could trip — making the TTFT
+    // bump dead configuration and ensuring the watchdog always surfaced
+    // TotalTimeout, never TtftTimeout. The total deadline must be >= the
+    // largest scaled TTFT (300 s + prefill scaling) for the bump to mean
+    // anything; 600 s leaves 5 min of generation after a worst-case
+    // prefill. Env-overridable via FERAL_TOTAL_DEADLINE_MS.
+    pub(super) const CLOUD_TOTAL_DEADLINE_MS: u64 = 600_000;
     pub(super) const CLOUD_STALL_MS: u64 = 30_000;
 
     /// Milliseconds added to prompt-token count for TTFT scaling.
@@ -113,8 +124,9 @@ fn read_env_optional(name: &str) -> Option<u64> {
 ///
 /// `is_cloud == false` → use the local defaults (90 s TTFT, 300 s total,
 /// 45 s stall).
-/// `is_cloud == true`  → use the cloud defaults (30 s TTFT, 120 s total,
-/// 30 s stall).
+/// `is_cloud == true`  → use the cloud defaults (300 s TTFT, 600 s total,
+/// 30 s stall). Both TTFT and total were raised in 2026-08/09: see the
+/// `defaults` module for why total must stay >= scaled TTFT.
 ///
 /// Env precedence: any positive integer in the matching env var wins;
 /// otherwise the target-specific default. `FERAL_STALL_MS` (the new
@@ -254,17 +266,22 @@ mod tests {
         // models on OpenRouter get killed mid-thought), cloud TTFT is now
         // LARGER than local — reasoning models can take minutes to produce
         // their first token via a cloud provider even when local models
-        // would already have started streaming. The other dimensions still
-        // follow the original relationship: cloud has a shorter total-budget
-        // (users hit rate limits or fall back faster) and a tighter stall
-        // window (a wedged cloud endpoint should be given up on quickly —
-        // the network side of "no bytes for 30s" is a dead connection, not
-        // slow-but-working).
+        // would already have started streaming. The cloud total deadline
+        // then had to move as well (120s → 600s, 2026-09-01 audit): a total
+        // timer that fires below the TTFT deadline makes the TTFT bump dead
+        // configuration — the request is aborted at total_deadline_ms
+        // unconditionally and the watchdog can only ever surface
+        // TotalTimeout, never TtftTimeout. So BOTH cloud ceilings are now
+        // larger than local; the stall window stays tighter (a wedged cloud
+        // endpoint should be given up on quickly — the network side of
+        // "no bytes for 30s" is a dead connection, not slow-but-working).
         let local = perf_policy_with_env(false, &empty_env());
         let cloud = perf_policy_with_env(true, &empty_env());
-        // total: cloud shorter (users would rather fail fast + retry than
-        // sit through a 5-min hung completion on someone else's servers).
-        assert!(cloud.total_deadline_ms < local.total_deadline_ms);
+        // total: cloud ceiling now LARGER, and always >= its own TTFT, or
+        // the TTFT timer below it can never fire.
+        assert!(cloud.total_deadline_ms > local.total_deadline_ms);
+        assert!(cloud.total_deadline_ms >= cloud.ttft_deadline_ms);
+        assert!(local.total_deadline_ms >= local.ttft_deadline_ms);
         // stall: cloud tighter or equal (network stalls are dead network).
         assert!(cloud.stall_ms <= local.stall_ms);
     }

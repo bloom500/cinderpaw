@@ -35,8 +35,19 @@ import { join, relative, sep } from "node:path";
 
 const ROOT = process.cwd();
 const INVARIANTS_MD = "docs/invariants.md";
-const SRC_DIRS = ["FeralAgent/src", "FeralAgent/tests", "src-tauri/src"];
-const TEST_PATTERN = /\.test\.ts$/;
+// crates/feral-core/src holds the Rust audit chain (rsi/audit.rs) and the
+// Rust RSI enforcement — it was missing from the scan entirely, so every
+// Rust-side marker (runtime AND audit) was invisible to the report.
+const SRC_DIRS = [
+  "FeralAgent/src",
+  "FeralAgent/tests",
+  "src-tauri/src",
+  "crates/feral-core/src",
+];
+// Rust integration tests live in crates/*/tests as *.rs (e.g. api_stability.rs)
+// and Rust unit tests are #[cfg(test)] modules inside src — the latter are
+// picked up via the src scan; integration tests need this broader pattern.
+const TEST_PATTERN = /\.test\.ts$|\/tests\/.*\.rs$/;
 const SOURCE_PATTERN = /\.(ts|rs)$/;
 
 interface PillarStatus {
@@ -98,7 +109,12 @@ function parseInvariants(): Invariant[] {
     }
 
     // Match `### Invariant I[N] — [Name]` or `### Invariant S[N] — [Name]`
-    const m = line.match(/^### Invariant (I\d+|S\d+) — (.+)$/);
+    // Accept both the em dash (—, as written in INVARIANTS.md) and the
+    // ASCII hyphen-minus (-): a strict em-dash-only match parsed ZERO
+    // invariants on 2026-09-01 (audit), which made the entire report
+    // silently empty — every hard invariant looked like it had zero
+    // pillars, in report mode nobody noticed.
+    const m = line.match(/^### Invariant (I\d+|S\d+)\s+[—-]\s+(.+)$/);
     if (!m) continue;
 
     const id = m[1]!;

@@ -36,12 +36,27 @@ describe("resolvePerfPolicy — defaults", () => {
     expect(p.stallMs).toBe(__TEST_DEFAULTS.cloud.stallMs);
   });
 
-  test("cloud has tighter deadlines than local in every dimension", () => {
+  test("deadlines diverge per use case after the 2026-08/09 cloud bumps", () => {
+    // Historically asserted `cloud < local` on every dimension, matching the
+    // pre-2026-08-22 defaults where cloud TTFT was 30s and cloud total 120s.
+    // After the cloud TTFT bump (30s → 300s, reasoning models on OpenRouter
+    // killed mid-thought) and the cloud total bump (120s → 600s, audit fix:
+    // total must be >= scaled TTFT or the TTFT bump is dead configuration —
+    // the total timer aborts first and the user always sees total_timeout),
+    // BOTH cloud ceilings are now LARGER than local. Cloud keeps the tight
+    // stall window: network silence means a dead connection, not slow-but-
+    // working prefill. Same explanation as the paired Rust test
+    // `cloud_and_local_deadlines_diverge_per_use_case` in
+    // crates/feral-core/src/perf_policy.rs.
     const local = resolvePerfPolicy({ isCloud: false, env: EMPTY_ENV });
     const cloud = resolvePerfPolicy({ isCloud: true, env: EMPTY_ENV });
-    expect(cloud.ttftDeadlineMs).toBeLessThan(local.ttftDeadlineMs);
-    expect(cloud.totalDeadlineMs).toBeLessThan(local.totalDeadlineMs);
+    expect(cloud.ttftDeadlineMs).toBeGreaterThan(local.ttftDeadlineMs);
+    expect(cloud.totalDeadlineMs).toBeGreaterThan(local.totalDeadlineMs);
     expect(cloud.stallMs).toBeLessThanOrEqual(local.stallMs);
+    // Invariant that makes the deadlines coherent at all: the total ceiling
+    // is never below the base TTFT (otherwise the TTFT timer can never fire).
+    expect(cloud.totalDeadlineMs).toBeGreaterThanOrEqual(cloud.ttftDeadlineMs);
+    expect(local.totalDeadlineMs).toBeGreaterThanOrEqual(local.ttftDeadlineMs);
   });
 });
 
