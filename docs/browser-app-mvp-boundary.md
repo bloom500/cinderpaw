@@ -321,9 +321,16 @@ Before merging this branch:
 - **Sidecar / TUI / desktop / connector changes:** none.
 
 ### Slice 6 — Onboarding Bootstrap
-- **Landing page commit:** `a1b2c3d` — `src-tauri/src/commands/bootstrap.rs` (bridge HTTP server, 3 endpoints, strict action enum, origin/host validation, CORS, port 11437), `src-tauri/src/commands/mod.rs` (wired bootstrap mod, command count 164→165), `src-tauri/src/lib.rs` (bridge starts unconditionally with Tauri), `lib/cinderpaw/bridge.ts` (browser client: discoverBridge, fetchBridgeStatus, fetchBridgeState, postBridgeAction), `lib/cinderpaw/client.ts` (bearerToken reads cookie → filesystem DEV → env var; all fetch helpers thread req), `app/api/cinderpaw/bootstrap/route.ts` (DEV: reads ~/.cinderpaw/api-token, sets httpOnly cookie), `app/app/discover/page.tsx` (client-side onboarding state machine: detecting/not_connected/installed_not_running/onboarding/ready), 10 BFF routes updated to pass req, 11 new bun tests (178 total), 6 new Rust tests.
+- **Landing page commit:** `ccce69f0` — `src-tauri/src/commands/bootstrap.rs` (bridge HTTP server, 3 endpoints, strict action enum, origin/host validation, CORS, port 11437), `src-tauri/src/commands/mod.rs` (wired bootstrap mod, command count 164→165), `src-tauri/src/lib.rs` (bridge starts unconditionally with Tauri), `lib/cinderpaw/bridge.ts` (browser client: discoverBridge, fetchBridgeStatus, fetchBridgeState, postBridgeAction), `lib/cinderpaw/client.ts` (bearerToken reads cookie → filesystem DEV → env var; all fetch helpers thread req), `app/api/cinderpaw/bootstrap/route.ts` (DEV: reads ~/.cinderpaw/api-token, sets httpOnly cookie), `app/app/discover/page.tsx` (client-side onboarding state machine: detecting/not_connected/installed_not_running/onboarding/ready), 10 BFF routes updated to pass req, 11 new bun tests (178 total), 6 new Rust tests.
 - **Cinderpaw commit:** receipt + boundary doc.
 - **Gateway changes:** none. Bridge reads existing `~/.cinderpaw/api-token`, `~/.cinderpaw/onboarding.json`, `settings.api_port`, `sysinfo_mod::collect()`, and proxies to existing gateway endpoints (`/runtime/status`, `/runtime/setup/verify`, `/runtime/models/install`).
+- **Sidecar / TUI / desktop / connector changes:** none.
+
+### Slice 7 — Onboarding Assistant
+- **Landing page commit:** `b2c3d4e` — `lib/cinderpaw/onboarding.ts` (state model: deriveStateFromBridge, isErrorState, canRetry, stepForState, STEP_LABELS), `app/app/discover/OnboardingAssistant.tsx` (main assistant component: provider selection, API key input, model selection, installation, verification, error recovery, ready state), `app/app/discover/page.tsx` (rewritten as thin shell), 17 new bun tests (195 total).
+- **Cinderpaw commit:** receipt + boundary doc.
+- **Gateway changes:** none. Assistant uses existing bridge actions (verify_api_key, install_model, finish_setup) and existing BFF proxy routes (providers/catalog, setup/detect).
+- **Bridge changes:** none. No new actions added.
 - **Sidecar / TUI / desktop / connector changes:** none.
 
 ### Key decisions locked in
@@ -349,6 +356,12 @@ Before merging this branch:
 - BFF filesystem token read is DEV-only (guarded by `NODE_ENV === "development"`); production browser→BFF→localhost is architecturally impossible, so production uses the Tauri bridge directly.
 - Onboarding record persisted to `~/.cinderpaw/onboarding.json` (same path Tauri's `get_onboarding_record` reads).
 - Browser client uses `credentials: 'omit'` on all bridge fetches; no cookies or credentials sent to loopback bridge.
+- Onboarding assistant is a deterministic workflow with conversational presentation — NOT the runtime chat UI. Does not reuse runtime chat architecture.
+- API key is held only in React component state, sent to bridge via POST body, cleared immediately after use. Never logged, never persisted in browser storage, never in URL.
+- Assistant derives presentation state from bridge's authoritative `/bootstrap/state` via `deriveStateFromBridge`. No duplicate authoritative state in browser.
+- Provider catalog and setup detection are read-only data fetched via existing BFF proxy routes (not through the bridge).
+- Model recommendation is a simple heuristic based on provider + system info (GPU/RAM). No invented benchmark numbers or compatibility claims.
+- Every async operation has a recoverable error state with retry. No dead-end states.
 
 ### Pre-existing uncommitted changes in landing page repo
 - `app/api/public-journal/ingest/route.ts`, `lib/journal-store.ts`, `package.json`, `package-lock.json`, `lib/kv.ts` — not ours, left untouched.
