@@ -107,6 +107,13 @@ pub fn router(state: ApiState) -> Router {
         .route("/runtime/lora/reviews/resolve", post(runtime_lora_review_resolve))
         .route("/runtime/manifest", get(runtime_manifest))
         .route("/runtime/sessions", get(runtime_sessions))
+        // Sprint 4 (Browser App Slice 4) — full transcript replay for one
+        // saved conversation. The browser uses this to backfill the chat
+        // surface when the user opens a saved session or refreshes the
+        // tab mid-conversation. Mirrors what the TUI loads via
+        // `commands.conversations.load` but exposed over the gateway so
+        // the BFF does not have to touch the filesystem directly.
+        .route("/runtime/sessions/:id/transcript", get(runtime_session_transcript))
         // Sprint 1.6 — Memory Resume. Headless / TUI clients hit this; the
         // desktop Tauri app uses the `get_last_task` command which delegates
         // to the same sidecar roundtrip but stays in-process. Same shape:
@@ -2841,6 +2848,109 @@ async fn runtime_sessions(
     });
     items.truncate(limit);
     Json(json!({ "sessions": items })).into_response()
+}
+
+/// A3: full transcript of one saved session — message list + metadata.
+///
+/// Source of truth is `~/.cinderpaw/conversations/{id}.json` (the same file
+/// the desktop `conversations` save/load command writes). The `id` path
+/// parameter is validated as a UUID before any disk access: a non-UUID
+/// input (or an id that escapes the conversations dir) is rejected with
+/// 400 before the read. Missing or corrupt files return 404 with a
+/// `code: "session_not_found"` envelope (the A1 contract; the browser
+/// treats this as a recoverable state and shows an empty chat).
+///
+/// The response shape is stable:
+///   `{ id, title, created_at, updated_at, messages: [{role, content, created_at}] }`
+/// where `messages` may be empty (a session with only a user prompt and
+/// no assistant reply yet, or one whose assistant reply was cleared).
+async fn runtime_session_transcript(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    // Path-traversal / shape guard. The conversations dir is keyed by
+    // UUID; anything else (relative paths, absolute paths, weird
+    // encodings) is rejected before we touch the filesystem.
+    let trimmed = id.trim();
+    if trimmed.is_empty() || trimmed.len() > 64 {
+        return crate::api_error::ApiError::bad(
+            "invalid_session_id",
+            "session id must be a non-empty id up to 64 characters",
+        )
+        .into_response_with(StatusCode::BAD_REQUEST);
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return crate::api_error::ApiError::bad(
+            "invalid_session_id",
+            "session id must contain only ASCII alphanumerics and dashes",
+        )
+        .into_response_with(StatusCode::BAD_REQUEST);
+    }
+    let path = crate::paths::conversations_dir().join(format!("{trimmed}.json"));
+    let raw = match tokio::fs::read(&path).await {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return crate::api_error::ApiError::bad("session_not_found", "no transcript for that id")
+                .into_response_with(StatusCode::NOT_FOUND);
+        }
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "runtime_session_transcript: read failed");
+            return crate::api_error::ApiError::bad("transcript_unavailable", "could not read transcript")
+                .into_response_with(StatusCode::SERVICE_UNAVAILABLE);
+        }
+    };
+    let v: Value = match serde_json::from_slice(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(path = %path.display(), error = %e, "runtime_session_transcript: bad json");
+            // Corrupt file — same recoverability as missing: the browser
+            // can render an empty chat and the user can start a new
+            // session. 502 because the data is "wrong" (the file exists),
+            // not "missing".
+            return crate::api_error::ApiError::bad("transcript_corrupt", "transcript file is not valid JSON")
+                .into_response_with(StatusCode::BAD_GATEWAY);
+        }
+    };
+    // The on-disk shape is the wire shape. We forward the top-level
+    // fields we know about; unknown fields are dropped here so the
+    // contract stays narrow. `messages` is normalised to an array (the
+    // on-disk file uses `messages`; older files used `events`, which we
+    // don't try to translate — they fall through to an empty list).
+    let title = v.get("title").and_then(|x| x.as_str()).unwrap_or("");
+    let created_at = v.get("created_at").and_then(|x| x.as_str()).unwrap_or("");
+    let updated_at = v.get("updated_at").and_then(|x| x.as_str()).unwrap_or("");
+    let messages: Vec<Value> = v
+        .get("messages")
+        .and_then(|m| m.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|m| {
+            let role = m.get("role")?.as_str()?;
+            let content = m.get("content")?.as_str()?;
+            // Older files might use `timestamp`; newer use `created_at`.
+            let created = m
+                .get("created_at")
+                .and_then(|x| x.as_i64().or_else(|| x.as_str().and_then(|s| s.parse().ok())))
+                .or_else(|| m.get("timestamp").and_then(|x| x.as_i64()))
+                .unwrap_or(0);
+            Some(json!({
+                "role": role,
+                "content": content,
+                "created_at": created,
+            }))
+        })
+        .collect();
+    Json(json!({
+        "id": trimmed,
+        "title": title,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "messages": messages,
+    }))
+    .into_response()
 }
 
 /// D3b: declarative runtime snapshot. The foundation for `cinderpaw export` /
