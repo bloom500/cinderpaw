@@ -308,6 +308,12 @@ Before merging this branch:
 - **Cinderpaw commit:** this file + `docs/receipts/slice-3-chat-streaming.md`.
 - **Gateway changes:** none. Consumed existing `POST /runtime/chat` (SSE since Faza 4.5 Slice 3) and `GET /runtime/sessions?limit=N`.
 
+### Slice 4 — Session Picker + Transcript Replay
+- **Cinderpaw commit:** `6f249fa` — gateway A3: `GET /runtime/sessions/:id/transcript` (alnum+dash id guard, reads `~/.cinderpaw/conversations/{id}.json`, A1 typed error envelope on 404/502/503) + 5 integration tests.
+- **Landing page commit:** `2359c7e4` — `lib/cinderpaw/{chat,client}.ts` (transcriptToMessages + fetchSessionTranscript), BFF `/api/cinderpaw/sessions/[id]/transcript/route.ts` with id re-validation, `app/app/chat/{page,ChatClient}.tsx` (server pre-load + SessionSidebar + switchToSession + refreshSessions), 7 new tests (145 total).
+- **Gateway sidecar changes:** none. The new endpoint is a pure read of the existing on-disk transcript file.
+- **TUI / desktop / connector changes:** none. The TUI and desktop chat continue to read the same files via their own loaders.
+
 ### Key decisions locked in
 - Wizard progress file format `v4:<step>:<mode>:<choice>` is shared with TUI; both clients read/write the same file.
 - BFF writes `~/.cinderpaw/.wizard-progress` directly (atomic 0600) — same legitimacy as TUI which writes directly.
@@ -317,6 +323,8 @@ Before merging this branch:
 - Chat session id is hard-coded to `"browser"` in slice 3; a session picker reading `/runtime/sessions` is a later slice.
 - Chat BFF forwards SSE bytes verbatim; the parser is single-sourced in `lib/cinderpaw/chat.ts` so a gateway chunk-shape change only updates one file.
 - Runtime re-probe on chat disconnect is 5s (matches TUI `statusPollTick`); the constant is a single `5000` in `ChatClient.tsx`.
+- Session id is validated as alnum + dash, 1-64 chars, at three layers (client pre-flight, BFF re-validation, gateway alnum guard) — defence in depth against path traversal on `/runtime/sessions/:id/transcript`.
+- Transcript response shape is `{id, title, created_at, updated_at, messages: [{role, content, created_at}]}`; legacy `timestamp` field is normalised to `created_at` server-side.
 
 ### Pre-existing uncommitted changes in landing page repo
 - `app/api/public-journal/ingest/route.ts`, `lib/journal-store.ts`, `package.json`, `package-lock.json`, `lib/kv.ts` — not ours, left untouched.
