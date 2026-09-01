@@ -303,12 +303,20 @@ Before merging this branch:
 - **Cinderpaw commit:** `4dd6672` — receipt only.
 - **Gateway changes:** none. Consumed existing `/runtime/setup/{detect,verify}`, `/runtime/providers/catalog`, `/system_info`, `/runtime/models/install`, `/runtime/models/download/:id`.
 
+### Slice 3 — Chat UI + Streaming
+- **Landing page commit:** `9acf31c0` — `lib/cinderpaw/chat.ts` (pure SSE parser + Message model), `app/api/cinderpaw/{chat/send,sessions}/route.ts` (POST SSE proxy + GET sessions), `app/app/chat/{page,ChatClient}.tsx` (server shell + client island), 33 new tests (138 total).
+- **Cinderpaw commit:** this file + `docs/receipts/slice-3-chat-streaming.md`.
+- **Gateway changes:** none. Consumed existing `POST /runtime/chat` (SSE since Faza 4.5 Slice 3) and `GET /runtime/sessions?limit=N`.
+
 ### Key decisions locked in
 - Wizard progress file format `v4:<step>:<mode>:<choice>` is shared with TUI; both clients read/write the same file.
 - BFF writes `~/.cinderpaw/.wizard-progress` directly (atomic 0600) — same legitimacy as TUI which writes directly.
 - CINDERPAW_OK gate: browser re-checks the deterministic token client-side; gateway's `ok: true` is necessary but not sufficient.
 - Provider catalog version pinned to `byok::CATALOG_VERSION = 1`.
 - Local model download path deferred to a later slice.
+- Chat session id is hard-coded to `"browser"` in slice 3; a session picker reading `/runtime/sessions` is a later slice.
+- Chat BFF forwards SSE bytes verbatim; the parser is single-sourced in `lib/cinderpaw/chat.ts` so a gateway chunk-shape change only updates one file.
+- Runtime re-probe on chat disconnect is 5s (matches TUI `statusPollTick`); the constant is a single `5000` in `ChatClient.tsx`.
 
 ### Pre-existing uncommitted changes in landing page repo
 - `app/api/public-journal/ingest/route.ts`, `lib/journal-store.ts`, `package.json`, `package-lock.json`, `lib/kv.ts` — not ours, left untouched.
