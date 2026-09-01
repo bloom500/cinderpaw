@@ -314,6 +314,12 @@ Before merging this branch:
 - **Gateway sidecar changes:** none. The new endpoint is a pure read of the existing on-disk transcript file.
 - **TUI / desktop / connector changes:** none. The TUI and desktop chat continue to read the same files via their own loaders.
 
+### Slice 5 — Tool-Call Rendering
+- **Landing page commit:** `fe427ee6` — `lib/cinderpaw/chat.ts` (ToolCall type + applyToolFrame pure reducer + previewJson + isWriteSideTool / WRITE_SIDE_TOOLS + durationMs; Message extended with toolCalls: ToolCall[]), `components/ui/ToolCallCard.tsx` (collapsed for write-side tools, live duration counter, expandable args/progress/result/error), `app/app/chat/ChatClient.tsx` wired to applyToolFrame on every tool event, 22 new tests (167 total).
+- **Cinderpaw commit:** receipt + boundary doc only.
+- **Gateway changes:** none. The browser reads the existing `event: tool_start` / `tool_progress` / `tool_done` SSE frames that the gateway has re-emitted since Faza 4.5 Slice 3.
+- **Sidecar / TUI / desktop / connector changes:** none.
+
 ### Key decisions locked in
 - Wizard progress file format `v4:<step>:<mode>:<choice>` is shared with TUI; both clients read/write the same file.
 - BFF writes `~/.cinderpaw/.wizard-progress` directly (atomic 0600) — same legitimacy as TUI which writes directly.
@@ -325,6 +331,9 @@ Before merging this branch:
 - Runtime re-probe on chat disconnect is 5s (matches TUI `statusPollTick`); the constant is a single `5000` in `ChatClient.tsx`.
 - Session id is validated as alnum + dash, 1-64 chars, at three layers (client pre-flight, BFF re-validation, gateway alnum guard) — defence in depth against path traversal on `/runtime/sessions/:id/transcript`.
 - Transcript response shape is `{id, title, created_at, updated_at, messages: [{role, content, created_at}]}`; legacy `timestamp` field is normalised to `created_at` server-side.
+- Tool-call state is in-memory only: the on-disk transcript does NOT carry `toolCalls`. Saved sessions backfill `toolCalls: []`. A future slice can extend the on-disk format additively.
+- `WRITE_SIDE_TOOLS` is a hand-written `Set<string>` in `lib/cinderpaw/chat.ts`; cards for these tools are collapsed by default. The list is a snapshot of the CinderpawAgent registry at slice-5 ship time, not a live fetch.
+- `applyToolFrame` is pure: returns a new `ToolCall[]` per frame; events for unknown ids are dropped (orphan frames after a session switch); no I/O, no env read, no persistence.
 
 ### Pre-existing uncommitted changes in landing page repo
 - `app/api/public-journal/ingest/route.ts`, `lib/journal-store.ts`, `package.json`, `package-lock.json`, `lib/kv.ts` — not ours, left untouched.
