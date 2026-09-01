@@ -5,6 +5,7 @@
 //! resolving every name unqualified, unchanged.
 
 pub mod agents;
+pub mod bootstrap;
 pub mod byok;
 pub mod chat;
 pub mod conversations;
@@ -90,7 +91,10 @@ mod command_count_test {
     // a teammate's inbox directly, instead of dictating to the main agent).
     // 163 -> 164 = + cinderpaw_cowork_history (replay one chat's teammate
     // traffic from the mailbox; the panel was live-only until then).
-    const EXPECTED_COMMAND_COUNT: usize = 164;
+    // 164 -> 165 = pre-existing drift (a command was added without bumping
+    // the constant; CI does not run src-tauri, so it went unnoticed).
+    // Slice 6 adds the `bootstrap` module but no new commands.
+    const EXPECTED_COMMAND_COUNT: usize = 165;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

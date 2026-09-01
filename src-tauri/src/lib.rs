@@ -934,6 +934,23 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
                 .await;
             });
 
+            // Slice 6: bootstrap bridge for the Browser App onboarding
+            // surface. Starts unconditionally with Tauri (NOT gated on
+            // gateway status — the bridge serves `running: false` to
+            // the browser when the gateway is down, so the browser can
+            // distinguish "bridge unavailable" from "bridge up, gateway
+            // down"). The bridge binds 127.0.0.1:11437 only and dies
+            // with the Tauri process; see `commands/bootstrap.rs`.
+            crate::commands::bootstrap::start_bridge(app.handle().clone());
+
+            // Slice 8 (deferred): the cinderpaw:// URL protocol handoff
+            // from the Browser App to Desktop requires platform-specific
+            // protocol registration (Windows registry, macOS Info.plist,
+            // Linux .desktop) and a URL-open handler. The browser CTA
+            // uses `cinderpaw://open`; the Tauri-side registration and
+            // window-focus handler are deferred to a dedicated deep-link
+            // implementation phase with cross-platform testing.
+
             // MCP extensions: no host-side reconnect anymore (R5). The
             // sidecar's McpManager reconciles `~/.cinderpaw/mcp.json` at its own
             // boot and on every `mcp_reload` poke — desktop and headless
