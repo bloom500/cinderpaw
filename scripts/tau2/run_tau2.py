@@ -228,8 +228,25 @@ def main() -> int:
     )
     p.add_argument(
         "--user-llm",
-        default="gemini/gemini-2.5-flash",
-        help="Pinned by the published leaderboard; changing it breaks comparability.",
+        default="openrouter/google/gemini-2.5-flash",
+        # The MODEL is pinned by the published leaderboard and must not change.
+        # The PROVIDER is not: routing the same gemini-2.5-flash through
+        # OpenRouter instead of Google's own endpoint is a billing change, not a
+        # comparability change.
+        #
+        # It has to be a different provider, because Google's free tier caps
+        # `generate_content_free_tier_requests` at 5 requests per MINUTE for
+        # this model, and telecom is unrunnable under that: 114 tasks whose
+        # graded actions are mostly user-side means the user simulator is the
+        # busiest caller in the harness, not the quietest. Every task died with
+        # `TerminationReason.INFRASTRUCTURE_ERROR` and zero messages — the
+        # first user turn never completed. Airline hid this because its
+        # conversations are short enough to stay under the cap.
+        help=(
+            "Model pinned by the published leaderboard; changing the MODEL breaks "
+            "comparability. Provider is ours to pick — Google's free tier is 5 RPM "
+            "and telecom cannot run under it."
+        ),
     )
     p.add_argument(
         "--llm-agent",
