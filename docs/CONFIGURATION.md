@@ -247,6 +247,8 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_DB` | path | `"data/cinderpaw.db"` |  | Override the SQLite DB path. ":memory:" is a sentinel and is not path-resolved. Falls back to a pre-rename data/feral.db when that is the file this install actually has. |
 | `CINDERPAW_AGENT_BASE_PROMPT` | string | `null` |  | Universal operating manual injected into every model call; usually bundled. |
 | `CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS` | int | `4000` |  | Cap on subagent summary length returned to parent (negative = unlimited). |
+| `CINDERPAW_ENABLE_SUBAGENTS` | bool | `true` |  | Set `false` to withhold the `delegate_task` tool entirely. Each subagent spends its own model budget, so a run with a hard cost ceiling needs the capability gone, not discouraged — the model decides to delegate on its own. Withholds the TOOL only; `rlm()` still uses the same Subagent machinery. |
+| `CINDERPAW_MAX_COWORKERS` | int | `null` |  | Cap on roster size for `cowork_create_teammate`. Unset = no cap. Every teammate runs its own loop on its own budget, so on a metered run the roster size is the cost multiplier. `0` forbids teammates outright. |
 | `CINDERPAW_LORA_TRAINER_BIN` | path | `null` |  | Absolute path to the trainer binary. |
 | `CINDERPAW_LORA_TRAIN_TIMEOUT_MS` | int | `null` |  | Wall-clock cap on a single trainer invocation. |
 | `CINDERPAW_RUN_FRACTAL_BENCH` | bool | `false` |  | Run the fractal benchmark as part of boot. |
@@ -448,6 +450,8 @@ CINDERPAW_SHELL_WHITELIST
 CINDERPAW_SMOKE_GGUF
 CINDERPAW_STALL_MS
 CINDERPAW_STT_PROBE
+CINDERPAW_ENABLE_SUBAGENTS
+CINDERPAW_MAX_COWORKERS
 CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS
 CINDERPAW_SUMMARY_EXCERPT_CHARS
 CINDERPAW_THOUGHTS_COOLDOWN_MS

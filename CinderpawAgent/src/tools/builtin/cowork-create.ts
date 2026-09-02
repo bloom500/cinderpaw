@@ -110,6 +110,25 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
       }
 
       const roster = deps.agents.list();
+
+      // A roster cap, for runs billed per teammate. Every teammate spends its
+      // own model budget on its own loop, so on a metered run the roster size
+      // IS the cost multiplier, and asking the model to be frugal is not a
+      // limit — it decides to hire on its own. Unset means no cap, so an
+      // ordinary install is unchanged.
+      const capRaw = process.env.CINDERPAW_MAX_COWORKERS?.trim();
+      const cap = capRaw ? Number.parseInt(capRaw, 10) : Number.NaN;
+      if (Number.isFinite(cap) && cap >= 0 && roster.length >= cap) {
+        return {
+          ok: false,
+          content:
+            `The teammate limit for this run is ${cap}, and ${roster.length} already ` +
+            `${roster.length === 1 ? "exists" : "exist"}. Work with the teammates you have, or do the ` +
+            `task yourself — creating another is not available.`,
+          error: "coworker_limit",
+        };
+      }
+
       const clash = roster.find((a) => a.name.toLowerCase() === name.toLowerCase());
       if (clash) {
         return {

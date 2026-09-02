@@ -924,6 +924,15 @@ export async function boot(transportOverride?: Transport) {
   // task. The subagent inherits the parent's router / sandbox /
   // audit / hooks but gets its own WorkingMemory, filtered
   // registry, and budget.
+  //
+  // Each subagent spends its own model budget, so a run with a hard cost
+  // ceiling may want the capability gone rather than merely discouraged: the
+  // model decides to delegate on its own, and a prompt asking it not to is not
+  // a limit. Set CINDERPAW_ENABLE_SUBAGENTS=false to withhold the tool.
+  // Default ON — an ordinary install keeps delegation, which is the point of
+  // having it. Note this withholds the TOOL only; `rlm()` still runs the same
+  // Subagent machinery underneath, because that is a different feature.
+  if (readEnv("CINDERPAW_ENABLE_SUBAGENTS") !== "false") {
   registry.register(createDelegateTaskTool({
     router,
     parentRegistry: registry,
@@ -943,6 +952,7 @@ export async function boot(transportOverride?: Transport) {
         ? ctxSessionId.split(":")[1] ?? ctxSessionId
         : ctxSessionId,
   }));
+  }
 
   // notebook: the RLM design — a persistent JS interpreter with every other
   // tool bound as an async function, so the agent composes tool calls in code
