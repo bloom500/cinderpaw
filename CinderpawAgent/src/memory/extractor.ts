@@ -44,6 +44,14 @@ const VALID_OBS_TYPES = new Set<string>([
   "discovery", "decision", "bugfix", "feature", "change", "task", "preference",
 ]);
 
+/** A timer that never holds the process open on its own. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    (t as { unref?: () => void }).unref?.();
+  });
+}
+
 export class MemoryExtractor {
   readonly #router: InferenceRouter;
   readonly #semantic: SemanticMemory;
@@ -86,6 +94,62 @@ export class MemoryExtractor {
     }
 
     this.runPending();
+  }
+
+  /**
+   * Write what is still queued, NOW, before the process goes away.
+   *
+   * Extraction is deliberately lazy: it waits for the agent to be idle so it
+   * never competes with a user's turn. That is right for a long-lived desktop
+   * session and wrong for every process with a short life, which is most of
+   * them — a cron job, a connector reply, and above all a benchmark task,
+   * where the runner sends `shutdown` seconds after the turn ends.
+   *
+   * The old shutdown path closed the database and called `process.exit` with
+   * this queue still full, so the lesson from a task died with the task. On
+   * TheAgentCompany that is the whole cross-task story: the agent spends
+   * twenty-five minutes working out how a service authenticates, and the next
+   * task starts from nothing because the write never happened.
+   *
+   * Bounded on purpose. A shutdown that hangs is worse than a lost lesson —
+   * the caller kills the process anyway — so this returns when the queue is
+   * empty OR when the deadline passes, whichever comes first, and says which.
+   */
+  async drain(timeoutMs = 8000): Promise<{ written: number; pending: number }> {
+    if (timeoutMs <= 0) return { written: 0, pending: this.#queue.length };
+    const deadline = Date.now() + timeoutMs;
+    let written = 0;
+    let expired = false;
+
+    // Ignores the idle check by design: shutdown means nothing else is
+    // running, so the reason to wait no longer exists.
+    while (this.#queue.length > 0 && !expired && Date.now() < deadline) {
+      const item = this.#queue.shift();
+      if (!item || this.#running.has(item.sessionId)) continue;
+      this.#running.add(item.sessionId);
+      try {
+        // The deadline has to bound the MODEL CALL, not just the gap between
+        // items. Checking it only between extractions leaves a single hung
+        // completion able to hold the process open for ever, which is the
+        // exact failure this budget exists to prevent.
+        const done = await Promise.race([
+          this.#extract(item.sessionId, item.turns).then(() => true as const),
+          sleep(Math.max(0, deadline - Date.now())).then(() => false as const),
+        ]);
+        if (done) written++;
+        else {
+          // Put it back: unwritten, and honestly reported as such rather than
+          // silently dropped on the way out.
+          expired = true;
+          this.#queue.unshift(item);
+        }
+      } catch {
+        // A failed extraction must never hold up shutdown.
+      } finally {
+        this.#running.delete(item.sessionId);
+      }
+    }
+    return { written, pending: this.#queue.length };
   }
 
   async runPending(): Promise<void> {

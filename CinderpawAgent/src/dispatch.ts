@@ -15,7 +15,7 @@
 import { join } from "node:path";
 import type { InboundMessage, ModelTarget, Schedule, DeliveryTarget } from "./types.ts";
 import type { BootContext } from "./boot.ts";
-import { cfgBool, cfgPath } from "./config.ts";
+import { cfgBool, cfgInt, cfgPath } from "./config.ts";
 import { runUnattended } from "./core/unattended.ts";
 import { parseDoneWhenFromMessage } from "./cron/done-when.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
@@ -98,7 +98,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents,
     runHooks,
     brainDerived, brainBreaker,
   } = ctx;
@@ -1085,13 +1085,35 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         break;
       }
 
-      case "shutdown":
+      case "shutdown": {
         log(`shutdown requested`);
         askUser.cancelAll("shutdown");
+        // Write what the turn learned BEFORE the database closes.
+        //
+        // Extraction waits for the agent to be idle, which is right for a
+        // desktop session and wrong for every short-lived process: a cron job,
+        // a connector reply, a benchmark task. This handler used to close the
+        // DB and exit with the queue still full, so on TheAgentCompany the
+        // agent would spend twenty-five minutes working out how a service
+        // authenticates and the next task would start from nothing, because
+        // the write never happened. Cross-task learning cannot be measured
+        // through a process that throws the lesson away on the way out.
+        //
+        // Bounded: the caller kills us shortly after asking, so a shutdown
+        // that hangs loses more than the lesson it was trying to save.
+        try {
+          const flushed = await extractor.drain(cfgInt("CINDERPAW_SHUTDOWN_FLUSH_MS"));
+          if (flushed.written > 0 || flushed.pending > 0) {
+            log(`shutdown: memory flushed ${flushed.written}, ${flushed.pending} left unwritten`);
+          }
+        } catch {
+          // Never let the flush stop the shutdown it is attached to.
+        }
         mcpManager.killAll();
         db.close();
         process.exit(0);
         break;
+      }
 
       case "ask_user_response": {
         // Forward the user's selection back to the matching pending request.

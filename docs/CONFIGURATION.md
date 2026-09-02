@@ -251,6 +251,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_DB` | path | `"data/cinderpaw.db"` |  | Override the SQLite DB path. ":memory:" is a sentinel and is not path-resolved. Falls back to a pre-rename data/feral.db when that is the file this install actually has. |
 | `CINDERPAW_AGENT_BASE_PROMPT` | string | `null` |  | Universal operating manual injected into every model call; usually bundled. |
 | `CINDERPAW_OPENROUTER_PROVIDER` | string | `null` |  | Pin OpenRouter routing to one named provider (with `allow_fallbacks: false`), so a benchmark measures one endpoint instead of whichever backend the router happened to pick. Ignored unless the base URL is openrouter.ai. Unset is right for ordinary use, where falling back keeps the agent answering; unpinned routing swung identical tau2 runs by 40 points, so any posted number needs this set and declared. |
+| `CINDERPAW_SHUTDOWN_FLUSH_MS` | int | `8000` |  | How long a shutdown may spend writing what the last turn learned before the database closes. Memory extraction waits for the agent to be idle, which never arrives in a short-lived process (a cron job, a connector reply, a benchmark task), so without this the lesson dies with the process. Bounded because the caller kills us shortly after asking: a shutdown that hangs loses more than the lesson it was saving. 0 disables the flush. |
 | `CINDERPAW_RECALL_INJECTION` | bool | `true` |  | Look memory up for the agent on every turn and put the hits in the prompt, instead of waiting for the model to call the `recall` tool. Off restores the old behaviour, where a run that never called the tool never read memory at all. |
 | `CINDERPAW_RECALL_INJECTION_MAX_CHARS` | int | `4000` |  | Cap on the injected recall block. A similarity search has no natural bound on how much it can match, so the block is cut on a line boundary at this size. |
 | `CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS` | int | `4000` |  | Cap on subagent summary length returned to parent (negative = unlimited). |
@@ -463,6 +464,7 @@ CINDERPAW_SHELL_DENYLIST
 CINDERPAW_SHELL_MAX_TIMEOUT_MS
 CINDERPAW_SHELL_PATH_EXTRA
 CINDERPAW_SHELL_WHITELIST
+CINDERPAW_SHUTDOWN_FLUSH_MS
 CINDERPAW_SMOKE_GGUF
 CINDERPAW_STALL_MS
 CINDERPAW_STT_PROBE

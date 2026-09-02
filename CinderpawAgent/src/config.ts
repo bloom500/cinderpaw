@@ -280,6 +280,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   // ---- Subagents ---------------------------------------------------------------------
   { name: "CINDERPAW_OPENROUTER_PROVIDER", type: "string", default: null,
     description: "Pin OpenRouter routing to one named provider (with `allow_fallbacks: false`), so a benchmark measures one endpoint instead of whichever backend the router happened to pick. Ignored unless the base URL is openrouter.ai. Unset is right for ordinary use, where falling back keeps the agent answering; unpinned routing swung identical tau2 runs by 40 points, so any posted number needs this set and declared.", security: false },
+  { name: "CINDERPAW_SHUTDOWN_FLUSH_MS", type: "int", default: 8000,
+    description: "How long a shutdown may spend writing what the last turn learned before the database closes. Memory extraction waits for the agent to be idle, which never arrives in a short-lived process (a cron job, a connector reply, a benchmark task), so without this the lesson dies with the process. Bounded because the caller kills us shortly after asking: a shutdown that hangs loses more than the lesson it was saving. 0 disables the flush.", security: false },
   { name: "CINDERPAW_RECALL_INJECTION", type: "bool", default: true,
     description: "Look memory up for the agent on every turn and put the hits in the prompt, instead of waiting for the model to call the `recall` tool. Off restores the old behaviour, where a run that never called the tool never read memory at all.", security: false },
   { name: "CINDERPAW_RECALL_INJECTION_MAX_CHARS", type: "int", default: 4000,

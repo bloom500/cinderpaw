@@ -2277,7 +2277,7 @@ export async function boot(transportOverride?: Transport) {
   // this shared, mutable `ctx` object rather than being destructured by
   // value on the other side.
   const ctx = {
-    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
     // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
     // `cowork_approval_resolve` here).
     coworkApprovals: coworkApprovalService,
