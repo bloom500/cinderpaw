@@ -41,6 +41,39 @@ from pathlib import Path
 os.environ.setdefault("PYTHONUTF8", "1")
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 
+# ...and then actually get UTF-8 mode, which the two lines above do NOT give us.
+#
+# `PYTHONUTF8` is read by the interpreter at STARTUP. Setting it in `os.environ`
+# from inside a running process changes what child processes inherit and nothing
+# else: this process's own `open()` keeps defaulting to the locale encoding,
+# which on a Windows console is cp1252.
+#
+# That went unnoticed because airline's policy file is pure ASCII. The telecom
+# domain's is not — `tau2/utils/io_utils.py:130` calls `open(path, "r")` with no
+# encoding, and loading the telecom environment dies with
+# `UnicodeDecodeError: 'charmap' codec can't decode byte 0x8f in position 1522`
+# before a single task runs. Every `open()` in the vendored tree has the same
+# hole; UTF-8 mode closes all of them at once, without patching a clone that is
+# gitignored and would lose the patch on the next pull.
+#
+# So: if we are not in UTF-8 mode, restart ourselves once, in it. The child sees
+# `sys.flags.utf8_mode == 1`, so this cannot loop.
+#
+# `subprocess` and not `os.execv`: on Windows execv re-quotes the argument list
+# itself and mangles any path containing a space. This repo lives in
+# "D:\Cinderpaw Agent", and the first attempt relaunched itself as
+# `D:\Cinderpaw Agent\Agent\vendor\...` — a path that does not exist, reported as
+# a missing file rather than as a quoting bug.
+if not sys.flags.utf8_mode:
+    import subprocess
+
+    sys.exit(
+        subprocess.run(
+            [sys.executable, "-X", "utf8", os.path.abspath(__file__), *sys.argv[1:]],
+            check=False,
+        ).returncode
+    )
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TAU2_ROOT = Path(os.environ.get("TAU2_ROOT", REPO_ROOT / "vendor" / "tau2-bench"))
 
@@ -94,9 +127,79 @@ def _seed_cinderpaw_route() -> None:
         os.environ["CINDERPAW_BASE_URL"] = re.sub(r"/v1$", "", base.rstrip("/"))
 
 
+def _preflight(registry, args) -> bool:
+    """
+    Load the domain and print what is about to be measured, BEFORE any money is
+    spent. Returns False when the run should not start.
+
+    This exists because the telecom domain could not be loaded at all on Windows
+    and nothing said so until a task tried to run. `tau2/utils/io_utils.py:130`
+    opens policy files with no encoding; telecom's contains a byte cp1252 cannot
+    decode. A run that dies on task 1 after the harness has already reported
+    itself ready is the expensive way to find that out.
+
+    The numbers it prints are not decoration. Airline and telecom are different
+    benchmarks wearing the same name: telecom's policy is three times longer and
+    76% of its graded actions are performed by the USER, not the agent.
+    """
+    try:
+        env = registry.get_env_constructor(args.domain)()
+    except Exception as e:  # noqa: BLE001 — the point is to report ANY failure clearly
+        print(
+            f"\nDomain '{args.domain}' could not be loaded: {type(e).__name__}: {e}\n"
+            "  Nothing has been spent. Fix this before running.",
+            file=sys.stderr,
+        )
+        return False
+
+    try:
+        tasks = registry.get_tasks_loader(args.domain)()
+    except Exception as e:  # noqa: BLE001
+        print(f"\nDomain '{args.domain}' has no loadable task set: {e}", file=sys.stderr)
+        return False
+
+    policy = env.get_policy()
+    try:
+        user_tools = len(env.get_user_tools())
+    except Exception:
+        user_tools = 0
+
+    selected = len(tasks)
+    if args.task_ids:
+        selected = len(args.task_ids)
+    elif args.num_tasks:
+        selected = min(args.num_tasks, selected)
+
+    print()
+    print(f"preflight  domain={args.domain}  split tasks={len(tasks)}  running={selected}")
+    print(f"           policy={len(policy)} chars (~{len(policy) // 4} tokens)  "
+          f"agent_tools={len(env.get_tools())}  user_tools={user_tools}")
+
+    # The policy is delivered to Cinderpaw in the FIRST USER TURN, not as a
+    # system prompt (see cinderpaw_agent.py's header). A long one is the thing
+    # most likely to be dropped if the sidecar ever compacts, and in a
+    # manual-driven domain the policy IS the task.
+    if args.agent == "cinderpaw" and len(policy) > 12_000:
+        print(f"           NOTE: policy is {len(policy)} chars and rides in the first user "
+              "turn. Check the trajectory for compaction before trusting the score.")
+
+    # A domain where the user holds tools is measuring something else: whether
+    # the agent can INSTRUCT, not whether it can act.
+    if user_tools:
+        print(f"           NOTE: {user_tools} user-side tools — most graded actions here are "
+              "performed by the user, on the agent's instructions.")
+
+    return True
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--domain", default="airline")
+    p.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Load the domain, print what would be measured, and exit without running.",
+    )
     p.add_argument("--agent", default="cinderpaw", help="cinderpaw | llm_agent")
     p.add_argument("--num-tasks", type=int, default=None, help="default: all of them")
     p.add_argument(
@@ -162,6 +265,11 @@ def main() -> int:
     from tau2.runner.batch import run_domain
 
     registry.register_agent_factory(create_cinderpaw_agent, "cinderpaw")
+
+    if not _preflight(registry, args):
+        return 2
+    if args.preflight_only:
+        return 0
 
     results = run_domain(
         TextRunConfig(
