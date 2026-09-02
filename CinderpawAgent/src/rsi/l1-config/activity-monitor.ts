@@ -30,6 +30,7 @@ const DEFAULT_ERROR_WINDOW_MS = 15 * 60_000;
 export class ActivityMonitor {
   private lastActivityMs: number | null = null;
   private readonly errors: number[] = [];
+  private readonly outcomes: Array<{ at: number; ok: boolean }> = [];
   private readonly windowMs: number;
 
   constructor(opts?: ActivityMonitorOptions) {
@@ -46,6 +47,43 @@ export class ActivityMonitor {
    *  errors can pile up while the agent is still serving the user. */
   recordError(nowMs: number): void {
     this.errors.push(nowMs);
+  }
+
+  /**
+   * Mark a UNIT OF REAL WORK finishing, and whether it worked.
+   *
+   * The error trigger used to hear only inference failures — the model
+   * refusing, the endpoint dying. Those are the times the agent could not
+   * speak. They are not the times it was WRONG, and a self-improving system
+   * that cannot tell the difference is improving in response to its own
+   * plumbing rather than to its results: it fails a task outright, and
+   * nothing anywhere counts that as a reason to get better.
+   *
+   * A failed unit of work now feeds the same rolling window an inference
+   * error does, so the thing that wakes the engine is the thing that went
+   * wrong out here. Successes are counted too, because a failure rate is
+   * the number worth acting on and a bare failure count is not: an agent
+   * doing a hundred jobs an hour and missing three is not the same as one
+   * that missed three out of three.
+   *
+   * The idle clock is untouched, exactly as with `recordError` — finishing
+   * a job does not mean the user is present.
+   */
+  recordOutcome(nowMs: number, ok: boolean): void {
+    this.outcomes.push({ at: nowMs, ok });
+    if (!ok) this.errors.push(nowMs);
+  }
+
+  /** Real-work outcomes inside the rolling window: how many finished, and
+   *  how many of those failed. `{ total: 0, failed: 0 }` before any land. */
+  outcomesInWindow(nowMs: number): { total: number; failed: number } {
+    const cutoff = nowMs - this.windowMs;
+    while (this.outcomes.length > 0 && this.outcomes[0]!.at < cutoff) {
+      this.outcomes.shift();
+    }
+    let failed = 0;
+    for (const o of this.outcomes) if (!o.ok) failed++;
+    return { total: this.outcomes.length, failed };
   }
 
   /** Milliseconds since the last activity. Returns `Number.POSITIVE_INFINITY`

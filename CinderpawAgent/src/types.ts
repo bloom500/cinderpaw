@@ -379,6 +379,12 @@ export type AuditActionType =
   // they are the ones you want to grep for after an unattended run.
   | "network_write"
   | "memory_write"
+  // A UNIT OF REAL WORK finished, and whether it worked. The turn is the unit
+  // a stranger's install actually has: a benchmark task, a cron job and a
+  // Discord reply all end in one. Written so BRSI can be judged partly on what
+  // happened out here, instead of only on its own synthetic eval suite -- the
+  // difference between adapting to the fight and adapting to the dojo.
+  | "task_outcome"
   | "blocked"
   // User thumbs up/down on an assistant message — the wired source of the
   // §2.10 `acceptance` personal-fitness signal. result "success" = 👍,

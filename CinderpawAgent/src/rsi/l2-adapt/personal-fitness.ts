@@ -49,7 +49,9 @@ export type UserSignalKind =
   | "memory_reuse"        // recall.ts hit (positive) vs miss (negative) — TODO wire
   | "acceptance"          // Thumbs 👍/👎 on an agent message (audit "feedback" rows)
   | "edit_after_accept"   // User edited agent output          — TODO wire (no source today)
-  | "workflow_completion" // UIA demo replay success           — TODO wire (Layer 2+ work)
+  | "workflow_completion" // A unit of real work ended (audit "task_outcome" rows):
+                          // the turn's own outcome, positive when it finished
+                          // and negative when it failed or was cut off.
   | "preference_match";   // Settings vs response style        — TODO wire
 
 /** Default weights per kind. WEIGHTS ARE MAGNITUDES (always positive).
@@ -67,6 +69,10 @@ export const DEFAULT_USER_SIGNAL_WEIGHTS: Record<UserSignalKind, number> = {
   memory_reuse: 0.25,
   acceptance: 0.40,
   edit_after_accept: 0.50,
+  // The heaviest signal after an explicit thumbs-down, and deliberately so:
+  // a turn that did not finish is the most direct evidence there is that the
+  // configuration is not working, and it is the one signal that comes from
+  // the actual job rather than from a proxy for it.
   workflow_completion: 0.35,
   preference_match: 0.15,
 };
@@ -135,6 +141,18 @@ export function auditEntriesToUserSignals(
         timestamp: e.timestamp,
         value: up ? 1 : -1,
         kind: "acceptance",
+        context: e.toolName,
+      });
+      continue;
+    }
+    if (e.actionType === "task_outcome") {
+      // A unit of real work, and whether it worked. `result` is the audit
+      // vocabulary: "success" for a turn that finished, "error" for one that
+      // failed or ran out of road.
+      out.push({
+        timestamp: e.timestamp,
+        value: e.result === "success" ? 1 : -1,
+        kind: "workflow_completion",
         context: e.toolName,
       });
       continue;

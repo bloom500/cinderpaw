@@ -53,7 +53,7 @@ import { STRATEGY_SEED_VERSION, STRATEGY_SEEDS } from "./l1-config/strategy-seed
 import { PROMPT_STYLE_POOL } from "./l1-config/prompt-pool.ts";
 import { blendedPricePer1kUsd } from "./infra/rsi-cost.ts";
 import { evaluateGate } from "./infra/confidence.ts";
-import { recentToolCalls, recentFeedback } from "../egress/audit-log.ts";
+import { recentToolCalls, recentFeedback, recentTaskOutcomes } from "../egress/audit-log.ts";
 import { PbtController, type StrategyGenome } from "./l1-config/pbt-controller.ts";
 import { DEFAULT_META_GENOME } from "./l6-meta/meta-evolution.ts";
 import { PbtHandler } from "./l1-config/pbt-handler.ts";
@@ -664,6 +664,11 @@ export class RsiSidecar {
         readRecentAudit: () => [
           ...recentToolCalls(this.deps.db),
           ...recentFeedback(this.deps.db),
+          // What actually happened out in the world. Without this row the
+          // fitness vector only ever saw proxies -- tools that returned ok,
+          // and the thumbs a user rarely gives -- so a genome could look
+          // healthy while every real job it ran was failing.
+          ...recentTaskOutcomes(this.deps.db),
         ],
       },
       selection,

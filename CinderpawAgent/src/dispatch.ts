@@ -1342,6 +1342,42 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             // is actually going wrong).
             activityMonitor.recordError(Date.now());
           }
+          // The turn's own verdict, which is the only place the runtime learns
+          // whether the WORK landed rather than whether the plumbing held.
+          //
+          // Until now the engine's error trigger heard inference failures and
+          // nothing else, and its fitness vector was built from tool results
+          // and the thumbs a user almost never gives. So the agent could fail
+          // a job outright and no part of the self-improvement loop counted
+          // that as a reason to change anything: it adapted to its own
+          // plumbing, never to its results.
+          //
+          // Two consumers, one row. `recordOutcome` makes a failed turn wake
+          // an episode; the audit row makes it a `workflow_completion` signal
+          // in the next candidate's fitness vector (see personal-fitness.ts,
+          // where that signal kind was declared and left unwired).
+          //
+          // `runSummary` closes an unattended RUN and restates the last turn
+          // rather than being one, and an `incomplete` turn is one an
+          // unattended caller is about to continue — counting either would
+          // double-count the work. Only a terminal turn is a unit of work.
+          if (event.type === "done" && !event.runSummary && !event.incomplete) {
+            const ok = event.outcome === undefined || event.outcome === "completed";
+            const at = Date.now();
+            activityMonitor.recordOutcome(at, ok);
+            try {
+              audit.log({
+                sessionId,
+                actionType: "task_outcome",
+                // The structured reason, so a journal row says WHICH way it
+                // ended and not merely that it did.
+                toolName: event.outcome ?? "completed",
+                result: ok ? "success" : "error",
+              });
+            } catch {
+              // Telemetry: a failed audit write must never cost the user a turn.
+            }
+          }
         };
         // Unattended: CINDERPAW_AUTONOMOUS already means "nobody is at the machine
         // to answer ask_user". The same fact means nobody is here to type

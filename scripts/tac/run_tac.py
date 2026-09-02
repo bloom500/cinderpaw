@@ -80,40 +80,55 @@ SIDECAR_ENTRY = REPO_ROOT / "CinderpawAgent" / "src" / "index.ts"
 
 DECRYPTION_KEY = "theagentcompany is all you need"
 
-# The baseline's prompt is one sentence (run_eval.py in TheAgentCompany). The
-# credentials block is added because the benchmark explicitly allows it — "we
-# allow benchmark users to use whatever ways they want to provide the username
-# and password" — and the baseline itself pre-logs-in through a browser and
-# still puts the GitLab credentials in its system prompt. Without this the agent
-# would fail tasks on authentication rather than on the work.
+# What the agent is told before it starts, and why each line is in here.
+#
+# The baseline's prompt, read from TheAgentCompany's own `evaluation/run_eval.py`,
+# is ONE sentence — "Complete the task in /instruction/task.md" — plus, and ONLY
+# on tasks that declare a gitlab dependency, "Gitlab username is 'root' and
+# password is 'theagentcompany'". That is the whole thing. It hands over no
+# credentials at all for ownCloud, Plane or RocketChat.
+#
+# So this block matches the baseline where it can and stops there:
+#
+#   - GitLab credentials, on every task rather than only gitlab ones, because
+#     our runner does not read dependencies.yml before composing the message.
+#     Strictly the same information the baseline gives, sometimes earlier.
+#   - The service list WITHOUT passwords. This is topology, not access: the
+#     baseline's agent has a browser with the deployment in front of it, ours
+#     does not, so naming what exists and on which port keeps it from being
+#     worse off than the baseline for a reason that has nothing to do with the
+#     task. It still has to get in on its own.
+#   - The no-browser line, which is a fact about THIS agent's tools.
+#   - The pre-installed document libraries, which describe setup this harness
+#     performed and the agent would otherwise waste turns rediscovering.
+#
+# What used to be here and is deliberately gone: passwords for the other three
+# services, Plane's pre-made API key and workspace slug, and a verified
+# per-service recipe for how each one authenticates. Those were not credentials,
+# they were solutions to a sub-problem the benchmark actually poses — for an
+# agent with no browser, working out how to authenticate IS part of the work.
+#
+# Removing them is affordable specifically because memory works now. With
+# `--home shared`, the agent that works out GitLab's OAuth dance on task 3
+# recalls it on task 40 instead of rediscovering it 175 times. Being told is
+# not the same result as learning once and keeping it, and the second one is
+# the thing this runtime claims to do.
 FIRST_MESSAGE = """Complete the task in /instruction/task.md
+
+Gitlab username is 'root' and password is 'theagentcompany'.
 
 You are working at a software company. You act through the tools you have; your
 shell and file tools run on the company workstation, which is where all the work
-must land. The company's internal services and their credentials:
+must land. The company's internal services:
 
-- GitLab      http://the-agent-company.com:8929   root / theagentcompany
-- ownCloud    http://the-agent-company.com:8092   theagentcompany / theagentcompany
-- Plane       http://the-agent-company.com:8091   agent@company.com / theagentcompany
-              API key: plane_api_83f868352c6f490aba59b869ffdae1cf  (header X-API-Key),
-              workspace slug: tac
-- RocketChat  http://the-agent-company.com:3000   theagentcompany / theagentcompany
+- GitLab      http://the-agent-company.com:8929
+- ownCloud    http://the-agent-company.com:8092
+- Plane       http://the-agent-company.com:8091
+- RocketChat  http://the-agent-company.com:3000
 
 You have no browser on the workstation. Use their HTTP APIs, and git over http
-for GitLab. Each service authenticates differently, and these were verified
-against this exact deployment:
-
-- GitLab rejects basic auth on /api/v4. Get a token first:
-  POST http://the-agent-company.com:8929/oauth/token with the form body
-  grant_type=password&username=root&password=theagentcompany
-  then send it as `Authorization: Bearer <access_token>`.
-- ownCloud is WebDAV under
-  http://the-agent-company.com:8092/remote.php/dav/files/theagentcompany/
-  with ordinary basic auth. PROPFIND lists, GET downloads, PUT uploads.
-- RocketChat: POST /api/v1/login with {"user":..., "password":...}, then send
-  `X-Auth-Token` and `X-User-Id` on every later call.
-- Plane: send the API key as the `x-api-key` header; the workspace slug is
-  `tac`.
+for GitLab. Work out how each service wants to be authenticated; when you do,
+write it down with `remember` so the next task does not start from nothing.
 
 python_default has openpyxl, odfpy, python-docx, python-pptx, pypdf and pandas
 installed, so spreadsheets and documents are read with those rather than by
@@ -248,6 +263,26 @@ class Container:
             )
         self.refresh_gitlab_token()
 
+    # Cached: `dependencies.yml` cannot change while the container is up, and
+    # both the token refresh and the progress stream want it.
+    _services: list[str] | None = None
+
+    # The services a task's environment actually resets, which is also what
+    # decides how expensive its `init` is: a chat-only task pays ~45 s, one
+    # that touches GitLab pays ~11 minutes. Reported so the run can be read by
+    # WHERE the night went, rather than inferred from task-name prefixes, which
+    # do not track dependencies (`pm-` tasks touch Plane, GitLab or RocketChat).
+    KNOWN_SERVICES = ("gitlab", "owncloud", "rocketchat", "plane")
+
+    def services(self) -> list[str]:
+        if self._services is None:
+            try:
+                out = self.exec(["cat", "/utils/dependencies.yml"], cwd="/", timeout=60.0).stdout or ""
+            except Exception:  # noqa: BLE001 - telemetry must never fail a task
+                out = ""
+            self._services = [s for s in self.KNOWN_SERVICES if s in out]
+        return self._services
+
     def refresh_gitlab_token(self) -> None:
         """
         Un-expire the token every GitLab evaluator grades with.
@@ -263,8 +298,7 @@ class Container:
         container from the image and restores the expired token every time.
         Only tasks that actually declare a GitLab dependency pay the ~40s.
         """
-        deps = self.exec(["cat", "/utils/dependencies.yml"], cwd="/", timeout=60.0)
-        if "gitlab" not in (deps.stdout or ""):
+        if "gitlab" not in self.services():
             return
         r = docker(
             "exec", "gitlab", "gitlab-rails", "runner",
@@ -627,7 +661,13 @@ def drive(sc: Sidecar, ctr: Container, deadline: float, turn_timeout: float) -> 
         try:
             ev = sc.inbox.get(timeout=min(turn_timeout, max(1.0, deadline - time.time())))
         except Empty:
-            return "silent_timeout"
+            # WHICH clock ran out. The wait is capped by whatever is nearer, so
+            # the task deadline expiring also raises Empty — and reporting that
+            # as `silent_timeout` says the agent went quiet when it was working
+            # to the last second. The two need opposite fixes (a hung agent
+            # versus a task that wants more than 30 minutes), and across 175
+            # tasks the wrong label sends every diagnosis the wrong way.
+            return "task_timeout" if time.time() > deadline else "silent_timeout"
         if ev is None:
             return "sidecar_exited"
         sc.events.append(ev)
@@ -705,7 +745,8 @@ def run_task(task: str, args, decl: Path, env_llm: dict[str, str], prog: Progres
         ctr.start()
         prog.emit(event="init_start", task=task)
         ctr.init(args.server_hostname, env_llm)
-        prog.emit(event="init_done", task=task, seconds=round(time.time() - started, 1))
+        prog.emit(event="init_done", task=task, seconds=round(time.time() - started, 1),
+                  services=ctr.services())
 
         sc = Sidecar.spawn(home, decl, {})
 
@@ -912,12 +953,34 @@ def main() -> int:
     records = []
     for i, task in enumerate(tasks, 1):
         done = outputs / f"{task}.json"
+        prior = None
         if done.is_file():
-            # Resumable on purpose: these runs are long, and a night that dies
-            # at task 90 must not start again at task 1.
+            try:
+                prior = json.loads(done.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                prior = None  # unreadable half-write: treat as not run
+        # Resume only past a real GRADE. Resumable on purpose — these runs are
+        # long and a night that dies at task 90 must not start again at task 1 —
+        # but "a file exists" is not the same as "this task was measured".
+        #
+        # A task whose container failed to come up also writes a file, one with
+        # an `error` and no `score`. Skipping that on resume retries nothing,
+        # keeps a harness failure in the results forever, and counts it toward
+        # the score as a zero. On a 175-task overnight run a single transient
+        # api-server hiccup silently becomes a permanent zero for that task,
+        # which is the same shape as the expired GitLab token: a number that
+        # reads like the agent failed when nothing about the agent was tested.
+        if prior is not None and isinstance(prior.get("score"), dict):
             print(f"[tac] ({i}/{len(tasks)}) {task} — already graded, skipping", flush=True)
-            records.append(json.loads(done.read_text(encoding="utf-8")))
+            records.append(prior)
             continue
+        if prior is not None:
+            why = str(prior.get("error", "no score recorded"))[:120]
+            print(
+                f"[tac] ({i}/{len(tasks)}) {task} — previous attempt did not grade "
+                f"({why}); retrying",
+                flush=True,
+            )
         print(f"[tac] ({i}/{len(tasks)}) {task}", flush=True)
         rec = run_task(task, args, Path(decl_path), env_llm, prog)
         done.write_text(json.dumps(rec, indent=2), encoding="utf-8")
