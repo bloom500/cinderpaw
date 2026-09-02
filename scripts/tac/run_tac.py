@@ -640,6 +640,32 @@ class Sidecar:
             self.proc.kill()
 
 
+# Stop reasons that mean the RUN broke, not that the agent did badly.
+#
+# `sidecar_exited` is the agent process dying; `sidecar_error:` carries an
+# inference failure, and the one measured on 2026-09-02 was an OpenRouter 429
+# on the pinned provider, sixty seconds into a task. Both still produce a
+# graded result — zero checkpoints, because nothing ran — and a zero is
+# indistinguishable from an agent that tried and failed.
+INFRA_STOP_PREFIXES = ("sidecar_exited", "sidecar_error")
+
+
+def infra_failure(record: dict) -> bool:
+    """Did this result come from the harness breaking rather than the agent?
+
+    Resume skips anything carrying a score, which is right for a real grade and
+    wrong for this: a ten-second rate limit becomes a permanent zero that
+    reads, forever after, as "the agent could not do Plane". Same shape as the
+    expired GitLab token — a number about the harness, wearing the agent's name.
+
+    Timeouts are deliberately NOT in here. A task that ran out of its thirty
+    minutes was measured: the agent had the time and did not finish. That is a
+    result, and re-running it would be re-rolling a die until it lands well.
+    """
+    reason = str(record.get("stop_reason") or "")
+    return any(reason.startswith(p) for p in INFRA_STOP_PREFIXES)
+
+
 def drive(sc: Sidecar, ctr: Container, deadline: float, turn_timeout: float) -> str:
     """
     Run one task to completion, executing the agent's tool calls in the container.
@@ -970,12 +996,16 @@ def main() -> int:
         # api-server hiccup silently becomes a permanent zero for that task,
         # which is the same shape as the expired GitLab token: a number that
         # reads like the agent failed when nothing about the agent was tested.
-        if prior is not None and isinstance(prior.get("score"), dict):
+        if prior is not None and isinstance(prior.get("score"), dict) and not infra_failure(prior):
             print(f"[tac] ({i}/{len(tasks)}) {task} — already graded, skipping", flush=True)
             records.append(prior)
             continue
         if prior is not None:
-            why = str(prior.get("error", "no score recorded"))[:120]
+            why = (
+                f"harness failure ({prior.get('stop_reason')})"
+                if infra_failure(prior)
+                else str(prior.get("error", "no score recorded"))[:120]
+            )
             print(
                 f"[tac] ({i}/{len(tasks)}) {task} — previous attempt did not grade "
                 f"({why}); retrying",
