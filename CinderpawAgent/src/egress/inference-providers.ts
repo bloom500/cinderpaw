@@ -583,6 +583,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       // rides in the same usage block, so a provider that caches perfectly
       // looked identical to one that does not cache at all.
       stream_options: { include_usage: true },
+      ...openRouterProviderPin(target),
     };
     if (useNativeTools) {
       body.tools = req.openAITools;
@@ -1660,6 +1661,37 @@ function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
     cache_control:
       req.cachePrefix === "long" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" },
   };
+}
+
+/**
+ * Pin OpenRouter to one named provider, when `CINDERPAW_OPENROUTER_PROVIDER`
+ * asks for it. Off unless set.
+ *
+ * OpenRouter picks an endpoint PER REQUEST from everyone serving a model, and
+ * for `z-ai/glm-5.3-flash` that is 22 endpoints — six of them reporting
+ * `quantization: unknown`, and `max_completion_tokens` ranging from 128k to
+ * 1.18M. They are not interchangeable, and nothing in a response says which one
+ * answered.
+ *
+ * Measured on 2026-09-02: the same 21 telecom tasks, same seed, same model,
+ * unchanged agent code, scored 11/21 and then 20/21. Nine tasks flipped, all in
+ * the same direction, and their conversations collapsed from 201 messages to
+ * 34-72. Variance does not do that; a degraded endpoint does. On the bad run
+ * the model returned empty completions, the loop reported `no_answer`, and the
+ * turn went nowhere.
+ *
+ * Deliberately NOT the default. Fallbacks across many providers are what keeps
+ * an ordinary user answered when one endpoint is down, and someone who never
+ * opens settings should keep that. A benchmark wants the opposite — the same
+ * silicon every run, and a provider name it can print next to the score — so
+ * the benchmark opts in. `allow_fallbacks: false` is the point: a pin that
+ * silently falls back to a different provider measures nothing.
+ */
+export function openRouterProviderPin(target: ModelTarget): Record<string, unknown> {
+  const name = process.env.CINDERPAW_OPENROUTER_PROVIDER?.trim();
+  if (!name) return {};
+  if (!/openrouter\.ai/i.test(target.baseUrl ?? "")) return {};
+  return { provider: { order: [name], allow_fallbacks: false } };
 }
 
 function cinderpawExtensionBody(
