@@ -1688,7 +1688,7 @@ function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
  * silently falls back to a different provider measures nothing.
  */
 export function openRouterProviderPin(target: ModelTarget): Record<string, unknown> {
-  const name = process.env.CINDERPAW_OPENROUTER_PROVIDER?.trim();
+  const name = readEnv("CINDERPAW_OPENROUTER_PROVIDER")?.trim();
   if (!name) return {};
   if (!/openrouter\.ai/i.test(target.baseUrl ?? "")) return {};
   return { provider: { order: [name], allow_fallbacks: false } };

@@ -20,16 +20,38 @@
  * neutral empty style so generation-0 genomes change nothing.
  */
 
-/** Index-aligned pool. Keep entries short — they ride on every turn. */
+/**
+ * Index-aligned pool. Keep entries short — they ride on every turn.
+ *
+ * An entry earns its place only if it says something the base system prompt
+ * does NOT already say. The first version of this pool failed that test: it
+ * asked for conciseness, step-by-step work and format discipline, all three of
+ * which the base prompt already instructs at length. Measured 2026-09-02, the
+ * champion's style addendum landed 81% of the way into a 31k-character system
+ * prompt, immediately after the base prompt's own "Be concise and direct.",
+ * and the model's answer got LONGER (2340 chars vs 2226 for neutral). A pool
+ * that restates the prompt gives evolution nothing to choose between, which is
+ * why `systemPromptId` was a live-mapped lever with no measurable range.
+ *
+ * What is here instead are the dials the base prompt deliberately leaves open,
+ * where the right setting depends on the task and only a run can tell you:
+ * how much to plan before acting, how readily to ask instead of deciding, and
+ * when to abandon an approach rather than retry it. Those change what an agent
+ * DOES on a long task, not how its prose reads.
+ */
 export const PROMPT_STYLE_POOL: readonly string[] = [
   // 0 — neutral: no addendum, the agent-as-shipped.
   "",
-  // 1 — concise-direct
-  "Be maximally concise. Answer directly with no preamble, filler, or repetition.",
-  // 2 — stepwise-verifier
-  "For anything involving computation or multiple constraints, work through it step by step, double-check the result, then state the final answer clearly.",
-  // 3 — format-strict
-  "When a specific output format is requested (JSON, a bare value, a fixed schema), follow it exactly — no extra prose, no code fences unless asked.",
+  // 1 — plan-first: pay an explicit planning step up front. Helps a task with
+  //     several interacting parts, costs a turn on a task that had one step.
+  "Before acting on a request with more than one step, write the plan as a short numbered list, then follow it and say which step you are on. Revise the list out loud when you learn something that changes it.",
+  // 2 — decide-rather-than-ask: shifts where the ask/decide line sits. The
+  //     base prompt tells the agent both to ask when it matters and not to ask
+  //     about trivia; this pushes that boundary toward acting.
+  "Prefer deciding to asking. When a choice is reversible, make it, say which way you went and why, and carry on; save questions for what you cannot undo or cannot know.",
+  // 3 — change-approach-on-repeat-failure: governs recovery, which is the
+  //     dominant cost on a long autonomous run.
+  "When the same approach fails twice, stop repeating it. Say what you now believe is wrong, and try a different route rather than the same one with small variations.",
 ];
 
 /** Resolve an id to its style text. Out-of-range / non-integer ids fall

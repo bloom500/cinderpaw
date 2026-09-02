@@ -133,7 +133,12 @@ function documentedVars() {
   if (!existsSync(DOC)) {
     throw new Error(`docs/CONFIGURATION.md not found at ${DOC}`);
   }
-  const md = readFileSync(DOC, "utf8");
+  // Normalise line endings before matching. `core.autocrlf=true` is git's
+  // default on Windows, so a fresh clone there checks this file out with
+  // CRLF and the fence never matched — the check failed with "must contain
+  // a fenced code block" while pointing at a file that plainly contains one.
+  // The convention of the checkout is not the thing being checked.
+  const md = readFileSync(DOC, "utf8").replace(/\r\n?/g, "\n");
   const m = md.match(/```cinderpaw-env-vars\n([\s\S]*?)\n```/);
   if (!m) {
     throw new Error(

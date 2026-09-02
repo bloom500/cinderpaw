@@ -46,6 +46,23 @@ const DENYLIST_BASENAMES: &[&str] = &[
     "code-leaves.ts",
     "code-rsi.ts",
     "pending-patches.ts",
+    // The MEASUREMENT chain. The list above protects how a verdict is
+    // decided; these protect the instrument that produces it. Mirrors
+    // `CinderpawAgent/src/rsi/l3-code/code-genome.ts`; a parity test on the
+    // TS side fails if the two drift.
+    "eval-spec.ts",
+    "run-eval.ts",
+    "eval-worker.ts",
+    "get-specs.ts",
+    "default-tier-specs.ts",
+    "invoke-agent.ts",
+    "fitness.ts",
+    "personal-fitness.ts",
+    "budget.ts",
+    "journal.ts",
+    "hash-chain.ts",
+    "event-bus.ts",
+    "provenance.ts",
 ];
 
 /// Raw measurements the sandbox eval runner (TS, `code-sandbox.ts`)

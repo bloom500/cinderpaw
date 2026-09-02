@@ -67,6 +67,23 @@ import type { GenomeSpec } from "../l1-config/population-manager.ts";
 export interface AgentResponse {
   response: string;
   tokens: number;
+  /**
+   * Sub-calls that came back with no gradable answer, after the retry.
+   *
+   * NOT the same as a wrong answer, and the distinction is the whole
+   * point: a genome that answered badly has been measured, a genome that
+   * never answered has not. The caller needs to be able to tell them
+   * apart before it feeds either one to selection.
+   */
+  unanswered?: number;
+  /**
+   * True when the model produced text but all of it was reasoning, so
+   * the answer stripped to nothing. Separates "the server returned an
+   * empty body" (a route/model problem) from "the model thought until it
+   * ran out of room" (a budget problem) — two failures with the same
+   * symptom and completely different fixes.
+   */
+  reasoningOnly?: boolean;
 }
 
 /**
@@ -128,6 +145,21 @@ export interface InvokeAgentDeps {
   plan?: (req: { goal: string; maxDepth: number; toolNames: string[] }) => Promise<
     Array<{ description: string; suggestedTools: string[] }> | null
   >;
+  /**
+   * What to do when a completion is all reasoning and no answer.
+   *
+   * A reasoning model under the eval's default 1024-token budget (409
+   * after a conservative genome's `contextWindowUsage`) routinely spends
+   * every token inside `<think>` and returns nothing gradable. Measured
+   * on this machine: 1569 of 2207 eval iterations, 71%, over 750 dream
+   * episodes and 8.6M tokens, for 9 ratchets. The genomes were not bad;
+   * they were never asked a question they had room to answer.
+   *
+   * So one retry, with the reasoning effort pushed down and the answer
+   * budget raised. It is paid ONLY on a call that already produced
+   * nothing, so a healthy model never sees it. `false` disables it.
+   */
+  reasoningRetry?: false | { maxTokensFloor?: number; effort?: "low" | "medium" | "high" };
 }
 
 /** Hard ceiling on the depth→sub-call expansion so a single genome
@@ -163,6 +195,7 @@ export function makeInvokeAgent(
       prompt,
       config,
       plan: deps.plan,
+      reasoningRetry: deps.reasoningRetry ?? {},
     });
   };
 }
@@ -188,8 +221,12 @@ export function makeInvokeAgent(
  * `runOnce` go through it; the token count deliberately does not change, because
  * the reasoning tokens were really spent and the cost component must reflect it.
  *
- * An answer that strips to empty stays empty and fails its spec. That is the
- * honest outcome: a response truncated mid-reasoning contains no answer.
+ * An answer that strips to empty is NOT a wrong answer, and grading it as one
+ * was the single most expensive bug in the engine: the genome is judged worse
+ * on a question it never got room to answer. `completeGradable` retries such a
+ * call once with room, and anything still empty after that is reported through
+ * `AgentResponse.unanswered` so the caller can decline to score it rather than
+ * scoring it zero.
  */
 function gradableAnswer(raw: string): string {
   return stripThinking(raw);
@@ -207,6 +244,7 @@ async function runOnce(args: {
   prompt: string;
   config: GenomeConfig;
   plan?: InvokeAgentDeps["plan"];
+  reasoningRetry: NonNullable<InvokeAgentDeps["reasoningRetry"]> | false;
 }): Promise<AgentResponse> {
   const systemPrompt = args.getSystemPrompt(args.config.systemPromptId);
   const recallBlock = args.recall
@@ -273,7 +311,7 @@ async function runOnce(args: {
   // Sub-calls run concurrently — the router itself is rate-limit-aware, and
   // the eval suite is the canonical example of the engine's pool concurrency.
   const subCalls = parts.map((content, k) =>
-    args.router.complete({
+    completeGradable(args.router, args.reasoningRetry, maxTokens, {
       ...baseRequest,
       // The first sub-call uses the canonical per-genome sessionId so
       // the router's per-conversation token counter naturally
@@ -288,12 +326,59 @@ async function runOnce(args: {
       ],
     }),
   );
-  const responses = await Promise.all(subCalls);
+  const results = await Promise.all(subCalls);
   return {
-    // Strip per sub-response, not after joining: a dangling `<think>` in the
-    // first part would otherwise swallow every later part's answer too.
-    response: responses.map((r) => gradableAnswer(r.content)).join("\n\n"),
-    tokens: responses.reduce((s, r) => s + r.totalTokens, 0),
+    // Stripped per sub-response inside `completeGradable`, not after joining:
+    // a dangling `<think>` in the first part would otherwise swallow every
+    // later part's answer too.
+    response: results.map((r) => r.answer).join("\n\n"),
+    // The token count deliberately includes the reasoning AND the retry:
+    // those tokens were really spent, and the cost component of fitness has
+    // to reflect what the genome actually cost to evaluate.
+    tokens: results.reduce((sum, r) => sum + r.tokens, 0),
+    unanswered: results.filter((r) => r.answer.trim() === "").length,
+    reasoningOnly: results.some((r) => r.reasoningOnly),
+  };
+}
+
+/**
+ * One completion, plus one retry when it comes back with no answer.
+ *
+ * The retry fires on exactly one condition: the model returned text, and
+ * every bit of it was reasoning. That is a budget failure, not a wrong
+ * answer, and giving the model room to finish recovers it. A genuinely
+ * empty body (dead route, wrong model id, refusal) is NOT retried —
+ * retrying that would double the cost of a broken configuration and hide
+ * the breakage behind a longer wait.
+ */
+async function completeGradable(
+  router: InvokeRouter,
+  policy: NonNullable<InvokeAgentDeps["reasoningRetry"]> | false,
+  maxTokens: number,
+  req: InferenceRequest,
+): Promise<{ answer: string; tokens: number; reasoningOnly: boolean }> {
+  const first = await router.complete(req);
+  const answer = gradableAnswer(first.content);
+  const reasoningOnly = answer.trim() === "" && first.content.trim() !== "";
+  if (!reasoningOnly || policy === false) {
+    return { answer, tokens: first.totalTokens, reasoningOnly };
+  }
+
+  // Room to answer: a floor high enough that the answer is not competing
+  // with the chain of thought for the same handful of tokens, plus an
+  // explicit low reasoning effort for providers that honour it. Providers
+  // that do not simply ignore the field, and the raised budget still helps.
+  const floor = policy.maxTokensFloor ?? 2048;
+  const retried = await router.complete({
+    ...req,
+    maxTokens: Math.max(floor, maxTokens * 3),
+    reasoningEffort: policy.effort ?? "low",
+  });
+  const retriedAnswer = gradableAnswer(retried.content);
+  return {
+    answer: retriedAnswer,
+    tokens: first.totalTokens + retried.totalTokens,
+    reasoningOnly: retriedAnswer.trim() === "",
   };
 }
 

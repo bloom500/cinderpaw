@@ -210,7 +210,82 @@ describe("makeInvokeAgent — return shape", () => {
       getSystemPrompt: () => "sys",
     });
     const out = await invoke("x", makeGenome());
-    expect(out).toEqual({ response: "Paris", tokens: 42 });
+    expect(out).toEqual({
+      response: "Paris",
+      tokens: 42,
+      // A healthy answer is measured as answered. These two travel with
+      // every response so the caller can tell "graded badly" from "never
+      // got an answer to grade" — see AgentResponse.unanswered.
+      unanswered: 0,
+      reasoningOnly: false,
+    });
+  });
+
+  test("an all-reasoning reply is retried with room, and the retry's answer wins", async () => {
+    const router = new FakeRouter();
+    // First call: the model thought until it ran out of tokens and said
+    // nothing. This is the shape that produced 71% of eval iterations on
+    // Darius's machine and was being graded as a wrong answer.
+    router.setNextResponses([
+      { content: "<think>hmm, the capital, let me consider</think>", totalTokens: 409 },
+      { content: "Paris", totalTokens: 120 },
+    ]);
+    const invoke = makeInvokeAgent({ router, getSystemPrompt: () => "sys" });
+    const out = await invoke("Capital of France?", makeGenome());
+
+    expect(out.response).toBe("Paris");
+    expect(out.unanswered).toBe(0);
+    expect(out.reasoningOnly).toBe(false);
+    // Both calls are billed: the reasoning tokens were really spent, and
+    // the cost component of fitness has to see them.
+    expect(out.tokens).toBe(529);
+    expect(router.calls).toHaveLength(2);
+    // The retry is what makes the answer possible: more room, less thinking.
+    expect(router.calls[1]!.maxTokens).toBeGreaterThan(router.calls[0]!.maxTokens!);
+    expect(router.calls[1]!.reasoningEffort).toBe("low");
+  });
+
+  test("still unanswered after the retry is reported, not silently scored", async () => {
+    const router = new FakeRouter();
+    router.setNextResponses([
+      { content: "<think>a</think>", totalTokens: 400 },
+      { content: "<think>b</think>", totalTokens: 800 },
+    ]);
+    const invoke = makeInvokeAgent({ router, getSystemPrompt: () => "sys" });
+    const out = await invoke("x", makeGenome());
+
+    expect(out.response).toBe("");
+    expect(out.unanswered).toBe(1);
+    expect(out.reasoningOnly).toBe(true);
+    expect(router.calls).toHaveLength(2); // exactly one retry, never a loop
+  });
+
+  test("a genuinely empty body is NOT retried", async () => {
+    // No text at all means a dead route, a wrong model id or a refusal.
+    // Retrying doubles the cost of a broken configuration and hides it.
+    const router = new FakeRouter();
+    router.setNextResponse({ content: "", totalTokens: 0 });
+    const invoke = makeInvokeAgent({ router, getSystemPrompt: () => "sys" });
+    const out = await invoke("x", makeGenome());
+
+    expect(out.response).toBe("");
+    expect(out.unanswered).toBe(1);
+    expect(out.reasoningOnly).toBe(false); // the model produced nothing, not thoughts
+    expect(router.calls).toHaveLength(1);
+  });
+
+  test("reasoningRetry: false restores the single-call behaviour", async () => {
+    const router = new FakeRouter();
+    router.setNextResponse({ content: "<think>only thoughts</think>", totalTokens: 300 });
+    const invoke = makeInvokeAgent({
+      router,
+      getSystemPrompt: () => "sys",
+      reasoningRetry: false,
+    });
+    const out = await invoke("x", makeGenome());
+
+    expect(out.response).toBe("");
+    expect(router.calls).toHaveLength(1);
   });
 
   test("a router error propagates as a thrown error", async () => {

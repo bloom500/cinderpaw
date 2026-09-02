@@ -271,7 +271,7 @@ function toJournalEntry(state: ContractState): JournalEntry {
         }
       : null,
     decided: state.decided ?? { action: "halt", reason: "no decision recorded", stage: "evaluate" },
-    budgetRemaining: budgetRemaining(state.budgetSpent),
+    budgetRemaining: budgetRemaining(state.budgetSpent, state.startedAt),
   };
 }
 
@@ -281,17 +281,30 @@ function toExperimentLayer(layer: ContractState["layer"]): ExperimentLayer {
   return layer === "L6" ? "L5" : layer;
 }
 
-/** Remaining budget for the Journal row (drops energyKwh — never a hard cap).
- *  ponytail: uses DEFAULT_BUDGET_CAPS; thread the live SandboxBounds caps
- *  through when `makeInitialState` starts storing them on the state. */
-function budgetRemaining(spent: BudgetSpend): BudgetRemaining {
+/**
+ * Remaining budget for the Journal row (drops energyKwh — never a hard cap).
+ *
+ * Wall clock is REAL: the contract knows when it started, so the elapsed
+ * minutes are an observation and are deducted here. The other four are not
+ * tracked at all — `assertBudget` is called with a null estimate and a zero
+ * spend, so nothing accumulates — and they are reported as caps, flagged
+ * `unmeasured`, rather than dressed up as remaining budget.
+ *
+ * ponytail: uses DEFAULT_BUDGET_CAPS; thread the live SandboxBounds caps
+ * through when `makeInitialState` starts storing them on the state.
+ */
+function budgetRemaining(spent: BudgetSpend, startedAt: number): BudgetRemaining {
+  const elapsedMin = Math.max(0, (Date.now() - startedAt) / 60_000);
   const r = remaining(DEFAULT_BUDGET_CAPS, spent);
   return {
-    wallClockMin: r.wallClockMin,
+    wallClockMin: Math.max(0, DEFAULT_BUDGET_CAPS.wallClockMin - elapsedMin),
     tokens: r.tokens,
     cpuPct: r.cpuPct,
     ramMb: r.ramMb,
     diskMb: r.diskMb,
+    // Everything the contract does not track. Wall clock is absent from the
+    // list on purpose: it is the one field above that was actually measured.
+    unmeasured: ["tokens", "cpuPct", "ramMb", "diskMb"],
   };
 }
 

@@ -460,6 +460,45 @@ describe("RsiSidecar — empty-response telemetry", () => {
     expect((stopped as { emptyResponses?: number }).emptyResponses).toBeGreaterThan(0);
   });
 
+  test("a sustained no-answer rate trips the breaker and stops the episode", async () => {
+    // The warning above was already there and was already firing. It was not
+    // enough: between June and August 2026 this machine ran 750 episodes and
+    // 2207 iterations at a 71% no-answer rate, spent 8.6M tokens, ratcheted 9
+    // times, and the one-time warning sat unread in a log the whole time. An
+    // engine that cannot measure anything has to STOP, not keep spending.
+    const prevSample = process.env.CINDERPAW_RSI_UNANSWERED_MIN_SAMPLE;
+    const prevRatio = process.env.CINDERPAW_RSI_MAX_UNANSWERED_RATIO;
+    process.env.CINDERPAW_RSI_UNANSWERED_MIN_SAMPLE = "2";
+    process.env.CINDERPAW_RSI_MAX_UNANSWERED_RATIO = "0.5";
+    try {
+      const bridge = new FakeBridge();
+      const { sidecar, emitted } = buildSidecar({ bridge, router: new EmptyRouter() });
+
+      await sidecar.start({
+        goal: "test",
+        maxIterations: 4,
+        maxTotalTokens: 100_000,
+        concurrency: 1,
+      }, "ack");
+
+      for (let i = 0; i < 200 && !emitted.some((e) => e.event === "stopped"); i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+
+      const aborts = emitted.filter(
+        (e) => e.event === "warning" && e.warning === "empty_response_abort",
+      );
+      expect(aborts.length).toBe(1); // trips once, never a flood
+      expect(String(aborts[0]!.message)).toContain("stopping the episode");
+      expect(emitted.some((e) => e.event === "stopped")).toBe(true);
+    } finally {
+      if (prevSample === undefined) delete process.env.CINDERPAW_RSI_UNANSWERED_MIN_SAMPLE;
+      else process.env.CINDERPAW_RSI_UNANSWERED_MIN_SAMPLE = prevSample;
+      if (prevRatio === undefined) delete process.env.CINDERPAW_RSI_MAX_UNANSWERED_RATIO;
+      else process.env.CINDERPAW_RSI_MAX_UNANSWERED_RATIO = prevRatio;
+    }
+  });
+
   test("a healthy model emits no empty-response warning and a zero tally", async () => {
     const bridge = new FakeBridge();
     const { sidecar, emitted } = buildSidecar({ bridge }); // default FakeRouter → "OK"

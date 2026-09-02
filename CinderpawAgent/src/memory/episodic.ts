@@ -275,7 +275,28 @@ export class EpisodicMemory {
    * thread back.
    */
   search(query: string, limit = 10): EpisodicEvent[] {
-    const match = toFtsQuery(query);
+    const strict = this.#searchWith(toFtsQuery(query, "and"), limit);
+    if (strict.length > 0) return strict;
+    // Widen. ANDing every token means each word of the query must appear in
+    // the row, which a natural-language question essentially never satisfies:
+    // "Where is the staging database password kept" scored zero against a row
+    // that literally contained the answer, because "where", "kept" and "is"
+    // were not in it. That is the shape every caller actually uses — the
+    // `recall` tool passes the user's question, and so does the per-turn
+    // injection — so the strict pass alone made memory look empty while it
+    // was full.
+    //
+    // Precision first, recall second: the AND pass still wins when it matches,
+    // and the OR pass is ordered by bm25, whose IDF weighting already pushes
+    // common words like "where" and "is" down on its own. No stopword list,
+    // which would have to be per-language and would quietly fail for anyone
+    // not working in English.
+    return this.#searchWith(toFtsQuery(query, "or"), limit);
+  }
+
+  /** Run one FTS match. A null match or a malformed query yields no rows
+   *  rather than throwing — recall must never cost a turn. */
+  #searchWith(match: string | null, limit: number): EpisodicEvent[] {
     if (!match) return [];
     try {
       const rows = this.#db
@@ -347,10 +368,15 @@ function fromRow(row: EpisodicRow): EpisodicEvent {
  * accented / composed characters (e.g. Romanian ș, ă) are folded to their base
  * forms before tokenisation. Each token is double-quoted so it is treated as a
  * literal phrase rather than an FTS5 operator, then suffixed with * for prefix
- * matching. Tokens are ANDed so all terms must appear (higher precision than OR).
- * Falls back to OR when only one token is found.
+ * matching.
+ *
+ * `mode` decides how the tokens are joined, and `search` uses both: "and"
+ * demands every term (precise, and empty for any query phrased as a sentence),
+ * "or" demands one (finds the row, and leans on bm25 to rank the good matches
+ * above the ones that only share a "the"). An earlier version offered only the
+ * AND join while its docstring claimed an OR fallback that was never written.
  */
-function toFtsQuery(text: string): string | null {
+function toFtsQuery(text: string, mode: "and" | "or" = "and"): string | null {
   const tokens = text
     .normalize("NFKC")
     .toLowerCase()
@@ -360,7 +386,7 @@ function toFtsQuery(text: string): string | null {
     .map((t) => `"${t.replace(/"/g, "")}"`);  // quote each token, strip embedded quotes
 
   if (tokens.length === 0) return null;
-  // Single token → prefix match; multiple → AND for precision, OR suffix for recall
-  if (tokens.length === 1) return `${tokens[0]}*`;
-  return tokens.map((t) => `${t}*`).join(" ");
+  const prefixed = tokens.map((t) => `${t}*`);
+  if (prefixed.length === 1) return prefixed[0]!;
+  return prefixed.join(mode === "or" ? " OR " : " ");
 }

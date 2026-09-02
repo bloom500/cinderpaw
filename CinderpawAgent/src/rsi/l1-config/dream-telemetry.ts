@@ -28,6 +28,10 @@ export interface DreamEpisodeRecord {
   errors: string[];
   /** Number of empty model responses during this episode. */
   emptyResponses: number;
+  /** True when the unanswered-response circuit breaker stopped the episode.
+   *  Distinguishes "learned all it could" from "could not measure anything",
+   *  which read identically in every other field of this row. */
+  abortedForEmptyResponses?: boolean;
   /** Slice 5: MEASURED resource usage for the episode (cpu % of one core,
    *  RSS MB, RSI state dir MB). Optional — older rows lack it, and the
    *  Rust reader ignores unknown fields, so the format stays compatible

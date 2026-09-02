@@ -93,6 +93,23 @@ export interface BudgetRemaining {
   cpuPct: number;
   ramMb: number;
   diskMb: number;
+  /**
+   * Which of the fields above are OBSERVED rather than restated caps.
+   *
+   * The contract's per-stage budget check is fail-open: it is handed a null
+   * estimate and a zero spend, so nothing is ever deducted and nothing is ever
+   * halted (I5's consumer half is PENDING in docs/invariants.md, and this is
+   * what that means in the audit trail). Until 2026-09-02 the row simply
+   * printed the default caps, so every candidate in the journal claimed "30
+   * minutes and 100k tokens still available" no matter what the cycle had
+   * spent — a number a reader would reasonably take for a measurement.
+   *
+   * Same discipline as `result.unmeasured` on the fitness vector: a
+   * placeholder that cannot be told apart from an observation is worse than
+   * no field at all. Absent means the row predates this and should be read as
+   * unmeasured; `[]` means everything here was observed.
+   */
+  unmeasured?: (keyof Omit<BudgetRemaining, "unmeasured">)[];
 }
 
 /** One row in the journal. Written by the Remember stage of a dream cycle. */

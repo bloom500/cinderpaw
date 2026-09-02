@@ -121,6 +121,7 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
         stopReason: stats?.stopReason ?? "unknown",
         errors: stats?.errors ?? [],
         emptyResponses: stats?.emptyResponses ?? 0,
+        ...(stats?.abortedForEmptyResponses ? { abortedForEmptyResponses: true } : {}),
         resources: {
           cpuPct: usage.cpuPct,
           ramMb: usage.ramMb,

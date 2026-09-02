@@ -57,13 +57,31 @@ export const DEFAULT_AGE_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
 /** Below this many hits a leaf is "cold". */
 export const DEFAULT_HIT_COUNT_THRESHOLD = 2;
 
+/** The values `CINDERPAW_FMS_EVICTION` actually understands. */
+const NO_EVICTION_VALUES = new Set(["noeviction", "none", "off", "false"]);
+
 /**
- * Pick the eviction policy from `CINDERPAW_FMS_EVICTION`. `"NoEviction"` / `"none"`
- * opt out; anything else (including unset) is the production
- * `AgeAndHitCountEviction` default.
+ * Pick the eviction policy from `CINDERPAW_FMS_EVICTION`.
+ *
+ * Unset is the production `AgeAndHitCountEviction` default. `"none"` (and its
+ * obvious spellings) opts out. Anything else is a typo or a policy that does
+ * not exist, and it SAYS SO: the documentation used to give `lru` as its
+ * example, `lru` was never implemented, and an operator who set it got the
+ * default policy with nothing anywhere to tell them their setting had no
+ * effect. Falling back is still the behaviour — refusing to boot over one
+ * env var would be worse — but it is now a fallback the operator is told
+ * about instead of one they have to read the source to discover.
  */
-export function selectPolicyFromEnv(): EvictionPolicy {
+export function selectPolicyFromEnv(log?: (msg: string) => void): EvictionPolicy {
   const raw = (readEnv("CINDERPAW_FMS_EVICTION") ?? "").trim().toLowerCase();
-  if (raw === "noeviction" || raw === "none") return new NoEviction();
+  if (raw === "") {
+    return new AgeAndHitCountEviction(DEFAULT_AGE_THRESHOLD_MS, DEFAULT_HIT_COUNT_THRESHOLD);
+  }
+  if (NO_EVICTION_VALUES.has(raw)) return new NoEviction();
+  const msg =
+    `[cinderpaw] CINDERPAW_FMS_EVICTION="${raw}" is not a policy this build knows. ` +
+    `Understood: "none" to turn eviction off, or leave it unset for the default ` +
+    `age-and-hit-count policy. Using the default.`;
+  (log ?? ((m: string) => console.warn(m)))(msg);
   return new AgeAndHitCountEviction(DEFAULT_AGE_THRESHOLD_MS, DEFAULT_HIT_COUNT_THRESHOLD);
 }

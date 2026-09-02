@@ -693,7 +693,8 @@ export class FractalMemory {
       hit_count: r.provenance.hit_count,
       vec: r.vec,
     }));
-    const mergeThreshold = opts.mergeThreshold ?? Number(readEnv("CINDERPAW_FMS_MERGE_THRESHOLD") ?? "0.92");
+    // One reader for both merge paths — see `readMergeThreshold`.
+    const mergeThreshold = opts.mergeThreshold ?? readMergeThreshold();
     const spanThresholdMs = opts.spanThresholdMs ?? Number(readEnv("CINDERPAW_FMS_DEDUP_SPAN_MS") ?? String(30 * 24 * 60 * 60 * 1000));
     const groups = dedupAcrossSessions(dedupLeaves, {
       mergeThreshold,
@@ -1020,11 +1021,22 @@ function cosineSafe(a: Float32Array, b: Float32Array): number {
 }
 
 /** Read MERGE_THRESHOLD from env, falling back to 0.92. */
-function readMergeThreshold(): number {
-  const raw = readEnv("CINDERPAW_MERGE_THRESHOLD");
-  if (!raw) return 0.92;
+/** The cosine similarity at which two memories are treated as the same one.
+ *  Shared by both merge paths so they cannot drift apart. */
+export const DEFAULT_MERGE_THRESHOLD = 0.92;
+
+export function readMergeThreshold(): number {
+  // Both names, canonical first. There are two merge paths — the per-write
+  // cosine merge and the cross-session dedup pass — and until 2026-09-02 they
+  // read DIFFERENT variables: this one took `CINDERPAW_MERGE_THRESHOLD`, dedup
+  // took `CINDERPAW_FMS_MERGE_THRESHOLD`. Setting the canonical name moved one
+  // threshold and silently left the other at 0.92, in the same process, so a
+  // person tuning "the merge threshold" was tuning half of it.
+  const raw =
+    readEnv("CINDERPAW_FMS_MERGE_THRESHOLD") ?? readEnv("CINDERPAW_MERGE_THRESHOLD");
+  if (!raw) return DEFAULT_MERGE_THRESHOLD;
   const v = Number(raw);
-  if (!Number.isFinite(v) || v <= 0 || v > 1) return 0.92;
+  if (!Number.isFinite(v) || v <= 0 || v > 1) return DEFAULT_MERGE_THRESHOLD;
   return v;
 }
 

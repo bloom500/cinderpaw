@@ -120,6 +120,12 @@ export interface RsiRunStats {
   errors: string[];
   /** Number of empty model responses during this episode. */
   emptyResponses: number;
+  /** True when the episode was stopped by the unanswered-response circuit
+   *  breaker rather than by convergence, plateau or the wall clock. The
+   *  difference matters: a converged episode learned what there was to
+   *  learn, an aborted one measured nothing and the model or its budget is
+   *  the thing to fix. */
+  abortedForEmptyResponses?: boolean;
 }
 
 export interface RsiSidecarDeps {
@@ -239,6 +245,27 @@ export class RsiSidecar {
   private evalTokenBudget(): number {
     const n = Number(readEnv("CINDERPAW_RSI_EVAL_TOKEN_BUDGET"));
     return n > 0 ? n : 1024;
+  }
+
+  /**
+   * When to give up on an episode that is not measuring anything.
+   *
+   * The defaults are deliberately permissive: half the evaluations may come
+   * back unanswered before the engine stops, and never on fewer than eight,
+   * so a couple of unlucky calls at the start of a run cannot abort it. They
+   * exist to catch the sustained failure, where every genome is being scored
+   * on a question none of them answered.
+   *
+   * Set `CINDERPAW_RSI_MAX_UNANSWERED_RATIO=1` to disable the breaker (a
+   * ratio can never exceed 1, so the trip condition becomes unreachable).
+   */
+  private emptyResponseBreaker(): { maxRatio: number; minSample: number } {
+    const ratio = Number(readEnv("CINDERPAW_RSI_MAX_UNANSWERED_RATIO"));
+    const sample = Number(readEnv("CINDERPAW_RSI_UNANSWERED_MIN_SAMPLE"));
+    return {
+      maxRatio: Number.isFinite(ratio) && ratio > 0 ? ratio : 0.5,
+      minSample: Number.isFinite(sample) && sample > 0 ? Math.floor(sample) : 8,
+    };
   }
 
   /** Identity line: tier0/identity_honesty expects "bloom", and the
@@ -417,7 +444,10 @@ export class RsiSidecar {
     // a final tally on the `stopped` event, so the operator's e2e shows
     // immediately whether the MODEL (not the engine) is the problem.
     let emptyResponses = 0;
+    let evalCalls = 0;
     let emptyWarned = false;
+    let abortedForEmptyResponses = false;
+    const breaker = this.emptyResponseBreaker();
     const baseInvokeAgent = makeInvokeAgent({
       router: this.deps.router,
       contextBudget: this.evalTokenBudget(),
@@ -430,21 +460,57 @@ export class RsiSidecar {
     const invokeAgent: typeof baseInvokeAgent = async (prompt, genome) => {
       try {
         const res = await baseInvokeAgent(prompt, genome);
+        evalCalls += 1;
         if (res.response.trim() === "") {
           emptyResponses += 1;
           if (!emptyWarned) {
             emptyWarned = true;
-            this.deps.log?.(`rsi eval: model returned empty response for genome ${genome.id}`);
+            // Two failures wear the same symptom and need opposite fixes, so
+            // say which one this is. `reasoningOnly` means the model thought
+            // until it ran out of room even after invoke-agent's retry (raise
+            // CINDERPAW_RSI_EVAL_TOKEN_BUDGET, or pick a model that answers);
+            // otherwise the server returned nothing at all (route, model id,
+            // chat template, refusal).
+            const why = res.reasoningOnly
+              ? "the model spent its whole budget reasoning and never answered, even after the retry with more room — raise CINDERPAW_RSI_EVAL_TOKEN_BUDGET or use a model that answers under it"
+              : "the server returned an empty body — check the model id, the endpoint and the chat template";
+            this.deps.log?.(`rsi eval: no gradable answer for genome ${genome.id} — ${why}`);
             this.deps.send({
-            type: "rsi_engine_event",
-            event: "warning",
-            warning: "empty_response",
-            genomeId: genome.id,
-            message:
-              "model returned an empty response — evals will score ~0; check the model/server (chat template, token budget, or wrong model id)",
-          });
+              type: "rsi_engine_event",
+              event: "warning",
+              warning: "empty_response",
+              genomeId: genome.id,
+              message: `eval got no gradable answer: ${why}. Until this is fixed the engine is comparing genomes on questions none of them answered.`,
+            });
+          }
+          // Circuit breaker. Without it the engine keeps evolving on
+          // unanswered questions: 750 episodes, 2207 iterations, 8.6M tokens
+          // and 9 ratchets were burned that way on Darius's machine between
+          // June and August 2026, with 71% of iterations unanswered and the
+          // one-time warning above sitting unread in a log. An engine that
+          // cannot measure anything must stop, loudly, not keep spending.
+          if (
+            !abortedForEmptyResponses &&
+            evalCalls >= breaker.minSample &&
+            emptyResponses / evalCalls > breaker.maxRatio
+          ) {
+            abortedForEmptyResponses = true;
+            const pct = Math.round((emptyResponses / evalCalls) * 100);
+            const msg =
+              `rsi eval: ${pct}% of ${evalCalls} evaluations came back with no answer ` +
+              `(over the ${Math.round(breaker.maxRatio * 100)}% limit) — stopping the episode instead of ` +
+              `evolving on measurements that do not exist`;
+            this.deps.log?.(msg);
+            this.deps.send({
+              type: "rsi_engine_event",
+              event: "warning",
+              warning: "empty_response_abort",
+              genomeId: genome.id,
+              message: msg,
+            });
+            this.engine?.gm.stop();
+          }
         }
-      }
         return res;
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
@@ -745,6 +811,7 @@ export class RsiSidecar {
           confidenceRejections,
           errors: result.errors,
           emptyResponses,
+          ...(abortedForEmptyResponses ? { abortedForEmptyResponses: true } : {}),
         });
       },
       (err) => {
@@ -762,7 +829,7 @@ export class RsiSidecar {
         this.engine = null;
         for (const off of this.mirrors) off();
         this.mirrors = [];
-        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses });
+        this.deps.onIdle?.({ iterations: 0, tokens: 0, stopReason: "error", ratchets: ratchetCount, confidenceRejections, errors: [detail], emptyResponses, ...(abortedForEmptyResponses ? { abortedForEmptyResponses: true } : {}) });
       },
     );
   }

@@ -202,10 +202,10 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_STALL_MS` | int | `null` |  | Inter-token stall cap; wins over CINDERPAW_CLOUD_IDLE_TIMEOUT_MS when both set. |
 | `CINDERPAW_CLOUD_IDLE_TIMEOUT_MS` | int | `60_000` |  | Legacy cloud-only idle-stream timeout back-compat knob. |
 | `CINDERPAW_FMS_MAX_LEAVES` | int | `null` |  | Cap on the FMS leaf store size. |
-| `CINDERPAW_FMS_DEDUP_SPAN_MS` | int | `30 * 24 * 60 * 60 * 1000` |  | Coalesce leaves whose last touch is within this window. |
+| `CINDERPAW_FMS_DEDUP_SPAN_MS` | int | `30 * 24 * 60 * 60 * 1000` |  | Minimum age gap between two near-identical memories before the cross-session pass will collapse them. It is a floor, not a window: leaves recorded FURTHER APART than this merge, and recent ones deliberately do not, because the per-write cosine merge already handles same-session duplicates. Raise it to keep more separate copies of a fact, lower it to collapse more aggressively. The old description said "whose last touch is within this window", which is the opposite of what the code does and of what the pass is for. |
 | `CINDERPAW_FMS_MERGE_THRESHOLD` | string | `"0.92"` |  | Cosine threshold (float) above which leaves merge. |
-| `CINDERPAW_FMS_EVICTION` | string | `null` |  | Eviction strategy (e.g. lru). |
-| `CINDERPAW_MERGE_THRESHOLD` | string | `null` |  | Older name for CINDERPAW_FMS_MERGE_THRESHOLD, read directly (no inheritance in code). |
+| `CINDERPAW_FMS_EVICTION` | string | `null` |  | Eviction strategy. Only "none" (or "noeviction") is a real choice: it turns eviction off. Anything else, including the "lru" this line used to give as its example, selects the default age-and-hit-count policy — a value that is not understood now says so on stderr and falls back, instead of being silently ignored. |
+| `CINDERPAW_MERGE_THRESHOLD` | string | `null` |  | Deprecated alias for CINDERPAW_FMS_MERGE_THRESHOLD. Both names now feed BOTH merge paths (the per-write cosine merge and the cross-session dedup pass); until 2026-09-02 they fed one each, so setting the canonical name moved one threshold and left the other at its default, in the same process, with nothing on screen to say so. |
 | `CINDERPAW_TREE_BRANCH` | int | `null` |  | Branching factor for fractal tree build. |
 | `CINDERPAW_TREE_CLUSTER_MAX_CHARS` | int | `null` |  | Max cluster size in chars. |
 | `CINDERPAW_TREE_ITEM_MAX_CHARS` | int | `null` |  | Max item size in chars. |
@@ -226,6 +226,8 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_RSI_ERROR_WINDOW_MS` | int | `900_000` |  | Sliding window for the error counter. |
 | `CINDERPAW_RSI_EPISODE_MS` | int | `null` |  | Max wall-clock per episode. |
 | `CINDERPAW_RSI_PLATEAU_ITERS` | int | `null` |  | Iters-with-no-improvement before RSI bails. |
+| `CINDERPAW_RSI_MAX_UNANSWERED_RATIO` | string | `"0.5"` |  | Fraction of evaluations that may come back with no gradable answer before the episode is stopped. Evolution needs measurements; when most of the suite goes unanswered the engine is comparing genomes on questions none of them answered, and every token after that is wasted. Set to 1 to disable the breaker. |
+| `CINDERPAW_RSI_UNANSWERED_MIN_SAMPLE` | int | `8` |  | Evaluations that must run before the unanswered-response breaker can trip, so a couple of unlucky calls at the start of an episode cannot abort it. |
 | `CINDERPAW_RSI_SCHEDULE_MS` | int | `null` |  | Force a fixed schedule (e.g. weekly wake). |
 | `CINDERPAW_RSI_STAGNATION_THRESHOLD` | int | `null` |  | Hard stagnation threshold. |
 | `CINDERPAW_RSI_STOP_ON_ACTIVITY` | bool | `false` |  | Pause RSI when the user is active. |
@@ -246,6 +248,9 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_BENCHMARK_ALLOW_HOSTS` | list | `null` | yes | The ONLY hosts reachable while benchmark mode is on. Comma/semicolon separated, matched like a domain allowlist ("api.example.com" matches that host and its subdomains). Ignored when CINDERPAW_BENCHMARK_RUN_ID is unset. Empty while benchmark mode is on means NOTHING is reachable — deliberately fail-closed, and every refusal names this variable so the fix is on screen rather than in a log. |
 | `CINDERPAW_DB` | path | `"data/cinderpaw.db"` |  | Override the SQLite DB path. ":memory:" is a sentinel and is not path-resolved. Falls back to a pre-rename data/feral.db when that is the file this install actually has. |
 | `CINDERPAW_AGENT_BASE_PROMPT` | string | `null` |  | Universal operating manual injected into every model call; usually bundled. |
+| `CINDERPAW_OPENROUTER_PROVIDER` | string | `null` |  | Pin OpenRouter routing to one named provider (with `allow_fallbacks: false`), so a benchmark measures one endpoint instead of whichever backend the router happened to pick. Ignored unless the base URL is openrouter.ai. Unset is right for ordinary use, where falling back keeps the agent answering; unpinned routing swung identical tau2 runs by 40 points, so any posted number needs this set and declared. |
+| `CINDERPAW_RECALL_INJECTION` | bool | `true` |  | Look memory up for the agent on every turn and put the hits in the prompt, instead of waiting for the model to call the `recall` tool. Off restores the old behaviour, where a run that never called the tool never read memory at all. |
+| `CINDERPAW_RECALL_INJECTION_MAX_CHARS` | int | `4000` |  | Cap on the injected recall block. A similarity search has no natural bound on how much it can match, so the block is cut on a line boundary at this size. |
 | `CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS` | int | `4000` |  | Cap on subagent summary length returned to parent (negative = unlimited). |
 | `CINDERPAW_ENABLE_SUBAGENTS` | bool | `true` |  | Set `false` to withhold the `delegate_task` tool entirely. Each subagent spends its own model budget, so a run with a hard cost ceiling needs the capability gone, not discouraged — the model decides to delegate on its own. Withholds the TOOL only; `rlm()` still uses the same Subagent machinery. |
 | `CINDERPAW_MAX_COWORKERS` | int | `null` |  | Cap on roster size for `cowork_create_teammate`. Unset = no cap. Every teammate runs its own loop on its own budget, so on a metered run the roster size is the cost multiplier. `0` forbids teammates outright. |
@@ -363,6 +368,7 @@ CINDERPAW_ENABLE_CODE_EXEC
 CINDERPAW_ENABLE_DESKTOP_CONTROL
 CINDERPAW_ENABLE_NOTEBOOK
 CINDERPAW_ENABLE_SHELL_EXEC
+CINDERPAW_ENABLE_SUBAGENTS
 CINDERPAW_EVENT
 CINDERPAW_EXTERNAL_WRITE_BUDGET
 CINDERPAW_FALLBACK_API_KEY
@@ -404,6 +410,7 @@ CINDERPAW_LOCAL_MODEL
 CINDERPAW_LORA_TRAINER_BIN
 CINDERPAW_LORA_TRAIN_TIMEOUT_MS
 CINDERPAW_MAX_CONTEXT
+CINDERPAW_MAX_COWORKERS
 CINDERPAW_MAX_LOCAL_CONTEXTS
 CINDERPAW_MERGE_THRESHOLD
 CINDERPAW_MISSION_DEADLINE_MS
@@ -412,6 +419,7 @@ CINDERPAW_MODEL_WAIT_MS
 CINDERPAW_MODULE_SEED
 CINDERPAW_NO_COLOR
 CINDERPAW_OLLAMA_NUM_CTX
+CINDERPAW_OPENROUTER_PROVIDER
 CINDERPAW_PERMISSION_MODE
 CINDERPAW_PII_REDACTION
 CINDERPAW_PROACTIVE_ENABLED
@@ -423,6 +431,8 @@ CINDERPAW_PUBLIC_JOURNAL_TOKEN
 CINDERPAW_PUBLIC_JOURNAL_URL
 CINDERPAW_PUBLIC_JOURNAL_VERSION
 CINDERPAW_RATE_LIMIT_RPM
+CINDERPAW_RECALL_INJECTION
+CINDERPAW_RECALL_INJECTION_MAX_CHARS
 CINDERPAW_RSI_ALLOW_CLOUD
 CINDERPAW_RSI_CONCURRENCY
 CINDERPAW_RSI_COOLDOWN_MS
@@ -434,6 +444,7 @@ CINDERPAW_RSI_IDLE_MS
 CINDERPAW_RSI_MAX_COST_USD
 CINDERPAW_RSI_MAX_ITER
 CINDERPAW_RSI_MAX_TOKENS
+CINDERPAW_RSI_MAX_UNANSWERED_RATIO
 CINDERPAW_RSI_PASSIVE
 CINDERPAW_RSI_PLATEAU_ITERS
 CINDERPAW_RSI_POLL_MS
@@ -441,6 +452,7 @@ CINDERPAW_RSI_SCHEDULE_MS
 CINDERPAW_RSI_STAGNATION_THRESHOLD
 CINDERPAW_RSI_STOP_ON_ACTIVITY
 CINDERPAW_RSI_TELEMETRY
+CINDERPAW_RSI_UNANSWERED_MIN_SAMPLE
 CINDERPAW_RUN_FRACTAL_BENCH
 CINDERPAW_SEARXNG_URL
 CINDERPAW_SHELL_DENYLIST
@@ -450,8 +462,6 @@ CINDERPAW_SHELL_WHITELIST
 CINDERPAW_SMOKE_GGUF
 CINDERPAW_STALL_MS
 CINDERPAW_STT_PROBE
-CINDERPAW_ENABLE_SUBAGENTS
-CINDERPAW_MAX_COWORKERS
 CINDERPAW_SUBAGENT_MAX_SUMMARY_CHARS
 CINDERPAW_SUMMARY_EXCERPT_CHARS
 CINDERPAW_THOUGHTS_COOLDOWN_MS

@@ -170,6 +170,24 @@ export class WorkingMemory {
   #notebook = "";
 
   /**
+   * Memories the runtime looked up FOR the agent, from this turn's message.
+   *
+   * The notebook above is what the agent chose to write down. This is the rest
+   * of what it has lived through, and until now nothing put it in front of the
+   * model: the loop held a `Recaller` and only ever called `noteWrite` on it,
+   * so memory was written every turn and read only if the model happened to
+   * call the `recall` tool. Measured on TheAgentCompany: 12 leaf-write pulses,
+   * zero recalls. The store was never the problem; nobody was asking it
+   * anything.
+   *
+   * Re-queried per turn from the user's own words, so it tracks what the
+   * conversation is about rather than what the agent thought to search for at
+   * the start. Already self-delimited by the recall engine
+   * (`[Memory context]…[End memory context]`), so it is stored rendered.
+   */
+  #recallContext = "";
+
+  /**
    * The original request, captured the first time this session is compacted
    * and re-projected every turn thereafter (same trick as `#todoList`: durable
    * state re-rendered, not transcript that can be eaten).
@@ -274,6 +292,7 @@ export class WorkingMemory {
     total += countTokens(this.#skillMenu);
     total += countTokens(this.#todoList);
     total += countTokens(this.#notebook);
+    total += countTokens(this.#recallContext);
     total += countTokens(this.#objective);
     total += countTokens(this.#surfaceBrief);
     total += countTokens(this.#memoryContext);
@@ -326,6 +345,7 @@ export class WorkingMemory {
     push("drawer", "skill_menu", this.#skillMenu);
     push("drawer", "todo_list", this.#todoList);
     push("drawer", "notebook", this.#notebook);
+    push("drawer", "recall", this.#recallContext);
     push("drawer", "surface_brief", this.#surfaceBrief);
     push("drawer", "memory_recall", this.#memoryContext);
 
@@ -479,6 +499,41 @@ export class WorkingMemory {
   }
 
   /**
+   * Update the per-turn view of recalled memory.
+   *
+   * `context` arrives already rendered and self-delimited from the recall
+   * engine, so it is stored verbatim; an empty string clears the drawer, which
+   * is the normal case on a fresh profile with nothing to remember yet.
+   *
+   * Capped, unlike the notebook. The notebook has a write-side cap because its
+   * owner curates it; this drawer is filled by a similarity search that has no
+   * owner and no upper bound on how much it can match, so the cap belongs
+   * here. Cut on a line boundary so a hit is either shown whole or not at all —
+   * half a remembered fact is worse than none, because the model cannot tell
+   * it is reading half.
+   */
+  setRecall(context: string, maxChars = 4000): void {
+    const trimmed = context.trim();
+    if (!trimmed) {
+      this.#recallContext = "";
+      return;
+    }
+    if (trimmed.length <= maxChars) {
+      this.#recallContext = trimmed;
+      return;
+    }
+    const lines = trimmed.split("\n");
+    const kept: string[] = [];
+    let used = 0;
+    for (const line of lines) {
+      if (used + line.length + 1 > maxChars) break;
+      kept.push(line);
+      used += line.length + 1;
+    }
+    this.#recallContext = kept.join("\n");
+  }
+
+  /**
    * Describe the surface this session's answers are rendered on. Idempotent —
    * connectors call it on every inbound message. Empty string clears it.
    */
@@ -523,6 +578,7 @@ export class WorkingMemory {
     if (this.#skillMenu) dynamicBlocks.push(this.#skillMenu);
     if (this.#todoList) dynamicBlocks.push(this.#todoList);
     if (this.#notebook) dynamicBlocks.push(this.#notebook);
+    if (this.#recallContext) dynamicBlocks.push(this.#recallContext);
     if (this.#surfaceBrief) dynamicBlocks.push(this.#surfaceBrief);
     // Post-compaction reminder. Both halves address a real late-session failure:
     // the model treats the summary note as verbatim history and re-does or
@@ -686,6 +742,7 @@ export class WorkingMemory {
       countTokens(this.#skillMenu) +
       countTokens(this.#todoList) +
       countTokens(this.#notebook) +
+      countTokens(this.#recallContext) +
       countTokens(this.#objective) +
       countTokens(this.#surfaceBrief) +
       countTokens(this.#memoryContext) +

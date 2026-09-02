@@ -35,6 +35,7 @@ import type { CoworkAgentRepo } from "../../cowork/agent-store.ts";
 import type { CoworkMailboxRepo } from "../../cowork/mailbox.ts";
 import type { ToolRegistry } from "../registry.ts";
 import { createCoworkTeamTool, createCoworkSendTool } from "./cowork.ts";
+import { readEnv } from "../../config.ts";
 
 /** Slug used when the caller does not supply an id: readable in paths and logs. */
 function slugify(name: string): string {
@@ -116,7 +117,7 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
       // IS the cost multiplier, and asking the model to be frugal is not a
       // limit — it decides to hire on its own. Unset means no cap, so an
       // ordinary install is unchanged.
-      const capRaw = process.env.CINDERPAW_MAX_COWORKERS?.trim();
+      const capRaw = readEnv("CINDERPAW_MAX_COWORKERS")?.trim();
       const cap = capRaw ? Number.parseInt(capRaw, 10) : Number.NaN;
       if (Number.isFinite(cap) && cap >= 0 && roster.length >= cap) {
         return {

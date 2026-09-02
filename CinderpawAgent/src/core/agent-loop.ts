@@ -141,6 +141,29 @@ function isReplayableSession(sessionId: string): boolean {
   return !isBackgroundSession(sessionId) && !sessionId.startsWith("cron:");
 }
 
+/**
+ * Whether the runtime looks memory up for the agent each turn.
+ *
+ * ON by default, and that is the point: the opposite default is what shipped
+ * for months. Memory was written on every turn and read only when the model
+ * chose to call the `recall` tool, which on a coding run it never does — so a
+ * fresh install got a memory system that accumulated and never once answered.
+ * A capability that only works when someone knows to ask for it is not a
+ * default anybody set.
+ *
+ * `CINDERPAW_RECALL_INJECTION=false` turns it off for a run that wants the
+ * old behaviour (a strict A/B, or a token-starved endpoint).
+ */
+function recallInjectionEnabled(): boolean {
+  return readEnv("CINDERPAW_RECALL_INJECTION") !== "false";
+}
+
+/** Char cap on the injected block. Bounded because a similarity search has
+ *  no natural upper bound on how much it can match. */
+function recallInjectionMaxChars(): number {
+  return cfgInt("CINDERPAW_RECALL_INJECTION_MAX_CHARS");
+}
+
 const DEFAULT_CONFIG: AgentLoopConfig = {
   // Raised from 4096 → 16384: Qwen3 and other thinking models (DeepSeek, QwQ)
   // consume a large share of the budget on chain-of-thought tokens before the
@@ -1177,6 +1200,25 @@ export class AgentLoop {
         );
       } catch {
         // A memory-store failure must never cost the user their turn.
+      }
+    }
+
+    // Automatic recall. The loop has always HELD a `Recaller` and never asked
+    // it anything — only `noteWrite` was ever called, so memory was written
+    // every turn and read only when the model happened to reach for the
+    // `recall` tool. On TheAgentCompany that was 12 writes and zero reads, and
+    // across a run of independent tasks the carry between them was nil.
+    //
+    // Queried from the user's own words, per turn, so it follows the
+    // conversation instead of being fixed at session start. Failure is
+    // swallowed on purpose: a memory store that is slow, locked or corrupt
+    // must cost the user nothing worse than a turn without recall.
+    if (this.#recall && !this.#spokenSurface.has(sessionId) && recallInjectionEnabled()) {
+      try {
+        const recalled = await this.#recall.recall(userTextClean, sessionId);
+        memory.setRecall(recalled.context, recallInjectionMaxChars());
+      } catch {
+        memory.setRecall("");
       }
     }
 

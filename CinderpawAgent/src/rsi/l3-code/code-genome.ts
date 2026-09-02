@@ -360,11 +360,34 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
     "ratchet-handler.ts",
     "confidence.ts",
     // Slice 4 additions — the code-aware leaves + the runner that wires
-    // the walls together. Kept in sync BY HAND with the Rust mirror
-    // (`src-tauri/src/rsi/code_patch.rs` DENYLIST_BASENAMES).
+    // the walls together. Kept in sync with the Rust mirror
+    // (`crates/cinderpaw-core/src/rsi/code_patch.rs` DENYLIST_BASENAMES);
+    // `tests/rsi-code-patch-denylist-parity.test.ts` fails if they drift,
+    // which is what "by hand" used to mean and never checked.
     "code-leaves.ts",
     "code-rsi.ts",
     "pending-patches.ts", // Slice 5: the approval gate itself
+    // The MEASUREMENT chain. The list above protects how a verdict is
+    // DECIDED; without these, a candidate never has to touch a decision file
+    // because it can rewrite the instrument instead. `validateOutcome` alone
+    // is enough: make it return true and every task passes, the score is
+    // perfect, and the ratchet advances on a suite that measured nothing.
+    // I7 says the agent may ship better eval OUTCOMES but may not redefine
+    // what better MEANS; the Rust scorer is immutable, and these are its
+    // inputs.
+    "eval-spec.ts", // validateOutcome — the per-task verdict
+    "run-eval.ts", // produces the EvalOutcome[] the scorer reads
+    "eval-worker.ts", // emits EvalComplete with score + outcomes
+    "get-specs.ts", // assembles the suite that gets run
+    "default-tier-specs.ts", // the Tier 1/2 tasks themselves
+    "invoke-agent.ts", // turns a genome into the answers being graded
+    "fitness.ts", // I11 bounded aggregate
+    "personal-fitness.ts", // I10 bounded satisfaction
+    "budget.ts", // I5 spend gate
+    "journal.ts", // I3 append-only audit trail
+    "hash-chain.ts", // I4 tamper-evidence
+    "event-bus.ts", // I15 runtime assert
+    "provenance.ts", // I12 acyclic lineage
   ],
 };
 
