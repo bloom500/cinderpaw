@@ -167,6 +167,12 @@ export class OllamaProvider implements InferenceProvider {
       totalTokens: promptTokens + completionTokens,
       model: target.model,
       usedFallback: isFallback,
+      // The receipt for the pin. A fallback inside the declared order is fine
+      // and expected; a run that cannot say which endpoint served it cannot
+      // say what it measured.
+      ...(typeof (raw as { provider?: unknown }).provider === "string"
+        ? { servedBy: (raw as { provider: string }).provider }
+        : {}),
       // Ours, not theirs — see InferenceResponse.tokensEstimated. EITHER half
       // being locally derived taints the row: a provider that reports its
       // prompt but not its output still leaves a number here that it never
@@ -485,6 +491,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         completion_tokens?: number;
         prompt_tokens_details?: { cached_tokens?: number };
       };
+      /** OpenRouter names the endpoint that actually served the call. */
+      provider?: string;
     };
     let content = raw.choices?.[0]?.message?.content ?? "";
     // Reasoning models on OpenAI-compatible servers (NVIDIA NIM, DeepSeek,
@@ -1688,10 +1696,33 @@ function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
  * silently falls back to a different provider measures nothing.
  */
 export function openRouterProviderPin(target: ModelTarget): Record<string, unknown> {
-  const name = readEnv("CINDERPAW_OPENROUTER_PROVIDER")?.trim();
-  if (!name) return {};
+  const raw = readEnv("CINDERPAW_OPENROUTER_PROVIDER")?.trim();
+  if (!raw) return {};
   if (!/openrouter\.ai/i.test(target.baseUrl ?? "")) return {};
-  return { provider: { order: [name], allow_fallbacks: false } };
+  // A LIST, in preference order, not a single name.
+  //
+  // One name is a single point of failure, and the failure is not theoretical:
+  // measured 2026-09-02, `open-inference/fp8` answered one probe in three, the
+  // other two coming back empty in under a second — and separately a task died
+  // sixty seconds in on a 429 from the same endpoint, scoring zero for reasons
+  // that had nothing to do with the agent.
+  //
+  // `allow_fallbacks: false` still holds, and it is doing MORE work now, not
+  // less: routing may move within this list and may never leave it. That keeps
+  // the declarable claim ("served by one of these three, in this order")
+  // instead of "whatever OpenRouter picked", which is what swung identical
+  // tau2 runs by 40 points.
+  //
+  // Order matters for comparability as well as uptime: put the endpoint whose
+  // numbers you intend to report first, and treat the rest as a net. Which one
+  // actually served each call is recorded per response — see `servedBy` — so a
+  // fallback is a declared, countable fact rather than a silent confound.
+  const order = raw
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (order.length === 0) return {};
+  return { provider: { order, allow_fallbacks: false } };
 }
 
 function cinderpawExtensionBody(

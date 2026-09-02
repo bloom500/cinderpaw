@@ -45,3 +45,47 @@ describe("openRouterProviderPin", () => {
     expect(openRouterProviderPin(LOCAL)).toEqual({});
   });
 });
+
+describe("openRouterProviderPin — a list, not a single point of failure", () => {
+  const OR = { provider: "openai_compatible" as const, model: "m", baseUrl: "https://openrouter.ai/api/v1" };
+  const withPin = (v: string | undefined, run: () => void) => {
+    const prev = process.env.CINDERPAW_OPENROUTER_PROVIDER;
+    if (v === undefined) delete process.env.CINDERPAW_OPENROUTER_PROVIDER;
+    else process.env.CINDERPAW_OPENROUTER_PROVIDER = v;
+    try { run(); } finally {
+      if (prev === undefined) delete process.env.CINDERPAW_OPENROUTER_PROVIDER;
+      else process.env.CINDERPAW_OPENROUTER_PROVIDER = prev;
+    }
+  };
+
+  test("keeps preference order, so the endpoint you report is tried first", () => {
+    withPin("deepseek,together,baidu/fp8", () => {
+      const pin = openRouterProviderPin(OR) as { provider: { order: string[] } };
+      expect(pin.provider.order).toEqual(["deepseek", "together", "baidu/fp8"]);
+    });
+  });
+
+  test("still refuses to leave the declared set", () => {
+    // The whole reason a benchmark pins at all: routing may move WITHIN the
+    // list and never outside it, so the run can still say what served it.
+    withPin("deepseek,together", () => {
+      const pin = openRouterProviderPin(OR) as { provider: { allow_fallbacks: boolean } };
+      expect(pin.provider.allow_fallbacks).toBe(false);
+    });
+  });
+
+  test("tolerates spacing and a trailing separator", () => {
+    withPin(" deepseek , together , ", () => {
+      const pin = openRouterProviderPin(OR) as { provider: { order: string[] } };
+      expect(pin.provider.order).toEqual(["deepseek", "together"]);
+    });
+  });
+
+  test("a list of nothing pins nothing, rather than pinning an empty order", () => {
+    // An empty `order` with allow_fallbacks:false is a request no endpoint can
+    // satisfy — every call would fail, which is worse than not pinning.
+    withPin(" , ; ", () => {
+      expect(openRouterProviderPin(OR)).toEqual({});
+    });
+  });
+});

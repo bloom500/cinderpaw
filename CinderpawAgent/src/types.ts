@@ -771,6 +771,17 @@ export interface InferenceResponse {
   /** True when the primary target failed and the fallback served the request. */
   usedFallback: boolean;
   /**
+   * WHICH endpoint actually answered, as the gateway named it.
+   *
+   * One model id on OpenRouter is served by many endpoints running different
+   * quantisations of the same weights, so "which model was this" is not
+   * answered by the model id alone. Without this the provider pin was a
+   * request with no receipt: a run could declare an endpoint, silently be
+   * served by another, and nothing anywhere would disagree. Present only when
+   * the gateway reports it.
+   */
+  servedBy?: string;
+  /**
    * Why generation ended, normalized across providers:
    * "stop" (natural end), "length" (max_tokens cutoff), "tool_calls".
    * Undefined when the provider didn't report one. The agent loop uses
