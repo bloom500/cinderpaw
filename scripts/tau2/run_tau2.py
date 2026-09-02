@@ -127,7 +127,7 @@ def _seed_cinderpaw_route() -> None:
         os.environ["CINDERPAW_BASE_URL"] = re.sub(r"/v1$", "", base.rstrip("/"))
 
 
-def _pin_litellm_provider() -> str | None:
+def _pin_litellm_provider(agent_model: str) -> str | None:
     """
     Apply `CINDERPAW_OPENROUTER_PROVIDER` to tau2's own model calls too.
 
@@ -139,16 +139,23 @@ def _pin_litellm_provider() -> str | None:
 
     `z-ai/glm-5.3-flash` is served by 22 OpenRouter endpoints, six of them
     reporting `quantization: unknown`. The same 21 telecom tasks scored 11/21
-    and 20/21 unpinned. (`google/gemini-2.5-flash` is first-party only —
-    Google and Google AI Studio — so the user simulator was never the main
-    exposure, but it costs nothing to hold it still as well.)
+    and 20/21 unpinned.
+
+    Scoped to `agent_model` ALONE, and that is the whole subtlety. A provider
+    name is not a global setting — it names a company that serves one specific
+    model. Applied to every `openrouter/*` call it also hit the user simulator,
+    and OpenRouter answered `No endpoints found for google/gemini-2.5-flash`,
+    because Z.AI does not serve Google's model. That killed 100 airline
+    simulations at duration 0.0 before a single token was billed. The user
+    simulator needs no pin anyway: `google/gemini-2.5-flash` is first-party
+    only on OpenRouter (Google and Google AI Studio), which is exactly the
+    routing spread the pin exists to close.
 
     Wraps rather than edits the vendored tree: the clone is gitignored and a
-    patch there is lost on the next pull. Only `openrouter/*` models are
-    touched, so a run against any other provider is unaffected.
+    patch there is lost on the next pull.
     """
     name = os.environ.get("CINDERPAW_OPENROUTER_PROVIDER", "").strip()
-    if not name:
+    if not name or not agent_model.startswith("openrouter/"):
         return None
 
     from tau2.utils import llm_utils
@@ -157,7 +164,7 @@ def _pin_litellm_provider() -> str | None:
     pin = {"order": [name], "allow_fallbacks": False}
 
     def completion_pinned(*a, **kw):
-        if str(kw.get("model", "")).startswith("openrouter/"):
+        if str(kw.get("model", "")) == agent_model:
             extra = dict(kw.get("extra_body") or {})
             extra.setdefault("provider", pin)
             kw["extra_body"] = extra
@@ -323,9 +330,9 @@ def main() -> int:
 
     registry.register_agent_factory(create_cinderpaw_agent, "cinderpaw")
 
-    pinned = _pin_litellm_provider()
+    pinned = _pin_litellm_provider(args.llm_agent)
     if pinned:
-        print(f"provider pin  {pinned} (allow_fallbacks=false) — agent arm, reference arm and user simulator")
+        print(f"provider pin  {pinned} (allow_fallbacks=false) for {args.llm_agent}; user simulator left on its own routing")
 
     if not _preflight(registry, args):
         return 2
