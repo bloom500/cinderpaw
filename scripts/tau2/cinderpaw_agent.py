@@ -433,6 +433,30 @@ class CinderpawAgent(HalfDuplexAgent[CinderpawAgentState]):
             )
             return AssistantMessage(role="assistant", content=None, tool_calls=[call]), state
 
+        # A turn the sidecar could not answer is not a reply, and handing it back
+        # as one is how a run burns its budget without producing a result. The
+        # agent-loop's `no_answer` outcome carries an audience-safe apology
+        # ("I wasn't able to answer that. Please try again."). Returned as normal
+        # content, the user simulator has no way to tell it from an answer, so it
+        # restates its request, gets the same apology, and the pair loop until
+        # max_steps. Six of the twenty-one tasks in the 2026-09-02 stratified run
+        # ended that way, at exactly 201 messages — one of them a two-fault task
+        # that should have finished in twenty, with only 14 tool calls in the
+        # whole conversation and roughly ninety identical exchanges after them.
+        #
+        # Raising makes the failure a visible infrastructure error instead of a
+        # silent one. It does not change any task's pass/fail — a turn with no
+        # answer was never going to satisfy the assertions — it just stops the
+        # harness paying for ninety more rounds to reach the same verdict, and
+        # puts the sidecar's own diagnostic where whoever reads the run can see
+        # it, rather than only in the process's stderr.
+        if ev.get("outcome") == "no_answer":
+            raise AgentError(
+                "sidecar returned no answer: "
+                f"{ev.get('diagnostic') or '(no diagnostic)'} "
+                f"(tool calls this turn: {ev.get('toolCallCount', '?')})"
+            )
+
         return AssistantMessage(role="assistant", content=ev.get("content") or ""), state
 
     def _answer_tool_call(
