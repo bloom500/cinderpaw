@@ -362,14 +362,26 @@ export class FractalMemory {
    * `growthRatio`× the tree's current coverage. Avoids re-paying the (cloud)
    * summary cost on every boot when the loaded tree is already fresh.
    */
-  async rebuildIfStale(growthRatio = 1.2): Promise<boolean> {
+  async rebuildIfStale(growthRatio = 1.2, shrinkRatio = 0.9): Promise<boolean> {
     const covered = this.treeLeafCount;
     if (covered > 0) {
       const corpus = this.#cappedLeaves().length;
-      if (corpus < covered * growthRatio) {
+      // Growth: the tree misses new memories until enough accumulate to be
+      // worth the rebuild's summarisation cost.
+      const grew = corpus >= covered * growthRatio;
+      // Shrink: the tree still indexes memories that no longer exist. The
+      // check used to be growth-only, so `corpus < covered` satisfied the
+      // "fresh" branch and the tree was never rebuilt again no matter how
+      // much was deleted — the one direction where staying stale means
+      // holding on to what the user asked to be forgotten.
+      const shrank = corpus <= covered * shrinkRatio;
+      if (!grew && !shrank) {
         this.#log?.(`fractal: tree fresh (${covered} covered, ${corpus} corpus); skip rebuild`);
         return false;
       }
+      this.#log?.(
+        `fractal: tree stale (${covered} covered, ${corpus} corpus, ${grew ? "grew" : "shrank"}); rebuilding`,
+      );
     }
     return this.rebuild();
   }
@@ -659,9 +671,33 @@ export class FractalMemory {
       this.#pendingLeaves.delete(id);
       this.#provenance.delete(id);
     }
+    this.#forgetFromIndex(ids);
     this.#appendEvicted(ids, now, policy.name);
     this.#emit({ kind: "prune", evictedLeafIds: ids, ts: now });
     return { evicted: ids };
+  }
+
+  /**
+   * Drop ids from the recall index so a removed memory stops being recallable.
+   *
+   * Eviction and dedup used to delete from the leaf store and leave the search
+   * index alone, and the tree is only rebuilt on 1.2x GROWTH — so a memory the
+   * user had cleaned up stayed perfectly retrievable until enough new ones
+   * accumulated to trigger a rebuild, which on a large corpus is hundreds of
+   * memories away. "Delete" that does not delete is the one failure a memory
+   * system cannot have.
+   *
+   * The tree's cluster membership still names the id; `fractal-recall` now
+   * skips a semantic hit whose leaf is unknown, which is what makes removing
+   * it from this map sufficient. The stale id disappears from the tree itself
+   * at the next rebuild.
+   */
+  #forgetFromIndex(ids: number[]): void {
+    if (!this.#leavesById || ids.length === 0) return;
+    for (const id of ids) this.#leavesById.delete(id);
+    // The recall engine caches on the identity of this map; it is mutated in
+    // place, so drop the cached engine to be sure the next recall sees it.
+    this.#recallEngine = null;
   }
 
   /** Append evicted leaves to the audit log; skipped for the in-memory store. */
@@ -734,6 +770,7 @@ export class FractalMemory {
       this.#pendingLeaves.delete(id);
       this.#provenance.delete(id);
     }
+    this.#forgetFromIndex(absorbedIds);
     this.#appendEvicted(absorbedIds, Date.now(), "dedup");
     this.#emit({ kind: "prune", evictedLeafIds: absorbedIds, ts: Date.now() });
     return { groups: groups.length };

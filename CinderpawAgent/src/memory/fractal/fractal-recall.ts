@@ -36,18 +36,47 @@ import { queryTree } from "./tree-query.ts";
 import type { EmbedInvoker } from "./embed.ts";
 import type { Leaf, TreeNode } from "./types.ts";
 import type { EpisodicEvent } from "../../types.ts";
+import { readEnv } from "../../config.ts";
 
 /** Top-K semantic candidates from the tree before re-rank. */
-const QUERY_TOPK = 20;
+const DEFAULT_QUERY_TOPK = 20;
 
 /**
- * Beam width for the tree descent. MUST be >= QUERY_TOPK: the beam caps the
- * surviving leaf frontier (see `tree-query.ts`), so a beam smaller than topK
- * silently starves the semantic path to `beam` hits regardless of topK.
- * Holding it equal to topK lets the descent surface the full candidate set;
- * scoring the wider frontier is just extra cosine dot products (cheap).
+ * How wide the descent searches, and how much it throws away.
+ *
+ * The beam caps the surviving frontier at EVERY level, so it must be >=
+ * topK — a beam smaller than topK silently starves the semantic path to
+ * `beam` hits no matter what topK says. Holding them equal lets the descent
+ * surface the full candidate set; scoring the wider frontier is just extra
+ * cosine dot products, which are cheap.
+ *
+ * What it costs is recall, and the number is worth stating: at 2700 leaves
+ * and branch 8, the first level holds ~338 clusters and a beam of 20 keeps
+ * 20 of them, so ~94% of the corpus is discarded before a leaf is scored.
+ * Raising the beam raises recall and tail latency together.
+ *
+ * The defaults are UNCHANGED from when they were hard-coded — this exposes
+ * them, it does not retune them. Choosing a better value needs the recall
+ * benchmark (`CINDERPAW_RUN_FRACTAL_BENCH`), which needs an embedding model
+ * on disk, and a number nobody has measured is not an improvement.
  */
-const QUERY_BEAM = QUERY_TOPK;
+const DEFAULT_QUERY_BEAM = DEFAULT_QUERY_TOPK;
+
+/** Resolve a positive-integer knob from the environment, else the default. */
+function queryKnob(name: string, fallback: number): number {
+  const raw = readEnv(name);
+  if (raw === undefined) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+const QUERY_TOPK = queryKnob("CINDERPAW_FMS_QUERY_TOPK", DEFAULT_QUERY_TOPK);
+// Never below topK, whatever the operator asked for: a beam under topK is not
+// a smaller search, it is a silently truncated one.
+const QUERY_BEAM = Math.max(
+  QUERY_TOPK,
+  queryKnob("CINDERPAW_FMS_QUERY_BEAM", DEFAULT_QUERY_BEAM),
+);
 
 /** Max hits in the formatted context. Caps both backends after dedup. */
 const MAX_CONTEXT_HITS = 10;
@@ -176,13 +205,20 @@ export class FractalRecallEngine {
 
     for (const hit of semanticHits) {
       const leaf = this.#leavesById.get(hit.leafId);
+      // A semantic hit whose leaf is unknown is a STALE id: the tree still
+      // names it, but the leaf has been evicted, deduped away, or otherwise
+      // removed since the last rebuild. It used to be surfaced anyway as
+      // `event-1234` with an empty session and a zero timestamp, which reads
+      // as `????-??-??` in the memory block — a row that costs tokens, tells
+      // the model nothing, and quietly contradicts the user's deletion.
+      if (!leaf) continue;
       merged.set(hit.leafId, {
         id: hit.leafId,
         score: hit.score,
         fts: false,
-        text: leaf?.text ?? `event-${hit.leafId}`,
-        sessionId: leaf?.sessionId ?? "",
-        ts: leaf?.ts ?? 0,
+        text: leaf.text,
+        sessionId: leaf.sessionId,
+        ts: leaf.ts,
         role: "", // RAPTOR leaves carry no role; FTS5 may fill it in below.
         viaSummaryPath: hit.viaSummaryPath,
       });

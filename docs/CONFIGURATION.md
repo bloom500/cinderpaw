@@ -206,6 +206,8 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_FMS_MERGE_THRESHOLD` | string | `"0.92"` |  | Cosine threshold (float) above which leaves merge. |
 | `CINDERPAW_FMS_EVICTION` | string | `null` |  | Eviction strategy. Only "none" (or "noeviction") is a real choice: it turns eviction off. Anything else, including the "lru" this line used to give as its example, selects the default age-and-hit-count policy — a value that is not understood now says so on stderr and falls back, instead of being silently ignored. |
 | `CINDERPAW_MERGE_THRESHOLD` | string | `null` |  | Deprecated alias for CINDERPAW_FMS_MERGE_THRESHOLD. Both names now feed BOTH merge paths (the per-write cosine merge and the cross-session dedup pass); until 2026-09-02 they fed one each, so setting the canonical name moved one threshold and left the other at its default, in the same process, with nothing on screen to say so. |
+| `CINDERPAW_FMS_QUERY_TOPK` | int | `20` |  | Semantic candidates the tree descent returns before re-rank. Raising it widens what recall can consider, at more cosine work per query. |
+| `CINDERPAW_FMS_QUERY_BEAM` | int | `20` |  | How many tree nodes survive at each level of the descent, and so the primary control on recall versus tail latency. At 2700 memories and branch 8 the first level holds ~338 clusters, so the default of 20 discards roughly 94% of the corpus before any single memory is scored: that is what makes the search cheap, and it is also its recall ceiling. Never applied below CINDERPAW_FMS_QUERY_TOPK, since a narrower beam would silently truncate the result rather than shrink the search. |
 | `CINDERPAW_TREE_BRANCH` | int | `null` |  | Branching factor for fractal tree build. |
 | `CINDERPAW_TREE_CLUSTER_MAX_CHARS` | int | `null` |  | Max cluster size in chars. |
 | `CINDERPAW_TREE_ITEM_MAX_CHARS` | int | `null` |  | Max item size in chars. |
@@ -380,6 +382,8 @@ CINDERPAW_FMS_DEDUP_SPAN_MS
 CINDERPAW_FMS_EVICTION
 CINDERPAW_FMS_MAX_LEAVES
 CINDERPAW_FMS_MERGE_THRESHOLD
+CINDERPAW_FMS_QUERY_BEAM
+CINDERPAW_FMS_QUERY_TOPK
 CINDERPAW_FORCE_SIDECAR_BUILD
 CINDERPAW_FORGE_NO_PROMPT_OK
 CINDERPAW_FRACTAL_BENCH_COUNT

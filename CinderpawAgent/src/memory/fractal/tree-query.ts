@@ -1,18 +1,27 @@
 /**
- * Module F — collapsed-tree / beam traversal.
+ * Module F — top-down beam traversal.
  *
  * Given a query vector, walks the RAPTOR tree top-down, keeping only the
  * top-`beam` nodes at each level by cosine similarity to the query. At the
  * leaf level we score every surviving leaf, sort descending, and return
  * the top `topK`. Each hit records the chain of ancestor summaries that
- * were traversed to reach it (`viaSummaryPath`) — that's the "collapsed
- * tree" abstraction: the LLM never sees the tree, only the path that
- * justified each hit.
+ * were traversed to reach it (`viaSummaryPath`), so the LLM never sees the
+ * tree, only the path that justified each hit.
+ *
+ * NOT a collapsed tree, which this file used to call itself. RAPTOR's
+ * collapsed-tree mode flattens every node in the tree and scores all of them;
+ * this prunes the frontier at each level and never scores what it pruned.
+ * They are different algorithms with different recall, and the name mattered:
+ * on a corpus of 2700 leaves at branch 8 the first level holds ~338 clusters,
+ * so a beam of 20 discards roughly 94% of the corpus before a single leaf is
+ * scored. That is the design — it is what makes the descent cheap — but it is
+ * a recall ceiling, and calling it "collapsed tree" hid the ceiling behind a
+ * name that promises the opposite.
  *
  * Cost is O(beam · log_branch(N)) node visits plus O(topK) leaf scoring —
- * far cheaper than scoring every leaf, and the beam keeps recall high as
- * long as `beam` is at least 2–4. The cap on `beam` is the primary
- * control on tail latency.
+ * far cheaper than scoring every leaf. `beam` is the primary control on tail
+ * latency, and is tunable per install: see `CINDERPAW_FMS_QUERY_BEAM` in
+ * `fractal-recall.ts`.
  *
  * Pure — only depends on Module B (`cosine`). No I/O, no async.
  */
