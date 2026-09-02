@@ -127,6 +127,46 @@ def _seed_cinderpaw_route() -> None:
         os.environ["CINDERPAW_BASE_URL"] = re.sub(r"/v1$", "", base.rstrip("/"))
 
 
+def _pin_litellm_provider() -> str | None:
+    """
+    Apply `CINDERPAW_OPENROUTER_PROVIDER` to tau2's own model calls too.
+
+    The env var reaches the Cinderpaw arm through the sidecar's egress layer,
+    which is our code. It does NOT reach the reference `llm_agent` or the user
+    simulator: both go through litellm here, inside vendored tau2. Pinning only
+    our side is worse than pinning nothing — it makes the two arms differ by
+    provider routing, which is the exact confound the pin exists to remove.
+
+    `z-ai/glm-5.3-flash` is served by 22 OpenRouter endpoints, six of them
+    reporting `quantization: unknown`. The same 21 telecom tasks scored 11/21
+    and 20/21 unpinned. (`google/gemini-2.5-flash` is first-party only —
+    Google and Google AI Studio — so the user simulator was never the main
+    exposure, but it costs nothing to hold it still as well.)
+
+    Wraps rather than edits the vendored tree: the clone is gitignored and a
+    patch there is lost on the next pull. Only `openrouter/*` models are
+    touched, so a run against any other provider is unaffected.
+    """
+    name = os.environ.get("CINDERPAW_OPENROUTER_PROVIDER", "").strip()
+    if not name:
+        return None
+
+    from tau2.utils import llm_utils
+
+    inner = llm_utils.completion
+    pin = {"order": [name], "allow_fallbacks": False}
+
+    def completion_pinned(*a, **kw):
+        if str(kw.get("model", "")).startswith("openrouter/"):
+            extra = dict(kw.get("extra_body") or {})
+            extra.setdefault("provider", pin)
+            kw["extra_body"] = extra
+        return inner(*a, **kw)
+
+    llm_utils.completion = completion_pinned
+    return name
+
+
 def _preflight(registry, args) -> bool:
     """
     Load the domain and print what is about to be measured, BEFORE any money is
@@ -282,6 +322,10 @@ def main() -> int:
     from tau2.runner.batch import run_domain
 
     registry.register_agent_factory(create_cinderpaw_agent, "cinderpaw")
+
+    pinned = _pin_litellm_provider()
+    if pinned:
+        print(f"provider pin  {pinned} (allow_fallbacks=false) — agent arm, reference arm and user simulator")
 
     if not _preflight(registry, args):
         return 2
