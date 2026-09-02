@@ -23,6 +23,7 @@
 
 import type { Database } from "bun:sqlite";
 import type { ChatMessage } from "../types.ts";
+import { redactSecrets } from "./privacy.ts";
 
 /**
  * Cap on the serialized transcript we persist per checkpoint. A turn can
@@ -111,6 +112,22 @@ export class CheckpointStore {
     } catch {
       return;
     }
+    // The third durable store. Episodic memory and the saved conversation are
+    // both redacted (slices 11 and 12); this row was not, and it holds MORE
+    // than they do — the full working-memory transcript, so a credential that
+    // travelled as a tool argument or came back in a tool result is here even
+    // when it never appeared in a user message.
+    //
+    // Redacting the serialized JSON rather than walking ChatMessage is
+    // deliberate: one pass covers content, thinking, tool args and tool
+    // results at once, and cannot miss a field someone adds to the type later.
+    // It is safe on the wire shape because `[REDACTED:kind]` contains no
+    // quote, backslash or control character, so the string stays valid JSON.
+    //
+    // The live turn keeps the real value — working memory is in RAM and is not
+    // rewritten. Only a crash-resume loses it, and re-asking the user for a
+    // token beats keeping their token in SQLite forever.
+    json = redactSecrets(json).text;
     if (Buffer.byteLength(json, "utf8") > MAX_CHECKPOINT_BYTES) return;
     // A transcript that has collapsed into a repeated character must not be
     // stored, because storing it is how the failure spreads: the next turn
