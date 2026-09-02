@@ -118,6 +118,33 @@ fn write_index(dir: &Path, summaries: &[ConversationSummary]) -> Result<()> {
     Ok(())
 }
 
+/// Redact credentials from every message body (and from the thinking
+/// block, which quotes the conversation back and would otherwise keep a
+/// copy of anything redacted above it).
+///
+/// Returns an owned Vec either way; a conversation with no secrets in it
+/// comes back byte-identical.
+fn redact_messages(messages: &[PersistedMessage]) -> Vec<PersistedMessage> {
+    messages
+        .iter()
+        .map(|m| {
+            let content = cinderpaw_core::secret_redact::redact_secrets(&m.content);
+            let thinking = m.thinking.as_ref().map(|t| {
+                let r = cinderpaw_core::secret_redact::redact_secrets(t);
+                r.text
+            });
+            if content.redactions > 0 {
+                tracing::info!(
+                    role = %m.role,
+                    count = content.redactions,
+                    "conversation save: credential redacted from the stored copy"
+                );
+            }
+            PersistedMessage { content: content.text, thinking, ..m.clone() }
+        })
+        .collect()
+}
+
 // ── Dir-parameterised core (used by both Tauri commands and tests) ─────────────
 
 pub fn save_to_dir(
@@ -150,12 +177,25 @@ pub fn save_to_dir(
 
     let updated_at = Utc::now().to_rfc3339();
 
+    // Strip credentials before anything reaches the disk.
+    //
+    // The connector flow asks the user, in plain words, to paste a bot
+    // token into the chat. The sidecar already keeps that out of memory,
+    // but this file is a second store and it kept the token in
+    // plaintext — a transcript anyone can open, sitting next to the
+    // keychain we went to the trouble of using.
+    //
+    // This runs on the SAVED copy only. The conversation on screen is
+    // untouched, so the user still sees what they typed in the session
+    // they typed it in.
+    let messages = redact_messages(messages);
+
     let conv = Conversation {
         id: id.to_string(),
         title: title.to_string(),
         created_at,
         updated_at: updated_at.clone(),
-        messages: messages.to_vec(),
+        messages,
         agent_id: agent_id.clone(),
     };
 

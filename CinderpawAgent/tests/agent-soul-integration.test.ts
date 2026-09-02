@@ -80,6 +80,7 @@ describe("buildSystemPrompt — USER block integration", () => {
   const sampleUser: UserConfig = {
     userName: "Darius",
     agentName: "Bob",
+    agentCharacter: {},
     hasOnboarded: true,
   };
 

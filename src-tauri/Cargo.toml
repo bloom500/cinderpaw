@@ -87,6 +87,9 @@ getrandom = "0.2"
 # Chat attachment text extraction (PDF + OOXML/ODF containers)
 pdf-extract = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tauri-plugin-deep-link = "2.4.10"
+tauri-plugin-single-instance = { version = "2.4.4", features = ["deep-link"] }
+url = "2"
 
 [features]
 # `piper` is on by default because it is the voice the product should answer in:

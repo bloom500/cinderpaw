@@ -333,6 +333,75 @@ Before merging this branch:
 - **Bridge changes:** none. No new actions added.
 - **Sidecar / TUI / desktop / connector changes:** none.
 
+### Slice 9 — Onboarding Contract Fixes
+- **Cinderpaw commit:** `src-tauri/src/commands/bootstrap.rs` (contract layer: `candidate_for_provider` + `gateway_verify` build the gateway request from `byok::provider_catalog()`; `persist_step` gated on `outcome.ok`; `finish_setup` runs a real end-to-end verify; `onboarding.json` writes merge and always carry the Desktop's four `OnboardingRecord` fields; `Content-Length` read loop; `has_api_key`/`active_model` read in-process; `install_model` + `list_models` removed), receipt + boundary doc. 155 Rust lib tests.
+- **Landing page commit:** `lib/cinderpaw/bridge.ts` (typed `verifyProviderKey`/`finishSetup`/`VerifyOutcome`, model client deleted), `lib/cinderpaw/onboarding.ts` (4 steps to 3, `gateway_not_running`, `blocked_by_browser`, `browserBlocksLoopback`, `isStepDone`), `app/app/discover/OnboardingAssistant.tsx` (model step removed, verification chains automatically, honest per-state copy), `tests/cinderpaw-onboarding.test.ts`. 205 bun tests.
+- **Gateway changes:** none. Every fix is on our side of the gateway contract; `crates/cinderpaw-core` is untouched.
+- **Bridge changes:** action enum shrank 7 to 5. No new endpoint, port or dependency.
+- See `docs/receipts/slice-9-onboarding-contract-fixes.md` for the twelve findings and their evidence.
+
+### Slice 10 — Make Your Agent
+- **Cinderpaw commit:** `bootstrap.rs` (`save_identity` action: validate, merge into `onboarding.json`, restart the sidecar; `POST /bootstrap/chat` SSE proxy; `agent_ready` capability; `validated_origin` extracted and made RFC-9110 case-insensitive), `settings.rs` (`restart_sidecar` visibility), `CinderpawAgent/src/core/user-loader.ts` (+ `agentCharacter`, bounded on read, rendered as preferences with an explicit SOUL.md precedence line), receipt + boundary doc. 164 Rust lib tests, 50 sidecar tests.
+- **Landing page commit:** `lib/cinderpaw/bridge.ts` (`saveIdentity`, `streamBridgeChat`), `lib/cinderpaw/onboarding.ts` (naming / character / waking / meeting states, `CHARACTER_QUESTIONS`, `cleanAnswer`), `app/app/discover/AgentMaker.tsx` (NEW), `OnboardingAssistant.tsx`, `tests/cinderpaw-onboarding.test.ts`. 215 bun tests.
+- **Gateway changes:** none. The chat proxy calls the existing `POST /runtime/chat`.
+- **Bridge changes:** action enum 5 to 6, plus one streaming endpoint.
+- See `docs/receipts/slice-10-make-your-agent.md`.
+
+### Known gaps — for release hardening, after the benchmark run
+
+Recorded 2026-09-02, deliberately NOT fixed before the benchmark work.
+
+1. **The Browser App only sees the Desktop app, never the CLI.**
+   `start_bridge` is called from exactly one place, `src-tauri/src/lib.rs:965`,
+   inside Tauri's setup. `cinderpaw gateway` runs the gateway with no bridge on
+   11437. So a user running headless — everything working — is told
+   "We couldn't find Cinderpaw on this machine" and pointed at a desktop
+   download they may not want. The CLI is complete on its own (`setup`,
+   `gateway`, `connectors`, `doctor`), so someone who only wants an agent in
+   Discord never needs the Desktop at all. Same failure shape as the Safari
+   case: works only if you already have the right thing installed, and lies
+   about why instead of saying so.
+   **Fix:** move `bootstrap.rs` into `cinderpaw-core` and start it from the CLI
+   gateway path too. The one obstacle is `restart_sidecar` (slice 10), which is
+   Tauri-specific and would need to be passed in as a callback so core does not
+   gain a Tauri dependency.
+
+2. **The "not connected" screen offers only a desktop download.**
+   Cinderpaw ships four ways (`crates/cinderpaw-cli/src/install.rs`: npm,
+   from-source headless, .deb/.rpm, macOS .app) and `scripts/install.sh`
+   exists. The page should offer a copy-paste install command, not only a
+   GitHub releases link. It must NOT auto-install: a page that downloads and
+   runs an installer is malware behaviour, and browsers block it anyway.
+
+3. **Connecting to "any service" needs a primitive that does not exist.**
+   The hand-written connector steps (slice 11) cover Discord, Slack and
+   WhatsApp — transports, which are few by nature. "Use this service" (Notion,
+   Todoist, a company's internal API) is unbounded and can never be a catalog.
+   Two of the three pieces exist: `web_search`/`read_webpage` can read a
+   service's own docs, and `http_request` can call it. What is missing is the
+   middle: a way for the agent to store a credential for an arbitrary service
+   in the keychain and have it used on later calls without ever reading it back.
+   `secret_store` exists in Rust but the agent cannot reach it;
+   `connectors_manage` writes only the three known rows.
+   **Two security questions to settle before building it:** `http_request`'s
+   domain allowlist is fixed at registration and "the caller cannot widen
+   them" (its own comment, an SSRF guard) — so who approves a new domain, and
+   when? And a stored credential must be bound to its domain at save time, so
+   a Notion key can only ever leave for `api.notion.com`.
+
+4. **The paste is still not masked in the UI.** Redaction (slices 11–12) keeps
+   credentials out of memory and out of the saved transcript, but the user sees
+   the raw token in their own chat window during the session. Masking it spans
+   `frontend-react` and the Browser App.
+
+5. **Conversations saved before slice 12 are not rewritten.** Redaction runs on
+   save. A migration would rewrite user data, which is not something to do
+   silently.
+
+6. **A flaky test, unidentified.** One full `bun test` run on 2026-09-02
+   reported `1 fail` without naming the test; four runs since were clean. Not in
+   any file slices 9–12 touched.
+
 ### Key decisions locked in
 - Wizard progress file format `v4:<step>:<mode>:<choice>` is shared with TUI; both clients read/write the same file.
 - BFF writes `~/.cinderpaw/.wizard-progress` directly (atomic 0600) — same legitimacy as TUI which writes directly.
@@ -362,6 +431,18 @@ Before merging this branch:
 - Provider catalog and setup detection are read-only data fetched via existing BFF proxy routes (not through the bridge).
 - Model recommendation is a simple heuristic based on provider + system info (GPU/RAM). No invented benchmark numbers or compatibility claims.
 - Every async operation has a recoverable error state with retry. No dead-end states.
+- Slice 9: the browser sends INTENT (`provider_id`, `api_key`), never the gateway's wire shape. The bridge assembles `SetupVerifyReq` from the shared provider catalog. The previous verbatim `params` forward is what made every verification return 422.
+- Slice 9: `persist` is set by the bridge, never by the browser, and the gateway honours it only on a successful round-trip — a browser cannot ask for an unproven key to be saved.
+- Slice 9: a gateway 200 is not a success. `VerifyOutcome.ok` is the only signal; a wrong key returns 200 with `ok:false`.
+- Slice 9: the browser onboarding has three steps. The model is the provider's catalog `default_model`, proven by the key check and changeable later in the Desktop. Local-model onboarding lives in the Desktop wizard only.
+- Slice 9: `onboarding.json` is shared with the Desktop's `OnboardingRecord`, which requires all four camelCase fields. Every write from the bridge merges and keeps them — an overwrite erased both the step flags and a user's Desktop-set name.
+- Slice 9: Safari and all iOS browsers (WebKit) block `https://` to `http://127.0.0.1` as mixed content. The Browser App cannot work there; the page names the reason and points at the Desktop instead of reporting "not connected".
+- Slice 10: the agent's name and character are the EXISTING primitive, not a new one. `~/.cinderpaw/onboarding.json` feeds `CinderpawAgent/src/core/user-loader.ts`, which renders a `## Personalization` block below SOUL.md.
+- Slice 10: `~/.cinderpaw/SOUL.md` is NEVER written by the Browser App. It is a full override of the agent's identity and honesty rules; writing a user blurb there would be a way to talk an agent out of its own guardrails. Character answers go in the personalization block, and the rendered block states that SOUL.md wins on conflict.
+- Slice 10: character answers and names are a trust boundary — bounded and control-stripped at the writer (bridge) AND at the reader (sidecar), three known keys only, capped by characters not bytes.
+- Slice 10: `save_identity` restarts the sidecar, because the agent reads its name once at boot. The browser waits on `capabilities.agent_ready` (the sidecar's live stdin sender), not on a fixed sleep.
+- Slice 10: the onboarding conversation's session id is fixed server-side (`ONBOARDING_SESSION_ID`). A browser-supplied id would be a path segment and a file name on the gateway.
+- Slice 10: onboarding's last step is a real conversation, not a checkbox. The end-to-end verification was already a real model call whose reply was discarded; showing it is the same proof, witnessed.
 
 ### Pre-existing uncommitted changes in landing page repo
 - `app/api/public-journal/ingest/route.ts`, `lib/journal-store.ts`, `package.json`, `package-lock.json`, `lib/kv.ts` — not ours, left untouched.

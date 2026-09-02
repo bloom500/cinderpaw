@@ -48,7 +48,7 @@ import type { MemoryExtractor } from "../memory/extractor.ts";
 import { WorkingMemory } from "../memory/working.ts";
 import { countTokens } from "./tokenizer.ts";
 import { claimedPath, unsourcedWarning, withOpenFirst } from "./unsourced.ts";
-import { stripPrivate } from "../memory/privacy.ts";
+import { stripPrivate, redactSecrets } from "../memory/privacy.ts";
 import { isRestrictedSession, markSessionRestricted } from "./session-visibility.ts";
 import type { BrainStack } from "../brain/brain-stack.ts";
 import type { ModelTarget } from "../types.ts";
@@ -1147,7 +1147,12 @@ export class AgentLoop {
     // Strip <private>...</private> blocks before persisting to episodic memory.
     // The model still sees the full text during the current turn — only storage
     // is affected, preserving user privacy across sessions.
-    const { text: userTextClean } = stripPrivate(userText);
+    //
+    // Credentials are redacted on top of that, and without being asked.
+    // Connector setup tells the user in plain words to paste a bot token
+    // here; a guard that only fires when they remembered to type
+    // `<private>` around it protects nobody at the moment it matters.
+    const { text: userTextClean } = stripPrivate(redactSecrets(userText).text);
 
     // Refresh the durable task list for this turn. Cheap (one indexed SELECT)
     // and it must run per turn, not per session: the model updates the list
@@ -1274,7 +1279,10 @@ export class AgentLoop {
           decisions.map((d) => `- ${d}`).join("\n")
         : runText;
       memory.addAssistant(final);
-      const { text: finalClean } = stripPrivate(final);
+      // The agent echoing a token back ("I've saved sk-…") would persist it
+      // just as surely as the user pasting it, so the reply gets the same
+      // pass.
+      const { text: finalClean } = stripPrivate(redactSecrets(final).text);
       const asstWriteTs = Date.now();
       const asstLeafId = this.#episodic.record(sessionId, "assistant", finalClean);
       if (asstLeafId !== null) {

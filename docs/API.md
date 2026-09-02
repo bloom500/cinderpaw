@@ -69,6 +69,7 @@ the comment tags next to each `.route(` line.
 | POST | `/runtime/lora/reviews/resolve` | unstable | govern | THE human decision on an adapter candidate (`{id, action: approve\|reject}`). |
 | GET  | `/runtime/manifest` | unstable | read | Active module manifest snapshot. |
 | GET  | `/runtime/sessions` | unstable | read | Lists sessions. |
+| GET  | `/runtime/sessions/:id/transcript` | unstable | read | Full message list for one saved session, for backfill after a reconnect. Returns `{id, title, created_at, updated_at, messages: [{role, content, created_at}]}`; the id is validated as alnum + dash, 1–64 chars. |
 | GET  | `/runtime/resume` | unstable | read | Memory Resume — last-task row for clients. |
 | POST | `/runtime/session/compact` | unstable | evolve | Summarize the older portion of one session's transcript now (`{ session_id? }`, default "default"). Sidecar round-trip; the summarizer is a real LLM completion (120s cap). |
 | POST | `/runtime/byok/save` | unstable | govern | Persist provider key + metadata; never echoes the key. |
@@ -196,6 +197,7 @@ GET /runtime/providers/catalog
 GET /runtime/resume
 POST /runtime/session/compact
 GET /runtime/sessions
+GET /runtime/sessions/:id/transcript
 GET /runtime/status
 POST /runtime/byok/save
 POST /runtime/chat

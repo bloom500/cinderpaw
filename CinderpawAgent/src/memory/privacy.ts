@@ -78,6 +78,80 @@ export interface RedactResult {
   kinds: string[];
 }
 
+// ── Credential redaction ─────────────────────────────────────────────────
+//
+// The guided connector setup asks the user, in plain words, to paste a
+// Discord bot token into the chat. Before this existed, that token went
+// verbatim into episodic memory and stayed there — `stripPrivate` only
+// removes what the user *explicitly* wrapped, and expecting someone to
+// type `<private>` around a secret they were just told to paste is a
+// guard that protects nobody at the moment it is needed.
+//
+// The bar is the same as the PII patterns above: anchored on a known
+// credential prefix or structure, not on "looks random". A generic
+// high-entropy matcher would eat base64 payloads, hashes and git SHAs,
+// and a redactor that destroys ordinary text gets turned off.
+//
+// This one has NO off switch, unlike PII. A credential in durable
+// storage is a different class of problem from a phone number, and the
+// user who most needs this is the one who never opens settings.
+
+interface SecretPattern {
+  kind: string;
+  re: RegExp;
+}
+
+const SECRET_PATTERNS: SecretPattern[] = [
+  // PEM private key block — matched first: it is multi-line and would be
+  // chopped up by the narrower patterns.
+  {
+    kind: "private_key",
+    re: /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z ]+ )?PRIVATE KEY-----/g,
+  },
+  // Slack: bot/user/app tokens are self-labelling.
+  { kind: "slack_token", re: /\bxox[baprs]-[A-Za-z0-9-]{10,}/g },
+  { kind: "slack_token", re: /\bxapp-\d-[A-Za-z0-9-]{10,}/g },
+  // Anthropic before the generic `sk-`, so the more specific kind wins.
+  { kind: "api_key", re: /\bsk-ant-[A-Za-z0-9_-]{20,}/g },
+  { kind: "api_key", re: /\bsk-[A-Za-z0-9_-]{20,}/g },
+  // Google API keys.
+  { kind: "api_key", re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
+  // GitHub personal access / OAuth / server / refresh tokens.
+  { kind: "github_token", re: /\bgh[pousr]_[A-Za-z0-9]{36,}/g },
+  // AWS access key id.
+  { kind: "aws_key", re: /\bAKIA[0-9A-Z]{16}\b/g },
+  // Discord bot token, and JWTs, which share this three-part shape. Both
+  // are credentials, so one kind covers both honestly.
+  {
+    kind: "token",
+    re: /\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}\b/g,
+  },
+  // An explicit bearer in prose, for anything the list above misses.
+  { kind: "bearer", re: /\bBearer\s+[A-Za-z0-9._~+/-]{20,}={0,2}/gi },
+];
+
+/**
+ * Redact credentials from `input`. Each match becomes `[REDACTED:<kind>]`.
+ *
+ * Always on — see the note above. Safe to run on text that contains no
+ * secrets: every pattern is prefix- or structure-anchored, so ordinary
+ * prose passes through untouched.
+ */
+export function redactSecrets(input: string): RedactResult {
+  let redactions = 0;
+  const kinds = new Set<string>();
+  let text = input;
+  for (const { kind, re } of SECRET_PATTERNS) {
+    re.lastIndex = 0;
+    text = text.replace(re, () => {
+      redactions++;
+      kinds.add(kind);
+      return `[REDACTED:${kind}]`;
+    });
+  }
+  return { text, redactions, kinds: [...kinds] };
+}
+
 /** Luhn checksum — distinguishes real card numbers from arbitrary digit runs. */
 function luhnValid(digits: string): boolean {
   if (digits.length < 13 || digits.length > 19) return false;
@@ -111,7 +185,14 @@ export function redactPII(input: string): RedactResult {
     return `[REDACTED:${kind}]`;
   };
 
-  let text = input;
+  // Credentials first, and unconditionally: a durable fact that quietly
+  // records an API key is a worse outcome than one that records a phone
+  // number, and this pass has no off switch.
+  const secrets = redactSecrets(input);
+  redactions += secrets.redactions;
+  for (const kind of secrets.kinds) kinds.add(kind);
+
+  let text = secrets.text;
 
   // Email — anchored, very low false-positive rate.
   text = text.replace(

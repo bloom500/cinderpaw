@@ -3,6 +3,7 @@ mod commands;
 mod connectors;
 mod conversations;
 mod admin_bridge;
+mod deep_link;
 mod desktop_control;
 mod disk_encryption;
 mod events;
@@ -848,6 +849,26 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
                 let _ = (window, event);
             }
         })
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Warm launch on Windows/Linux: the OS spawns a second instance
+            // with the deep-link URL as a CLI arg. The deep-link plugin's
+            // `deep-link` feature (enabled on single-instance) has already
+            // emitted `deep-link://new-url` at this point, but we also handle
+            // the raw args directly so the window focuses even if the event
+            // hasn't been processed yet. Only `cinderpaw://open` is honoured.
+            let urls: Vec<url::Url> = args
+                .iter()
+                .filter_map(|a| a.parse::<url::Url>().ok())
+                .collect();
+            if !urls.is_empty() {
+                crate::deep_link::handle_urls(app, urls);
+            } else {
+                // No URL — still focus the existing window. The user
+                // double-clicked the app icon while it was already running.
+                crate::deep_link::focus_main_window(app);
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
@@ -943,13 +964,33 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
             // with the Tauri process; see `commands/bootstrap.rs`.
             crate::commands::bootstrap::start_bridge(app.handle().clone());
 
-            // Slice 8 (deferred): the cinderpaw:// URL protocol handoff
-            // from the Browser App to Desktop requires platform-specific
-            // protocol registration (Windows registry, macOS Info.plist,
-            // Linux .desktop) and a URL-open handler. The browser CTA
-            // uses `cinderpaw://open`; the Tauri-side registration and
-            // window-focus handler are deferred to a dedicated deep-link
-            // implementation phase with cross-platform testing.
+            // Deep-link: `cinderpaw://open` handoff from the Browser App
+            // (`https://cinderpaw.dev/app` → "Open Cinderpaw Desktop").
+            // Registration lives in `tauri.conf.json` (`plugins.deep-link`);
+            // the handler lives in `deep_link.rs`.
+            {
+                let app_handle = app.handle().clone();
+                // Warm launch on macOS/iOS/Android: the plugin emits
+                // `deep-link://new-url` while the app is already running.
+                // Use the typed `on_open_url` helper which listens for that
+                // event. The DeepLink state is set by `tauri_plugin_deep_link`.
+                if let Some(deep_link) = app.try_state::<tauri_plugin_deep_link::DeepLink<tauri::Wry>>() {
+                    let handle_for_event = app_handle.clone();
+                    deep_link.on_open_url(move |event| {
+                        crate::deep_link::handle_urls(&handle_for_event, event.urls());
+                    });
+                }
+                // Cold launch: if the app was started via `cinderpaw://open`,
+                // `get_current` returns the initial URLs (Windows/Linux CLI
+                // arg, or macOS Opened event already captured by the plugin).
+                if let Some(deep_link) = app.try_state::<tauri_plugin_deep_link::DeepLink<tauri::Wry>>() {
+                    if let Ok(Some(urls)) = deep_link.get_current() {
+                        if !urls.is_empty() {
+                            crate::deep_link::handle_urls(&app_handle, urls);
+                        }
+                    }
+                }
+            }
 
             // MCP extensions: no host-side reconnect anymore (R5). The
             // sidecar's McpManager reconciles `~/.cinderpaw/mcp.json` at its own

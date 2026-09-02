@@ -189,3 +189,60 @@ test("a zero allowlist announces itself at boot instead of reading as healthy", 
   expect(allowSummary(0)).toContain("NOBODY CAN REACH IT");
   expect(allowSummary(2)).toBe("2 allowed");
 });
+
+// ── Guided setup ─────────────────────────────────────────────────────────
+//
+// "Bot token from the Discord Developer Portal" only helps someone who
+// has already been there. `list` now carries written steps so the agent
+// walks the user through the real click path instead of improvising it
+// from a memory of a portal that has since moved its buttons.
+
+interface ListedConnector {
+  id: string;
+  requires: string[];
+  steps?: string[];
+  consoleUrl?: string;
+}
+
+async function listConnectors(): Promise<ListedConnector[]> {
+  const tool = createConnectorsManageTool({ reload: async () => {} });
+  const res = await tool.execute({ action: "list" }, { sessionId: "t" } as never);
+  expect(res.ok).toBe(true);
+  return JSON.parse(res.content) as ListedConnector[];
+}
+
+test("list returns walkable steps, and a console URL wherever a secret is needed", async () => {
+  for (const c of await listConnectors()) {
+    expect(Array.isArray(c.steps)).toBe(true);
+    expect(c.steps!.length).toBeGreaterThanOrEqual(3);
+    // A connector that needs a secret must say where to go and get it.
+    if (c.requires.length > 0) {
+      expect(c.consoleUrl).toMatch(/^https:\/\//);
+      expect(c.steps!.some((s) => s.includes(c.consoleUrl!))).toBe(true);
+    }
+  }
+});
+
+test("the Discord steps cover the two things that silently break it", async () => {
+  const discord = (await listConnectors()).find((c) => c.id === "discord");
+  const steps = (discord?.steps ?? []).join(" ");
+
+  // Without Message Content Intent the bot connects and then appears to
+  // ignore every message, which reads to a user as "Cinderpaw is broken".
+  expect(steps).toContain("Message Content Intent");
+  // Discord shows the token once; navigate away and you must reset it.
+  expect(steps.toLowerCase()).toContain("once");
+  // And the bot still has to be invited to a server to be reachable.
+  expect(steps).toContain("URL Generator");
+});
+
+test("no step routes a secret anywhere but this chat", async () => {
+  // The point of the guided flow is that the secret reaches the keychain
+  // through one door. A step pointing at a dotfile or an env var would
+  // quietly route it somewhere nothing redacts.
+  for (const c of await listConnectors()) {
+    for (const step of c.steps ?? []) {
+      expect(step).not.toMatch(/\.env\b|environment variable|connectors\.json/i);
+    }
+  }
+});

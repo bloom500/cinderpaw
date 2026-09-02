@@ -24,19 +24,65 @@ import { dirname } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { configPath, type ConnectorRow } from "../../transports/connectors.ts";
 
-/** What each supported connector needs to come alive. */
-const CATALOG: Record<string, { secrets: string[]; note: string }> = {
+/**
+ * What each supported connector needs to come alive, and how a person
+ * actually gets it.
+ *
+ * `steps` exists because "bot token from the Discord Developer Portal"
+ * is only useful to someone who has already been there. Without written
+ * steps the model improvises the click path from training data, which
+ * for a portal that changes its labels is how a user ends up on the
+ * wrong page being told they are on the right one. These are checked
+ * against the real portal and are the agent's source of truth; when the
+ * portal moves, this list is the one place to fix.
+ *
+ * `consoleUrl` mirrors `crates/cinderpaw-core/src/connectors.rs` — the
+ * Rust catalog has the URL for the settings UI, and the agent had no
+ * way to read it, so it was guessing the address too.
+ */
+interface CatalogEntry {
+  secrets: string[];
+  note: string;
+  consoleUrl?: string;
+  steps?: string[];
+}
+
+const CATALOG: Record<string, CatalogEntry> = {
   discord: {
     secrets: ["DISCORD_TOKEN"],
     note: "Bot token from the Discord Developer Portal (Bot → Reset Token). The bot must be invited to the server with the Message Content intent enabled.",
+    consoleUrl: "https://discord.com/developers/applications",
+    steps: [
+      "Open https://discord.com/developers/applications and sign in with your Discord account.",
+      "Click 'New Application', give it a name (this is what the bot will be called), and accept the terms.",
+      "Open the 'Bot' tab in the left sidebar.",
+      "Under 'Privileged Gateway Intents', turn ON 'Message Content Intent' and save. Without it the bot can see that messages exist but not what they say.",
+      "Click 'Reset Token', confirm, then 'Copy'. Discord shows this token exactly once — if you navigate away you have to reset it again.",
+      "Paste the token in this chat. It goes straight to your OS keychain and is redacted from memory.",
+      "Then open 'OAuth2' → 'URL Generator', tick 'bot', tick the 'Send Messages' and 'Read Message History' permissions, open the generated URL, and pick your server.",
+    ],
   },
   slack: {
     secrets: ["SLACK_APP_TOKEN", "SLACK_BOT_TOKEN"],
     note: "Socket-mode app token (xapp-…) + bot token (xoxb-…) from api.slack.com/apps.",
+    consoleUrl: "https://api.slack.com/apps",
+    steps: [
+      "Open https://api.slack.com/apps and click 'Create New App' → 'From scratch'. Name it and pick your workspace.",
+      "Open 'Socket Mode' and turn it on. Slack asks for a token name; any name works. Copy the app-level token it gives you — it starts with 'xapp-'.",
+      "Open 'OAuth & Permissions' → 'Bot Token Scopes' and add: chat:write, im:history, app_mentions:read.",
+      "Scroll up on the same page and click 'Install to Workspace', then approve.",
+      "Copy the 'Bot User OAuth Token' — it starts with 'xoxb-'.",
+      "Paste both tokens in this chat. They go to your OS keychain and are redacted from memory.",
+    ],
   },
   whatsapp: {
     secrets: [],
     note: "No secrets — pairing is QR-based. Enable it, then the user scans the QR code shown in the Cinderpaw app (Connectors page or TUI).",
+    steps: [
+      "There is nothing to copy and no token to fetch — WhatsApp pairs by QR code.",
+      "Say the word and I'll enable it, then open the Connectors page in the Cinderpaw app.",
+      "Scan the QR code there with WhatsApp on your phone: Settings → Linked devices → Link a device.",
+    ],
   },
 };
 
@@ -52,6 +98,8 @@ const redact = (row: ConnectorRow | undefined, id: string) => ({
   ...(row?.mode ? { mode: row.mode } : {}),
   requires: CATALOG[id]!.secrets,
   note: CATALOG[id]!.note,
+  ...(CATALOG[id]!.consoleUrl ? { consoleUrl: CATALOG[id]!.consoleUrl } : {}),
+  ...(CATALOG[id]!.steps ? { steps: CATALOG[id]!.steps } : {}),
 });
 
 async function readRows(): Promise<ConnectorRow[]> {
@@ -77,7 +125,12 @@ export function createConnectorsManageTool(
       "you instead, and the usual result is that you go silent. Use action " +
       "'list' to see what's supported and what each needs; 'configure' with an " +
       "id (and secrets/allowlist if required) to connect or disconnect. Changes " +
-      "apply immediately. Secrets are stored, never echoed.",
+      "apply immediately. Secrets are stored, never echoed. " +
+      "When a user asks how to connect you to something, call 'list' FIRST and " +
+      "walk them through the returned 'steps' verbatim — they are checked " +
+      "against the real console and your own recollection of these portals is " +
+      "probably out of date. Give the steps a few at a time, wait at the one " +
+      "that says to paste a token, and never invent a step that isn't there.",
     permissions: [],
     networkAccess: false,
   };

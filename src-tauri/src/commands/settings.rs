@@ -160,13 +160,16 @@ pub(crate) fn set_desktop_control_yolo(
     Ok(())
 }
 
-/// Restart the Cinderpaw Agent sidecar so it re-reads the desktop-control env vars.
+/// Restart the Cinderpaw Agent sidecar so it re-reads its environment and
+/// the files it loads once at boot (`~/.cinderpaw/onboarding.json` among
+/// them — the agent's name and character are read there by
+/// `CinderpawAgent/src/core/user-loader.ts`, at boot only).
 ///
 /// Kills the current child; the `#11` supervisor detects the exit and respawns
 /// it with the updated environment. The slot is kept populated (the supervisor
 /// stops only when it is cleared), and the stdin `tx` is invalidated so any
 /// in-flight send fails fast instead of writing into a dead pipe.
-fn restart_sidecar(state: &AppState) {
+pub(crate) fn restart_sidecar(state: &AppState) {
     // Mark the exit as planned so the supervisor skips crash accounting
     // AND the Faza 3 watchdog counter (an env-toggle restart during a
     // patch's observation window must not push it toward auto-revert).
