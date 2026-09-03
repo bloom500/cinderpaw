@@ -148,17 +148,48 @@ class ContainerError(RuntimeError):
     pass
 
 
+# Anything that looks like a credential, wherever it surfaces. The values are
+# passed to containers as `-e NAME=value`, and subprocess.TimeoutExpired puts
+# the ENTIRE argv in its message — so a slow init.sh wrote the OpenRouter key
+# in clear into results.json, the progress JSONL and the terminal, and the
+# progress stream is the file that gets published to the live dashboard.
+# Measured 2026-09-03, on the first control run.
+_SECRET_ENV = re.compile(r"^([A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Za-z0-9_]*)=.+$")
+_SECRET_VALUE = re.compile(r"(?:sk-|glpat-)[A-Za-z0-9_-]{6,}")
+
+
+def redact(text: str) -> str:
+    """Mask credentials in anything about to be printed, stored or published."""
+    return _SECRET_VALUE.sub("<redacted>", text)
+
+
+def _safe_argv(argv: list[str]) -> list[str]:
+    out = []
+    for a in argv:
+        m = _SECRET_ENV.match(a)
+        out.append(f"{m.group(1)}=<redacted>" if m else redact(a))
+    return out
+
+
 def docker(*args: str, timeout: float = 120.0, stdin: Optional[str] = None) -> subprocess.CompletedProcess:
     """One place every docker call goes through, so one place logs and times out."""
-    return subprocess.run(
-        ["docker", *args],
-        input=stdin,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-    )
+    argv = ["docker", *args]
+    try:
+        return subprocess.run(
+            argv,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as e:
+        # Re-raised rather than left to propagate: TimeoutExpired stringifies
+        # its own argv, secrets and all, and that string is what gets recorded.
+        raise ContainerError(
+            "timed out after %.0fs: %s" % (timeout, " ".join(_safe_argv(argv)))
+        ) from None
 
 
 @dataclass
@@ -851,7 +882,7 @@ def run_task(task: str, args, decl: Path, env_llm: dict[str, str], prog: Progres
                   result=score.get("result"), total=score.get("total"))
 
     except Exception as e:  # noqa: BLE001 - one bad task must not end the run
-        record["error"] = f"{type(e).__name__}: {e}"
+        record["error"] = redact(f"{type(e).__name__}: {e}")
         if sc is not None:
             record["stderr_tail"] = sc.tail()
         prog.emit(event="task_failed", task=task, error=record["error"])
