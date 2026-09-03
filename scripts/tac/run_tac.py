@@ -655,6 +655,21 @@ class Sidecar:
             **os.environ,
             # Nobody is at the machine. ask_user would hang the task forever.
             "CINDERPAW_AUTONOMOUS": "true",
+            # The token budgets are a safety rail for a person's assistant, not
+            # part of what this benchmark measures, and they are counted in RAW
+            # tokens - which on a cached conversation is mostly cache reads, at a
+            # tenth of the price. Measured 2026-09-03, with the browser: 2.1M
+            # tokens per task of which 96% were cache reads, so the 5M per
+            # conversation cut a task off mid-work (it still scored 4/4) and the
+            # 50M per day would have started refusing every task at about number
+            # 24 - a whole afternoon of zeros that read as an agent that cannot do
+            # the work. Real spend for the same five tasks was about ten cents.
+            # Raised so the binding constraint is the task timeout, which IS part
+            # of the benchmark. Both still overridable from the environment.
+            "CINDERPAW_BUDGET_CONVERSATION": os.environ.get(
+                "CINDERPAW_BUDGET_CONVERSATION", "100000000"),
+            "CINDERPAW_BUDGET_DAY": os.environ.get(
+                "CINDERPAW_BUDGET_DAY", "5000000000"),
             "CINDERPAW_HOME": str(home),
             "CINDERPAW_HOST_TOOLS": str(decl),
             **extra_env,
