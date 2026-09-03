@@ -898,6 +898,23 @@ def run_task(task: str, args, decl: Path, env_llm: dict[str, str], prog: Progres
     started = time.time()
 
     try:
+        # A retry must not erase the attempt it is replacing. The first run of
+        # admin-ask-for-upgrade-reimbursement scored 4/4 and was retried only
+        # because a token rail had cut it off; the retry scored 0/4 and
+        # overwrote both the result and the trajectory, so the two could no
+        # longer be compared and the better number could not be explained.
+        # Attempts are cheap; the evidence is not.
+        for old_path in (Path(args.outputs) / f"{task}.json",
+                         Path(args.outputs) / f"{task}.trajectory.jsonl"):
+            if old_path.exists():
+                n = 1
+                while True:
+                    keep = old_path.with_suffix(old_path.suffix + f".attempt{n}")
+                    if not keep.exists():
+                        break
+                    n += 1
+                old_path.rename(keep)
+
         prog.emit(event="task_start", task=task)
         ctr.start()
         prog.emit(event="init_start", task=task)
