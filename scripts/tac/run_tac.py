@@ -77,6 +77,11 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from browser import (  # noqa: E402 - after sys.path, deliberately
+    BROWSER_TOOLS, Browser, BrowserUnavailable, run_browser_tool,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SIDECAR_ENTRY = REPO_ROOT / "CinderpawAgent" / "src" / "index.ts"
 
@@ -100,7 +105,11 @@ DECRYPTION_KEY = "theagentcompany is all you need"
 #     does not, so naming what exists and on which port keeps it from being
 #     worse off than the baseline for a reason that has nothing to do with the
 #     task. It still has to get in on its own.
-#   - The no-browser line, which is a fact about THIS agent's tools.
+#   - The browser line. The baseline drives this deployment through a headless
+#     browser and logs in by clicking, so an API-only agent was not being
+#     measured on the same task: it had to reverse-engineer each service's auth
+#     first. Ours has a browser now (scripts/tac/browser.py) and the prompt says
+#     so, because a tool nobody knows about is a tool nobody uses.
 #   - The pre-installed document libraries, which describe setup this harness
 #     performed and the agent would otherwise waste turns rediscovering.
 #
@@ -128,9 +137,13 @@ must land. The company's internal services:
 - Plane       http://the-agent-company.com:8091
 - RocketChat  http://the-agent-company.com:3000
 
-You have no browser on the workstation. Use their HTTP APIs, and git over http
-for GitLab. Work out how each service wants to be authenticated; when you do,
-write it down with `remember` so the next task does not start from nothing.
+The workstation has a browser. `browser_navigate` opens a page and gives you its
+text plus a numbered list of what can be clicked or typed into; address those by
+number with `browser_click` and `browser_type`. It keeps cookies, so a login
+holds for the rest of the task. Their HTTP APIs and git over http work too, and
+are usually faster once you know the way in. Work out how each service wants to
+be authenticated; when you do, write it down with `remember` so the next task
+does not start from nothing.
 
 python_default has openpyxl, odfpy, python-docx, python-pptx, pypdf and pandas
 installed, so spreadsheets and documents are read with those rather than by
@@ -395,7 +408,7 @@ class Container:
 # a tool left undeclared stays behind the drawer but is still loadable by name,
 # and the model that loads it would search this Windows machine and be told,
 # truthfully and uselessly, that the file is not there.
-HOST_TOOLS = [
+HOST_TOOLS = BROWSER_TOOLS + [
     {
         "name": "shell_exec",
         "description": (
@@ -481,12 +494,26 @@ HOST_TOOLS = [
 # user's machine, and this is not it.
 
 
-def run_host_tool(ctr: Container, name: str, args: dict) -> str:
+def run_host_tool(ctr: Container, name: str, args: dict,
+                  br: "Browser | None" = None) -> str:
     def out(r: subprocess.CompletedProcess) -> str:
         text = (r.stdout or "") + (("\n" + r.stderr) if r.stderr else "")
         if r.returncode != 0:
             text = f"(exit {r.returncode})\n{text}"
         return text.strip() or "(no output)"
+
+    if name.startswith("browser_"):
+        # The browser runs on the host, not in the container, so it is passed
+        # in rather than reached through `ctr`. A task that never opens a page
+        # never launches Chromium.
+        if br is None:
+            return "the browser is not available in this run"
+        try:
+            return run_browser_tool(br, name, args)
+        except BrowserUnavailable as e:
+            return f"browser unavailable: {e}"
+        except Exception as e:  # noqa: BLE001 - a failed click is the agent's to route around
+            return f"{type(e).__name__}: {e}"
 
     if name == "shell_exec":
         cwd = args.get("cwd") or "/workspace"
@@ -753,7 +780,8 @@ def infra_failure(record: dict) -> bool:
     return any(reason.startswith(p) for p in INFRA_STOP_PREFIXES)
 
 
-def drive(sc: Sidecar, ctr: Container, deadline: float, turn_timeout: float) -> str:
+def drive(sc: Sidecar, ctr: Container, deadline: float, turn_timeout: float,
+          br: "Browser | None" = None) -> str:
     """
     Run one task to completion, executing the agent's tool calls in the container.
 
@@ -788,7 +816,7 @@ def drive(sc: Sidecar, ctr: Container, deadline: float, turn_timeout: float) -> 
 
         if kind == "tool_request":
             try:
-                content = run_host_tool(ctr, ev["tool"], ev.get("arguments") or {})
+                content = run_host_tool(ctr, ev["tool"], ev.get("arguments") or {}, br)
                 sc.send({"type": "tool_response", "requestId": ev["id"], "content": content})
             except subprocess.TimeoutExpired:
                 # A hung command is a tool failure the model can read and route
@@ -846,6 +874,7 @@ def run_task(task: str, args, decl: Path, env_llm: dict[str, str], prog: Progres
         home, home_is_disposable = Path(args.shared_home), False
         home.mkdir(parents=True, exist_ok=True)
     sc: Optional[Sidecar] = None
+    br = Browser()  # lazy: Chromium only launches if the agent opens a page
     # Stamped per task too: these runs resume, so a single task file has to say
     # which model produced it without the summary next to it.
     record: dict = {"task": task, "image": image, "home": args.home,
@@ -869,6 +898,7 @@ def run_task(task: str, args, decl: Path, env_llm: dict[str, str], prog: Progres
             sc, ctr,
             deadline=agent_started + args.task_timeout,
             turn_timeout=args.turn_timeout,
+            br=br,
         )
         record["agent_seconds"] = round(time.time() - agent_started, 1)
         prog.emit(event="agent_done", task=task,
@@ -894,6 +924,7 @@ def run_task(task: str, args, decl: Path, env_llm: dict[str, str], prog: Progres
             record["stderr_tail"] = sc.tail()
         prog.emit(event="task_failed", task=task, error=record["error"])
     finally:
+        br.close()
         if sc is not None:
             sc.stop()
             # The sidecar's own event stream is the only place that explains a
@@ -943,8 +974,8 @@ def self_check() -> None:
     }
     for tool in HOST_TOOLS:
         name = tool["name"]
-        if name == "edit_file":
-            continue
+        if name == "edit_file" or name.startswith("browser_"):
+            continue  # edit_file is checked below; browser tools need a browser
         got = run_host_tool(ctr, name, sample[name])
         assert not got.startswith("unknown host tool"), name
 
@@ -968,6 +999,48 @@ def self_check() -> None:
     for required in ("shell_exec", "read_file", "write_file", "edit_file",
                      "list_directory", "grep", "file_search"):
         assert required in names, required
+
+    # The browser leg. Two things can go wrong silently and both are checked:
+    # a browser tool routed into the CONTAINER would run a nonsense command and
+    # look like a page that would not load, and a raised Playwright error would
+    # end a task that should have continued with the agent told what failed.
+    class FakeBrowser:
+        def __init__(self):
+            self.seen = []
+
+        def navigate(self, url):
+            self.seen.append(("navigate", url))
+            return "URL: " + url
+
+        def read(self):
+            return "URL: about:blank"
+
+        def click(self, target):
+            raise TimeoutError("locator resolved to no element")
+
+        def type_text(self, target, text, submit=False):
+            self.seen.append(("type", target, text, submit))
+            return "typed"
+
+    fb = FakeBrowser()
+    before = len(calls)
+    got = run_host_tool(ctr, "browser_navigate",
+                        {"url": "http://the-agent-company.com:3000"}, fb)
+    assert got.startswith("URL: http://the-agent-company.com:3000"), got
+    assert len(calls) == before, "a browser tool reached the container"
+
+    # A click that finds nothing is the agent's problem to route around,
+    # not the run's to die on.
+    got = run_host_tool(ctr, "browser_click", {"target": "99"}, fb)
+    assert got.startswith("TimeoutError:"), got
+
+    # And with no browser at all the agent is told so, in words.
+    got = run_host_tool(ctr, "browser_read", {}, None)
+    assert "not available" in got, got
+
+    for required_browser in ("browser_navigate", "browser_read",
+                             "browser_click", "browser_type"):
+        assert required_browser in names, required_browser
 
     print("self-check ok")
 
