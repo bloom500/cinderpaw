@@ -69,6 +69,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -650,6 +652,53 @@ class Sidecar:
 INFRA_STOP_PREFIXES = ("sidecar_exited", "sidecar_error")
 
 
+def require_services_healthy(hostname: str, services: list[str], timeout: float = 180.0) -> None:
+    """Refuse to run a task whose services are not actually up.
+
+    `services()` only reports which services a task DECLARES. Nothing checked
+    that they answer. Measured 2026-09-03: a Docker Desktop restart left
+    `redis-stack` down with no restart policy, so RocketChat reported
+    {"redis":400,"rocketchat":200,"sotopia":400} — the chat server was up and
+    the NPCs it needs were not. A conversational task would have run to the
+    full thirty minutes against coworkers who never speak, and scored zero
+    that reads as "the agent cannot hold a conversation".
+
+    Raising is deliberate. An exception leaves the record with no score, so
+    resume retries the task instead of banking the zero, and the reason is on
+    screen naming the service and its failing sub-checks rather than in a log
+    nobody has open at 3am.
+
+    Retries for `timeout` because a service is legitimately 500 for minutes
+    after a reset recreates it.
+    """
+    deadline = time.time() + timeout
+    while True:
+        bad: dict[str, str] = {}
+        for svc in services:
+            url = f"http://{hostname}:2999/api/healthcheck/{svc}"
+            try:
+                with urllib.request.urlopen(url, timeout=30) as r:
+                    body = r.read().decode("utf-8", "replace")
+                    if r.status != 200:
+                        bad[svc] = f"HTTP {r.status} {body[:200]}"
+            except Exception as e:  # noqa: BLE001 - any failure to answer is unhealthy
+                detail = ""
+                if isinstance(e, urllib.error.HTTPError):
+                    detail = " " + e.read().decode("utf-8", "replace")[:200]
+                bad[svc] = f"{type(e).__name__}: {e}{detail}"
+        if not bad:
+            return
+        if time.time() >= deadline:
+            lines = ", ".join(f"{k} -> {v}" for k, v in bad.items())
+            raise ContainerError(
+                f"services not healthy after {timeout:.0f}s: {lines}. "
+                "The task declares them, so a run now would measure the harness. "
+                "Check `docker ps -a` for a service container that exited; "
+                "`redis-stack` in particular has no restart policy."
+            )
+        time.sleep(min(10.0, max(0.5, deadline - time.time())))
+
+
 def infra_failure(record: dict) -> bool:
     """Did this result come from the harness breaking rather than the agent?
 
@@ -773,6 +822,7 @@ def run_task(task: str, args, decl: Path, env_llm: dict[str, str], prog: Progres
         ctr.init(args.server_hostname, env_llm)
         prog.emit(event="init_done", task=task, seconds=round(time.time() - started, 1),
                   services=ctr.services())
+        require_services_healthy(args.server_hostname, ctr.services())
 
         sc = Sidecar.spawn(home, decl, {})
 
