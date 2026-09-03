@@ -287,7 +287,14 @@ class Container:
             ["bash", "/utils/init.sh"],
             cwd="/",
             env={"SERVER_HOSTNAME": server_hostname, **env_llm},
-            timeout=1500.0,
+            # 1500s was not enough. Measured 2026-09-03: the first GitLab reset
+            # after a cold Docker start ran past it and killed the task, while
+            # the reset itself went on to finish and the container came up
+            # healthy minutes later. reset.sh polls for 15 minutes on its own,
+            # and the container-creation gap before that was measured at 555s.
+            # A too-tight timeout here does not save time, it throws away a
+            # reset that was already paid for and makes the task run twice.
+            timeout=2400.0,
         )
         if r.returncode != 0:
             raise ContainerError(
