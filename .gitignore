@@ -133,3 +133,4 @@ vendor/
 # Python bytecode from the tau2 harness.
 __pycache__/
 *.pyc
+.tac-home/

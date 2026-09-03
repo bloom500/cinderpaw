@@ -899,8 +899,15 @@ def main() -> int:
     p.add_argument("--home", choices=["fresh", "shared"], default="fresh",
                    help="fresh: a clean CINDERPAW_HOME per task (comparable to the tau2 run, "
                         "cross-task memory cannot engage). shared: one home for the whole run.")
-    p.add_argument("--shared-home", default=str(Path.home() / ".cinderpaw"),
-                   help="CINDERPAW_HOME to use when --home shared.")
+    # NOT ~/.cinderpaw. That is the live profile: a shared-home run would write
+    # 175 tasks of benchmark lessons into the agent the person uses every day,
+    # and feed their personal memories back to the graders. Contamination both
+    # ways, discovered only after the run. A benchmark-scoped home accumulates
+    # exactly the same way and is throwaway.
+    p.add_argument("--shared-home", default=str(REPO_ROOT / ".tac-home"),
+                   help="CINDERPAW_HOME to use when --home shared. Defaults to a "
+                        "benchmark-scoped home; point it at ~/.cinderpaw only if you "
+                        "deliberately want the run to touch your real profile.")
     p.add_argument("--task-timeout", type=float, default=1800.0,
                    help="Seconds the agent gets per task before it is stopped and graded as-is.")
     p.add_argument("--turn-timeout", type=float, default=600.0,
