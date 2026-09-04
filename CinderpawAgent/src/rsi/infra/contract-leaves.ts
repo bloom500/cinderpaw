@@ -284,9 +284,31 @@ export function gateForCandidate(
   if (!shouldGate) {
     return () => ({
       accept: true,
-      reason: "confidence gate bypassed: no champion baseline yet (bootstrap)",
+      reason: `confidence gate bypassed: ${bypassCause(deps, ctx)}`,
       bootstrap: { mean: 0, ciLower: 0, ciUpper: 0, pValue: 0, effectSize: 0 },
     });
   }
   return (samples) => deps.evaluateGate!(samples);
+}
+
+/**
+ * Which bypass this is. All three used to be reported as "no champion baseline
+ * yet (bootstrap)", including the one where a champion is right there and it is
+ * the CANDIDATE that has nothing under it — the shape `eval-worker` emits for a
+ * crashed eval (`errored: true`, no outcomes). A reader asking the journal "is
+ * evolution working" then counts a crash as a first run.
+ *
+ * The bypass itself is unchanged on purpose: promotion is not at stake here,
+ * because the Rust ratchet is strict-greater on the raw score (I1) and a
+ * crashed candidate scores 0. What was at stake is the same thing this file
+ * already refuses to fudge for the fitness vector — saying measured when
+ * nothing was measured.
+ */
+function bypassCause(
+  deps: Pick<RatchetDeps, "evaluateGate">,
+  ctx: CandidateContext,
+): string {
+  if (!deps.evaluateGate) return "no gate configured";
+  if (!ctx.championOutcomes) return "no champion baseline yet (bootstrap)";
+  return "candidate has no per-task outcomes (eval crashed or legacy event)";
 }
