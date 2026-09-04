@@ -35,8 +35,25 @@ import { join, relative, sep } from "node:path";
 
 const ROOT = process.cwd();
 const INVARIANTS_MD = "docs/invariants.md";
-const SRC_DIRS = ["CinderpawAgent/src", "CinderpawAgent/tests", "src-tauri/src"];
-const TEST_PATTERN = /\.test\.ts$/;
+/**
+ * `crates/` was missing, and seven of the fifteen HARD invariants name a Rust
+ * file as their owner (I1, I2, I7, I8, I9, I12, I13 → repo.rs, scorer.rs,
+ * tier0.rs, sandbox_bounds.rs, paths.rs). I9 is implemented in 422 lines of
+ * sandbox_bounds.rs, loaded at boot and behind a Tauri command, with inline
+ * tests — and this linter reported it as missing Test, Runtime AND Audit,
+ * because it never opened the file. A coverage report that cannot see half the
+ * enforcement teaches people to ignore it, which costs more than having no
+ * report at all.
+ */
+const SRC_DIRS = [
+  "CinderpawAgent/src",
+  "CinderpawAgent/tests",
+  "src-tauri/src",
+  "crates",
+];
+/** Rust puts tests inline (`mod tests`) or under `<crate>/tests/`, neither of
+ *  which ends in `.test.ts`; without this every Rust test counted as runtime. */
+const TEST_PATTERN = /\.test\.ts$|(^|\/)tests\/[^/]+\.rs$/;
 const SOURCE_PATTERN = /\.(ts|rs)$/;
 
 interface PillarStatus {
