@@ -2,6 +2,10 @@
  * Faza 2 Slice 5 — the approval gate: queue lifecycle, first-10 window,
  * apply-time wall re-check, live apply/revert over a fake exec, and
  * persistence discipline (corrupt file → empty, never throw).
+ *
+ * INVARIANT I14 — human approval gate for L3+ changes. These are the tests
+ * that hold it: an unapproved patch must not reach the source tree, and the
+ * wall is re-checked at apply time, not just at proposal.
  */
 
 import { describe, expect, test } from "bun:test";

@@ -203,6 +203,10 @@ export async function applyPatchLive(args: LiveApplyArgs): Promise<LiveApplyResu
   const { store, id } = args;
   const p = store.get(id);
   if (!p) return { ok: false, reason: `unknown patch '${id}'` };
+  // INVARIANT I14: human approval gate for L3+ changes. Winning the ratchet
+  // does not apply a patch; only a recorded approval does. This refusal IS the
+  // gate — scripts/check-invariant-coverage.ts matches the id above, and
+  // without it a fully-enforced invariant reported as unenforced.
   if (p.status !== "approved") {
     return { ok: false, reason: `patch '${id}' is ${p.status}, not approved` };
   }

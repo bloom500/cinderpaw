@@ -173,6 +173,12 @@ impl SandboxBounds {
     /// is the integrity anchor; a partial append is a corruption
     /// signal). The reverse order (audit-first) would risk a lying
     /// audit log if the file write failed after the row was appended.
+    /// INVARIANT I9: SandboxBounds is agent-immutable. Every mutation goes
+    /// through here, which appends a hash-chained audit row before the JSON is
+    /// touched; `load` re-verifies the chain and refuses a bounds file that
+    /// drifted from it. The Rust side is the enforcement, which is exactly why
+    /// `scripts/check-invariant-coverage.ts` used to report I9 as unenforced:
+    /// it did not read `crates/`, and nothing here named the invariant.
     pub fn save_with_audit(&self, audit: &SandboxBoundsAudit, reason: &str) -> Result<()> {
         // Always snapshot the current file (if any) for diff logging.
         let old = if rsi_sandbox_bounds_path().exists() {
