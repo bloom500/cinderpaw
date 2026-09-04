@@ -1,5 +1,5 @@
 {
-  "name": "feral-frontend-react",
+  "name": "cinderpaw-frontend-react",
   "private": true,
   "version": "2026.8.11",
   "type": "module",
@@ -12,7 +12,7 @@
     "test:ci": "vitest run --coverage"
   },
   "dependencies": {
-    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/geist": "^5.3.0",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -33,6 +33,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.40.0",
     "highlight.js": "^11.11.1",
+    "livekit-client": "^2.22.0",
     "lucide-react": "^1.17.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -58,6 +59,7 @@
     "jsdom": "^29.1.1",
     "postcss": "^8.5.15",
     "tailwindcss": "^3.4.19",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "^7.0.0",
     "vite": "^5.4.0",
     "vitest": "^4.1.7"

@@ -7,7 +7,7 @@ target-check/
 dev-gpu.bat
 
 # Local one-off diagnostic scripts (machine-specific absolute paths).
-FeralAgent/tools/
+CinderpawAgent/tools/
 
 # Tauri
 src-tauri/target/
@@ -18,10 +18,10 @@ frontend-react/dist/
 frontend-react/target/
 node_modules/
 
-# Feral agent sidecar build output (only .gitkeep is tracked)
-FeralAgent/dist/
+# Cinderpaw agent sidecar build output (only .gitkeep is tracked)
+CinderpawAgent/dist/
 src-tauri/binaries/*.exe
-src-tauri/binaries/feral-agent
+src-tauri/binaries/cinderpaw-agent
 
 # Compiled Bun scripts under scripts/ — sources (.ts/.mjs/.ps1) are
 # tracked, the .exe is a build artifact (e.g. scripts/fake-lora-trainer.exe
@@ -29,8 +29,10 @@ src-tauri/binaries/feral-agent
 scripts/*.exe
 
 # Go TUI binary (go build output)
-tui/feral-tui.exe
-tui/feral-tui
+tui/cinderpaw-tui.exe
+tui/cinderpaw-tui
+tui/cinderpaw-tui.exe
+tui/cinderpaw-tui
 
 # Git worktrees (paseo / git worktree add)
 .worktrees/
@@ -61,7 +63,7 @@ desktop.ini
 
 # Tauri dev / Vite dev logs (untracked build output).
 # D3 fix: the real filenames are `.tauri-dev.log` / `.tauri-dev.err`;
-# the previous entries (`.feral-tauri.log`, `.feral-dev.log`) were stale
+# the previous entries (`.cinderpaw-tauri.log`, `.cinderpaw-dev.log`) were stale
 # and never matched what Tauri actually wrote.
 .tauri-dev.log
 .tauri-dev.err
@@ -70,9 +72,9 @@ desktop.ini
 
 # Released installers — never commit the bundle artifacts.
 # Build with `cargo tauri build`; upload via the GitHub release workflow.
-Feral_*.msi
-Feral_*-setup.exe
-Feral_*.exe
+Cinderpaw_*.msi
+Cinderpaw_*-setup.exe
+Cinderpaw_*.exe
 
 # Internal handoff / diagnostic scripts that have lived at the repo root.
 # They are session-scoped and should not be tracked.
@@ -120,3 +122,15 @@ docs/session-*.md
 docs/2026-*.md
 .superpowers/
 bench-results/
+
+# ARC benchmark run logs — outputs, not source.
+runs-arc/
+
+# Cloned third-party benchmark harnesses (tau2-bench). Never committed: they
+# carry their own git history and a .env with live API keys.
+vendor/
+
+# Python bytecode from the tau2 harness.
+__pycache__/
+*.pyc
+.tac-home/

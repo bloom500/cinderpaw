@@ -1,4 +1,4 @@
-# Feral User Guide
+# Cinderpaw User Guide
 
 A short, practical guide. For installation and hardware requirements see the
 [README](../README.md).
@@ -10,9 +10,9 @@ The switch at the right of the typing bar changes who answers you.
 | | **Chat** | **Agent** |
 |---|---|---|
 | What it is | A direct line to the model | An autonomous assistant wrapped around the model |
-| Can read/write files | No | Yes (across your home folder; `~/.feral` and `~/.ssh` are always off-limits) |
+| Can read/write files | No | Yes (across your home folder; `~/.cinderpaw` and `~/.ssh` are always off-limits) |
 | Can search the web | No | Yes (`web_search`, `deep_research`, `read_webpage`, `fetch_url`) |
-| Can run commands | No | Yes (`shell_exec`; disable with `FERAL_ENABLE_SHELL_EXEC=false`) |
+| Can run commands | No | Yes (`shell_exec`; disable with `CINDERPAW_ENABLE_SHELL_EXEC=false`) |
 | Remembers across sessions | No (per-conversation history only) | Yes — 4-layer persistent memory |
 | Speed | Fastest (one completion per message) | Slower (may loop through several tool calls) |
 | Best for | Quick questions, drafting, brainstorming | Tasks: "summarize this folder", "research X and write a report" |
@@ -32,13 +32,13 @@ Agent mode.
 | `web_search` | DuckDuckGo search | no API key needed |
 | `read_webpage` | Fetches a URL as clean Markdown | via Jina Reader |
 | `deep_research` | Multi-step research → cited Markdown report | takes minutes; shows progress |
-| `read_file` / `write_file` / `list_directory` | File access across your workspace roots (launch dir + home by default) | `~/.feral`, `~/.ssh`, and anything in `FERAL_FS_DENY` are always refused |
+| `read_file` / `write_file` / `list_directory` | File access across your workspace roots (launch dir + home by default) | `~/.cinderpaw`, `~/.ssh`, and anything in `CINDERPAW_FS_DENY` are always refused |
 | `fetch_url` / `http_request` | Fetch any public URL / call any API | SSRF-guarded, rate-limited, audited |
 | `read_skill` | Loads an installed skill's instructions | see Skills below |
 | `connectors_manage` | The agent sets up its own WhatsApp/Discord/Slack connectors when you ask | it can write tokens but never read them back |
 | `tool_health` | The agent reports its own tool success rates | |
 | `scan_workspace` | Finds hardcoded secrets / risky patterns in your code | never prints the secret values |
-| `shell_exec` | Run shell commands | **on by default**; disable with `FERAL_ENABLE_SHELL_EXEC=false` |
+| `shell_exec` | Run shell commands | **on by default**; disable with `CINDERPAW_ENABLE_SHELL_EXEC=false` |
 
 While the agent works, tool calls appear as small bubbles next to the mascot —
 click a finished bubble to see exactly what the tool returned.
@@ -62,7 +62,7 @@ Skills are instruction packs that teach the agent new workflows.
   available to the agent on your very next message — no restart.
 - **What happens under the hood:** the agent sees a one-line menu of your
   installed skills and loads a skill's full instructions only when relevant.
-- **Create your own:** drop a folder into `~/.feral/skills/<my-skill>/` with a
+- **Create your own:** drop a folder into `~/.cinderpaw/skills/<my-skill>/` with a
   `SKILL.md` inside. Front matter (name, description) + Markdown body with the
   instructions. The description is what the agent uses to decide when your
   skill applies — make it specific.
@@ -77,8 +77,8 @@ still running on your machine.
   Slack take a bot token.
 - **Only allowlisted people** can talk to your agent — you choose who when
   enabling the connector.
-- In the terminal: `feral connectors` (and `/connectors add whatsapp` inside
-  `feral chat` shows the QR right in the transcript).
+- In the terminal: `cinderpaw connectors` (and `/connectors add whatsapp` inside
+  `cinderpaw chat` shows the QR right in the transcript).
 
 ## Memory and privacy
 

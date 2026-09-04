@@ -5,11 +5,14 @@
 //! resolving every name unqualified, unchanged.
 
 pub mod agents;
+pub mod bootstrap;
 pub mod byok;
 pub mod chat;
 pub mod conversations;
-pub mod feral;
+pub mod cinderpaw;
 pub mod files;
+pub mod live;
+pub mod livekit;
 pub mod models;
 pub mod projects;
 pub mod settings;
@@ -21,8 +24,10 @@ pub(crate) use agents::*;
 pub(crate) use byok::*;
 pub(crate) use chat::*;
 pub(crate) use conversations::*;
-pub(crate) use feral::*;
+pub(crate) use cinderpaw::*;
 pub(crate) use files::*;
+pub(crate) use live::*;
+pub(crate) use livekit::*;
 pub(crate) use models::*;
 pub(crate) use projects::*;
 pub(crate) use settings::*;
@@ -44,12 +49,52 @@ mod command_count_test {
     // That commit added the command without bumping this constant, so the test
     // has been failing on main ever since — CI does not run the src-tauri
     // suite, which is why it went unnoticed.
-    // 132 = + feral_submit_feedback (thumbs 👍/👎 → RSI acceptance signal,
+    // 132 = + cinderpaw_submit_feedback (thumbs 👍/👎 → RSI acceptance signal,
     // 9c1849f). Same story as fe5b5b6: added without bumping the baseline, so
     // the suite has been red since. CI still does not run it — until it does,
-    // this constant only moves when someone runs `cargo test -p feral --lib`
+    // this constant only moves when someone runs `cargo test -p cinderpaw --lib`
     // by hand.
-    const EXPECTED_COMMAND_COUNT: usize = 132;
+    // 136 = + tts_providers + tts_has_key + speak_text + stop_speaking (voice
+    // mode's outbound half — the streaming TTS bridge and its key check).
+    // 138 = + tts_voice_present + download_tts_voice (on-device TTS).
+    // 139 = + tts_ready ("can this engine actually speak", which differs per
+    // engine: a key for hosted ones, a downloaded voice for Piper).
+    // 140 = + ui_log (the webview's console cannot be read from the terminal, so
+    // the voice loop had no way to report its own decisions).
+    // 141 = + tts_voices (the vendor's voice catalogue — account state, so it is
+    // asked for rather than hardcoded).
+    // 144 = + start_live_call + send_live_audio + end_live_call (the Gemini Live
+    // speech-to-speech engine — one session replacing the STT→LLM→TTS chain,
+    // so these three are a call's whole surface: start, feed, hang up).
+    // 146 = + send_live_text + live_voices (typing into a live call, and the
+    // prebuilt voices it can be pinned to — the model's voice is the one thing
+    // a spoken call must not re-roll per session).
+    // 147 = + set_rsi_allow_cloud_dreams (let the dream cycle run on a paid
+    // cloud model — off by default, and until now that default had no switch
+    // and no explanation anywhere the user could see it).
+    // 150 = - install_skill, + install_capability + inspect_capability
+    // + install_skill_from_url + install_skill_from_file. One command that
+    // took the file body, the metadata AND the trust label from its caller
+    // becomes four that each name a SOURCE and let the host fetch it — the
+    // split exists so the agent can ask for a capability without also being
+    // the thing that vouches for where it came from.
+    // 154 = + connector_accounts_list + connector_pair_start
+    // + connector_pair_poll + connector_refresh_expired. Phase 3: an account
+    // is a thing with a status and a lifetime, so listing, pairing, polling
+    // and renewing are four different questions rather than one flag.
+    // 156 → 160 = + start_livekit_call + end_livekit_call
+    // + list_s2s_providers + stt_local_available (LiveKit call engine).
+    // 160 → 161 = + set_dreams_enabled (master Dream Cycle opt-in).
+    // 161 → 162 = + cinderpaw_cowork_approval_resolve (cowork S4 approval gate;
+    // the chat surface answers a blocked tool call through this command).
+    // 162 → 163 = + cinderpaw_cowork_send_message (cowork S6: the panel writes to
+    // a teammate's inbox directly, instead of dictating to the main agent).
+    // 163 -> 164 = + cinderpaw_cowork_history (replay one chat's teammate
+    // traffic from the mailbox; the panel was live-only until then).
+    // 164 -> 165 = pre-existing drift (a command was added without bumping
+    // the constant; CI does not run src-tauri, so it went unnoticed).
+    // Slice 6 adds the `bootstrap` module but no new commands.
+    const EXPECTED_COMMAND_COUNT: usize = 165;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

@@ -1,7 +1,7 @@
 /**
  * useAskUser — Zustand store for Claude.ai-style interactive questions.
  *
- * When the Feral Agent sidecar emits an `ask_user` event, the React side
+ * When the Cinderpaw Agent sidecar emits an `ask_user` event, the React side
  * routes it here. The store presents ONE question at a time (`pending`, the
  * head), but any further requests that arrive before the user answers are
  * QUEUED in `waiting` rather than overwriting the head. This is essential for
@@ -13,7 +13,7 @@
  *
  * When the user picks options and clicks "Submit", the store resolves the
  * head's Promise (which the stream wiring forwards to Rust as
- * `feral_ask_user_response`) and promotes the next queued request to head.
+ * `cinderpaw_ask_user_response`) and promotes the next queued request to head.
  *
  * History is kept per-session in memory only — reloading the app clears it.
  * Persisting ask_user history is out of scope for v0.1.7; SQLite persistence
@@ -68,10 +68,10 @@ interface AskUserStore {
   history: AskUserHistoryEntry[];
 
   /**
-   * Called by useFeralStream when an `ask_user` event arrives from the
+   * Called by useCinderpawStream when an `ask_user` event arrives from the
    * sidecar. Returns a Promise that resolves when the user picks options
    * (or rejects on cancel / timeout). The consumer is expected to call
-   * `feralAskUserResponse(requestId, answers)` when the Promise resolves.
+   * `cinderpawAskUserResponse(requestId, answers)` when the Promise resolves.
    *
    * If a request is already pending, the new one is QUEUED — it becomes the
    * head only once the earlier requests have been answered/cancelled, so no

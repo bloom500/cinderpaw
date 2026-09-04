@@ -11,10 +11,10 @@ func TestPickDefaultsToUnicode(t *testing.T) {
 }
 
 func TestPickASCIIViaEnv(t *testing.T) {
-	env := map[string]string{"FERAL_ASCII": "1"}
+	env := map[string]string{"CINDERPAW_ASCII": "1"}
 	g := pickWith(func(k string) string { return env[k] })
 	if g.ToolMark != "*" {
-		t.Fatalf("FERAL_ASCII=1 ToolMark = %q, want *", g.ToolMark)
+		t.Fatalf("CINDERPAW_ASCII=1 ToolMark = %q, want *", g.ToolMark)
 	}
 	if g.Cursor != "|" || g.Prompt != ">" {
 		t.Fatalf("ascii set not fully applied: %+v", g)
@@ -31,7 +31,7 @@ func TestPickASCIIViaDumbTerm(t *testing.T) {
 
 // noAsciiByte asserts every rune in every field (and every spinner frame)
 // of the Ascii set is < 128 — the automatable half of spec §22 acceptance
-// #19 (FERAL_ASCII=1 emits zero non-ASCII bytes).
+// #19 (CINDERPAW_ASCII=1 emits zero non-ASCII bytes).
 func TestAsciiSetIsPureASCII(t *testing.T) {
 	check := func(name, s string) {
 		for _, r := range s {

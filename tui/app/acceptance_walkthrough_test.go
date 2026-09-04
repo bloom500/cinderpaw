@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -57,7 +57,7 @@ func TestQuickStartGPUWalkthrough_AcceptanceP1(t *testing.T) {
 	})
 	assertStep(t, a, WizTestIt, "download→testit (auto)")
 	a.Update(WizardTestItResult{
-		Response: "FERAL_OK", HealthLatency: 300 * time.Millisecond,
+		Response: "CINDERPAW_OK", HealthLatency: 300 * time.Millisecond,
 		StreamLatency: 1500 * time.Millisecond, StreamVerified: true,
 	})
 	assertStep(t, a, WizFinish, "testit→ready (auto)")
@@ -121,7 +121,7 @@ func TestQuickStartNoGPUWalkthrough_AcceptanceP1(t *testing.T) {
 	a.Update(ProvidersTestMsg{Success: true, Msg: "ok"})
 	assertStep(t, a, WizTestIt, "provider-test→testit (auto)")
 	a.Update(WizardTestItResult{
-		Response: "FERAL_OK", HealthLatency: 400 * time.Millisecond,
+		Response: "CINDERPAW_OK", HealthLatency: 400 * time.Millisecond,
 		StreamLatency: 2000 * time.Millisecond, StreamVerified: true,
 	})
 	assertStep(t, a, WizFinish, "testit→ready (auto)")

@@ -34,8 +34,8 @@ import { useSettings } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
 import { recommendModel } from '@/lib/hardwareRecommendation';
 import { tauri, type DiskEncryptionStatus, type SetupCandidate, type SetupVerifyOutcome } from '@/lib/tauri';
-import { FeralMascot } from '@/components/chat/mascot/FeralMascot';
-import { cn } from '@/lib/utils';
+import { CinderpawMascot } from '@/components/chat/mascot/CinderpawMascot';
+import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 
 const stepVariants = {
   enter: { opacity: 0, y: 12 },
@@ -143,7 +143,7 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
         // route behind the overlay — the provider step can leave the router
         // elsewhere (e.g. a deep-link to /models). Finish closes the wizard.
         onClick={() => { navigate('/chat'); void finish(); }}
-        className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 transition-colors"
+        className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-on-brand hover:bg-brand/90 transition-colors"
       >
         Open chat <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
       </button>
@@ -155,7 +155,7 @@ function StepNavigation({ step, totalSteps }: { step: number; totalSteps: number
       type="button"
       onClick={next}
       disabled={!canProceed}
-      className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-white hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+      className="text-sm font-medium px-4 py-2 rounded-lg bg-brand text-on-brand hover:bg-brand/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
     >
       Continue <ArrowRight size={14} className="inline -mt-0.5 ml-1" />
     </button>
@@ -176,10 +176,10 @@ function WelcomeStep() {
         className="flex justify-center [&_canvas]:w-24 [&_canvas]:h-24 [&_canvas]:[image-rendering:pixelated]"
         aria-hidden
       >
-        <FeralMascot state="wave" />
+        <CinderpawMascot state="wave" />
       </motion.div>
       <h1 id="onboarding-title" className="text-3xl font-semibold text-text-primary">
-        Welcome to Feral
+        Welcome to Cinderpaw
       </h1>
       <p className="text-base text-text-muted max-w-md mx-auto leading-relaxed">
         A local AI agent that helps you with your files, projects, and tasks,
@@ -227,13 +227,13 @@ function PersonalizeStep() {
 
         <Field
           label="What should you call me?"
-          hint={'You can leave "Feral" or pick something else.'}
+          hint={'You can leave "Cinderpaw" or pick something else.'}
         >
           <input
             type="text"
             value={agentName}
             onChange={(e) => setAgentName(e.target.value)}
-            placeholder="Feral"
+            placeholder="Cinderpaw"
             maxLength={40}
             className="w-full text-base px-3 py-2.5 rounded-lg border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
             aria-label="Agent name"
@@ -266,7 +266,7 @@ function Field({
 
 function Preview({ userName, agentName }: { userName: string; agentName: string }) {
   const safeName = userName.trim() || 'you';
-  const safeAgent = agentName.trim() || 'Feral';
+  const safeAgent = agentName.trim() || 'Cinderpaw';
   return (
     <div className="rounded-lg bg-bg-primary/50 border border-border-subtle p-4 text-sm space-y-2">
       <p className="text-text-muted text-xs uppercase tracking-wider font-medium">
@@ -386,7 +386,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'anthropic', name: 'Anthropic (Claude)', console: 'https://console.anthropic.com/settings/keys',
     keyPlaceholder: 'sk-ant-...',
-    note: 'Paid — add ~$5 credit under Billing before the key will work.',
+    note: 'Paid. Add ~$5 credit under Billing before the key will work.',
     steps: [
       'Sign in at console.anthropic.com',
       'Settings → API keys → "Create Key"',
@@ -396,7 +396,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'google', name: 'Google Gemini', console: 'https://aistudio.google.com/apikey', free: true,
     keyPlaceholder: 'AIza...',
-    note: 'Free tier — no credit card needed.',
+    note: 'Free tier, no credit card needed.',
     steps: [
       'Sign in at aistudio.google.com with any Google account',
       'Click "Get API key" → "Create API key"',
@@ -406,7 +406,7 @@ const CURATED_PROVIDERS: {
   {
     id: 'openrouter', name: 'OpenRouter', console: 'https://openrouter.ai/keys', free: true,
     keyPlaceholder: 'sk-or-...',
-    note: 'Free models available (look for ":free") — no credit card needed.',
+    note: 'Free models available (look for ":free"), no credit card needed.',
     steps: [
       'Sign in at openrouter.ai (Google or email)',
       'Profile menu → Keys → "Create Key"',
@@ -458,8 +458,8 @@ export function ProviderStep() {
  * to choose, show what the machine already has — an enabled provider, a
  * GGUF on disk, an env API key, a running Ollama, or an OpenClaw config —
  * and verify the pick with a REAL completion before calling it ready.
- * The detection + persistence logic lives in feral-core (`setup_detect` /
- * `setup_verify`), the same ladder `feral setup` uses.
+ * The detection + persistence logic lives in cinderpaw-core (`setup_detect` /
+ * `setup_verify`), the same ladder `cinderpaw setup` uses.
  */
 function DetectedSection() {
   const [candidates, setCandidates] = useState<SetupCandidate[] | null>(null);
@@ -506,19 +506,19 @@ function DetectedSection() {
               <p className="text-sm text-text-primary truncate">{c.label}</p>
               <p className="text-xs text-text-muted truncate">
                 {outcome && !outcome.ok ? (
-                  <span className="text-red-400">{outcome.message}</span>
+                  <span className="text-error">{outcome.message}</span>
                 ) : (
                   c.detail
                 )}
               </p>
             </div>
             {outcome?.ok ? (
-              <span className="flex items-center gap-1.5 text-xs text-green-400 shrink-0">
-                <Check size={13} /> ready — I'll use it ({outcome.message})
+              <span className="flex items-center gap-1.5 text-xs text-success shrink-0">
+                <Check size={13} /> ready, I'll use it ({outcome.message})
               </span>
             ) : isTesting ? (
               <span className="flex items-center gap-1.5 text-xs text-text-muted shrink-0">
-                <Loader2 size={12} className="animate-spin" /> Testing — real completion…
+                <Loader2 size={12} className="animate-spin" /> Testing a real completion…
               </span>
             ) : (
               <button
@@ -586,8 +586,8 @@ function LocalBranch() {
       {rec && <p className="text-sm text-text-secondary leading-relaxed">{rec.rationale}</p>}
 
       {done ? (
-        <p className="flex items-center gap-2 text-sm text-green-400">
-          <Check size={16} /> {model.label} is ready — I'll use it automatically.
+        <p className="flex items-center gap-2 text-sm text-success">
+          <Check size={16} /> {model.label} is ready, I'll use it automatically.
         </p>
       ) : isThisDownloading ? (
         <div className="space-y-1.5">
@@ -604,13 +604,13 @@ function LocalBranch() {
           type="button"
           onClick={() => void start(model.repoId, model.filename)}
           disabled={!!active}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
           <Download size={15} /> Download {model.label} ({model.approxSize})
         </button>
       )}
 
-      {error && <p className="text-xs text-red-400">Download failed: {error}</p>}
+      {error && <p className="text-xs text-error">Download failed: {error}</p>}
 
       {/*
         Audit M-R2 fix (2026-07-07): was `finish()` then `navigate()`, which
@@ -676,7 +676,7 @@ function CloudBranch() {
             )}
           >
             <span>{p.name}</span>
-            {p.free && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+            {p.free && <span className="text-micro px-1.5 py-0.5 rounded-full bg-success/15 text-success shrink-0">free tier</span>}
           </button>
         ))}
         {genericOnly.map((c) => (
@@ -690,7 +690,7 @@ function CloudBranch() {
             )}
           >
             <span>{c.name}</span>
-            {c.free_tier_note && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">free tier</span>}
+            {c.free_tier_note && <span className="text-micro px-1.5 py-0.5 rounded-full bg-success/15 text-success shrink-0">free tier</span>}
           </button>
         ))}
       </div>
@@ -702,7 +702,7 @@ function CloudBranch() {
         if (!generic) return null;
         return (
           <div className="space-y-2 pt-1">
-            {generic.free_tier_note && <p className="text-xs text-green-400/80">{generic.free_tier_note}</p>}
+            {generic.free_tier_note && <p className="text-xs text-success">{generic.free_tier_note}</p>}
             {generic.console_url && (
               <a
                 href={generic.console_url}
@@ -736,37 +736,34 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Trimmed at both call sites. Copying a key out of a browser or a password
+  // manager routinely picks up trailing whitespace, and a key stored with a
+  // newline in it goes onto the wire inside the Authorization header — which
+  // the provider answers with a 401. The user then re-pastes the same correct
+  // key, gets the same error, and nothing suggests whitespace is the problem.
   const handleTest = async () => {
+    const key = apiKey.trim();
+    if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
     setBusy(true); setMsg(null);
     try {
-      // TestProviderResponse from `crates/feral-core/src/byok.rs::test_provider`
-      // returns { success, message, models }. Reading r.ok / r.error (as the
-      // previous code did) yielded undefined and every probe reported failure —
-      // the paired bug in ByokTab.tsx (fixed 2026-08-22). Same shape here.
-      const r = (await testByokProvider({ providerId: def.id, apiKey, baseUrl: null })) as {
-        success?: boolean;
-        message?: string;
-        models?: string[];
-      };
-      setMsg(
-        r.success
-          ? { ok: true, text: '✓ Connected' }
-          : { ok: false, text: r.message ?? 'Connection failed' },
-      );
+      const r = await testByokProvider({ providerId: def.id, apiKey: key, baseUrl: null });
+      setMsg(r.ok ? { ok: true, text: '✓ Connected' } : { ok: false, text: r.error ?? 'Connection failed' });
     } catch (e) {
       setMsg({ ok: false, text: String(e) });
     } finally { setBusy(false); }
   };
 
   const handleSave = async () => {
+    const key = apiKey.trim();
+    if (!key) { setMsg({ ok: false, text: 'Paste the key first' }); return; }
     setBusy(true); setMsg(null);
     try {
-      await saveByokProvider({ providerId: def.id, enabled: true, apiKey, baseUrl: null, defaultModel: null });
+      await saveByokProvider({ providerId: def.id, enabled: true, apiKey: key, baseUrl: null, defaultModel: null });
       setMsg({ ok: true, text: `✓ ${def.name} saved` });
     } catch (e) {
       // Surface the Rust error verbatim — bare `catch {}` swallowed the real
       // reason (keychain locked, disk full, permission denied on
-      // ~/.feral/byok.json). The wizard is often a user's first save attempt,
+      // ~/.cinderpaw/byok.json). The wizard is often a user's first save attempt,
       // so a helpful reason here saves the whole session.
       const reason = typeof e === 'string' ? e : (e as Error)?.message ?? String(e);
       setMsg({ ok: false, text: `Save failed: ${reason}` });
@@ -778,7 +775,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
       <ol className="space-y-1.5 text-xs text-text-muted list-decimal list-inside">
         {def.steps.map((s, i) => <li key={i}>{s}</li>)}
       </ol>
-      <p className={cn('text-xs', def.free ? 'text-green-400/80' : 'text-amber-400/90')}>{def.note}</p>
+      <p className={cn('text-xs', def.free ? 'text-success' : 'text-warning')}>{def.note}</p>
       <a
         href={def.console}
         target="_blank"
@@ -802,7 +799,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
           type="button"
           onClick={() => void handleTest()}
           disabled={busy || !apiKey}
-          className="px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
+          className={SECONDARY_BUTTON}
         >
           Test
         </button>
@@ -810,11 +807,11 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
           type="button"
           onClick={() => void handleSave()}
           disabled={busy || !apiKey}
-          className="px-3 py-1.5 rounded-md bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
+          className="px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
           Save
         </button>
-        {msg && <span className={cn('text-xs', msg.ok ? 'text-green-400' : 'text-red-400')}>{msg.text}</span>}
+        {msg && <span className={cn('text-xs', msg.ok ? 'text-success' : 'text-error')}>{msg.text}</span>}
       </div>
     </div>
   );
@@ -826,7 +823,7 @@ function DoneStep() {
   const userName = useOnboarding((s) => s.userName);
   const agentName = useOnboarding((s) => s.agentName);
   const safeName = userName.trim() || 'you';
-  const safeAgent = agentName.trim() || 'Feral';
+  const safeAgent = agentName.trim() || 'Cinderpaw';
 
   return (
     <div className="text-center space-y-6">
@@ -857,7 +854,7 @@ function DoneStep() {
 }
 
 /**
- * At-rest data protection notice (H-1). Feral keeps everything local, so the
+ * At-rest data protection notice (H-1). Cinderpaw keeps everything local, so the
  * confidentiality of conversations and memory on disk depends on the OS's
  * full-disk encryption. We surface the host's status here — reassurance when
  * it's on, a clear nudge when it isn't. Silent on any error (e.g. running
@@ -876,17 +873,17 @@ function DiskEncryptionNotice() {
   const variant = {
     on: {
       Icon: ShieldCheck,
-      accent: 'text-emerald-500',
-      ring: 'border-emerald-500/30 bg-emerald-500/5',
+      accent: 'text-success',
+      ring: 'border-success/30 bg-success/5',
       title: 'Your data is protected at rest',
       body: 'Disk encryption is on, so your conversations and memory are safe even if this device is lost.',
     },
     off: {
       Icon: ShieldAlert,
-      accent: 'text-amber-500',
-      ring: 'border-amber-500/30 bg-amber-500/5',
+      accent: 'text-warning',
+      ring: 'border-warning/30 bg-warning/5',
       title: 'Turn on disk encryption',
-      body: 'Your data lives only on this device — enable BitLocker (Windows) or FileVault (macOS) so it stays private if the device is lost or stolen.',
+      body: 'Your data lives only on this device. Enable BitLocker (Windows) or FileVault (macOS) so it stays private if the device is lost or stolen.',
     },
     unknown: {
       Icon: Shield,

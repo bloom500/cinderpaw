@@ -23,21 +23,33 @@ describe('resolvePerfPolicy — defaults', () => {
     expect(p.stallMs).toBe(__TEST_DEFAULTS.cloud.stallMs);
   });
 
-  it('cloud deadlines diverge from local per use-case', () => {
-    // Historically asserted `cloud < local` on every dimension, matching the
-    // pre-2026-08-22 defaults where cloud TTFT was 30s (typical chat
-    // completion) and local TTFT was 90s (slow prefill on consumer hardware).
-    // After the TTFT bump (user report: reasoning models on OpenRouter get
-    // killed mid-thought), cloud TTFT is now LARGER than local — reasoning
-    // models can take minutes to produce the first token via cloud even
-    // when local models would already have started streaming. Other
-    // dimensions still follow the original relationship. See the paired Rust
-    // test `cloud_and_local_deadlines_diverge_per_use_case` in
-    // `crates/feral-core/src/perf_policy.rs` for the same explanation.
+  /**
+   * This used to assert the opposite — "cloud deadlines are tighter than
+   * local" — which was true when cloud meant a fast completion model and local
+   * meant a small GGUF on a laptop. A 2026 cloud reasoning model can think for
+   * minutes before its first token, so the tight cloud floor was cutting off
+   * working generations. The assertion is kept rather than deleted, inverted,
+   * so the new intent is pinned as deliberately as the old one was.
+   */
+  it('cloud gets the longer deadlines — a reasoning model thinks before it speaks', () => {
     const local = resolvePerfPolicy({ isCloud: false, env: EMPTY_ENV });
     const cloud = resolvePerfPolicy({ isCloud: true, env: EMPTY_ENV });
-    expect(cloud.totalDeadlineMs).toBeLessThan(local.totalDeadlineMs);
+    expect(cloud.ttftDeadlineMs).toBeGreaterThan(local.ttftDeadlineMs);
+    expect(cloud.totalDeadlineMs).toBeGreaterThan(local.totalDeadlineMs);
     expect(cloud.stallMs).toBeLessThanOrEqual(local.stallMs);
+  });
+
+  /**
+   * The total deadline must stay above TTFT on every profile. If they were
+   * equal, a response that took its full first-token budget would have no time
+   * left to actually produce an answer — the request would be killed for
+   * running long at the moment it started working.
+   */
+  it('every profile leaves room to answer after the first token', () => {
+    for (const isCloud of [false, true]) {
+      const p = resolvePerfPolicy({ isCloud, env: EMPTY_ENV });
+      expect(p.totalDeadlineMs).toBeGreaterThan(p.ttftDeadlineMs);
+    }
   });
 
   it('softWarnMs and heartbeatMs are stable across targets', () => {
@@ -50,28 +62,28 @@ describe('resolvePerfPolicy — defaults', () => {
 });
 
 describe('resolvePerfPolicy — env overrides', () => {
-  it('FERAL_TTFT_DEADLINE_MS overrides both targets', () => {
-    expect(resolvePerfPolicy({ isCloud: false, env: { FERAL_TTFT_DEADLINE_MS: '12345' } }).ttftDeadlineMs).toBe(12345);
-    expect(resolvePerfPolicy({ isCloud: true,  env: { FERAL_TTFT_DEADLINE_MS: '12345' } }).ttftDeadlineMs).toBe(12345);
+  it('CINDERPAW_TTFT_DEADLINE_MS overrides both targets', () => {
+    expect(resolvePerfPolicy({ isCloud: false, env: { CINDERPAW_TTFT_DEADLINE_MS: '12345' } }).ttftDeadlineMs).toBe(12345);
+    expect(resolvePerfPolicy({ isCloud: true,  env: { CINDERPAW_TTFT_DEADLINE_MS: '12345' } }).ttftDeadlineMs).toBe(12345);
   });
 
-  it('FERAL_TOTAL_DEADLINE_MS overrides both targets', () => {
-    const p = resolvePerfPolicy({ isCloud: false, env: { FERAL_TOTAL_DEADLINE_MS: '600000' } });
+  it('CINDERPAW_TOTAL_DEADLINE_MS overrides both targets', () => {
+    const p = resolvePerfPolicy({ isCloud: false, env: { CINDERPAW_TOTAL_DEADLINE_MS: '600000' } });
     expect(p.totalDeadlineMs).toBe(600_000);
   });
 
-  it('FERAL_STALL_MS overrides both targets', () => {
-    expect(resolvePerfPolicy({ isCloud: true, env: { FERAL_STALL_MS: '9999' } }).stallMs).toBe(9999);
+  it('CINDERPAW_STALL_MS overrides both targets', () => {
+    expect(resolvePerfPolicy({ isCloud: true, env: { CINDERPAW_STALL_MS: '9999' } }).stallMs).toBe(9999);
   });
 
-  it('FERAL_CLOUD_IDLE_TIMEOUT_MS is honored when FERAL_STALL_MS is unset', () => {
-    expect(resolvePerfPolicy({ isCloud: true, env: { FERAL_CLOUD_IDLE_TIMEOUT_MS: '7777' } }).stallMs).toBe(7777);
+  it('CINDERPAW_CLOUD_IDLE_TIMEOUT_MS is honored when CINDERPAW_STALL_MS is unset', () => {
+    expect(resolvePerfPolicy({ isCloud: true, env: { CINDERPAW_CLOUD_IDLE_TIMEOUT_MS: '7777' } }).stallMs).toBe(7777);
   });
 
-  it('FERAL_STALL_MS wins over FERAL_CLOUD_IDLE_TIMEOUT_MS when both are set', () => {
+  it('CINDERPAW_STALL_MS wins over CINDERPAW_CLOUD_IDLE_TIMEOUT_MS when both are set', () => {
     const p = resolvePerfPolicy({
       isCloud: true,
-      env: { FERAL_CLOUD_IDLE_TIMEOUT_MS: '7777', FERAL_STALL_MS: '8888' },
+      env: { CINDERPAW_CLOUD_IDLE_TIMEOUT_MS: '7777', CINDERPAW_STALL_MS: '8888' },
     });
     expect(p.stallMs).toBe(8888);
   });
@@ -80,9 +92,9 @@ describe('resolvePerfPolicy — env overrides', () => {
     const p = resolvePerfPolicy({
       isCloud: false,
       env: {
-        FERAL_TTFT_DEADLINE_MS: 'not-a-number',
-        FERAL_TOTAL_DEADLINE_MS: '-100',
-        FERAL_STALL_MS: '0',
+        CINDERPAW_TTFT_DEADLINE_MS: 'not-a-number',
+        CINDERPAW_TOTAL_DEADLINE_MS: '-100',
+        CINDERPAW_STALL_MS: '0',
       },
     });
     expect(p.ttftDeadlineMs).toBe(__TEST_DEFAULTS.local.ttftDeadlineMs);

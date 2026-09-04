@@ -16,10 +16,20 @@ export function AboutTab() {
       <h2 className="text-lg font-semibold text-text-primary">About</h2>
 
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-text-primary">Feral {version ?? '…'}</p>
+        <p className="text-sm font-semibold text-text-primary">Cinderpaw {version ?? '…'}</p>
         <p className="text-xs text-text-muted">Local-first AI desktop, built with Tauri + React</p>
+        {/* The licence shown here was wrong: this repo ships under the Business
+            Source License 1.1 (see LICENSE, and `license` in Cargo.toml), not
+            MIT/Apache. A licence line is something people act on — it decides
+            whether they can use Cinderpaw at work — so it states the real terms and
+            the date they change. */}
         <p className="text-xs text-text-muted">
-          Built by <span className="font-medium text-text-secondary">Bloom Lab</span> · License: MIT + Apache 2.0
+          Built by <span className="font-medium text-text-secondary">Bloom Media</span> · Business Source License 1.1
+        </p>
+        <p className="text-xs text-text-muted">
+          Source-available: use, modify and redistribute it, including in production, as long
+          as you do not resell Cinderpaw itself as a hosted service. Each release turns
+          Apache 2.0 four years after it ships.
         </p>
       </div>
 
@@ -37,12 +47,12 @@ export function AboutTab() {
         </Button>
 
         {status === 'up-to-date' && (
-          <span className="flex items-center gap-1 text-xs text-emerald-400">
+          <span className="flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-1 bg-success text-white shadow-sm">
             <CheckCircle size={13} /> You're on the latest version
           </span>
         )}
         {status === 'error' && (
-          <span className="flex items-center gap-1 text-xs text-rose-400">
+          <span className="flex items-center gap-1 text-xs text-error">
             <AlertCircle size={13} /> {error}
           </span>
         )}
@@ -50,18 +60,18 @@ export function AboutTab() {
 
       <div className="space-y-2">
         <a
-          href="https://github.com/bloom500/feral"
+          href="https://github.com/bloom500/cinderpaw"
           target="_blank"
           rel="noreferrer"
-          className="block text-sm text-blue-400 hover:underline"
+          className="block text-sm text-info hover:underline"
         >
           View on GitHub →
         </a>
         <a
-          href="https://github.com/bloom500/feral/issues"
+          href="https://github.com/bloom500/cinderpaw/issues"
           target="_blank"
           rel="noreferrer"
-          className="block text-sm text-blue-400 hover:underline"
+          className="block text-sm text-info hover:underline"
         >
           Report an issue →
         </a>

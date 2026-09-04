@@ -84,7 +84,7 @@ describe('AskUserCard', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /PostgreSQL/ }));
+    await user.click(screen.getByRole('radio', { name: /PostgreSQL/ }));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith([
@@ -106,7 +106,7 @@ describe('AskUserCard', () => {
     );
 
     // Click the first option of Q1.
-    await user.click(screen.getByRole('button', { name: /PostgreSQL/ }));
+    await user.click(screen.getByRole('radio', { name: /PostgreSQL/ }));
 
     // Bug regression: previously this would have resolved the store
     // Promise with an answers array of length 1, kicking the user out
@@ -114,8 +114,8 @@ describe('AskUserCard', () => {
     expect(onSubmit).not.toHaveBeenCalled();
 
     // The Q1 pick should still be visible (highlighted).
-    const pgButton = screen.getByRole('button', { name: /PostgreSQL/ });
-    expect(pgButton).toHaveAttribute('aria-pressed', 'true');
+    const pgButton = screen.getByRole('radio', { name: /PostgreSQL/ });
+    expect(pgButton).toHaveAttribute('aria-checked', 'true');
   });
 
   it('submits with all answers only after every question is answered (multi-question)', async () => {
@@ -130,12 +130,12 @@ describe('AskUserCard', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /PostgreSQL/ }));
+    await user.click(screen.getByRole('radio', { name: /PostgreSQL/ }));
     expect(onSubmit).not.toHaveBeenCalled();
 
     // Accessible name is "1Yes" (single-select prepends the index number),
     // so a substring match is what we need.
-    await user.click(screen.getByRole('button', { name: /Yes/ }));
+    await user.click(screen.getByRole('radio', { name: /Yes/ }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith([
       { question: 'Pick a database', selected: ['PostgreSQL'] },
@@ -156,13 +156,13 @@ describe('AskUserCard', () => {
     );
 
     // Pick PostgreSQL, then change to SQLite on Q1.
-    await user.click(screen.getByRole('button', { name: /PostgreSQL/ }));
-    await user.click(screen.getByRole('button', { name: /SQLite/ }));
+    await user.click(screen.getByRole('radio', { name: /PostgreSQL/ }));
+    await user.click(screen.getByRole('radio', { name: /SQLite/ }));
     expect(onSubmit).not.toHaveBeenCalled();
 
     // Finish Q2 — the submitted answers must reflect the LATEST Q1 pick.
     // Accessible name is "2No" (index + label), so use a substring match.
-    await user.click(screen.getByRole('button', { name: /No/ }));
+    await user.click(screen.getByRole('radio', { name: /No/ }));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith([
@@ -184,13 +184,13 @@ describe('AskUserCard', () => {
     );
 
     // Q1 is multi-select: click React and Vue, then Submit.
-    await user.click(screen.getByRole('button', { name: /React/ }));
-    await user.click(screen.getByRole('button', { name: /Vue/ }));
+    await user.click(screen.getByRole('checkbox', { name: /React/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Vue/ }));
     await user.click(screen.getByRole('button', { name: /^Submit$/ }));
     expect(onSubmit).not.toHaveBeenCalled();
 
     // Q2 is single-select: click Yes (accessible name "1Yes" — index + label).
-    await user.click(screen.getByRole('button', { name: /Yes/ }));
+    await user.click(screen.getByRole('radio', { name: /Yes/ }));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith([
@@ -255,7 +255,7 @@ describe('AskUserCard', () => {
     );
 
     // Option buttons are gone (replaced by the summary line).
-    expect(screen.queryByRole('button', { name: /PostgreSQL/ })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /PostgreSQL/ })).toBeNull();
     // Both summary lines are visible.
     expect(screen.getByText(/PostgreSQL/)).toBeInTheDocument();
     expect(screen.getByText(/Yes/)).toBeInTheDocument();
@@ -275,7 +275,7 @@ describe('AskUserCard', () => {
       </StrictMode>,
     );
 
-    await user.click(screen.getByRole('button', { name: /PostgreSQL/ }));
+    await user.click(screen.getByRole('radio', { name: /PostgreSQL/ }));
 
     // StrictMode mounts → unmounts → re-mounts in dev. Without the
     // submittedRef guard, the auto-submit effect could fire twice
@@ -306,7 +306,7 @@ describe('AskUserCard', () => {
     const { rerender } = render(
       <AskUserCard requestId="req-A" questions={SINGLE_Q} onSubmit={onSubmit} />,
     );
-    await user.click(screen.getByRole('button', { name: /PostgreSQL/ }));
+    await user.click(screen.getByRole('radio', { name: /PostgreSQL/ }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
 
     // Same component position, NEW request (deliberately no `key` so the
@@ -314,7 +314,7 @@ describe('AskUserCard', () => {
     rerender(
       <AskUserCard requestId="req-B" questions={SINGLE_Q} onSubmit={onSubmit} />,
     );
-    await user.click(screen.getByRole('button', { name: /SQLite/ }));
+    await user.click(screen.getByRole('radio', { name: /SQLite/ }));
 
     expect(onSubmit).toHaveBeenCalledTimes(2);
     expect(onSubmit).toHaveBeenLastCalledWith([
@@ -334,8 +334,8 @@ describe('AskUserCard', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /PostgreSQL/ }));
-    await user.click(screen.getByRole('button', { name: /PostgreSQL/ }));
+    await user.click(screen.getByRole('radio', { name: /PostgreSQL/ }));
+    await user.click(screen.getByRole('radio', { name: /PostgreSQL/ }));
 
     // The dedup in handleAnswer means the second click is a no-op;
     // submit still fires exactly once.

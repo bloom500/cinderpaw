@@ -24,22 +24,40 @@ pub fn load_all_from(dir: &Path) -> Result<Vec<ProjectSummary>> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+/// Serialises the read-modify-write below.
+///
+/// Both `save_to` and `delete_from` load the whole list, change one entry and
+/// write it back. Two of them running at once — the UI saves a project while a
+/// background task deletes another — each read the same "before" and each write
+/// their own "after": one of the two changes is simply gone, with no error to
+/// notice. A process-wide lock is enough because this file has exactly one
+/// writer process, the desktop host.
+static PROJECTS_WRITE: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
 pub fn save_to(dir: &Path, project: &ProjectSummary) -> Result<()> {
+    let _guard = PROJECTS_WRITE.lock();
     std::fs::create_dir_all(dir)?;
     let mut list = load_all_from(dir)?;
     match list.iter_mut().find(|p| p.id == project.id) {
         Some(existing) => *existing = project.clone(),
         None => list.push(project.clone()),
     }
-    std::fs::write(projects_path_for(dir), serde_json::to_vec_pretty(&list)?)?;
+    cinderpaw_core::atomic_file::write_atomic(
+        &projects_path_for(dir),
+        &serde_json::to_vec_pretty(&list)?,
+    )?;
     Ok(())
 }
 
 pub fn delete_from(dir: &Path, id: &str) -> Result<()> {
+    let _guard = PROJECTS_WRITE.lock();
     std::fs::create_dir_all(dir)?;
     let mut list = load_all_from(dir)?;
     list.retain(|p| p.id != id);
-    std::fs::write(projects_path_for(dir), serde_json::to_vec_pretty(&list)?)?;
+    cinderpaw_core::atomic_file::write_atomic(
+        &projects_path_for(dir),
+        &serde_json::to_vec_pretty(&list)?,
+    )?;
     Ok(())
 }
 
@@ -47,17 +65,17 @@ pub fn delete_from(dir: &Path, id: &str) -> Result<()> {
 
 pub fn load_all() -> Result<Vec<ProjectSummary>> {
     paths::ensure_dirs()?;
-    load_all_from(&paths::feral_dir())
+    load_all_from(&paths::cinderpaw_dir())
 }
 
 pub fn save(project: &ProjectSummary) -> Result<()> {
     paths::ensure_dirs()?;
-    save_to(&paths::feral_dir(), project)
+    save_to(&paths::cinderpaw_dir(), project)
 }
 
 pub fn delete(id: &str) -> Result<()> {
     paths::ensure_dirs()?;
-    delete_from(&paths::feral_dir(), id)
+    delete_from(&paths::cinderpaw_dir(), id)
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -68,7 +86,7 @@ mod tests {
 
     fn tmp() -> PathBuf {
         let dir = std::env::temp_dir()
-            .join(format!("feral_proj_test_{}", uuid::Uuid::new_v4()));
+            .join(format!("cinderpaw_proj_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

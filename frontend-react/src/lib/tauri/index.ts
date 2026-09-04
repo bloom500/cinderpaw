@@ -22,6 +22,61 @@ export type { DownloadProgressEvent, DownloadCompleteEvent, DownloadErrorEvent }
 export type { ModelLoadProgressEvent };
 export type { StreamProgressEvent, RsiEngineEventLine, FractalActivityLine, DreamCycleLine } from './events';
 
+/**
+ * One row of the voice-engine picker — mirrors `cinderpaw_core::tts::TtsEngine`.
+ *
+ * `isLocal` must be shown before recording starts, not buried in settings: with
+ * a hosted engine every spoken reply leaves the machine, and a local-first
+ * product that does not say so has lied by omission.
+ *
+ * `available: false` means the engine is catalogued but not built into this
+ * version. The row is shown (so the plan is visible) and cannot be chosen (so it
+ * cannot lie) — `from_id` refuses it in Rust regardless of what the UI does.
+ */
+export interface TtsProviderInfo {
+  id: string;
+  label: string;
+  isLocal: boolean;
+  needsKey: boolean;
+  needsBaseUrl: boolean;
+  needsModel: boolean;
+  /** Runs from a file the user must fetch first. A property rather than a list of
+   *  ids in this file, so the next local engine cannot skip the download step. */
+  needsDownload: boolean;
+  consoleUrl: string | null;
+  note: string;
+  available: boolean;
+}
+
+/**
+ * One selectable voice, listed by the vendor. `locale` is empty for a
+ * multilingual voice — which is not "English", it means the voice follows the
+ * text, and that is what a bilingual conversation needs.
+ */
+export interface TtsVoice { id: string; label: string; locale: string }
+
+/**
+ * One speech-to-speech vendor a call can run on — mirrors
+ * `commands::livekit::S2sProviderInfo`.
+ *
+ * `voices` is per vendor because a voice id only means something to the vendor
+ * that issued it; `connected` is whether a key is actually stored, which is the
+ * difference between an assistant and an echo.
+ */
+export interface S2sProviderInfo {
+  id: string;
+  label: string;
+  voices: string[];
+  default_voice: string;
+  /**
+   * Assembled from the app's own STT / model / TTS choices rather than being one
+   * vendor's session. Whether anything leaves the device is decided by those
+   * engines, not by this flag.
+   */
+  pipeline: boolean;
+  connected: boolean;
+}
+
 export interface Message       { role: string; content: string; images?: string[] }
 export interface InferParams   {
   temperature: number;
@@ -72,6 +127,8 @@ export interface McpCatalogEntry {
   icon: string;
   logo_url?: string;
   fields: McpConfigField[];
+  /** Connecting opens a browser for the user to sign in to the publisher. */
+  browser_login: boolean;
 }
 export interface McpServerView {
   id: string;
@@ -95,6 +152,35 @@ export interface McpToolView { name: string; description: string }
 // new field is optional. The richer surface lands when the Connectors
 // tab lands as part of Phase 2.
 export interface ConnectorField { key: string; label: string; secret: boolean }
+
+/** A pairing in flight. Public values only — what to type and where. The
+ *  device code is a credential and never crosses this boundary. */
+export type ConnectorAuthState = {
+  kind: 'waiting_for_user';
+  user_code: string;
+  verification_uri: string;
+  expires_at: number;
+};
+
+/** Status is a value derived from the credential, never "enabled in a file".
+ *  `error` carries its own words because the person needs them. */
+export type ConnectorAccountStatus =
+  | 'disconnected'
+  | 'pairing'
+  | 'connected'
+  | 'expired'
+  | 'revoked'
+  | { error: string };
+
+export interface ConnectorAccount {
+  connector_id: string;
+  display_name?: string | null;
+  status: ConnectorAccountStatus;
+  metadata: Record<string, string>;
+  auth_state?: ConnectorAuthState | null;
+  secret_ref?: string | null;
+  expires_at?: number | null;
+}
 export interface ConnectorCatalogEntry {
   id: string;
   name: string;
@@ -207,6 +293,16 @@ export interface Settings {
   token_budget_conversation: number | null;
   /** USD spend cap for the passive RSI background engine. null / 0 = local-only (free). */
   rsi_max_cost_usd: number | null;
+  /** Let the dream cycle run on a CLOUD model. Off by default — background
+   *  dreaming on a paid route spends money while the user is away. Without it,
+   *  a machine with no local model never dreams at all. */
+  rsi_allow_cloud_dreams: boolean;
+  /** MASTER opt-in for the dream cycle. Off by default: dreaming (local or
+   *  cloud) never starts unless the user flipped this on. */
+  dreams_enabled: boolean;
+  /** The chosen inference route: `"<provider>:<model>"` (cloud) or
+   *  `"local:<file>"`. null = the bundled local default. */
+  active_route: string | null;
 }
 
 export interface ByokProvider {
@@ -222,7 +318,7 @@ export interface ByokProvider {
 // Phase 1 (2026-07-07) — canonical provider catalog row served by the
 // Rust `byok::provider_catalog()` function via the
 // `provider_catalog` Tauri command. Mirrors
-// `crates/feral-core/src/byok.rs::ProviderCatalogEntry` 1:1.
+// `crates/cinderpaw-core/src/byok.rs::ProviderCatalogEntry` 1:1.
 // Optional fields come back as `null` from the Rust serde
 // `skip_serializing_if = "Option::is_none"` so we type them as
 // `T | null` (NOT `T | undefined`).
@@ -241,9 +337,9 @@ export interface ProviderCatalogEntry {
 }
 
 // Guided setup (2026-07-10 OpenClaw onboarding parity). Mirrors
-// `crates/feral-core/src/setup.rs::Candidate` / `VerifyOutcome` 1:1 —
+// `crates/cinderpaw-core/src/setup.rs::Candidate` / `VerifyOutcome` 1:1 —
 // the detection ladder + real-completion verification the CLI's
-// `feral setup` and the TUI consume over `/runtime/setup/*`.
+// `cinderpaw setup` and the TUI consume over `/runtime/setup/*`.
 export type SetupCandidateKind =
   | 'existing_config'
   | 'local_gguf'
@@ -386,7 +482,7 @@ export interface ChampionTreeRow {
 }
 
 // ── Code-patch approval gate (Faza 2 Slice 5) ───────────────────────────────
-// Frozen wire shape from FeralAgent/src/types.ts (OutboundEvent `code_patches`
+// Frozen wire shape from CinderpawAgent/src/types.ts (OutboundEvent `code_patches`
 // + `code_patch_resolved`). The Dreams panel renders this list and resolves
 // patches; the trust boundary + sidecar disk live behind the Tauri command.
 
@@ -410,7 +506,7 @@ export interface CodePatch {
   patch: string;
   commitHash: string;
   createdAt: number;
-  /** Host note (e.g. "applied", "live apply unavailable: FERAL_CODE_RSI_REPO not set"). */
+  /** Host note (e.g. "applied", "live apply unavailable: CINDERPAW_CODE_RSI_REPO not set"). */
   note?: string;
   /** Resolution-side error, when status === 'apply_failed'. */
   error?: string;
@@ -436,7 +532,7 @@ export interface CodePatchResolvedPayload {
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 /** Mirrors `conversations::ScratchStats` — churn in the agent's own workspace. */
 export interface ScratchStats        { edits: number; added: number; removed: number }
-export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null; scratch?: ScratchStats | null }
+export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null; scratch?: ScratchStats | null; created_at?: number | null }
 export interface ConversationSummary {
   id: string; title: string; updated_at: string;
   /** Set when this conversation belongs to an agent (Agents tab); null for chat. */
@@ -505,19 +601,71 @@ export interface AgentConfig {
   params?: Record<string, unknown> | null;
 }
 
-// ── Feral Agent ─────────────────────────────────────────────────────────────
+// ── Cinderpaw Agent ─────────────────────────────────────────────────────────────
 
-/** Parsed output event from the Feral Agent sidecar. */
-export type FeralAgentEvent =
+/** Parsed output event from the Cinderpaw Agent sidecar. */
+export type CinderpawAgentEvent =
   | { type: 'chunk';       id: string; content: string }
-  | { type: 'done';        id: string; content: string; stopped: boolean }
-  | { type: 'tool_start';  id: string; callId: string; tool: string; args: Record<string, unknown> }
-  | { type: 'tool_done';   id: string; callId: string; tool: string; result: unknown }
+  // `diagnostic` is the operator-facing reason a turn failed (token budget,
+  // model, files worth checking). The sidecar keeps it OUT of `content` so
+  // connectors and benchmarks — where the reader is not the person who owns
+  // the machine — deliver a clean answer. The desktop is the surface whose
+  // reader IS that person, so it is the one place that shows it.
+  | { type: 'done';        id: string; content: string; stopped: boolean; diagnostic?: string }
+  // `sessionId` is optional and only present on newer sidecars. It is what
+  // lets a surface attribute a call to WHO ran it — the cowork panel uses it
+  // to show which tools a teammate is using, which the events could not say
+  // before because they carried no owner.
+  | { type: 'tool_start';  id: string; callId: string; tool: string; args: Record<string, unknown>; sessionId?: string }
+  | { type: 'tool_done';   id: string; callId: string; tool: string; result: unknown; sessionId?: string }
   // #18: live progress/retry notes from long-running tools (sidecar emits
   // these with a sessionId, not a message id).
   | { type: 'tool_progress'; sessionId: string; tool: string; stage: string; progress: number | null; message: string }
+  // Agent Cowork S6 — one thread replayed from the mailbox. An empty list
+  // is a real answer ("no teammate traffic in this chat"), not a failure.
+  | {
+      type: 'cowork_history_result';
+      threadId: string;
+      messages: {
+        id: string;
+        fromAgentId: string;
+        toAgentId: string;
+        fromAgentName?: string;
+        toAgentName?: string;
+        body: string;
+        status: string;
+        createdAt: number;
+      }[];
+    }
+  // A background worker spawned by the notebook's `rlm()`. Carries a
+  // sessionId and no message id, and unlike every other event here it usually
+  // arrives AFTER the turn that caused it has finished — `rlm()` returns the
+  // instant a child is admitted, so all the child's work happens later.
+  | {
+      type: 'rlm_child';
+      sessionId: string;
+      childId: string;
+      name: string;
+      status: 'running' | 'completed' | 'error' | 'cancelled';
+      detail?: string;
+      durationMs?: number;
+    }
   | { type: 'proactive';   content: string }
   | { type: 'model_set';   provider: string; model: string }
+  // Which model answered this turn, and why that one. Emitted on the
+  // success AND the failure path: automatic model selection used to fail
+  // into a console warning and a silent switch to the default target, so a
+  // user whose routing broke got a different model with no explanation
+  // anywhere on their screen.
+  | {
+      type: 'model_routed';
+      sessionId: string;
+      provider: string;
+      model: string;
+      reason: 'brain' | 'only_candidate' | 'fallback';
+      category?: string;
+      detail?: string;
+    }
   | { type: 'model_error'; message: string }
   | { type: 'pong' }
   | { type: 'error';       id?: string; message: string }
@@ -528,18 +676,41 @@ export type FeralAgentEvent =
   | { type: 'usage'; id: string; sessionId: string; promptTokens: number; completionTokens: number }
   // X3: scheduled-job results and failures, surfaced as toasts.
   | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
-  | { type: 'cron_error'; jobId: string; jobName: string; message: string };
+  | { type: 'cron_error'; jobId: string; jobName: string; message: string }
+  // Agent Cowork (S3.5): one agent-to-agent occurrence, rendered as an
+  // activity bubble on the mascot strip. `title` is the human-readable
+  // line; `data` carries ids/detail for the expandable preview. S4 adds
+  // the approval kinds: `approval_requested` asks the human to decide in
+  // chat; the three terminal kinds close the same bubble.
+  | {
+      type: 'cowork_event';
+      eventType:
+        | 'message_received'
+        | 'message_processed'
+        | 'message_rejected'
+        | 'handoff_received'
+        | 'handoff_completed'
+        | 'handoff_failed'
+        | 'approval_requested'
+        | 'approval_approved'
+        | 'approval_denied'
+        | 'approval_expired';
+      agentId: string;
+      threadId?: string;
+      title: string;
+      data: Record<string, unknown>;
+    };
 
-/** Display-safe snapshot of the Feral Agent's active LLM — no API keys. */
-export interface FeralModelConfigView {
+/** Display-safe snapshot of the Cinderpaw Agent's active LLM — no API keys. */
+export interface CinderpawModelConfigView {
   provider: string;
   model: string;
   base_url: string;
   display_name: string;
 }
 
-/** What React sends to Rust when changing the Feral model. */
-export type FeralModelSelection =
+/** What React sends to Rust when changing the Cinderpaw model. */
+export type CinderpawModelSelection =
   | { source: 'ollama';            model: string; baseUrl: string }
   | { source: 'byok';              providerId: string; model: string }
   | { source: 'openai_compatible'; baseUrl: string; model: string; providerId: string };
@@ -575,6 +746,9 @@ const raw = {
     invoke<void>('save_conversation', { id, title, messages, agentId: agentId ?? null }),
   loadConversations:     ()    => invoke<ConversationSummary[]>('load_conversations'),
   loadConversation:      (id: string) => invoke<Conversation>('load_conversation', { id }),
+  agentIsReady:          ()    => invoke<boolean>('agent_is_ready'),
+  renameConversation:    (id: string, title: string) =>
+    invoke<void>('rename_conversation', { id, title }),
   deleteConversation:    (id: string) => invoke<void>('delete_conversation', { id }),
   clearAllConversations: ()    => invoke<void>('clear_all_conversations'),
   loadProjects:          ()    => invoke<Project[]>('load_projects'),
@@ -591,6 +765,10 @@ const raw = {
     invoke<void>('set_token_budget_conversation', { budget }),
   setRsiBudget: (budget: number | null) =>
     invoke<void>('set_rsi_budget', { budget }),
+  setRsiAllowCloudDreams: (enabled: boolean) =>
+    invoke<void>('set_rsi_allow_cloud_dreams', { enabled }),
+  setDreamsEnabled: (enabled: boolean) =>
+    invoke<void>('set_dreams_enabled', { enabled }),
   searchHfModels:        (query: string, cursor?: string | null) =>
     invoke<HfSearchPage>('search_hf_models', { query, cursor }),
   getHfModelDetail:      (repoId: string) =>
@@ -612,23 +790,31 @@ const raw = {
   previewRemoteSkill:       (url: string) => invoke<SkillPreview>('preview_remote_skill', { url }),
   previewLocalSkill:        (path: string) => invoke<SkillPreview>('preview_local_skill', { path }),
   skillExistsCmd:           (id: string) => invoke<boolean>('skill_exists_cmd', { id }),
-  installSkill:             (meta: SkillMeta, content: string, overwrite: boolean) =>
-    invoke<void>('install_skill', { meta, content, overwrite }),
+  // The old `install_skill(meta, content, overwrite)` is gone. It let the
+  // CALLER supply the file body, the metadata and the trust label, and the
+  // host checked only that the id was a safe slug. Each of these instead
+  // names a source and lets the host fetch it.
+  installCapability:        (id: string) => invoke<SkillMeta>('install_capability', { id }),
+  inspectCapability:        (id: string) => invoke<SkillPreview>('inspect_capability', { id }),
+  installSkillFromUrl:      (url: string, overwrite: boolean) =>
+    invoke<SkillMeta>('install_skill_from_url', { url, overwrite }),
+  installSkillFromFile:     (path: string, overwrite: boolean) =>
+    invoke<SkillMeta>('install_skill_from_file', { path, overwrite }),
   removeSkill:              (id: string) => invoke<void>('remove_skill', { id }),
-  feralSendMessage:         (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
-    invoke<string>('feral_send_message', { content, sessionId, images: images ?? null, inferParams: inferParams ?? null }),
-  feralAgentStatus:         () => invoke<boolean>('feral_agent_status'),
-  feralStopGeneration:      (sessionId?: string | null) =>
-    invoke<void>('feral_stop_generation', { sessionId: sessionId ?? null }),
-  feralSubmitFeedback:      (sessionId: string, messageId: string, value: 'up' | 'down') =>
-    invoke<void>('feral_submit_feedback', { sessionId, messageId, value }),
-  feralSetModel: (
+  cinderpawSendMessage:         (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
+    invoke<string>('cinderpaw_send_message', { content, sessionId, images: images ?? null, inferParams: inferParams ?? null }),
+  cinderpawAgentStatus:         () => invoke<boolean>('cinderpaw_agent_status'),
+  cinderpawStopGeneration:      (sessionId?: string | null) =>
+    invoke<void>('cinderpaw_stop_generation', { sessionId: sessionId ?? null }),
+  cinderpawSubmitFeedback:      (sessionId: string, messageId: string, value: 'up' | 'down') =>
+    invoke<void>('cinderpaw_submit_feedback', { sessionId, messageId, value }),
+  cinderpawSetModel: (
     source: string,
     model: string,
     providerId?: string | null,
     baseUrl?: string | null,
-  ) => invoke<void>('feral_set_model', { source, model, providerId, baseUrl }),
-  feralGetModelConfig:      () => invoke<FeralModelConfigView | null>('feral_get_model_config'),
+  ) => invoke<void>('cinderpaw_set_model', { source, model, providerId, baseUrl }),
+  cinderpawGetModelConfig:      () => invoke<CinderpawModelConfigView | null>('cinderpaw_get_model_config'),
   mcpCatalog:               () => invoke<McpCatalogEntry[]>('mcp_catalog'),
   mcpList:                  () => invoke<McpServerView[]>('mcp_list'),
   mcpInstall:               (id: string, values: Record<string, string>) =>
@@ -645,7 +831,7 @@ const raw = {
   // provider list at the wizard level; see OnboardingWizard.tsx.
   providerCatalog:          () => invoke<ProviderCatalogEntry[]>('provider_catalog'),
   // Guided setup — detection ladder + real-completion verify (persist only
-  // on success; the invariant lives in feral-core, not here).
+  // on success; the invariant lives in cinderpaw-core, not here).
   setupDetect:              () => invoke<SetupCandidate[]>('setup_detect'),
   setupVerify:              (candidate: SetupCandidate, apiKey: string | undefined, persist: boolean) =>
     invoke<SetupVerifyOutcome>('setup_verify', { candidate, apiKey: apiKey ?? null, persist }),
@@ -656,6 +842,9 @@ const raw = {
     invoke<ConnectorView>('connectors_set_enabled', { id, enabled }),
   connectorsRemove:         (id: string) => invoke<void>('connectors_remove', { id }),
   connectorsWhatsappQr:     () => invoke<WhatsappQr | null>('connectors_whatsapp_qr'),
+  connectorAccounts:        () => invoke<ConnectorAccount[]>('connector_accounts_list'),
+  connectorPairStart:       (id: string) => invoke<ConnectorAccount>('connector_pair_start', { id }),
+  connectorPairPoll:        (id: string) => invoke<ConnectorAccount>('connector_pair_poll', { id }),
   getLocalApiToken:         () => invoke<string>('get_local_api_token'),
   listOllamaModels:         (baseUrl: string) => invoke<string[]>('list_ollama_models', { baseUrl }),
   getMemoryGraph:           () => invoke<MemoryGraphSnapshot>('get_memory_graph'),
@@ -688,49 +877,148 @@ const raw = {
   rsiJournalRecent:   (limit: number) =>
     invoke<JournalRow[]>('rsi_journal_recent', { limit }),
   rsiChampionTree:    () => invoke<ChampionTreeRow[]>('rsi_champion_tree'),
-  rsiDreamNow:        () => invoke<void>('feral_dream_now'),
+  rsiDreamNow:        () => invoke<void>('cinderpaw_dream_now'),
   // Faza 6 (L6) Meta Evolution — fire-and-forget; the sidecar replies async
   // via a `meta_result` event (handled by `events.onMetaResult`).
-  feralMeta:          (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-    invoke<void>('feral_meta', { op }),
+  cinderpawMeta:          (op: 'status' | 'evolve' | 'rollback' | 'history') =>
+    invoke<void>('cinderpaw_meta', { op }),
   // Slice A6 (L5 Governance) — fire-and-forget; the sidecar replies async
   // via a `governance_result` event (handled by `events.onGovernanceResult`).
-  feralGovernance:    (op: 'status' | 'verify' | 'approve' | 'reject', policyId?: string, reason?: string) =>
-    invoke<void>('feral_governance', { op, policyId: policyId ?? null, reason: reason ?? null }),
+  cinderpawGovernance:    (op: 'status' | 'verify' | 'approve' | 'reject', policyId?: string, reason?: string) =>
+    invoke<void>('cinderpaw_governance', { op, policyId: policyId ?? null, reason: reason ?? null }),
   // Phase B (L4 Architecture Evolution) — fire-and-forget; the sidecar
   // replies async via a `modules_result` event (events.onModulesResult).
-  feralModules:       (op: 'list' | 'approve' | 'reject' | 'demote', moduleId?: string, seam?: string, note?: string) =>
-    invoke<void>('feral_modules', { op, moduleId: moduleId ?? null, seam: seam ?? null, note: note ?? null }),
-  // Faza 2 Slice 5 — code-patch approval gate. `feral_code_patches_list` is
+  cinderpawModules:       (op: 'list' | 'approve' | 'reject' | 'demote', moduleId?: string, seam?: string, note?: string) =>
+    invoke<void>('cinderpaw_modules', { op, moduleId: moduleId ?? null, seam: seam ?? null, note: note ?? null }),
+  // Faza 2 Slice 5 — code-patch approval gate. `cinderpaw_code_patches_list` is
   // fire-and-forget; the sidecar replies async via a `code_patches` event
-  // (handled by `events.onCodePatches`). `feral_code_patch_resolve` is also
+  // (handled by `events.onCodePatches`). `cinderpaw_code_patch_resolve` is also
   // fire-and-forget; the ack + refreshed queue arrives as `code_patch_resolved`
   // + `code_patches`. The Rust handler validates `action ∈ {approve,reject}`
   // and rejects anything else.
-  feralCodePatchesList:   () => invoke<void>('feral_code_patches_list'),
-  feralCodePatchResolve:  (patchId: string, action: 'approve' | 'reject') =>
-    invoke<void>('feral_code_patch_resolve', { patch_id: patchId, action }),
+  cinderpawCodePatchesList:   () => invoke<void>('cinderpaw_code_patches_list'),
+  cinderpawCodePatchResolve:  (patchId: string, action: 'approve' | 'reject') =>
+    invoke<void>('cinderpaw_code_patch_resolve', { patchId, action }),
   // Faza 4 (L2 LoRA) — personal-adaptation gate. All fire-and-forget; the
   // sidecar replies via `lora_reviews` / `lora_review_resolved` /
   // `lora_train_result` events (see events.ts).
-  feralLoraReviewsList:   () => invoke<void>('feral_lora_reviews_list'),
-  feralLoraReviewResolve: (cardId: string, action: 'approve' | 'reject') =>
-    invoke<void>('feral_lora_review_resolve', { card_id: cardId, action }),
-  feralLoraTrain:         (domain?: string) =>
-    invoke<void>('feral_lora_train', { domain: domain ?? null }),
+  cinderpawLoraReviewsList:   () => invoke<void>('cinderpaw_lora_reviews_list'),
+  cinderpawLoraReviewResolve: (cardId: string, action: 'approve' | 'reject') =>
+    invoke<void>('cinderpaw_lora_review_resolve', { cardId, action }),
+  // Agent Cowork S4 — approval gate. Fire-and-forget; the sidecar acks by
+  // emitting the terminal cowork_event (approval_approved / approval_denied),
+  // which is also what closes the chat bubble.
+  cinderpawCoworkApprovalResolve: (requestId: string, action: 'approve' | 'reject') =>
+    invoke<void>('cinderpaw_cowork_approval_resolve', { requestId, action }),
+  /** Agent Cowork S6 — write straight to a teammate's inbox from the panel,
+   *  without asking the main agent to retype what the person already wrote. */
+  /** Agent Cowork S6 — replay one chat's teammate traffic. The answer
+   *  arrives as a `cowork_history_result` event, paired by thread id. */
+  cinderpawCoworkHistory: (threadId?: string | null) =>
+    invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
+  cinderpawCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
+    invoke<void>('cinderpaw_cowork_send_message', {
+      toAgentId,
+      body,
+      threadId: threadId ?? null,
+    }),
+  cinderpawLoraTrain:         (domain?: string) =>
+    invoke<void>('cinderpaw_lora_train', { domain: domain ?? null }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
   whisperModelPresent:      (modelSize: string) =>
     invoke<boolean>('whisper_model_present', { modelSize }),
   transcribeAudio:          (pcm: number[], modelSize: string) =>
     invoke<string>('transcribe_audio', { pcm, modelSize }),
-  transcribeAudioCloud:     (audioPath: string, provider: string) =>
-    invoke<string>('transcribe_audio_cloud', { audioPath, provider }),
+  transcribeAudioCloud:     (audioPath: string, provider: string, language?: string) =>
+    invoke<string>('transcribe_audio_cloud', { audioPath, provider, language: language ?? null }),
   downloadWhisperModel:     (modelSize: string) =>
     invoke<string>('download_whisper_model', { modelSize }),
+  // Diagnostics bridge: prints into the terminal running the app, because the
+  // webview console is invisible there and the voice loop lives in the webview.
+  uiLog:                    (scope: string, message: string) =>
+    invoke<void>('ui_log', { scope, message }),
+  ttsProviders:             () =>
+    invoke<TtsProviderInfo[]>('tts_providers'),
+  // `getByokSettings` is derived from the LLM provider catalog and so can never
+  // report a voice engine's key. This asks the keychain directly.
+  ttsHasKey:                (providerId: string) =>
+    invoke<boolean>('tts_has_key', { providerId }),
+  // "Can this engine speak right now" — a key for hosted engines, a downloaded
+  // voice for Piper. Ask this before opening the microphone; `ttsHasKey` only
+  // answers half the question and answers `true` for a voiceless Piper.
+  ttsReady:                 (providerId: string) =>
+    invoke<boolean>('tts_ready', { providerId }),
+  ttsVoices:                (providerId: string) =>
+    invoke<TtsVoice[]>('tts_voices', { providerId }),
+  ttsVoicePresent:          (engine: string, voice: string) =>
+    invoke<boolean>('tts_voice_present', { engine, voice }),
+  // Idempotent — returns immediately if everything the engine needs is already
+  // on disk. Progress streams over `cinderpaw://tts-download-*`.
+  downloadTtsVoice:         (engine: string, voice: string) =>
+    invoke<string>('download_tts_voice', { engine, voice }),
+  // Resolves when SYNTHESIS ends (with the PCM byte count), not when playback
+  // does — audio arrives on `cinderpaw://tts-chunk` and the webview owns the clock.
+  speakText:                (sessionId: string, text: string, provider?: string, voice?: string) =>
+    invoke<number>('speak_text', { sessionId, text, provider: provider ?? null, voice: voice ?? null }),
+  stopSpeaking:             (sessionId: string) =>
+    invoke<void>('stop_speaking', { sessionId }),
+  // Speech to speech. One session replaces STT + the model + TTS, so these three
+  // are a whole call: start it, feed it, hang up.
+  //
+  // Resolves once the model has ACCEPTED the session, so the microphone can open
+  // the moment this returns. Rejects with `live-no-key` when no Google key is
+  // stored — the same AI Studio key the chat side already uses.
+  //
+  // Audio comes back on `cinderpaw://tts-chunk` like every other engine's, at the
+  // rate carried in the event; everything else arrives on `cinderpaw://live-status`.
+  startLiveCall:            (sessionId: string, brief?: { model?: string; voice?: string; currentTask?: string; workspace?: string; context?: string }) =>
+    invoke<void>('start_live_call', {
+      sessionId,
+      model: brief?.model ?? null,
+      // The voice is pinned for the whole session: absent, the server picks one
+      // per call and the same assistant answers in a different voice tomorrow.
+      voice: brief?.voice ?? null,
+      currentTask: brief?.currentTask ?? null,
+      workspace: brief?.workspace ?? null,
+      context: brief?.context ?? null,
+    }),
+  // Base64 of 16 kHz mono 16-bit LE PCM. Base64 and not a byte array because
+  // Tauri's IPC serialises `Vec<u8>` as a JSON array of numbers.
+  sendLiveAudio:            (pcm: string) => invoke<void>('send_live_audio', { pcm }),
+  // A typed turn into the running call, for what dictation mangles.
+  sendLiveText:             (text: string) => invoke<void>('send_live_text', { text }),
+  // The prebuilt voices a Live call can be pinned to.
+  liveVoices:               () => invoke<string[]>('live_voices'),
+  // Idempotent: hanging up twice is not an error.
+  endLiveCall:              () => invoke<void>('end_live_call'),
+
+  // The self-hosted LiveKit call. Unlike every other engine here, no audio
+  // crosses this boundary: Rust starts a server on 127.0.0.1 and returns the
+  // credentials, and the webview then speaks WebRTC to it directly.
+  //
+  // Rejects with `livekit-no-node` when no Node runtime is installed — a code
+  // rather than a sentence, because the answer needs a link the UI can put in
+  // the user's language.
+  startLivekitCall:     (provider?: string | null, voice?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: pipeline?.sttLanguage ?? null }),
+  endLivekitCall:       () => invoke<void>('end_livekit_call'),
+  /** Same arguments as `startLivekitCall`, and that is load-bearing: a chain
+   *  is warmed FOR one vendor, voice and pair of engines, and Rust throws
+   *  away one that was warmed for anything else. Warming with fewer
+   *  arguments than the call will use is a warmup guaranteed to be discarded. */
+  warmLivekit:          (provider?: string | null, voice?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }) => invoke<void>('warm_livekit', { provider: provider ?? null, voice: voice ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: pipeline?.sttLanguage ?? null }),
+  // Which speech-to-speech vendors this build can run a call on, and which of
+  // them actually have a key. Asked of Rust rather than listed here: the same
+  // table decides which npm plugin gets installed, and a second list in
+  // TypeScript would be free to offer a vendor the agent cannot load.
+  listS2sProviders:     () => invoke<S2sProviderInfo[]>('list_s2s_providers'),
+  // Whether this BINARY can transcribe on the machine. One frontend bundle
+  // ships against builds compiled with different features, so it cannot know
+  // from its own source whether the local path exists.
+  sttLocalAvailable:    () => invoke<boolean>('stt_local_available'),
   // Fractal Memory Search: fetch the bge-small embedding model (~130 MB) into
   // the models dir. Idempotent — a no-op if already present — so it is safe to
-  // fire on startup. Progress streams over `feral://embedding-download-*`.
+  // fire on startup. Progress streams over `cinderpaw://embedding-download-*`.
   downloadEmbeddingModel:   () =>
     invoke<string>('download_embedding_model'),
 };
@@ -752,6 +1040,7 @@ export const tauri = {
     load:     async (id: string) => raw.loadConversation(id),
     save:     async (id: string, title: string, msgs: PersistedMessage[], agentId?: string | null) =>
       raw.saveConversation(id, title, msgs, agentId),
+    rename:   async (id: string, title: string) => raw.renameConversation(id, title),
     delete:   async (id: string) => raw.deleteConversation(id),
     clearAll: async () => raw.clearAllConversations(),
   },
@@ -779,6 +1068,8 @@ export const tauri = {
     setDesktopControlYolo: async (enabled: boolean) => raw.setDesktopControlYolo(enabled),
     setTokenBudget: async (budget: number | null) => raw.setTokenBudgetConversation(budget),
     setRsiBudget: async (budget: number | null) => raw.setRsiBudget(budget),
+    setRsiAllowCloudDreams: async (enabled: boolean) => raw.setRsiAllowCloudDreams(enabled),
+    setDreamsEnabled: async (enabled: boolean) => raw.setDreamsEnabled(enabled),
   },
 
   hf: {
@@ -801,8 +1092,26 @@ export const tauri = {
     saveBlob:      async (bytes: number[], ext: string) => raw.saveVoiceBlob(bytes, ext),
     modelPresent:  async (modelSize: string) => raw.whisperModelPresent(modelSize),
     transcribe:    async (pcm: number[], modelSize: string) => raw.transcribeAudio(pcm, modelSize),
-    transcribeCloud: async (audioPath: string, provider: string) => raw.transcribeAudioCloud(audioPath, provider),
+    transcribeCloud: async (audioPath: string, provider: string, language?: string) =>
+      raw.transcribeAudioCloud(audioPath, provider, language),
     downloadModel: async (modelSize: string) => raw.downloadWhisperModel(modelSize),
+    ttsProviders:  async () => raw.ttsProviders(),
+    ttsHasKey:     async (providerId: string) => raw.ttsHasKey(providerId),
+    ttsReady:      async (providerId: string) => raw.ttsReady(providerId),
+    ttsVoices:     async (providerId: string) => raw.ttsVoices(providerId),
+    voicePresent:  async (engine: string, voice: string) => raw.ttsVoicePresent(engine, voice),
+    voiceDownload: async (engine: string, voice: string) => raw.downloadTtsVoice(engine, voice),
+    // An empty `apiKey` means "leave the stored key untouched" all the way down
+    // to the keychain, so re-saving only a region cannot wipe a working key.
+    saveTtsKey:    async (providerId: string, apiKey: string, baseUrl?: string, model?: string) =>
+      raw.saveByokProvider(providerId, true, apiKey, baseUrl ?? null, model ?? null),
+    // Purges the key from the OS keychain. The way out of a stored key nobody
+    // remembers saving — `saveTtsKey` with an empty string deliberately does not
+    // delete, so removal needs its own door.
+    forgetTtsKey:  async (providerId: string) => raw.removeByokProvider(providerId),
+    speak:         async (sessionId: string, text: string, provider?: string, voice?: string) =>
+      raw.speakText(sessionId, text, provider, voice),
+    stopSpeaking:  async (sessionId: string) => raw.stopSpeaking(sessionId),
   },
 
   system: {
@@ -822,8 +1131,11 @@ export const tauri = {
     previewRemote:      async (url: string) => raw.previewRemoteSkill(url),
     previewLocal:       async (path: string) => raw.previewLocalSkill(path),
     exists:             async (id: string) => raw.skillExistsCmd(id),
-    install:            async (meta: SkillMeta, content: string, overwrite: boolean) =>
-      raw.installSkill(meta, content, overwrite),
+    installFromCatalogue: async (id: string) => raw.installCapability(id),
+    installFromUrl:       async (url: string, overwrite: boolean) =>
+      raw.installSkillFromUrl(url, overwrite),
+    installFromFile:      async (path: string, overwrite: boolean) =>
+      raw.installSkillFromFile(path, overwrite),
     remove:             async (id: string) => raw.removeSkill(id),
   },
 
@@ -844,13 +1156,31 @@ export const tauri = {
     setEnabled: async (id: string, enabled: boolean) => raw.connectorsSetEnabled(id, enabled),
     remove:     async (id: string) => raw.connectorsRemove(id),
     whatsappQr: async () => raw.connectorsWhatsappQr(),
+    /** Phase 3 accounts: connectors that pair by signing in rather than by
+     *  pasting a token. `pairPoll` is safe to call on a card that has already
+     *  finished — the state it is in is the answer. */
+    accounts:   async () => raw.connectorAccounts(),
+    pairStart:  async (id: string) => raw.connectorPairStart(id),
+    pairPoll:   async (id: string) => raw.connectorPairPoll(id),
   },
 
-  feralAgent: {
+  cinderpawAgent: {
     sendMessage: async (content: string, sessionId: string, images?: string[], inferParams?: { temperature?: number; max_tokens?: number }) =>
-      raw.feralSendMessage(content, sessionId, images, inferParams),
-    status:      async () => raw.feralAgentStatus(),
-    stop:        async (sessionId?: string) => raw.feralStopGeneration(sessionId ?? null),
+      raw.cinderpawSendMessage(content, sessionId, images, inferParams),
+    status:      async () => raw.cinderpawAgentStatus(),
+    stop:        async (sessionId?: string) => raw.cinderpawStopGeneration(sessionId ?? null),
+    /** Agent Cowork S4 — answer an approval request rendered in chat. The
+     *  sidecar acks via the terminal cowork_event for that requestId. */
+    coworkApprovalResolve: async (requestId: string, approve: boolean) =>
+      raw.cinderpawCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
+    coworkHistory: async (threadId?: string | null) => raw.cinderpawCoworkHistory(threadId ?? null),
+    coworkSendMessage: async (toAgentId: string, body: string, threadId?: string) =>
+      raw.cinderpawCoworkSendMessage(toAgentId, body, threadId),
+    /** Abort a teammate's in-flight turn. A cowork turn runs under the session
+     *  `cowork:<agentId>`, so the existing stop path already reaches it — no
+     *  second mechanism, and it stops exactly one teammate rather than the
+     *  user's own chat. */
+    coworkStop: async (agentId: string) => raw.cinderpawStopGeneration(`cowork:${agentId}`),
   },
 
   rsi: {
@@ -869,30 +1199,30 @@ export const tauri = {
     /** Faza 6 (L6) Meta Evolution — status / evolve / rollback / history.
      *  Reply arrives async via `events.onMetaResult`. */
     meta:            async (op: 'status' | 'evolve' | 'rollback' | 'history') =>
-      raw.feralMeta(op),
+      raw.cinderpawMeta(op),
     /** Slice A6 (L5 Governance) — safety-rules card + approval inbox.
      *  Reply arrives async via `events.onGovernanceResult`. */
     governance:      async (op: 'status' | 'verify' | 'approve' | 'reject', args?: { policyId?: string; reason?: string }) =>
-      raw.feralGovernance(op, args?.policyId, args?.reason),
+      raw.cinderpawGovernance(op, args?.policyId, args?.reason),
     /** Phase B (L4 Architecture Evolution) — the Architecture card.
      *  Reply arrives async via `events.onModulesResult`. */
     modules:         async (op: 'list' | 'approve' | 'reject' | 'demote', args?: { moduleId?: string; seam?: string; note?: string }) =>
-      raw.feralModules(op, args?.moduleId, args?.seam, args?.note),
+      raw.cinderpawModules(op, args?.moduleId, args?.seam, args?.note),
     /** Faza 2 Slice 5 — ask the sidecar for the pending code-patch queue.
      *  The full snapshot arrives async via `events.onCodePatches`. */
-    codePatchesList: async () => raw.feralCodePatchesList(),
+    codePatchesList: async () => raw.cinderpawCodePatchesList(),
     /** Faza 2 Slice 5 — approve or reject one pending patch. The sidecar
      *  acks via `code_patch_resolved` and re-emits `code_patches`. */
     codePatchResolve: async (patchId: string, action: 'approve' | 'reject') =>
-      raw.feralCodePatchResolve(patchId, action),
+      raw.cinderpawCodePatchResolve(patchId, action),
     /** Faza 4 (L2 LoRA) — ask for the review inbox; snapshot arrives via
      *  `events.onLoraReviews`. */
-    loraReviewsList: async () => raw.feralLoraReviewsList(),
+    loraReviewsList: async () => raw.cinderpawLoraReviewsList(),
     /** Faza 4 — approve (promote + apply live) or reject one review card. */
     loraReviewResolve: async (cardId: string, action: 'approve' | 'reject') =>
-      raw.feralLoraReviewResolve(cardId, action),
+      raw.cinderpawLoraReviewResolve(cardId, action),
     /** Faza 4 — run one training cycle; outcome via `events.onLoraTrainResult`. */
-    loraTrain: async (domain?: string) => raw.feralLoraTrain(domain),
+    loraTrain: async (domain?: string) => raw.cinderpawLoraTrain(domain),
   },
 
   agents: {

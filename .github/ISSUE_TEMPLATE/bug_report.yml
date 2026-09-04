@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time! The `feral doctor` output below answers 90% of
+        Thanks for taking the time! The `cinderpaw doctor` output below answers 90% of
         our first questions — please include it if you can.
   - type: textarea
     id: what-happened
@@ -20,8 +20,8 @@ body:
     attributes:
       label: Diagnostic output
       description: |
-        Run `feral doctor` in a terminal and paste the output here.
-        (No terminal? Tell us your OS, how you installed Feral, and whether you
+        Run `cinderpaw doctor` in a terminal and paste the output here.
+        (No terminal? Tell us your OS, how you installed Cinderpaw, and whether you
         use a local model or a cloud key.)
       render: text
     validations:
@@ -29,8 +29,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Feral version
-      description: Settings → General → App version, or `feral --version`
+      label: Cinderpaw version
+      description: Settings → General → App version, or `cinderpaw --version`
     validations:
       required: true
   - type: dropdown

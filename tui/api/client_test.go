@@ -68,7 +68,7 @@ func TestParseToolFrameUnknownEvent(t *testing.T) {
 
 func TestParseRuntimeEventSSE(t *testing.T) {
 	// Simulate the exact SSE data line the host emits for a dream event.
-	sseData := `{"event":"feral://agent-output","data":{"data":"{\"type\":\"dream_cycle\",\"stage\":\"reflect\",\"message\":\"2 insights\"}"}}`
+	sseData := `{"event":"cinderpaw://agent-output","data":{"data":"{\"type\":\"dream_cycle\",\"stage\":\"reflect\",\"message\":\"2 insights\"}"}}`
 	ev, ok := parseRuntimeEventSSE(sseData)
 	if !ok {
 		t.Fatal("expected ok for valid SSE data")
@@ -94,7 +94,7 @@ func TestParseRuntimeEventSSEGarbage(t *testing.T) {
 }
 
 func TestParseRuntimeEventSSEConnectorType(t *testing.T) {
-	sseData := `{"event":"feral://agent-output","data":{"data":"{\"type\":\"connector_event\",\"message\":\"telegram: reply sent to @dan\"}"}}`
+	sseData := `{"event":"cinderpaw://agent-output","data":{"data":"{\"type\":\"connector_event\",\"message\":\"telegram: reply sent to @dan\"}"}}`
 	ev, ok := parseRuntimeEventSSE(sseData)
 	if !ok {
 		t.Fatal("expected ok for connector event")

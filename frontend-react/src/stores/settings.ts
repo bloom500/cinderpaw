@@ -43,6 +43,9 @@ interface SettingsStore {
   setTokenBudget: (budget: number | null) => Promise<void>;
   /** Set RSI background engine USD spend cap. null / 0 = local-only (free). */
   setRsiBudget: (budget: number | null) => Promise<void>;
+  setRsiAllowCloudDreams: (enabled: boolean) => Promise<void>;
+  /** MASTER dream-cycle switch. Persists + restarts sidecar (the gate is read at arm time). */
+  setDreamsEnabled: (enabled: boolean) => Promise<void>;
   save: () => Promise<void>;
   saveByokProvider: (p: ByokProviderUpdate) => Promise<void>;
   removeByokProvider: (providerId: string) => Promise<void>;
@@ -125,6 +128,30 @@ export const useSettings = create<SettingsStore>()((set, get) => ({
       await tauri.settings.setRsiBudget(budget);
     } catch (e) {
       console.error('setRsiBudget failed', e);
+      if (prev) set({ settings: { ...prev } });
+      throw e;
+    }
+  },
+
+  setRsiAllowCloudDreams: async (enabled) => {
+    const prev = get().settings;
+    set((s) => s.settings ? { settings: { ...s.settings, rsi_allow_cloud_dreams: enabled } } : {});
+    try {
+      await tauri.settings.setRsiAllowCloudDreams(enabled);
+    } catch (e) {
+      console.error('setRsiAllowCloudDreams failed', e);
+      if (prev) set({ settings: { ...prev } });
+      throw e;
+    }
+  },
+
+  setDreamsEnabled: async (enabled) => {
+    const prev = get().settings;
+    set((s) => s.settings ? { settings: { ...s.settings, dreams_enabled: enabled } } : {});
+    try {
+      await tauri.settings.setDreamsEnabled(enabled);
+    } catch (e) {
+      console.error('setDreamsEnabled failed', e);
       if (prev) set({ settings: { ...prev } });
       throw e;
     }

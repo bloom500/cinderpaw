@@ -1,31 +1,27 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { Brain, ArrowUp, Square, Mic } from 'lucide-react';
+import { ArrowUp, Square, Mic, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
 import { VoiceProviderCard } from './VoiceProviderCard';
-import { ToolsPopover } from './ToolsPopover';
+import { VoiceEngineCard } from './VoiceEngineCard';
+import { CallOverlay } from './CallOverlay';
+import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
 import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
 import { useChat, type ChatMessage } from '@/stores/chat';
-import { useUI, type ReasoningMode } from '@/stores/ui';
+import { useUI } from '@/stores/ui';
 import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
+import { useCallSession } from '@/hooks/useCallSession';
+import { useLiveCallSession } from '@/hooks/useLiveCallSession';
+import { useLiveKitCallSession } from '@/hooks/useLiveKitCallSession';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
 import { ensureWhisperModel } from '@/lib/voiceModel';
@@ -33,18 +29,6 @@ import { stopActiveStream } from '@/lib/streamControl';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-
-const REASONING_CONFIG: Record<ReasoningMode, {
-  label: string;
-  iconClass: string;
-  badgeClass: string;
-  dot: string;
-  description: string;
-}> = {
-  auto: { label: 'A',   iconClass: 'text-sky-400',     badgeClass: 'bg-gray-500/20 text-gray-400',      dot: 'bg-sky-400',     description: 'Auto — detect from model name' },
-  on:   { label: 'ON',  iconClass: 'text-emerald-400', badgeClass: 'bg-emerald-500/20 text-emerald-400', dot: 'bg-emerald-400', description: 'On — always enable thinking' },
-  off:  { label: 'OFF', iconClass: 'text-rose-400',    badgeClass: 'bg-rose-500/20 text-rose-400',       dot: 'bg-rose-400',    description: 'Off — suppress thinking blocks' },
-};
 
 export interface ChatInputHandle {
   setText: (text: string) => void;
@@ -55,13 +39,22 @@ export interface ChatInputProps {
   isEmpty?: boolean;
   /**
    * When provided, overrides the default useSendMessage routing.
-   * Used by the Agents tab to route through the Feral Agent sidecar.
+   * Used by the Agents tab to route through the Cinderpaw Agent sidecar.
    * `images` carries attachment data URLs for vision-capable models.
    */
-  sendFn?: (text: string, images?: string[], opts?: { voice?: ChatMessage['voice']; existingUserId?: string }) => Promise<void>;
+  sendFn?: (
+    text: string,
+    images?: string[],
+    opts?: {
+      voice?: ChatMessage['voice'];
+      existingUserId?: string;
+      /** `'voice'` when the answer will be spoken aloud — see `cinderpaw_send_message`. */
+      surface?: 'voice' | 'text';
+    },
+  ) => Promise<void>;
   /**
    * When true, the input is always enabled regardless of whether a local
-   * model or cloud key is active. Used by the Agents tab (Feral Agent
+   * model or cloud key is active. Used by the Agents tab (Cinderpaw Agent
    * provides its own Ollama-backed inference).
    */
   alwaysEnabled?: boolean;
@@ -76,8 +69,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const loaded      = useModel((s) => s.loaded);
   const cloudModel  = useModel((s) => s.cloudModel);
   const status = useChat((s) => s.streamStatus);
-  const reasoningMode = useUI((s) => s.reasoningMode);
-  const setReasoningMode = useUI((s) => s.setReasoningMode);
   const inputMode    = useUI((s) => s.inputMode);
   const setInputMode = useUI((s) => s.setInputMode);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -92,6 +83,62 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // normal tap records. `heldRef` suppresses the click that follows a long press.
   const micHoldTimer = useRef<number | null>(null);
   const micHeldRef = useRef(false);
+
+  // A call turn is routed exactly like a typed or recorded one: through the
+  // Cinderpaw Agent sidecar in agent mode, the chat pipeline otherwise. Without this
+  // the call would hit the (unloaded) local model in agent mode — the same bug
+  // the voice path already had.
+  const pipelineCall = useCallSession(async (text: string) => {
+    // `surface: 'voice'` is what tells the agent this answer gets spoken. Without
+    // it a call received the desktop's full markdown answer read out loud.
+    if (sendFn) await sendFn(text, undefined, { surface: 'voice' });
+    else await send(text, [], { surface: 'voice' });
+  });
+  // Both loops are mounted, and only one is ever running: an unopened call is a
+  // handful of refs. Choosing the hook at call time instead would mean calling a
+  // hook conditionally, which React does not allow.
+  //
+  // They each own a speech player, and both players listen to the same
+  // `cinderpaw://tts-chunk` event for the same session — but a player only schedules
+  // audio between `beginSpeech` and its stop, and only the loop taking the call
+  // ever calls that. The idle one drops every chunk, which is the same guard that
+  // already keeps a straggler from an interrupted utterance out.
+  const liveCall = useLiveCallSession();
+  const liveKitCall = useLiveKitCallSession();
+  const callEngine = useUI((s) => s.callEngine);
+  // Three engines, one overlay. LiveKit is the only one offered now; the other
+  // two are retired rather than deleted and still run if something selects
+  // them, which is what keeps the rollback a config change instead of a revert.
+  // See `RETIRED_CALL_ENGINES` — a machine that had picked one is moved over on
+  // rehydrate, so this branch resolves to LiveKit everywhere in practice.
+  const call =
+    callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
+  const ttsProvider = useUI((s) => s.ttsProvider);
+  const [engineCardOpen, setEngineCardOpen] = useState(false);
+
+  /**
+   * Two first-use choices gate a call, and both are asked before the microphone
+   * opens rather than after: which engine transcribes you (existing card), and
+   * which one answers you (the voice card). Order matters only in that neither
+   * may be skipped — a call that cannot hear or cannot speak wastes the words
+   * someone already said.
+   */
+  const onCallClick = () => {
+    // Neither question applies to a speech-to-speech call: it has no transcriber
+    // and no synthesiser to choose. Asking anyway would gate it behind two
+    // settings it never reads.
+    // A realtime vendor has no transcriber and no synthesiser to choose, so
+    // asking would gate it behind two settings it never reads. The pipeline
+    // does read them — and picking the engine that speaks is not a thing to
+    // guess at, because the choice includes whether the audio leaves the
+    // machine.
+    const pipelineCallChosen =
+      callEngine === 'livekit' && useUI.getState().s2sProvider === 'pipeline';
+    if ((callEngine === 'live' || callEngine === 'livekit') && !pipelineCallChosen) call.open();
+    else if (sttProvider === null) setProviderCardOpen(true);
+    else if (ttsProvider === null) setEngineCardOpen(true);
+    else call.open();
+  };
 
   // When a recording finishes, compute peaks for the preview and warm the model.
   useEffect(() => {
@@ -131,6 +178,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       micHoldTimer.current = null;
     }
   };
+  // Also on unmount. Holding the mic button and then navigating away left the
+  // 500 ms timer armed against a component that no longer exists, which React
+  // reports as a state update on an unmounted component — and the provider card
+  // it opens would have appeared over whatever the user moved on to.
+  useEffect(() => clearMicHold, []);
   const onMicClick = () => {
     if (micHeldRef.current) { micHeldRef.current = false; return; } // long-press handled it
     if (sttProvider === null) { setProviderCardOpen(true); return; } // force first-use choice
@@ -178,12 +230,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     };
   }, []);
 
-  // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Plain text
-  // pastes fall through to the textarea untouched.
+  // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Keep text.
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items || !Array.from(items).some((i) => i.kind === 'file')) return;
-    e.preventDefault();
+    // Don't preventDefault — text+image paste should keep the text in the textarea
+    // while also attaching the image. Preventing drops the text.
     void attachmentsFromClipboard(e.clipboardData).then(addFiles);
   };
 
@@ -194,7 +246,52 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     agentPhase,
     isUserTyping: text.trim().length > 0,
   });
-  const disabled = alwaysEnabled ? false : (!loaded && !cloudModel);
+  /**
+   * No local model loaded and no cloud key configured.
+   *
+   * This used to disable the composer outright (and ChatPage replaced the
+   * whole screen with a "No model selected" card), so the first thing a new
+   * user typed was refused by a dead text box that told them to go
+   * configure something. The composer now stays live and `trySend` answers
+   * the message instead — see `noModelReply`.
+   */
+  const noModel = !alwaysEnabled && !loaded && !cloudModel;
+  /**
+   * Answer a message when there is no model to answer it with.
+   *
+   * This reply is written by the product, not generated — you cannot ask a
+   * model to explain that there is no model. It is deliberately phrased as
+   * Cinderpaw speaking, because from the user's side that is what happened:
+   * they asked for something and got an answer plus the two real ways
+   * forward, instead of a disabled box pointing at Settings.
+   */
+  const noModelReply = (asked: string | null) => {
+    const now = Date.now();
+    // `null` means the user's turn is already on screen (the voice path adds
+    // its bubble optimistically before transcription finishes).
+    if (asked !== null) {
+      useChat.getState().addMessage({
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: asked,
+        createdAt: now,
+      });
+    }
+    useChat.getState().addMessage({
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: t('chat.noModel.reply'),
+      createdAt: now + 1,
+      completedAt: now + 1,
+      actions: [
+        { label: t('chat.noModel.download'), route: '/models' },
+        { label: t('chat.noModel.addKey'), route: '/settings' },
+      ],
+    });
+  };
+  // Kept as a name because several controls read it; nothing sets it from
+  // model state any more. Sending is gated by `noModel` in trySend.
+  const disabled = false;
 
   const trySend = async () => {
     // Voice path: a recorded preview is pending — transcribe + send it instead
@@ -222,14 +319,25 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         const transcript = await transcribeVoiceBlob(blob, audioPath);
         const body = transcript || '(unintelligible)';
         const voice = { audioPath, durationMs, transcript, peaks };
-        // Route the transcript exactly like a typed message: through the Feral
+        // Route the transcript exactly like a typed message: through the Cinderpaw
         // Agent sidecar in agent mode (sendFn), or the local/cloud chat
         // pipeline otherwise. `existingUserId` fills in the optimistic bubble
         // instead of adding a duplicate. Previously voice always used the chat
         // pipeline, so in agent mode it hit the (unloaded) local model → "no
         // model loaded" while the agent's own model sat idle.
-        if (sendFn) await sendFn(body, undefined, { voice, existingUserId: userId });
-        else await send(body, [], { voice, existingUserId: userId });
+        if (noModel) {
+          // The recording is transcribed and kept — whisper is local and had
+          // nothing to do with the missing chat model — but there is nobody
+          // to answer it, so the same reply the typed path gives lands here.
+          // Dropping it silently would be the worse dead end: the user speaks
+          // and nothing at all happens.
+          useChat.getState().patchMessage(userId, { voice, voicePending: false });
+          noModelReply(null);
+        } else if (sendFn) {
+          await sendFn(body, undefined, { voice, existingUserId: userId });
+        } else {
+          await send(body, [], { voice, existingUserId: userId });
+        }
       } catch (err) {
         console.error('[voice] sendVoice FAILED', err);
         // Drop the optimistic bubble — transcription failed before any reply.
@@ -246,24 +354,52 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       return;
     }
     if ((!text.trim() && attachedFiles.length === 0) || isStreaming || disabled) return;
+    if (noModel) {
+      noModelReply(text);
+      setText('');
+      setAttachedFiles([]);
+      return;
+    }
     const content = text;
     const files = attachedFiles;
+    // Cleared optimistically, because waiting for the whole turn before the
+    // box empties feels broken. That makes what someone typed live nowhere but
+    // in these two consts until a bubble carries it — so if the send throws
+    // before that bubble exists, the message is simply gone, and until now the
+    // rejection was unhandled on top of it: an empty composer and silence.
+    const before = useChat.getState().messages.length;
     setText('');
     setAttachedFiles([]);
-    if (sendFn) {
-      // Agent path: inline text attachments into the content (same as the
-      // chat path) and hand image data URLs over separately so the sidecar
-      // can pass real pixels to vision-capable models.
-      const images = files
-        .filter((f) => f.kind === 'image' && f.dataUrl)
-        .map((f) => f.dataUrl!);
-      await sendFn(buildUserContent(content, files), images.length > 0 ? images : undefined);
-    } else {
-      await send(content, files);
+    try {
+      if (sendFn) {
+        // Agent path: inline text attachments into the content (same as the
+        // chat path) and hand image data URLs over separately so the sidecar
+        // can pass real pixels to vision-capable models.
+        const images = files
+          .filter((f) => f.kind === 'image' && f.dataUrl)
+          .map((f) => f.dataUrl!);
+        await sendFn(buildUserContent(content, files), images.length > 0 ? images : undefined);
+      } else {
+        await send(content, files);
+      }
+    } catch (err) {
+      // Put it back only if nothing made it onto the transcript. Once a user
+      // bubble exists the words are safe there, and restoring the draft as
+      // well would show them twice.
+      if (useChat.getState().messages.length === before) {
+        setText(content);
+        setAttachedFiles(files);
+      }
+      useNotifications.getState().push(
+        'error',
+        'Message not sent',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.nativeEvent as any).isComposing) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void trySend();
@@ -273,7 +409,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const removeFile = (path: string) =>
     setAttachedFiles((prev) => prev.filter((f) => f.path !== path));
 
-  const rc = REASONING_CONFIG[reasoningMode];
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -284,10 +419,24 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       )}>
         <div
           className={cn(
-            'relative rounded-3xl border bg-bg-surface focus-within:border-brand transition-colors',
-            dragOver ? 'border-brand border-dashed bg-bg-hover' : 'border-border-default',
+            'relative rounded-2xl border bg-[var(--surface-typing)] focus-within:border-brand transition-colors',
+            // Same material as the rail and the popovers. Without these two it
+            // was the only piece of chrome in the app that was merely tinted:
+            // a flat rectangle sitting beside a sidebar made of glass.
+            'liquid-glass liquid-glass-rim',
+            dragOver ? 'border-brand border-dashed' : 'border-border-default',
           )}
         >
+          {dragOver && (
+            <div className="absolute inset-0 z-10 rounded-2xl bg-brand/10 backdrop-blur-sm border-2 border-dashed border-brand flex items-center justify-center pointer-events-none">
+              <span className="text-sm font-medium text-brand">Drop to attach</span>
+            </div>
+          )}
+          {/* Always. The perch is not decoration: it walks the composer's edge
+              and carries the tool-call stack, so it is how a person sees WHAT
+              is running. Hiding it on Home removed a working feature to fix a
+              spacing complaint — the fix was room above the composer, which the
+              greeting now leaves. */}
           <MascotPerch baseState={mascotState} />
           {attachedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
@@ -316,18 +465,36 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             placeholder={
-              alwaysEnabled
-                ? t('chat.placeholder.agent')
-                : disabled
-                  ? t('chat.placeholder.noModel')
-                  : t('chat.placeholder')
+              alwaysEnabled ? t('chat.placeholder.agent') : t('chat.placeholder')
             }
             disabled={disabled}
             rows={1}
-            className="resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-5 pt-4 scrollbar-hide"
+            // Roomier on Home, where the field IS the screen and the reference
+            // it is measured against gives the question air. In a running
+            // conversation the transcript is the subject, so it stays compact.
+            // Measured against assistant-ui rather than guessed: a comfortable
+            // single row (min-h-11) that grows, not a tall empty box with the
+            // placeholder stranded at the top of it.
+            className={cn(
+              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-4 pt-3 text-base min-h-11 thin-scrollbar',
+            )}
           />
-          <div className="flex items-center justify-between px-4 pb-3">
-            <div className="flex gap-1">
+          {/* The hint answers a question you only have once you are typing, so
+              it fades in when there is something to newline. Kept in the layout
+              at zero opacity rather than unmounted: appearing would otherwise
+              push the composer up under the cursor on the first keystroke. */}
+          <div
+            className={cn(
+              'px-4 pb-1 text-right transition-opacity duration-150',
+              text.length > 0 ? 'opacity-100' : 'opacity-0',
+            )}
+            aria-hidden={text.length === 0}
+          >
+            <span className="text-2xs text-text-muted select-none">Shift+Enter for newline</span>
+          </div>
+          <div className="flex items-center justify-between px-2.5 pb-2.5 pt-1">
+            <div className="flex items-center gap-1">
+              <ModelPill />
               <FileAttachButton onFilesSelected={addFiles} />
               {!isStreaming && (
                 <button
@@ -337,46 +504,17 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   onPointerUp={clearMicHold}
                   onPointerLeave={clearMicHold}
                   aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message (hold to choose provider)'}
-                  className={cn('p-1.5 rounded hover:bg-bg-hover', rec.state === 'recording' ? 'text-rose-400 animate-pulse' : 'text-text-muted')}
+                  className={cn('p-1.5 rounded hover:bg-bg-hover', rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-muted')}
                 >
                   {rec.state === 'recording' ? <Square size={16} /> : <Mic size={16} />}
                 </button>
               )}
-              <ToolsPopover />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn('relative p-1.5 rounded hover:bg-bg-hover', rc.iconClass)}
-                    aria-label={`Reasoning: ${reasoningMode}`}
-                  >
-                    <Brain size={16} />
-                    <span
-                      className={cn(
-                        'absolute -bottom-0.5 -right-0.5 rounded px-[3px] text-[8px] font-bold leading-[11px]',
-                        rc.badgeClass,
-                      )}
-                    >
-                      {rc.label}
-                    </span>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="top" align="start" className="w-52">
-                  <DropdownMenuLabel className="text-xs text-text-muted">Reasoning mode</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuRadioGroup
-                    value={reasoningMode}
-                    onValueChange={(v) => setReasoningMode(v as ReasoningMode)}
-                  >
-                    {(Object.entries(REASONING_CONFIG) as [ReasoningMode, typeof REASONING_CONFIG[ReasoningMode]][]).map(([mode, cfg]) => (
-                      <DropdownMenuRadioItem key={mode} value={mode} className="gap-2 text-sm">
-                        <span className={cn('h-2 w-2 rounded-full shrink-0', cfg.dot)} />
-                        <span>{cfg.description}</span>
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* The tools checklist and the reasoning-mode picker used to sit
+                  here. Both asked the person to configure something the app
+                  already decides better than they can: reasoning is inferred
+                  from the model, and in agent mode the tool list comes from the
+                  agent, not from these checkboxes. Two controls that were only
+                  ever correct at their defaults. */}
             </div>
             <div className="flex items-center gap-2">
               {/* Live context-usage ring, left of the mode toggle */}
@@ -389,7 +527,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   aria-label="Switch to Agent mode"
                   aria-pressed={inputMode === 'agent'}
                   className={cn(
-                    'px-2.5 text-[11px] font-medium transition-colors',
+                    'px-2.5 text-2xs font-medium transition-colors',
                     inputMode === 'agent'
                       ? 'bg-bg-hover text-text-primary'
                       : 'text-text-muted hover:text-text-secondary',
@@ -403,7 +541,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   aria-label="Switch to Chat mode"
                   aria-pressed={inputMode === 'chat'}
                   className={cn(
-                    'px-2.5 text-[11px] font-medium transition-colors',
+                    'px-2.5 text-2xs font-medium transition-colors',
                     inputMode === 'chat'
                       ? 'bg-bg-hover text-text-primary'
                       : 'text-text-muted hover:text-text-secondary',
@@ -412,6 +550,19 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   Chat
                 </button>
               </div>
+              {!isStreaming && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={onCallClick}
+                  disabled={disabled}
+                  aria-label={t('call.aria')}
+                  title={t('call.title')}
+                  className="h-7 w-7 text-text-muted hover:text-brand"
+                >
+                  <Phone size={13} />
+                </Button>
+              )}
               {isStreaming ? (
                 <Button
                   size="icon"
@@ -436,11 +587,29 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
             </div>
           </div>
         </div>
-        {disabled && !isEmpty && !alwaysEnabled && (
-          <p className="text-xs text-text-muted mt-2">{t('chat.noModelHint')}</p>
-        )}
       </div>
       <VoiceProviderCard open={providerCardOpen} onOpenChange={setProviderCardOpen} />
+      {/* Picking a voice flows straight into the call it was blocking. */}
+      <VoiceEngineCard
+        open={engineCardOpen}
+        onOpenChange={setEngineCardOpen}
+        onChosen={call.open}
+      />
+      <CallOverlay
+        phase={call.phase}
+        heard={call.heard}
+        level={call.level}
+        notice={call.notice}
+        onAnswer={() => void call.begin()}
+        onHangUp={call.hangUp}
+        onInterrupt={call.interrupt}
+        // Both modes can be typed into now — the pipeline hands the text to its
+        // turn loop, the Live session sends it on its own `clientContent`
+        // channel. `call` is whichever hook is driving this overlay.
+        onSay={call.say}
+        onChangeEngine={() => setEngineCardOpen(true)}
+        onChangeStt={() => setProviderCardOpen(true)}
+      />
     </TooltipProvider>
   );
 });

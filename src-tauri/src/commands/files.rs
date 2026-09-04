@@ -1,19 +1,64 @@
 //! Webview-facing file readers (text/data-url/extracted-text), guarded
-//! against reaching into the Feral private dir.
+//! against reaching into the Cinderpaw private dir.
 
 use crate::*;
 
-/// Reject a path that resolves inside the Feral private dir (`~/.feral`) where
+/// Reject a path that resolves inside the Cinderpaw private dir (`~/.cinderpaw`) where
 /// the api-token, byok metadata and the agent DB live. The webview-facing file
 /// readers below use this so they can't be turned into a secret-exfiltration
 /// primitive (e.g. by an injected script): there is no legitimate reason to
 /// drag those files into chat, and it denies a would-be XSS its highest-value
 /// local targets. `canonical` must already be canonicalized (symlinks resolved)
 /// so a symlink can't point out of an allowed dir into the private one.
-fn deny_feral_private(canonical: &std::path::Path) -> Result<(), String> {
-    if let Ok(feral) = paths::feral_dir().canonicalize() {
-        if canonical.starts_with(&feral) {
-            return Err("Access denied: path is inside the Feral private directory".into());
+pub(crate) fn deny_cinderpaw_private(canonical: &std::path::Path) -> Result<(), String> {
+    // Canonicalize if we can, fall back to the plain path if we can't. It used
+    // to be `if let Ok(...)` with no else, so on a first run — before ~/.cinderpaw
+    // exists — canonicalize failed, the whole check was skipped, and the dir
+    // this function exists to protect was wide open on exactly the machine
+    // that had never been set up.
+    let cinderpaw = paths::cinderpaw_dir();
+    let cinderpaw = cinderpaw.canonicalize().unwrap_or(cinderpaw);
+    if canonical.starts_with(&cinderpaw) {
+        return Err("Access denied: path is inside the Cinderpaw private directory".into());
+    }
+    deny_sensitive_home_paths(canonical)
+}
+
+/// The credential directories every other program on the machine keeps in the
+/// home dir. None of them belongs in a chat window.
+///
+/// `read_file_as_data_url` is safe because its extension allowlist keeps it to
+/// images; `read_file_as_text` had no allowlist and no content check, so it was
+/// a read-any-text-file primitive reachable from the webview. One injected
+/// script — a poisoned markdown render, an iframe — and `~/.ssh/id_rsa` lands
+/// in the conversation, where the agent may well go on to send it to a cloud
+/// model. Blocking ~/.cinderpaw alone never covered that.
+pub(crate) fn deny_sensitive_home_paths(canonical: &std::path::Path) -> Result<(), String> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(());
+    };
+    const DENIED: &[&str] = &[
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".azure",
+        ".kube",
+        ".docker",
+        ".netrc",
+        ".git-credentials",
+        ".npmrc",
+        ".pypirc",
+        ".config/gh",
+        ".config/gcloud",
+        ".local/share/keyrings",
+    ];
+    for sub in DENIED {
+        let denied = sub.split('/').fold(home.clone(), |p, part| p.join(part));
+        if canonical == denied || canonical.starts_with(&denied) {
+            return Err(format!(
+                "Access denied: {} holds credentials and is never readable from the app",
+                sub
+            ));
         }
     }
     Ok(())
@@ -24,7 +69,7 @@ fn deny_feral_private(canonical: &std::path::Path) -> Result<(), String> {
 pub(crate) async fn read_file_as_text(path: String) -> Result<String, String> {
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("Invalid path: {}", e))?;
-    deny_feral_private(&canonical)?;
+    deny_cinderpaw_private(&canonical)?;
     let meta = std::fs::metadata(&canonical)
         .map_err(|e| format!("Stat failed: {}", e))?;
     if meta.len() > 10 * 1024 * 1024 {
@@ -41,18 +86,18 @@ pub(crate) async fn read_file_as_text(path: String) -> Result<String, String> {
 /// Security: this command is reachable from the webview, so it must not become
 /// an arbitrary-file-read primitive. Two guards on top of the size cap:
 ///   - the resolved (canonical, symlink-followed) path may NOT be inside the
-///     Feral private dir (`~/.feral`) where the api-token, byok metadata and
+///     Cinderpaw private dir (`~/.cinderpaw`) where the api-token, byok metadata and
 ///     the agent DB live — there is no legitimate reason to drag those in, and
 ///     it denies a would-be XSS its highest-value local targets.
 ///   - the extension allowlist below keeps it to images, so it can never
-///     return the *text* of a secret file even outside `~/.feral`.
+///     return the *text* of a secret file even outside `~/.cinderpaw`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn read_file_as_data_url(path: String) -> Result<String, String> {
     use base64::Engine as _;
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("Invalid path: {}", e))?;
-    deny_feral_private(&canonical)?;
+    deny_cinderpaw_private(&canonical)?;
     let meta = std::fs::metadata(&canonical)
         .map_err(|e| format!("Stat failed: {}", e))?;
     if meta.len() > 10 * 1024 * 1024 {
@@ -92,7 +137,7 @@ pub(crate) async fn read_file_as_data_url(path: String) -> Result<String, String
 pub(crate) async fn extract_file_text(path: String) -> Result<String, String> {
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("Invalid path: {}", e))?;
-    deny_feral_private(&canonical)?;
+    deny_cinderpaw_private(&canonical)?;
     let meta = std::fs::metadata(&canonical)
         .map_err(|e| format!("Stat failed: {}", e))?;
     if meta.len() > 25 * 1024 * 1024 {
@@ -161,11 +206,18 @@ fn extract_zip_xml_text(path: &std::path::Path, ext: &str) -> Result<String, Str
     let mut out = String::new();
     for name in &wanted {
         use std::io::Read as _;
-        let mut entry = archive
+        let entry = archive
             .by_name(name)
             .map_err(|e| format!("Zip entry failed: {}", e))?;
+        // Read through a cap, never `read_to_string` on the whole entry. The
+        // 25 MB limit on the file itself says nothing about what is inside it:
+        // a zip entry of repetitive XML decompresses at 1000:1 without effort,
+        // so a 25 MB .docx dropped into chat expands to gigabytes and takes
+        // the process down. Only MAX_CHARS of it is ever shown anyway.
+        const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
         let mut xml = String::new();
         entry
+            .take(MAX_ENTRY_BYTES)
             .read_to_string(&mut xml)
             .map_err(|e| format!("Zip read failed: {}", e))?;
         if !out.is_empty() {

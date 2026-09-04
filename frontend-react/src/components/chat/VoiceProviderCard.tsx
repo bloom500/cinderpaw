@@ -35,6 +35,18 @@ export function VoiceProviderCard({
   const setSttProvider = useUI((s) => s.setSttProvider);
 
   const [choice, setChoice] = useState<SttProvider>(sttProvider ?? 'local');
+  // Whether the binary can transcribe here at all. `null` while unknown, so the
+  // row is not flickered away and back on every open.
+  const [localAvailable, setLocalAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void tauri.raw.sttLocalAvailable()
+      .then((v) => { if (alive) setLocalAvailable(v); })
+      // Unknown means show it: hiding the private option because a probe failed
+      // would quietly push somebody to the cloud one.
+      .catch(() => { if (alive) setLocalAvailable(true); });
+    return () => { alive = false; };
+  }, []);
   const [groqKey, setGroqKey] = useState('');
   const [hasGroqKey, setHasGroqKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -71,20 +83,29 @@ export function VoiceProviderCard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md bg-bg-surface border-border-default">
+      {/* Default z-index: the call overlay sits at z-40, below this layer, so a
+          dialog opened from inside a call is above it without a special case. */}
+      <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto bg-bg-surface border-border-default">
         <DialogHeader>
           <DialogTitle>{t('voice.provider.title')}</DialogTitle>
           <DialogDescription>{t('voice.provider.subtitle')}</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-2">
-          <OptionRow
-            active={choice === 'local'}
-            onClick={() => setChoice('local')}
-            icon={<Mic size={18} />}
-            title={t('voice.provider.local.title')}
-            desc={t('voice.provider.local.desc')}
-          />
+          {/* Only when the binary actually has it. `whisper-rs` and
+              `llama-cpp-sys` each vendor their own ggml and cannot be linked
+              together, so every build we ship answers `voice-unavailable` here
+              — and this row offered it anyway, which is a choice that can only
+              fail. See the note on `default` in src-tauri/Cargo.toml. */}
+          {localAvailable !== false && (
+            <OptionRow
+              active={choice === 'local'}
+              onClick={() => setChoice('local')}
+              icon={<Mic size={18} />}
+              title={t('voice.provider.local.title')}
+              desc={t('voice.provider.local.desc')}
+            />
+          )}
           <OptionRow
             active={choice === 'groq'}
             onClick={() => setChoice('groq')}
@@ -111,6 +132,12 @@ export function VoiceProviderCard({
               </ExternalLink>
             </div>
           ))}
+
+        {/* No "language you speak" picker. Detection is the transcriber's job
+            and it does it per request; a setting here only gave someone a way to
+            be wrong about themselves, and a wrong value is an ORDER to Whisper,
+            not a hint — it transcribes Romanian through English phonetics and
+            never recovers. */}
 
         <DialogFooter>
           <Button onClick={() => void confirm()} disabled={needsKey || saving}>

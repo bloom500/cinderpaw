@@ -14,6 +14,11 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
     <button
       type="button"
       onClick={onClick}
+      // Which of the two is open was said in colour alone: a screen reader
+      // read "Local Models, Browse HuggingFace" as two plain buttons with no
+      // indication that one of them is the view you are already in.
+      role="tab"
+      aria-selected={active}
       className={cn(
         'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
         active
@@ -38,7 +43,7 @@ export function ModelsPage() {
     <div className="flex flex-col h-full overflow-hidden">
       <SystemBar />
       <ByokBanner />
-      <div className="flex px-4 pt-2 border-b border-border-subtle shrink-0">
+      <div role="tablist" aria-label="Models" className="flex px-4 pt-2 border-b border-border-subtle shrink-0">
         <TabButton active={tab === 'local'}  onClick={() => setTab('local')}>Local Models</TabButton>
         <TabButton active={tab === 'browse'} onClick={() => setTab('browse')}>Browse HuggingFace</TabButton>
       </div>

@@ -1,13 +1,24 @@
 import { create } from 'zustand';
 import { tauri, type PersistedMessage, type ConversationSummary } from '@/lib/tauri';
-import { rehydrateLiveSession } from '@/lib/feralLiveSession';
+import { rehydrateLiveSession } from '@/lib/cinderpawLiveSession';
 import { voiceToPersisted, voiceFromPersisted } from '@/lib/messageMapping';
 import { useChat, type ChatMessage } from './chat';
+import { reportFailure } from './notifications';
 
 export type { ConversationSummary };
 
 interface ConversationsStore {
   list: ConversationSummary[];
+  /**
+   * False until the first read of the list has come back, whatever it said.
+   *
+   * `list` starts as `[]`, so "empty" and "not read yet" are the same value —
+   * which means a screen that trusts it shows a fresh-install sentence to
+   * someone who has hundreds of conversations, for as long as the disk takes.
+   * Saying "you have nothing" when the truth is "I have not looked yet" is
+   * worse than saying nothing at all.
+   */
+  loaded: boolean;
   currentId: string | null;
   loadingConversation: boolean;
   /**
@@ -26,6 +37,7 @@ interface ConversationsStore {
   open:        (id: string) => Promise<void>;
   /** `agentId` tags the conversation as agent-owned (Agents tab); omit for chat. */
   saveCurrent: (title: string, agentId?: string | null) => Promise<void>;
+  rename:      (id: string, title: string) => Promise<void>;
   delete:      (id: string) => Promise<void>;
   newChat:     () => void;
   markStreaming:   (id: string) => void;
@@ -43,12 +55,15 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     // `?? undefined` because the store's field is optional while the wire type
     // is nullable — a literal null would render as a present-but-empty stat.
     scratch: p.scratch ?? undefined,
-    createdAt: Date.now() - (1000 * (1000 - idx)),
+    // The real time, when the file has it. The fallback is the old fabricated
+    // ladder, kept only for conversations saved before the field existed —
+    // those genuinely have no timestamp to restore.
+    createdAt: p.created_at ?? Date.now() - (1000 * (1000 - idx)),
   };
 }
 
 function toPersisted(m: ChatMessage): PersistedMessage {
-  // Every save path must carry `scratch`, not just the one in useFeral: this one
+  // Every save path must carry `scratch`, not just the one in useCinderpaw: this one
   // runs on rename and on delete-a-message, and dropping the field there would
   // erase the trace on an edit that has nothing to do with it.
   return {
@@ -57,11 +72,13 @@ function toPersisted(m: ChatMessage): PersistedMessage {
     thinking: m.thinking || undefined,
     voice: voiceToPersisted(m.voice),
     scratch: m.scratch,
+    created_at: m.createdAt,
   };
 }
 
 export const useConversations = create<ConversationsStore>((set, get) => ({
   list: [],
+  loaded: false,
   currentId: null,
   loadingConversation: false,
   streamingIds: {},
@@ -70,9 +87,12 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     try {
       const list = await tauri.conversations.list();
       list.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-      set({ list });
+      set({ list, loaded: true });
     } catch (err) {
       // Don't let a failed list read leave the UI in an inconsistent state.
+      // `loaded` still flips: the read is over, and a screen that waits
+      // forever on a failure is a screen that never says anything.
+      set({ loaded: true });
       console.error('[conversations] refresh failed:', err);
     }
   },
@@ -91,7 +111,14 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
 
     set({ loadingConversation: true });
     try {
-      const conv = await tauri.conversations.load(id);
+      // Every caller opens a chat as `void open(id)` — a row click in the rail,
+      // in Chats, in Projects. A load that throws was an unhandled rejection
+      // there: the click did nothing at all, with no clue whether the chat was
+      // gone, corrupt, or the backend simply not up yet.
+      const conv = await reportFailure('Could not open the chat', () =>
+        tauri.conversations.load(id),
+      );
+      if (!conv) return;
       const msgs = conv.messages.map(toChatMessage);
       // Preserve the streaming animation if the user re-enters the chat
       // that's currently mid-generation. Without this, `loadSession` would
@@ -100,6 +127,11 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
       // in the sidebar.
       const isStreaming = Boolean(get().streamingIds[id]);
       useChat.getState().loadSession(conv.id, msgs, isStreaming ? 'streaming' : 'idle');
+      // Agent Cowork: the conversation id IS the cowork thread id (see
+      // cowork_send), so opening a chat asks for whatever teammates did in
+      // it. Fire-and-forget — the answer arrives as cowork_history_result
+      // and the panel stays hidden when the list comes back empty.
+      void tauri.cinderpawAgent.coworkHistory(conv.id).catch(() => {});
       // The disk snapshot is stale while a generation is in flight — restore
       // streamed content, tool bubbles and agent phase from the live mirror
       // so the task doesn't look like it reset.
@@ -126,7 +158,23 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     }
   },
 
+  rename: async (id, title) => {
+    const next = title.trim();
+    if (!next) return; // An empty name is not a rename, it is a chat you cannot find.
+    // Throws on failure ON PURPOSE: RenameDialog catches it and keeps itself
+    // open with the typed name intact, which beats a toast over a dialog that
+    // already closed. See ConfirmDialog, which has always done this for delete.
+    await tauri.conversations.rename(id, next);
+    // Patched in place rather than re-listed: a rename does not change the
+    // order, and a full refresh would make the row the user just typed into
+    // jump out from under the cursor while the disk read lands.
+    set({ list: get().list.map((c) => (c.id === id ? { ...c, title: next } : c)) });
+  },
+
   delete: async (id) => {
+    // Throws on failure ON PURPOSE — ConfirmDialog catches it, stays open and
+    // prints the reason next to the button. Swallowing it here would close the
+    // dialog on a delete that did not happen.
     await tauri.conversations.delete(id);
     if (get().currentId === id) {
       useChat.getState().newSession();

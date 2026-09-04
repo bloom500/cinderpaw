@@ -2,7 +2,7 @@
  * Where the local model is actually running.
  *
  * The runtime already knew this and only whispered it into a log line, so a user
- * whose GPU silently fell back to CPU just experienced "Feral is slow" and had
+ * whose GPU silently fell back to CPU just experienced "Cinderpaw is slow" and had
  * no way to connect that to their card. This badge says it out loud, and — when
  * the news is bad — says WHY and what to do about it.
  *
@@ -37,9 +37,9 @@ export function BackendBadge({ className }: { className?: string }) {
     : 'CPU';
 
   const title =
-    tone === 'gpu'          ? `Running on the GPU — ${backend}.`
+    tone === 'gpu'          ? `Running on the GPU: ${backend}.`
     : tone === 'hybrid'     ? `${onGpu} of ${total} layers are on the GPU; the rest run on the CPU because they did not fit in VRAM. A smaller model or a shorter context window puts more on the card.`
-    : tone === 'cpu-fallback' ? 'This build can use your GPU, but the model did not fit in VRAM (or the driver refused the allocation), so it is running entirely on the CPU — much slower. Try a smaller model or a shorter context window in Settings → Hardware.'
+    : tone === 'cpu-fallback' ? 'This build can use your GPU, but the model did not fit in VRAM (or the driver refused the allocation), so it is running entirely on the CPU, which is much slower. Try a smaller model or a shorter context window in Settings → Hardware.'
     : 'Running on the CPU.';
 
   const Icon = tone === 'gpu' ? Zap : tone === 'cpu-fallback' ? AlertTriangle : Cpu;
@@ -48,10 +48,10 @@ export function BackendBadge({ className }: { className?: string }) {
     <span
       title={title}
       className={cn(
-        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none border',
-        tone === 'gpu' && 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10',
-        tone === 'hybrid' && 'border-sky-500/30 text-sky-400 bg-sky-500/10',
-        tone === 'cpu-fallback' && 'border-amber-500/30 text-amber-400 bg-amber-500/10',
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-micro font-medium leading-none border',
+        tone === 'gpu' && 'border-success/30 text-success bg-success/10',
+        tone === 'hybrid' && 'border-info/30 text-info bg-info/10',
+        tone === 'cpu-fallback' && 'border-warning/30 text-warning bg-warning/10',
         tone === 'cpu' && 'border-border-default text-text-muted bg-bg-hover',
         className,
       )}

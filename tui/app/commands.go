@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"feral-tui/api"
-	"feral-tui/ui"
+	"cinderpaw-tui/api"
+	"cinderpaw-tui/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -358,16 +358,16 @@ func (a *App) cmdRestartGateway() tea.Cmd {
 			time.Sleep(250 * time.Millisecond)
 		}
 		if api.PortInUse(port) {
-			return FlashMsg{Text: "restart: old gateway did not exit — run `feral gateway restart`"}
+			return FlashMsg{Text: "restart: old gateway did not exit — run `cinderpaw gateway restart`"}
 		}
 		if _, err := api.StartGateway(port); err != nil {
-			return FlashMsg{Text: fmt.Sprintf("restart: %v — run `feral gateway start`", err)}
+			return FlashMsg{Text: fmt.Sprintf("restart: %v — run `cinderpaw gateway start`", err)}
 		}
 		for i := 0; i < 40 && !api.PortInUse(port); i++ {
 			time.Sleep(250 * time.Millisecond)
 		}
 		if !api.PortInUse(port) {
-			return FlashMsg{Text: "restart: gateway not responding — run `feral doctor`"}
+			return FlashMsg{Text: "restart: gateway not responding — run `cinderpaw doctor`"}
 		}
 		return FlashMsg{Text: "gateway restarted"}
 	}

@@ -1,5 +1,5 @@
 //! System info snapshot, the local API bearer token, and the onboarding
-//! record persisted under `~/.feral/`.
+//! record persisted under `~/.cinderpaw/`.
 
 use crate::*;
 use tauri::State;
@@ -32,14 +32,14 @@ pub(crate) fn get_local_api_token(state: State<'_, AppState>) -> String {
     state.local_api_token.to_string()
 }
 
-// ---------- Onboarding record (persisted in ~/.feral/) ----------
+// ---------- Onboarding record (persisted in ~/.cinderpaw/) ----------
 
 /// Path of the onboarding JSON written/read by `get_onboarding_record` /
 /// `set_onboarding_record`. The file lives in the user's home dir, NOT in
 /// the Tauri app data dir, so it survives:
 ///   - WebView reload (Ctrl+R)
 ///   - Tauri auto-updates
-///   - Uninstall + reinstall (the app data dir is wiped, but `~/.feral/`
+///   - Uninstall + reinstall (the app data dir is wiped, but `~/.cinderpaw/`
 ///     lives outside the app and persists as long as the user account does)
 ///
 /// We use plain `std::fs` rather than the `tauri-plugin-fs` plugin because:
@@ -52,7 +52,15 @@ fn onboarding_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("USERPROFILE")
         .ok()
         .or_else(|| std::env::var("HOME").ok());
-    home.map(|h| std::path::PathBuf::from(h).join(".feral").join("onboarding.json"))
+    // The home folder moved with the rename. Left hard-coded, this read the
+    // onboarding record from the OLD folder while everything else wrote to the
+    // new one — so a person who had finished onboarding was asked to do it
+    // again, on a machine where the answer was sitting one directory over.
+    home.map(|h| {
+        std::path::PathBuf::from(h)
+            .join(cinderpaw_core::brand::APP_HOME_DIR_NAME)
+            .join("onboarding.json")
+    })
 }
 
 #[derive(serde::Serialize, serde::Deserialize, specta::Type, Debug, Clone)]
@@ -83,6 +91,7 @@ pub(crate) fn set_onboarding_record(record: OnboardingRecord) -> Result<(), Stri
     }
     let pretty = serde_json::to_string_pretty(&record)
         .map_err(|e| format!("serialize failed: {}", e))?;
-    std::fs::write(&path, pretty).map_err(|e| format!("write failed: {}", e))?;
+    cinderpaw_core::atomic_file::write_atomic(&path, pretty.as_bytes())
+        .map_err(|e| format!("write failed: {}", e))?;
     Ok(())
 }

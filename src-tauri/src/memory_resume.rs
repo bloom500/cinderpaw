@@ -9,7 +9,7 @@
 //!
 //!   React shell / TUI ─► Tauri command (this file) ─► sidecar stdin
 //!     (`InboundMessage` `resume_get`, id-correlated) ─►
-//!     `FeralAgent/src/memory/resume.ts` reads `meta` + `workspaces` tables
+//!     `CinderpawAgent/src/memory/resume.ts` reads `meta` + `workspaces` tables
 //!     ─► reply on stdout as `OutboundEvent` `resume_get_result`.
 //!
 //! Why this shape? The sidecar holds the sole writer lock on the SQLite
@@ -20,8 +20,8 @@
 //! copy and the TUI omits the row.
 //!
 //! The subscribe-before-send discipline is the same one
-//! `crates/feral-core/src/api.rs::meta_roundtrip` uses for the meta routes —
-//! duplicate, not extract, because extracting would need a feral-core
+//! `crates/cinderpaw-core/src/api.rs::meta_roundtrip` uses for the meta routes —
+//! duplicate, not extract, because extracting would need a cinderpaw-core
 //! method that takes a closure for the JSON reply shape, and the
 //! duplication is small enough to keep the Sprint 1 surface tight.
 
@@ -60,7 +60,7 @@ pub async fn get_last_task(
 
     // 2. Clone the mpsc sender without holding the lock during the await.
     let tx = {
-        let guard = state.feral_agent_tx.lock();
+        let guard = state.cinderpaw_agent_tx.lock();
         match guard.as_ref() {
             Some(s) => s.clone(),
             None => return Ok(empty()),
@@ -85,7 +85,7 @@ pub async fn get_last_task(
         }
         match tokio::time::timeout(remaining, rx.recv()).await {
             Ok(Ok(ev)) => {
-                if ev.event != "feral://agent-output" {
+                if ev.event != "cinderpaw://agent-output" {
                     continue;
                 }
                 let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else {
@@ -129,12 +129,12 @@ mod tests {
                 workspace_id: Some("ws-1".into()),
             }),
             workspace_id: Some("ws-1".into()),
-            workspace_name: Some("Feral repo".into()),
+            workspace_name: Some("Cinderpaw repo".into()),
             last_active_at: Some(1700000000000),
         };
         let json = serde_json::to_string(&v).unwrap();
         assert!(json.contains("\"title\":\"refactor\""));
-        assert!(json.contains("\"workspace_name\":\"Feral repo\""));
+        assert!(json.contains("\"workspace_name\":\"Cinderpaw repo\""));
     }
 
     #[test]

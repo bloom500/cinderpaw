@@ -124,7 +124,7 @@ export function BrowseTab() {
                 {query.trim() ? `No GGUF models found for “${query.trim()}”` : 'No models to show right now'}
               </p>
               <p className="text-xs text-text-muted">
-                Try another search term — e.g. a model family like “qwen”, “llama” or “gemma”.
+                Try another search term, e.g. a model family like “qwen”, “llama” or “gemma”.
               </p>
             </div>
           )}

@@ -21,7 +21,7 @@ function CompatBadge({ compat }: { compat: Compat }) {
     </span>
   );
   if (compat === 'slow') return (
-    <span className="flex items-center gap-1 text-yellow-500 text-xs font-medium">
+    <span className="flex items-center gap-1 text-warning text-xs font-medium">
       <AlertTriangle size={11} /> May be slow
     </span>
   );

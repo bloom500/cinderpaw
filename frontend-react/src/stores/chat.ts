@@ -34,7 +34,7 @@ export interface ChatMessage {
   /** Why the response was truncated (e.g. "length"). */
   truncatedReason?: string;
   /**
-   * What the agent wrote in its OWN scratchpad (`~/.feral/workspace`) during
+   * What the agent wrote in its OWN scratchpad (`~/.cinderpaw/workspace`) during
    * this turn. Absent when it wrote nothing there — the common case, and an
    * always-present "0 edits" row would train people to stop reading the line.
    *
@@ -45,7 +45,7 @@ export interface ChatMessage {
    */
   scratch?: { edits: number; added: number; removed: number };
   /**
-   * Ask-user prompt attached to this message. Set when the Feral Agent
+   * Ask-user prompt attached to this message. Set when the Cinderpaw Agent
    * called the `ask_user` tool on this turn. `answers` is undefined while
    * the user is choosing and populated once they submit (or on cancel).
    */
@@ -64,6 +64,19 @@ export interface ChatMessage {
    * drives the "transcribing…" placeholder in between.
    */
   voicePending?: boolean;
+  /**
+   * Actions offered under a reply the PRODUCT wrote, not the model.
+   *
+   * There is one situation the model can never answer: when there is no
+   * model. Cinderpaw used to handle that by replacing the composer with a
+   * "No model selected" screen, so the first thing a new user typed was
+   * refused by a disabled text box. Now the message is accepted and this
+   * reply answers it, carrying the two ways out.
+   *
+   * Deliberately not a general button system — `route` is an in-app path
+   * and nothing else. If a second use case ever needs more, widen it then.
+   */
+  actions?: Array<{ label: string; route: string }>;
 }
 
 interface ChatStore {
@@ -141,6 +154,41 @@ interface ChatStore {
   /** #18: attach a live progress/retry note to the most recent running tool. */
   noteToolProgress: (message: string) => void;
   pushSkillsContext: (names: string[]) => void;
+  /**
+   * Create or update a background worker's bubble from an `rlm_child` event.
+   * One action rather than push/complete because the sidecar sends a stream of
+   * updates keyed by the same childId, and the first one may arrive after the
+   * turn that spawned it has already ended.
+   */
+  upsertWorker: (e: {
+    childId: string;
+    name: string;
+    status: 'running' | 'completed' | 'error' | 'cancelled';
+    detail?: string;
+  }) => void;
+  /**
+   * Create or update an agent-to-agent activity bubble from a
+   * `cowork_event`. Keyed by the mailbox message / handoff id so a
+   * received→processed pair is ONE bubble that changes state, never two.
+   */
+  upsertCoworkEvent: (e: {
+    key: string;
+    title: string;
+    status: 'running' | 'done' | 'error';
+    detail?: string | null;
+    approval?: {
+      requestId: string;
+      approvalClass: string;
+      description: string;
+    };
+  }) => void;
+  /**
+   * S4 — the user answered an approval bubble from chat. Sends the verdict
+   * to the sidecar and optimistically detaches the buttons (the bubble
+   * stays "running" until the sidecar's terminal event reconciles it, so a
+   * dropped reply is visible as a stuck request instead of a silent lie).
+   */
+  resolveCoworkApproval: (requestId: string, approve: boolean) => void;
   clearToolCallStream: () => void;
 }
 
@@ -159,7 +207,11 @@ export type ToolCallEvent =
       name: string;
       emoji: string;
       mainArg: string | null;
-      status: 'running' | 'done' | 'error';
+      /** `cancelled` is not something a tool reports — it is what the UI
+       *  concludes when the turn ends while this call is still open (see
+       *  `setStreamStatus`). Claiming `done` would be a lie about a result
+       *  nobody ever sent. */
+      status: 'running' | 'done' | 'error' | 'cancelled';
       startedAt: number;
       endedAt: number | null;
       /** #18: truncated tool output, expandable from the bubble. */
@@ -176,6 +228,44 @@ export type ToolCallEvent =
       startedAt: number;
       endedAt: number;
       status: 'done';
+    }
+  | {
+      /** The ChildRegistry id — stable, so repeated events update one bubble. */
+      id: string;
+      kind: 'worker';
+      /** Registry name, e.g. `subagent-count-the-files-a1b2`. */
+      name: string;
+      /** What it is doing right now, or why it ended. */
+      detail: string | null;
+      status: 'running' | 'done' | 'error' | 'cancelled';
+      startedAt: number;
+      endedAt: number | null;
+    }
+  | {
+      /**
+       * One agent-to-agent exchange (Agent Cowork S3.5). Keyed by the
+       * mailbox message / handoff id, so `message_received` creates the
+       * bubble and its terminal sibling (`processed`/`rejected`) UPDATES
+       * it instead of stacking a second one — same upsert contract as a
+       * worker bubble.
+       */
+      id: string;
+      kind: 'cowork';
+      title: string;
+      detail: string | null;
+      status: 'running' | 'done' | 'error';
+      startedAt: number;
+      endedAt: number | null;
+      /**
+       * S4 approval gate — present only while the human still owes an
+       * answer. The bubble then renders Approve/Deny; the sidecar's
+       * terminal event clears this via upsert and closes the bubble.
+       */
+      approval?: {
+        requestId: string;
+        approvalClass: string;
+        description: string;
+      };
     };
 
 /** Hard cap on the number of bubbles the mascot renders at once. */
@@ -184,7 +274,18 @@ export const TOOL_CALL_STREAM_MAX = 4;
 /** How long a finished tool bubble lingers before fading out on its own. */
 export const TOOL_CALL_LINGER_MS = 4_000;
 
-export const useChat = create<ChatStore>((set) => ({
+/**
+ * Linger timers for finished tool-call bubbles, so a session reset can cancel
+ * the ones whose entries are about to be discarded anyway.
+ */
+const lingerTimers = new Set<number>();
+
+function clearLingerTimers(): void {
+  for (const t of lingerTimers) window.clearTimeout(t);
+  lingerTimers.clear();
+}
+
+export const useChat = create<ChatStore>((set, get) => ({
   sessionId: crypto.randomUUID(),
   messages: [],
   streamStatus: 'idle',
@@ -198,7 +299,8 @@ export const useChat = create<ChatStore>((set) => ({
   lastCompletionStopped: false,
   feedback: {},
 
-  newSession: () =>
+  newSession: () => {
+    clearLingerTimers();
     set({
       sessionId: crypto.randomUUID(),
       messages: [],
@@ -212,10 +314,13 @@ export const useChat = create<ChatStore>((set) => ({
       toolCallStream: [],
       lastCompletionStopped: false,
       feedback: {},
-    }),
+    });
+  },
 
-  loadSession: (sessionId, messages, streamStatus = 'idle') =>
-    set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false, feedback: {} }),
+  loadSession: (sessionId, messages, streamStatus = 'idle') => {
+    clearLingerTimers();
+    return set({ sessionId, messages, streamStatus, streamError: null, expandedThinkingIds: {}, agentPhase: null, agentTool: null, livePromptTokens: null, liveCompletionTokens: null, toolCallStream: [], lastCompletionStopped: false, feedback: {} });
+  },
 
   setFeedback: (messageId, value) =>
     set((s) => {
@@ -227,7 +332,7 @@ export const useChat = create<ChatStore>((set) => ({
       // Forward every explicit click to the audit log (a re-click that toggles
       // the UI still tells the runtime the user's latest intent). Fire-and-
       // forget — the vote UI must not block on the sidecar.
-      void tauri.raw.feralSubmitFeedback(s.sessionId, messageId, value).catch(() => {});
+      void tauri.raw.cinderpawSubmitFeedback(s.sessionId, messageId, value).catch(() => {});
       return { feedback: next };
     }),
 
@@ -264,13 +369,61 @@ export const useChat = create<ChatStore>((set) => ({
       };
     }),
 
-  setStreamStatus: (streamStatus, err = null) =>
+  setStreamStatus: (streamStatus, err = null) => {
+    const settled =
+      streamStatus === 'idle' ||
+      streamStatus === 'done' ||
+      streamStatus === 'error' ||
+      streamStatus === 'stopped';
     set((s) => ({
       streamStatus,
       streamError: err ?? null,
-      agentPhase: streamStatus === 'idle' || streamStatus === 'done' || streamStatus === 'error' || streamStatus === 'stopped' ? null : s.agentPhase,
-      agentTool: streamStatus === 'idle' || streamStatus === 'done' || streamStatus === 'error' || streamStatus === 'stopped' ? null : s.agentTool,
-    })),
+      agentPhase: settled ? null : s.agentPhase,
+      agentTool: settled ? null : s.agentTool,
+    }));
+    if (!settled) return;
+
+    // Close out any tool bubble the turn left open.
+    //
+    // A bubble is removed by the linger timer that `completeToolCall` starts,
+    // and `completeToolCall` runs on `tool_done`. When a turn ends without one
+    // — the run was stopped, the stream errored, the sidecar died mid-call, or
+    // the model simply never got a result back — nothing ever started that
+    // timer, so the last bubble sat above the mascot with a running clock for
+    // the rest of the session. It is the last call that shows it, every time,
+    // because that is the one whose `tool_done` never came.
+    //
+    // Fixed HERE, at the one place every ending passes through, rather than in
+    // each caller: stop / error / done are three code paths and this was
+    // broken in all of them.
+    //
+    // `cancelled`, not `done`: nothing reported success. Only `tool` bubbles
+    // are swept — a `worker` from `rlm()` and a `cowork` exchange both
+    // deliberately outlive the turn that started them, and ending those here
+    // would erase live work from the screen.
+    const orphans = get()
+      .toolCallStream.filter((e) => e.kind === 'tool' && e.status === 'running')
+      .map((e) => e.id);
+    if (orphans.length === 0) return;
+    const endedAt = Date.now();
+    set((s) => ({
+      toolCallStream: s.toolCallStream.map((e) =>
+        e.kind === 'tool' && orphans.includes(e.id)
+          ? { ...e, status: 'cancelled' as const, endedAt, progressNote: null }
+          : e,
+      ),
+    }));
+    // Same linger as a normal finish, so the exit animation and the timing are
+    // the ones the person is already used to — and tracked, so a session reset
+    // cancels it like every other.
+    const timer = window.setTimeout(() => {
+      lingerTimers.delete(timer);
+      set((s) => ({
+        toolCallStream: s.toolCallStream.filter((e) => !orphans.includes(e.id)),
+      }));
+    }, TOOL_CALL_LINGER_MS);
+    lingerTimers.add(timer);
+  },
 
   setAgentPhase: (phase, tool = null) =>
     set({ agentPhase: phase, agentTool: tool ?? null }),
@@ -327,9 +480,16 @@ export const useChat = create<ChatStore>((set) => ({
     // Finished bubbles fade out on their own after a short linger instead of
     // piling up until the whole turn ends. AnimatePresence in ToolCallStack
     // plays the exit animation when the entry leaves the array.
-    window.setTimeout(() => {
+    //
+    // The handle is tracked so starting a new session can cancel it. Untracked,
+    // every finished tool call left a timer running for its full linger, and
+    // rapidly starting new chats piled up timers that would each wake the app
+    // to filter a list their entry had already left.
+    const timer = window.setTimeout(() => {
+      lingerTimers.delete(timer);
       set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== id) }));
     }, TOOL_CALL_LINGER_MS);
+    lingerTimers.add(timer);
   },
 
   noteToolProgress: (message) => {
@@ -368,6 +528,103 @@ export const useChat = create<ChatStore>((set) => ({
     }, TOOL_CALL_LINGER_MS);
   },
 
-  clearToolCallStream: () => set({ toolCallStream: [] }),
+  upsertWorker: ({ childId, name, status, detail }) => {
+    const done = status !== 'running';
+    set((s) => {
+      const existing = s.toolCallStream.find((e) => e.id === childId);
+      const entry: ToolCallEvent = {
+        id: childId,
+        kind: 'worker',
+        name,
+        detail: detail ?? null,
+        status: status === 'completed' ? 'done' : status,
+        startedAt: existing?.startedAt ?? Date.now(),
+        endedAt: done ? Date.now() : null,
+      };
+      const next = existing
+        ? s.toolCallStream.map((e) => (e.id === childId ? entry : e))
+        : [...s.toolCallStream, entry];
+      return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
+    });
+    // Only a settled worker fades. A running one has no known end — that is
+    // the whole difference between a worker and a tool call.
+    if (done) {
+      window.setTimeout(() => {
+        set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== childId) }));
+      }, TOOL_CALL_LINGER_MS);
+    }
+  },
+
+  upsertCoworkEvent: ({ key, title, status, detail, approval }) => {
+    const done = status !== 'running';
+    set((s) => {
+      const existing = s.toolCallStream.find(
+        (e): e is Extract<ToolCallEvent, { kind: 'cowork' }> =>
+          e.id === key && e.kind === 'cowork',
+      );
+      const entry: ToolCallEvent = {
+        id: key,
+        kind: 'cowork',
+        title,
+        detail: detail ?? null,
+        status,
+        startedAt: existing?.startedAt ?? Date.now(),
+        endedAt: done ? Date.now() : null,
+        // Terminal events clear the ask; only a running request carries it.
+        approval: done ? undefined : (approval ?? existing?.approval),
+      };
+      const next = existing
+        ? s.toolCallStream.map((e) => (e.id === key ? entry : e))
+        : [...s.toolCallStream, entry];
+      return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
+    });
+    // A settled A2A exchange lingers longer than a tool call — it is the
+    // conversation the user was promised they'd see, not housekeeping noise.
+    if (done) {
+      window.setTimeout(() => {
+        set((s) => ({
+          toolCallStream: s.toolCallStream.filter(
+            (e) => !(e.id === key && e.kind === 'cowork'),
+          ),
+        }));
+      }, TOOL_CALL_LINGER_MS * 2);
+    }
+  },
+
+  resolveCoworkApproval: (requestId, approve) => {
+    // Detach the buttons FIRST so a double-click is impossible even before
+    // the sidecar answers; the terminal cowork_event then closes the bubble.
+    set((s) => ({
+      toolCallStream: s.toolCallStream.map((e) =>
+        e.id === `approval:${requestId}` && e.kind === 'cowork'
+          ? { ...e, approval: undefined }
+          : e,
+      ),
+    }));
+    void tauri.cinderpawAgent
+      .coworkApprovalResolve(requestId, approve)
+      .catch(() =>
+        // The verdict never reached the sidecar — put the ask back so the
+        // user can retry instead of staring at buttons that do nothing.
+        set((s) => ({
+          toolCallStream: s.toolCallStream.map((e) => {
+            if (e.id !== `approval:${requestId}` || e.kind !== 'cowork') return e;
+            const description = e.detail ?? '';
+            return {
+              ...e,
+              approval: { requestId, approvalClass: 'unknown', description },
+            };
+          }),
+        })),
+      );
+  },
+
+  // A running worker SURVIVES the clear. The stream is wiped 5s after the turn
+  // ends, and a worker outliving its turn is the normal case, not the edge —
+  // wiping it would hide exactly the work that has nothing else to show it.
+  clearToolCallStream: () =>
+    set((s) => ({
+      toolCallStream: s.toolCallStream.filter((e) => e.kind === 'worker' && e.status === 'running'),
+    })),
 
 }));

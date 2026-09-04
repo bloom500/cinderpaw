@@ -23,10 +23,10 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
 
     async function run() {
       setProbe({ phase: 'running' });
-      // Cheap reachability probe: returns true when the Feral Agent sidecar
+      // Cheap reachability probe: returns true when the Cinderpaw Agent sidecar
       // is alive and responded to a health check. We don't run a full
       // inference round-trip here — that happens on the first user message.
-      const up = await tauri.feralAgent.status().catch(() => false);
+      const up = await tauri.cinderpawAgent.status().catch(() => false);
       if (!cancelled) setProbe({ phase: 'done', up });
     }
 
@@ -39,21 +39,21 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
       return (
         <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">
           <Loader2 size={12} className="animate-spin" />
-          Checking Feral Agent…
+          Checking Cinderpaw Agent…
         </div>
       );
     }
     if (probe.phase === 'done' && probe.up) {
       return (
-        <div className="flex items-center justify-center gap-1.5 text-xs text-green-400">
+        <div className="flex items-center justify-center gap-1.5 text-xs text-success">
           <CheckCircle size={12} />
-          Feral Agent ready
+          Cinderpaw Agent ready
         </div>
       );
     }
     return (
       <div className="text-xs text-text-muted text-center">
-        Feral Agent sidecar is not running. Open a chat to start it.
+        Cinderpaw Agent sidecar is not running. Open a chat to start it.
       </div>
     );
   })();
@@ -82,7 +82,7 @@ export function DoneStep({ agentName, agentId, loadedModelName, onStartChatting 
       <button
         type="button"
         onClick={onStartChatting}
-        className="w-full py-2.5 rounded-xl bg-brand text-white text-sm font-semibold hover:bg-brand/90 transition-colors"
+        className="w-full py-2.5 rounded-xl bg-brand text-on-brand text-sm font-semibold hover:bg-brand/90 transition-colors"
       >
         Start chatting →
       </button>

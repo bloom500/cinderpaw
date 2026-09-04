@@ -12,7 +12,7 @@
  *   * The Connectors tab (Phase 2) and Settings → Cloud Keys both need
  *     the same lists — re-fetching per component would race on load
  *     and on offline failure.
- *   * The catalog version header (`X-Feral-Catalog-Version`) the
+ *   * The catalog version header (`X-Cinderpaw-Catalog-Version`) the
  *     gateway emits is a runtime value; caching the payload + the
  *     version pin lets the rest of the app show "gateway updated,
  *     reload?" when it drifts, instead of swallowing the drift.
@@ -53,7 +53,7 @@ interface CatalogStore {
   connectorError: string | null;
   connectorLoading: boolean;
 
-  /** Wire the `X-Feral-Catalog-Version` headers the gateway emits so
+  /** Wire the `X-Cinderpaw-Catalog-Version` headers the gateway emits so
    *  future callers can show "gateway outdated" without re-querying.
    *  Populated alongside each successful fetch. Null = unknown
    *  (either error, or the gateway didn't send a header). */

@@ -32,7 +32,7 @@ describe('activeContextWindow', () => {
   it('a resident local GGUF does not shrink the window of an active cloud model', () => {
     const { ctxWindow, isLocal } = activeContextWindow({
       isAgentMode: true,
-      feralConfig: { model: 'MiniMax-M3', base_url: 'https://api.minimax.io/v1' },
+      cinderpawConfig: { model: 'MiniMax-M3', base_url: 'https://api.minimax.io/v1' },
       loaded: localGguf,
     });
     expect(isLocal).toBe(false);
@@ -42,7 +42,7 @@ describe('activeContextWindow', () => {
   it('uses the loaded engine real KV cache when the local model is the active one', () => {
     const { ctxWindow, isLocal } = activeContextWindow({
       isAgentMode: true,
-      feralConfig: { model: 'Qwythos-9B.gguf', base_url: 'http://127.0.0.1:11435/v1' },
+      cinderpawConfig: { model: 'Qwythos-9B.gguf', base_url: 'http://127.0.0.1:11435/v1' },
       loaded: localGguf,
     });
     expect(isLocal).toBe(true);
@@ -53,7 +53,7 @@ describe('activeContextWindow', () => {
   it('falls back to the local default when nothing is loaded', () => {
     const { ctxWindow } = activeContextWindow({
       isAgentMode: true,
-      feralConfig: { model: 'mystery.gguf', base_url: 'http://localhost:11435/v1' },
+      cinderpawConfig: { model: 'mystery.gguf', base_url: 'http://localhost:11435/v1' },
       loaded: null,
     });
     expect(ctxWindow).toBe(LOCAL_DEFAULT_CONTEXT);

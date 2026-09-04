@@ -1,5 +1,5 @@
 /**
- * PerfPolicy — frontend mirror of `FeralAgent/src/sandbox/perf-policy.ts`
+ * PerfPolicy — frontend mirror of `CinderpawAgent/src/sandbox/perf-policy.ts`
  * and `src-tauri/src/inference.rs::perf_policy`. All three layers agree on
  * the same shape so the watchdog, deadline controller, and UI never
  * disagree on what "TTFT" or "total" mean.
@@ -36,12 +36,8 @@ export interface ResolveArgs {
 
 const DEFAULTS = {
   local:   { ttftDeadlineMs: 90_000,  totalDeadlineMs: 300_000, stallMs: 45_000 },
-  // cloud.ttftDeadlineMs bumped 30_000 → 300_000 (5 min) on 2026-08-22 —
-  // reasoning models on OpenRouter (DeepSeek-R1, o1-style) and slow-first-
-  // token cloud paths were killed before responding on complex prompts.
-  // Kept in lockstep with the TS sidecar and Rust host copies per the
-  // three-layers-agree contract documented in perf-policy.ts.
-  cloud:   { ttftDeadlineMs: 300_000, totalDeadlineMs: 120_000, stallMs: 30_000 },
+  // Cloud is the SLOW profile now — see the note in the sidecar's perf-policy.ts.
+  cloud:   { ttftDeadlineMs: 300_000, totalDeadlineMs: 600_000, stallMs: 30_000 },
   perTokenPrefillMs: 4,
   softWarnMs:  20_000,
   heartbeatMs: 750,
@@ -66,11 +62,11 @@ export function resolvePerfPolicy(args: ResolveArgs): PerfPolicy {
   const env = args.env ?? readFrontendEnv();
   const base = args.isCloud ? DEFAULTS.cloud : DEFAULTS.local;
 
-  const ttftDeadlineMs = readEnvNumber(env, 'FERAL_TTFT_DEADLINE_MS') ?? base.ttftDeadlineMs;
-  const totalDeadlineMs = readEnvNumber(env, 'FERAL_TOTAL_DEADLINE_MS') ?? base.totalDeadlineMs;
+  const ttftDeadlineMs = readEnvNumber(env, 'CINDERPAW_TTFT_DEADLINE_MS') ?? base.ttftDeadlineMs;
+  const totalDeadlineMs = readEnvNumber(env, 'CINDERPAW_TOTAL_DEADLINE_MS') ?? base.totalDeadlineMs;
   const stallMs =
-    readEnvNumber(env, 'FERAL_STALL_MS') ??
-    (args.isCloud ? readEnvNumber(env, 'FERAL_CLOUD_IDLE_TIMEOUT_MS') : undefined) ??
+    readEnvNumber(env, 'CINDERPAW_STALL_MS') ??
+    (args.isCloud ? readEnvNumber(env, 'CINDERPAW_CLOUD_IDLE_TIMEOUT_MS') : undefined) ??
     base.stallMs;
 
   let effectiveTtft = ttftDeadlineMs;
@@ -113,11 +109,11 @@ function readFrontendEnv(): Record<string, string | undefined> {
 export function deadlineMessage(reason: DeadlineReason, policy: PerfPolicy): string {
   switch (reason) {
     case 'ttft_timeout':
-      return `[ttft_timeout] The model didn't start responding within ${Math.round(policy.ttftDeadlineMs / 1000)}s. The prompt may be too long or the model too large for this hardware — try a shorter prompt, a smaller model, or a cloud key.`;
+      return `[ttft_timeout] The model didn't start responding within ${Math.round(policy.ttftDeadlineMs / 1000)}s. The prompt may be too long or the model too large for this hardware. Try a shorter prompt, a smaller model, or a cloud key.`;
     case 'total_timeout':
       return `[total_timeout] Generation ran past the ${Math.round(policy.totalDeadlineMs / 1000)}s limit and was stopped. Try a smaller model or shorter output.`;
     case 'stall_timeout':
-      return `[stall_timeout] The model stopped producing output (no tokens for ${Math.round(policy.stallMs / 1000)}s). It may have wedged — reloading is recommended.`;
+      return `[stall_timeout] The model stopped producing output (no tokens for ${Math.round(policy.stallMs / 1000)}s). It may have wedged, and reloading is recommended.`;
     case 'engine_unready':
       return `[engine_unready] The local model isn't loaded or stopped responding. Reload it and try again.`;
   }

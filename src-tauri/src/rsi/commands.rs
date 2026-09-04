@@ -1,4 +1,4 @@
-//! Tauri commands exposed to the Feral Agent sidecar.
+//! Tauri commands exposed to the Cinderpaw Agent sidecar.
 //!
 //! Everything that crosses the IPC boundary for RSI goes through
 //! here. The sidecar has NO other way to read or write the RSI
@@ -32,7 +32,7 @@
 //! The shared runtime pieces (the sidecar request dispatcher, the
 //! `do_rsi_*` bodies, `GoodhartSlot` / `RsiRequestRegistry` /
 //! `RsiEngineState`, `ensure_initialized`, `require_string`) moved to
-//! `feral_core::rsi::runtime` so a future headless host can reuse them
+//! `cinderpaw_core::rsi::runtime` so a future headless host can reuse them
 //! without Tauri. Only the `#[tauri::command]` wrappers — the sole
 //! write path exposed to the UI/sidecar boundary — remain here. This
 //! file imports the moved helpers by name via the glob import below.
@@ -42,7 +42,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use feral_core::rsi::runtime::*;
+use cinderpaw_core::rsi::runtime::*;
 
 use super::audit::{AuditVerifyResult, SandboxBoundsAudit};
 use super::goodhart::GoodhartDetector;
@@ -56,9 +56,9 @@ use crate::paths;
 use crate::AppState;
 
 /// How long `rsi_start` / `rsi_stop` / `rsi_set_concurrency` wait for a
-/// matching ack on the Feral Agent's stdout before returning an error to the
+/// matching ack on the Cinderpaw Agent's stdout before returning an error to the
 /// UI. The sidecar emits an `rsi_engine_event` line whose `id` matches the
-/// request's `request_id`; `feral_agent::stdout_reader` routes that into the
+/// request's `request_id`; `cinderpaw_agent::stdout_reader` routes that into the
 /// matching `oneshot::Sender` here. 500 ms is the proven ceiling on Windows
 /// for spawn-to-IPC-ready (see Faza 7b-part2 design notes) and short enough
 /// that a wedged engine surfaces to the UI in under a second.
@@ -215,7 +215,7 @@ pub fn rsi_update_bounds(
     confirmation_token: String,
 ) -> Result<(), String> {
     ensure_initialized(&state)?;
-    if confirmation_token != "feral-user-confirmed" {
+    if confirmation_token != "cinderpaw-user-confirmed" {
         return Err("rsi_update_bounds: confirmation_token missing or wrong".into());
     }
     if reason.trim().is_empty() {
@@ -375,7 +375,7 @@ pub fn rsi_reset_goodhart(state: State<'_, AppState>) -> Result<(), String> {
 // ── Engine driver commands (State<AppState>) ──────────────────────────────
 
 /// Start the RSI engine on the sidecar. Sends a `rsi_start` message
-/// over stdin to the Feral Agent sidecar; the sidecar constructs the
+/// over stdin to the Cinderpaw Agent sidecar; the sidecar constructs the
 /// engine (recorder → ratchet → selection → recalcitrance → GoalMode,
 /// in that order — recorder MUST be the first EvalComplete
 /// subscriber so it sees every result) and runs it autonomously
@@ -467,16 +467,16 @@ pub async fn rsi_set_concurrency(
 
 // ── Private helpers ─────────────────────────────────────────────────────────
 
-/// Forward a JSON line to the Feral Agent sidecar via stdin.
-/// Mirrors the existing `feral_send_message` pattern in `lib.rs`.
+/// Forward a JSON line to the Cinderpaw Agent sidecar via stdin.
+/// Mirrors the existing `cinderpaw_send_message` pattern in `lib.rs`.
 /// Returns an error if the sidecar isn't running; the caller is
 /// expected to surface this to the UI as "engine not running".
 async fn deliver_to_sidecar(state: &State<'_, AppState>, line: &str) -> Result<(), String> {
     let tx = {
-        let guard = state.feral_agent_tx.lock();
+        let guard = state.cinderpaw_agent_tx.lock();
         guard
             .as_ref()
-            .ok_or_else(|| "feral-agent is not running".to_string())?
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
             .clone()
     };
     tx.send(line.to_string())
@@ -496,7 +496,7 @@ async fn deliver_to_sidecar(state: &State<'_, AppState>, line: &str) -> Result<(
 /// field silently fell back to the TS defaults. The first manual
 /// e2e surfaced this as "the engine runs but ignores my inputs".
 ///
-/// Wire contract (read by `FeralAgent/src/index.ts::onMessage`):
+/// Wire contract (read by `CinderpawAgent/src/index.ts::onMessage`):
 ///   type:               "rsi_start"
 ///   id:                 request_id (mirrors back in rsi_engine_event)
 ///   rsiGoal:            string
@@ -534,7 +534,7 @@ fn build_rsi_start_payload(
 ///
 /// `request_id` is included in `payload` verbatim — the sidecar
 /// echoes it back in the corresponding `rsi_engine_event` line so
-/// `feral_agent::stdout_reader` can route the ack to this wait.
+/// `cinderpaw_agent::stdout_reader` can route the ack to this wait.
 ///
 /// On timeout the registry entry is dropped so the registry doesn't
 /// leak: the sidecar may eventually ack a request nobody is waiting
@@ -567,7 +567,7 @@ async fn wait_for_sidecar_ack(
     }
 }
 
-// ── Dream Cycle telemetry (read path for the Feral's Dreams panel) ──────────
+// ── Dream Cycle telemetry (read path for the Cinderpaw's Dreams panel) ──────────
 
 /// One completed Dream Cycle episode, mirroring the sidecar's
 /// `DreamEpisodeRecord` (`dream-telemetry.ts`). Field names are camelCase on
@@ -626,7 +626,7 @@ fn parse_dream_telemetry(body: &str, limit: usize) -> DreamTelemetrySummary {
     summary
 }
 
-/// Read `~/.feral/rsi/dream.jsonl` and return lifetime totals + the most recent
+/// Read `~/.cinderpaw/rsi/dream.jsonl` and return lifetime totals + the most recent
 /// `limit` episodes. A missing file yields an empty summary (the Dream Cycle
 /// simply hasn't run yet) rather than an error, so the panel renders a clean
 /// "no dreams yet" state. **Stateless.**
@@ -709,7 +709,7 @@ fn parse_journal_rows(body: &str) -> Vec<JournalRow> {
     rows
 }
 
-/// Read the per-day journal files under `~/.feral/rsi/journal/` and return the
+/// Read the per-day journal files under `~/.cinderpaw/rsi/journal/` and return the
 /// most recent `limit` rows, newest first. A missing directory yields an empty
 /// list (the Dream Cycle simply hasn't journaled yet). **Stateless.**
 ///
@@ -759,7 +759,7 @@ pub struct ChampionTreeRow {
     pub score: f64,
 }
 
-/// Read the Tree of Champions archive (`~/.feral/rsi/champion-tree.json`) and
+/// Read the Tree of Champions archive (`~/.cinderpaw/rsi/champion-tree.json`) and
 /// return its niche champions, highest score first, for the receipts UI. A
 /// missing / corrupt file yields an empty list (the engine simply hasn't
 /// ratcheted a niche yet). Tolerant `Value` parse so a schema drift on the TS

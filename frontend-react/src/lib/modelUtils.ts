@@ -16,7 +16,7 @@ export function extractQuant(filename: string): string {
   const noExt = filename.replace(/\.gguf$/i, '');
   // Match quant tokens separated by . or - : Q4_K_M, IQ2_XXS, BF16, F16, F32, Q4_0 …
   const m = noExt.match(/[-.]((IQ\d[\w]*|Q\d[\w]*|BF\d+|F\d+))(?:[-.]|$)/i);
-  return m ? m[1].toUpperCase() : '—';
+  return m ? m[1].toUpperCase() : '-';
 }
 
 export function quantQualityRank(filename: string): number {

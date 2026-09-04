@@ -27,7 +27,7 @@ const mockGetByok  = vi.mocked(tauri.raw.getByokSettings);
 const mockTestByok = vi.mocked(tauri.raw.testByokProvider);
 
 const sample = {
-  models_dir: '/home/.feral/models',
+  models_dir: '/home/.cinderpaw/models',
   default_gpu_layers: 100,
   api_server_enabled: false,
   api_port: 11435,
@@ -36,6 +36,9 @@ const sample = {
   desktop_control_yolo: false,
   token_budget_conversation: null,
   rsi_max_cost_usd: 0,
+  rsi_allow_cloud_dreams: false,  dreams_enabled: false,
+
+  active_route: null,
 };
 
 const reset = () =>
@@ -118,3 +121,4 @@ describe('useSettings', () => {
     expect(useSettings.getState().settings?.rsi_max_cost_usd).toBe(2.5);
   });
 });
+

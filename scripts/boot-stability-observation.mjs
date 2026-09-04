@@ -21,7 +21,7 @@ const binaryPath = join(
   repoRoot,
   "src-tauri",
   "binaries",
-  "feral-agent-x86_64-pc-windows-msvc.exe",
+  "cinderpaw-agent-x86_64-pc-windows-msvc.exe",
 );
 
 if (!existsSync(binaryPath)) {
@@ -29,7 +29,7 @@ if (!existsSync(binaryPath)) {
   process.exit(2);
 }
 
-const workDir = mkdtempSync(join(tmpdir(), "feral-boot-obs-"));
+const workDir = mkdtempSync(join(tmpdir(), "cinderpaw-boot-obs-"));
 const observeMs = 8_000;
 
 const child = spawn(binaryPath, [], {
@@ -38,14 +38,14 @@ const child = spawn(binaryPath, [], {
     ...process.env,
     USERPROFILE: workDir,
     HOME: workDir,
-    FERAL_DB: ":memory:",
-    FERAL_WORKSPACE: workDir,
+    CINDERPAW_DB: ":memory:",
+    CINDERPAW_WORKSPACE: workDir,
     // Keep RSI passive off; nothing should fire during the window.
-    FERAL_RSI_PASSIVE: "false",
-    FERAL_RSI_IDLE_MS: "180000",
-    FERAL_PROACTIVE_ENABLED: "false",
-    FERAL_RUN_FRACTAL_BENCH: "",
-    FERAL_MODEL: "",
+    CINDERPAW_RSI_PASSIVE: "false",
+    CINDERPAW_RSI_IDLE_MS: "180000",
+    CINDERPAW_PROACTIVE_ENABLED: "false",
+    CINDERPAW_RUN_FRACTAL_BENCH: "",
+    CINDERPAW_MODEL: "",
   },
 });
 

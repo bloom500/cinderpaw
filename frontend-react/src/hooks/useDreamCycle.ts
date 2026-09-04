@@ -19,7 +19,7 @@ export function useDreamCycle(): void {
         useDream.getState().setDreaming(true);
         useNotifications.getState().push(
           'info',
-          '💤 Feral is dreaming',
+          '💤 Cinderpaw is dreaming',
           'Evolving its own configuration in the background while you’re idle.',
         );
       } else {
@@ -40,6 +40,13 @@ export function useDreamCycle(): void {
     });
     return () => {
       alive = false;
+      // Reset the store, not just the listener. Unmounting mid-cycle meant the
+      // `ended` event arrived with `alive === false` and was dropped, so
+      // `dreaming` stayed true for the rest of the session: the mascot asleep
+      // and the panel reporting a dream that finished long ago. A fresh mount
+      // re-syncs from the next event.
+      useDream.getState().setDreaming(false);
+      useDream.getState().setStage(null);
       void unlistenP.then((u) => u()).catch(() => {});
       void unlistenStageP.then((u) => u()).catch(() => {});
     };

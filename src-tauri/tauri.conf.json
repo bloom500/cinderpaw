@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Feral",
+  "productName": "Cinderpaw",
   "version": "2026.8.11",
-  "identifier": "ai.feral.app",
+  "identifier": "ai.cinderpaw.app",
   "build": {
     "frontendDist": "../frontend-react/dist",
     "devUrl": "http://127.0.0.1:5173",
     "beforeDevCommand": {
-      "script": "node scripts/build-sidecar.mjs && npm --prefix ../frontend-react run dev",
+      "script": "node scripts/build-sidecar.mjs && cd ../frontend-react && bun run dev",
       "cwd": "."
     },
     "beforeBuildCommand": {
@@ -19,21 +19,26 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Feral",
+        "title": "Cinderpaw",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
         "minHeight": 600,
         "resizable": true,
         "fullscreen": false,
-        "decorations": false
+    "decorations": false,
+    "transparent": true,
+    "dragDropEnabled": false,
+        "windowEffects": {
+          "effects": ["acrylic"]
+        }
       }
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' data: blob: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:* https: asset: http://asset.localhost; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$HOME/.feral/voice/**"]
+        "scope": ["$HOME/.cinderpaw/voice/**", "$HOME/.feral/voice/**"]
       }
     }
   },
@@ -49,14 +54,14 @@
       "rpm": { "depends": ["git"] }
     },
     "externalBin": [
-      "binaries/feral-agent"
+      "binaries/cinderpaw-agent"
     ],
     "resources": [
-      "../FeralAgent/src/**/*",
-      "../FeralAgent/tests/**/*",
-      "../FeralAgent/package.json",
-      "../FeralAgent/tsconfig.json",
-      "../FeralAgent/bun.lock",
+      "../CinderpawAgent/src/**/*",
+      "../CinderpawAgent/tests/**/*",
+      "../CinderpawAgent/package.json",
+      "../CinderpawAgent/tsconfig.json",
+      "../CinderpawAgent/bun.lock",
       "../scripts/rsi-rebuild-sidecar.ps1",
       "../scripts/rsi-rebuild-sidecar.sh",
       "../scripts/setup-lora-trainer.ps1",
@@ -73,10 +78,15 @@
     "createUpdaterArtifacts": true
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["cinderpaw"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYzRDY0OTcwRTVDNzYwOTgKUldTWVlNZmxjRW5XWXh4dEsxN2cyaUxHRFlUWGhRbkJWUE51WG9qK05mUzcrTWpmQWd2anE4b2QK",
       "endpoints": [
-        "https://github.com/bloom500/feral/releases/latest/download/latest.json"
+        "https://github.com/bloom500/cinderpaw/releases/latest/download/latest.json"
       ]
     }
   }

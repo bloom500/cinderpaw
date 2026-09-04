@@ -38,19 +38,19 @@ const binaryPath = join(
   repoRoot,
   "src-tauri",
   "binaries",
-  "feral-agent-x86_64-pc-windows-msvc.exe",
+  "cinderpaw-agent-x86_64-pc-windows-msvc.exe",
 );
 
 if (!existsSync(binaryPath)) {
   console.error(
     `✗ sidecar binary not found at ${binaryPath}\n` +
-      `  Run: cd FeralAgent && bun run build && cp dist/feral-agent.exe ` +
+      `  Run: cd CinderpawAgent && bun run build && cp dist/cinderpaw-agent.exe ` +
       `${binaryPath}`,
   );
   process.exit(2);
 }
 
-const workDir = mkdtempSync(join(tmpdir(), "feral-d2-smoke-"));
+const workDir = mkdtempSync(join(tmpdir(), "cinderpaw-d2-smoke-"));
 const telemetryPath = join(workDir, "dream.jsonl");
 const dbPath = ":memory:";
 
@@ -68,27 +68,27 @@ const child = spawn(
     env: {
       ...process.env,
       // Redirect the sidecar's os.homedir() to our temp dir so we don't
-      // pollute the real ~/.feral. Node's `os.homedir()` reads USERPROFILE
+      // pollute the real ~/.cinderpaw. Node's `os.homedir()` reads USERPROFILE
       // on Windows; HOME is unset here to avoid surprises.
       USERPROFILE: workDir,
       HOME: workDir,
-      FERAL_DB: dbPath,
-      FERAL_WORKSPACE: workDir,
-      FERAL_RSI_TELEMETRY: telemetryPath,
+      CINDERPAW_DB: dbPath,
+      CINDERPAW_WORKSPACE: workDir,
+      CINDERPAW_RSI_TELEMETRY: telemetryPath,
       // Fast dream cycle so the test takes ~10s, not the 3-min default.
-      FERAL_RSI_IDLE_MS: "5000",
-      FERAL_RSI_POLL_MS: "1000",
-      FERAL_RSI_COOLDOWN_MS: "1000",
+      CINDERPAW_RSI_IDLE_MS: "5000",
+      CINDERPAW_RSI_POLL_MS: "1000",
+      CINDERPAW_RSI_COOLDOWN_MS: "1000",
       // Real model name so shouldAutostartPassive() doesn't bail.
       // The endpoint may not exist; an HTTP failure to 127.0.0.1:11435
       // makes the engine fail fast and emit "ended" with stopReason="error".
-      FERAL_MODEL: "qwen2.5:7b",
-      FERAL_BASE_URL: "http://127.0.0.1:11435",
+      CINDERPAW_MODEL: "qwen2.5:7b",
+      CINDERPAW_BASE_URL: "http://127.0.0.1:11435",
       // Disable the inner-thoughts / heartbeat side loops that the smoke
       // doesn't need; quiet stderr makes the asserts cleaner.
-      FERAL_PROACTIVE_ENABLED: "false",
+      CINDERPAW_PROACTIVE_ENABLED: "false",
       // No benchmarks / no fractal rebuild.
-      FERAL_RUN_FRACTAL_BENCH: "",
+      CINDERPAW_RUN_FRACTAL_BENCH: "",
     },
   },
 );

@@ -4,7 +4,7 @@
 #  the house standard for a waived advisory:
 #
 #    - it must be UNREACHABLE in this application, with the reason written in
-#      terms of what Feral actually does — never "low risk", never "transitive";
+#      terms of what Cinderpaw actually does — never "low risk", never "transitive";
 #    - it carries a deletion trigger: the concrete upstream event that makes the
 #      entry removable, so the waiver expires on a fact rather than on goodwill;
 #    - anything not listed here still fails the build. This is an allowlist, and
@@ -21,14 +21,14 @@
 #  Advisory: insufficient archive validation causes out-of-bounds READS when
 #  DESERIALIZING an rkyv archive that contains Rc/Arc. Fixed in rkyv >= 0.8.17.
 #
-#  Why it cannot be reached here: Feral never reads an rkyv archive, from any
+#  Why it cannot be reached here: Cinderpaw never reads an rkyv archive, from any
 #  source. rkyv arrives four levels down as an optional serialization backend
 #  for `rust_decimal`, which is used by `byte-unit` to format byte sizes, which
 #  is used by `tauri-plugin-log` to cap log-file size:
 #
 #      tauri-plugin-log -> byte-unit -> rust_decimal (rkyv feature) -> rkyv
 #
-#  No Feral code constructs, writes, or parses an rkyv archive; no untrusted
+#  No Cinderpaw code constructs, writes, or parses an rkyv archive; no untrusted
 #  input reaches rkyv, because nothing reaches rkyv at all. The vulnerable path
 #  is archive deserialization, and that code is linked but never called.
 #

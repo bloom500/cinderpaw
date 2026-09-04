@@ -1,7 +1,7 @@
 package app
 
 import (
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 	"fmt"
 	"strings"
 	"testing"
@@ -660,7 +660,7 @@ func TestWizardE2ECloudPath(t *testing.T) {
 
 	// Health check success → auto-advance to Ready.
 	a.Update(WizardTestItResult{
-		Response: "FERAL_OK", HealthLatency: 350 * time.Millisecond,
+		Response: "CINDERPAW_OK", HealthLatency: 350 * time.Millisecond,
 		StreamLatency: 1800 * time.Millisecond, StreamVerified: true,
 	})
 	if !a.Wizard.TestItSucceeded {
@@ -725,7 +725,7 @@ func TestWizardE2ELocalPath(t *testing.T) {
 	}
 
 	a.Update(WizardTestItResult{
-		Response: "FERAL_OK", HealthLatency: 450 * time.Millisecond,
+		Response: "CINDERPAW_OK", HealthLatency: 450 * time.Millisecond,
 		StreamLatency: 2200 * time.Millisecond, StreamVerified: true,
 	})
 	if !a.Wizard.TestItSucceeded {

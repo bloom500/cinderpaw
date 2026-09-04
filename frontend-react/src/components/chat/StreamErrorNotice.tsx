@@ -65,8 +65,8 @@ export function StreamErrorNotice() {
       role="alert"
       className="mx-auto max-w-2xl w-full px-4 pb-2"
     >
-      <div className="flex items-start gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/5 px-4 py-3">
-        <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" />
+      <div className="flex items-start gap-2.5 rounded-xl border border-error/30 bg-error/5 px-4 py-3">
+        <AlertCircle size={16} className="text-error shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0 space-y-1.5">
           <p className="text-sm text-text-primary leading-relaxed">{err.message}</p>
           {err.detail && err.detail !== err.message && (

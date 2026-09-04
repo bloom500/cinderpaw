@@ -1,8 +1,8 @@
 [package]
-name = "feral"
+name = "cinderpaw"
 version = "2026.8.11"
-description = "Feral — local AI desktop runtime"
-authors = ["Feral Contributors"]
+description = "Cinderpaw — local AI desktop runtime"
+authors = ["Cinderpaw Contributors"]
 license = "BUSL-1.1"
 edition = "2021"
 rust-version = "1.77.2"
@@ -19,6 +19,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
+# Native message box for the one failure that happens before a window exists
+# (the home-folder migration). Already present as tauri-plugin-dialog's own dep.
+rfd = "0.16"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 specta = "=2.0.0-rc.25"
@@ -44,9 +47,9 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 # HTTP client (tool calls, HF downloads)
 reqwest = { version = "0.12", features = ["json", "stream", "multipart", "rustls-tls"], default-features = false }
 
-# Feral Runtime (host-agnostic): inference, models, API, RSI substrate,
+# Cinderpaw Runtime (host-agnostic): inference, models, API, RSI substrate,
 # settings, paths, tools, byok, perf, gpu, transcription.
-feral-core = { path = "../crates/feral-core", default-features = false }
+cinderpaw-core = { path = "../crates/cinderpaw-core", default-features = false }
 
 # Utilities
 anyhow = "1"
@@ -61,7 +64,7 @@ dirs = "5"
 # here uses the same algorithm but a separate chain so a tamper on one side
 # cannot mask a tamper on the other.
 sha2 = "0.10"
-# git2 (libgit2 bindings) for the RSI git substrate at ~/.feral/rsi/.git/.
+# git2 (libgit2 bindings) for the RSI git substrate at ~/.cinderpaw/rsi/.git/.
 # Vendored so we don't depend on a system libgit2 install — the spec requires
 # "fără dependență de git instalat pe sistem". The C build is heavy; only the
 # rsi module pulls it in.
@@ -84,11 +87,35 @@ getrandom = "0.2"
 # Chat attachment text extraction (PDF + OOXML/ODF containers)
 pdf-extract = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+tauri-plugin-deep-link = "2.4.10"
+tauri-plugin-single-instance = { version = "2.4.4", features = ["deep-link"] }
+url = "2"
 
 [features]
-default = ["inference"]
+# `piper` is on by default because it is the voice the product should answer in:
+# on device, no key, no expiring tier. It costs a native ONNX Runtime download
+# and an espeak-ng C build at compile time (cmake, already required by
+# llama.cpp), so a platform whose toolchain cannot do that drops this one flag
+# and the picker reports Piper as unavailable instead of offering a mute engine.
+# `whisper` is NOT here, and it cannot be until something upstream changes.
+#
+# It looks like an oversight: Settings has an on-device transcription model
+# picker and the STT card lists "local", while `transcribe_audio` returns
+# `voice-unavailable` in every build we ship — a control that can only fail for
+# anyone who did not compile their own. It was turned on for exactly that reason
+# on 2026-08-23 and CI rejected it within the hour:
+#
+#   LNK2005: ggml_abort already defined in libwhisper_rs_sys...
+#   error: linking with `link.exe` failed: exit code: 1169
+#
+# `whisper-rs-sys` and `llama-cpp-sys-2` each vendor their OWN copy of ggml, so
+# enabling both puts two definitions of every ggml symbol in one binary. This is
+# not a flag to flip; it needs the two crates to share one ggml build, or whisper
+# to run out-of-process. Until then the honest fix is the UI not offering local
+# transcription, NOT this line.
+default = ["inference", "piper", "kokoro"]
 # CPU-only baseline (works everywhere; slow for larger models).
-inference = ["feral-core/inference"]
+inference = ["cinderpaw-core/inference"]
 # GPU backends — additive on top of `inference`. Pick at most ONE per build
 # (enabling two GPU features simultaneously is untested and likely produces
 # duplicate symbols in llama-cpp-sys-2). CI selects one per platform:
@@ -97,10 +124,14 @@ inference = ["feral-core/inference"]
 #   macOS                → inference-metal    (Metal ships with Xcode; no extra SDK)
 # A GPU build still falls back to CPU at runtime if GPU init fails (see
 # inference.rs::backend::load), so a missing/broken driver degrades gracefully.
-inference-cuda   = ["feral-core/inference-cuda"]
-inference-vulkan = ["feral-core/inference-vulkan"]
-inference-metal  = ["feral-core/inference-metal"]
-whisper          = ["feral-core/whisper"]
+inference-cuda   = ["cinderpaw-core/inference-cuda"]
+inference-vulkan = ["cinderpaw-core/inference-vulkan"]
+inference-metal  = ["cinderpaw-core/inference-metal"]
+whisper          = ["cinderpaw-core/whisper"]
+# On-device text-to-speech. Both engines ride the same two native pieces —
+# ONNX Runtime and espeak-ng — so the second one is a model, not a toolchain.
+piper            = ["cinderpaw-core/piper"]
+kokoro           = ["cinderpaw-core/kokoro"]
 
 # Desktop control (OS accessibility tree). Windows-only for now — UIA via the
 # `windows` crate. macOS (AX) and Linux are compiled stubs in desktop_control.

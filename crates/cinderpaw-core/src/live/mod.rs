@@ -1,0 +1,717 @@
+//! The Gemini Live API wire protocol: speech in, speech out, tools in between.
+//!
+//! This is the message layer only — no socket, no session, no audio device. It
+//! exists on its own because the wire format is the part that has to be exactly
+//! right and is the cheapest to get wrong: a misspelled camelCase key does not
+//! fail loudly, it makes the server ignore a field and the call behave subtly
+//! wrong an hour later.
+//!
+//! Why this engine is not another TTS provider: picking Gemini replaces the
+//! whole `STT → LLM → TTS` chain with one bidirectional session. The model hears
+//! the microphone, decides when the turn ended, and answers in audio. Turn
+//! detection, barge-in and synthesis stop being ours.
+//!
+//! Two things line up with what this app already does, which is why the seams
+//! are small: the model emits **24 kHz mono 16-bit little-endian PCM**, byte for
+//! byte the contract every other engine here already speaks, and it wants
+//! **16 kHz PCM** in, which is what the microphone path already produces for
+//! Whisper. Nothing converts in either direction.
+//!
+//! Verified against <https://ai.google.dev/api/live> (Preview). Where that
+//! reference does not define a field, this module says so rather than guessing.
+
+use serde::{Deserialize, Serialize};
+
+pub mod bridge;
+pub mod briefing;
+pub mod session;
+pub use briefing::{system_instruction, Briefing};
+pub use session::{connect, LiveCommand, LiveEvent, LiveHandle, SessionConfig};
+
+/// Live sessions are a WebSocket, not REST — a different host and path from the
+/// usual `generativelanguage` REST calls, so it is spelled out here in full.
+pub const LIVE_WS_URL: &str =
+    "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+
+/// What the microphone must produce. Not a preference — the server reads raw
+/// PCM at this rate and there is no field to tell it otherwise.
+pub const AUDIO_IN_HZ: u32 = 16_000;
+pub const AUDIO_IN_MIME: &str = "audio/pcm;rate=16000";
+
+/// What comes back. Already this app's one audio contract, so the bridge hands
+/// these bytes to the player untouched.
+pub const AUDIO_OUT_HZ: u32 = 24_000;
+
+/// The prebuilt voices a native-audio session can be pinned to.
+///
+/// Listed here rather than fetched because there is no endpoint that returns
+/// them — they are named in the reference and nowhere else, which makes this the
+/// one honest place for a hardcoded list.
+pub const VOICES: &[&str] =
+    &["Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede"];
+
+/// The voice a call uses unless told otherwise.
+///
+/// Pinning one at all is the point. Left unset, the server picks per session,
+/// so the same assistant answers in a different voice tomorrow — the exact
+/// inconsistency that reads as unfinished software, and the one already paid for
+/// on the pipeline side (see `voices.rs::preferredVoice`).
+pub const DEFAULT_VOICE: &str = "Kore";
+
+/// A tool the model may call, in Gemini's shape.
+///
+/// `parameters` is a JSON Schema object and is passed through as-is: every tool
+/// source here (built-ins, custom tools, MCP) already describes itself that way,
+/// and re-encoding a schema is how a required field quietly becomes optional.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FunctionDeclaration {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+    /// `NON_BLOCKING` lets the model keep talking while the tool runs, which is
+    /// the whole reason a search does not need a spoken "one moment" to cover it.
+    ///
+    /// ponytail: left `None` by default and omitted from the JSON. The Live API
+    /// reference does not define this field — it lives in the generate-content
+    /// docs — so its exact placement is unverified here. Set it once it has been
+    /// confirmed against a live session, rather than shipping a plausible guess
+    /// the server would silently ignore.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub behavior: Option<String>,
+}
+
+/// Everything the client can say. Exactly one variant per message: the server
+/// rejects an object carrying two of these, so the enum shape IS the rule.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClientMessage {
+    /// Must be the first message on the socket, and the only one until
+    /// `setupComplete` comes back.
+    Setup(Setup),
+    /// Continuous microphone audio. Deliberately not `clientContent`: realtime
+    /// input can be sent without interrupting generation, and end-of-turn is
+    /// derived from speech rather than announced.
+    RealtimeInput(RealtimeInput),
+    /// A typed turn, for what dictation mangles — a URL, a name, an error
+    /// string. Deliberately NOT `realtimeInput`: that channel is a stream the
+    /// server segments itself, while this is a complete turn that ends where it
+    /// says it ends, which is why it carries `turnComplete`.
+    ClientContent(ClientContent),
+    ToolResponse(ToolResponse),
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientContent {
+    pub turns: Vec<Content>,
+    /// The turn is finished — answer it. Without this the server waits for more
+    /// of a sentence that is never coming, and the call goes quiet.
+    pub turn_complete: bool,
+}
+
+/// One typed line, as a finished user turn.
+pub fn text_turn(text: &str) -> ClientMessage {
+    ClientMessage::ClientContent(ClientContent {
+        turns: vec![Content { role: Some("user".into()), ..Content::text(text) }],
+        turn_complete: true,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Setup {
+    /// Fully qualified — `models/{id}`, not the bare id.
+    pub model: String,
+    pub generation_config: GenerationConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_instruction: Option<Content>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<Tool>,
+    /// Asking for both transcripts is what keeps a spoken call legible: without
+    /// them the conversation leaves no text behind, so nothing can be shown on
+    /// screen, logged, or written to memory afterwards.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_audio_transcription: Option<AudioTranscriptionConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_audio_transcription: Option<AudioTranscriptionConfig>,
+    /// Server-side speech endpointing. Keeping this explicit prevents Gemini's
+    /// default from holding a completed spoken turn for many seconds.
+    pub realtime_input_config: RealtimeInputConfig,
+    /// Ask for a resumption handle, or hand one back to continue an earlier call.
+    ///
+    /// This is the documented answer to the wall that actually exists. Measured:
+    /// a call opened at 13:38 and the server closed it at 13:50 saying "The
+    /// session duration limit was reached. Connection closed. You may reconnect
+    /// and resume this session using your resumption handle." Nothing we send
+    /// makes a session last longer — the remedy is to start a new one that
+    /// remembers the old, which the user never sees.
+    ///
+    /// Empty object on a fresh call (please issue handles), populated on a
+    /// reconnect.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_resumption: Option<SessionResumption>,
+}
+
+/// `{}` asks the server to start issuing handles; `{ handle }` resumes.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResumption {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+}
+
+impl Setup {
+    /// A spoken call: audio out, both transcripts on, tools declared.
+    ///
+    /// A constructor rather than `Default` + field assignment, because the two
+    /// fields a caller is most likely to forget — `responseModalities` and the
+    /// transcripts — are the two whose absence is silent rather than loud.
+    pub fn spoken(model: &str, tools: Vec<FunctionDeclaration>) -> Self {
+        Setup {
+            model: if model.starts_with("models/") {
+                model.to_string()
+            } else {
+                format!("models/{model}")
+            },
+            generation_config: GenerationConfig {
+                response_modalities: vec!["AUDIO".to_string()],
+                // Pinned from the first message. The server picks per session
+                // otherwise, so "the default voice" is a lottery run once a call.
+                speech_config: Some(SpeechConfig::voice(DEFAULT_VOICE)),
+            },
+            system_instruction: None,
+            tools: if tools.is_empty() {
+                Vec::new()
+            } else {
+                vec![Tool { function_declarations: tools }]
+            },
+            input_audio_transcription: Some(AudioTranscriptionConfig {}),
+            output_audio_transcription: Some(AudioTranscriptionConfig {}),
+            realtime_input_config: RealtimeInputConfig {
+                automatic_activity_detection: AutomaticActivityDetection {
+                    disabled: false,
+                    silence_duration_ms: 700,
+                },
+            },
+            // Always requested. A handle costs nothing to be given and is the
+            // only thing that makes the duration wall survivable.
+            //
+            // Sliding-window compression is deliberately NOT here. It is the
+            // documented remedy for the ten-minute audio cap and it killed calls
+            // in eighteen seconds instead: audio cannot be compressed, so "not
+            // supported for this model configuration" was literal and the
+            // configuration it meant was ours. Resumption is what actually works.
+            session_resumption: Some(SessionResumption::default()),
+        }
+    }
+
+    /// Stop asking for a specific voice.
+    ///
+    /// The escape hatch for a model that will not take `speechConfig`. Measured
+    /// 2026-08-15 on `gemini-2.5-flash-native-audio-latest`: the session was
+    /// accepted, ran for twenty seconds, then closed with "The audio content
+    /// type (CONTENT_TYPE_AUDIO) is not supported for this model
+    /// configuration" — the same sentence `contextWindowCompression` produced,
+    /// and the same meaning: a field we asked for is not supported here, and
+    /// the server says so by killing the audio rather than by refusing setup.
+    ///
+    /// A pinned voice is worth having. It is not worth a call that dies every
+    /// twenty seconds, so the host drops it and reconnects.
+    pub fn unpinned(mut self) -> Self {
+        self.generation_config.speech_config = None;
+        self
+    }
+
+    /// Pin a specific voice. An empty or unknown name leaves the default in
+    /// place rather than putting a typo on the wire — the server answers an
+    /// unknown voice by dropping the socket, which reads as a network fault.
+    pub fn with_voice(mut self, voice: &str) -> Self {
+        let voice = voice.trim();
+        if VOICES.iter().any(|v| v.eq_ignore_ascii_case(voice)) {
+            self.generation_config.speech_config = Some(SpeechConfig::voice(voice));
+        }
+        self
+    }
+
+    /// What the model should know before it says a word. This is where the
+    /// pre-call memory lookup lands.
+    pub fn with_system_instruction(mut self, text: impl Into<String>) -> Self {
+        self.system_instruction = Some(Content::text(text));
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealtimeInputConfig {
+    pub automatic_activity_detection: AutomaticActivityDetection,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomaticActivityDetection {
+    pub disabled: bool,
+    pub silence_duration_ms: u32,
+}
+
+/// Generation settings. Only the parts a voice call needs are modelled.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationConfig {
+    /// `["AUDIO"]`. Without it the model answers in text and the call is silent.
+    ///
+    /// It belongs **here**, inside `generationConfig`, not at the top of `setup`
+    /// — the WebSocket quickstart shows it flattened one level up, which is the
+    /// kind of example that works for its author and produces a mute call for
+    /// everyone who copies it. The type reference is the authority.
+    pub response_modalities: Vec<String>,
+    /// Which voice answers. Always sent — see [`DEFAULT_VOICE`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speech_config: Option<SpeechConfig>,
+}
+
+/// `speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName` — three levels of
+/// wrapper for one string, which is the shape the reference defines and not one
+/// to simplify: the nesting is where a future `customVoiceConfig` goes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechConfig {
+    pub voice_config: VoiceConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceConfig {
+    pub prebuilt_voice_config: PrebuiltVoiceConfig,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrebuiltVoiceConfig {
+    pub voice_name: String,
+}
+
+impl SpeechConfig {
+    pub fn voice(name: impl Into<String>) -> Self {
+        SpeechConfig {
+            voice_config: VoiceConfig {
+                prebuilt_voice_config: PrebuiltVoiceConfig { voice_name: name.into() },
+            },
+        }
+    }
+}
+
+/// No fields today; present because the server distinguishes "absent" from
+/// "requested with defaults", and absent means no transcript at all.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AudioTranscriptionConfig {}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tool {
+    pub function_declarations: Vec<FunctionDeclaration>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Content {
+    pub parts: Vec<Part>,
+    /// Set on a `clientContent` turn, absent on a system instruction — which
+    /// takes no role and is the reason this is optional rather than defaulted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+}
+
+impl Content {
+    /// System instructions must be text-only parts, per the reference.
+    pub fn text(s: impl Into<String>) -> Self {
+        Content { parts: vec![Part { text: Some(s.into()), inline_data: None }], role: None }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Part {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Where the model's audio arrives: base64 PCM at [`AUDIO_OUT_HZ`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inline_data: Option<Blob>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Blob {
+    pub mime_type: String,
+    /// Base64. The one place bytes are not passed through raw.
+    pub data: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealtimeInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio: Option<Blob>,
+    /// Sent when the microphone closes. Only valid while automatic activity
+    /// detection is on, which is the default and what we want — server-side VAD
+    /// is precisely the part being handed over.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_stream_end: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolResponse {
+    pub function_responses: Vec<FunctionResponse>,
+}
+
+/// Matched to its call by `id`, never by name — the model may have two calls to
+/// the same tool in flight, and answering by name pairs them at random.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FunctionResponse {
+    pub id: String,
+    pub name: String,
+    pub response: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct FunctionCall {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub args: serde_json::Value,
+}
+
+/// Anything the server may send.
+///
+/// Every field is optional and unknown ones are ignored rather than refused.
+/// That is deliberate and the opposite of how this codebase treats its own data:
+/// this is a Preview API that adds message types between releases, and a strict
+/// parse would turn "Google shipped a new field" into "the call drops".
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerMessage {
+    pub setup_complete: Option<serde_json::Value>,
+    pub server_content: Option<ServerContent>,
+    pub tool_call: Option<ToolCall>,
+    pub tool_call_cancellation: Option<ToolCallCancellation>,
+    /// A fresh handle for resuming this conversation after the socket ends.
+    /// Sent repeatedly through a call; only the latest one is worth keeping.
+    pub session_resumption_update: Option<SessionResumptionUpdate>,
+}
+
+/// The server's offer to let this conversation continue on a new socket.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResumptionUpdate {
+    pub new_handle: Option<String>,
+    /// False while the server is mid-turn — resuming from a handle it has not
+    /// finished writing would replay a half-formed state.
+    #[serde(default)]
+    pub resumable: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerContent {
+    pub model_turn: Option<Content>,
+    /// The user started talking over the answer. The reference is explicit about
+    /// what to do: stop and empty the playback queue. Barge-in, for free.
+    #[serde(default)]
+    pub interrupted: bool,
+    #[serde(default)]
+    pub turn_complete: bool,
+    pub input_transcription: Option<Transcription>,
+    pub output_transcription: Option<Transcription>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+pub struct Transcription {
+    #[serde(default)]
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCall {
+    #[serde(default)]
+    pub function_calls: Vec<FunctionCall>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ToolCallCancellation {
+    #[serde(default)]
+    pub ids: Vec<String>,
+}
+
+/// The audio the model produced in this message, decoded and concatenated.
+///
+/// A turn arrives as several parts, and a part may carry text instead of audio,
+/// so "the audio" is a filter and a join rather than `parts[0]`.
+impl ServerContent {
+    pub fn audio(&self) -> Vec<u8> {
+        use base64::Engine;
+        let Some(turn) = &self.model_turn else { return Vec::new() };
+        let mut pcm = Vec::new();
+        for part in &turn.parts {
+            if let Some(blob) = &part.inline_data {
+                if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&blob.data) {
+                    pcm.extend_from_slice(&bytes);
+                }
+            }
+        }
+        pcm
+    }
+}
+
+/// Microphone bytes → the message that carries them.
+pub fn audio_chunk(pcm: &[u8]) -> ClientMessage {
+    use base64::Engine;
+    ClientMessage::RealtimeInput(RealtimeInput {
+        audio: Some(Blob {
+            mime_type: AUDIO_IN_MIME.to_string(),
+            data: base64::engine::general_purpose::STANDARD.encode(pcm),
+        }),
+        audio_stream_end: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn decl(name: &str) -> FunctionDeclaration {
+        FunctionDeclaration {
+            name: name.to_string(),
+            description: "does a thing".into(),
+            parameters: json!({"type": "object", "properties": {}}),
+            behavior: None,
+        }
+    }
+
+    #[test]
+    fn a_client_message_is_one_camel_case_key() {
+        // The server rejects a message carrying two of these, and reads none of
+        // them if the key is snake_case.
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        assert_eq!(v.as_object().unwrap().len(), 1);
+        assert!(v.get("setup").is_some());
+        // A bare id is qualified for us; an already-qualified one is left alone.
+        assert_eq!(v["setup"]["model"], "models/x");
+        assert_eq!(
+            serde_json::to_value(ClientMessage::Setup(Setup::spoken("models/y", vec![]))).unwrap()
+                ["setup"]["model"],
+            "models/y"
+        );
+        // Empty tools and an absent instruction must not go out as nulls.
+        assert!(v["setup"].get("tools").is_none());
+        assert!(v["setup"].get("systemInstruction").is_none());
+    }
+
+    #[test]
+    fn a_spoken_setup_asks_for_audio_inside_generation_config() {
+        // The failure this guards is silent: ask in the wrong place and the model
+        // replies in text, so the call connects, works, and says nothing.
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        assert_eq!(v["setup"]["generationConfig"]["responseModalities"][0], "AUDIO");
+        assert!(v["setup"].get("responseModalities").is_none());
+        // Both transcripts, or a spoken call leaves no text behind.
+        assert!(v["setup"]["inputAudioTranscription"].is_object());
+        assert!(v["setup"]["outputAudioTranscription"].is_object());
+        // Never compression: sending it ends the call in seconds rather than
+        // extending it past ten minutes. This assertion used to demand the
+        // opposite, which is how a fix that reproduced its own symptom stayed
+        // in — the test pinned the remedy, never the outcome.
+        assert!(v["setup"].get("contextWindowCompression").is_none());
+    }
+
+    #[test]
+    fn a_spoken_setup_commits_the_turn_after_a_short_silence() {
+        // Leaving this implicit produced measured 11-15.2 second gaps between
+        // the last rendered transcript and Gemini closing the user's turn.
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        let detection = &v["setup"]["realtimeInputConfig"]["automaticActivityDetection"];
+
+        assert_eq!(detection["disabled"], false);
+        assert_eq!(detection["silenceDurationMs"], 700);
+    }
+
+    #[test]
+    fn a_spoken_setup_always_pins_a_voice() {
+        // Absent, `speechConfig` means "the server picks", and it picks per
+        // session — so the same assistant answers in a different voice tomorrow.
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        assert_eq!(
+            v["setup"]["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]
+                ["voiceName"],
+            DEFAULT_VOICE,
+        );
+    }
+
+    #[test]
+    fn an_unknown_voice_name_leaves_the_default_rather_than_going_on_the_wire() {
+        // The server answers an unknown voice by dropping the socket, which
+        // arrives as a truncated TLS stream and reads as a network fault.
+        let pinned = Setup::spoken("x", vec![]).with_voice("Puck");
+        let v = serde_json::to_value(ClientMessage::Setup(pinned)).unwrap();
+        let name = |v: &serde_json::Value| {
+            v["setup"]["generationConfig"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]
+                ["voiceName"]
+                .clone()
+        };
+        assert_eq!(name(&v), "Puck");
+
+        // Dropping the pin entirely is what the host does when the server
+        // kills the audio stream over it — see `unpinned`.
+        let none = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]).unpinned())).unwrap();
+        assert!(none["setup"]["generationConfig"].get("speechConfig").is_none());
+
+        for junk in ["", "   ", "NotAVoice", "kore; drop"] {
+            let s = Setup::spoken("x", vec![]).with_voice(junk);
+            let v = serde_json::to_value(ClientMessage::Setup(s)).unwrap();
+            assert_eq!(name(&v), DEFAULT_VOICE, "{junk:?} should not reach the wire");
+        }
+        // Case is the vendor's business, not the user's.
+        let s = Setup::spoken("x", vec![]).with_voice("kore");
+        assert_eq!(name(&serde_json::to_value(ClientMessage::Setup(s)).unwrap()), "kore");
+    }
+
+    #[test]
+    fn a_typed_turn_is_a_complete_client_content_turn() {
+        // Not `realtimeInput`: that is a stream the server segments itself. A
+        // typed line ends where it says it ends, and without `turnComplete` the
+        // server waits for the rest of a sentence that is never coming.
+        let v = serde_json::to_value(text_turn("open github.com/bloom500/cinderpaw")).unwrap();
+        assert_eq!(v.as_object().unwrap().len(), 1);
+        assert_eq!(v["clientContent"]["turnComplete"], true);
+        assert_eq!(v["clientContent"]["turns"][0]["role"], "user");
+        assert_eq!(
+            v["clientContent"]["turns"][0]["parts"][0]["text"],
+            "open github.com/bloom500/cinderpaw"
+        );
+        // A system instruction takes no role, and must not grow one.
+        let setup = serde_json::to_value(ClientMessage::Setup(
+            Setup::spoken("x", vec![]).with_system_instruction("be brief"),
+        ))
+        .unwrap();
+        assert!(setup["setup"]["systemInstruction"].get("role").is_none());
+    }
+
+    #[test]
+    fn a_call_always_asks_for_a_resumption_handle() {
+        // Without this the server issues none, and a call that hits the duration
+        // limit — measured at twelve minutes — has nothing to reconnect with.
+        // Asking costs nothing and is the only thing that makes the wall
+        // survivable, so it is unconditional rather than a setting.
+        let v = serde_json::to_value(ClientMessage::Setup(Setup::spoken("x", vec![]))).unwrap();
+        assert!(
+            v["setup"]["sessionResumption"].is_object(),
+            "the call did not ask for a handle",
+        );
+        assert!(
+            v["setup"]["sessionResumption"].get("handle").is_none(),
+            "a fresh call must not claim to be resuming one",
+        );
+    }
+
+    #[test]
+    fn a_resumed_call_sends_the_handle_back() {
+        let mut setup = Setup::spoken("x", vec![]);
+        setup.session_resumption = Some(SessionResumption { handle: Some("abc123".into()) });
+        let v = serde_json::to_value(ClientMessage::Setup(setup)).unwrap();
+        assert_eq!(v["setup"]["sessionResumption"]["handle"], "abc123");
+    }
+
+    #[test]
+    fn an_unresumable_update_is_read_but_not_trusted() {
+        // The server sends handles mid-turn with `resumable: false`. Resuming
+        // from one of those replays a half-written state, so the flag is the
+        // whole point of parsing this message rather than just taking the id.
+        let msg: ServerMessage = serde_json::from_str(
+            r#"{"sessionResumptionUpdate":{"newHandle":"h1","resumable":false}}"#,
+        )
+        .unwrap();
+        let u = msg.session_resumption_update.expect("parsed");
+        assert_eq!(u.new_handle.as_deref(), Some("h1"));
+        assert!(!u.resumable);
+    }
+
+    #[test]
+    fn setup_serialises_tools_and_instruction_in_camel_case() {
+        let v = serde_json::to_value(ClientMessage::Setup(
+            Setup::spoken("x", vec![decl("web_search")]).with_system_instruction("be brief"),
+        ))
+        .unwrap();
+        assert_eq!(v["setup"]["tools"][0]["functionDeclarations"][0]["name"], "web_search");
+        assert_eq!(v["setup"]["systemInstruction"]["parts"][0]["text"], "be brief");
+        // Unverified field stays out of the wire until someone confirms it.
+        assert!(v["setup"]["tools"][0]["functionDeclarations"][0].get("behavior").is_none());
+    }
+
+    #[test]
+    fn audio_goes_out_as_base64_at_the_rate_the_server_expects() {
+        let v = serde_json::to_value(audio_chunk(&[0x01, 0x02, 0x03])).unwrap();
+        assert_eq!(v["realtimeInput"]["audio"]["mimeType"], AUDIO_IN_MIME);
+        assert_eq!(v["realtimeInput"]["audio"]["data"], "AQID");
+        assert!(v["realtimeInput"].get("audioStreamEnd").is_none());
+    }
+
+    #[test]
+    fn a_tool_response_is_matched_by_id_not_by_name() {
+        let v = serde_json::to_value(ClientMessage::ToolResponse(ToolResponse {
+            function_responses: vec![FunctionResponse {
+                id: "call-2".into(),
+                name: "web_search".into(),
+                response: json!({"output": "ok"}),
+            }],
+        }))
+        .unwrap();
+        assert_eq!(v["toolResponse"]["functionResponses"][0]["id"], "call-2");
+    }
+
+    #[test]
+    fn model_audio_is_decoded_and_joined_across_parts() {
+        let msg: ServerMessage = serde_json::from_value(json!({
+            "serverContent": {
+                "modelTurn": {"parts": [
+                    {"text": "hello"},
+                    {"inlineData": {"mimeType": "audio/pcm", "data": "AQI="}},
+                    {"inlineData": {"mimeType": "audio/pcm", "data": "Aw=="}}
+                ]}
+            }
+        }))
+        .unwrap();
+        assert_eq!(msg.server_content.unwrap().audio(), vec![0x01, 0x02, 0x03]);
+    }
+
+    #[test]
+    fn an_unknown_server_message_parses_instead_of_dropping_the_call() {
+        // A Preview API adds message types. Refusing them would end a call over
+        // a field we do not even read.
+        let msg: ServerMessage =
+            serde_json::from_value(json!({"somethingNewIn2027": {"x": 1}})).unwrap();
+        assert!(msg.server_content.is_none());
+        assert!(msg.tool_call.is_none());
+    }
+
+    #[test]
+    fn interruption_and_tool_calls_are_read_off_the_wire() {
+        let msg: ServerMessage = serde_json::from_value(json!({
+            "serverContent": {"interrupted": true, "turnComplete": true}
+        }))
+        .unwrap();
+        let content = msg.server_content.unwrap();
+        assert!(content.interrupted && content.turn_complete);
+        assert!(content.audio().is_empty());
+
+        let msg: ServerMessage = serde_json::from_value(json!({
+            "toolCall": {"functionCalls": [{"id": "c1", "name": "web_search", "args": {"q": "x"}}]}
+        }))
+        .unwrap();
+        let calls = msg.tool_call.unwrap().function_calls;
+        assert_eq!(calls[0].id, "c1");
+        assert_eq!(calls[0].args["q"], "x");
+    }
+}

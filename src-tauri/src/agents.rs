@@ -46,7 +46,10 @@ pub fn save(cfg: &AgentConfig) -> Result<()> {
     validate_agent_id(&cfg.id)?;
     paths::ensure_dirs()?;
     let path = paths::agents_dir().join(format!("{}.json", cfg.id));
-    std::fs::write(path, serde_json::to_vec_pretty(cfg)?)?;
+    // An agent config carries its system prompt and provider selection, and is
+    // written from the UI on every edit — atomic, so an interrupted save cannot
+    // leave a half-agent that fails to load.
+    cinderpaw_core::atomic_file::write_secret_atomic(&path, &serde_json::to_vec_pretty(cfg)?)?;
     Ok(())
 }
 

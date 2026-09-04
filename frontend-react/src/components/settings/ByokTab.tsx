@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useSettings, type ByokProviderUpdate } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
@@ -73,7 +73,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
       setTimeout(() => setSaveMsg(null), 2000);
     } catch (e) {
       // The Rust command returns Result<(), String> with the real cause
-      // (keychain locked, disk full, permission denied on ~/.feral/byok.json,
+      // (keychain locked, disk full, permission denied on ~/.cinderpaw/byok.json,
       // etc.). Swallowing it in a bare `catch {}` and showing a generic
       // "Save failed" left the user with no way to tell why — the reported
       // "Save Failed" bug on OpenRouter / NVIDIA NIM (2026-08-22) turned out
@@ -91,22 +91,16 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
     setTesting(true);
     setTestMsg(null);
     try {
-      // The Rust command (see `crates/feral-core/src/byok.rs::test_provider`)
-      // returns TestProviderResponse { success, message, models }. The prior
-      // code here read `result.ok` and `result.error` — fields that don't
-      // exist — so every Test click showed "Error: Unknown error" regardless
-      // of whether the probe actually succeeded (result.ok === undefined
-      // → falsy). Read the real field names.
-      const result = (await testByokProvider({
+      // `useSettings.testByokProvider` already normalises Rust's
+      // TestProviderResponse { success, message } into { ok, error } — read
+      // the normalised shape here, not the raw one, or every probe reports
+      // failure because `.success` is undefined on this side.
+      const result = await testByokProvider({
         providerId: def.id,
         apiKey,
         baseUrl: def.hasBaseUrl ? (baseUrl || null) : null,
-      })) as { success?: boolean; message?: string; models?: string[] };
-      setTestMsg(
-        result.success
-          ? '✓ Connected'
-          : `Error: ${result.message ?? 'Unknown error'}`,
-      );
+      });
+      setTestMsg(result.ok ? '✓ Connected' : `Error: ${result.error ?? 'Unknown error'}`);
     } catch (e) {
       const reason = typeof e === 'string' ? e : (e as Error)?.message ?? String(e);
       setTestMsg(`Error: ${reason}`);
@@ -116,22 +110,24 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
   };
 
   const inputCls = 'w-full px-2 py-1.5 rounded-md border border-border-subtle bg-bg-surface text-sm text-text-primary';
-  const btnSecCls = 'px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50';
+  const btnSecCls = SECONDARY_BUTTON;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-border-subtle hover:bg-bg-hover transition-colors text-left">
+      <CollapsibleTrigger className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur-md hover:bg-bg-hover transition-colors text-left">
         <span className="text-sm font-medium text-text-primary">{def.name}</span>
         <span className={cn(
-          'text-xs px-2 py-0.5 rounded-full shrink-0',
-          isActive ? 'bg-green-500/20 text-green-400' : 'bg-bg-hover text-text-muted',
+          'text-xs px-2 py-0.5 rounded-full shrink-0 border',
+          isActive
+            ? 'bg-success/25 border-success/40 text-success-text'
+            : 'bg-black/40 border-white/10 text-text-secondary',
         )}>
           {isActive ? 'Active' : 'Not configured'}
         </span>
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        <div className="px-4 pt-3 pb-4 border border-t-0 border-border-subtle rounded-b-lg space-y-4">
+        <div className="px-4 pt-3 pb-4 border border-t-0 border-border-subtle rounded-b-lg space-y-4 bg-bg-elevated/80 backdrop-blur-md">
           <div className="flex items-center justify-between">
             <span className="text-sm text-text-secondary">Enabled</span>
             <button
@@ -139,7 +135,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
               role="switch"
               aria-checked={enabled}
               onClick={() => setEnabled(!enabled)}
-              className={cn('w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden', enabled ? 'bg-blue-500' : 'bg-neutral-600')}
+              className={cn('w-10 h-6 rounded-full transition-colors duration-200 relative shrink-0 overflow-hidden', enabled ? 'bg-blue-500' : 'bg-border-default')}
             >
               <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
             </button>
@@ -152,7 +148,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
                 type={showKey ? 'text' : 'password'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={state?.has_api_key ? 'Key saved — enter new key to update' : 'sk-...'}
+                placeholder={state?.has_api_key ? 'Key saved, enter new key to update' : 'sk-...'}
                 className={cn(inputCls, 'flex-1 font-mono')}
               />
               <button
@@ -165,7 +161,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
               </button>
             </div>
             {def.keyPrefix && apiKey.startsWith(def.keyPrefix) && (
-              <p className="text-xs text-green-400 mt-1">✓ {def.name} key detected</p>
+              <p className="text-xs text-success mt-1">✓ {def.name} key detected</p>
             )}
           </div>
 
@@ -213,7 +209,7 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
             <button type="button" onClick={() => void handleTest()} disabled={testing || !apiKey} className={btnSecCls}>
               {testing ? 'Testing…' : 'Test'}
             </button>
-            <button type="button" onClick={() => void handleSave()} disabled={saving} className="px-3 py-1.5 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium disabled:opacity-50 transition-colors">
+            <button type="button" onClick={() => void handleSave()} disabled={saving} className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50 transition-colors">
               {saving ? 'Saving…' : 'Save'}
             </button>
             {state?.has_api_key && (
@@ -227,8 +223,8 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
                 Remove key
               </button>
             )}
-            {testMsg && <span className={cn('text-xs', testMsg.startsWith('✓') ? 'text-green-400' : 'text-red-400')}>{testMsg}</span>}
-            {saveMsg && <span className={cn('text-xs', saveMsg.startsWith('✓') ? 'text-text-muted' : 'text-red-400')}>{saveMsg}</span>}
+            {testMsg && <span className={cn('text-xs', testMsg.startsWith('✓') ? 'text-success' : 'text-error')}>{testMsg}</span>}
+            {saveMsg && <span className={cn('text-xs', saveMsg.startsWith('✓') ? 'text-text-muted' : 'text-error')}>{saveMsg}</span>}
           </div>
         </div>
       </CollapsibleContent>
@@ -268,12 +264,25 @@ export function ByokTab() {
   const byok = useSettings((s) => s.byok);
   const providerCatalog = useCatalog((s) => s.providerCatalog);
   const loadProvider = useCatalog((s) => s.loadProvider);
+  const [q, setQ] = useState('');
+  const [onlyConfigured, setOnlyConfigured] = useState(false);
 
   useEffect(() => {
     void loadProvider();
   }, [loadProvider]);
 
   const defs = mergeProviderDefs(providerCatalog);
+  const filtered = defs.filter((d) => {
+    if (onlyConfigured) {
+      const s = byok.find((b) => b.id === d.id);
+      if (!s?.has_api_key) return false;
+    }
+    if (q.trim()) {
+      const needle = q.toLowerCase();
+      if (!d.name.toLowerCase().includes(needle) && !d.id.toLowerCase().includes(needle)) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -281,10 +290,26 @@ export function ByokTab() {
         <h2 className="text-lg font-semibold text-text-primary">Cloud Keys</h2>
         <p className="text-xs text-text-muted mt-1">Add API keys to use cloud AI providers alongside local models.</p>
       </div>
+      <div className="flex items-center gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search providers…"
+          className="flex-1 min-w-0 rounded-md border border-border-subtle bg-bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-brand"
+        />
+        <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer select-none shrink-0">
+          <input type="checkbox" checked={onlyConfigured} onChange={(e) => setOnlyConfigured(e.target.checked)} className="rounded" />
+          Configured only
+        </label>
+      </div>
       <div className="space-y-2">
-        {defs.map((def) => (
-          <ProviderRow key={def.id} def={def} state={byok.find((b) => b.id === def.id)} />
-        ))}
+        {filtered.length === 0 ? (
+          <p className="text-sm text-text-muted py-4 text-center">No providers match.</p>
+        ) : (
+          filtered.map((def) => (
+            <ProviderRow key={def.id} def={def} state={byok.find((b) => b.id === def.id)} />
+          ))
+        )}
       </div>
     </div>
   );

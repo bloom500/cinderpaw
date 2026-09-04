@@ -1,0 +1,423 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {
+  CoworkTranscriptPanel,
+  toMessages,
+  maxBodyHeight,
+  PANEL_MIN_H,
+  PANEL_MAX_H,
+} from '../CoworkTranscriptPanel';
+import { useCoworkTranscript, type CoworkExchange } from '@/stores/coworkTranscript';
+import { useConversations } from '@/stores/conversations';
+import { tauri } from '@/lib/tauri';
+
+vi.mock('@/lib/tauri', () => ({
+  tauri: {
+    cinderpawAgent: {
+      coworkSendMessage: vi.fn().mockResolvedValue(undefined),
+      coworkStop: vi.fn().mockResolvedValue(undefined),
+      // The panel asks for a thread's history on mount. Absent from this mock,
+      // the call threw synchronously — before the component's own `.catch`
+      // could see it — and took every test in the file down with it.
+      coworkHistory: vi.fn().mockResolvedValue(undefined),
+      // Reached through useChat.resolveCoworkApproval when the panel's own
+      // Approve/Deny is used — the same store action the mascot bubble calls.
+      coworkApprovalResolve: vi.fn().mockResolvedValue(undefined),
+    },
+  },
+}));
+
+/**
+ * The panel is a group chat, not a list of exchange cards, so these pin what a
+ * chat has to get right: who spoke, in what order, whose name shows, and
+ * whether anyone is still typing. The behavioural guarantees from the card
+ * version — self-hiding on a fresh install, collapse persistence, both halves
+ * of an exchange visible — are unchanged and still asserted here.
+ */
+
+function exchange(overrides: Partial<CoworkExchange>): CoworkExchange {
+  return {
+    id: overrides.id ?? crypto.randomUUID(),
+    threadId: 't1',
+    kind: 'message',
+    fromAgentId: 'human',
+    toAgentId: 'demo-agent-atlas',
+    toName: 'Atlas',
+    requestText: 'count the files',
+    responseText: null,
+    status: 'running',
+    at: new Date(2026, 7, 25, 14, 30).getTime(),
+    ...overrides,
+  };
+}
+
+// The panel renders one THREAD's traffic, so every test needs a chat open —
+// exactly as the app does. `exchange()` files its rows under 't1'.
+beforeEach(() => {
+  useConversations.setState({ currentId: 't1' });
+  useCoworkTranscript.setState({ activeThreadId: 't1' });
+});
+
+afterEach(() => {
+  useConversations.setState({ currentId: null });
+  useCoworkTranscript.setState({ exchanges: [], activeThreadId: null });
+  localStorage.removeItem('cowork-panel-collapsed');
+  // Without this a "was not called" assertion passes or fails depending on
+  // what the previous test did — the exact way a negative assertion rots.
+  vi.clearAllMocks();
+});
+
+describe('toMessages — exchanges flattened into a conversation', () => {
+  test('a request and its reply become two messages, in that order', () => {
+    const msgs = toMessages([
+      exchange({ id: 'm1', responseText: 'done — 42 files', status: 'done' }),
+    ]);
+    expect(msgs.map((m) => m.text)).toEqual(['count the files', 'done — 42 files']);
+    expect(msgs.map((m) => m.authorId)).toEqual(['human', 'demo-agent-atlas']);
+  });
+
+  test('the human sits on the right, agents on the left — same as the app chat', () => {
+    const msgs = toMessages([
+      exchange({ id: 'm1', responseText: 'ok', status: 'done' }),
+    ]);
+    expect(msgs[0]?.side).toBe('right');
+    expect(msgs[1]?.side).toBe('left');
+  });
+
+  test('an unanswered request is one message, not an empty reply bubble', () => {
+    expect(toMessages([exchange({ id: 'm1' })])).toHaveLength(1);
+  });
+
+  test('approvals are not chat messages — they get their own row', () => {
+    const msgs = toMessages([
+      exchange({ id: 'a1', kind: 'approval', requestText: 'rm -rf dist/' }),
+    ]);
+    expect(msgs).toEqual([]);
+  });
+
+  test('a failed reply is marked so the bubble can show it', () => {
+    const msgs = toMessages([
+      exchange({ id: 'm1', responseText: 'model unreachable', status: 'error' }),
+    ]);
+    expect(msgs[1]?.failed).toBe(true);
+  });
+});
+
+describe('CoworkTranscriptPanel', () => {
+  test('renders NOTHING with zero cowork traffic (fresh-install discipline)', () => {
+    const { container } = render(<CoworkTranscriptPanel />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  test('renders both sides of the conversation', () => {
+    useCoworkTranscript.setState({
+      exchanges: [exchange({ id: 'msg:m1', responseText: 'done — 42 files', status: 'done' })],
+    });
+    render(<CoworkTranscriptPanel />);
+    expect(screen.getByTestId('cowork-transcript-panel')).toBeInTheDocument();
+    expect(screen.getByText('count the files')).toBeInTheDocument();
+    expect(screen.getByText('done — 42 files')).toBeInTheDocument();
+  });
+
+  test('speakers are named from the roster, never by raw id', () => {
+    // The whole point of carrying agentName through the event: a person must
+    // not have to read "demo-agent-atlas" to find out who answered.
+    useCoworkTranscript.setState({
+      exchanges: [exchange({ id: 'm1', responseText: 'done', status: 'done' })],
+    });
+    render(<CoworkTranscriptPanel />);
+    expect(screen.getAllByText('Atlas').length).toBeGreaterThan(0);
+    expect(screen.queryByText('demo-agent-atlas')).toBeNull();
+  });
+
+  test('an id with no roster name still renders, trimmed', () => {
+    useCoworkTranscript.setState({
+      exchanges: [
+        exchange({ id: 'm1', toAgentId: 'stranger', toName: undefined, responseText: 'hi', status: 'done' }),
+      ],
+    });
+    render(<CoworkTranscriptPanel />);
+    expect(screen.getAllByText('stranger').length).toBeGreaterThan(0);
+  });
+
+  test('a working agent shows a typing row that names them', () => {
+    useCoworkTranscript.setState({
+      exchanges: [exchange({ id: 'live', status: 'running', responseText: null })],
+    });
+    render(<CoworkTranscriptPanel />);
+    expect(screen.getByText(/Atlas is working/)).toBeInTheDocument();
+  });
+
+  test('no typing row once the reply has landed', () => {
+    useCoworkTranscript.setState({
+      exchanges: [exchange({ id: 'x', status: 'done', responseText: 'ok' })],
+    });
+    render(<CoworkTranscriptPanel />);
+    expect(screen.queryByText(/is working/)).toBeNull();
+  });
+
+  test('collapse toggle hides the transcript and persists its state', async () => {
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'y' })] });
+    const { unmount } = render(<CoworkTranscriptPanel />);
+    await userEvent.click(screen.getByRole('button', { name: /Collapse cowork transcript/ }));
+    expect(screen.queryByText('count the files')).toBeNull();
+    expect(localStorage.getItem('cowork-panel-collapsed')).toBe('1');
+    unmount();
+
+    // A remount honours the persisted collapsed state.
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'z', requestText: 'again' })] });
+    render(<CoworkTranscriptPanel />);
+    expect(screen.queryByText('again')).toBeNull();
+
+    // Collapsed, the control is the bubble — named for what it does, not for
+    // who is in the conversation. Querying it by a participant's name is what
+    // made this assertion depend on the panel's visual state.
+    await userEvent.click(screen.getByRole('button', { name: /Open cowork transcript/ }));
+    expect(localStorage.getItem('cowork-panel-collapsed')).toBe('0');
+  });
+
+  test('a blocked storage read does not take the panel down', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('storage blocked');
+      },
+    });
+    try {
+      useCoworkTranscript.setState({ exchanges: [exchange({ id: 'q' })] });
+      render(<CoworkTranscriptPanel />);
+      expect(screen.getByTestId('cowork-transcript-panel')).toBeInTheDocument();
+    } finally {
+      if (original) Object.defineProperty(window, 'localStorage', original);
+    }
+  });
+
+  test('an approval is a system row, with its class and who is asking', () => {
+    useCoworkTranscript.setState({
+      exchanges: [
+        exchange({
+          id: 'approval:r1',
+          kind: 'approval',
+          fromAgentId: 'demo-agent-bolt',
+          fromName: 'Bolt',
+          toAgentId: 'human',
+          requestText: 'rm -rf dist/',
+          approvalClass: 'delete',
+          status: 'running',
+          responseText: null,
+        }),
+      ],
+    });
+    render(<CoworkTranscriptPanel />);
+    expect(screen.getByText('delete')).toBeInTheDocument();
+    expect(screen.getByText(/Bolt needs your approval/)).toBeInTheDocument();
+    // WHAT is being approved, not just that something is.
+    expect(screen.getByText('rm -rf dist/')).toBeInTheDocument();
+  });
+
+  test('a pending approval is answerable from the panel that reports it', async () => {
+    useCoworkTranscript.setState({
+      exchanges: [
+        exchange({
+          id: 'approval:r7',
+          kind: 'approval',
+          fromAgentId: 'demo-agent-bolt',
+          fromName: 'Bolt',
+          toAgentId: 'human',
+          requestText: 'rm -rf dist/',
+          approvalClass: 'delete',
+          status: 'running',
+          responseText: null,
+        }),
+      ],
+    });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.click(screen.getByRole('button', { name: 'Deny' }));
+    expect(tauri.cinderpawAgent.coworkApprovalResolve).toHaveBeenCalledWith('r7', false);
+    // And the buttons detach, so the decision cannot be sent twice.
+    expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
+  });
+
+  test('a settled approval offers no buttons', () => {
+    useCoworkTranscript.setState({
+      exchanges: [
+        exchange({
+          id: 'approval:r8',
+          kind: 'approval',
+          fromAgentId: 'demo-agent-bolt',
+          fromName: 'Bolt',
+          toAgentId: 'human',
+          requestText: 'rm -rf dist/',
+          status: 'done',
+          responseText: null,
+        }),
+      ],
+    });
+    render(<CoworkTranscriptPanel />);
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
+
+  test('clicking the app behind the panel does NOT close it mid-sentence', async () => {
+    // It is a transcript with a text box, not a modal. Losing a half-typed
+    // message because you glanced at the chat behind it is not a dismissal.
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(
+      <>
+        <button type="button">somewhere else</button>
+        <CoworkTranscriptPanel />
+      </>,
+    );
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'half a thought');
+    await userEvent.click(screen.getByRole('button', { name: 'somewhere else' }));
+    expect(screen.getByTestId('cowork-transcript-panel')).toBeInTheDocument();
+    expect(
+      (screen.getByPlaceholderText(/Message Atlas/) as HTMLInputElement).value,
+    ).toBe('half a thought');
+  });
+
+  test('a position saved on a bigger screen is pulled back into this one', () => {
+    // The stored value wins on every launch, so an unclamped one puts the
+    // panel permanently off-screen with nothing left to click.
+    localStorage.setItem('cowork-panel-pos', JSON.stringify({ top: 4000, right: 4000 }));
+    try {
+      useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+      render(<CoworkTranscriptPanel />);
+      const panel = screen.getByTestId('cowork-transcript-panel');
+      expect(parseFloat(panel.style.top)).toBeLessThanOrEqual(window.innerHeight - 80);
+      expect(parseFloat(panel.style.right)).toBeLessThanOrEqual(window.innerWidth - 80);
+    } finally {
+      localStorage.removeItem('cowork-panel-pos');
+    }
+  });
+});
+
+describe('talking to a teammate directly', () => {
+  test('a teammate speaking mid-sentence does NOT readdress the draft', async () => {
+    // The recipient follows whoever spoke last, which is right for an empty
+    // box and wrong the instant there is a draft in it: you begin a message to
+    // Atlas, Bolt answers something unrelated, and the send goes to Bolt. The
+    // only sign is a 10px select at the far end of the row, so the first time
+    // you learn about it is when the wrong teammate replies.
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'for you, Atlas');
+
+    useCoworkTranscript.setState({
+      exchanges: [
+        exchange({ id: 'm1' }),
+        exchange({
+          id: 'm2',
+          fromAgentId: 'demo-agent-bolt',
+          toAgentId: 'demo-agent-bolt',
+          toName: 'Bolt',
+          responseText: 'unrelated',
+          status: 'done',
+        }),
+      ],
+    });
+
+    await userEvent.keyboard('{Enter}');
+    expect(tauri.cinderpawAgent.coworkSendMessage).toHaveBeenCalledWith(
+      'demo-agent-atlas',
+      'for you, Atlas',
+      't1',
+    );
+  });
+
+
+  test('sends to the teammate who spoke last, in the same thread', async () => {
+    useCoworkTranscript.setState({
+      exchanges: [exchange({ id: 'm1', responseText: 'done', status: 'done' })],
+    });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'thanks');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(tauri.cinderpawAgent.coworkSendMessage).toHaveBeenCalledWith(
+      'demo-agent-atlas',
+      'thanks',
+      't1',
+    );
+  });
+
+  test('Enter sends; the box empties', async () => {
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(<CoworkTranscriptPanel />);
+    const box = screen.getByPlaceholderText(/Message Atlas/);
+    await userEvent.type(box, 'hello{Enter}');
+    expect(tauri.cinderpawAgent.coworkSendMessage).toHaveBeenCalled();
+    expect((box as HTMLInputElement).value).toBe('');
+  });
+
+  test('whitespace is not a message', async () => {
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), '   {Enter}');
+    expect(tauri.cinderpawAgent.coworkSendMessage).not.toHaveBeenCalled();
+  });
+
+  test('a failed send is reported ON SCREEN, not swallowed', async () => {
+    vi.mocked(tauri.cinderpawAgent.coworkSendMessage).mockRejectedValueOnce(
+      new Error('cinderpaw-agent is not running'),
+    );
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'm1' })] });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.type(screen.getByPlaceholderText(/Message Atlas/), 'hi{Enter}');
+    expect(await screen.findByText(/cinderpaw-agent is not running/)).toBeInTheDocument();
+  });
+
+  test('Stop aborts that teammate, not the whole app', async () => {
+    useCoworkTranscript.setState({
+      exchanges: [exchange({ id: 'live', status: 'running', responseText: null })],
+    });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(tauri.cinderpawAgent.coworkStop).toHaveBeenCalledWith('demo-agent-atlas');
+  });
+});
+
+/**
+ * The resize you cannot undo.
+ *
+ * The old clamp was `Math.min(MAX, roomLeft, Math.max(MIN, wanted))` — the
+ * floor sat INSIDE the min and lost to it. A short window, or a panel dragged
+ * near the bottom, made `roomLeft` smaller than the minimum (or negative), the
+ * body collapsed to a strip, and the resize grip went with it: there was no
+ * gesture left that could make the panel big again.
+ */
+describe('the height ceiling', () => {
+  const dock = (topPx: number) => {
+    const el = document.createElement('div');
+    el.setAttribute('data-chat-input-dock', '');
+    el.getBoundingClientRect = () => ({ top: topPx }) as DOMRect;
+    document.body.appendChild(el);
+    return el;
+  };
+
+  afterEach(() => {
+    document.querySelectorAll('[data-chat-input-dock]').forEach((e) => e.remove());
+  });
+
+  test('never returns less than the minimum, however cramped the window', () => {
+    dock(120); // composer almost at the top: no room at all
+    expect(maxBodyHeight(100)).toBe(PANEL_MIN_H);
+  });
+
+  test('never returns less than the minimum when the panel is dragged below the composer', () => {
+    dock(400);
+    expect(maxBodyHeight(900)).toBe(PANEL_MIN_H); // negative room
+  });
+
+  test('stops at the composer, not at the bottom of the window', () => {
+    dock(600);
+    // 600 (dock) - 40 (panel top) - 132 (chrome) - 12 (gap) = 416
+    expect(maxBodyHeight(40)).toBe(416);
+  });
+
+  test('falls back to the viewport when no composer is on the page', () => {
+    // No dock element: the panel is being rendered somewhere without one.
+    expect(maxBodyHeight(40)).toBeGreaterThanOrEqual(PANEL_MIN_H);
+    expect(maxBodyHeight(40)).toBeLessThanOrEqual(PANEL_MAX_H);
+  });
+});

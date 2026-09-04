@@ -56,18 +56,27 @@ export const useDownload = create<DownloadStore>((set, get) => ({
 // ── Module-level listeners — always-on, outlive any component ────────────────
 // CRITICAL: these MUST be outside create() so they fire even when the
 // component that called start() has unmounted (e.g. navigated away).
-void listen<DownloadProgressEvent>('feral://download-progress', (e) => {
+void listen<DownloadProgressEvent>('cinderpaw://download-progress', (e) => {
   const { active } = useDownload.getState();
   const key = `${e.payload.repoId}::${e.payload.filename}`;
   if (active?.key !== key) return;
   useDownload.setState({ active: { ...active, progress: e.payload.progress } });
 });
 
-void listen<DownloadCompleteEvent>('feral://download-complete', () => {
+// Every handler below checks the key first, the way the progress handler
+// already did. Without it a LATE event from a download the user cancelled —
+// the backend only learns about a cancel after the fact — cleared the state of
+// the download they had just started instead: the new one vanished from the UI
+// mid-transfer while it was still running underneath.
+void listen<DownloadCompleteEvent>('cinderpaw://download-complete', (e) => {
+  const { active } = useDownload.getState();
+  if (active?.key !== `${e.payload.repoId}::${e.payload.filename}`) return;
   useDownload.setState({ active: null, done: true, error: null });
 });
 
-void listen<DownloadErrorEvent>('feral://download-error', (e) => {
+void listen<DownloadErrorEvent>('cinderpaw://download-error', (e) => {
+  const { active } = useDownload.getState();
+  if (active?.key !== `${e.payload.repoId}::${e.payload.filename}`) return;
   if (e.payload.cancelled) {
     useDownload.setState({ active: null, done: false, error: null });
   } else {

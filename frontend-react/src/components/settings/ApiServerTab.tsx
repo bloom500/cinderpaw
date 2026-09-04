@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { cn } from '@/lib/utils';
+import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 import { tauri } from '@/lib/tauri';
 
@@ -38,7 +38,7 @@ export function ApiServerTab() {
     setTimeout(() => setTokenCopied(false), 1500);
   };
 
-  const btnCls = 'px-3 py-1.5 rounded-md border border-border-subtle text-sm text-text-secondary hover:bg-bg-hover transition-colors';
+  const btnCls = SECONDARY_BUTTON;
   const rowCls = 'flex items-center justify-between gap-4';
 
   return (
@@ -103,7 +103,7 @@ export function ApiServerTab() {
         <p className="text-sm font-medium text-text-primary">Access token</p>
         <p className="text-xs text-text-muted">
           Every request must include <span className="font-mono">Authorization: Bearer &lt;token&gt;</span>.
-          The token rotates each time Feral restarts.
+          The token rotates each time Cinderpaw restarts.
         </p>
         <div className="flex gap-2">
           <input
@@ -126,7 +126,7 @@ export function ApiServerTab() {
           type="button"
           onClick={() => void save()}
           disabled={saving || !settings}
-          className="px-4 py-2 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+          className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>

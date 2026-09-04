@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"feral-tui/api"
-	"feral-tui/ui"
+	"cinderpaw-tui/api"
+	"cinderpaw-tui/ui"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -265,7 +265,7 @@ type App struct {
 	// `/setup classic` and `--wizard`.
 	Guided GuidedState
 	// ForceClassicWizard is set by the `--wizard` CLI flag (the
-	// `feral setup --classic` path) so BootComplete opens the classic
+	// `cinderpaw setup --classic` path) so BootComplete opens the classic
 	// wizard instead of the guided flow.
 	ForceClassicWizard bool
 	// renderWidth tracks the msgWidth used during the last buildChatContent
@@ -732,7 +732,7 @@ func (a *App) renderTurn(turn *Turn, msgWidth int) string {
 				if turn.Streaming && i == len(lines)-1 {
 					line += ui.Cursor.Render(ui.G.Cursor)
 				}
-				b.WriteString(gutter + ui.FeralContent.Render(line))
+				b.WriteString(gutter + ui.CinderpawContent.Render(line))
 				b.WriteByte('\n')
 			}
 		} else {

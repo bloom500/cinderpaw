@@ -9,10 +9,10 @@
 // Security / SetupMode / ConfigHandling / Resume / Hardware / every
 // other step (no per-step row lines, no per-step boxes that drift).
 //
-// Auto-collapses to ASCII-only borders when FERAL_ASCII=1 / TERM=dumb /
+// Auto-collapses to ASCII-only borders when CINDERPAW_ASCII=1 / TERM=dumb /
 // non-UTF-8 locale (the same gate ui.GlyphSet already enforces). Branded
 // lipgloss colors come from styles.go's Accent/AccentDim/Text/Meta. The
-// header strip and footer stay usable when FERAL_ASCII=1 (no Unicode
+// header strip and footer stay usable when CINDERPAW_ASCII=1 (no Unicode
 // symbols in this file — only `+`, `-`, `|`, `=`, `>`).
 package ui
 
@@ -83,7 +83,7 @@ func RenderWizardFrame(width int, f WizardFrame) string {
 }
 
 // renderWizardHeader produces the top strip that runs above every wizard
-// step. Layout: `FERAL · setup wizard` flush-left, then a generous run
+// step. Layout: `CINDERPAW · setup wizard` flush-left, then a generous run
 // of spaces, then `step 3 of 16 · Security` flush-right. The whole line
 // is a single row of ASCII-only characters so it renders identically
 // regardless of glyph set (Unicode / ASCII).

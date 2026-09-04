@@ -1,4 +1,4 @@
-# RSI Evolution Spec — Feral → True Recursive Self-Improvement
+# RSI Evolution Spec — Cinderpaw → True Recursive Self-Improvement
 
 > **Status:** Draft for Opus implementation (2 days)
 > **Author:** bloom500 + opencode
@@ -11,7 +11,7 @@
 
 ### 1.1 Current Architecture
 
-Feral's "RSI" is a **config evolution engine** — an evolutionary algorithm that tunes agent configuration parameters against a frozen eval suite and ratchets improvements to git.
+Cinderpaw's "RSI" is a **config evolution engine** — an evolutionary algorithm that tunes agent configuration parameters against a frozen eval suite and ratchets improvements to git.
 
 **Genome (the unit of evolution):**
 ```typescript
@@ -43,7 +43,7 @@ interface GenomeConfig {
 
 ### 1.2 Gap vs. True RSI
 
-| Dimension | Wikipedia RSI | Anthropic RSI | Sakana DGM | Feral Faza 1 |
+| Dimension | Wikipedia RSI | Anthropic RSI | Sakana DGM | Cinderpaw Faza 1 |
 |-----------|---------------|----------------|------------|----------------|
 | **What it rewrites** | Own source code | Architecture + training + code | Own codebase | Config parameters (7 fields) |
 | **Level of change** | Code → arch → hardware | Code + training pipeline | Agent code + foundation model | JSON config |
@@ -51,7 +51,7 @@ interface GenomeConfig {
 | **Recursive?** | Yes — each iteration makes next more capable | Yes — 80% code by AI | Yes — continuous lineage | Partial — improvements don't apply to RSI itself |
 | **Self-modifies?** | Yes | Yes | Yes | No |
 
-**The core gap:** Feral optimizes the policy (config) but not the implementation (code). True RSI means the system improves the mechanism that does the improving.
+**The core gap:** Cinderpaw optimizes the policy (config) but not the implementation (code). True RSI means the system improves the mechanism that does the improving.
 
 ---
 
@@ -72,7 +72,7 @@ Each Faza is a **superset** of the previous one. The existing Faza 1 engine keep
 - New eval kind: `"code_quality"` — edit code → run tests → measure pass rate
 - New mutation operator: LLM-driven code proposal (the agent suggests patches)
 - New bridge method: `rsi_commit_code_patch` (version-control code changes)
-- New eval task: "run FeralAgent's own test suite and measure pass rate"
+- New eval task: "run CinderpawAgent's own test suite and measure pass rate"
 
 **Genome type:**
 ```typescript
@@ -106,7 +106,7 @@ interface CodeGenome {
 
 **Guardrails:**
 - **Max lines changed per iteration:** 200 lines (prevents wholesale rewrite)
-- **File-type restriction:** Only `.ts` files in `FeralAgent/src/rsi/` (the evolution engine itself — not the whole app)
+- **File-type restriction:** Only `.ts` files in `CinderpawAgent/src/rsi/` (the evolution engine itself — not the whole app)
 - **Tier 0 invariant:** "All 1255 existing tests must still pass" — this is the fitness floor
 - **Rollback:** If live agent crashes after applying a code patch, auto-revert to last known-good commit
 - **Human approval gate:** First 10 code patches require UI confirmation before apply
@@ -336,15 +336,15 @@ interface ModelGenome {
 ### Day 1: Faza 2 (Code Evolution)
 
 **Morning (4h):**
-1. Define `CodeGenome` type in `FeralAgent/src/rsi/code-genome.ts`
+1. Define `CodeGenome` type in `CinderpawAgent/src/rsi/code-genome.ts`
 2. Implement `rsi_commit_code_patch` bridge method in `src-tauri/src/rsi/commands.rs`
-3. Implement `makeCommitCodePatchAdapter` in `FeralAgent/src/rsi/adapters.ts`
-4. Implement code-RSI eval runner: `makeRunCodeEval` in `FeralAgent/src/rsi/run-code-eval.ts`
+3. Implement `makeCommitCodePatchAdapter` in `CinderpawAgent/src/rsi/adapters.ts`
+4. Implement code-RSI eval runner: `makeRunCodeEval` in `CinderpawAgent/src/rsi/run-code-eval.ts`
 5. Wire code-RSI eval kind into `eval-spec.ts`
 
 **Afternoon (4h):**
-6. Implement code-RSI mutation operator: `makeCodeMutationOperator` in `FeralAgent/src/rsi/code-mutation.ts`
-7. Implement rollback mechanism: `autoRevertOnCrash` in `FeralAgent/src/rsi/code-rollback.ts`
+6. Implement code-RSI mutation operator: `makeCodeMutationOperator` in `CinderpawAgent/src/rsi/code-mutation.ts`
+7. Implement rollback mechanism: `autoRevertOnCrash` in `CinderpawAgent/src/rsi/code-rollback.ts`
 8. Add code-RSI scorer addition to `src-tauri/src/rsi/scorer.rs`
 9. Wire code-RSI into engine composition root (`engine.ts`)
 10. Write tests for all new components
@@ -352,7 +352,7 @@ interface ModelGenome {
 ### Day 2: Faza 3 (Meta-Evolution) + Integration
 
 **Morning (4h):**
-1. Define `MetaGenome` type in `FeralAgent/src/rsi/meta-genome.ts`
+1. Define `MetaGenome` type in `CinderpawAgent/src/rsi/meta-genome.ts`
 2. Implement `rsi_apply_meta_patch` bridge method
 3. Implement meta-RSI mutation operator
 4. Implement meta-RSI eval runner (mini-evolution benchmark)
@@ -442,7 +442,7 @@ This name is **accurate for Faza 5** but **overpromises for Faza 1-2**.
 
 - **Faza 1-2:** Call it **"Config Evolution"** or **"Agent Genome Evolution (AGE)"** — this is what it actually does
 - **Faza 3-5:** Call it **"RSI"** — at this point the system is genuinely self-improving the mechanism that does the improving
-- **In marketing:** Use the full name with a footnote: *"Feral uses Agent Genome Evolution (AGE) today, with a roadmap to full Recursive Self-Improvement (RSI) across 5 development phases."*
+- **In marketing:** Use the full name with a footnote: *"Cinderpaw uses Agent Genome Evolution (AGE) today, with a roadmap to full Recursive Self-Improvement (RSI) across 5 development phases."*
 
 ### Why this matters
 
@@ -454,7 +454,7 @@ Every AI researcher who sees "RSI" will immediately think of Yudkowsky, Bostrom,
 
 ### Academic/Industry RSI
 
-| Source | Key Insight | Applicable to Feral |
+| Source | Key Insight | Applicable to Cinderpaw |
 |--------|-------------|---------------------|
 | Wikipedia RSI | "Seed improver" that rewrites own code | Faza 5 target |
 | Anthropic "When AI Builds Itself" (2026) | AI writes 80% of code; semi-autonomous R&D loop | Faza 2-3 architecture |
@@ -465,7 +465,7 @@ Every AI researcher who sees "RSI" will immediately think of Yudkowsky, Bostrom,
 
 ### Safety References
 
-| Source | Key Insight | Applicable to Feral |
+| Source | Key Insight | Applicable to Cinderpaw |
 |--------|-------------|---------------------|
 | DGM Safety | Transparent lineage, sandboxed eval, but agent hacked hallucination detection | Our audit log + SandboxBounds |
 | Anthropic Constitutional AI | Immutable principles constrain self-modification | Our immutable core (scorer, Tier 0, bounds) |
@@ -503,7 +503,7 @@ Every AI researcher who sees "RSI" will immediately think of Yudkowsky, Bostrom,
 
 ## 8. Open Questions
 
-1. **Should Faza 2 code patches be limited to `rsi/` directory or expanded to the whole `FeralAgent/src/`?** Recommendation: Start with `rsi/` only, expand after validation.
+1. **Should Faza 2 code patches be limited to `rsi/` directory or expanded to the whole `CinderpawAgent/src/`?** Recommendation: Start with `rsi/` only, expand after validation.
 
 2. **How do we handle the sidecar rebuild?** After code changes, the TypeScript needs to be recompiled. Options:
    - Hot-reload via dynamic imports (if Bun supports it)

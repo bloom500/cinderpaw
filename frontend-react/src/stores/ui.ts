@@ -13,23 +13,54 @@ export type WhisperModel = 'small' | 'base';
  *  (first mic tap opens the provider card). `groq` = cloud whisper-large-v3. */
 export type SttProvider = 'local' | 'groq';
 
-const REASONING_CYCLE: ReasoningMode[] = ['auto', 'on', 'off'];
+export type CallEngine = 'pipeline' | 'live' | 'livekit';
+
+/**
+ * The engines a person can actually pick, newest first.
+ *
+ * `pipeline` and `live` are retired, not deleted: the day a new engine
+ * misbehaves is the day somebody needs the old one back, and deleting the code
+ * is the one version of that decision which cannot be undone in an afternoon.
+ * They are gone from the picker and nothing selects them any more.
+ */
+export const CALL_ENGINES: readonly CallEngine[] = ['livekit'];
+
+/**
+ * Engines that still run but are no longer offered.
+ *
+ * This list is load-bearing, not documentation. Dropping the two values from
+ * the picker only stops them being CHOSEN — every machine that already picked
+ * one has it sitting in `cinderpaw-ui` and would keep running a retired engine
+ * forever, with nothing on screen saying why voice behaves differently there
+ * than everywhere else. `merge` below reads this and moves those machines over.
+ */
+export const RETIRED_CALL_ENGINES: readonly CallEngine[] = ['pipeline', 'live'];
 
 interface UIStore {
-  sidebarCollapsed: boolean;
+  /** Navigation chrome only. Nothing about the agent or the runtime lives
+   *  here — the rail answers "where do I want to go" and nothing else. */
+  navCollapsed: boolean;
+  toggleNav: () => void;
   theme: ThemePref;
   resolvedTheme: ResolvedTheme;
   language: LangPref;
+  /** Read-only, and neither persisted nor settable. The composer controls that
+   *  used to write these are gone, so the setters went with them rather than
+   *  staying as an API nothing calls. `useSendMessage` and `MessageItem` still
+   *  read them — at their defaults, which is the only value they ever had that
+   *  was right for everybody. */
   reasoningMode: ReasoningMode;
   enabledTools: ToolId[];
-  toggleSidebar: () => void;
   setTheme: (t: ThemePref) => void;
   setLanguage: (l: LangPref) => void;
-  cycleReasoningMode: () => void;
-  setReasoningMode: (m: ReasoningMode) => void;
-  toggleTool: (id: ToolId) => void;
   searchOpen:  boolean;
-  openSearch:  () => void;
+  /**
+   * Project the search should open narrowed to, when it was opened from
+   * something that already names one (a Home card). Null means search
+   * everything, which is what ⌘K and the menu item do.
+   */
+  searchScopeId: string | null;
+  openSearch:  (projectId?: string) => void;
   closeSearch: () => void;
   skillsOpen:  boolean;
   openSkills:  () => void;
@@ -45,6 +76,51 @@ interface UIStore {
   /** Chosen STT backend. `null` until the user picks in the provider card. */
   sttProvider: SttProvider | null;
   setSttProvider: (p: SttProvider) => void;
+  /**
+   * Chosen voice (TTS) engine id, from the Rust catalog — a string rather than a
+   * union because the catalog is the source of truth and a TS union here would
+   * be a second list to keep in sync. `null` until the user picks on the first
+   * call, which is also what makes the picker appear.
+   */
+  ttsProvider: string | null;
+  setTtsProvider: (id: string) => void;
+  /**
+   * Which kind of call runs: the `STT → model → TTS` pipeline, or a
+   * speech-to-speech session where one model does all three.
+   *
+   * Not a value in `ttsProvider`, even though picking it is the same gesture:
+   * listing Gemini Live beside Piper and Fish would say it is a voice for the
+   * pipeline, and it is a replacement for the pipeline. The two run on different
+   * loops and only one of them has a text-to-speech engine at all.
+   *
+   * Only `livekit` is offered now — see `CALL_ENGINES`. The other two still run
+   * if something selects them, which is what makes them recoverable rather than
+   * deleted.
+   */
+  callEngine: CallEngine;
+  setCallEngine: (e: CallEngine) => void;
+  /**
+   * Which speech-to-speech vendor the LiveKit call runs on, by BYOK id.
+   *
+   * `null` until picked, and `null` is a working state rather than a broken
+   * one: Rust falls back to whichever provider has a key stored. Someone who
+   * pastes an OpenAI key and never opens this picker still gets a talking call,
+   * which is the point — no vendor is built into the call, and the app must not
+   * require a second gesture to notice the first one.
+   */
+  s2sProvider: string | null;
+  setS2sProvider: (id: string | null) => void;
+  /**
+   * Chosen voice per engine id.
+   *
+   * Per engine, because a voice id is only meaningful to the vendor that issued
+   * it — switching engines must not carry a dead id across. Pinning one also
+   * fixes a real defect: a reply split into two synthesis requests with no
+   * explicit voice came back in two different voices, since "the default" is
+   * resolved per request on the vendor's side.
+   */
+  ttsVoice: Record<string, string>;
+  setTtsVoice: (engineId: string, voiceId: string) => void;
 }
 
 const getSystemTheme = (): ResolvedTheme =>
@@ -59,13 +135,13 @@ const applyTheme = (resolved: ResolvedTheme) =>
 export const useUI = create<UIStore>()(
   persist(
     (set) => ({
-      sidebarCollapsed: false,
+      navCollapsed: false,
+      toggleNav: () => set((s) => ({ navCollapsed: !s.navCollapsed })),
       theme: 'dark',
       resolvedTheme: 'dark',
       language: 'en',
       reasoningMode: 'auto',
       enabledTools: [],
-      toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setLanguage: (language) => {
         document.documentElement.lang = language;
         set({ language });
@@ -75,21 +151,10 @@ export const useUI = create<UIStore>()(
         applyTheme(resolved);
         set({ theme, resolvedTheme: resolved });
       },
-      cycleReasoningMode: () =>
-        set((s) => {
-          const idx = REASONING_CYCLE.indexOf(s.reasoningMode);
-          return { reasoningMode: REASONING_CYCLE[(idx + 1) % REASONING_CYCLE.length] };
-        }),
-      setReasoningMode: (reasoningMode) => set({ reasoningMode }),
-      toggleTool: (id) =>
-        set((s) => ({
-          enabledTools: s.enabledTools.includes(id)
-            ? s.enabledTools.filter((t) => t !== id)
-            : [...s.enabledTools, id],
-        })),
       searchOpen: false,
-      openSearch:  () => set({ searchOpen: true }),
-      closeSearch: () => set({ searchOpen: false }),
+      searchScopeId: null,
+      openSearch:  (projectId) => set({ searchOpen: true, searchScopeId: projectId ?? null }),
+      closeSearch: () => set({ searchOpen: false, searchScopeId: null }),
       skillsOpen:  false,
       openSkills:  () => set({ skillsOpen: true }),
       closeSkills: () => set({ skillsOpen: false }),
@@ -101,20 +166,59 @@ export const useUI = create<UIStore>()(
       setWhisperModel: (whisperModel) => set({ whisperModel }),
       sttProvider: null,
       setSttProvider: (sttProvider) => set({ sttProvider }),
+      ttsProvider: null,
+      setTtsProvider: (ttsProvider) => set({ ttsProvider }),
+      callEngine: 'livekit',
+      setCallEngine: (callEngine) => set({ callEngine }),
+      s2sProvider: null,
+      setS2sProvider: (s2sProvider) => set({ s2sProvider }),
+      ttsVoice: {},
+      setTtsVoice: (engineId, voiceId) =>
+        set((s) => ({ ttsVoice: { ...s.ttsVoice, [engineId]: voiceId } })),
     }),
     {
-      name: 'feral-ui',
+      name: 'cinderpaw-ui',
       partialize: (s) => ({
-        sidebarCollapsed: s.sidebarCollapsed,
+        navCollapsed: s.navCollapsed,
         theme: s.theme,
         language: s.language,
-        reasoningMode: s.reasoningMode,
-        enabledTools: s.enabledTools,
+        // `reasoningMode` and `enabledTools` are deliberately NOT persisted any
+        // more. The composer controls that set them are gone, so a saved value
+        // would be a setting with no way back: someone who once picked
+        // "Off: suppress thinking blocks", or ticked File Write, would carry
+        // that choice forever with nothing on screen explaining it or offering
+        // to undo it. Unpersisted, they start every launch at the defaults the
+        // app is designed around — `auto`, and an empty tool list that agent
+        // mode overrides with the agent's own tools.
         inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
         whisperModel: s.whisperModel,
         sttProvider: s.sttProvider,
+        ttsProvider: s.ttsProvider,
+        callEngine: s.callEngine,
+        s2sProvider: s.s2sProvider,
+        ttsVoice: s.ttsVoice,
       }),
+      // Dropping the two keys from `partialize` only stops them being WRITTEN.
+      // Every machine that already ran an older build still has them sitting in
+      // `cinderpaw-ui`, and rehydration merges that blob over the defaults — so
+      // without this the person the change was made for is the one person it
+      // does not reach, and "Off" stays off forever. `merge` runs before the
+      // store exists, which is the only point where the stale value can be
+      // removed rather than reapplied.
+      merge: (persisted, current) => {
+        const { reasoningMode: _r, enabledTools: _t, ...rest } =
+          (persisted ?? {}) as Partial<UIStore>;
+        const merged = { ...current, ...rest };
+        // A retired engine that is still stored is still selected. Same reason
+        // as the two keys above: rehydration merges the saved blob over the
+        // defaults, so the machine that has been using voice the longest is
+        // exactly the one that would never move to the new engine.
+        if (RETIRED_CALL_ENGINES.includes(merged.callEngine)) {
+          merged.callEngine = 'livekit';
+        }
+        return merged;
+      },
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         const resolved = resolveTheme(state.theme);

@@ -30,7 +30,7 @@ pub struct MemoryFactInput {
     pub object: String,
 }
 
-/// Merge extracted facts into `~/.feral/memory-graph.json` using the exact
+/// Merge extracted facts into `~/.cinderpaw/memory-graph.json` using the exact
 /// node/edge schema the agent sidecar's MemoryGraph writes, so both the
 /// sidecar and the Chat tab feed one shared knowledge graph. Returns the
 /// number of facts written. The whole read-modify-write is held under an
@@ -42,7 +42,7 @@ pub fn add_memory_facts(facts: Vec<MemoryFactInput>) -> Result<u32, String> {
     if facts.is_empty() {
         return Ok(0);
     }
-    let dir = crate::paths::feral_dir();
+    let dir = crate::paths::cinderpaw_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("memory-graph.json");
 
@@ -141,7 +141,7 @@ fn chrono_now_ms() -> u64 {
 #[tauri::command]
 #[specta::specta]
 pub fn get_memory_graph() -> MemoryGraphSnapshot {
-    let path = crate::paths::feral_dir().join("memory-graph.json");
+    let path = crate::paths::cinderpaw_dir().join("memory-graph.json");
     let raw = std::fs::read_to_string(&path).unwrap_or_default();
 
     #[derive(serde::Deserialize)]
@@ -196,7 +196,7 @@ pub fn get_memory_graph() -> MemoryGraphSnapshot {
 }
 
 // ponytail: hand-rolled advisory file lock; cross-process via O_EXCL lockfile.
-// Mirrors FeralAgent/src/memory/graph.ts withFileLock contract — both sides share the same
+// Mirrors CinderpawAgent/src/memory/graph.ts withFileLock contract — both sides share the same
 // `.lock` file so TS and Rust never write the memory graph concurrently.
 // 30s stale-lock ceiling assumes no legitimate write holds longer than that.
 fn lock_path(path: &std::path::Path) -> std::path::PathBuf {
@@ -211,13 +211,22 @@ fn tmp_path(path: &std::path::Path) -> std::path::PathBuf {
     s.into()
 }
 
+/// How long a lock file may sit untouched before it is treated as a corpse.
+const LOCK_STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+
 fn with_file_lock<F, T>(path: &std::path::Path, f: F) -> Result<T, String>
 where
     F: FnOnce() -> Result<T, String>,
 {
     let lp = lock_path(path);
     let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(5);
+    // Wait at least as long as we are willing to call a lock dead. With a 5s
+    // wait against a 30s staleness rule there was a whole band — a writer
+    // holding the lock legitimately for 6 to 30 seconds, which a large embed
+    // batch or an RSI compaction really does — where the caller gave up with
+    // "lock timeout" on a perfectly healthy system, and the user saw a failure
+    // where the correct behaviour was to wait a moment longer.
+    let timeout = LOCK_STALE_AFTER + std::time::Duration::from_secs(5);
     loop {
         match std::fs::OpenOptions::new()
             .write(true)
@@ -232,7 +241,7 @@ where
                 if let Ok(meta) = std::fs::metadata(&lp) {
                     if let Ok(modified) = meta.modified() {
                         if modified.elapsed().unwrap_or(std::time::Duration::MAX)
-                            > std::time::Duration::from_secs(30)
+                            > LOCK_STALE_AFTER
                         {
                             let _ = std::fs::remove_file(&lp);
                             continue;

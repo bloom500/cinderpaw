@@ -14,8 +14,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         step:
-          - name: feral-agent
-            workdir: FeralAgent
+          - name: cinderpaw-agent
+            workdir: CinderpawAgent
             install: bun install
             typecheck: bun run typecheck
             test: bun test
@@ -47,7 +47,7 @@ jobs:
         working-directory: ${{ matrix.step.workdir }}
         run: ${{ matrix.step.typecheck }}
 
-      # FERAL_E2E turns on the fail-closed safety suites — journal tampering,
+      # CINDERPAW_E2E turns on the fail-closed safety suites — journal tampering,
       # the watchdog, module quarantine, governance. They are the tests that
       # demonstrate the rails hold, and they were gated behind a variable no
       # workflow set, so they had never run here once. They pass; nothing would
@@ -56,13 +56,20 @@ jobs:
       # Set for both matrix legs rather than only the agent: an env var that
       # applies to a step the other leg does not have is free, and a condition
       # here is one more thing to get wrong later.
+      #
+      # CINDERPAW_FMS_BENCH turns on the Fractal Memory scale suites. They were
+      # gated behind a variable nothing set, so the 10k/100k upsert and recall
+      # timings never ran here — which is how a hot-path change that made recall
+      # several times slower could land without a single red mark. Benchmarks
+      # that never run are not benchmarks; they are a folder.
       - name: Test
         working-directory: ${{ matrix.step.workdir }}
         run: ${{ matrix.step.test }}
         env:
-          FERAL_E2E: "1"
+          CINDERPAW_E2E: "1"
+          CINDERPAW_FMS_BENCH: "1"
 
-  # The Go TUI (`feral chat`, the guided setup, the connector wizard) — 16k
+  # The Go TUI (`cinderpaw chat`, the guided setup, the connector wizard) — 16k
   # lines with its own suite, built by install.sh and bundled with the desktop
   # app, and until now compiled by nothing in CI. A break shipped silently.
   #
@@ -137,10 +144,10 @@ jobs:
         uses: swatinem/rust-cache@v2
 
       - name: Install sidecar dependencies
-        working-directory: FeralAgent
+        working-directory: CinderpawAgent
         run: bun install
 
-      # Produces src-tauri/binaries/feral-agent-<target-triple> (externalBin).
+      # Produces src-tauri/binaries/cinderpaw-agent-<target-triple> (externalBin).
       - name: Build sidecar
         working-directory: src-tauri
         run: node scripts/build-sidecar.mjs
@@ -153,7 +160,7 @@ jobs:
       - name: cargo test
         run: cargo test --workspace
 
-  # The headless/server build (`cargo build -p feral-cli --no-default-features`)
+  # The headless/server build (`cargo build -p cinderpaw-cli --no-default-features`)
   # compiles the cfg(not(feature = "inference")) stubs that no other job
   # touches — this check exists because that path shipped broken once
   # (E0271 in the stream_chat stub). Cheap: no llama.cpp, no GUI deps.
@@ -176,7 +183,7 @@ jobs:
         uses: swatinem/rust-cache@v2
 
       - name: cargo check (headless CLI)
-        run: cargo check --release -p feral-cli --no-default-features
+        run: cargo check --release -p cinderpaw-cli --no-default-features
 
   # Dependency vulnerability scanning (M-3). Fails the build on known
   # advisories so a vulnerable transitive dep can't slip into a release.
@@ -229,6 +236,6 @@ jobs:
         run: node scripts/audit-gate.mjs
 
       # Sidecar (bun) — same high+ gate against the bun lockfile.
-      - name: bun audit (FeralAgent)
-        working-directory: FeralAgent
+      - name: bun audit (CinderpawAgent)
+        working-directory: CinderpawAgent
         run: bun audit --audit-level=high

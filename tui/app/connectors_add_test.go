@@ -7,7 +7,7 @@ import (
 
 // TestConnectorsAddRejectsTelegramComingSoon — task #4 explicit
 // requirement: Telegram has no live connector backend yet (see
-// crates/feral-core/src/connectors.rs coming_soon:true). /connectors add
+// crates/cinderpaw-core/src/connectors.rs coming_soon:true). /connectors add
 // must refuse to take the token so the user doesn't paste credentials
 // that would be silently dropped.
 func TestConnectorsAddRejectsTelegramComingSoon(t *testing.T) {

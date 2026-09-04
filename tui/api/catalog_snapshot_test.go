@@ -10,7 +10,7 @@ import (
 
 // Golden-file snapshot tests for the canonical catalog wire format.
 //
-// The Rust side (crates/feral-core/tests/catalog_snapshots.rs) owns
+// The Rust side (crates/cinderpaw-core/tests/catalog_snapshots.rs) owns
 // the canonical catalog in tests/testdata/*.golden.json. The Go TUI
 // keeps a parallel copy at tui/api/testdata/*.golden.json which
 // is pinned by these tests, and the Rust test suite asserts the two
@@ -99,7 +99,7 @@ func TestProviderCatalogGoldenSnapshot(t *testing.T) {
 	golden := readGolden(t, "provider_catalog.golden.json")
 
 	// Version pin: covered by `TestCatalogVersionExpectedPin` and by
-	// the Rust endpoint test (X-Feral-Catalog-Version header check).
+	// the Rust endpoint test (X-Cinderpaw-Catalog-Version header check).
 
 	// Typed decode + roundtrip must preserve every field.
 	var entries []ProviderCatalogEntry
@@ -167,7 +167,7 @@ func TestConnectorCatalogGoldenSnapshot(t *testing.T) {
 // ── Golden-file sync ──────────────────────────────────────────
 //
 // The Rust test suite asserts tui/api/testdata/*.golden.json and
-// crates/feral-core/tests/testdata/*.golden.json are byte-equal.
+// crates/cinderpaw-core/tests/testdata/*.golden.json are byte-equal.
 // As a courtesy check on the Go side (catches accidental edits that
 // aren't propagated to Rust), this test compares the two bytes
 // against a re-read at test time.
@@ -175,7 +175,7 @@ func TestGoldenFilesExist(t *testing.T) {
 	for _, name := range []string{"provider_catalog.golden.json", "connector_catalog.golden.json"} {
 		p := filepath.Join(goldenDir, name)
 		if _, err := os.Stat(p); err != nil {
-			t.Fatalf("missing golden %s: %v (run UPDATE_CATALOG_GOLDEN=1 cargo test -p feral-core --test catalog_snapshots then copy the files)", p, err)
+			t.Fatalf("missing golden %s: %v (run UPDATE_CATALOG_GOLDEN=1 cargo test -p cinderpaw-core --test catalog_snapshots then copy the files)", p, err)
 		}
 	}
 }

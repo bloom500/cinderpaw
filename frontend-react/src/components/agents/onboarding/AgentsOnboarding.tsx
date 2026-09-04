@@ -8,6 +8,7 @@ import { PickPresetStep } from './steps/PickPresetStep';
 import { NameAgentStep }  from './steps/NameAgentStep';
 import { ReviewStep }     from './steps/ReviewStep';
 import { DoneStep }       from './steps/DoneStep';
+import { writeLocal } from '@/lib/utils';
 
 type Step = 'welcome' | 'pick_preset' | 'name_agent' | 'review' | 'done';
 
@@ -60,7 +61,7 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
   };
 
   const skip = () => {
-    localStorage.setItem(ONBOARDING_KEY, 'dismissed');
+    writeLocal(ONBOARDING_KEY, 'dismissed');
     onSkip();
   };
 
@@ -116,7 +117,7 @@ export function AgentsOnboarding({ onDone, onSkip }: Props) {
       setSavedName(saved.name);
       setSavedId(saved.id ?? '');
       setLoadedModelName(loadedModel?.name ?? undefined);
-      localStorage.setItem(ONBOARDING_KEY, 'completed');
+      writeLocal(ONBOARDING_KEY, 'completed');
       advance('done');
     } catch (e) {
       setSaveError(String(e));

@@ -1,0 +1,39 @@
+//! Manual smoke test: `FISH_API_KEY=... cargo run -p cinderpaw-core --example tts_smoke`
+//! Writes out.pcm. Not a unit test — it costs a real API call.
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let key = std::env::var("FISH_API_KEY").expect("set FISH_API_KEY");
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(32);
+    let text = "Cinderpaw here. Voice mode is working.";
+
+    let started = std::time::Instant::now();
+    let mut first_chunk_at = None;
+    let collector = tokio::spawn(async move {
+        let mut all = Vec::new();
+        let mut chunks = 0usize;
+        while let Some(c) = rx.recv().await {
+            chunks += 1;
+            all.extend_from_slice(&c);
+        }
+        (all, chunks)
+    });
+
+    // Was a free `tts::synthesize`; TTS is a provider trait now, so the engine is
+    // resolved by id the same way settings resolve it.
+    let engine = cinderpaw_core::tts::from_id(
+        "fish",
+        cinderpaw_core::tts::EngineConfig { api_key: &key, ..Default::default() },
+    )?;
+    let req = cinderpaw_core::tts::SpeechRequest { text: text.to_string(), voice: None };
+    let total = engine.speak(&req, tx).await?;
+    let (audio, chunks) = collector.await?;
+    first_chunk_at.get_or_insert(started.elapsed());
+
+    println!("bytes returned : {total}");
+    println!("bytes collected: {}", audio.len());
+    println!("chunks         : {chunks}  (>1 means it really streamed)");
+    println!("duration       : {:.2}s audio", cinderpaw_core::tts::duration_secs(audio.len()));
+    println!("wall clock     : {:.2}s", started.elapsed().as_secs_f64());
+    std::fs::write("out.pcm", &audio)?;
+    Ok(())
+}

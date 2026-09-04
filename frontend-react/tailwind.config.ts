@@ -1,30 +1,106 @@
 import type { Config } from 'tailwindcss';
 
+/**
+ * A theme token that also works with Tailwind's `/opacity` modifier.
+ *
+ * The tokens are hex strings in a CSS variable, and Tailwind cannot split a
+ * hex out of a var into channels — so `bg-bg-surface/70` was compiling to a
+ * colour the browser could not parse and every one of those surfaces was
+ * rendering FULLY TRANSPARENT. Silently: no console error, nothing in the
+ * build, just a panel that looked like the page behind it. Measured on the
+ * sidebar, which reported `backgroundColor: rgba(0, 0, 0, 0)` while claiming
+ * `bg-bg-elevated/80`; 26 call sites across the app had the same bug,
+ * including the tool cards that appear over a voice call.
+ *
+ * `color-mix` does the split for us and leaves plain `var(--x)` usage in CSS
+ * files untouched.
+ */
+const token = (name: string) =>
+  `color-mix(in srgb, var(--${name}) calc(<alpha-value> * 100%), transparent)`;
+
 export default {
   darkMode: ['class', '[data-theme="dark"]'],
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      /**
+       * ── The type scale ───────────────────────────────────────────────────
+       * Nine steps, and nothing between them. Before this, the app used
+       * 8, 9, 10, 10.5, 11, 12, 12.5, 13, 15 and 32 px as one-off arbitrary
+       * values on top of Tailwind's own six — sixteen sizes, each chosen where
+       * it was needed and never compared with its neighbours. That is what
+       * "looks unfinished" actually is, most of the time: not the wrong size
+       * anywhere in particular, just no agreement anywhere at all.
+       *
+       * Line heights are baked in so a size cannot be used without its rhythm,
+       * and the large steps carry negative tracking because display text set
+       * at default spacing reads loose.
+       */
+      fontSize: {
+        micro:  ['10px',   { lineHeight: '13px', letterSpacing: '0.02em' }],
+        '2xs':  ['11.5px', { lineHeight: '16px' }],
+        xs:     ['12.5px', { lineHeight: '18px' }],
+        sm:     ['13.5px', { lineHeight: '20px' }],
+        base:   ['15px',   { lineHeight: '23px' }],
+        lg:     ['17px',   { lineHeight: '26px', letterSpacing: '-0.01em' }],
+        xl:     ['20px',   { lineHeight: '28px', letterSpacing: '-0.015em' }],
+        '2xl':  ['24px',   { lineHeight: '30px', letterSpacing: '-0.02em' }],
+        '3xl':  ['32px',   { lineHeight: '38px', letterSpacing: '-0.025em' }],
+      },
+
+      /**
+       * ── Two radii ────────────────────────────────────────────────────────
+       * `sm`/`md`/`lg` all resolve to the control radius and `xl`/`2xl`/`3xl`
+       * to the panel one, so the six values already written across the app
+       * collapse into the two the design actually has. Five different corner
+       * radii on one screen is a thing the eye notices without being able to
+       * say why.
+       */
+      borderRadius: {
+        sm:    '8px',
+        md:    '10px',
+        lg:    '10px',
+        xl:    '18px',
+        '2xl': '18px',
+        '3xl': '18px',
+      },
+
+      /**
+       * ── Elevation ────────────────────────────────────────────────────────
+       * Dark UIs get depth from a light edge above and a soft shadow below,
+       * not from a black blur — on a near-black ground a black shadow is
+       * invisible and the surface reads as flat paint.
+       */
+      boxShadow: {
+        sm: '0 1px 2px rgba(0,0,0,0.30)',
+        DEFAULT: '0 2px 6px rgba(0,0,0,0.32)',
+        md: '0 6px 16px rgba(0,0,0,0.34)',
+        lg: '0 14px 34px rgba(0,0,0,0.38)',
+        xl: '0 24px 60px rgba(0,0,0,0.44)',
+        '2xl': '0 32px 80px rgba(0,0,0,0.50)',
+      },
+
       colors: {
         // ── Our semantic palette ──────────────────────────────────────────
         // Use these in app components: bg-bg-surface, text-text-muted, etc.
-        'bg-primary':     'var(--bg-primary)',
-        'bg-surface':     'var(--bg-surface)',
-        'bg-elevated':    'var(--bg-elevated)',
-        'bg-hover':       'var(--bg-hover)',
-        'bg-active':      'var(--bg-active)',
-        'border-subtle':  'var(--border-subtle)',
-        'border-default': 'var(--border-default)',
-        'text-primary':   'var(--text-primary)',
-        'text-secondary': 'var(--text-secondary)',
-        'text-muted':     'var(--text-muted)',
-        'text-disabled':  'var(--text-disabled)',
-        'brand':          'var(--brand)',
-        'brand-hover':    'var(--brand-hover)',
-        'brand-muted':    'var(--brand-muted)',
-        'error':          'var(--error)',
-        'success':        'var(--success)',
-        'warning':        'var(--warning)',
+        'bg-primary':     token('bg-primary'),
+        'bg-surface':     token('bg-surface'),
+        'bg-elevated':    token('bg-elevated'),
+        'bg-hover':       token('bg-hover'),
+        'bg-active':      token('bg-active'),
+        'border-subtle':  token('border-subtle'),
+        'border-default': token('border-default'),
+        'text-primary':   token('text-primary'),
+        'text-secondary': token('text-secondary'),
+        'text-muted':     token('text-muted'),
+        'text-disabled':  token('text-disabled'),
+        'brand':          token('brand'),
+        'brand-hover':    token('brand-hover'),
+        'brand-muted':    token('brand-muted'),
+        'error':          token('error'),
+        'success':        token('success'),
+        'warning':        token('warning'),
+        'info':           token('info'),
 
         // ── shadcn aliases ────────────────────────────────────────────────
         // Use ONLY inside shadcn primitives. Do NOT use bg-accent/text-accent
@@ -38,17 +114,55 @@ export default {
         destructive: { DEFAULT: 'var(--destructive)', foreground: 'var(--destructive-foreground)' },
         card:        { DEFAULT: 'var(--card)',        foreground: 'var(--card-foreground)' },
         popover:     { DEFAULT: 'var(--popover)',     foreground: 'var(--popover-foreground)' },
+
+        // NOTE: `text-brand`, `text-error`, `text-success`, `text-warning` and
+        // `text-info` do NOT resolve here — see the `textColor` block below.
+
         border:      'var(--border)',
         input:       'var(--input)',
         ring:        'var(--ring)',
       },
-      borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+
+      /**
+       * ── Where a colour changes meaning depending on the utility ─────────
+       *
+       * `extend.textColor` is merged on top of `extend.colors` for text
+       * utilities only. So these five names keep their `bg-`, `border-`,
+       * `ring-` and `fill-` behaviour from the block above and get a
+       * different value for `text-`.
+       *
+       * That is not a trick, it is the actual distinction. `bg-brand` paints
+       * a shape and supplies its own ground; the only contrast that matters
+       * is the label sitting on it, and `--brand-foreground` already handles
+       * that. `text-brand` paints a WORD onto the glass pane, where the
+       * ground is partly the user's wallpaper — measured worst case, the fill
+       * values give 3.31:1 (brand), 2.55:1 (error), 3.28:1 (success) and
+       * 4.39:1 (warning). All four are below AA and `text-error` alone is 41
+       * places where the app explains something that went wrong.
+       *
+       * Doing it here rather than in the components is the whole point: 130+
+       * call sites already say `text-brand` / `text-error`, and every one of
+       * them becomes correct without being edited — including the ones
+       * somebody writes next week.
+       */
+      textColor: {
+        'brand':   token('brand-text'),
+        'error':   token('error-text'),
+        'success': token('success-text'),
+        'warning': token('warning-text'),
+        'info':    token('info-text'),
       },
+      // (the shadcn `--radius` mapping used to live here and silently won,
+      // being the later key; the two-radius scale above replaces it)
     },
   },
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  plugins: [require('@tailwindcss/typography')],
+  // `tailwindcss-animate` is not decoration: 42 of its classes were already
+  // written across the shadcn primitives — `animate-in`, `fade-in-0`,
+  // `zoom-in-95`, `slide-in-from-top-2` — and every one of them was dead CSS
+  // because the plugin that defines them was never registered. Dialogs,
+  // popovers, dropdowns and tooltips have been appearing and vanishing
+  // instantly this whole time while their markup asked for a transition.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  plugins: [require('@tailwindcss/typography'), require('tailwindcss-animate')],
 } satisfies Config;

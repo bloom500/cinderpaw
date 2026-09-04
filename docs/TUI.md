@@ -1,19 +1,19 @@
-# Feral TUI — terminal chat
+# Cinderpaw TUI — terminal chat
 
 The TUI is the full-screen terminal chat client (Go + Bubble Tea). It talks to
 the same gateway, sessions, memory and models as the desktop app — installing
-one after the other adopts your existing `~/.feral` config with zero re-setup.
+one after the other adopts your existing `~/.cinderpaw` config with zero re-setup.
 
 ## Launching
 
 ```bash
-feral          # plain `feral` in a terminal opens the chat TUI (OpenClaw-style)
-feral chat     # same, explicit (auto-starts the gateway if it isn't running)
-feral setup    # guided setup: detects AI you already have, verifies, saves
-feral tui      # alias for `feral chat`
+cinderpaw          # plain `cinderpaw` in a terminal opens the chat TUI (OpenClaw-style)
+cinderpaw chat     # same, explicit (auto-starts the gateway if it isn't running)
+cinderpaw setup    # guided setup: detects AI you already have, verifies, saves
+cinderpaw tui      # alias for `cinderpaw chat`
 ```
 
-`feral chat` and `feral setup` shell out to the `feral-tui` binary that ships
+`cinderpaw chat` and `cinderpaw setup` shell out to the `cinderpaw-tui` binary that ships
 next to the CLI. You can also run it directly:
 
 | Flag | Effect |
@@ -22,7 +22,7 @@ next to the CLI. You can also run it directly:
 | `--wizard` | force the classic step-by-step wizard even if already configured |
 
 If the gateway isn't running, the TUI starts it and waits for the port. If it
-can't, it tells you the manual command: `feral gateway start`.
+can't, it tells you the manual command: `cinderpaw gateway start`.
 
 ## Slash commands
 
@@ -79,7 +79,7 @@ hint; during model downloads it shows `↓ name 38% · 1.6/4.1 GB · 12 MB/s`.
 
 ## First run — guided setup
 
-On a fresh install the TUI opens the GUIDED flow (same shape as `feral setup`
+On a fresh install the TUI opens the GUIDED flow (same shape as `cinderpaw setup`
 and OpenClaw's default onboarding): a one-time security acknowledgement, then
 "Looking for AI you can already use…" — the server-side detection ladder
 (existing config → local GGUFs on disk → hardware-tier download → env keys →
@@ -90,17 +90,17 @@ wizard / skip), never a dead end. The classic step-by-step wizard stays
 behind `/setup classic` and `--wizard`.
 
 The classic wizard is resumable — progress persists in
-`~/.feral/.wizard-progress`, so quitting mid-setup continues where you left
+`~/.cinderpaw/.wizard-progress`, so quitting mid-setup continues where you left
 off.
 
 ## Building from source
 
 ```bash
 cd tui
-go build -o feral-tui.exe .   # drop the .exe suffix on macOS/Linux
+go build -o cinderpaw-tui.exe .   # drop the .exe suffix on macOS/Linux
 go test ./...
 ```
 
-Put the resulting binary next to the `feral` CLI binary (that's where
-`feral chat` looks for it). The TUI is an API client only — it needs a running
-gateway (or lets `feral chat` start one) and has no other local dependencies.
+Put the resulting binary next to the `cinderpaw` CLI binary (that's where
+`cinderpaw chat` looks for it). The TUI is an API client only — it needs a running
+gateway (or lets `cinderpaw chat` start one) and has no other local dependencies.

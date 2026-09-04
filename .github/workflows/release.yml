@@ -77,7 +77,7 @@ jobs:
             features: inference-vulkan
 
     steps:
-      - name: Checkout FeralLocalAI
+      - name: Checkout Cinderpaw
         uses: actions/checkout@v4
 
       - name: Setup Node
@@ -184,14 +184,14 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # Feral Agent is vendored in this monorepo at FeralAgent/ — the single
+      # Cinderpaw Agent is vendored in this monorepo at CinderpawAgent/ — the single
       # source of truth. The actual compile + copy into src-tauri/binaries/
       # happens in tauri.conf.json's beforeBuildCommand
       # (scripts/build-sidecar.mjs), which derives the correct
-      # feral-agent-<target-triple> name for the host platform. We only need
+      # cinderpaw-agent-<target-triple> name for the host platform. We only need
       # the dependencies installed first.
-      - name: Install Feral Agent sidecar dependencies
-        working-directory: FeralAgent
+      - name: Install Cinderpaw Agent sidecar dependencies
+        working-directory: CinderpawAgent
         run: bun install
 
       - name: Extract release notes from CHANGELOG
@@ -241,7 +241,7 @@ jobs:
           # break on a cross build unless the build script is told what it is
           # building for, so tell it. Empty for native builds, which keep
           # deriving the triple from the host.
-          FERAL_SIDECAR_TARGET: ${{ matrix.target }}
+          CINDERPAW_SIDECAR_TARGET: ${{ matrix.target }}
           # linuxdeploy's strip pass chokes on the already-stripped release
           # binary (panic=abort + lto + strip in Cargo.toml) and kills the
           # AppImage bundling with an opaque "failed to run linuxdeploy".
@@ -253,7 +253,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Feral ${{ github.ref_name }}"
+          releaseName: "Cinderpaw ${{ github.ref_name }}"
           releaseBody: ${{ steps.changelog.outputs.NOTES }}
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -301,7 +301,7 @@ jobs:
         if: runner.os == 'Windows' && env.SIGNPATH_API_TOKEN != ''
         uses: actions/upload-artifact@v4
         with:
-          name: feral-windows-unsigned
+          name: cinderpaw-windows-unsigned
           path: signpath-in/*
 
       - name: Sign with SignPath Foundation
@@ -467,8 +467,8 @@ jobs:
           workspaces: src-tauri
           key: cuda
 
-      - name: Install Feral Agent sidecar dependencies
-        working-directory: FeralAgent
+      - name: Install Cinderpaw Agent sidecar dependencies
+        working-directory: CinderpawAgent
         run: bun install
 
       # No tagName/releaseId ⇒ tauri-action BUILDS but does not upload, so it

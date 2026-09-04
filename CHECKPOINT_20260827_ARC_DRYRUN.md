@@ -1,0 +1,220 @@
+# Checkpoint — 2026-08-27, 20:20. ARC-AGI-3 dry run, paused for quota.
+
+**All work below is COMMITTED on `main`.** Working tree clean apart from this
+file. The run is stopped; nothing is in flight.
+
+Resume condition: Claude quota resets ~22:20. The plan is to run all 25 games
+in parallel then.
+
+---
+
+## 1. The one-paragraph version
+
+The ARC harness existed but had never once completed a game. Seven separate
+bugs stood between it and a scored run, and every one was found by a free or
+sub-dollar probe rather than by a paid run. They are all fixed, tested and
+committed. Total spent on OpenRouter today: **~$0.05** of $4.43.
+
+---
+
+## 2. What was wrong, in the order it was found
+
+| # | Bug | How it presented | Commit |
+|---|---|---|---|
+| 1 | Cowork panel followed you into every chat | see §6 | `ee18e79` |
+| 2 | Agent DB: app opened an empty file beside a full one | agent knew nothing, no teammates | `ea195fa` |
+| 3 | Session affinity started at RESET, not at scorecard open | `game <id> not found` for an id from `/api/games` | `fd60364` |
+| 4 | Doubled `/v1` in the OpenRouter base URL | 404 page of HTML | `f60d724` |
+| 5 | OpenRouter routed one model to five upstreams | 158x latency spread, empty answers | `f60d724` |
+| 6 | Perception inert on every real grid | silently no scene in prompt | `452c528` |
+| 7 | 15-minute "deadline" that does not exist | would cut every game at ~50 presses | `f5c1579` |
+| 8 | No retry: one 500 killed a whole game | 10 of 25 games died in the first minute | `f85b880` |
+| 9 | Bare `ACTION6` sent without coordinates | `500 — the server is overloaded` | `114e249` |
+| 10 | A `WIN` ended the game — and nobody knows if WIN means the game | would score ~1/28 of a 7-level game | `9d640b6` |
+| 11 | The fix for 10 could spin forever at zero cost | a hang that looks like a working run | `9d640b6` |
+| 12 | One bad model call ended a game that had run for hours | no retry on the OpenRouter side | `794e167` |
+
+Bug 9 is the instructive one: the server's own error message sent us chasing
+load that was never there. **Every failure in both parallel runs was ACTION6
+and nothing else.**
+
+---
+
+## 3. Measured facts — do not re-derive these
+
+**The 15-minute scorecard limit is NOT a cap on play.** Measured: one card, 220
+actions over 17 minutes, every one `200`, and `close` reported `actions: 220`,
+`level_actions: [220,0,0,0,0,0,0]`. The auto-close finalises an *abandoned*
+card so its results appear. Do not reintroduce a deadline.
+
+**OpenRouter routes per request.** One prompt, one body, five upstreams:
+
+```
+Z.AI       3.8s      95 out tokens   answer present
+Together   4.4s     885              answer present
+GMICloud  16.5s     522              answer present
+Novita   191.3s  16,000              answer EMPTY
+Io Net   602.0s   9,426              answer EMPTY   (with effort: low!)
+GMICloud 737.0s  65,536              answer EMPTY
+```
+
+Pinned to Z.AI at `effort: medium`: 3.4s / 5.4s / 10.3s / 15.0s / 22.2s, answer
+present every time. **Never run unpinned.**
+
+**Latency on a REAL grid is far worse than on a synthetic one.** Pilot on ls20,
+Z.AI, medium: **~57s per action**. Synthetic probes said 5-15s. Budget from the
+real number.
+
+**Scoring** (docs, verified): `level = (human_baseline/ai)^2` capped at 1.15x;
+`game` = weighted average of levels by 1-indexed level number; an unfinished
+game is capped by levels never reached (4 of 5 ⇒ 66.7% max); `total` = mean of
+game scores.
+
+**Human baselines, from the API.** 25 games, 183 levels, **17,135** actions to
+finish everything. Median per game **638**. ls20 = 776 over 7 levels.
+
+**NVIDIA AVO** (their blog): 100.00 using **6,624 actions** total — *fewer* than
+the human baseline, which is how they hit the 1.15x cap everywhere. Claude
+Opus 5 alone scores 30%. Their stated lever is persistent memory across
+attempts; they explicitly rejected a programmatic world model (which is what
+our `imagination.ts` is).
+
+**Perception cost, measured.** ls20 opening frame: 1,487 non-background cells,
+parses in **6ms**, 17 objects, 272 relations, renders to 9,054 chars — more than
+twice the 4,159 the grid itself costs. Pathological case (scattered grid): 819
+objects, 346,205 relations, **32ms**. CPU was never the risk; the prompt is.
+
+**Cost, MEASURED not estimated.** One real game on `sb26`, Z.AI, medium:
+2 completions = 8,902 prompt + 217 completion tokens = $0.0007. So **4,451
+prompt + 108 completion per action = $0.00036/action**, and a full run of
+25 games x 200 actions = **$1.80**. A bare run (no scene in the prompt) is
+about $1.05. Completion tokens are far lower than feared — Z.AI at medium
+answers short on a real grid.
+
+**`WIN` semantics are still unknown** and no longer matter: the runner asks the
+server (`levelsCompleted` vs `winLevels`) instead of assuming. See `9d640b6`.
+
+---
+
+## 4. Run configuration that is now correct
+
+```
+bun CinderpawAgent/scripts/arc/run_arc_agi3.mjs \
+    --game <id> --model z-ai/glm-5.3-flash --provider Z.AI \
+    --reasoning-effort medium --budget 200 --max-spend 0.12
+```
+
+- `.env` (gitignored) holds `ARC_API_KEY`, `OPENROUTER_API_KEY`,
+  `CINDERPAW_CLOUD_IDLE_TIMEOUT_MS=900000`. That last one MUST be in the
+  environment: `config.ts` snapshots env at import and `run-manifest.ts` imports
+  it statically, so setting it inside the runner is always too late.
+- Run from the REPO ROOT so bun loads `.env`.
+- `--budget` is HARD locally. The server can still count slightly more: a
+  retried ambiguous 500 may double one press, and RESETs are counted separately.
+- `--max-spend` is per PROCESS (= per game). 25 x 0.12 = $3.00 max exposure.
+
+**Parallelism: 25 at once is fine.** The failures were never load — they were
+ACTION6. Games share nothing (own scorecard, own guid, own policy). Stagger by
+~6s anyway, it costs nothing.
+
+---
+
+## 5. Systems in the run
+
+IN: MCTS rehearsal (`imagination.ts`, wired `65702e0`), DSL
+(`rlm/dsl/primitives`), perception (`scene-graph`, in the prompt `514874f`),
+frugal policy + transition table, persistent memory across levels and retries,
+budget accounting, run manifest.
+
+OUT, and not by a flag — the code path never imports them: BRSI (`src/rsi`),
+FMS (`src/memory`), cowork, RLM subagents, SOUL.md, episodic/semantic memory,
+skills, tools, the agent loop. `grep` for them under `src/arc/` returns nothing.
+
+Note: `src/rlm/dsl/primitives.ts` IS used — that is the DSL library, not the RLM
+engine. Easy to misread.
+
+---
+
+## 6. Non-ARC work committed today
+
+- `ee18e79` cowork panel: per-thread transcript, chat-head bubble with the
+  unread count top-right, tail colour, z-order, resize floor (the clamp put the
+  floor inside the min, so a short window collapsed the panel and took its own
+  resize grip with it), unread counting a thread switch as new mail.
+- `fee9fa1` mascot: the last tool bubble never left the screen — the linger
+  timer only ran on `tool_done`, so any turn that ended without one left it
+  there forever.
+- `ea195fa` agent DB: see §2. `~/.cinderpaw/agent/feral.db` was the real one and
+  the host opened an empty `cinderpaw.db` beside it.
+- Three stale worktrees removed; all three were 0 commits ahead of `main`.
+  `.worktrees/val23-benchmark` is still on disk as an orphan (18 GB) — git no
+  longer knows it, deleting it is safe.
+
+---
+
+## 7. THE PLAN AFTER THE QUOTA RESET — decided 2026-08-27 ~20:45
+
+**Two runs, then build the supervisor.** Darius proposed three; the third is
+not a configuration.
+
+- **Run A — bare.** GLM 5.3 Flash with nothing: `--no-imagination
+  --no-perception`. ~$1.05. This is the baseline the delta is measured against.
+- **Run B — the harness as it stands.** MCTS rehearsal, DSL, perception, frugal
+  policy, memory across levels. ~$1.80. Same 25 games, same budget, so the
+  difference is attributable.
+- Total ~$2.85 of $4.43, leaving $1.58.
+
+**Run C (BRSI + FMS + cowork + subagents on hard games) is NOT run tonight**,
+for two reasons of different sizes. The small one: it does not fit the budget.
+The large one: it is not a flag. None of those are imported by the ARC path, so
+"switch them on for hard games" means BUILDING a supervisor that decides a game
+is hard, routes to cowork, persists through FMS, and hands a subagent the game
+state. Plus every agent-routed call carries the ~10,660-token prefix (~6x per
+call) exactly where the most actions are spent. And BRSI stays a hard no in any
+scored run: code that rewrites itself mid-benchmark means the manifest no
+longer describes what ran.
+
+**Run C is now scoped and scheduled** (decided ~20:55): FMS plus ONE cowork
+teammate, behind a supervisor — and NOT BRSI. That is the right cut. BRSI was
+the only part that is genuinely disqualifying (self-rewriting code means the
+manifest stops describing what played); memory and a second opinion are not
+cheating on a benchmark that is *about* long-horizon adaptation — persistent
+memory is the lever AVO names as its own. Waiting on a refund for budget, but
+budget is not the constraint: C has to be BUILT (supervisor, FMS wiring, cowork
+routing, a contract for handing a teammate the game state). Run it as a matched
+triple with A and B — same games, same budget, same pinned upstream — or it
+proves nothing next to them.
+
+**Publishing note.** Do not claim a counterfactual we did not measure ("we
+would have had 70-80% with BRSI/FMS"). Opus 5 alone scores 30% on this
+benchmark; a big claim for a small model invites "show us" and turns an
+engineering result into a credibility argument. The real flex is free and true:
+A vs B is a matched ablation, and AVO's own writeup states theirs is not one.
+Say BRSI was excluded for reproducibility, say nothing about unmeasured
+configurations, and let C answer it with data later.
+
+**And the idea is right, which is why it is the next build.** A supervisor that detects
+stagnation and escalates is the one thing in NVIDIA's AVO writeup we do not
+have, and they name it as their lever. Build it AFTER runs A and B, with their
+deltas in hand, so escalation is aimed at measured weakness rather than
+guessed. Darius: "chiar daca o sa zica lumea ca am furat de la AVO, idgaf" —
+worth noting that citing the influence costs nothing and makes the result
+stronger, since AVO's own writeup says theirs is not a controlled ablation
+either.
+
+---
+
+## 8. Also open
+
+1. **Run 25 in parallel** with the config in §4 after the quota reset.
+2. **`--no-imagination` / `--no-perception`** exist so the delta of each is
+   MEASURED on a matched pair, not asserted. Do this before publishing any
+   number.
+3. **`cinderpaw-self` skill does not exist anywhere.** `AGENTS.md:63` tells the
+   agent to load it; the installed skills are `feral-self` / `feral-connectors`
+   (pre-rename names, user data, not in the repo), and neither manifest ships a
+   `*-self` skill at all. On a fresh install that instruction points at nothing.
+4. **Rule memory across GAMES** is not implemented (across levels/retries it is).
+   AVO's lever. Cheap, and worth trying if the run shows repeated rediscovery.
+5. `--budget 200` finishes maybe 1-3 of 7-9 levels. That is fine for a dry run;
+   for a scored run the budget should come from the game's own baseline.

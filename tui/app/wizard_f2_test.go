@@ -146,7 +146,7 @@ func TestHasPartialProgressFalseWhenDone(t *testing.T) {
 
 	saveWizardProgress(WizCloudProvider, SetupManual, WizChoiceCloud)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := testHomeDir(t)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}

@@ -1,15 +1,15 @@
 # Third-party notices
 
-Feral is licensed under BUSL-1.1 (see `LICENSE`). This file records third-party
-work Feral builds on, and the notices that work requires.
+Cinderpaw is licensed under BUSL-1.1 (see `LICENSE`). This file records third-party
+work Cinderpaw builds on, and the notices that work requires.
 
 ---
 
 ## Prime Agent / pi — the notebook design
 
-**Used in:** `FeralAgent/src/rlm/`
+**Used in:** `CinderpawAgent/src/rlm/`
 
-Feral's persistent notebook (`src/rlm/repl.ts`) and the doctrine the model is
+Cinderpaw's persistent notebook (`src/rlm/repl.ts`) and the doctrine the model is
 given about it (`src/rlm/prompt.ts`) are derived from the **RLM (Recursive
 Language Model)** design in Prime Agent, specifically `packages/coding-agent/src/core/prompts/rlm.ts`
 and `packages/coding-agent/src/core/rlm-runtime.ts`, read at commit `965941c`.

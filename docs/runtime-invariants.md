@@ -1,6 +1,6 @@
 # Runtime Invariants
 
-Regulile de bază ale Feral Runtime. Orice decizie din Faza 4.5+ (Slice 1-6 și
+Regulile de bază ale Cinderpaw Runtime. Orice decizie din Faza 4.5+ (Slice 1-6 și
 după) se validează împotriva lor. Dacă un design le încalcă, designul e greșit.
 
 1. **Runtime owns state.** Nu GUI, nu CLI, nu Discord, nu Slack. Runtime-ul.
@@ -17,7 +17,7 @@ după) se validează împotriva lor. Dacă un design le încalcă, designul e gr
 7. **Transports are replaceable.** stdin/stdout, HTTP, SSE, Discord — toate
    cară aceleași envelope-uri. Protocolul nu depinde de transport.
 8. **Inference implementation is unique.** Un singur stack de inferență
-   (feral-core, 11435). Niciodată un al doilea llama-server paralel.
+   (cinderpaw-core, 11435). Niciodată un al doilea llama-server paralel.
 9. **Journal is append-only.** Provenance/telemetria RSI nu se rescrie și nu
    se pierde la shutdown — flush înainte de exit.
 10. **Confidence gate cannot be bypassed.** Niciun client, connector sau

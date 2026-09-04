@@ -27,6 +27,12 @@ pub(crate) fn load_conversation(id: String) -> Result<conversations::Conversatio
 
 #[tauri::command]
 #[specta::specta]
+pub(crate) fn rename_conversation(id: String, title: String) -> Result<(), String> {
+    conversations::rename(&id, &title).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub(crate) fn delete_conversation(id: String) -> Result<(), String> {
     conversations::delete(&id).map_err(|e| e.to_string())
 }

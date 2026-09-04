@@ -1,4 +1,4 @@
-# INVARIANTS.md — Feral BRSI Safety Contracts
+# INVARIANTS.md — Cinderpaw BRSI Safety Contracts
 
 > Runtime contracts the engine MUST NOT violate. Each invariant has
 > four pillars (Documentation, Test, Runtime Assert, Audit) and a
@@ -30,9 +30,9 @@ Every invariant, regardless of class, must have all four:
 | Pillar | What it is | Where it lives |
 | ------ | ---------- | -------------- |
 | **Documentation** | The Statement field below — precise, testable, complete | This file |
-| **Test** | A unit / property test that fails when the invariant breaks | `FeralAgent/tests/` or `src-tauri/src/**/tests.rs` |
+| **Test** | A unit / property test that fails when the invariant breaks | `CinderpawAgent/tests/` or `src-tauri/src/**/tests.rs` |
 | **Runtime Assert** | A check inside the engine that fails fast (throws / panics / returns error) | The module that "owns" the invariant |
-| **Audit** | A row in `~/.feral/rsi/sandbox_bounds.audit.log` when the invariant is checked OR breached | `audit.rs` |
+| **Audit** | A row in `~/.cinderpaw/rsi/sandbox_bounds.audit.log` when the invariant is checked OR breached | `audit.rs` |
 
 If any pillar is missing, the invariant is **incomplete**. The Status
 field below carries "PENDING RUNTIME ENFORCEMENT" or similar until all
@@ -55,7 +55,7 @@ four are present.
 | I11 | FitnessVector aggregate bounded     | HARD | `fitness.ts` | ACTIVE |
 | I12 | Provenance graph acyclic            | HARD | `repo.rs` (git substrate) | ACTIVE |
 | I13 | Per-instance data isolation         | HARD | `paths.rs`, per-instance split (PENDING) | PENDING |
-| I14 | Human approval gate for L3+ changes | HARD | Contract FSM (Opus) | PENDING |
+| I14 | Human approval gate for L3+ changes | HARD | `pending-patches.ts` | ACTIVE (L3); no L4/L6 proposer exists |
 | I15 | EvalHalted requires reason          | HARD | `event-bus.ts` + Contract FSM (Opus) | ACTIVE (type + runtime) / PENDING (emitter) |
 | S1  | Average confidence ≥ 0.95           | SOFT | `confidence.ts`, Journal | ACTIVE |
 | S2  | Niche count ≥ 3                     | SOFT | `population-manager.ts` | PENDING |
@@ -70,18 +70,19 @@ four are present.
 
 **Statement:** The main lineage advances if and only if
 `candidate_score > prior_score_value`. The strict-greater comparison in
-`src-tauri/src/rsi/repo.rs:344` is the **single source of truth** for
-"main advances only on improvement".
+`crates/cinderpaw-core/src/rsi/repo.rs:362` is the **single source of
+truth** for "main advances only on improvement".
 
 **Owner:**
-- TypeScript: `FeralAgent/src/rsi/ratchet-handler.ts:77`
-- Rust: `src-tauri/src/rsi/repo.rs::ratchet_attempt` (line 344)
+- TypeScript: `CinderpawAgent/src/rsi/l1-config/ratchet-handler.ts`
+- Rust: `crates/cinderpaw-core/src/rsi/repo.rs::ratchet_attempt` (line 337)
 
 **Verified By:**
 - Documentation: this entry
-- Test: `src-tauri/src/rsi/repo.rs::tests` (ratchet_attempt fixture tests)
+- Test: `crates/cinderpaw-core/src/rsi/repo.rs::tests` (ratchet_attempt
+  fixture tests)
 - Runtime Assert: Rust-side invariant; TS-side Confidence gate pre-check
-  (`FeralAgent/src/rsi/confidence.ts`) before any `rsi_commit_genome`
+  (`CinderpawAgent/src/rsi/confidence.ts`) before any `rsi_commit_genome`
 - Audit: every `RatchetAdvanced` event logged
 
 **Failure Mode:** HALT — a non-ratchet code path attempting to advance
@@ -102,7 +103,7 @@ intervention.
 permitted to advance main, regardless of score.
 
 **Owner:**
-- TypeScript: `FeralAgent/src/rsi/ratchet-handler.ts`
+- TypeScript: `CinderpawAgent/src/rsi/ratchet-handler.ts`
 - Rust: `src-tauri/src/rsi/repo.rs::ratchet_attempt`
 
 **Verified By:**
@@ -131,7 +132,7 @@ ambiguous.
 **Statement:** Journal entries are immutable once written. No API
 allows modifying, deleting, or reordering existing entries.
 
-**Owner:** `FeralAgent/src/rsi/journal.ts::appendJournal`,
+**Owner:** `CinderpawAgent/src/rsi/journal.ts::appendJournal`,
 `readJournal`
 
 **Verified By:**
@@ -162,7 +163,7 @@ the row in place + restart, (b) accept data loss + restart (audited).
 on read, never silently dropped or skipped. This is the operator's
 signal that the audit trail needs inspection.
 
-**Owner:** `FeralAgent/src/rsi/journal.ts::readJournal`
+**Owner:** `CinderpawAgent/src/rsi/journal.ts::readJournal`
 
 **Verified By:**
 - Documentation: this entry
@@ -189,7 +190,7 @@ stage MUST halt the cycle, not skip the phase. The fail-open path
 applies ONLY when `estimate === null` (no estimator available).
 
 **Owner:**
-- TypeScript: `FeralAgent/src/rsi/budget.ts::assertCanSpend`
+- TypeScript: `CinderpawAgent/src/rsi/budget.ts::assertCanSpend`
 - Contract FSM consumer (Opus territory — Steps 9-10 of BRSI refactor)
 
 **Verified By:**
@@ -223,7 +224,7 @@ exhausted budget.
 sample size → direction → significance → magnitude → confidence.
 Each check rejects with a specific reason; no check may be skipped.
 
-**Owner:** `FeralAgent/src/rsi/confidence.ts::evaluateGate`
+**Owner:** `CinderpawAgent/src/rsi/confidence.ts::evaluateGate`
 
 **Verified By:**
 - Documentation: this entry
@@ -331,7 +332,7 @@ a contract violation.
 **Statement:** `computePersonalFitness` returns values in `[0, 1]`,
 never outside. NaN inputs are normalised to 0.
 
-**Owner:** `FeralAgent/src/rsi/personal-fitness.ts::computePersonalFitness`
+**Owner:** `CinderpawAgent/src/rsi/personal-fitness.ts::computePersonalFitness`
 
 **Verified By:**
 - Documentation: this entry
@@ -356,7 +357,7 @@ slightly biased — observable in regression tests.
 **Statement:** `fitnessVectorAggregate(v)` returns values in `[0, 1]`,
 even for pathological inputs.
 
-**Owner:** `FeralAgent/src/rsi/fitness.ts::fitnessVectorAggregate`
+**Owner:** `CinderpawAgent/src/rsi/fitness.ts::fitnessVectorAggregate`
 
 **Verified By:**
 - Documentation: this entry
@@ -383,7 +384,7 @@ graph is built by walking forward).
 
 **Owner:**
 - Rust: `src-tauri/src/rsi/repo.rs` (git substrate)
-- TypeScript: `FeralAgent/src/rsi/provenance.ts::walkDescendants`
+- TypeScript: `CinderpawAgent/src/rsi/provenance.ts::walkDescendants`
 
 **Verified By:**
 - Documentation: this entry
@@ -401,22 +402,34 @@ BFS has a `seen` set as the runtime safety net.
 
 ---
 
-### Invariant I13 — Per-instance data isolation (PENDING)
+### Invariant I13 — Per-instance data isolation
 
-**Statement:** Each tenant (`~/.feral/instances/<tenant>/`) has its
+**Statement:** Each tenant (`~/.cinderpaw/instances/<tenant>/`) has its
 own genomes, adapters, demos, eval suites, journal, audit log.
 Cross-tenant reads are not permitted. Tier 0 specs are the only
 shared data.
 
+**Per-run isolation (ACTIVE).** The benchmark half of this invariant
+landed first, because a benchmark campaign is where cross-run leakage
+turns into a wrong published number. With `CINDERPAW_BENCHMARK_RUN_ID` set,
+`cinderpawHome()` returns `<home>/runs/<runId>`, and every profile-dir
+consumer — the DB, journal, skill sink, connector store, `paths()` —
+derives from that one function, so they all move together. Run N's
+learned skills are not on run N+1's disk to be read.
+
 **Owner:**
+- Per run: `CinderpawAgent/src/config.ts::cinderpawHome` + `benchmarkRunId`
 - Path layout: `src-tauri/src/rsi/paths.rs`
 - Per-instance split: BRSI §3.3 in `continual-personal-adaptation-plan.md`
 
 **Verified By:**
 - Documentation: this entry
-- Test: `paths.rs::tests::require_under` (path-containment)
+- Test: `paths.rs::tests::require_under` (path-containment);
+  `CinderpawAgent/tests/benchmark-mode.test.ts` (two runs never share a
+  profile dir; a non-path-safe run id is refused, not sanitized)
 - Runtime Assert: `paths.rs::is_under` rejects paths outside the
-  tenant root
+  tenant root; `assertValidRunId` refuses a traversing run id before it
+  can become a directory
 - Audit: every IO op logs the tenant id
 
 **Failure Mode:** HALT — a path outside the tenant root fails the
@@ -430,28 +443,37 @@ containment check.
 
 ---
 
-### Invariant I14 — Human approval gate for L3+ changes (PENDING)
+### Invariant I14 — Human approval gate for L3+ changes
 
 **Statement:** Code Evolution (L3), Architecture Evolution (L4), and
 Meta Evolution (L6) changes require explicit human approval before
 apply. Governance Evolution (L5) may auto-apply within bounds but
 rolls back on regression.
 
-**Owner:** Contract FSM (Opus territory)
+**Owner:** `CinderpawAgent/src/rsi/l3-code/pending-patches.ts` — a
+candidate that wins the ratchet is never applied to the source tree by
+the winning alone. It lands in `PendingPatchStore` as `pending`, and
+`applyPatchLive` refuses unless the store records an approval AND the
+patch passes a fresh TS-wall re-check at apply time. The first
+`APPROVALS_BEFORE_AUTO` (10) applied patches require a human decision;
+`requiresManualApproval()` is what tells the host when that unlocks.
+The file is on both patch denylists — the gate cannot rewrite itself.
 
 **Verified By:**
 - Documentation: this entry
-- Test: integration test for the approval flow
-- Runtime Assert: Contract FSM rejects apply without the approval
-  token
-- Audit: every approval/rejection logged in the Journal
+- Test: `CinderpawAgent/tests/rsi-pending-patches.test.ts`
+- Runtime Assert: `applyPatchLive` returns `{ ok: false, reason }` for a
+  patch with no recorded approval
+- Audit: every approval/rejection recorded in the patch store
 
 **Failure Mode:** Reject the apply.
 
 **Recovery:** Surface to UI; await approval.
 
 **Introduced:** v0.9.0 (mechanism deferred)
-**Status:** PENDING — Contract FSM not yet written
+**Status:** ACTIVE for L3 code patches. L4 (architecture) and L6 (meta)
+have no proposer yet, so nothing reaches a gate there — when they gain
+one, it routes through this same store or this entry is wrong.
 
 ---
 
@@ -469,7 +491,7 @@ why a candidate was rejected before evaluation. Silent rejections
 are exactly the failure mode BRSI is designed to prevent.
 
 **Owner:**
-- TypeScript: `FeralAgent/src/rsi/event-bus.ts` (the union type with
+- TypeScript: `CinderpawAgent/src/rsi/event-bus.ts` (the union type with
   `reason: string` non-optional); the Contract FSM (Opus territory)
   is the primary emitter.
 - Wire-level: `RsiEvent` discriminated union extension per
@@ -530,7 +552,7 @@ the Journal stream.
 **Statement:** The population manager should maintain at least 3
 niches (NEAT-speciation threshold at 0.85 cosine similarity).
 
-**Owner:** `FeralAgent/src/rsi/extinction-handler.ts`
+**Owner:** `CinderpawAgent/src/rsi/extinction-handler.ts`
 
 **Verification:** Metric on `population.nicheCount`.
 

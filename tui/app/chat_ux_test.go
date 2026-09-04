@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"feral-tui/api"
+	"cinderpaw-tui/api"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -83,10 +83,10 @@ func TestSlashCommandClearsInput(t *testing.T) {
 func TestSubmittedUserMessageRenders(t *testing.T) {
 	a := newTestApp()
 	a.State = StateReady
-	a.Input.SetValue("hello feral")
+	a.Input.SetValue("hello cinderpaw")
 	a.handleSubmit()
 	content := stripAnsi(a.buildChatContent())
-	if !strings.Contains(content, "hello feral") {
+	if !strings.Contains(content, "hello cinderpaw") {
 		t.Fatalf("user message missing from transcript:\n%s", content)
 	}
 }

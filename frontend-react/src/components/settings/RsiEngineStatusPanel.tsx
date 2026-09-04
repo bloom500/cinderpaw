@@ -123,7 +123,7 @@ export function RsiEngineStatusPanel() {
               type="button"
               onClick={onStop}
               disabled={stopping}
-              className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-bg-elevated px-2 py-1 text-2xs text-text-secondary hover:text-text-primary disabled:opacity-50"
             >
               <Square size={10} /> {stopping ? 'Stopping…' : 'Stop'}
             </button>
@@ -131,14 +131,14 @@ export function RsiEngineStatusPanel() {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-4">
-        <Stat label="Iteration" value={e ? e.iteration.toLocaleString() : '—'} />
-        <Stat label="Best score" value={e?.best_score != null ? e.best_score.toFixed(3) : '—'} />
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-2xs sm:grid-cols-4">
+        <Stat label="Iteration" value={e ? e.iteration.toLocaleString() : '-'} />
+        <Stat label="Best score" value={e?.best_score != null ? e.best_score.toFixed(3) : '-'} />
         <Stat label="Spent" value={`$${(e?.cost_so_far_usd ?? 0).toFixed(4)}`} sub={capped ? `cap ${capDisplay}` : 'no cap'} />
-        <Stat label="Main tip" value={status.main_tip ? status.main_tip.slice(0, 7) : '—'} sub={status.main_tip_score != null ? status.main_tip_score.toFixed(3) : 'no score'} />
+        <Stat label="Main tip" value={status.main_tip ? status.main_tip.slice(0, 7) : '-'} sub={status.main_tip_score != null ? status.main_tip_score.toFixed(3) : 'no score'} />
       </div>
 
-      <div className="flex items-center gap-3 text-[11px]">
+      <div className="flex items-center gap-3 text-2xs">
         <span className="flex items-center gap-1.5 text-text-secondary">
           <Zap size={11} /> Concurrency
         </span>
@@ -152,9 +152,9 @@ export function RsiEngineStatusPanel() {
                 onClick={() => onConcurrencyChange(n)}
                 aria-label={`Set concurrency to ${n}`}
                 className={cn(
-                  'min-w-[24px] rounded-md px-1.5 py-0.5 text-[11px] transition-colors',
+                  'min-w-[24px] rounded-md px-1.5 py-0.5 text-2xs transition-colors',
                   active
-                    ? 'bg-brand text-white'
+                    ? 'bg-brand text-on-brand'
                     : 'bg-bg-elevated text-text-secondary hover:text-text-primary',
                 )}
               >
@@ -168,19 +168,19 @@ export function RsiEngineStatusPanel() {
             ? (e.concurrency < MIN_CONCURRENCY || e.concurrency > MAX_CONCURRENCY
                 ? 'clamped to 1..4 by the engine'
                 : 'applied on next pool refill')
-            : '—'}
+            : '-'}
         </span>
       </div>
 
       {stopError && (
-        <p className="text-[11px] text-text-muted">
+        <p className="text-2xs text-text-muted">
           <Pause size={10} className="inline-block align-text-bottom mr-1" />
           Stop failed: {stopError}
         </p>
       )}
 
-      <p className="text-[10px] text-text-muted">
-        Engine autostarts on launch and re-reads <code className="text-text-secondary">FERAL_RSI_MAX_COST_USD</code> on every restart. Set the USD cap in the section above.
+      <p className="text-micro text-text-muted">
+        Engine autostarts on launch and re-reads <code className="text-text-secondary">CINDERPAW_RSI_MAX_COST_USD</code> on every restart. Set the USD cap in the section above.
       </p>
     </div>
   );
@@ -191,20 +191,20 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
     <div>
       <div className="text-text-muted">{label}</div>
       <div className="font-mono text-text-primary">{value}</div>
-      {sub && <div className="text-[10px] text-text-muted">{sub}</div>}
+      {sub && <div className="text-micro text-text-muted">{sub}</div>}
     </div>
   );
 }
 
 function StatusPill({ running, stopReason, engineKnown }: { running: boolean; stopReason: string | null; engineKnown: boolean }) {
   if (!engineKnown) {
-    return <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-[10px] text-text-muted">starting…</span>;
+    return <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-micro text-text-muted">starting…</span>;
   }
   if (running) {
-    return <span className="rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] text-brand">running</span>;
+    return <span className="rounded-md bg-brand/15 px-1.5 py-0.5 text-micro text-brand">running</span>;
   }
   return (
-    <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-[10px] text-text-secondary">
+    <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-micro text-text-secondary">
       stopped{stopReason ? ` · ${stopReason}` : ''}
     </span>
   );

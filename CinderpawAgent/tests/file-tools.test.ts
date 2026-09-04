@@ -1,0 +1,361 @@
+/**
+ * File operations tests — edit_file, file_search, grep.
+ *
+ * Each test creates a temporary directory under the OS tmpdir, writes
+ * a known set of files, runs the tool against it, and asserts on the
+ * structured result.
+ */
+
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { tmpdir } from "node:os";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import { createEditFileTool } from "../src/tools/builtin/edit-file.ts";
+import { createReadFileTool } from "../src/tools/builtin/read-file.ts";
+import { noteRead } from "../src/tools/read-ledger.ts";
+import { createFileSearchTool } from "../src/tools/builtin/file-search.ts";
+import { createGrepTool } from "../src/tools/builtin/grep.ts";
+import { resolveAllowedPath } from "../src/egress/tool-permissions.ts";
+import { AuditLog } from "../src/egress/audit-log.ts";
+import { openDatabase } from "../src/db.ts";
+import type { ToolContext } from "../src/types.ts";
+import { RealProcessSandbox } from "../src/egress/process-sandbox.ts";
+import { EgressProxy } from "../src/egress/egress-proxy.ts";
+
+function makeCtx(allowedPaths: string[]): { ctx: ToolContext; cleanup: () => void } {
+  // A real but throwaway DB so the AuditLog has somewhere to write.
+  const db = openDatabase(":memory:");
+  const audit = new AuditLog(db.raw);
+  const egress = new EgressProxy(audit.logger);
+  const procSandbox = new RealProcessSandbox(audit.logger);
+  // The ToolRegistry constructs the ctx; we mimic that here.
+  const ctx: ToolContext = {
+    sessionId: "test",
+    manifest: {
+      name: "test",
+      description: "test",
+      permissions: ["fs:read", "fs:write", "process:spawn"],
+      networkAccess: false,
+      allowedPaths,
+      allowedExecutables: ["sh", "cmd"],
+    },
+    fetch: egress.forTool(
+      {
+        name: "test",
+        description: "test",
+        permissions: [],
+        networkAccess: false,
+      },
+      "test",
+    ),
+    audit: audit.logger,
+    process: procSandbox,
+  };
+  return {
+    ctx,
+    cleanup: () => db.close(),
+  };
+}
+
+describe("resolveAllowedPath", () => {
+  let tmp: string;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "cinderpaw-fs-")); });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it("accepts a path inside the allowed root", () => {
+    const m = {
+      name: "t", description: "t",
+      permissions: ["fs:read"] as Array<"fs:read" | "fs:write" | "process:spawn" | "network:outbound">,
+      networkAccess: false,
+      allowedPaths: [tmp],
+    };
+    const inner = join(tmp, "sub", "file.txt");
+    // realpath the root: on macOS tmpdir() lives behind the /var ->
+    // /private/var symlink, so the resolver returns the canonical form.
+    expect(resolveAllowedPath(m, "fs:read", inner)).toBe(
+      join(realpathSync(tmp), "sub", "file.txt"),
+    );
+  });
+
+  it("rejects a path that escapes the allowed root", () => {
+    const m = {
+      name: "t", description: "t",
+      permissions: ["fs:read"] as Array<"fs:read" | "fs:write" | "process:spawn" | "network:outbound">,
+      networkAccess: false,
+      allowedPaths: [tmp],
+    };
+    expect(() => resolveAllowedPath(m, "fs:read", join(tmp, "..", "etc", "passwd")))
+      .toThrow();
+  });
+});
+
+describe("read_file states the line count instead of leaving it to be guessed", () => {
+  let tmp: string;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "cinderpaw-read-")); });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it("numbers the lines and puts the exact total in the header", async () => {
+    // Three clean live runs, asked how many lines two files they had just read
+    // in full: 194 / 227 / 213 for a file with 227. Right once. The summaries
+    // were accurate every time — it read them. It cannot COUNT them, and
+    // nothing in the output said so. With numbers: 3 of 3.
+    const f = join(tmp, "seven.txt");
+    writeFileSync(f, Array.from({ length: 7 }, (_, i) => `line ${i + 1}`).join("\n") + "\n");
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const r = await createReadFileTool([tmp]).execute({ path: f }, ctx);
+      expect(r.ok).toBe(true);
+      // The number a question about length can be answered from directly.
+      expect(r.content).toContain("7 lines");
+      expect((r.data as { lines: number }).lines).toBe(7);
+      // …and the trailing newline did not become an eighth line.
+      expect(r.content).toContain("7\tline 7");
+      expect(r.content).not.toContain("8\t");
+      expect(r.content).toContain("1\tline 1");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("a truncated read says how many lines it is NOT showing", async () => {
+    // The last number is only the total when nothing was cut. A read that
+    // stops at 64 KB and says just "truncated" invites exactly the guess this
+    // whole change removes.
+    const f = join(tmp, "big.txt");
+    const line = "x".repeat(99); // 100 bytes per line
+    writeFileSync(f, Array.from({ length: 1000 }, () => line).join("\n") + "\n");
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const r = await createReadFileTool([tmp]).execute({ path: f }, ctx);
+      expect(r.ok).toBe(true);
+      expect((r.data as { truncated: boolean }).truncated).toBe(true);
+      expect(r.content).toContain("1000 lines");
+      expect(r.content).toMatch(/\d+ lines not shown/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe("edit_file", () => {
+  let tmp: string;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "cinderpaw-edit-")); });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it("replaces a unique occurrence of old_string", async () => {
+    const f = join(tmp, "hello.txt");
+    writeFileSync(f, "Hello world!\nThis is cinderpaw.\n");
+    noteRead("test", f); // read-before-edit gate; read_file does this in prod
+    const tool = createEditFileTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { path: f, old_string: "world", new_string: "Cinderpaw" },
+        ctx,
+      );
+      expect(result.ok).toBe(true);
+      const after = await Bun.file(f).text();
+      expect(after).toBe("Hello Cinderpaw!\nThis is cinderpaw.\n");
+    } finally { cleanup(); }
+  });
+
+  it("fails when old_string is not unique and replace_all is false", async () => {
+    const f = join(tmp, "dup.txt");
+    writeFileSync(f, "foo bar foo baz foo\n");
+    noteRead("test", f); // read-before-edit gate; read_file does this in prod
+    const tool = createEditFileTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { path: f, old_string: "foo", new_string: "FOO" },
+        ctx,
+      );
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("ambiguous_match");
+    } finally { cleanup(); }
+  });
+
+  it("replaces every occurrence with replace_all=true", async () => {
+    const f = join(tmp, "dup.txt");
+    writeFileSync(f, "foo bar foo baz foo\n");
+    noteRead("test", f); // read-before-edit gate; read_file does this in prod
+    const tool = createEditFileTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { path: f, old_string: "foo", new_string: "FOO", replace_all: true },
+        ctx,
+      );
+      expect(result.ok).toBe(true);
+      const after = await Bun.file(f).text();
+      expect(after).toBe("FOO bar FOO baz FOO\n");
+    } finally { cleanup(); }
+  });
+
+  it("fails when old_string is missing entirely", async () => {
+    const f = join(tmp, "missing.txt");
+    writeFileSync(f, "alpha\n");
+    noteRead("test", f); // read-before-edit gate; read_file does this in prod
+    const tool = createEditFileTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { path: f, old_string: "omega", new_string: "beta" },
+        ctx,
+      );
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("not_found");
+    } finally { cleanup(); }
+  });
+
+  it("blocks edits outside allowedPaths", async () => {
+    const other = mkdtempSync(join(tmpdir(), "cinderpaw-other-"));
+    try {
+      const f = join(other, "secret.txt");
+      writeFileSync(f, "top secret\n");
+      const tool = createEditFileTool([tmp]); // tmp is the allowed root, NOT other
+      const { ctx, cleanup } = makeCtx([tmp]);
+      try {
+        const result = await tool.execute(
+          { path: f, old_string: "top", new_string: "bottom" },
+          ctx,
+        );
+        expect(result.ok).toBe(false);
+        // resolveAllowedPath throws PermissionDeniedError which the registry
+        // converts; the tool sees it as a generic error.
+        expect(existsSync(f)).toBe(true); // untouched
+      } finally { cleanup(); }
+    } finally { rmSync(other, { recursive: true, force: true }); }
+  });
+});
+
+describe("file_search", () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "cinderpaw-fs-"));
+    // Build a small fixture tree.
+    mkdirSync(join(tmp, "src", "tools"), { recursive: true });
+    mkdirSync(join(tmp, "src", "core"), { recursive: true });
+    writeFileSync(join(tmp, "src", "index.ts"), "// index\n");
+    writeFileSync(join(tmp, "src", "tools", "registry.ts"), "// registry\n");
+    writeFileSync(join(tmp, "src", "tools", "list.ts"), "// list\n");
+    writeFileSync(join(tmp, "src", "core", "loop.ts"), "// loop\n");
+    writeFileSync(join(tmp, "README.md"), "# readme\n");
+  });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it("finds all .ts files under src/**", async () => {
+    const tool = createFileSearchTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { pattern: "src/**/*.ts", path: tmp },
+        ctx,
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { results: { path: string }[] };
+      const names = data.results.map((r) => r.path.split(/[\\/]/).pop());
+      expect(names.sort()).toEqual(["index.ts", "list.ts", "loop.ts", "registry.ts"]);
+    } finally { cleanup(); }
+  });
+
+  it("finds a single specific file", async () => {
+    const tool = createFileSearchTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { pattern: "README.md", path: tmp },
+        ctx,
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { results: { path: string }[] };
+      expect(data.results.length).toBe(1);
+    } finally { cleanup(); }
+  });
+
+  it("returns an empty list when nothing matches", async () => {
+    const tool = createFileSearchTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { pattern: "*.py", path: tmp },
+        ctx,
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { results: unknown[] };
+      expect(data.results).toEqual([]);
+    } finally { cleanup(); }
+  });
+
+  it("blocks searches outside allowedPaths", async () => {
+    const other = mkdtempSync(join(tmpdir(), "cinderpaw-other-"));
+    try {
+      const tool = createFileSearchTool([tmp]);
+      const { ctx, cleanup } = makeCtx([tmp]);
+      try {
+        const result = await tool.execute(
+          { pattern: "*", path: other },
+          ctx,
+        );
+        expect(result.ok).toBe(false);
+      } finally { cleanup(); }
+    } finally { rmSync(other, { recursive: true, force: true }); }
+  });
+});
+
+describe("grep", () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "cinderpaw-grep-"));
+    mkdirSync(join(tmp, "src"), { recursive: true });
+    writeFileSync(join(tmp, "src", "a.ts"), "const cinderpaw = 1;\nconst other = 2;\n");
+    writeFileSync(join(tmp, "src", "b.ts"), "const CINDERPAW = 'cap';\n");
+    writeFileSync(join(tmp, "src", "c.txt"), "no code here\n");
+  });
+  afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+
+  it("finds case-sensitive matches across files", async () => {
+    const tool = createGrepTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { pattern: "cinderpaw", path: tmp, context_lines: 0 },
+        ctx,
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { matches: { file: string; line: number }[] };
+      // Should match a.ts:1 only (CINDERPAW in b.ts is case-different).
+      expect(data.matches.length).toBe(1);
+      expect(data.matches[0]?.file).toMatch(/a\.ts$/);
+    } finally { cleanup(); }
+  });
+
+  it("respects the glob filter on file names", async () => {
+    const tool = createGrepTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { pattern: "F", path: tmp, glob: "*.ts" },
+        ctx,
+      );
+      expect(result.ok).toBe(true);
+      const data = result.data as { matches: { file: string }[] };
+      const files = new Set(data.matches.map((m) => m.file));
+      // c.txt should NOT be in the results.
+      for (const f of files) expect(f).not.toMatch(/c\.txt$/);
+    } finally { cleanup(); }
+  });
+
+  it("rejects an invalid regex", async () => {
+    const tool = createGrepTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute(
+        { pattern: "[unterminated", path: tmp },
+        ctx,
+      );
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("bad_args");
+    } finally { cleanup(); }
+  });
+});

@@ -10,9 +10,9 @@ optimise **global capability** on benchmark suites (SWE-bench,
 MMLU, math). The fitness function is "how good is this model at
 coding / reasoning / math, on average".
 
-This is not what Feral is optimising.
+This is not what Cinderpaw is optimising.
 
-Feral's pitch is "your AI that gets more valuable to *you* over
+Cinderpaw's pitch is "your AI that gets more valuable to *you* over
 time." The fitness function is "how useful am I for *this* user",
 which includes signals that public benchmarks cannot measure:
 acceptance of agent messages, tool-call success on the user's
@@ -26,7 +26,7 @@ not at helping.
 
 ## Decision
 
-Personal Fitness is a **first-class objective** in Feral:
+Personal Fitness is a **first-class objective** in Cinderpaw:
 
 1. The BRSI fitness vector (BRSI §2.2) carries it as one of six
    components (`userSatisfaction`), with a default weight of 0.10.
@@ -36,13 +36,13 @@ Personal Fitness is a **first-class objective** in Feral:
 3. Personal Fitness signals are collected locally only. The user's
    data never leaves their machine.
 4. The Personal Fitness aggregator
-   (`FeralAgent/src/rsi/personal-fitness.ts`) is a required consumer
+   (`CinderpawAgent/src/rsi/personal-fitness.ts`) is a required consumer
    of the audit log when Personal LoRA is active.
 
 ## Consequences
 
 **Easier:**
-- Feral's research positioning is honest: BRSI is not Sakana at
+- Cinderpaw's research positioning is honest: BRSI is not Sakana at
   home; it's a different optimisation target.
 - The privacy story strengthens: local-first is required for
   Personal Fitness to work at all.
@@ -69,7 +69,7 @@ Personal Fitness is a **first-class objective** in Feral:
 ## Related
 
 - `docs/brsi-spec.md` §2.10, §10
-- `FeralAgent/src/rsi/personal-fitness.ts` (the aggregator)
+- `CinderpawAgent/src/rsi/personal-fitness.ts` (the aggregator)
 - `docs/continual-personal-adaptation-plan.md` §3.2 (Personal LoRA
   pipeline)
 - INVARIANTS.md I10 (Personal Fitness bounded)

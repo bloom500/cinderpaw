@@ -5,15 +5,15 @@
 
 ## Context
 
-Feral's terminal-first setup today is a linear wizard (`tui/app/wizard.go`)
+Cinderpaw's terminal-first setup today is a linear wizard (`tui/app/wizard.go`)
 that walks the user through hardware detection, model choice, provider
 setup, connectors, and finish. It works, but it forces every user through
 the same sequence regardless of preference or prior knowledge.
 
 The product's core value is a local-first autonomous agent that the user
 talks to naturally. The onboarding experience should demonstrate that
-value immediately: the user should be able to configure Feral by talking
-to Feral, not just by navigating forms. At the same time, users who prefer
+value immediately: the user should be able to configure Cinderpaw by talking
+to Cinderpaw, not just by navigating forms. At the same time, users who prefer
 a guided, step-by-step flow must keep that option.
 
 This ADR records the decision to add an **AI-Guided Configuration** branch
@@ -97,7 +97,7 @@ The sidecar emits these outbound event kinds:
 
 The TUI:
 
-- Shows a "Let Feral help me" vs "Configure manually" choice after model
+- Shows a "Let Cinderpaw help me" vs "Configure manually" choice after model
   selection in the wizard.
 - Enters `StateOnboardingChat` for the conversational path.
 - Renders each domain event as a concise status line or card.
@@ -155,12 +155,12 @@ After each config tool runs, the agent receives the current
 - `docs/agents-memory/project_chat_tui.md` — current TUI state and
   streaming design.
 - `tui/app/wizard.go` — existing wizard state machine.
-- `FeralAgent/src/brain/brain-config.ts` — `brain.json` loader and shape.
-- `FeralAgent/src/transports/connectors.ts` — connector manager and
+- `CinderpawAgent/src/brain/brain-config.ts` — `brain.json` loader and shape.
+- `CinderpawAgent/src/transports/connectors.ts` — connector manager and
   `connectors.json` shape.
-- `FeralAgent/src/tools/builtin/self.ts` — introspection tools; the new
+- `CinderpawAgent/src/tools/builtin/self.ts` — introspection tools; the new
   config tools complement but do not replace `self_*`.
-- `FeralAgent/src/core/agent-loop.ts` — profile / tool-allowlist mechanism
+- `CinderpawAgent/src/core/agent-loop.ts` — profile / tool-allowlist mechanism
   used for onboarding tool restrictions.
 - `crates/feral-core/src/api.rs` — backend routes, including the Public
   Runtime API where new endpoints land.

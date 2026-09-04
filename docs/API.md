@@ -1,8 +1,8 @@
-# FERAL HTTP API reference
+# CINDERPAW HTTP API reference
 
-> **Stability policy:** As of v1.0 the Feral HTTP API is **unstable
+> **Stability policy:** As of v1.0 the Cinderpaw HTTP API is **unstable
 > pre-2.0**. Every response carries
-> `X-Feral-Api-Stability: stable|unstable`. The **only** stable
+> `X-Cinderpaw-Api-Stability: stable|unstable`. The **only** stable
 > surfaces are the third-party protocol compat:
 >   * `/api/*` — Ollama-compatible.
 >   * `/v1/*` — OpenAI-compatible.
@@ -14,11 +14,11 @@
 > deprecation cycle. Decision recorded in the spec at
 > `docs/2026-07-09-v1-architecture-hardening-spec.md` §B1.
 
-The list below mirrors `crates/feral-core/src/api.rs::router()`.
+The list below mirrors `crates/cinderpaw-core/src/api.rs::router()`.
 That file is the source of truth — `scripts/check-api-docs.mjs`
 parses its `.route(` lines and fails if any drift from the fenced
-`feral-api-routes` block at the bottom of this file. Wired into
-`bun test` via `FeralAgent/tests/api-docs.test.ts`.
+`cinderpaw-api-routes` block at the bottom of this file. Wired into
+`bun test` via `CinderpawAgent/tests/api-docs.test.ts`.
 
 Operation class tags (`read`, `evolve`, `govern`) come straight from
 the comment tags next to each `.route(` line.
@@ -56,6 +56,9 @@ the comment tags next to each `.route(` line.
 | GET  | `/runtime/connectors` | unstable | read | Redacted state (enabled, filled secret keys, allowlist, channels, mode) per persisted connector. |
 | POST | `/runtime/connectors` | unstable | govern | Upsert one connector's config, then pokes the sidecar to reload. Never echoes secret values back. |
 | POST | `/runtime/connectors/reload` | unstable | govern | Sidecar reloads the connector catalog from disk. |
+| POST | `/runtime/voice/tool` | unstable | govern | One tool call from a voice session (`{id, name, args}`), answered by the local agent. Bounded at 20s: past that it returns a holding answer and the work keeps running, so a realtime model — which blocks on a tool call — is never left silent. Grants nothing `/runtime/chat` does not. |
+| POST | `/runtime/voice/speak` | unstable | govern | Synthesise one utterance (`{provider, voice?, text}`) and return raw PCM, with the engine's rate in `x-sample-rate` — Piper voices are 22.05 kHz, not the module constant. Exists so the LiveKit voice worker, a separate process, can speak in the same engines and voices as the rest of the app. |
+| POST | `/runtime/voice/transcribe` | unstable | govern | Transcribe one utterance (`{pcm, model_size?, provider?, language?}`). `provider` selects local Whisper or a hosted recogniser; the cloud branch wraps the caller's PCM in a WAV, because the worker has frames and the vendor wants a file. Returns `model-missing`, `stt-no-key` or `voice-unavailable` by name so the caller can say which. |
 | POST | `/runtime/shutdown` | unstable | govern | Fires the runtime's graceful-shutdown signal. |
 | GET  | `/runtime/status` | unstable | read | Live status snapshot. |
 | GET  | `/runtime/models` | unstable | read | Lists loaded/known models. |
@@ -66,6 +69,7 @@ the comment tags next to each `.route(` line.
 | POST | `/runtime/lora/reviews/resolve` | unstable | govern | THE human decision on an adapter candidate (`{id, action: approve\|reject}`). |
 | GET  | `/runtime/manifest` | unstable | read | Active module manifest snapshot. |
 | GET  | `/runtime/sessions` | unstable | read | Lists sessions. |
+| GET  | `/runtime/sessions/:id/transcript` | unstable | read | Full message list for one saved session, for backfill after a reconnect. Returns `{id, title, created_at, updated_at, messages: [{role, content, created_at}]}`; the id is validated as alnum + dash, 1–64 chars. |
 | GET  | `/runtime/resume` | unstable | read | Memory Resume — last-task row for clients. |
 | POST | `/runtime/session/compact` | unstable | evolve | Summarize the older portion of one session's transcript now (`{ session_id? }`, default "default"). Sidecar round-trip; the summarizer is a real LLM completion (120s cap). |
 | POST | `/runtime/byok/save` | unstable | govern | Persist provider key + metadata; never echoes the key. |
@@ -74,7 +78,7 @@ the comment tags next to each `.route(` line.
 | GET  | `/runtime/setup/detect` | unstable | read | Guided-setup detection ladder (existing config → local GGUFs → hardware download → env keys → Ollama → OpenClaw import) + hardware summary + security-ack state. |
 | POST | `/runtime/setup/verify` | unstable | govern | Real-completion test of a detected candidate ("Reply with the single word OK…", 32 tok, 90s); `persist:true` writes the route only on success. |
 | POST | `/runtime/setup/ack` | unstable | govern | Persist the one-time security-acknowledgement timestamp in settings.json. |
-| GET  | `/runtime/providers/catalog` | unstable | read | Provider catalog; carries `X-Feral-Catalog-Version`. |
+| GET  | `/runtime/providers/catalog` | unstable | read | Provider catalog; carries `X-Cinderpaw-Catalog-Version`. |
 | GET  | `/runtime/connectors/catalog` | unstable | read | Connector catalog; same versioning header. |
 
 ### Meta (`/meta/*` — L6, sidecar roundtrip)
@@ -130,7 +134,7 @@ the comment tags next to each `.route(` line.
 
 Every request must present
 `Authorization: Bearer <token>` where `<token>` is read from
-`~/.feral/api-token` (per-launch, file mode `0o600` on Unix). The
+`~/.cinderpaw/api-token` (per-launch, file mode `0o600` on Unix). The
 token rotates on every launch; the in-app sidecar receives it via
 the host's env, not via the request.
 
@@ -145,10 +149,10 @@ the host's env, not via the request.
      only harvests the first verb of a chained axum MethodRouter
      (`get(...).post(...)` on one `.route()` call), so it cannot see
      `POST /runtime/connectors` — that route is real (see the table
-     above + crates/feral-core/src/api.rs) but is deliberately left out
+     above + crates/cinderpaw-core/src/api.rs) but is deliberately left out
      of this fenced list to avoid a permanent false "unlisted" warning. -->
 
-```feral-api-routes
+```cinderpaw-api-routes
 DELETE /api/delete
 GET /api/tags
 POST /api/chat
@@ -193,10 +197,14 @@ GET /runtime/providers/catalog
 GET /runtime/resume
 POST /runtime/session/compact
 GET /runtime/sessions
+GET /runtime/sessions/:id/transcript
 GET /runtime/status
 POST /runtime/byok/save
 POST /runtime/chat
 POST /runtime/connectors/reload
+POST /runtime/voice/tool
+POST /runtime/voice/speak
+POST /runtime/voice/transcribe
 POST /runtime/model
 POST /runtime/models/install
 GET /runtime/setup/detect

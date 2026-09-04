@@ -5,7 +5,7 @@
 
 ## Context
 
-The 8 production modules in `FeralAgent/src/rsi/` already exhibit a
+The 8 production modules in `CinderpawAgent/src/rsi/` already exhibit a
 microkernel pattern, even though it has not been named:
 
 ```

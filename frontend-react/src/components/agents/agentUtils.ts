@@ -1,4 +1,4 @@
-export const ONBOARDING_KEY = 'feral_agents_onboarding';
+export const ONBOARDING_KEY = 'cinderpaw_agents_onboarding';
 
 export const DEFAULT_SCRATCH_PROMPT =
   'You are a helpful AI assistant. Answer questions clearly and concisely. Ask for clarification when needed.';

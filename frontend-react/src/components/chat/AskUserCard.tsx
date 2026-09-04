@@ -119,8 +119,8 @@ export function AskUserCard({
       role="group"
       aria-label="Agent question"
     >
-      <div className="text-[11px] uppercase tracking-wider text-text-muted font-medium">
-        Feral needs your input
+      <div className="text-2xs uppercase tracking-wider text-text-muted font-medium">
+        Cinderpaw needs your input
         {questions.length > 1 && (
           <span className="ml-2 font-mono text-text-muted/70 normal-case tracking-normal">
             {answers.filter((a) => a !== null).length} / {questions.length}
@@ -232,7 +232,7 @@ function QuestionBlock({
     onAnswerMulti(labels);
   };
 
-  // Keyboard nav: 1-9 quick-select on single-select; Enter submits multi.
+  // Keyboard nav: 1-9 quick-select, Arrows + Space for single-select; Enter submits multi.
   const handleKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (disabled) return;
     if (e.key === 'Enter' && question.multiSelect) {
@@ -243,6 +243,27 @@ function QuestionBlock({
     if (e.key === 'Escape' && !question.multiSelect) {
       e.preventDefault();
       setOtherOpen(true);
+      return;
+    }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !question.multiSelect) {
+      e.preventDefault();
+      const nodes = containerRef.current?.querySelectorAll<HTMLButtonElement>('button[role="radio"]');
+      if (!nodes || nodes.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      let idx = Array.from(nodes).findIndex((n) => n === active);
+      if (idx === -1) idx = e.key === 'ArrowDown' ? -1 : 0;
+      const next = e.key === 'ArrowDown' ? (idx + 1) % nodes.length : (idx - 1 + nodes.length) % nodes.length;
+      nodes[next]?.focus();
+      return;
+    }
+    if (e.key === ' ' && !question.multiSelect) {
+      const active = document.activeElement as HTMLElement | null;
+      const label = active?.getAttribute('data-option-label');
+      const opt = question.options.find((o) => o.label === label);
+      if (opt) {
+        e.preventDefault();
+        handleSelect(opt);
+      }
       return;
     }
     const num = Number(e.key);
@@ -256,14 +277,15 @@ function QuestionBlock({
   return (
     <div
       ref={containerRef}
-      tabIndex={0}
       onKeyDown={handleKey}
+      role={question.multiSelect ? 'group' : 'radiogroup'}
+      aria-label={question.question}
       className="space-y-2 outline-none"
       data-question-index={index}
     >
       <div className="flex items-baseline gap-2">
         {question.header && (
-          <span className="text-[10px] uppercase tracking-wider text-text-muted font-mono">
+          <span className="text-micro uppercase tracking-wider text-text-muted font-mono">
             {question.header}
           </span>
         )}
@@ -273,7 +295,7 @@ function QuestionBlock({
       {/* Answered: compact summary */}
       {disabled && answer && (
         <div className="text-xs text-text-muted flex items-center gap-1.5">
-          <Check size={12} className="text-green-500 shrink-0" />
+          <Check size={12} className="text-success shrink-0" />
           <span>
             {answer.selected.join(', ')}
             {answer.customText ? ` (${answer.customText})` : ''}
@@ -297,17 +319,19 @@ function QuestionBlock({
               <button
                 key={opt.label}
                 type="button"
+                role={question.multiSelect ? 'checkbox' : 'radio'}
+                aria-checked={isSelected || isAnswer}
+                data-option-label={opt.label}
                 onClick={() => handleSelect(opt)}
                 disabled={disabled}
                 className={cn(
                   'w-full text-left px-3 py-2 rounded-lg border transition-all',
                   'flex items-start gap-2.5 group',
-                  'focus:outline-none focus:ring-2 focus:ring-brand/50',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50',
                   'border-border-default bg-bg-primary hover:bg-bg-elevated hover:border-brand/50',
                   isSelected && 'border-brand bg-brand/10',
                   'disabled:opacity-50 disabled:cursor-default',
                 )}
-                aria-pressed={isSelected || isAnswer}
               >
                 <span className="mt-0.5 shrink-0 text-text-muted">
                   {question.multiSelect ? (
@@ -317,14 +341,14 @@ function QuestionBlock({
                       <Circle size={14} />
                     )
                   ) : (
-                    <span className="text-[10px] font-mono">{i + 1}</span>
+                    <span className="text-micro font-mono">{i + 1}</span>
                   )}
                 </span>
                 <span className="flex-1">
                   <span className="flex items-center gap-1.5">
                     <span className="text-sm text-text-primary">{opt.label}</span>
                     {opt.recommended && (
-                      <span className="text-[10px] uppercase tracking-wider text-green-600 dark:text-green-400 font-medium">
+                      <span className="text-micro uppercase tracking-wider text-success font-medium">
                         recommended
                       </span>
                     )}
@@ -368,7 +392,7 @@ function QuestionBlock({
                 type="button"
                 onClick={handleSubmitMulti}
                 disabled={selected.size === 0 && otherText.trim().length === 0}
-                className="text-xs px-3 py-1.5 rounded bg-brand text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand/90 transition-colors"
+                className="text-xs px-3 py-1.5 rounded bg-brand text-on-brand font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand/90 transition-colors"
               >
                 Submit
               </button>
@@ -423,7 +447,7 @@ function OtherInput({ open, value, onChange, onOpen, onSubmit }: OtherInputProps
       <button
         type="submit"
         disabled={!value.trim()}
-        className="text-xs px-3 py-1.5 rounded bg-brand text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand/90 transition-colors"
+        className="text-xs px-3 py-1.5 rounded bg-brand text-on-brand font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand/90 transition-colors"
       >
         Send <ChevronDown size={12} className="inline -mt-0.5" />
       </button>

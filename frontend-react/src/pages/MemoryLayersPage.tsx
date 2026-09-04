@@ -1,27 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import type { MemoryGraphNodeView, DreamEpisode } from '@/lib/tauri';
 import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
 /**
- * Memory Layers — the user-friendly surface of Feral's FMS + RSI systems.
+ * Memory Layers — the user-friendly surface of Cinderpaw's FMS + RSI systems.
  *
  * We deliberately NO LONGER draw a stylized tree: matching a hand-painted
  * reference procedurally takes more artistic range than a runtime renderer
  * can give, and the result was distracting instead of helpful. Non-technical
  * users care about three things, all surfaced here:
  *
- *   1. What does Feral remember about me?   → tiered memory list
+ *   1. What does Cinderpaw remember about me?   → tiered memory list
  *      (Today / This week / This month / Older).
- *   2. Is Feral self-improving right now?   → live RSI pill (idle / dreaming /
+ *   2. Is Cinderpaw self-improving right now?   → live RSI pill (idle / dreaming /
  *      ratcheted / error) tied to actual engine events.
- *   3. Has Feral been dreaming?            → recent dream episodes with score
+ *   3. Has Cinderpaw been dreaming?            → recent dream episodes with score
  *      progression so the user sees something actually changing.
  *
  * Visual: tier border saturation grows for more recent tiers so the visual
  * hierarchy matches the data hierarchy. New memories fade in at the top of
- * "Today". A live dream pulses the "Feral's Dreams" panel; a ratchet flashes
+ * "Today". A live dream pulses the "Cinderpaw's Dreams" panel; a ratchet flashes
  * the best score line. Colours come from the project theme tokens so this
  * page adapts automatically to light / dark mode.
  */
@@ -107,14 +107,14 @@ function TierPanel({
             {nodes.length} {nodes.length === 1 ? 'memory' : 'memories'}
           </span>
         </div>
-        <span className="text-[10px] uppercase tracking-wide text-text-muted">
+        <span className="text-micro uppercase tracking-wide text-text-muted">
           {share.toFixed(0)}% of all
         </span>
       </header>
       {nodes.length === 0 ? (
         <p className="text-xs text-text-muted">
           {tier === 'today'
-            ? 'Nothing yet today — chat with Feral to fill this tier.'
+            ? 'Nothing yet today. Chat with Cinderpaw to fill this tier.'
             : `No memories in this tier yet.`}
         </p>
       ) : (
@@ -125,7 +125,18 @@ function TierPanel({
               <li
                 key={n.id}
                 onClick={() => setExpandedIdx(expanded ? null : i)}
-                className={`cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated ${expanded ? 'border-brand/50' : ''}`}
+                // Expanding a memory was mouse-only: a bare onClick on an <li>
+                // is not focusable and answers no key.
+                role="button"
+                tabIndex={0}
+                aria-expanded={expanded}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setExpandedIdx(expanded ? null : i);
+                  }
+                }}
+                className={`cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${expanded ? 'border-brand/50' : ''}`}
               >
                 <div className="flex items-baseline justify-between gap-3 text-xs">
                   <span className="font-mono text-brand">{formatClock(n.touched_at)}</span>
@@ -133,7 +144,7 @@ function TierPanel({
                 </div>
                 <div className="mt-1 text-xs text-text-primary">{n.label}</div>
                 {expanded && (
-                  <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[10px] text-text-muted">
+                  <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro text-text-muted">
                     <span>type</span><span>{n.type}</span>
                     <span>id</span><span className="font-mono">{n.id}</span>
                   </div>
@@ -158,7 +169,7 @@ function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; best
         </span>
         <span className="text-text-muted">{formatTimeAgo(now, ep.startedAt)}</span>
       </div>
-      <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-[10px] text-text-secondary">
+      <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-micro text-text-secondary">
         <span className="text-text-muted">trigger</span><span>{ep.trigger}</span>
         <span className="text-text-muted">stop</span><span>{describeStop(ep.stopReason)}</span>
         <span className="text-text-muted">tokens</span><span>{ep.tokens}</span>
@@ -174,7 +185,7 @@ function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; best
   );
 }
 
-/** Live RSI pill — same data as before, now lives above the Feral's Dreams
+/** Live RSI pill — same data as before, now lives above the Cinderpaw's Dreams
  *  panel so the connection is obvious. */
 function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
   const phase = snapshot.phase;
@@ -194,7 +205,7 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
     : phase === 'error'    ? 'error'
                             : 'idle';
   const detail =
-    phase === 'dreaming' ? 'Feral is exploring new params'
+    phase === 'dreaming' ? 'Cinderpaw is exploring new params'
     : phase === 'ratcheted' ? snapshot.lastRatchetScore != null
         ? `champion score ${snapshot.lastRatchetScore.toFixed(1)}`
         : 'new champion applied'
@@ -202,7 +213,7 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
       ? `last ratchet ${formatTimeAgo(Date.now(), snapshot.lastRatchetAt)}`
       : 'no ratchets yet';
   return (
-    <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-bg-surface px-3 py-1.5 text-[11px] backdrop-blur ${tone}`}>
+    <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-bg-surface px-3 py-1.5 text-2xs backdrop-blur ${tone}`}>
       <span className={`h-2 w-2 rounded-full ${dot}`} />
       <Brain size={11} className="opacity-70" />
       <span className="font-medium uppercase tracking-wide">RSI · {label}</span>
@@ -215,9 +226,17 @@ export default function MemoryLayersPage() {
   const [nodes, setNodes] = useState<MemoryGraphNodeView[]>([]);
   const [dreamLast, setDreamLast] = useState<DreamEpisode[]>([]);
   const [bestScore, setBestScore] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  // True from the first paint. Starting false made the hero announce
+  // "Cinderpaw hasn't remembered anything yet" to someone with hundreds of
+  // memories, every single time the tab was opened, for as long as the read
+  // took -- and it left that sentence standing as a fact when the read failed.
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const rsiSnapRef = useRef<RsiSnapshot>(rsiState.snapshot());
+  // State, not a ref: mutating a ref never triggers a render and
+  // `setNow(n => n)` bails on Object.is, so the HUD pill froze on its
+  // initial phase until some unrelated state happened to change.
+  const [rsiSnap, setRsiSnap] = useState<RsiSnapshot>(() => rsiState.snapshot());
 
   // Tick the clock so "Xs ago" stays accurate without prop drilling.
   useEffect(() => {
@@ -226,16 +245,18 @@ export default function MemoryLayersPage() {
   }, []);
 
   // One subscription covers live RSI phase + drives the HUD pill re-render.
+  // The store hands out a fresh snapshot object per update, so this
+  // always re-renders when something actually changed.
   useEffect(() => {
     return rsiState.subscribe((snap) => {
-      rsiSnapRef.current = snap;
+      setRsiSnap(snap);
       if (snap.lastRatchetScore !== undefined) setBestScore(snap.lastRatchetScore);
-      setNow((n) => n); // touch to trigger re-render
     });
   }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [graph, telemetry, rsi] = await Promise.all([
         tauri.memory.getGraph(),
@@ -247,6 +268,9 @@ export default function MemoryLayersPage() {
       const status = (rsi as { best_score?: number } | null);
       if (status && typeof status.best_score === 'number') setBestScore(status.best_score);
     } catch (err) {
+      // On screen, not only in a console the person does not have open: an
+      // unreadable graph and an empty graph look identical otherwise.
+      setError(err instanceof Error ? err.message : String(err));
       console.error('[MemoryLayersPage] refresh failed', err);
     } finally {
       setLoading(false);
@@ -275,14 +299,14 @@ export default function MemoryLayersPage() {
     return { total, today, week, month };
   }, [nodes, tiers]);
 
-  const rsiPhase: RsiPhase = rsiSnapRef.current.phase;
+  const rsiPhase: RsiPhase = rsiSnap.phase;
   const panelGlow =
     rsiPhase === 'dreaming' ? 'shadow-[0_0_24px_-4px_rgba(232,115,28,0.6)]'
     : rsiPhase === 'ratcheted' ? 'shadow-[0_0_24px_-4px_rgba(245,158,11,0.5)]'
     : '';
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-bg-primary text-text-primary">
+    <div className="flex h-full flex-col overflow-hidden text-text-primary">
       {/* Drag region — without it the frameless window can't be moved,
           and the scrollbar extends into the titlebar area. */}
       <div data-tauri-drag-region className="h-8 shrink-0" />
@@ -292,18 +316,18 @@ export default function MemoryLayersPage() {
         <header className="flex flex-col gap-2">
           <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-brand">
             <Layers size={14} />
-            <span>Feral · Memory Layers</span>
+            <span>Cinderpaw · Memory Layers</span>
           </div>
           <h1 className="text-2xl font-semibold leading-tight text-text-primary">
-            Everything Feral remembers.
+            Everything Cinderpaw remembers.
           </h1>
           <p className="max-w-2xl text-sm text-text-secondary">
-            Facts Feral learned from your conversations, grouped by how long ago. New
+            Facts Cinderpaw learned from your conversations, grouped by how long ago. New
             memories land in <span className="text-brand">Today</span>; older ones
-            stay searchable so Feral can recall them when context demands.
+            stay searchable so Cinderpaw can recall them when context demands.
           </p>
           <div className="mt-2 flex items-center gap-3">
-            <RsiHud snapshot={rsiSnapRef.current} />
+            <RsiHud snapshot={rsiSnap} />
             <button
               type="button"
               onClick={() => void refresh()}
@@ -317,15 +341,42 @@ export default function MemoryLayersPage() {
         </header>
 
         {/* ── HERO STATS ─────────────────────────────────────────── */}
-        {stats.total === 0 ? (
+        {error ? (
+          <section className="rounded-lg border border-error/40 bg-error/5 px-5 py-6 text-center">
+            <h2 className="text-base font-semibold text-error">
+              Could not read the memory graph.
+            </h2>
+            <p className="mt-1 text-xs text-text-secondary">{error}</p>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              disabled={loading}
+              className="mt-3 rounded-lg border border-border-default px-3 py-1 text-xs
+                         text-text-secondary hover:text-text-primary disabled:opacity-50"
+            >
+              Try again
+            </button>
+          </section>
+        ) : loading && stats.total === 0 ? (
+          // "Not read yet" is not "empty", and saying the wrong one of those is
+          // worse than saying nothing.
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-hidden>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-5">
+                <div className="h-6 w-12 rounded bg-bg-hover animate-pulse" />
+                <div className="mt-2 h-2.5 w-16 rounded bg-bg-hover/70 animate-pulse" />
+              </div>
+            ))}
+          </section>
+        ) : stats.total === 0 ? (
           <section className="rounded-lg border border-brand/40 bg-bg-surface px-5 py-6 text-center">
             <h2 className="text-base font-semibold text-brand">
-              Feral hasn't remembered anything yet.
+              Cinderpaw hasn't remembered anything yet.
             </h2>
             <p className="mt-1 text-xs text-text-secondary">
               As you chat, facts you mention begin to fill the layers below.
               Start a conversation in <span className="text-brand">Chat</span>{' '}
-              and come back — memories land in real time.
+              and come back. Memories land in real time.
             </p>
           </section>
         ) : (
@@ -337,7 +388,7 @@ export default function MemoryLayersPage() {
               ['This Month', stats.month],
             ] as const).map(([label, value]) => (
               <div key={label} className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-3">
-                <div className="text-[10px] uppercase tracking-wide text-text-muted">{label}</div>
+                <div className="text-micro uppercase tracking-wide text-text-muted">{label}</div>
                 <div className="mt-1 text-2xl font-semibold leading-none text-text-primary">
                   {value}
                 </div>
@@ -353,12 +404,12 @@ export default function MemoryLayersPage() {
             <TierPanel key={t} tier={t} nodes={tiers[t]} totalAllTime={stats.total} now={now} />
           ))}
 
-        {/* ── FERAL'S DREAMS ────────────────────────────────────── */}
+        {/* ── CINDERPAW'S DREAMS ────────────────────────────────────── */}
         <section className={`rounded-lg border border-border-default bg-bg-surface/60 p-4 transition-shadow ${panelGlow}`}>
           <header className="mb-3 flex items-center gap-2">
             <Sparkles size={14} className="text-brand" />
             <h2 className="text-sm font-semibold uppercase tracking-wide text-text-primary">
-              Feral's Dreams
+              Cinderpaw's Dreams
             </h2>
             <span className="text-xs text-text-muted">
               {dreamLast.length} {dreamLast.length === 1 ? 'cycle' : 'cycles'}
@@ -366,7 +417,7 @@ export default function MemoryLayersPage() {
           </header>
           {dreamLast.length === 0 ? (
             <p className="text-xs text-text-muted">
-              No dream cycles yet. Feral tunes its own parameters while you're away —
+              No dream cycles yet. Cinderpaw tunes its own parameters while you're away.
               leave the app for ~5 minutes and the first dream will land here.
             </p>
           ) : (

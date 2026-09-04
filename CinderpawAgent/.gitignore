@@ -1,0 +1,19 @@
+node_modules/
+dist/
+data/
+*.log
+.env
+.DS_Store
+bun.lockb
+# Never commit npm auth — token lives in the NPM_TOKEN env var, .npmrc only references it.
+.npmrc
+# Prebuilt binaries bundled at publish time by scripts/package-win.mjs (SP0). Build output, not source.
+# Anchored: unanchored `vendor/` matches at ANY depth, which silently swallowed
+# src/vendor/tool-call-repair (vendored MIT source that MUST be committed).
+/vendor/
+
+# assembled per-platform npm packages (built in CI)
+npm/dist/
+
+# Benchmark run manifests — evidence of a run, not source.
+runs/

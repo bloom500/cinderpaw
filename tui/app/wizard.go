@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"feral-tui/api"
-	"feral-tui/ui"
+	"cinderpaw-tui/api"
+	"cinderpaw-tui/ui"
 )
 
 // wizardProgressFile stores the last completed step so Ctrl+C mid-wizard
@@ -196,57 +196,53 @@ func prevPathStep(ws *WizardState) WizardStep {
 //      so resume can rebuild the branched path (P0.4).
 const wizardProgressVersion = 4
 
-// feralHomeDir returns ~/.feral/ and ensures the directory exists.
-// Like feralHome but returns the string only (no error) for use in places
+// cinderpawHomeDir returns ~/.cinderpaw/ and ensures the directory exists.
+// Like cinderpawHome but returns the string only (no error) for use in places
 // that don't propagate errors, e.g. ConfigHandling Reset. Errors are
 // silently swallowed: the worst case is a no-op reset, which the next
 // launch of the wizard will detect via hasExistingConfig.
-func feralHomeDir() string {
-	dir, err := feralHome()
+func cinderpawHomeDir() string {
+	dir, err := cinderpawHome()
 	if err != nil {
 		return ""
 	}
 	return dir
 }
 
-// feralHome returns ~/.feral/ and ensures the directory exists.
-// Uses os.UserHomeDir() instead of os.ExpandEnv("~") because the
-// latter does NOT expand ~ on Windows (ONB-001 fix).
-func feralHome() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot find home directory: %w", err)
-	}
-	dir := filepath.Join(home, ".feral")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", fmt.Errorf("cannot create %s: %w", dir, err)
-	}
-	return dir, nil
+// cinderpawHome returns the agent's profile dir and ensures it exists.
+//
+// The name is kept because a dozen call sites use it; the ".cinderpaw" literal is
+// not. This used to MkdirAll ~/.cinderpaw unconditionally, which meant running the
+// TUI on a migrated machine recreated the legacy directory — unmarked — and
+// the Rust host then refused to boot because both directories existed and the
+// older one carried no migration marker. See api.Home for the whole story.
+func cinderpawHome() (string, error) {
+	return api.HomeEnsure()
 }
 
 // wizardProgressPath returns the absolute path to the wizard progress file.
 func wizardProgressPath() (string, error) {
-	home, err := feralHome()
+	home, err := cinderpawHome()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(home, wizardProgressFile), nil
 }
 
-// wizardDonePath returns the absolute path to the wizard-done marker.
-func wizardDonePath() (string, error) {
-	home, err := feralHome()
+// WizardDonePath returns the absolute path to the wizard-done marker.
+func WizardDonePath() (string, error) {
+	home, err := cinderpawHome()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(home, ".wizard-done"), nil
 }
 
-// hasExistingConfig reports whether a previous Feral run left state on disk.
+// hasExistingConfig reports whether a previous Cinderpaw run left state on disk.
 // The wizard shows the "Keep / Review / Reset" config-handling screen when
 // this is true.
 func hasExistingConfig() bool {
-	home, err := feralHome()
+	home, err := cinderpawHome()
 	if err != nil {
 		return false
 	}
@@ -273,7 +269,7 @@ func hasPartialProgress() (WizardStep, SetupMode, WizardChoice, bool) {
 		return WizWelcome, mode, choice, false
 	}
 	// If wizard-done is present, the prior run finished — not partial.
-	if _, err := os.Stat(filepath.Join(feralHomeDir(), ".wizard-done")); err == nil {
+	if _, err := os.Stat(filepath.Join(cinderpawHomeDir(), ".wizard-done")); err == nil {
 		return step, mode, choice, false
 	}
 	return step, mode, choice, true
@@ -289,7 +285,10 @@ func saveWizardProgress(step WizardStep, mode SetupMode, choice WizardChoice) {
 		return
 	}
 	payload := fmt.Sprintf("v%d:%d:%d:%d", wizardProgressVersion, int(step), int(mode), int(choice))
-	os.WriteFile(path, []byte(payload), 0644)
+	// 0600, matching the api-token next to it: this lives in the user's private
+	// ~/.cinderpaw and there is no reason for other accounts on the machine to read
+	// what setup path they chose.
+	os.WriteFile(path, []byte(payload), 0600)
 }
 
 // loadWizardProgress reads the last completed step and setup mode from
@@ -427,7 +426,7 @@ func resumeStepFor(saved WizardStep, choice WizardChoice) (WizStep WizardStep, p
 }
 
 // ConfigHandling is the user's choice at WizConfigHandling. Shown only
-// when an existing ~/.feral/wizard-done marker or byok.json is detected.
+// when an existing ~/.cinderpaw/wizard-done marker or byok.json is detected.
 // Reset wipes the local state and restarts the wizard from the top.
 type ConfigHandling int
 
@@ -456,7 +455,7 @@ type WizardHardware struct {
 
 // CloudProvider is one entry in the ONB-003 provider picker. The list mirrors
 // the Rust `byok::ByokSettings::default_provider_configs` in
-// crates/feral-core/src/byok.rs — keep them in sync when adding providers.
+// crates/cinderpaw-core/src/byok.rs — keep them in sync when adding providers.
 type CloudProvider struct {
 	ID           string // provider id used in byok.json and /runtime/model
 	Name         string // human label
@@ -625,7 +624,7 @@ type WizardState struct {
 	// F1 onboarding foundation. SetupMode is the user's pick on the
 	// QuickStart/Manual/Import screen; SetupModeIdx tracks the highlight.
 	// HasExistingConfig is set on startWizard based on the presence of
-	// ~/.feral/wizard-done or ~/.feral/byok.json — drives whether the
+	// ~/.cinderpaw/wizard-done or ~/.cinderpaw/byok.json — drives whether the
 	// WizConfigHandling screen is shown.
 	SetupMode         SetupMode
 	SetupModeIdx      int
@@ -667,7 +666,7 @@ type WizardState struct {
 	SearchQuery string
 
 	// F2 / spec §CREDENTIAL STORAGE OPTION: KeyStorageMode picks between
-	// "Enter directly" (the key is stored in Feral config) and
+	// "Enter directly" (the key is stored in Cinderpaw config) and
 	// "Use external secret provider" (env var, placeholder for future).
 	KeyStorageMode int
 
@@ -744,7 +743,7 @@ type WizardState struct {
 	// HealthCheckLatency is the wall time for phase 1 (parallel checks).
 	// StreamLatency is the wall time for the streaming round-trip.
 	// StreamVerified is true when the streaming response contained
-	// the expected deterministic token (FERAL_OK).
+	// the expected deterministic token (CINDERPAW_OK).
 	HealthCheckLatency time.Duration
 	StreamLatency      time.Duration
 	StreamVerified     bool
@@ -943,11 +942,11 @@ func pathIndexOf(ws *WizardState, s WizardStep) int {
 	return 0
 }
 
-// wipeFeralHome deletes ~/.feral so the wizard can start fresh (Welcome
+// wipeCinderpawHome deletes ~/.cinderpaw so the wizard can start fresh (Welcome
 // "r reset"). Best-effort: a failed delete just means the next launch still
 // detects existing config, which is safe.
-func wipeFeralHome() {
-	if dir := feralHomeDir(); dir != "" {
+func wipeCinderpawHome() {
+	if dir := cinderpawHomeDir(); dir != "" {
 		os.RemoveAll(dir)
 	}
 }

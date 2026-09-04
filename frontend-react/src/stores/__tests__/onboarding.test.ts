@@ -6,7 +6,7 @@ const reset = () =>
     active: false,
     step: 0,
     userName: '',
-    agentName: 'Feral',
+    agentName: 'Cinderpaw',
     skipped: false,
     completedAt: null,
     hasOnboardedBefore: false,
@@ -20,7 +20,7 @@ describe('useOnboarding', () => {
     expect(s.active).toBe(false);
     expect(s.step).toBe(0);
     expect(s.userName).toBe('');
-    expect(s.agentName).toBe('Feral');
+    expect(s.agentName).toBe('Cinderpaw');
   });
 
   it('start() activates the wizard at step 0', () => {
@@ -75,16 +75,16 @@ describe('useOnboarding', () => {
     useOnboarding.getState().setAgentName('  Bob  ');
     expect(useOnboarding.getState().agentName).toBe('Bob');
     // Empty input is allowed — the user must be able to fully clear the
-    // field to retype. The "Feral" default is applied at use sites, not here.
+    // field to retype. The "Cinderpaw" default is applied at use sites, not here.
     useOnboarding.getState().setAgentName('');
     expect(useOnboarding.getState().agentName).toBe('');
     useOnboarding.getState().setAgentName('   ');
     expect(useOnboarding.getState().agentName).toBe('');
   });
 
-  it('setAgentName does not snap partial input back to "Feral"', () => {
+  it('setAgentName does not snap partial input back to "Cinderpaw"', () => {
     // Regression: a half-typed name like "F" used to be replaced by
-    // "Feral" because the old implementation fell back on falsy.
+    // "Cinderpaw" because the old implementation fell back on falsy.
     useOnboarding.getState().setAgentName('F');
     expect(useOnboarding.getState().agentName).toBe('F');
   });

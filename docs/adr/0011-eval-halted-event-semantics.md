@@ -5,7 +5,7 @@
 
 ## Context
 
-`FeralAgent/src/rsi/eval-worker.ts:67-80` always emits
+`CinderpawAgent/src/rsi/eval-worker.ts:67-80` always emits
 `EvalComplete{errored:true, score:0}` on catch. There is no entry
 point that DOESN'T produce an `EvalComplete` event. This is fine for
 "the eval crashed mid-run" but bad for "the pre-check blocked the
@@ -31,7 +31,7 @@ pre-check failed and the eval never started". Options considered:
 
 Add `EvalHalted` as a sibling of `EvalComplete`, not a variant.
 
-**Type extension** (in `FeralAgent/src/rsi/event-bus.ts:14-23`):
+**Type extension** (in `CinderpawAgent/src/rsi/event-bus.ts:14-23`):
 
 ```typescript
 export type RsiEventType =
@@ -132,5 +132,5 @@ events make the audit trail honest.
   empty strings at emit time)
 - `docs/wiring-spec.md` §6.2 (Contract FSM halt handling)
 - `docs/observability-data-model.md` §4.2 (eval lifecycle events)
-- `FeralAgent/src/rsi/event-bus.ts:14-23` (the union to extend)
-- `FeralAgent/src/rsi/contract.ts` (the Contract FSM that emits it)
+- `CinderpawAgent/src/rsi/event-bus.ts:14-23` (the union to extend)
+- `CinderpawAgent/src/rsi/contract.ts` (the Contract FSM that emits it)

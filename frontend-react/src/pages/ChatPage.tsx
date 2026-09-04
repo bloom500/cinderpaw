@@ -7,34 +7,40 @@ import { useProjects } from '@/stores/projects';
 import { useUI } from '@/stores/ui';
 import { useAgent } from '@/stores/agent';
 import { ChatHeader } from '@/components/chat/ChatHeader';
+import { HomeGreeting } from '@/components/shell/HomeGreeting';
+import { HomeIntents } from '@/components/shell/HomeIntents';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
-import { NoModelEmptyState, NewChatEmptyState } from '@/components/chat/EmptyStates';
+import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
 import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
 import { useOnboarding } from '@/stores/onboarding';
-import { FeralGlobalMount } from '@/components/chat/FeralGlobalMount';
-import { useFeralSendMessage } from '@/hooks/useFeral';
-import { useFeralStore } from '@/stores/feral';
+import { CinderpawGlobalMount } from '@/components/chat/CinderpawGlobalMount';
+import { CoworkTranscriptPanel } from '@/components/chat/CoworkTranscriptPanel';
+import { useCinderpawSendMessage } from '@/hooks/useCinderpaw';
+import { useCinderpawStore } from '@/stores/cinderpaw';
+import { readLocal } from '@/lib/utils';
 
 export function ChatPage() {
   const { id } = useParams();
   const loaded      = useModel((s) => s.loaded);
-  const cloudModel  = useModel((s) => s.cloudModel);
   const messages    = useChat((s) => s.messages);
   const loadingConversation = useConversations((s) => s.loadingConversation);
 
   const inputMode    = useUI((s) => s.inputMode);
   const setInputMode = useUI((s) => s.setInputMode);
   const sessionId    = useChat((s) => s.sessionId);
-  const feralSend    = useFeralSendMessage(sessionId);
+  const cinderpawSend    = useCinderpawSendMessage(sessionId);
   const isAgentMode  = inputMode === 'agent';
 
-  const hasModel  = !!loaded || !!cloudModel;
-  const canInput  = hasModel || isAgentMode;
-  const isEmpty   = messages.length === 0 && canInput;
+  // The composer is always live. Cinderpaw used to gate the whole screen on
+  // `hasModel`, which meant a fresh install — the one machine that has no
+  // model by definition — met a dead end instead of a product. When there
+  // is no model, ChatInput answers the first message itself and offers the
+  // two ways forward.
+  const isEmpty   = messages.length === 0;
 
   const containerRef    = useRef<HTMLDivElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
@@ -57,7 +63,13 @@ export function ChatPage() {
     if (isEmpty && !showAgentOnboarding) {
       const containerH = container.offsetHeight;
       const inputH     = wrapper.offsetHeight;
-      setTranslateY(-(containerH / 2 - inputH / 2));
+      // Never push the composer DOWN. When the window is short enough that the
+      // composer is taller than the space it sits in — a narrow window with
+      // attachments and a few lines typed — the centring maths goes positive
+      // and moves the input toward the bottom edge, half of it off screen. In
+      // that case there is nothing to centre: leave it where it is.
+      const offset = containerH / 2 - inputH / 2;
+      setTranslateY(offset > 0 ? -offset : 0);
     } else {
       setTranslateY(0);
     }
@@ -71,7 +83,7 @@ export function ChatPage() {
   }, []);
 
   // Open conversation when route changes; auto-switch to agent mode
-  // if the conversation was created under a Feral Agent.
+  // if the conversation was created under a Cinderpaw Agent.
   useEffect(() => {
     if (!id) return;
     const targetId = id;
@@ -108,11 +120,11 @@ export function ChatPage() {
   }, [reopenSessionId, sessionId]);
 
   // When the user switches to agent mode:
-  // 1. Ensure an agent is selected so feralSend can tag conversations.
-  // 2. Hot-swap the Feral sidecar to the currently loaded local model.
+  // 1. Ensure an agent is selected so cinderpawSend can tag conversations.
+  // 2. Hot-swap the Cinderpaw sidecar to the currently loaded local model.
   //    The sidecar persists its own model config and may be pointing at
   //    an Ollama model name that doesn't match what's loaded in the
-  //    Feral inference backend (port 11435). Without this sync, all
+  //    Cinderpaw inference backend (port 11435). Without this sync, all
   //    sidecar requests fail silently.
   useEffect(() => {
     if (inputMode !== 'agent') return;
@@ -125,7 +137,7 @@ export function ChatPage() {
         // previously unreachable (the "New agent" button navigated here and
         // nothing mounted it). Sequenced below so it never stacks on top of
         // the first-run wizard. Skip if already dismissed/completed (survives CTRL+R).
-        else if (!localStorage.getItem(ONBOARDING_KEY)) setShowAgentOnboarding(true);
+        else if (!readLocal(ONBOARDING_KEY)) setShowAgentOnboarding(true);
       });
     }
 
@@ -133,16 +145,16 @@ export function ChatPage() {
     // explicit cloud/BYOK choice. A BYOK selection sets modelConfig.provider to
     // the provider id (e.g. "openai"); local uses "openai_compatible" and
     // external Ollama uses "ollama". If the user already picked a cloud model
-    // via FeralModelSelector, leave it; only auto-sync when on a local target.
+    // via CinderpawModelSelector, leave it; only auto-sync when on a local target.
     if (loaded) {
-      const cfg = useFeralStore.getState().modelConfig;
+      const cfg = useCinderpawStore.getState().modelConfig;
       const onCloud = !!cfg && cfg.provider !== 'openai_compatible' && cfg.provider !== 'ollama';
       if (!onCloud) {
-        void useFeralStore.getState().setModel({
+        void useCinderpawStore.getState().setModel({
           source: 'openai_compatible',
           model: loaded.name,
           baseUrl: 'http://localhost:11435',
-          providerId: 'feral-local',
+          providerId: 'cinderpaw-local',
         }).catch(console.error);
       }
     }
@@ -151,8 +163,8 @@ export function ChatPage() {
   // Listen for Ctrl+N / ⌘N from useGlobalHotkeys
   useEffect(() => {
     const handler = () => useConversations.getState().newChat();
-    window.addEventListener('feral:new-chat', handler);
-    return () => window.removeEventListener('feral:new-chat', handler);
+    window.addEventListener('cinderpaw:new-chat', handler);
+    return () => window.removeEventListener('cinderpaw:new-chat', handler);
   }, []);
 
   const handleSuggestion = (text: string) => {
@@ -169,11 +181,17 @@ export function ChatPage() {
       )}
       {!showAgentOnboarding && <ChatHeader />}
 
-      {isAgentMode && <FeralGlobalMount />}
+      {isAgentMode && <CinderpawGlobalMount />}
       {isAgentMode && <AgentOfflineBanner />}
 
       {/* Positioning context for absolute children */}
       <div ref={containerRef} className="relative flex-1 overflow-hidden">
+        {/* The top fade is gone. It faded to `--bg-primary`, the app's opaque
+            base — which was the right colour back when the page behind it was
+            that colour too. On glass it is a dark band painted across the top
+            of a see-through pane: a shadow with nothing casting it, and the
+            only hard edge in the whole window. The transcript scrolling under
+            the header reads fine without it now that the header is glass. */}
         {loadingConversation && (
           <div className="absolute inset-x-0 top-0 h-0.5 bg-brand animate-pulse z-10" />
         )}
@@ -181,11 +199,14 @@ export function ChatPage() {
         {/* Content: messages, no-model state, or empty overlay */}
         {messages.length > 0 ? (
           <MessageList />
-        ) : !canInput ? (
-          <NoModelEmptyState />
         ) : (
-          <NewChatEmptyState isEmpty={isEmpty} onSuggestion={handleSuggestion} />
+          <NewChatEmptyState isEmpty={isEmpty} />
         )}
+
+        {/* Live agent-to-agent transcript (Agent Cowork). Self-hiding: with
+            zero cowork traffic it renders nothing, so a fresh install sees
+            no new surface. */}
+        <CoworkTranscriptPanel />
 
         {/* Input — always visible so the toggle is accessible even without a
             model. ChatInput handles the disabled state internally. */}
@@ -195,16 +216,34 @@ export function ChatPage() {
             transform: `translateY(${translateY}px)`,
             transition: 'transform 350ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}
-          className="absolute inset-x-0 bottom-0 z-20 pt-8 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent"
+          // No fade behind the composer at all. It was meant to let the
+          // transcript slide out of sight, but once the theme tokens started
+          // honouring opacity it rendered as a black wash around the field —
+          // a shadow with no object casting it. The transcript's own top fade
+          // does the "there is more" job now, and the composer sits on the
+          // scene like everything else.
+          // Named so the floating cowork panel can measure where the composer
+          // actually starts. It was clearing a hard-coded 88px, and this dock
+          // is not 88px tall — it grows with a multi-line draft, the error
+          // notice and the greeting.
+          data-chat-input-dock=""
+          className="absolute inset-x-0 bottom-0 z-20 pt-8"
         >
+          {isEmpty && !showAgentOnboarding && <HomeGreeting />}
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
           <ChatInput
             ref={chatInputRef}
             isEmpty={isEmpty}
-            sendFn={isAgentMode ? feralSend : undefined}
+            sendFn={isAgentMode ? cinderpawSend : undefined}
             alwaysEnabled={isAgentMode}
           />
+          {/* Inside the composer's wrapper, not floating near it: the wrapper
+              is what gets centred, and its measured height is what the centring
+              uses. Anything placed outside it would need the composer's height
+              guessed a second time, and would drift the first time the field
+              grew a line. */}
+          {isEmpty && !showAgentOnboarding && <HomeIntents onPick={handleSuggestion} />}
         </div>
       </div>
     </div>

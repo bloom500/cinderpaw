@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"feral-tui/ui"
+	"cinderpaw-tui/ui"
 )
 
 // WhatsApp QR pairing surface. The sidecar mirrors each fresh Baileys pairing
-// QR to ~/.feral/whatsapp-qr.json ({ts, qr, ascii}, rewritten on every ~20s
-// rotation, deleted once linked) — see FeralAgent/src/transports/connectors.ts.
+// QR to ~/.cinderpaw/whatsapp-qr.json ({ts, qr, ascii}, rewritten on every ~20s
+// rotation, deleted once linked) — see CinderpawAgent/src/transports/connectors.ts.
 // The TUI reads that file directly (same machine, loopback-only gateway) so a
 // terminal user can pair without hunting for the gateway's stderr.
 
@@ -31,7 +31,7 @@ const waQRTTL = 20 * time.Second
 // remaining validity in seconds. ok is false when no fresh code is on disk —
 // either pairing isn't running, or the sidecar died and the file went stale.
 func readWhatsAppQR() (ascii string, secondsLeft int, ok bool) {
-	raw, err := os.ReadFile(filepath.Join(feralHomeDir(), "whatsapp-qr.json"))
+	raw, err := os.ReadFile(filepath.Join(cinderpawHomeDir(), "whatsapp-qr.json"))
 	if err != nil {
 		return "", 0, false
 	}
@@ -53,7 +53,7 @@ func readWhatsAppQR() (ascii string, secondsLeft int, ok bool) {
 // whatsappLinked reports whether Baileys has a persisted session — the same
 // heuristic the desktop backend uses (src-tauri/src/connectors.rs).
 func whatsappLinked() bool {
-	_, err := os.Stat(filepath.Join(feralHomeDir(), "whatsapp-auth", "creds.json"))
+	_, err := os.Stat(filepath.Join(cinderpawHomeDir(), "whatsapp-auth", "creds.json"))
 	return err == nil
 }
 

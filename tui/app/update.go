@@ -3,8 +3,8 @@ package app
 import (
 	"encoding/json"
 	"errors"
-	"feral-tui/api"
-	"feral-tui/ui"
+	"cinderpaw-tui/api"
+	"cinderpaw-tui/ui"
 	"fmt"
 	"os"
 	"strings"
@@ -44,11 +44,17 @@ func toolTick() tea.Cmd {
 // fetchSessionsCmd hits /runtime/sessions for the welcome screen. Cached
 // results are valid for 30s so window resize doesn't refetch.
 func (a *App) fetchSessionsCmd() tea.Cmd {
+	// Snapshot the model HERE, on the update loop. The returned closure runs on
+	// its own goroutine, and reading a.Sessions / a.SessionsAt from there races
+	// with the Update handler writing them — bubbletea's rule is that a Cmd
+	// never touches the model, and `go test -race` flags this one on sight.
+	cached, cachedAt, cachedErr := a.Sessions, a.SessionsAt, a.SessionsErr
+	baseURL, token := a.BaseURL, a.Token
 	return func() tea.Msg {
-		if !a.SessionsAt.IsZero() && time.Since(a.SessionsAt) < 30*time.Second && a.SessionsErr == nil {
-			return SessionsMsg{Sessions: a.Sessions, Err: nil}
+		if !cachedAt.IsZero() && time.Since(cachedAt) < 30*time.Second && cachedErr == nil {
+			return SessionsMsg{Sessions: cached, Err: nil}
 		}
-		sessions, err := api.FetchSessions(a.BaseURL, a.Token, 3)
+		sessions, err := api.FetchSessions(baseURL, token, 3)
 		return SessionsMsg{Sessions: sessions, Err: err}
 	}
 }
@@ -58,11 +64,14 @@ func (a *App) fetchSessionsCmd() tea.Cmd {
 // refetch on every Tab / resize. Errors collapse to "no prior task" so a
 // transient gateway hiccup never blocks the welcome render.
 func (a *App) fetchResumeCmd() tea.Cmd {
+	// Same snapshot-before-goroutine rule as fetchSessionsCmd above.
+	cachedView, cachedAt, cachedErr := a.LastTaskView, a.LastTaskAt, a.LastTaskErr
+	baseURL, token := a.BaseURL, a.Token
 	return func() tea.Msg {
-		if !a.LastTaskAt.IsZero() && time.Since(a.LastTaskAt) < 30*time.Second && a.LastTaskErr == nil {
-			return LastTaskMsg{View: a.LastTaskView, Err: nil}
+		if !cachedAt.IsZero() && time.Since(cachedAt) < 30*time.Second && cachedErr == nil {
+			return LastTaskMsg{View: cachedView, Err: nil}
 		}
-		view, err := api.FetchResume(a.BaseURL, a.Token)
+		view, err := api.FetchResume(baseURL, token)
 		return LastTaskMsg{View: view, Err: err}
 	}
 }
@@ -91,9 +100,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Check for wizard-done marker (§2 J2.3) — if missing, this is a
 		// first launch. The GUIDED flow is the default (OpenClaw parity);
-		// `--wizard` (the `feral setup --classic` path) forces the classic
+		// `--wizard` (the `cinderpaw setup --classic` path) forces the classic
 		// step-by-step wizard.
-		marker, err := wizardDonePath()
+		marker, err := WizardDonePath()
 		if err == nil {
 			if _, statErr := os.Stat(marker); os.IsNotExist(statErr) {
 				if a.ForceClassicWizard {
@@ -591,7 +600,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.Wizard.KeyValidMsg = msg.Msg
 			a.Wizard.lastCompleted = WizCloudKey
 			saveWizardProgress(WizCloudKey, a.Wizard.SetupMode, a.Wizard.Choice)
-			// ONB-004: persist the validated key to ~/.feral/byok.json
+			// ONB-004: persist the validated key to ~/.cinderpaw/byok.json
 			// and activate the provider by switching the runtime model.
 			// The API key itself is not written to byok.json (the Rust
 			// backend reads keys from the OS keychain); we only persist
@@ -1819,7 +1828,7 @@ func (a *App) startWizardProviderTest(providerID, apiKey string) tea.Cmd {
 // Phase 0b 2026-07-07).
 //
 // Pre-Phase-0b this function wrote only non-secret metadata to
-// ~/.feral/byok.json and relied on a non-existent code path to put the
+// ~/.cinderpaw/byok.json and relied on a non-existent code path to put the
 // key into the keychain — first-time cloud users saw "✓ Connection
 // successful", finished the wizard, and on the next launch got "No API
 // key configured" because the key never persisted. The single
@@ -1966,7 +1975,7 @@ func (a *App) pollDownload() tea.Cmd {
 //   all three run concurrently so the user perceives lower latency.
 //
 //   Phase 2 (sequential): deterministic streaming round-trip. Sends
-//   "Return exactly: FERAL_OK" and verifies the response contains the
+//   "Return exactly: CINDERPAW_OK" and verifies the response contains the
 //   expected token (StreamVerified).
 //
 // Sends WizardHealthProgress for each check status change and returns a
@@ -2070,14 +2079,14 @@ func (a *App) startWizardHealthCheck() tea.Cmd {
 			}
 		}
 
-		// ── Phase 2: Streaming — "Return exactly: FERAL_OK" ──
+		// ── Phase 2: Streaming — "Return exactly: CINDERPAW_OK" ──
 		streamStart := time.Now()
 		checks[3].Status = CheckRunning
 		sendProgress()
 
 		chunks := make(chan api.Chunk, 100)
 		done := make(chan error, 1)
-		go api.StreamChat(url, token, "Return exactly: FERAL_OK", "test-it", chunks, done)
+		go api.StreamChat(url, token, "Return exactly: CINDERPAW_OK", "test-it", chunks, done)
 
 		var resp strings.Builder
 		timeout := time.After(60 * time.Second)
@@ -2141,11 +2150,11 @@ func (a *App) startWizardHealthCheck() tea.Cmd {
 			}
 		}
 
-		// Deterministic verification: does the response contain FERAL_OK?
-		verified := strings.Contains(strings.ToUpper(s), "FERAL_OK")
+		// Deterministic verification: does the response contain CINDERPAW_OK?
+		verified := strings.Contains(strings.ToUpper(s), "CINDERPAW_OK")
 		checks[3].Status = CheckPassed
 		if verified {
-			checks[3].Message = fmt.Sprintf("responds %s FERAL_OK", ui.G.OK)
+			checks[3].Message = fmt.Sprintf("responds %s CINDERPAW_OK", ui.G.OK)
 		} else {
 			checks[3].Message = "responds (unexpected)"
 		}
@@ -2237,10 +2246,10 @@ func (a *App) wizardHandleKey(key tea.KeyMsg) tea.Cmd {
 		// y/N confirm.
 		n := welcomeOptionCount(w)
 		if w.ResetPending {
-			// Confirming a wipe of ~/.feral.
+			// Confirming a wipe of ~/.cinderpaw.
 			if key.Type == tea.KeyRunes && len(key.Runes) == 1 &&
 				(key.Runes[0] == 'y' || key.Runes[0] == 'Y') {
-				wipeFeralHome()
+				wipeCinderpawHome()
 				a.Wizard = WizardState{}
 				a.startWizard()
 				a.rebuildViewport()
@@ -2613,7 +2622,7 @@ func (a *App) finishWizard() {
 	a.State = StateReady
 
 	// Write wizard-done marker so subsequent launches skip the wizard (§2 J2.3).
-	marker, err := wizardDonePath()
+	marker, err := WizardDonePath()
 	if err == nil {
 		os.WriteFile(marker, []byte("done\n"), 0644)
 	}
@@ -2723,7 +2732,7 @@ func (a *App) handleConnectors(args []string) tea.Cmd {
 					}
 					time.Sleep(time.Second)
 				}
-				return FlashMsg{Text: "whatsapp: no QR after 30s — check `feral logs`, then /connectors qr"}
+				return FlashMsg{Text: "whatsapp: no QR after 30s — check `cinderpaw logs`, then /connectors qr"}
 			}
 		}
 		// Parse key=value pairs from remaining args. A positional fallback

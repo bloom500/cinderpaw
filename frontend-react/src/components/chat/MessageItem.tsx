@@ -1,8 +1,10 @@
 import { memo, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, FileText, File as FileIcon, Image as ImageIcon, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
 import { Markdown } from '@/lib/markdown';
+import { BubbleTail } from './BubbleTail';
 import { ThinkingBlock } from './ThinkingBlock';
 import { AskUserCard } from './AskUserCard';
 import { VoiceBubble } from './VoiceBubble';
@@ -42,13 +44,22 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
 
   return (
     <>
-      <img
-        src={src}
-        alt={alt}
-        loading="lazy"
+      {/* A real button, not a click handler on an <img>: the thumbnail was not
+          focusable and carried no role, so opening an attachment full-size was
+          mouse-only. Escape already closed the lightbox; nothing could open it. */}
+      <button
+        type="button"
         onClick={() => setOpen(true)}
-        className="max-h-52 max-w-full rounded-lg border border-border-subtle object-contain cursor-zoom-in transition-transform duration-200 hover:scale-[1.02]"
-      />
+        aria-label={`View ${alt || 'image'} full size`}
+        className="block cursor-zoom-in rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      >
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          className="max-h-52 max-w-full rounded-lg border border-border-subtle object-contain transition-transform duration-200 hover:scale-[1.02]"
+        />
+      </button>
       {open && (
         <div
           role="button"
@@ -95,6 +106,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
   const isUser = message.role === 'user';
   const reasoningMode = useUI((s) => s.reasoningMode);
   const t = useT();
+  const navigate = useNavigate();
 
   if (isUser) {
     // Voice message: render the playable audio bubble + transcript instead of
@@ -108,7 +120,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
     }
     const images = message.images ?? [];
     // Pull the inlined attachment blocks back out so we show compact chips
-    // ("Feral.pdf") instead of dumping the whole extracted file content into
+    // ("Cinderpaw.pdf") instead of dumping the whole extracted file content into
     // the bubble. The model still received the full text — this is display
     // only, and works off persisted content so it survives a reload.
     const { attachments, text: visibleText } = parseUserAttachments(message.content);
@@ -117,8 +129,21 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
     const fileChips =
       images.length > 0 ? attachments.filter((a) => a.kind !== 'image') : attachments;
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[75%] rounded-2xl rounded-tr-sm px-4 py-3 bg-bg-elevated border border-border-default">
+      // One rule for the whole transcript: every message says when it was sent.
+      // The reply carried a time and the question did not, which read as an
+      // oversight because it was one.
+      <div className="flex flex-col items-end gap-1">
+        {/* The bubble and its tail are one shape in two elements, so they
+            share one fill and no border: a stroke would have to be drawn
+            around the join as well, and the join is the whole illusion. */}
+        {/* Brand fill, not another shade of the background. The first version
+            used `bg-bg-elevated`, which on this scene is a step away from the
+            page — the bubble was legible only as a faint rectangle and its
+            tail not at all. Apple's user bubble is the accent colour for
+            exactly this reason: the shape has to read before the tail can
+            mean anything. */}
+        <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-brand text-bg-primary shadow-md">
+          <BubbleTail className="absolute right-[-11px] bottom-0 text-[color:var(--brand)]" />
           {images.length > 0 && (
             <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
               {images.map((src, i) => (
@@ -134,11 +159,12 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             </div>
           )}
           {visibleText && (
-            <p className="text-sm text-text-primary whitespace-pre-wrap break-words leading-relaxed">
+            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
               {visibleText}
             </p>
           )}
         </div>
+        <MessageMeta message={message} />
       </div>
     );
   }
@@ -173,22 +199,22 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
           answered={askUser.answers}
           onSubmit={(answers) => {
             // The store's submit() resolves the promise that the
-            // feralAgentStream manager is awaiting, which is what
-            // actually dispatches `feral_ask_user_response` to Rust.
+            // cinderpawAgentStream manager is awaiting, which is what
+            // actually dispatches `cinderpaw_ask_user_response` to Rust.
             // Keep it as the single source of truth for the dispatch.
             submitAskUser(answers);
           }}
           onCancel={() => {
             // Same single-source-of-truth pattern: the store's cancel()
             // rejects the promise; the stream manager catches it and
-            // invokes `feral_ask_user_cancel` for us.
+            // invokes `cinderpaw_ask_user_cancel` for us.
             cancelAskUser('user dismissed');
           }}
         />
       )}
       {isTruncated && (
         <div
-          className="flex items-start gap-2 mt-1 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400"
+          className="flex items-start gap-2 mt-1 px-3 py-2 rounded-md bg-warning/10 border border-warning/30 text-warning"
           role="status"
         >
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
@@ -196,6 +222,24 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             <span className="font-medium">{t('chat.truncated.title')}</span>{' '}
             {t('chat.truncated.body')} ({message.truncatedReason ?? 'length'}).
           </div>
+        </div>
+      )}
+      {/* Actions attached by the product (not the model) — currently only the
+          zero-model reply, which offers the two real ways forward instead of
+          leaving the user at a dead end. */}
+      {message.actions && message.actions.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-2">
+          {message.actions.map((a) => (
+            <button
+              key={a.route}
+              type="button"
+              onClick={() => navigate(a.route)}
+              className="px-3 py-1.5 rounded-full border border-border-default bg-bg-surface
+                         hover:bg-bg-hover text-sm text-text-secondary transition-colors"
+            >
+              {a.label}
+            </button>
+          ))}
         </div>
       )}
       {/* Footer — only on a finished, non-empty reply, and not while a question
@@ -258,8 +302,9 @@ function MessageMeta({ message }: { message: ChatMessage }) {
   if (message.tokensPerSec) parts.push(`${message.tokensPerSec} tok/s`);
   const scratch = scratchLabel(message.scratch);
   if (scratch) parts.push(scratch);
+  const fullDate = new Date(at).toLocaleString();
   return (
-    <div className="text-[11px] text-text-muted tabular-nums select-none">{parts.join(' · ')}</div>
+    <div className="text-xs text-text-muted tabular-nums select-text cursor-text" title={fullDate}>{parts.join(' · ')}</div>
   );
 }
 
@@ -272,32 +317,50 @@ function MessageMeta({ message }: { message: ChatMessage }) {
 function FeedbackButtons({ messageId }: { messageId: string }) {
   const vote = useChat((s) => s.feedback[messageId]);
   const setFeedback = useChat((s) => s.setFeedback);
+  const [toast, setToast] = useState<string | null>(null);
+  const handleVote = (v: 'up' | 'down') => {
+    const next = vote === v ? null : v;
+    // Zustand setFeedback toggles off when same vote clicked again — pass undefined to clear
+    // The store's setFeedback expects 'up' | 'down', but toggle-off is done by clicking same again
+    // We mimic by passing the opposite then clearing? Simpler: just call with v and let store toggle
+    setFeedback(messageId, v as any);
+    const msg = next ? (v === 'up' ? 'Thanks!' : 'Noted') : 'Removed';
+    setToast(msg);
+    setTimeout(() => setToast(null), 2000);
+  };
   return (
-    <div className="flex items-center gap-1 mt-0.5 -ml-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-      <button
-        type="button"
-        aria-label="Good response"
-        aria-pressed={vote === 'up'}
-        onClick={() => setFeedback(messageId, 'up')}
-        className={cn(
-          'p-1 rounded hover:bg-bg-hover transition-colors',
-          vote === 'up' ? 'text-brand' : 'text-text-muted hover:text-text-secondary',
-        )}
-      >
-        <ThumbsUp size={13} />
-      </button>
-      <button
-        type="button"
-        aria-label="Bad response"
-        aria-pressed={vote === 'down'}
-        onClick={() => setFeedback(messageId, 'down')}
-        className={cn(
-          'p-1 rounded hover:bg-bg-hover transition-colors',
-          vote === 'down' ? 'text-error' : 'text-text-muted hover:text-text-secondary',
-        )}
-      >
-        <ThumbsDown size={13} />
-      </button>
+    <div className="flex items-center gap-2 mt-0.5 -ml-1">
+      <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
+        <button
+          type="button"
+          aria-label="Good response"
+          aria-pressed={vote === 'up'}
+          onClick={() => handleVote('up')}
+          className={cn(
+            'p-1 rounded hover:bg-bg-hover transition-colors',
+            vote === 'up' ? 'text-brand' : 'text-text-muted hover:text-text-secondary',
+          )}
+        >
+          <ThumbsUp size={13} />
+        </button>
+        <button
+          type="button"
+          aria-label="Bad response"
+          aria-pressed={vote === 'down'}
+          onClick={() => handleVote('down')}
+          className={cn(
+            'p-1 rounded hover:bg-bg-hover transition-colors',
+            vote === 'down' ? 'text-error' : 'text-text-muted hover:text-text-secondary',
+          )}
+        >
+          <ThumbsDown size={13} />
+        </button>
+      </div>
+      {toast && (
+        <span className="text-2xs text-text-secondary bg-bg-elevated border border-border-subtle rounded-full px-2 py-0.5 animate-in fade-in">
+          {toast}
+        </span>
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@
 
 Please **do not** open a public GitHub issue for security problems.
 
-- Email: **bloommediacorporation@gmail.com** with subject `[SECURITY] Feral`
+- Email: **bloommediacorporation@gmail.com** with subject `[SECURITY] Cinderpaw`
 - Or use GitHub's private vulnerability reporting on this repository
   (Security → Report a vulnerability).
 
@@ -15,14 +15,14 @@ otherwise.
 
 ## Threat model (what protects what)
 
-Feral is a local-first desktop app: a Tauri (Rust) shell, a bundled llama.cpp
+Cinderpaw is a local-first desktop app: a Tauri (Rust) shell, a bundled llama.cpp
 engine behind a loopback HTTP API, and a Bun/TypeScript agent sidecar.
 
 ### Local inference API (port 11435)
 
 - Binds to **127.0.0.1 only** — never exposed to the LAN.
 - Every route requires a **per-launch random bearer token**, shared only with
-  the sidecar (injected env) and, for external consumers, `~/.feral/api-token`.
+  the sidecar (injected env) and, for external consumers, `~/.cinderpaw/api-token`.
   This closes the same-host surface: other local processes and browser-based
   DNS-rebinding/CORS probes can reach the port but cannot authenticate.
 - Token comparison is constant-time; CORS is restricted to loopback origins.
@@ -35,7 +35,7 @@ engine behind a loopback HTTP API, and a Bun/TypeScript agent sidecar.
   **keys never enter the React renderer**. The UI only ever sees a
   display-safe model config view.
 - Requests go directly from your machine to the provider you configured —
-  there is no Feral relay server.
+  there is no Cinderpaw relay server.
 
 ### Agent sidecar sandbox
 
@@ -49,7 +49,7 @@ Every tool call passes a security layer before execution:
 - **Path containment** — filesystem tools resolve against declared roots with
   `realpath` symlink-following; traversal is rejected before any disk access.
 - **Process sandbox** — `shell_exec` is **off by default**
-  (`FERAL_ENABLE_SHELL_EXEC`), argv-only (no shell interpretation), restricted
+  (`CINDERPAW_ENABLE_SHELL_EXEC`), argv-only (no shell interpretation), restricted
   to a binary whitelist, with a scrubbed environment (`LD_PRELOAD`,
   `NODE_OPTIONS`, `PYTHONPATH` etc. stripped) and output caps.
 - **Audit log** — every tool call, network request, and inference call is

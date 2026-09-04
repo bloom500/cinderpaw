@@ -10,20 +10,20 @@ vi.mock('@/lib/tauri', async () => {
     ...actual,
     tauri: {
       ...actual.tauri,
-      feralAgent: {
-        ...actual.tauri.feralAgent,
+      cinderpawAgent: {
+        ...actual.tauri.cinderpawAgent,
         status: vi.fn(),
       },
     },
   };
 });
 
-const mockStatus = vi.mocked(tauri.feralAgent.status);
+const mockStatus = vi.mocked(tauri.cinderpawAgent.status);
 
 beforeEach(() => vi.clearAllMocks());
 
 describe('DoneStep', () => {
-  it('shows not-running message when Feral Agent sidecar status is false', async () => {
+  it('shows not-running message when Cinderpaw Agent sidecar status is false', async () => {
     mockStatus.mockResolvedValue(false);
 
     render(
@@ -38,7 +38,7 @@ describe('DoneStep', () => {
     expect(screen.getByText(/not running/i)).toBeTruthy();
   });
 
-  it('shows ready state when Feral Agent sidecar is up', async () => {
+  it('shows ready state when Cinderpaw Agent sidecar is up', async () => {
     mockStatus.mockResolvedValue(true);
 
     render(
@@ -50,7 +50,7 @@ describe('DoneStep', () => {
     );
 
     await waitFor(() => expect(mockStatus).toHaveBeenCalled());
-    expect(screen.getByText(/feral agent ready/i)).toBeTruthy();
+    expect(screen.getByText(/cinderpaw agent ready/i)).toBeTruthy();
   });
 
   it('invokes onStartChatting when the "Start chatting" button is clicked', async () => {

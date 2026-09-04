@@ -7,11 +7,11 @@
  * onboarding would overwhelm a first-time user.
  *
  * Persistence: on `finish()` or `skip()`, the state is written to
- * `~/.feral/onboarding.json` via the Tauri fs API. On next launch the
+ * `~/.cinderpaw/onboarding.json` via the Tauri fs API. On next launch the
  * file is read and the wizard is hidden when `completed === true`.
  *
  * The user/agent names are also written there and consumed by the
- * agent-side system prompt (USER block — see FeralAgent/system-prompt
+ * agent-side system prompt (USER block — see CinderpawAgent/system-prompt
  * integration). The user can re-open the wizard from Settings to
  * rename themselves or the agent.
  *
@@ -87,7 +87,7 @@ export interface OnboardingState {
 
 const DEFAULTS = {
   userName: '',
-  agentName: 'Feral',
+  agentName: 'Cinderpaw',
   hasOnboardedBefore: false,
   skipped: false,
   completedAt: null,
@@ -118,11 +118,11 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
     })),
 
   setUserName: (name) => set({ userName: name.trim() }),
-  // Note: we do NOT fall back to "Feral" on empty input here — the user
-  // must be able to fully clear the field to retype. The "Feral" default
+  // Note: we do NOT fall back to "Cinderpaw" on empty input here — the user
+  // must be able to fully clear the field to retype. The "Cinderpaw" default
   // is applied at the use sites (Preview, DoneStep, agent prompt) via
-  // `agentName.trim() || "Feral"`. Storing the raw value also means a
-  // half-typed name ("F") doesn't get clobbered to "Feral".
+  // `agentName.trim() || "Cinderpaw"`. Storing the raw value also means a
+  // half-typed name ("F") doesn't get clobbered to "Cinderpaw".
   setAgentName: (name) => set({ agentName: name.trim() }),
 
   skip: () => {
@@ -138,7 +138,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       completed: true,
       completedAt,
       userName: s.userName,
-      agentName: s.agentName || 'Feral',
+      agentName: s.agentName || 'Cinderpaw',
     });
   },
 
@@ -169,7 +169,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       completed: true,
       completedAt: Date.now(),
       userName: s.userName,
-      agentName: s.agentName || 'Feral',
+      agentName: s.agentName || 'Cinderpaw',
     };
     // Update in-memory state FIRST so the UI closes the wizard immediately,
     // regardless of how long the disk write takes (or whether it succeeds).
@@ -194,7 +194,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
       set({
         hasOnboardedBefore: true,
         userName: record.userName ?? '',
-        agentName: record.agentName ?? 'Feral',
+        agentName: record.agentName ?? 'Cinderpaw',
         completedAt: record.completedAt ?? null,
       });
       return true;

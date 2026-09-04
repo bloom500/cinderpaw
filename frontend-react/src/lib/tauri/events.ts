@@ -1,7 +1,7 @@
 // Typed event wrappers for Tauri events.
 // If tauri-specta exports a compatible `events` object from bindings.ts, this
 // file re-exports those. Otherwise (fallback per spec §2.2), it hand-wires
-// listen() to the literal "feral://..." channel names using specta-generated
+// listen() to the literal "cinderpaw://..." channel names using specta-generated
 // payload types so the component API stays identical either way.
 
 import { listen, type UnlistenFn, type EventCallback } from '@tauri-apps/api/event';
@@ -15,7 +15,7 @@ export interface StreamErrorEvent  { sessionId: string; error: string }
  * — the model hit its server-side max_tokens cap before producing a natural
  * stop. The frontend surfaces this as a small "truncated" hint on the message
  * bubble so the user knows the response was cut off by the provider, not by
- * Feral.
+ * Cinderpaw.
  */
 export interface StreamTruncatedEvent { sessionId: string; reason: string }
 export interface DownloadProgressEvent { repoId: string; filename: string; progress: number }
@@ -24,14 +24,51 @@ export interface DownloadErrorEvent    { repoId: string; filename: string; error
 export interface ModelLoadProgressEvent { percentage: number; statusText: string }
 /** One streamed agent event. `data` is a JSON-serialized AgentEvent. */
 export interface AgentStreamEvent { sessionId: string; data: string }
+/**
+ * One chunk of synthesised speech: base64 of signed 16-bit little-endian mono
+ * PCM, plus the rate to build the `AudioBuffer` at. Decode with
+ * `pcm16ToFloat32` and schedule it — never collect chunks into one buffer and
+ * play at the end, which throws away the ~3x head start streaming synthesis has
+ * over playback.
+ */
+export interface TtsChunkEvent { sessionId: string; pcm: string; sampleRate: number }
+/**
+ * A speech-to-speech call's non-audio reports. `kind` is an open set — treat
+ * anything unrecognised as ignorable rather than as an error.
+ */
+export interface LiveStatusEvent { sessionId: string; kind: string; text: string }
+/**
+ * One line of a LiveKit call's readable half.
+ *
+ * `heard` is what the model understood you to say — worth showing even when it
+ * is right, because mishearing is the failure that otherwise looks like
+ * stupidity.
+ */
+export interface LiveKitAgentEvent {
+  /** `state` carries the session's own idea of what it is doing —
+   *  initializing, listening, thinking, speaking — which the overlay would
+   *  otherwise have to infer from audio energy. */
+  /** `toolCall`/`toolResult` bracket an `ask_cinder` request, which is answered
+   *  over the loopback API and so is invisible to the webview otherwise — a
+   *  wait of up to a hundred seconds with a still screen. `text` is the request
+   *  on the way in, and on the way out is the failure reason, or empty when it
+   *  worked. */
+  kind: 'heard' | 'said' | 'state' | 'error' | 'closed' | 'toolCall' | 'toolResult';
+  text?: string;
+  /** `heard` only: this transcript is still changing. Show it, but do not
+   *  persist it — the final one carries the same sentence, settled. */
+  partial?: boolean;
+  recoverable?: boolean;
+}
+
 /** Emitted right before generation starts with the real prompt token count (local models only). */
 export interface StreamStartEvent  { sessionId: string; promptTokens: number }
 /** Emitted at the end of a cloud stream when the provider returns usage stats. */
 export interface StreamUsageEvent  { sessionId: string; promptTokens: number; completionTokens: number }
 /**
  * Heartbeat for in-flight inference — emitted by the local Rust watchdog on
- * `feral://stream-progress` and by the sidecar (agent path) as a
- * `stream_progress` line on `feral://agent-output`. The React
+ * `cinderpaw://stream-progress` and by the sidecar (agent path) as a
+ * `stream_progress` line on `cinderpaw://agent-output`. The React
  * `streamProgressEvent` (raw Rust) + `onStreamProgress` (filtered sidecar)
  * listeners fan this into the `streamProgress` zustand store.
  */
@@ -45,18 +82,18 @@ export interface StreamProgressEvent {
 }
 
 /**
- * One raw line from the Feral Agent sidecar, forwarded by Rust over
- * `feral://agent-output`. The `data` field is the sidecar's JSON
+ * One raw line from the Cinderpaw Agent sidecar, forwarded by Rust over
+ * `cinderpaw://agent-output`. The `data` field is the sidecar's JSON
  * line verbatim — the React side parses it and dispatches by `type`.
  * For the RSI engine specifically, lines look like:
  *   { "type": "rsi_engine_event", "event": "started", "id": "<uuid>",
  *     "iteration": 0, "concurrency": 1, "costSoFarUsd": 0.0, "bestScore": null }
  */
-export interface FeralAgentOutputEvent { data: string }
+export interface CinderpawAgentOutputEvent { data: string }
 
 /**
- * Parsed RSI engine event extracted from a `feral://agent-output`
- * line. Mirrors the wire shape documented in `feral_agent.rs
+ * Parsed RSI engine event extracted from a `cinderpaw://agent-output`
+ * line. Mirrors the wire shape documented in `cinderpaw_agent.rs
  * handle_rsi_engine_event`. Fields are optional because each event
  * carries only the relevant subset (e.g. a `progress` event omits
  * `stopReason`, a `concurrency_set` omits `iteration`).
@@ -73,7 +110,7 @@ export interface RsiEngineEventLine {
 }
 
 /**
- * A Fractal Memory Search pulse, extracted from a `feral://agent-output` line.
+ * A Fractal Memory Search pulse, extracted from a `cinderpaw://agent-output` line.
  * The sidecar emits these so the living organism is driven by memory activity,
  * not RSI:
  *   - `recall` (a semantic query traversed the tree → breathing focus)
@@ -126,7 +163,7 @@ export interface DreamCycleLine {
 /**
  * Code-patch approval-gate snapshot (Faza 2 Slice 5). Filtered out of the
  * raw sidecar line stream. Mirrors the `code_patches` OutboundEvent in
- * `FeralAgent/src/types.ts`. Sent on `feral_code_patches_list` and after
+ * `CinderpawAgent/src/types.ts`. Sent on `cinderpaw_code_patches_list` and after
  * every resolution so the Dreams-panel card always reflects the truth.
  */
 export interface CodePatchesLine {
@@ -150,7 +187,7 @@ export interface CodePatchesLine {
 
 /**
  * Code-patch resolution ack (Faza 2 Slice 5). A single `code_patch_resolved`
- * arrives in reply to `feral_code_patch_resolve`; the sidecar follows it
+ * arrives in reply to `cinderpaw_code_patch_resolve`; the sidecar follows it
  * with a refreshed `code_patches` snapshot. Same listener shape as the
  * other filtered sidecar streams.
  */
@@ -163,8 +200,8 @@ export interface CodePatchResolvedLine {
 
 /**
  * Faza 4 (L2 LoRA) — personal-adaptation review inbox snapshot. Mirrors the
- * `lora_reviews` OutboundEvent in `FeralAgent/src/types.ts`. Sent on
- * `feral_lora_reviews_list` and after every train/resolve.
+ * `lora_reviews` OutboundEvent in `CinderpawAgent/src/types.ts`. Sent on
+ * `cinderpaw_lora_reviews_list` and after every train/resolve.
  */
 /** Faza 6 (L6) Meta Evolution reply. `op` says which request it answers;
  *  the rest of the payload is op-specific (status carries genome/generation/
@@ -282,7 +319,7 @@ export interface LoraReviewsLine {
   };
 }
 
-/** Faza 4 — resolution ack for one `feral_lora_review_resolve`. */
+/** Faza 4 — resolution ack for one `cinderpaw_lora_review_resolve`. */
 export interface LoraReviewResolvedLine {
   type: 'lora_review_resolved';
   id: string;
@@ -307,22 +344,22 @@ function wrap<T>(channel: string) {
 }
 
 export const events = {
-  tokenEvent:             wrap<TokenEvent>('feral://token'),
-  streamDoneEvent:        wrap<StreamDoneEvent>('feral://stream-done'),
-  streamErrorEvent:       wrap<StreamErrorEvent>('feral://stream-error'),
-  streamTruncatedEvent:   wrap<StreamTruncatedEvent>('feral://stream-truncated'),
-  streamStartEvent:       wrap<StreamStartEvent>('feral://stream-start'),
-  streamUsageEvent:       wrap<StreamUsageEvent>('feral://stream-usage'),
+  tokenEvent:             wrap<TokenEvent>('cinderpaw://token'),
+  streamDoneEvent:        wrap<StreamDoneEvent>('cinderpaw://stream-done'),
+  streamErrorEvent:       wrap<StreamErrorEvent>('cinderpaw://stream-error'),
+  streamTruncatedEvent:   wrap<StreamTruncatedEvent>('cinderpaw://stream-truncated'),
+  streamStartEvent:       wrap<StreamStartEvent>('cinderpaw://stream-start'),
+  streamUsageEvent:       wrap<StreamUsageEvent>('cinderpaw://stream-usage'),
   /**
    * Live progress heartbeat for the local Rust inference path — emitted on
-   * `feral://stream-progress` by the watchdog in `chat_stream`. The
+   * `cinderpaw://stream-progress` by the watchdog in `chat_stream`. The
    * sidecar's equivalent (`stream_progress` OutboundEvent) arrives on
-   * `feral://agent-output` and is filtered by `onStreamProgress` below.
+   * `cinderpaw://agent-output` and is filtered by `onStreamProgress` below.
    */
-  streamProgressEvent:    wrap<StreamProgressEvent>('feral://stream-progress'),
-  downloadProgressEvent:  wrap<DownloadProgressEvent>('feral://download-progress'),
-  downloadCompleteEvent:  wrap<DownloadCompleteEvent>('feral://download-complete'),
-  downloadErrorEvent:     wrap<DownloadErrorEvent>('feral://download-error'),
+  streamProgressEvent:    wrap<StreamProgressEvent>('cinderpaw://stream-progress'),
+  downloadProgressEvent:  wrap<DownloadProgressEvent>('cinderpaw://download-progress'),
+  downloadCompleteEvent:  wrap<DownloadCompleteEvent>('cinderpaw://download-complete'),
+  downloadErrorEvent:     wrap<DownloadErrorEvent>('cinderpaw://download-error'),
   modelLoadProgressEvent: wrap<ModelLoadProgressEvent>('model-load-progress'),
   /**
    * Fractal Memory Search embedding-model download (the ~130 MB bge-small
@@ -332,28 +369,51 @@ export const events = {
    * before applying state, since the sidecar can emit other repo downloads on
    * the same channels in the future.
    */
-  onEmbeddingDownloadProgress: wrap<DownloadProgressEvent>('feral://embedding-download-progress'),
-  onEmbeddingDownloadComplete: wrap<DownloadCompleteEvent>('feral://embedding-download-complete'),
-  onEmbeddingDownloadError:    wrap<DownloadErrorEvent>('feral://embedding-download-error'),
-  agentStreamEvent:       wrap<AgentStreamEvent>('feral://agent-event'),
   /**
-   * The Feral Agent sidecar's raw stdout forwarded by Rust. The
+   * On-device voice download (Piper, Kokoro). Same `Download*Event` shape as
+   * every other download channel; `filename` carries the voice id, and the
+   * config file is fetched silently before the model so the bar does not jump to
+   * 100% for a few kilobytes and then restart.
+   */
+  onTtsDownloadProgress: wrap<DownloadProgressEvent>('cinderpaw://tts-download-progress'),
+  onTtsDownloadComplete: wrap<DownloadCompleteEvent>('cinderpaw://tts-download-complete'),
+  onTtsDownloadError:    wrap<DownloadErrorEvent>('cinderpaw://tts-download-error'),
+  onEmbeddingDownloadProgress: wrap<DownloadProgressEvent>('cinderpaw://embedding-download-progress'),
+  onEmbeddingDownloadComplete: wrap<DownloadCompleteEvent>('cinderpaw://embedding-download-complete'),
+  onEmbeddingDownloadError:    wrap<DownloadErrorEvent>('cinderpaw://embedding-download-error'),
+  ttsChunkEvent:          wrap<TtsChunkEvent>('cinderpaw://tts-chunk'),
+  /**
+   * Everything a speech-to-speech call reports that is not audio — the audio
+   * itself rides `ttsChunkEvent` so the existing player needs no changes.
+   *
+   * `kind` is `interrupted` | `turnComplete` | `inputTranscript` |
+   * `outputTranscript` | `closed`; `text` carries the transcript or the reason
+   * for closing and is empty otherwise. Treat an unknown `kind` as ignorable:
+   * the set grows with a Preview API.
+   *
+   * `interrupted` is the one that must be acted on — the user spoke over the
+   * answer, and whatever is queued should be dropped rather than played out.
+   */
+  liveStatusEvent:        wrap<LiveStatusEvent>('cinderpaw://live-status'),
+  agentStreamEvent:       wrap<AgentStreamEvent>('cinderpaw://agent-event'),
+  /**
+   * The Cinderpaw Agent sidecar's raw stdout forwarded by Rust. The
    * `data` field is the original JSON line — the React side parses
    * it and routes by `type` (chunk/done/tool/rsi_engine_event/…).
    * The listener fires for EVERY sidecar line, not just RSI events,
    * so callers must filter.
    */
-  feralAgentOutputEvent: wrap<FeralAgentOutputEvent>('feral://agent-output'),
+  cinderpawAgentOutputEvent: wrap<CinderpawAgentOutputEvent>('cinderpaw://agent-output'),
 
   /**
-   * Thin binding over `feralAgentOutputEvent` that filters for RSI engine
+   * Thin binding over `cinderpawAgentOutputEvent` that filters for RSI engine
    * events only. Fires for any `rsi_engine_event` line (started / progress /
    * stopped / concurrency_set). Mirrors the `wrap()` shape so callers use
    * the same `.listen(cb)` API as every other event in this file.
    */
   onRsiEngineEvent: {
     listen: (cb: (e: RsiEngineEventLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -376,7 +436,7 @@ export const events = {
    */
   onFractalActivity: {
     listen: (cb: (e: FractalActivityLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -394,12 +454,12 @@ export const events = {
 
   /**
    * Reactive-tree drill-down responses — the sidecar's member-memory reply to a
-   * `feral_fractal_cluster_leaves` request, paired by `id`. Same filtered shape
+   * `cinderpaw_fractal_cluster_leaves` request, paired by `id`. Same filtered shape
    * as `onFractalActivity`.
    */
   onFractalClusterLeaves: {
     listen: (cb: (e: FractalClusterLeavesLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -422,7 +482,7 @@ export const events = {
  */
   onDreamCycle: {
     listen: (cb: (e: DreamCycleLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -452,7 +512,7 @@ export const events = {
    */
   onDreamStage: {
     listen: (cb: (e: DreamCycleLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -475,7 +535,7 @@ export const events = {
    */
   onMetaResult: {
     listen: (cb: (e: MetaResultLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -497,7 +557,7 @@ export const events = {
    */
   onGovernanceResult: {
     listen: (cb: (e: GovernanceResultLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -520,7 +580,7 @@ export const events = {
    */
   onModulesResult: {
     listen: (cb: (e: ModulesResultLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -538,12 +598,26 @@ export const events = {
 
 /**
    * Heartbeat for the agent (sidecar) inference path. Filters the raw
-   * `feral://agent-output` stream for `type === "stream_progress"` lines.
+   * `cinderpaw://agent-output` stream for `type === "stream_progress"` lines.
    * Same `.listen(cb)` shape as every other event in this file.
    */
+  /**
+   * What the far end of a LiveKit call said, heard, or failed at.
+   *
+   * Audio never comes through here — that is WebRTC, straight to a server on
+   * loopback. This channel carries only the parts a person needs to READ: the
+   * transcript of both sides, and the reason a call stopped working. The free
+   * Gemini tier rate-limits voice, and a session that dies from quota is
+   * indistinguishable from a broken app unless something says so.
+   */
+  liveKitEvent: {
+    listen: (cb: (e: LiveKitAgentEvent) => void): Promise<UnlistenFn> =>
+      listen<LiveKitAgentEvent>('cinderpaw://livekit-event', (raw) => cb(raw.payload)),
+  },
+
   onStreamProgress: {
     listen: (cb: (e: StreamProgressEvent) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -562,12 +636,12 @@ export const events = {
   /**
    * Pending code-patch queue snapshot (Faza 2 Slice 5). Filtered out of the
    * raw sidecar line stream for `type === "code_patches"`. The Dreams-panel
-   * card consumes this on mount (via `feral_code_patches_list`) and on every
+   * card consumes this on mount (via `cinderpaw_code_patches_list`) and on every
    * resolution ack. Same `.listen(cb)` shape as the other filtered listeners.
    */
   onCodePatches: {
     listen: (cb: (e: CodePatchesLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -591,7 +665,7 @@ export const events = {
    */
   onCodePatchResolved: {
     listen: (cb: (e: CodePatchResolvedLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -611,7 +685,7 @@ export const events = {
    *  stream for `type === "lora_reviews"`. Same shape as onCodePatches. */
   onLoraReviews: {
     listen: (cb: (e: LoraReviewsLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -630,7 +704,7 @@ export const events = {
   /** Faza 4 — per-card resolution acks (`lora_review_resolved`). */
   onLoraReviewResolved: {
     listen: (cb: (e: LoraReviewResolvedLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (
@@ -649,7 +723,7 @@ export const events = {
   /** Faza 4 — training-cycle outcomes (`lora_train_result`). */
   onLoraTrainResult: {
     listen: (cb: (e: LoraTrainResultLine) => void): Promise<UnlistenFn> =>
-      listen<FeralAgentOutputEvent>('feral://agent-output', (raw) => {
+      listen<CinderpawAgentOutputEvent>('cinderpaw://agent-output', (raw) => {
         try {
           const parsed: unknown = JSON.parse(raw.payload.data);
           if (

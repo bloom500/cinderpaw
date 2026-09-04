@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { tauri, type AgentConfig } from '@/lib/tauri';
 
-const STORAGE_KEY = 'feral_active_agent_id';
+const STORAGE_KEY = 'cinderpaw_active_agent_id';
 
 interface AgentStore {
   list: AgentConfig[];
@@ -89,7 +89,11 @@ export const useAgent = create<AgentStore>((set, get) => ({
     try {
       const saved = await tauri.agents.save(cfg);
       const list = await tauri.agents.getAll();
-      writePersistedId(saved.id ?? null);
+      // Only overwrite the remembered agent when we actually have an id. A
+      // `null` here cleared the selection, and the next load fell back to
+      // whichever agent happens to be first — the user's choice replaced by an
+      // arbitrary one, with nothing to indicate it happened.
+      if (saved.id) writePersistedId(saved.id);
       set({
         list,
         current: saved,

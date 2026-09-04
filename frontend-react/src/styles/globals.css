@@ -1,7 +1,12 @@
 /* highlight.js themes must come before @tailwind to satisfy CSS @import order */
 @import 'highlight.js/styles/atom-one-dark.css';
-/* Inter — the app typeface, bundled locally (no CDN requests). */
-@import '@fontsource-variable/inter';
+/* Geist — the app typeface, bundled locally (no CDN requests, and none can be
+   made: the app runs under a CSP that blocks external hosts).
+   Replaces Inter. Both are workhorse UI faces; Geist is drawn with slightly
+   tighter defaults and a squarer bowl, which is the difference people read as
+   "made recently". The type scale in tailwind.config already carries the
+   negative tracking the display sizes need. */
+@import '@fontsource-variable/geist';
 
 @tailwind base;
 @tailwind components;
@@ -9,8 +14,156 @@
 
 @layer base {
   html {
-    font-family: 'Inter Variable', Inter, system-ui, sans-serif;
+    font-family: 'Geist Variable', Geist, system-ui, sans-serif;
   }
+}
+
+/*
+ * The call field's one moving part.
+ *
+ * Runs ONLY while someone is actually talking — a background that drifts all
+ * the time stops meaning anything and becomes the screensaver you learn to
+ * ignore, which is the opposite of what a call screen is for. Silence is part
+ * of the signal here.
+ *
+ * Transform only, on one small layer, so the 4-stop gradient underneath is
+ * never repainted.
+ */
+@keyframes stage-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(-4%, 3%, 0) scale(1.14); }
+}
+
+/* ── The orb ───────────────────────────────────────────────────────────────
+ *
+ * A swirl sphere: a few broad regions of colour suspended inside glass, meeting
+ * and bleeding into one another. What makes it read as a solid ball rather than
+ * as stacked circles is that no blob ever completes a lap — `alternate` on the
+ * drift means each one wanders and comes back, while a full rotation would read
+ * as a texture spinning behind a window.
+ *
+ * `translate` and `scale` only — both composited, so this costs no layout and
+ * no paint per frame. The blur is a static filter on each layer, never
+ * animated: animating a filter re-rasterises every frame, which is what turns
+ * an orb like this into a fan-spinner.
+ *
+ * Speed comes from the component (`ORB_TEMPO`), not from separate keyframes:
+ * one set of motions driven faster or slower keeps idle, listening, thinking
+ * and speaking recognisably the same object.
+ */
+@keyframes orb-drift {
+  from { transform: translate(-7%, 4%) scale(1); }
+  to   { transform: translate(8%, -6%) scale(1.12); }
+}
+/* The liquid version of the same idea, and the difference is that a blob no
+ * longer keeps its shape while it moves.
+ *
+ * Translating a soft disc gives you a disc somewhere else — the eye reads a
+ * moving OBJECT, which is why the earlier sphere looked like coloured marbles
+ * suspended in glass rather than like colour in motion. Fluid does three things
+ * at once: it drifts, it turns, and it stretches along the direction it is
+ * being pulled. The non-uniform scale is the load-bearing part; the rotation is
+ * what keeps the stretch from always lying along the same axis.
+ *
+ * Still `translate`/`rotate`/`scale` only — all composited, no layout, no
+ * repaint. Four waypoints rather than two, because two is a straight line back
+ * and forth and a straight line is the one thing liquid never does.
+ *
+ * (The keyframe itself is further down; what follows first is the live half.)
+ */
+/* The live half of the sphere.
+ *
+ * `--orb-level` is written by a frame loop in `CallOverlay`, 0..1, and it is a
+ * MEASUREMENT: the microphone while the user speaks, the reply's own loudness
+ * while the agent does. Everything below reads it, so the whole object swells
+ * and quickens with the voice instead of running at one tempo per state.
+ *
+ * Defaulted here so nothing depends on the loop having run yet — before the
+ * first call, and under reduced-motion where the loop never starts, this is a
+ * still sphere rather than a broken one. */
+.orb-shell { --orb-level: 0; }
+/* The voice reaction, at exactly the strength it shipped with: the ball follows
+ * a loud voice by 14% and the halo by 1.8 times that. Two differences from the
+ * original, both of them fixes rather than changes:
+ *
+ *  - it is driven from a CSS variable a frame loop writes, not from a React
+ *    state update per microphone reading, so the smoothing survives and the
+ *    overlay is not re-rendered sixty times a second;
+ *  - it follows the AGENT's voice too, measured off the audio being played.
+ *    Only the microphone was ever read, so through an entire answer the sphere
+ *    had nothing to react to. */
+.orb-shell .orb-body { transform: scale(calc(1 + var(--orb-level) * 0.14)); }
+.orb-shell .orb-halo { transform: scale(calc(1 + var(--orb-level) * 0.252)); }
+@keyframes orb-flow {
+  0%   { transform: translate(-8%, 5%) rotate(0deg) scale(1.04, 0.93); }
+  35%  { transform: translate(3%, -6%) rotate(38deg) scale(0.9, 1.12); }
+  70%  { transform: translate(8%, 4%) rotate(76deg) scale(1.14, 0.95); }
+  100% { transform: translate(-4%, -4%) rotate(104deg) scale(0.97, 1.06); }
+}
+/* The field's slow warp. Amplitude deliberately near the threshold of notice:
+ * the argument against a continuously moving background is that it becomes
+ * wallpaper, and that argument holds for anything you can SEE moving. This is
+ * slower than a minute per cycle and moves a few percent, so it never announces
+ * itself — it only stops the gradients reading as paint. The loud motion is
+ * still the speech-tied highlight, which is the layer that answers "is anything
+ * happening".
+ */
+@keyframes stage-flow {
+  0%   { transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.10, 1.04); }
+  33%  { transform: translate3d(4%, -3%, 0) rotate(11deg) scale(1.02, 1.16); }
+  66%  { transform: translate3d(3%, 4%, 0) rotate(-7deg) scale(1.14, 1.02); }
+  100% { transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.10, 1.04); }
+}
+/* Breathing, so the sphere is never completely still. Idle should look alive
+   but not busy; the amplitude stays small enough to read as breath.
+
+   Restored to exactly what shipped in 87f69dd after three attempts to improve
+   it made it worse in three different ways: faster read as agitation, gating it
+   on the voice made it invisible, and moving it onto the whole ball turned a
+   breath into a throb. The original is a small, continuous, slow swell of the
+   COLOUR inside the glass, and the glass around it holding still is part of why
+   it reads as breathing rather than as pulsing. */
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035); }
+}
+/* The travelling glint. A real specular highlight moves across a sphere as it
+   turns; a fixed one is the single clearest tell that the ball is a flat disc
+   with a gradient on it. */
+@keyframes orb-glint {
+  0%, 100% { transform: translate(-6%, -4%) scale(1); opacity: 0.9; }
+  50%      { transform: translate(8%, 6%) scale(1.15); opacity: 0.55; }
+}
+
+/* Tools are running.
+ *
+ * A tool call used to show up only as the fluid inside moving faster, which is
+ * invisible unless you already knew to look: the sphere is always moving, so
+ * "moving somewhat more" is not a signal. This is the one piece of the sphere
+ * that is unambiguously mechanical — a bright arc travelling the rim, once a
+ * couple of seconds, like something being scanned. It reads as work rather than
+ * as mood, which is exactly the distinction the caller needs while they wait.
+ *
+ * A steady rotation on purpose: every other motion here eases back and forth
+ * because liquid never travels in a straight line, and this one is not liquid. */
+@keyframes orb-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* The arc brightens as it comes round, so a slow sweep still has a pulse to it
+ * and the ring never sits at one flat intensity. */
+@keyframes orb-sweep-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+/* Motion is decoration here — the call's state is also carried by the status
+   line and the buttons, so removing it costs nothing and keeping it can cost a
+   user their focus or their stomach. The sphere stays lit and present, just
+   still. */
+@media (prefers-reduced-motion: reduce) {
+  .orb-motion { animation: none !important; }
 }
 
 @layer utilities {
@@ -20,6 +173,38 @@
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+  /* ChatGPT/Qwen-style thin interactive scrollbar — faint line, expands on hover */
+  .thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    scrollbar-gutter: stable;
+  }
+  .thin-scrollbar:hover {
+    scrollbar-color: var(--border-default) transparent;
+  }
+  .thin-scrollbar::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+  .thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .thin-scrollbar::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+  .thin-scrollbar:hover::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--border-default) 70%, transparent);
+  }
+  .thin-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-muted);
+  }
+  .thin-scrollbar:hover::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
   }
 }
 
@@ -75,22 +260,117 @@
 :root[data-theme="dark"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
   --bg-primary:      #100E09;
-  --bg-surface:      #1C1916;
-  --bg-elevated:     #252119;
-  --bg-hover:        #2C2820;
-  --bg-active:       #353027;
+  /* Translucent, because these two ARE the glass. Every card, panel, popover
+     and menu in the app is painted with one of them, so making the pane
+     see-through and leaving these opaque produced exactly what we had: a glass
+     window with a solid app stamped on it. Alpha here, once, reaches all ~120
+     call sites without touching a component.
+
+     --bg-primary stays a solid hex on purpose: it is also --scene-base (the
+     opaque ground a transparent window must never be without) and
+     --primary-foreground (text on brand buttons). A colour doing three jobs
+     only gets translucency in the one where it means something. */
+  /* Thin, and they can afford to be: these sheets lie on `--scene-surface`,
+     which is now a stable ground rather than a window onto the wallpaper. The
+     measured minimum at which text on them still clears every threshold is
+     0.05 — so these values are chosen for how the material LOOKS, not forced
+     by legibility, which is the first time that has been true here.
+
+     They went the wrong way once: with a see-through pane underneath, the only
+     way to make text readable was to thicken every panel, and the app turned
+     into opaque boxes floating on glass. Ground first, then sheets. */
+  /* The one surface in the app that is nearly solid, and it has to be.
+     Every other sheet lies on the pane, with nothing but scenery behind it.
+     The composer lies on the TRANSCRIPT — it is positioned over the scroll
+     area — so whatever alpha it has, the conversation slides underneath it
+     and reads through. At 0.34 that was a second column of text moving
+     behind the field you are typing in. 0.94 keeps the material (there is
+     still a blur, and the rim, and the desktop's colour reaches it) while
+     leaving nothing legible able to pass through. */
+  --surface-typing:  rgba(24, 21, 17, 0.94);
+  --bg-surface:      rgba(28, 25, 22, 0.24);
+  --bg-elevated:     rgba(37, 33, 25, 0.34);
+  --bg-hover:        rgba(44, 40, 32, 0.46);
+  --bg-active:       rgba(53, 48, 39, 0.58);
   --border-subtle:   #2C2820;
   --border-default:  #3A342B;
   --text-primary:    #F0E6D3;
   --text-secondary:  #B8AC95;
-  --text-muted:      #8C7E6A;
-  --text-disabled:   #4A4035;
+  /* `muted` and `disabled` were tuned against flat #100E09. Over a lit scene
+     they lost the little contrast they had: #4A4035 on this ground is about
+     2:1, which is below the threshold for text of any size, and it is what the
+     rail's "Nothing yet" line was set in — a sentence written to explain an
+     empty screen, itself too faint to read. Both step up; the hierarchy between
+     the four is unchanged. */
+  /* White, and the three tiers below it are white too — only dimmer.
+     Requested directly, and the glass is why it is also correct: warm
+     mid-tones like the old #9A8B75 were drawn for a flat near-black page, and
+     on a pane that is partly somebody's wallpaper they are the first thing to
+     disappear. A neutral white scale keeps every tier far from whatever is
+     behind it, in both directions.
+
+     Hierarchy survives as luminance rather than as hue, and the gap between
+     the tiers is now deliberately small: 100 / 95 / 91 percent of white.
+     Measured worst case over any wallpaper (glass.test.ts, the same model
+     that gates them): 10.37, 9.26 and 8.46 — every reading tier is nearly
+     double AA rather than sitting on it. `muted` carries 414 of the app's text classes, more than `primary`
+     does, so a tier tuned to the MINIMUM legible contrast was in practice the
+     app's default voice, and the app read as grey. Requested directly, and
+     right for the same reason the white scale was: on a pane that is partly
+     somebody's wallpaper, the dim tiers are the first thing to disappear.
+
+     `disabled` is the only tier left near the floor, at 4.62, and that is
+     the point of it. A
+     control that is off has to LOOK off — collapsing it into the rest trades
+     one legibility bug for a worse one, where every button looks pressable
+     and only some are. */
+   --text-primary:    #FFFFFF;
+   --text-secondary:  #F2F2F2;
+   --text-muted:      #E8E8E8;
+   /* The dimmest tier, and NOT a grey. #ADADAD was the one remaining grey in
+      the app's voice — everything else had gone white-scale when the glass
+      arrived — and grey is exactly what drowns first on a pane that is partly
+      somebody's wallpaper. Still visibly "off" next to muted (84% white vs
+      91%), which is all the disabled state needs. */
+   --text-disabled:   #CCCCCC;
   --brand:           #C4843A;
   --brand-hover:     #D4944A;
   --brand-muted:     #6B4820;
-  --error:           #C0472A;
+  --brand-foreground: #100E09;
+  --error:           #D4553A;
   --success:         #6A9E5A;
   --warning:         #D4A03A;
+  --info:            #5B8DEF;
+
+  /* ── The same five colours, as TEXT ──────────────────────────────────
+     A colour that fills a shape and a colour that spells a word are not the
+     same colour, and pretending otherwise is what made the accents on this
+     glass unreadable.
+
+     A fill brings its own ground: `bg-error` is a solid rectangle, and the
+     only thing that has to clear a threshold is the label ON it. A word
+     written in `text-error` has no ground of its own — it sits on the pane,
+     and through the pane on the user's wallpaper. Held to the same
+     worst-case rule as the four text tiers (see the contrast block in
+     `src/test/glass.test.ts`), the fill values measure 2.55 (error), 3.28
+     (success), 3.31 (brand) and 4.39 (warning) over a pale desktop. Error
+     text — the 41 places the app explains a failure — was the worst of them.
+
+     So the roles split. `--brand` and friends stay exactly as they were and
+     keep every `bg-`, `border-` and `ring-` in the app looking the same;
+     these five are what `text-brand`, `text-error`, `text-success`,
+     `text-warning` and `text-info` resolve to (wired in
+     `tailwind.config.ts` under `textColor`, so not one call site changed).
+
+     Same hue, raised until the worst case clears 4.5:1, with as much chroma
+     kept as that allows — solved, not picked. Red is the one that visibly
+     moves: at the luminance AA demands on this ground, a red IS a coral.
+     That is the trade, and an error nobody can read is the alternative. */
+  --brand-text:      #EC9E44;
+  --error-text:      #FD937D;
+  --success-text:    #7DC068;
+  --warning-text:    #FBAD14;
+  --info-text:       #82B2FF;
 
   /* ── shadcn aliases ─────────────────────────────────────────────────── */
   --background:           var(--bg-primary);
@@ -118,22 +398,47 @@
 :root[data-theme="light"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
   --bg-primary:      #FFF5EE;
-  --bg-surface:      #F5EBE0;
-  --bg-elevated:     #FFFFFF;
-  --bg-hover:        #EBE0D2;
-  --bg-active:       #E0D0C0;
+  /* Higher alpha than dark on purpose. Dark text over a blurred desktop loses
+     contrast far faster than light text does — a bright wallpaper behind a 55%
+     ivory panel puts near-black type on near-white ground with a photograph
+     moving underneath it. */
+  --surface-typing:  rgba(252, 248, 243, 0.95);
+  --bg-surface:      rgba(245, 235, 224, 0.34);
+  --bg-elevated:     rgba(255, 255, 255, 0.46);
+  --bg-hover:        rgba(235, 224, 210, 0.58);
+  --bg-active:       rgba(224, 208, 192, 0.70);
   --border-subtle:   #E8DCC9;
   --border-default:  #D4C4B0;
   --text-primary:    #1C1610;
-  --text-secondary:  #4A3F32;
-  --text-muted:      #8C7060;
-  --text-disabled:   #C0B0A0;
-  --brand:           #A06828;
+  /* The mirror of the dark block: these tiers carry most of the app's text,
+     so they are kept close to `primary` rather than tuned to the minimum that
+     passes. Same hue family as before — this theme is warm and stays warm —
+     just deepened until nothing on screen reads as a faded brown. Measured
+     worst case: 11.76, 9.86 and 8.63.
+
+     `disabled` is again the exception and stays where it was, at 4.74: an off
+     control must look off. */
+  --text-secondary:  #2E251C;
+  --text-muted:      #3A2E24;
+  --text-disabled:   #5E5649;
+  --brand:           #925E22;
+  --brand-foreground: #FFFFFF;
   --brand-hover:     #8B5820;
   --brand-muted:     #E8D4B8;
   --error:           #A03820;
   --success:         #5A8A4A;
   --warning:         #B8862A;
+  --info:            #1A5FD0;
+
+  /* Text roles — see the dark block for why these are separate colours from
+     the fills above. Light theme fails in the mirror-image way: its accents
+     are dark on a pale panel, and a DARK wallpaper behind that panel is what
+     erodes them (success 2.66:1, warning 2.13:1). Same hues, deepened. */
+  --brand-text:      #834805;
+  --error-text:      #A82000;
+  --success-text:    #346225;
+  --warning-text:    #774E04;
+  --info-text:       #004CC9;
 
   /* ── shadcn aliases ─────────────────────────────────────────────────── */
   --background:           var(--bg-primary);
@@ -154,8 +459,534 @@
   --destructive-foreground: #FFFFFF;
   --border:               var(--border-default);
   --input:                var(--border-default);
-  --ring:                 var(--brand);
-  --radius:               0.5rem;
+  --ring:               var(--brand);
+  --radius:             0.5rem;
+}
+
+/* ── Text outline — the seatbelt under every word ──────────────────────────
+   Glass is a variable ground: whatever the wallpaper is doing arrives dimmed
+   through the pane, but it ARRIVES, and low-contrast structure behind a word
+   is how text gets buried. A same-centre halo gives glyphs their own local
+   contrast without moving any edge — the earlier 1px OFFSET shadow read as
+   faux-bold on small input text (Darius, 2026-08-24), so the halo is centred
+   and tight now: protection without thickening.
+
+   Dark theme: dark halo around light text. Light theme: pale halo around dark
+   text. Inherited from `html`, so it reaches everything — labels, inputs, the
+   composer, markdown output — without touching a component. */
+:root[data-theme="dark"] {
+  --text-outline: 0 0 1px rgba(0, 0, 0, 0.38);
+}
+:root[data-theme="light"] {
+  --text-outline: 0 0 1px rgba(255, 252, 246, 0.45);
+}
+html {
+  text-shadow: var(--text-outline);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CINEMATIC SHELL — scene + glass material tokens (2026-08-16 spec)
+ *
+ * One continuous visual environment behind every normal route. The document
+ * body owns the decorative scene (see below); pages sit on a milky glass
+ * pane over it, and the scene never remounts across route changes.
+ *
+ * Naming: `--scene-*` is the background environment (base, lights, grain,
+ * vignette). The translucent material itself lives on --bg-surface /
+ * --bg-elevated in the palette above, so every existing `bg-bg-surface` in the
+ * app is already made of it. (A parallel `--glass-1/2/3` hierarchy used to be
+ * declared here for "later subprojects" to adopt; nothing ever did, and the
+ * surfaces it described were these. Deleted rather than kept as a second
+ * vocabulary for the same material.) `--brand` and the shadcn `--accent`
+ * contract above are untouched.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+:root[data-theme="dark"] {
+  /* Opaque ground, always — nothing translucent may sit on the desktop. */
+  --scene-base:          var(--bg-primary);
+  /* The app's page surface: mostly the theme base, letting the lights and
+     grain show through. Pane, not film — text stays readable. */
+  /* 0.88 opaque was the same as no scene at all: the lights below it arrived
+     at roughly 2% and the app read as flat black. The pane is thinner now and
+     the lights are stronger, which is the whole point of having them. */
+  --scene-surface:       rgba(16, 14, 9, 0.30);
+  /* Diffuse amber key light and restrained blue-violet counterlight. */
+  --scene-key-light:     rgba(196, 132, 58, 0.50);
+  --scene-counter-light: rgba(91, 97, 182, 0.38);
+  /* A third, wider wash so the middle of the canvas is lit too. */
+  --scene-fill-light:    rgba(140, 92, 176, 0.20);
+  /* Grain and vignette strength, tuned per theme. */
+  --scene-grain-opacity: 0.05;
+  --scene-vignette:      rgba(8, 6, 4, var(--scene-vignette-strength));
+  --scene-vignette-strength: 0.5;
+  /* The rim: border, the lit top edge, the shaded bottom one, and the bright
+     gleam the two gradient edges are drawn in. Close to the reference recipe's
+     white values, because on a dark pane white IS the light. */
+  --rim-border: rgba(255, 255, 255, 0.18);
+  --rim-light:  rgba(255, 255, 255, 0.30);
+  --rim-shade:  rgba(0, 0, 0, 0.22);
+  --rim-gleam:  rgba(255, 255, 255, 0.65);
+}
+
+:root[data-theme="light"] {
+  /* Warm ivory ground, never pure white. */
+  --scene-base:          var(--bg-primary);
+  /* Light mode had been left behind twice: first at 0.88, where no scene showed
+     through at all, then at 0.70 with lights half the strength of dark's. It
+     gets the same treatment now — a thinner pane and lights strong enough to
+     see, warmed for daylight rather than recoloured. */
+  --scene-surface:       rgba(255, 245, 238, 0.40);
+  /* Amber sunlight, a cool blue-grey shadow light, and a rose fill. */
+  --scene-key-light:     rgba(232, 168, 92, 0.55);
+  --scene-counter-light: rgba(128, 142, 214, 0.40);
+  --scene-fill-light:    rgba(214, 150, 190, 0.30);
+  --scene-grain-opacity: 0.04;
+  --scene-vignette:      rgba(92, 64, 36, var(--scene-vignette-strength));
+  --scene-vignette-strength: 0.3;
+  /* Light mode keeps the white gleam — a highlight is a highlight — but the
+     border has to be dark. A white border on a near-white pane is no border,
+     which is how a light-mode panel ends up with no edge at all. */
+  --rim-border: rgba(28, 22, 16, 0.14);
+  --rim-light:  rgba(255, 255, 255, 0.80);
+  --rim-shade:  rgba(122, 92, 62, 0.14);
+  --rim-gleam:  rgba(255, 255, 255, 0.95);
+}
+
+/* ── The scene ────────────────────────────────────────────────────────────
+ * Fixed pseudo-elements on the document body, beneath the React root, shared
+ * by every normal route — route changes swap only the Outlet content, so the
+ * animated layers never remount or flash.
+ *
+ * Layer order (bottom → top): opaque base → vignette → atmospheric lights →
+ * grain → React root (the app's glass pane + content) → overlays.
+ *
+ * Performance contract: only `transform`/`opacity` animate, on exactly two
+ * full-screen layers, with an opaque base below everything. No `filter` or
+ * `backdrop-filter` anywhere, no layout/paint work per frame. The grain is a
+ * small repeatable noise tile (inline SVG data URI — CSP `img-src data:`),
+ * not a full-resolution image.
+ *
+ * The voice call overlay is an opaque, full-screen, body-portalled layer
+ * (z-40) that paints over the entire scene — call visuals are untouched, and
+ * no selector below targets `.call-stage`, orb classes or voice descendants.
+ */
+body {
+  background-color: var(--scene-base);
+  background-image: radial-gradient(115% 115% at 50% 42%, transparent 58%, var(--scene-vignette) 100%);
+}
+/* ── Real glass ────────────────────────────────────────────────────────────
+   Transparent only where the OS blurs behind the window.
+
+   And the scene gets out of the way. The lights exist to give an OPAQUE window
+   something to look at; painted on top of a blurred desktop they are our own
+   fog over somebody else's picture, and the result was a flat brown wash with
+   no depth in it — the colour arriving from us instead of from behind. In
+   glass, what you see through the pane is the thing behind it.
+
+   Only the see-through-to-the-DESKTOP half is gated on the platform class. The
+   material itself — refraction, rim, radius, the strength of the lights — is
+   unconditional, because it looks right over an opaque window too. Gating all
+   of it, which is what the first attempt did, meant that if the class never
+   arrived nothing changed at all and the app looked untouched. */
+html.has-window-effect body { background-color: transparent; }
+
+/* ── …and the scene actually gets out of the way ───────────────────────────
+   The comment above has said this for three commits. The CSS only ever did
+   half of it: `background-color` went transparent, and the two full-screen
+   pseudo-element layers below — three overscanned radial lights and the grain
+   — kept painting at full strength on top of the now-see-through window.
+
+   That is what a transparent window with our own fog over it looks like:
+   amber key + blue-violet counter + purple fill, overlapping across the whole
+   canvas, averaging out to a flat mauve field. It reads as "the glass has a
+   colour" rather than as "the desktop is behind the glass", and no amount of
+   lowering the pane's alpha fixes it, because the alpha was never what was in
+   the way.
+
+   The lights are not deleted — a trace of them is what keeps the window ours
+   rather than a plain sheet of frost, and on every machine WITHOUT a real
+   window effect they are still the entire visual environment. They are simply
+   turned down to a trace once there is something real behind them: 0.08 in
+   light, and 0 in dark — the user asked for BLACK glass, and even a trace of
+   amber was what kept the pane reading warm-grey instead. Light keeps its
+   trace: on a pale pane a hint of warmth reads as daylight, not as mud. */
+html.has-window-effect[data-theme="dark"] body::before { opacity: 0; }
+html.has-window-effect body::before { opacity: 0.08; }
+/* The grain carries its own opacity from a token (0.02, not 1), so this halves
+   it rather than setting it — writing a flat number here would have turned a
+   barely-there texture into a twenty-times-stronger one, which is the sort of
+   thing that looks like a rendering bug rather than a choice. */
+html.has-window-effect body::after  { opacity: calc(var(--scene-grain-opacity) * 0.5); }
+
+/* ── Bounding the wallpaper instead of covering it ─────────────────────────
+   The thing that was wrong for four rounds: we kept reaching for a flat tint.
+   A tint has to be nearly opaque before text is safe, because the ground it is
+   protecting against — the user's wallpaper — can be pure white. And an opaque
+   tint does not merely hide the desktop, it FLATTENS it: every tone behind the
+   window converges on one colour, which is why the app kept looking like a
+   sheet of paint rather than like glass.
+
+   `brightness()` in the backdrop filter bounds the backdrop from ABOVE — the
+   only direction contrast actually needs. But there are TWO legitimate black
+   materials, and 2026-08-24 ended on the second after a screenshot review
+   loop with Darius:
+
+   1. See-through glass: thin tint, wallpaper structure clearly visible. Its
+      ceiling is mathematically pinned at ~rgb(66) over a white wallpaper by
+      the text floors — it can NEVER read as pure black, only as dark grey.
+   2. Windows-11-style dark acrylic (shipped): heavy tint (alpha 0.78) does
+      the darkening, brightness(0.80) on top. The wallpaper only ghosts
+      through — the pane is near-uniform black with a whisper of depth, band
+      rgb(8)…rgb(53), worst-case text contrast 5.59:1.
+
+   The trade is explicit: #2 gives up "see the desktop clearly" for "actually
+   black". That is the trade Darius picked, twice.
+
+   Light cannot work this way: multiplying cannot lift blacks, and dark text
+   needs a bright ground. `contrast(0.35)` pulls both ends toward the middle
+   first, and brightness(2.5) carries the result up into the pale band the
+   theme is drawn against.
+
+   `saturate()` stays at or below 1 in both. Desaturating moves a colour toward
+   its own luminance, so it can never push the backdrop brighter than the
+   solver assumed; a saturate above 1 would quietly invalidate every number
+   above. */
+html.has-window-effect[data-theme="dark"] .app-pane {
+  backdrop-filter: saturate(1) brightness(0.80);
+  -webkit-backdrop-filter: saturate(1) brightness(0.80);
+  backdrop-filter: saturate(1) brightness(0.80) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: saturate(1) brightness(0.80) url(#liquid-glass-soft);
+}
+html.has-window-effect[data-theme="light"] .app-pane {
+  backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5);
+  -webkit-backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5);
+  backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5) url(#liquid-glass-soft);
+}
+
+/* The pane's own tint drops to a whisper, because the filter above is now
+   doing the work the tint used to do badly. Dark sits at 0.25 — half of the
+   0.49 a heavier veil needed, because contrast(0.37) carries more of the
+   protection; that halving IS the extra transparency, measured: every text
+   role still clears its floor over both wallpaper extremes (worst case
+   4.54:1). Light's tint is nearly gone at 0.02 — its filter does all the
+   lifting. Written with the theme attribute in the selector so it beats the
+   palette blocks on specificity rather than on where it happens to sit in
+   the file — the palette is declared both above and below this point, and
+   source order alone would pick the wrong one. */
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(10, 10, 12, 0.73); }
+html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238, 0.02); }
+/* ── The two dials, and the trade they sit on ──────────────────────────────
+   The window is genuinely transparent and Windows genuinely blurs behind it —
+   both confirmed in the log at startup. So whether you can SEE through is
+   decided entirely here, by how much we paint on top.
+
+   "Strong visible gradients" and "see-through glass" are the same pixels, and
+   at 0.62 the lights alone covered the window completely: a perfectly
+   transparent pane with an opaque picture painted over it. The reference this
+   was measured against has no gradients of its own at all — everything in it
+   is wallpaper, blurred.
+
+   These are the middle: enough to tint and animate what is behind, not enough
+   to replace it. Raise for more of us, lower for more of the desktop. */
+:root[data-theme="dark"] {
+  --scene-key-light:     rgba(214, 132, 48, 0.22);
+  --scene-counter-light: rgba(84, 96, 210, 0.18);
+  --scene-fill-light:    rgba(160, 84, 196, 0.12);
+  --scene-grain-opacity: 0.02;
+  --scene-vignette-strength: 0.16;
+  /* The pane text sits on, and the number this whole design turns on.
+     It was 0.16, and at 0.16 the app was beautiful and unusable: Settings,
+     the Models list and the greeting all paint text straight onto this, and
+     over a pale wallpaper that measured 1.15:1 for body copy — the same
+     colour, twice.
+
+     0.80 is the measured floor at which all four text tiers clear their
+     thresholds over ANY wallpaper. It is not a taste decision and it is not
+     negotiable downward while text sits here.
+
+     Spending the opacity HERE rather than on the panels is what buys the
+     glass back: with a stable ground underneath, every sheet above can be
+     thin (see --bg-surface). The desktop still comes through — as blur, as
+     colour, as the tint the OS lays under all of it — it just no longer
+     decides whether words are readable. */
+  --scene-surface:       rgba(16, 14, 9, 0.80);
+}
+:root[data-theme="light"] {
+  --scene-key-light:     rgba(240, 168, 78, 0.20);
+  --scene-counter-light: rgba(118, 134, 226, 0.16);
+  --scene-fill-light:    rgba(220, 140, 196, 0.14);
+  --scene-grain-opacity: 0.015;
+  --scene-vignette-strength: 0.10;
+  /* 0.88, not dark's 0.80: light-mode text is dark, and a dark wallpaper
+     behind a pale pane erodes it faster. Same measured rule. */
+  --scene-surface:       rgba(255, 245, 238, 0.88);
+}
+/* ── The liquid-glass material ─────────────────────────────────────────────
+   One class, so every pane is made of the same thing.
+
+   Two declarations on purpose. The first is the material that works
+   everywhere: frost plus saturation. The second adds the refraction, and a
+   browser that cannot parse `url()` inside `backdrop-filter` drops that whole
+   declaration and keeps the first — so the fallback is a working frosted pane
+   rather than no backdrop at all. That is why the blur is repeated instead of
+   the filters being split across two rules. */
+.liquid-glass {
+  backdrop-filter: blur(30px) saturate(150%) brightness(1.06);
+  -webkit-backdrop-filter: blur(30px) saturate(150%) brightness(1.06);
+  /* Second declaration, same property: a browser that cannot parse `url()`
+     here drops this line and keeps the one above, so the fallback is a frosted
+     pane rather than no backdrop at all. */
+  backdrop-filter: blur(30px) saturate(150%) brightness(1.06) url(#liquid-glass);
+  -webkit-backdrop-filter: blur(30px) saturate(150%) brightness(1.06) url(#liquid-glass);
+}
+/* ── Specular rim ──────────────────────────────────────────────────────────
+   Real glass catches light along its top edge and goes dark at the bottom; a
+   uniform 1px border reads as a drawn rectangle instead.
+
+   The two gradient edges come from the reference recipe: a bright hairline
+   fading out along the TOP, and a second one running down the LEFT. That pair
+   is what makes a rectangle read as a cut sheet of glass with a light source
+   above and to the left, rather than as a box with a border. They are
+   pseudo-elements rather than more box-shadows because a shadow cannot fade
+   along its own length.
+
+   The reference draws them as `::before` / `::after`, which needs
+   `position: relative` and `overflow: hidden` on the card. Both of those are
+   traps here, and the first one shipped: this file is loaded AFTER
+   `@tailwind utilities`, so at equal specificity every declaration in it wins
+   on source order — `position: relative` silently overrode the `fixed` on the
+   navigation rail, which then fell into normal flow, left the top-left corner
+   and grew down the page without end. `overflow` would have taken the
+   scrolling submenu the same way.
+
+   Drawn as background layers instead: same two gradients, no positioning, no
+   clipping, no pseudo-elements to collide with a component's own. The radius
+   clips them for free, and they compose with whatever `bg-*` utility the
+   element already carries, because `background-image` and `background-color`
+   are different properties.
+
+   `background-position`/`-size` say: the top edge is the full width and one
+   pixel tall, pinned to the top; the left edge is one pixel wide and the full
+   height, pinned to the left. Both fade to transparent at their far ends, so
+   the rounded corners are empty by the time the gradient reaches them. */
+.liquid-glass-rim {
+  /* An inset ring, NOT `border`. Same reason this class stopped setting
+     `position`: at equal specificity a declaration in this file beats the
+     Tailwind utility, so a `border` here would have silently eaten the
+     composer's `focus-within:border-brand` — the ring that tells you the field
+     has focus. A ring draws the same line and leaves the border property to
+     the markup, where per-component state belongs. */
+  /* No large outer shadow. `0 18px 48px` was drawn for panels on an opaque
+     page; on glass it pools under the composer and around the rail as a dark
+     haze with no object casting it — the "glow" at the bottom of the chat. A
+     short, tight shadow still separates the sheet from the pane without
+     smearing 48px of black across it. */
+  box-shadow:
+    inset 0 0 0 1px var(--rim-border),
+    0 2px 10px rgba(0, 0, 0, 0.14),
+    inset 0 1px 0 0 var(--rim-light),
+    inset 0 -1px 0 0 var(--rim-shade);
+  background-image:
+    linear-gradient(90deg, transparent, var(--rim-gleam), transparent),
+    linear-gradient(180deg, var(--rim-gleam), transparent 60%);
+  background-repeat: no-repeat, no-repeat;
+  background-position: top left, top left;
+  background-size: 100% 1px, 1px 100%;
+}
+
+/* Glass has an edge. Without a lit rim the pane has no boundary and reads as a
+   stain on the desktop rather than as a sheet lying over it — the single
+   detail that separates the reference from what we had.
+
+   `.app-pane`, not `#root > div`, which is what these three rules used to say.
+   `#root`'s children are whatever App happens to render: today that is a
+   `fixed` download banner AND the router's output, so the banner was being
+   handed the window's radius, border and drop shadow as well. Worse in the
+   other direction — one wrapper added anywhere above the shell and the entire
+   glass silently lands on the wrong element, with nothing to show for it but
+   "the effect stopped working". The element that IS the pane says so itself,
+   in AppShell.tsx. */
+.app-pane {
+  border-radius: 14px;
+  /* The same rim tokens the panels use, so the window and the sheets inside it
+     are lit by one light. */
+  border: 1px solid var(--rim-border);
+  box-shadow:
+    inset 0 1px 0 0 var(--rim-light),
+    0 8px 28px rgba(0, 0, 0, 0.28);
+  /* Deliberately NOT `overflow: hidden`. `backdrop-filter` already makes this
+     element the containing block for its `fixed` children, so clipping here
+     would take the corner off the close button — window chrome is the one
+     thing a rounded corner must not eat. The radius shapes the pane; the
+     children stay inside it on their own. */
+}
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+}
+/* Atmospheric lights: large soft amber key and blue-violet counterlight,
+   drifting slowly. Radial gradient color stops are naturally soft — no
+   blur filter needed. */
+body::before {
+  /* Generous overscan: the layer is transformed, and a light that reaches the
+     edge of the viewport must still have colour beyond it or the drift exposes
+     a hard boundary. */
+  inset: -30%;
+  background-image:
+    radial-gradient(closest-side, var(--scene-key-light), transparent 78%),
+    radial-gradient(closest-side, var(--scene-counter-light), transparent 80%),
+    radial-gradient(closest-side, var(--scene-fill-light), transparent 82%);
+  background-position: 18% 12%, 82% 88%, 62% 34%;
+  background-repeat: no-repeat;
+  /* Each light is bigger than the viewport. Two 64% blobs left most of the
+     canvas as flat base colour, which is what made this read as "a stain in
+     the corner" rather than as lighting. */
+  background-size: 125% 125%, 115% 115%, 100% 100%;
+  /* Two animations, deliberately out of step, because ONE transform moves every
+     light together and the eye reads a rigid sheet sliding — the opposite of
+     liquid. `scene-drift` carries the whole layer; `scene-flow` slides the three
+     gradients WITHIN it at a different rhythm, so the key light and the
+     counterlight change their distance from each other and the colour between
+     them keeps reforming. That relative motion is the whole effect.
+     ponytail: background-position repaints this layer; the travel is kept
+     small (a few percent) for that reason. If it ever costs frames on a weak
+     GPU, the flow is the half to drop — the drift is composited. */
+  animation:
+    scene-drift 19s ease-in-out infinite alternate,
+    scene-flow  13s ease-in-out infinite alternate;
+  will-change: transform, background-position;
+}
+/* Grain: a small repeatable noise tile over everything, shifting subtly so
+   the gradients never read as synthetic paint. */
+body::after {
+  inset: -30%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  opacity: var(--scene-grain-opacity);
+  animation: scene-grain-shift 6s steps(8) infinite;
+  will-change: transform;
+}
+/* A 2.5% move over 80 seconds is motion nobody will ever see: the eye reads it
+   as a still image, which is exactly what a scene meant to feel alive must not
+   be. Bigger travel, and a third of the duration. Still transform-only, still
+   one layer, so the cost per frame is unchanged. */
+@keyframes scene-drift {
+  from { transform: translate3d(-5%, -4%, 0) scale(1.06) rotate(0deg); }
+  30%  { transform: translate3d(2%, 3%, 0)  scale(1.15) rotate(1.8deg); }
+  60%  { transform: translate3d(6%, -2%, 0) scale(1.09) rotate(-1.4deg); }
+  to   { transform: translate3d(-2%, 4%, 0) scale(1.12) rotate(0.6deg); }
+}
+/* The three lights sliding against each other. Different period from the drift
+   on purpose: two motions that share a cycle resolve into one, and the point of
+   this one is that the pattern never quite repeats. */
+@keyframes scene-flow {
+  from { background-position: 18% 12%, 82% 88%, 62% 34%; }
+  50%  { background-position: 26% 20%, 72% 78%, 48% 46%; }
+  to   { background-position: 12% 22%, 88% 80%, 68% 26%; }
+}
+@keyframes scene-grain-shift {
+  0%   { transform: translate3d(0, 0, 0); }
+  25%  { transform: translate3d(-1.1%, 0.9%, 0); }
+  50%  { transform: translate3d(0.8%, -1.2%, 0); }
+  75%  { transform: translate3d(-0.5%, -0.7%, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+/* The React root paints above the scene; the app's page surface (AppShell's
+   opaque --bg-primary in AppShell.tsx) becomes the milky glass pane so the
+   lights and grain show through instead of being buried. Unlayered, so it
+   wins over the Tailwind utility that paints the same element. */
+#root {
+  position: relative;
+  z-index: 1;
+}
+.app-pane {
+  background-color: var(--scene-surface);
+  /* A tint alone is a coloured sheet; glass is a tint PLUS what is behind it,
+     blurred. Without the backdrop filter the lights below read as flat paint
+     seen through cellophane — the sidebar has had this since it was built, and
+     the page it sits on did not, which is why the two never looked like the
+     same material. */
+  /* This rule comes after the pane's own block and therefore WINS. It used to
+     set a plain blur here, which silently threw the refraction away — the
+     filter was declared, applied, and then overridden four hundred lines
+     later. Both halves live here now so there is one place to look. */
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%) url(#liquid-glass-soft);
+  -webkit-backdrop-filter: blur(28px) saturate(150%) url(#liquid-glass-soft);
+}
+
+/* Reduced motion: the whole static lighting composition stays visible, only
+   the ambient drift stops. Route-level state is untouched — this matches the
+   OS preference and nothing else. */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  body::after {
+    animation: none;
+  }
+}
+
+/* No blur support: the base scene still provides hierarchy, and the glass
+   levels fall back to near-opaque materials so text never sits on a see-
+   through surface. (The scene itself uses no backdrop-filter at all.) */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-theme="dark"] {
+    --bg-surface:  rgba(28, 25, 22, 0.96);
+    --bg-elevated: rgba(37, 33, 25, 0.95);
+    --bg-hover:    rgba(44, 40, 32, 0.97);
+    --bg-active:   rgba(53, 48, 39, 0.98);
+  }
+  :root[data-theme="light"] {
+    --bg-surface:  rgba(245, 235, 224, 0.97);
+    --bg-elevated: rgba(255, 255, 255, 0.96);
+    --bg-hover:    rgba(235, 224, 210, 0.98);
+    --bg-active:   rgba(224, 208, 192, 0.99);
+  }
+}
+
+/* ── Transparency is a preference, and some machines cannot afford it ───────
+   Two different people arrive here. One asked their OS for less transparency —
+   Windows "Transparency effects: off", macOS "Reduce transparency", GNOME's
+   equivalent — and the browser reports it as `prefers-reduced-transparency`.
+   The other has an integrated GPU from 2018 for which a screenful of
+   `backdrop-filter` is a real cost, and no way to say so.
+
+   Both get the same app with the material turned off: solid surfaces, no
+   backdrop work anywhere, every colour and every layout identical. This is not
+   a degraded mode that has to be discovered in a settings page nobody opens —
+   it is the honest default for a machine that said it did not want this, and
+   it costs the people who do want it nothing.
+
+   ponytail: OS preference only, no in-app toggle. Add a Settings switch when
+   somebody reports wanting glass off while their OS says on. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="dark"] {
+    --bg-surface:  #1C1916;
+    --bg-elevated: #252119;
+    --bg-hover:    #2C2820;
+    --bg-active:   #353027;
+    --scene-surface: var(--bg-primary);
+  }
+  :root[data-theme="light"] {
+    --bg-surface:  #F5EBE0;
+    --bg-elevated: #FFFFFF;
+    --bg-hover:    #EBE0D2;
+    --bg-active:   #E0D0C0;
+    --scene-surface: var(--bg-primary);
+  }
+  /* The window itself stops being see-through, so the desktop is gone rather
+     than merely hidden behind a thicker pane. */
+  html.has-window-effect body { background-color: var(--scene-base); }
+  .app-pane,
+  .liquid-glass {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 /*
@@ -213,7 +1044,12 @@
   50%       { opacity: 0; }
 }
 
-.streaming-content > *:last-child::after {
+/* The cursor hangs off the last child. `::after` does not render on a
+   replaced/void element, so a stream whose last block is an image or an `<hr>`
+   showed no cursor at all — the answer looked finished while it was still
+   arriving. Excluding those elements moves the cursor to the block before,
+   which is visible, instead of nowhere. */
+.streaming-content > *:last-child:not(img):not(hr):not(br):not(input)::after {
   content: '▍';
   display: inline-block;
   margin-left: 1px;
@@ -240,8 +1076,265 @@ body { overflow: hidden; }
 .word-fade {
   display: inline-block;
   animation: fadeInWord 0.28s cubic-bezier(0.35, 0.35, 0, 1) both;
-  will-change: opacity, transform;
+  /* NO `will-change` here, deliberately. It used to hint opacity+transform,
+     which promotes EVERY word span to its own compositor layer — thousands of
+     them in a long conversation, kept for the life of the message rather than
+     the 0.28s of the animation. The hint is meant to be added just before an
+     animation and removed after; left on permanently it makes the compositor
+     re-rasterise a layer per word while scrolling, which reads as text that
+     jitters instead of holding still. Both animated properties are already
+     compositor-friendly, so the hint bought nothing and cost that. */
 }
 @media (prefers-reduced-motion: reduce) {
   .word-fade { animation: none; }
+}
+
+/* Call-surface colours that the base palette has no entry for, per theme and in
+   this file's own convention — the store always stamps `data-theme`, so there is
+   no bare-root case to cover.
+
+   All of them exist because the call UI was built dark-first and these are the
+   places where that produced unreadable text rather than merely a different
+   look. The badges matter most: they are 10px, which is the size where WCAG
+   wants 4.5:1 and where `--warning` at #B8862A on cream delivers about 2.9:1 —
+   so light gets its own darker foreground rather than the shared token. */
+/* ── The call stage ───────────────────────────────────────────────────────
+ *
+ * The one surface in the app that does NOT follow the theme, and deliberately.
+ * A call is a full-screen immersive moment — the same thing a phone's call
+ * screen or a now-playing view is — so it carries its own light instead of
+ * inheriting the page's. That is also the whole answer to "how do we do this in
+ * light theme": we don't. Saturated orange with light text reads the same at
+ * noon and at midnight, and the alternative (a pale variant) would need every
+ * child element re-checked for contrast twice over.
+ *
+ * Scoped to `.call-stage`, so the tokens the children already use — text,
+ * borders, surfaces — resolve to stage values inside it and to theme values
+ * everywhere else. Nothing downstream had to change.
+ */
+.call-stage {
+  /* Dark ink, not light. The field started deep and the text was near-white;
+     the field then got much brighter to match the reference, and white on a
+     bright orange is about 3.5:1 — under the 4.5:1 body-text floor, and it
+     showed. A deep warm brown rather than pure black: black on orange is
+     correct and reads as a placeholder, while the brown belongs to the same
+     family as the ground it sits on and clears 7:1. */
+  --text-primary:    #3A1206;
+  --text-secondary:  rgba(58, 18, 6, 0.82);
+  --text-muted:      rgba(58, 18, 6, 0.66);
+  --border-default:  rgba(58, 18, 6, 0.34);
+  --border-subtle:   rgba(58, 18, 6, 0.18);
+  /* Panels are a DARK scrim, not white glass. White at 13% over orange is
+     orange — the first version made the hang-up and interrupt buttons
+     effectively invisible, which on a call screen is the one control that has
+     to be findable without looking for it. Darkening instead of lightening
+     also gives the light icons something to sit on. */
+  /* Light glass now that the ink is dark — a dark scrim under dark text is the
+     same mistake in reverse. These lift off the orange without going white,
+     which would strand the panels as bright patches on a bright field. */
+  --bg-elevated:     rgba(255, 238, 224, 0.30);
+  --bg-surface:      rgba(255, 238, 224, 0.22);
+  --bg-hover:        rgba(255, 238, 224, 0.46);
+  /* Red on red is nothing. The danger of the hang-up button is carried by its
+     icon and its position; its colour has to be readable first, so it goes
+     to the darkest tone available here and keeps its meaning from the shape. */
+  --error:           #5C1400;
+  /* Links and badges have to clear 4.5:1 on orange, where the theme's blues do
+     not: #8AB4F8 on #E8451F is about 2.4:1. Cream carries the same "this is a
+     link" weight at 7:1+. */
+  /* Dark for the same reason the body text is: these sit on the same bright
+     field, and the cream values that cleared 7:1 on the old deep orange now
+     clear about 2:1. */
+  --result-link:     #4A1400;
+  --badge-warn-fg:   #5C2A00;
+  --badge-warn-bg:   rgba(92, 42, 0, 0.14);
+  --badge-warn-br:   rgba(92, 42, 0, 0.34);
+  --badge-ok-fg:     #234A10;
+  --badge-ok-bg:     rgba(35, 74, 16, 0.14);
+  --badge-ok-br:     rgba(35, 74, 16, 0.34);
+  /* The text roles, restated for the one surface that does not follow the
+     theme. Everywhere else `text-success` is a light green because it lands on
+     a dark pane; here it lands on a bright orange field, so it has to be dark
+     for exactly the same reason. Without these five the accents inside a call
+     would inherit the theme's — light green on bright orange, which is the
+     original bug wearing a different colour. */
+  --brand-text:      #4A1400;
+  --error-text:      var(--error);
+  --success-text:    var(--badge-ok-fg);
+  --warning-text:    var(--badge-warn-fg);
+  --info-text:       var(--result-link);
+}
+
+:root[data-theme="dark"] {
+  --result-link:    #8AB4F8;
+  --badge-warn-fg:  #E0A94A;
+  --badge-warn-bg:  rgba(212, 160, 58, 0.16);
+  --badge-warn-br:  rgba(212, 160, 58, 0.35);
+  --badge-ok-fg:    #7FBF6A;
+  --badge-ok-bg:    rgba(106, 158, 90, 0.16);
+  --badge-ok-br:    rgba(106, 158, 90, 0.35);
+}
+:root[data-theme="light"] {
+  --result-link:    #1A5FD0;
+  --badge-warn-fg:  #7A4E0B;
+  --badge-warn-bg:  #FBEBCF;
+  --badge-warn-br:  #E3C48A;
+  --badge-ok-fg:    #2C6234;
+  --badge-ok-bg:    #DCEEDD;
+  --badge-ok-br:    #A9CFAE;
+}
+
+/* ── Call telemetry widgets ──────────────────────────────────────────────
+   The panel that shows what Cinderpaw is doing during a voice call. Motion here
+   has one job: make work legible at a glance, from across a room. So it is
+   deliberately small — one entrance, one running state, one completion —
+   rather than a set of effects. Durations sit in the 150–300 ms band that
+   reads as responsive; anything slower on a panel that updates every few
+   seconds turns into a slideshow. */
+
+/* Widgets and their rows enter from below, the direction work arrives from. */
+@keyframes tw-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tw-rise { animation: tw-rise 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* A result row lands after the ones above it. The delay is set inline per
+   index — capped in the component, because a stagger long enough to notice on
+   row eight is a stagger that arrives after the reading eye has moved on. */
+.tw-row { animation: tw-rise 0.2s ease-out both; }
+
+/* The address bar's sweep while a search is in flight. The only infinite
+   animation here, and it is a loading indicator — which is the one thing an
+   infinite animation is for. */
+@keyframes tw-scan {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(200%); }
+}
+.tw-scan::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--brand) 22%, transparent),
+    transparent
+  );
+  animation: tw-scan 1.4s ease-in-out infinite;
+}
+
+/* The query typing itself into the search field. Real text, revealed — the
+   query is exactly what the agent sent, and progressive reveal is what makes a
+   still panel read as "happening now" rather than "happened". Width rather than
+   character count, so it works for any string without measuring it. */
+@keyframes tw-type {
+  from { max-width: 0; }
+  to   { max-width: 100%; }
+}
+.tw-type {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  animation: tw-type 0.65s steps(28, end) both;
+}
+
+/* The focus ring on the address bar, breathing while a search is in flight.
+   It is the detail that says someone is typing in this field right now. */
+@keyframes tw-focus {
+  0%, 100% { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.9); }
+  50%      { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.45); }
+}
+.tw-focus { animation: tw-focus 1.8s ease-in-out infinite; }
+
+/* Completion: the tick scales in once. Overshoot is what makes it read as
+   "landed" rather than "appeared". */
+@keyframes tw-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  60%  { transform: scale(1.12); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.tw-pop { animation: tw-pop 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+/* The terminal caret, while a command is still running. A filled block in the
+   foreground colour, which is what a console draws — a coloured bar is an
+   editor's cursor and reads as the wrong application. */
+.tw-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  vertical-align: text-bottom;
+  background: #ffffff;
+  animation: cursor-blink 1s steps(2, start) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tw-rise, .tw-row, .tw-pop, .tw-type { animation: none; }
+  .tw-scan::after, .tw-caret, .tw-focus { animation: none; }
+  .tw-scan::after { display: none; }
+  /* The ring still has to be visible, just not moving. */
+  .tw-focus { box-shadow: 0 0 0 1.5px rgba(59, 105, 239, 0.8); }
+  .tw-type { max-width: 100%; }
+}
+
+/* ── Text on a brand-coloured surface ──────────────────────────────────────
+   `bg-brand text-white` was written into twenty-five buttons. In light mode
+   white on the brand is fine; in dark mode the brand is a warm amber and white
+   on it measures 3.13:1 — below AA for normal text, on the PRIMARY action of
+   nearly every dialog. The same class cannot be right in both themes, so the
+   foreground becomes a token that flips with the theme: near-black on the light
+   amber (6.16:1), white on the darker one (5.46:1). */
+.text-on-brand {
+  color: var(--brand-foreground, #ffffff);
+}
+
+/* ── Keyboard focus, everywhere ────────────────────────────────────────────
+   Icon buttons across the app carry no visible focus ring: the browser default
+   is suppressed by the reset, and each component would have had to opt back in.
+   The result is that a keyboard user tabbing through the sidebar, the window
+   controls or the message actions cannot see where they are — the app is
+   navigable and invisible at the same time.
+
+   One rule, on `:focus-visible` only, so a mouse click never draws a ring while
+   a Tab press always does. Components that want a different treatment can still
+   override it locally.
+
+   `[tabindex="-1"]` is excluded deliberately. That value means "reachable only
+   in code, never by Tab" — it is what Radix puts on the body of a dialog, a
+   dropdown and a popover so it can move focus there when the panel opens. But
+   Chromium decides `:focus-visible` from the last input MODALITY, not from how
+   focus arrived: type anything, then open a menu, and the panel is focused
+   programmatically while the browser still believes it is serving a keyboard
+   user — so a brand-coloured ring appears around a whole panel that nobody
+   tabbed to. It reads as the app highlighting things at random.
+
+   The roles keep their rings: a menu item carrying `tabindex="-1"` as part of a
+   roving-focus group still matches `[role="menuitem"]`, so keyboard users lose
+   nothing. Only containers nobody can Tab to stop drawing one. */
+:where(a, button, input, select, textarea, summary, [role="button"], [role="menuitem"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--brand, #3b69ef);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* ── Reduced motion, as a blanket ──────────────────────────────────────────
+   The blocks above opt specific animations out one at a time, which means every
+   animation added since — and there are many, across framer-motion and CSS —
+   ignores the preference by default. A person who set "reduce motion" because
+   movement makes them ill should not have to hope each new component remembered.
+
+   Kept as a floor rather than `animation: none`: transitions still complete
+   (state changes stay coherent), they just do not travel. Anything that must
+   move for meaning can opt back in with `.motion-safe-required`. */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.motion-safe-required),
+  *:not(.motion-safe-required)::before,
+  *:not(.motion-safe-required)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

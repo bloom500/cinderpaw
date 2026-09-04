@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"feral-tui/api"
-	"feral-tui/app"
+	"cinderpaw-tui/api"
+	"cinderpaw-tui/app"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -29,25 +30,31 @@ func main() {
 
 	settings, err := api.LoadSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "feral: could not load settings (%v)\n", err)
+		fmt.Fprintf(os.Stderr, "cinderpaw: could not load settings (%v)\n", err)
 		os.Exit(1)
 	}
 	port := settings.APIPort
 
 	token, err := api.EnsureToken(nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "feral: could not read or create API token at ~/.feral/api-token (%v)\n", err)
+		// Name the file, not just the failure: "could not read the token" sends a
+		// stranger looking in the wrong folder on a machine that has migrated.
+		where := "the profile directory"
+		if home, homeErr := api.Home(); homeErr == nil {
+			where = filepath.Join(home, "api-token")
+		}
+		fmt.Fprintf(os.Stderr, "cinderpaw: could not read or create API token at %s (%v)\n", where, err)
 		os.Exit(1)
 	}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
 	if !api.PortInUse(port) {
 		// Auto-start the gateway (spec §2 J2.2).
-		fmt.Fprintf(os.Stderr, "feral: starting gateway on port %d…\n", port)
+		fmt.Fprintf(os.Stderr, "cinderpaw: starting gateway on port %d…\n", port)
 		proc, err := api.StartGateway(port)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "feral: could not start gateway (%v)\n", err)
-			fmt.Fprintf(os.Stderr, "       start it manually: feral gateway start\n")
+			fmt.Fprintf(os.Stderr, "cinderpaw: could not start gateway (%v)\n", err)
+			fmt.Fprintf(os.Stderr, "       start it manually: cinderpaw gateway start\n")
 			os.Exit(1)
 		}
 		defer proc.Release()
@@ -59,15 +66,15 @@ func main() {
 			}
 		}
 		if !api.PortInUse(port) {
-			fmt.Fprintf(os.Stderr, "feral: gateway started but not responding after 10s\n")
+			fmt.Fprintf(os.Stderr, "cinderpaw: gateway started but not responding after 10s\n")
 			proc.Kill()
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "feral: gateway ready\n")
+		fmt.Fprintf(os.Stderr, "cinderpaw: gateway ready\n")
 	}
 
 	if _, err := api.FetchStatus(baseURL, token); err != nil {
-		fmt.Fprintf(os.Stderr, "feral: could not fetch runtime status (%v)\n", err)
+		fmt.Fprintf(os.Stderr, "cinderpaw: could not fetch runtime status (%v)\n", err)
 		os.Exit(1)
 	}
 
@@ -75,9 +82,12 @@ func main() {
 		// Remove the wizard-done marker so the TUI shows the wizard on
 		// next launch (including this one). The user can complete it or
 		// Ctrl+C — either way the marker is rewritten on completion.
-		home, _ := os.UserHomeDir()
-		marker := home + "\\.feral\\.wizard-done"
-		os.Remove(marker)
+		// Resolved by the same function the wizard writes it with, instead of
+		// rebuilding the path here — the previous copy concatenated backslashes,
+		// so `--wizard` silently removed nothing off Windows.
+		if marker, err := app.WizardDonePath(); err == nil {
+			os.Remove(marker)
+		}
 	}
 
 	if plain {
@@ -89,12 +99,12 @@ func main() {
 }
 
 // runTUI launches the full Bubble Tea TUI with alternate screen.
-// forceClassic (--wizard, the `feral setup --classic` path) opens the
+// forceClassic (--wizard, the `cinderpaw setup --classic` path) opens the
 // classic step-by-step wizard instead of the default guided flow.
 func runTUI(baseURL, token string, forceClassic bool) {
 	status, err := api.FetchStatus(baseURL, token)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "feral: could not fetch runtime status (%v)\n", err)
+		fmt.Fprintf(os.Stderr, "cinderpaw: could not fetch runtime status (%v)\n", err)
 		os.Exit(1)
 	}
 	m := app.New(baseURL, token, status)
@@ -104,15 +114,15 @@ func runTUI(baseURL, token string, forceClassic bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			p.ReleaseTerminal()
-			fmt.Fprintf(os.Stderr, "feral: crashed: %v\n", r)
+			fmt.Fprintf(os.Stderr, "cinderpaw: crashed: %v\n", r)
 			os.Exit(1)
 		}
 	}()
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "feral: error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "cinderpaw: error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Fprintln(os.Stderr, "session saved · resume with: feral chat")
+	fmt.Fprintln(os.Stderr, "session saved · resume with: cinderpaw chat")
 }
 
 // runPlain runs the simplified stdout REPL for screen-reader / low-vision
@@ -120,7 +130,7 @@ func runTUI(baseURL, token string, forceClassic bool) {
 // "thinking..." printed once while waiting, then the full response.
 func runPlain(baseURL, token string) {
 	fmt.Println()
-	fmt.Println("feral — plain mode")
+	fmt.Println("cinderpaw — plain mode")
 	fmt.Println("Ctrl+C or /exit to quit")
 	fmt.Println()
 

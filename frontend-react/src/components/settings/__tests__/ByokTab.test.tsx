@@ -56,13 +56,10 @@ describe('ByokTab', () => {
   });
 
   it('Test button calls testByokProvider and shows ✓ Connected on success', async () => {
-    // Rust returns TestProviderResponse { success, message, models } — see
-    // `crates/feral-core/src/byok.rs::test_provider`. The prior mock used
-    // { ok: true } which never matched the real backend contract; the test
-    // still passed because the OLD component code ALSO used the wrong field
-    // names — both were wrong together, hiding the bug end-to-end. Mock the
-    // real shape now.
-    mockTestByok.mockResolvedValue({ success: true, message: 'Connection successful', models: [] });
+    // This mocks the STORE method, which normalises Rust's
+    // { success, message } into { ok, error } — mock that shape, not the raw
+    // Tauri one, or the test drifts from what the component actually reads.
+    mockTestByok.mockResolvedValue({ ok: true });
     render(<ByokTab />);
     await userEvent.click(screen.getByText('OpenAI'));
     const keyInput = await screen.findByPlaceholderText('sk-...');
@@ -72,8 +69,7 @@ describe('ByokTab', () => {
   });
 
   it('Test button shows error message on failure', async () => {
-    // Same real-backend shape; failure carries `success: false` + `message`.
-    mockTestByok.mockResolvedValue({ success: false, message: 'Invalid API key', models: [] });
+    mockTestByok.mockResolvedValue({ ok: false, error: 'Invalid API key' });
     render(<ByokTab />);
     await userEvent.click(screen.getByText('OpenAI'));
     const keyInput = await screen.findByPlaceholderText('sk-...');

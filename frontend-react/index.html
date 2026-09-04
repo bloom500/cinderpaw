@@ -3,10 +3,293 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Feral</title>
+    <title>Cinderpaw</title>
+    <!--
+      Cinematic shell startup: a blocking, same-origin pre-paint script runs
+      before the React module (CSP `script-src 'self'` — no inline JS). It
+      reads the persisted `cinderpaw-ui` theme (falling back to the pre-rename
+      `cinderpaw-ui`) and stamps `data-theme` before the
+      first paint, so a cold start never shows the old white frame. The inline
+      style below is allowed by the CSP's `style-src 'unsafe-inline'`.
+    -->
+    <script src="/cinderpaw-prepaint.js"></script>
+    <style>
+      /* Theme-correct opaque base before external CSS/JS arrive. Values mirror
+         globals.css --bg-primary per theme; no data-theme means dark, which is
+         also the store default. */
+      html { background-color: #100E09; }
+      html[data-theme="light"] { background-color: #FFF5EE; }
+      body { margin: 0; background-color: #100E09; }
+      html[data-theme="light"] body { background-color: #FFF5EE; }
+      /* Added by the host once it knows the OS is really blurring what is
+         behind the window (Mica on Windows 11, vibrancy on macOS). Until then
+         these stay opaque, so a platform without the effect gets a normal
+         window instead of text floating on the wallpaper. */
+      html.has-window-effect,
+      html.has-window-effect body,
+      html[data-theme="light"].has-window-effect,
+      html[data-theme="light"].has-window-effect body { background-color: transparent; }
+
+      /* Startup surface: sleepy bear + amber pool + pulsing status line, all
+          rendered statically so the first paint is the product, not a blank
+          page. Layer order mirrors the app scene (globals.css): vignette →
+          key light → grain → content. */
+      #cinderpaw-startup {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        transition: opacity 0.45s ease, transform 0.45s ease;
+        /* Own opaque ground, MANDATORY in glass mode. The body goes
+           transparent when the window effect is active, so without this the
+           mounted app showed THROUGH the overlay during the hold — the bear
+           floating over the live UI for the whole minimum-hold window
+           (Darius, 2026-08-24). The loading scene is its own scene. */
+        background-color: #100E09;
+      }
+      html[data-theme="light"] #cinderpaw-startup { background-color: #FFF5EE; }
+      /* Vignette + grain mirror the shell tokens (globals.css --scene-vignette,
+         --scene-grain-opacity) — hardcoded here because this style block is
+         parsed before that stylesheet exists. */
+      #cinderpaw-startup::before,
+      #cinderpaw-startup::after {
+        content: '';
+        position: absolute;
+        pointer-events: none;
+      }
+      #cinderpaw-startup::before {
+        inset: 0;
+        z-index: 1;
+        background: radial-gradient(115% 115% at 50% 42%, transparent 58%, rgba(8, 6, 4, 0.5) 100%);
+      }
+      html[data-theme="light"] #cinderpaw-startup::before {
+        background: radial-gradient(115% 115% at 50% 42%, transparent 58%, rgba(92, 64, 36, 0.3) 100%);
+      }
+      #cinderpaw-startup::after {
+        inset: -30%;
+        z-index: 3;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
+        background-repeat: repeat;
+        opacity: 0.05;
+      }
+      html[data-theme="light"] #cinderpaw-startup::after { opacity: 0.04; }
+      /* Sleepy bear — the loading animoji (Darius, 2026-08-24; reference:
+         Apple's bear Animoji). Inline SVG, no assets: radial gradients fake
+         the volume, CSS breathes the head and floats the Zzz. The old
+         wordmark composition was cinematic but the startup finishes too fast
+         to read it; a single character with one gag is the right budget for
+         a screen that lives ~2 seconds. */
+      .cinderpaw-startup-bear {
+        width: clamp(120px, 16vw, 190px);
+        height: auto;
+        z-index: 4;
+        filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.35));
+      }
+      .cinderpaw-startup-bear .bear-head {
+        transform-origin: 100px 130px;
+        animation: bear-breathe 3.2s ease-in-out infinite;
+      }
+      @keyframes bear-breathe {
+        0%, 100% { transform: scale(1); }
+        50%      { transform: scale(1.025); }
+      }
+      .cinderpaw-startup-bear .zz {
+        opacity: 0;
+        animation: zzz-float 2.7s ease-in-out infinite;
+      }
+      .cinderpaw-startup-bear .zz2 { animation-delay: 0.9s; }
+      .cinderpaw-startup-bear .zz3 { animation-delay: 1.8s; }
+      @keyframes zzz-float {
+        0%   { opacity: 0; transform: translate(6px, 8px) rotate(0deg); }
+        25%  { opacity: 0.95; }
+        100% { opacity: 0; transform: translate(-4px, -16px) rotate(-6deg); }
+      }
+      /* Soft warm pool behind the bear — static; the bear owns the motion. */
+      .cinderpaw-startup-light {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 90vmin;
+        height: 90vmin;
+        transform: translate(-50%, -52%);
+        z-index: 2;
+        pointer-events: none;
+        background: radial-gradient(closest-side, rgba(196, 132, 58, 0.16), transparent 70%);
+      }
+      html[data-theme="light"] .cinderpaw-startup-light {
+        background: radial-gradient(closest-side, rgba(160, 104, 40, 0.12), transparent 70%);
+      }
+      /* Visible, and announced. This was screen-reader-only, which left the
+         startup screen saying nothing at all to someone looking at it — and on
+         a large workspace that silence lasts long enough to read as a hang.
+         The bear alone cannot distinguish "loading" from "stuck".
+         One quiet line, pulsing, is the whole difference. */
+      .cinderpaw-startup-status {
+        position: relative;
+        z-index: 4;
+        margin-top: 1.6em;
+        font-family: 'Geist Variable', Geist, system-ui, sans-serif;
+        font-size: 0.78rem;
+        font-weight: 500;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: rgba(240, 230, 211, 0.34);
+        animation: cinderpaw-startup-breathe 2200ms ease-in-out infinite;
+      }
+      html[data-theme="light"] .cinderpaw-startup-status {
+        color: rgba(28, 22, 16, 0.38);
+      }
+      @keyframes cinderpaw-startup-breathe {
+        0%, 100% { opacity: 0.55; }
+        50%      { opacity: 1; }
+      }
+      /* React mounted: the pre-paint script adds `cinderpaw-ready`; the surface
+         does an exposure fade (opacity + slight scale) out into the app scene,
+         and the script removes it from the DOM (accessibility + pointer flow)
+         once the fade completes. React-fail → the surface stays. */
+      html.cinderpaw-ready #cinderpaw-startup {
+        opacity: 0;
+        transform: scale(1.02);
+        pointer-events: none;
+      }
+      /* Reduced motion: the bear holds still (no breathing, Zzz parked
+         visible), the handoff keeps a plain opacity fade (no scale). */
+      @media (prefers-reduced-motion: reduce) {
+        .cinderpaw-startup-bear .bear-head { animation: none; }
+        .cinderpaw-startup-bear .zz { animation: none; opacity: 0.9; }
+        /* Legible and still, not hidden: the line is the only thing on screen
+           telling the person anything. */
+        .cinderpaw-startup-status { animation: none; opacity: 1; }
+        #cinderpaw-startup { transition: opacity 0.45s ease; }
+        html.cinderpaw-ready #cinderpaw-startup { transform: none; }
+      }
+    </style>
   </head>
   <body>
+    <!--
+      The refraction half of liquid glass.
+
+      `backdrop-filter: blur()` is frost: it softens what is behind, but every
+      point stays where it was, which is why frosted plastic and glass look
+      different. Glass BENDS what is behind it. `feDisplacementMap` does exactly
+      that — it moves each pixel of the backdrop by an amount read out of a
+      noise field — and animating the noise is what makes the bend crawl, which
+      is the "liquid" part.
+
+      Inline in the document rather than rendered by React: a filter referenced
+      by CSS has to exist before the first paint that uses it, or the surfaces
+      flash unfiltered on every cold start.
+
+      Kept small on purpose. A large displacement makes the edges undulate,
+      which reads as liquid; thick glass bends what is behind it only slightly,
+      and what makes it look ICY is the blur, not the wave. `scale` is the dial:
+      up for liquid, down for a windowpane, 0 for plain frost.
+
+      ponytail: the displacement re-filters the backdrop on every frame it
+      changes, so it is applied to the PANELS and never to anything small and
+      repeated. If it ever costs frames, `scale` is also the dial and 0 is
+      free.
+    -->
+    <svg width="0" height="0" aria-hidden="true" focusable="false"
+         style="position:absolute;pointer-events:none">
+      <defs>
+        <filter id="liquid-glass" x="-25%" y="-25%" width="150%" height="150%"
+                color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.006 0.010"
+                        numOctaves="2" seed="9" result="warp">
+            <animate attributeName="baseFrequency"
+                     dur="18s" repeatCount="indefinite"
+                     values="0.006 0.010;0.011 0.006;0.006 0.010" />
+          </feTurbulence>
+          <feDisplacementMap in="SourceGraphic" in2="warp" scale="7"
+                             xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+        <!-- A gentler one for the large pane, where a strong bend reads as a
+             smear rather than as thickness. -->
+        <filter id="liquid-glass-soft" x="-15%" y="-15%" width="130%" height="130%"
+                color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.004 0.007"
+                        numOctaves="2" seed="3" result="warp">
+            <animate attributeName="baseFrequency"
+                     dur="26s" repeatCount="indefinite"
+                     values="0.004 0.007;0.008 0.004;0.004 0.007" />
+          </feTurbulence>
+          <feDisplacementMap in="SourceGraphic" in2="warp" scale="4"
+                             xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </defs>
+    </svg>
     <div id="root"></div>
+    <div id="cinderpaw-startup">
+      <div class="cinderpaw-startup-light" aria-hidden="true"></div>
+      <!-- The loading animoji: a sleepy bear, drawn inline (no assets — the
+           CSP allows only same-origin + data:). Radial gradients fake the
+           Apple-Animoji volume; CSS breathes the head and floats the Zzz.
+           Deliberately not "Starting Cinderpaw": the status line below is the
+           only text, so the bear carries the identity. -->
+      <svg class="cinderpaw-startup-bear" viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <radialGradient id="bearHead" cx="38%" cy="28%" r="85%">
+            <stop offset="0%" stop-color="#c08a52"/>
+            <stop offset="55%" stop-color="#96633a"/>
+            <stop offset="100%" stop-color="#6b421f"/>
+          </radialGradient>
+          <radialGradient id="bearEar" cx="40%" cy="35%" r="80%">
+            <stop offset="0%" stop-color="#a9713f"/>
+            <stop offset="100%" stop-color="#7a4c24"/>
+          </radialGradient>
+          <radialGradient id="bearInnerEar" cx="45%" cy="40%" r="75%">
+            <stop offset="0%" stop-color="#c99563"/>
+            <stop offset="100%" stop-color="#9a6a3c"/>
+          </radialGradient>
+          <radialGradient id="bearMuzzle" cx="45%" cy="30%" r="80%">
+            <stop offset="0%" stop-color="#efd0a4"/>
+            <stop offset="100%" stop-color="#d3ab77"/>
+          </radialGradient>
+          <radialGradient id="bearNose" cx="38%" cy="30%" r="80%">
+            <stop offset="0%" stop-color="#4a3226"/>
+            <stop offset="100%" stop-color="#1d120b"/>
+          </radialGradient>
+        </defs>
+        <g class="bear-head">
+          <!-- ears -->
+          <circle cx="52" cy="54" r="30" fill="url(#bearEar)"/>
+          <circle cx="148" cy="54" r="30" fill="url(#bearEar)"/>
+          <circle cx="52" cy="56" r="16" fill="url(#bearInnerEar)"/>
+          <circle cx="148" cy="56" r="16" fill="url(#bearInnerEar)"/>
+          <!-- head -->
+          <rect x="22" y="34" width="156" height="132" rx="64" fill="url(#bearHead)"/>
+          <!-- sleepy closed eyes -->
+          <path d="M58 100 q 13 11 26 0" fill="none" stroke="#3a2413" stroke-width="4.5" stroke-linecap="round"/>
+          <path d="M116 100 q 13 11 26 0" fill="none" stroke="#3a2413" stroke-width="4.5" stroke-linecap="round"/>
+          <!-- muzzle -->
+          <ellipse cx="100" cy="140" rx="43" ry="34" fill="url(#bearMuzzle)"/>
+          <!-- nose -->
+          <ellipse cx="100" cy="126" rx="17" ry="12" fill="url(#bearNose)"/>
+          <ellipse cx="94" cy="122" rx="5" ry="3" fill="#6b5142" opacity="0.7"/>
+          <!-- sleepy open mouth -->
+          <path d="M100 138 L100 148" stroke="#4a3226" stroke-width="3.5" stroke-linecap="round"/>
+          <path d="M84 150 q 16 14 32 0 q -16 8 -32 0" fill="#3a2413"/>
+          <!-- cheeks -->
+          <ellipse cx="58" cy="126" rx="12" ry="8" fill="#8a5a2e" opacity="0.5"/>
+          <ellipse cx="142" cy="126" rx="12" ry="8" fill="#8a5a2e" opacity="0.5"/>
+        </g>
+        <!-- floating Zzz -->
+        <g fill="#4a90e2" font-family="'Geist Variable', Geist, system-ui, sans-serif" font-weight="800">
+          <text class="zz"  x="128" y="128" font-size="20">z</text>
+          <text class="zz zz2" x="146" y="102" font-size="27">z</text>
+          <text class="zz zz3" x="168" y="70" font-size="36">z</text>
+        </g>
+      </svg>
+      <!-- Deliberately not "Starting Cinderpaw": the bear above
+           already carries the identity, and repeating it spends the one line the
+           startup screen has on something the eye has just read. -->
+      <div class="cinderpaw-startup-status" role="status">Starting</div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

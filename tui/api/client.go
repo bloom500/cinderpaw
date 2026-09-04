@@ -25,11 +25,11 @@ type Settings struct {
 }
 
 func LoadSettings() (*Settings, error) {
-	home, err := os.UserHomeDir()
+	home, err := Home()
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".feral", "settings.json"))
+	data, err := os.ReadFile(filepath.Join(home, "settings.json"))
 	if err != nil {
 		return &Settings{APIPort: DefaultPort}, nil
 	}
@@ -54,7 +54,7 @@ type StatusSnapshot struct {
 	// the local engine or a cloud endpoint.
 	Provider string `json:"provider,omitempty"`
 	// ByokProvider is the configured BYOK provider id when the gateway
-	// was started with FERAL_BYOK_PROVIDER set (e.g. "nvidia", "minimax").
+	// was started with CINDERPAW_BYOK_PROVIDER set (e.g. "nvidia", "minimax").
 	// Empty for a vanilla local boot.
 	ByokProvider string `json:"byok_provider,omitempty"`
 	// AgentModel is the model id the sidecar actually infers with — for
@@ -149,7 +149,7 @@ type ToolDone struct {
 
 // SessionSummary is one row in `/runtime/sessions` — the welcome screen
 // renders the most-recent N of these. Mirrors the shape stored in
-// `~/.feral/conversations/index.json` (see frontend-react/src/stores/conversations.ts).
+// `~/.cinderpaw/conversations/index.json` (see frontend-react/src/stores/conversations.ts).
 type SessionSummary struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
@@ -194,21 +194,21 @@ type rawStatus struct {
 }
 
 func ReadToken() (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := Home()
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".feral", "api-token"))
+	data, err := os.ReadFile(filepath.Join(home, "api-token"))
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(data)), nil
 }
 
-// EnsureToken returns the existing API token at `~/.feral/api-token` or, on
+// EnsureToken returns the existing API token at `~/.cinderpaw/api-token` or, on
 // first run, generates a fresh 32-byte URL-safe random token, writes it
 // 0600-permissioned, and returns it. This is the Sprint 2 first-run
-// bootstrap (audit C-3) — a new user who runs `feral chat` with no prior
+// bootstrap (audit C-3) — a new user who runs `cinderpaw chat` with no prior
 // install used to hit a cryptic exit; now they get a fresh token and the
 // wizard opens automatically (audit J2.3).
 //
@@ -220,11 +220,10 @@ func EnsureToken(seed []byte) (string, error) {
 	if existing, err := ReadToken(); err == nil && existing != "" {
 		return existing, nil
 	}
-	home, err := os.UserHomeDir()
+	dir, err := Home()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".feral")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -241,13 +240,32 @@ func EnsureToken(seed []byte) (string, error) {
 		raw = buf
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
-	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+	// O_EXCL, not WriteFile. Two processes can reach this at the same moment on
+	// a first run — the TUI and the gateway both find no token and both mint
+	// one — and a plain write means last-writer-wins: the sidecar authenticates
+	// with one value while the TUI sends the other, and every request 401s
+	// until something restarts. Creating exclusively makes exactly one of them
+	// the writer; the loser reads back what the winner wrote.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			if existing, rerr := ReadToken(); rerr == nil && existing != "" {
+				return existing, nil
+			}
+		}
 		return "", err
+	}
+	_, werr := f.WriteString(token + "\n")
+	if cerr := f.Close(); werr == nil && cerr != nil {
+		werr = cerr
+	}
+	if werr != nil {
+		return "", werr
 	}
 	return token, nil
 }
 
-// StartGateway attempts to start the feral gateway process. It looks for
+// StartGateway attempts to start the cinderpaw gateway process. It looks for
 // the gateway binary next to the TUI binary, then in PATH, and finally at
 // common install locations. Returns the process handle on success.
 func StartGateway(port int) (*os.Process, error) {
@@ -266,17 +284,24 @@ func StartGateway(port int) (*os.Process, error) {
 	return proc, nil
 }
 
-// findGateway looks for the feral binary next to the TUI binary, in PATH,
+// findGateway looks for the host binary next to the TUI binary, in PATH,
 // and at common install locations.
+//
+// The old names are still tried: someone who installed before the rename has a
+// cinderpaw binary on disk, and a TUI that cannot find it would report "not found"
+// on a machine where it is plainly installed.
 func findGateway() (string, error) {
 	// Look next to the TUI binary first.
 	exe, err := os.Executable()
 	if err == nil {
 		dir := filepath.Dir(exe)
 		candidates := []string{
-			filepath.Join(dir, "feral.exe"),
-			filepath.Join(dir, "feral-gateway.exe"),
-			filepath.Join(dir, "feral"),
+			filepath.Join(dir, "cinderpaw.exe"),
+			filepath.Join(dir, "cinderpaw-gateway.exe"),
+			filepath.Join(dir, "cinderpaw"),
+			filepath.Join(dir, "cinderpaw.exe"),
+			filepath.Join(dir, "cinderpaw-gateway.exe"),
+			filepath.Join(dir, "cinderpaw"),
 		}
 		for _, c := range candidates {
 			if _, err := os.Stat(c); err == nil {
@@ -285,11 +310,46 @@ func findGateway() (string, error) {
 		}
 	}
 	// Fall back to PATH.
-	look := "feral"
-	if _, err := os.Stat(look); err == nil {
-		return look, nil
+	for _, look := range []string{"cinderpaw", "feral"} {
+		if _, err := os.Stat(look); err == nil {
+			return look, nil
+		}
 	}
-	return "", fmt.Errorf("feral binary not found — run `feral gateway start` manually")
+	return "", fmt.Errorf("cinderpaw binary not found — run `cinderpaw gateway start` manually")
+}
+
+// A gateway that accepts the connection and then never answers used to freeze
+// the whole TUI: `http.DefaultClient` has no timeout at all, so sixteen calls —
+// status, model list, connector reload, every one of them on the UI's path —
+// could block until the user found Ctrl-C. These two clients replace it.
+//
+// ponytail: one flat ceiling instead of a per-endpoint budget. 120s is above
+// any healthy call (a cold model load is the slow one) and far below "forever".
+// If a legitimate endpoint ever needs longer, give that call its own client
+// rather than raising this.
+var httpClient = &http.Client{Timeout: 120 * time.Second}
+
+// Streams (chat tokens, runtime events) must NOT have a whole-request deadline:
+// a healthy stream is open for as long as the user keeps talking. The header
+// timeout still covers the failure this is here for — a gateway that takes the
+// connection and never replies.
+var streamClient = &http.Client{
+	Transport: &http.Transport{ResponseHeaderTimeout: 60 * time.Second},
+}
+
+// Send a request, refusing a nil one instead of dereferencing it.
+//
+// Every call site built its request with `req, _ := http.NewRequest(...)`,
+// discarding the error — and on an invalid base URL (a typo in the flag, a
+// config with a stray character) `http.NewRequest` returns nil, so the very
+// next line panicked inside a goroutine and took the TUI down with no message.
+// Routing all of them through here turns that into an error the caller can
+// report, without touching twenty-one call sites.
+func doRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	if req == nil {
+		return nil, fmt.Errorf("could not build the request — check the gateway URL")
+	}
+	return client.Do(req)
 }
 
 func PortInUse(port int) bool {
@@ -304,7 +364,7 @@ func PortInUse(port int) bool {
 func FetchStatus(baseURL, token string) (*StatusSnapshot, error) {
 	req, _ := http.NewRequest("GET", baseURL+"/runtime/status", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +397,7 @@ func FetchStatus(baseURL, token string) (*StatusSnapshot, error) {
 func ListModels(baseURL, token string) (ids []string, active string, err error) {
 	req, _ := http.NewRequest("GET", baseURL+"/runtime/models", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -360,7 +420,7 @@ func SetModel(baseURL, token, id string) (active string, err error) {
 	req, _ := http.NewRequest("POST", baseURL+"/runtime/model", strings.NewReader(string(body)))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return "", err
 	}
@@ -391,7 +451,7 @@ type ProviderInfo struct {
 func FetchProviders(baseURL, token string) ([]ProviderInfo, string, error) {
 	req, _ := http.NewRequest("GET", baseURL+"/runtime/manifest", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -410,7 +470,7 @@ func FetchProviders(baseURL, token string) ([]ProviderInfo, string, error) {
 func FetchLoraStatus(baseURL, token string) (string, error) {
 	req, _ := http.NewRequest("GET", baseURL+"/runtime/lora", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return "", err
 	}
@@ -428,7 +488,7 @@ func FetchLoraStatus(baseURL, token string) (string, error) {
 func ReloadConnectors(baseURL, token string) error {
 	req, _ := http.NewRequest("POST", baseURL+"/runtime/connectors/reload", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return err
 	}
@@ -443,7 +503,7 @@ func ReloadConnectors(baseURL, token string) error {
 }
 
 // ConnectorView is the redacted per-connector state from
-// GET /runtime/connectors (mirrors feral-core's ConnectorRedactedView).
+// GET /runtime/connectors (mirrors cinderpaw-core's ConnectorRedactedView).
 type ConnectorView struct {
 	ID        string   `json:"id"`
 	Enabled   bool     `json:"enabled"`
@@ -457,7 +517,7 @@ type ConnectorView struct {
 func FetchConnectors(baseURL, token string) ([]ConnectorView, error) {
 	req, _ := http.NewRequest("GET", baseURL+"/runtime/connectors", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -501,7 +561,7 @@ type SetupDetectResult struct {
 func SetupDetect(baseURL, token string) (*SetupDetectResult, error) {
 	req, _ := http.NewRequest("GET", baseURL+"/runtime/setup/detect", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -551,7 +611,7 @@ func SetupAck(baseURL, token string) error {
 	req, _ := http.NewRequest("POST", baseURL+"/runtime/setup/ack", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return err
 	}
@@ -630,7 +690,7 @@ func CompactSession(baseURL, token, sessionID string) (string, error) {
 func ShutdownGateway(baseURL, token string) error {
 	req, _ := http.NewRequest("POST", baseURL+"/runtime/shutdown", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return err
 	}
@@ -642,7 +702,7 @@ func ShutdownGateway(baseURL, token string) error {
 func TriggerDream(baseURL, token string) error {
 	req, _ := http.NewRequest("POST", baseURL+"/runtime/dream", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return err
 	}
@@ -652,7 +712,7 @@ func TriggerDream(baseURL, token string) error {
 
 // FetchSessions returns the most-recent conversations (default 5) so the
 // welcome screen can render a "recent" list. The host endpoint reads the
-// `~/.feral/conversations/index.json` written by the desktop app.
+// `~/.cinderpaw/conversations/index.json` written by the desktop app.
 func FetchSessions(baseURL, token string, limit int) ([]SessionSummary, error) {
 	if limit <= 0 {
 		limit = 5
@@ -660,7 +720,7 @@ func FetchSessions(baseURL, token string, limit int) ([]SessionSummary, error) {
 	url := fmt.Sprintf("%s/runtime/sessions?limit=%d", baseURL, limit)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -703,7 +763,7 @@ type ResumeView struct {
 func FetchResume(baseURL, token string) (*ResumeView, error) {
 	req, _ := http.NewRequest("GET", baseURL+"/runtime/resume", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return nil, err
 	}
@@ -719,7 +779,7 @@ func FetchResume(baseURL, token string) (*ResumeView, error) {
 }
 
 // SystemInfo is the Sprint 2 / audit C-1 hardware probe. Mirrors the Rust
-// `crates/feral-core/src/sysinfo_mod.rs::SystemInfo` JSON wire shape (snake_case).
+// `crates/cinderpaw-core/src/sysinfo_mod.rs::SystemInfo` JSON wire shape (snake_case).
 type SystemInfo struct {
 	OS              string `json:"os"`
 	CPU             string `json:"cpu"`
@@ -879,7 +939,7 @@ func SaveByokKey(baseURL, token, providerID, apiKey string, baseURLOpt, defaultM
 // fallbacks (Decision C).
 
 // ProviderCatalogEntry is one row of the canonical provider catalog.
-// Mirrors `crates/feral-core/src/byok.rs::ProviderCatalogEntry`.
+// Mirrors `crates/cinderpaw-core/src/byok.rs::ProviderCatalogEntry`.
 type ProviderCatalogEntry struct {
 	ID                     string  `json:"id"`
 	Name                   string  `json:"name"`
@@ -895,7 +955,7 @@ type ProviderCatalogEntry struct {
 }
 
 // ConnectorPairingFieldDef is one secret field a connector requires.
-// Mirrors `crates/feral-core/src/connectors.rs::PairingFieldDef`.
+// Mirrors `crates/cinderpaw-core/src/connectors.rs::PairingFieldDef`.
 type ConnectorPairingFieldDef struct {
 	Key    string `json:"key"`
 	Label  string `json:"label"`
@@ -903,7 +963,7 @@ type ConnectorPairingFieldDef struct {
 }
 
 // ConnectorCatalogEntry is one row of the canonical connector catalog.
-// Mirrors `crates/feral-core/src/connectors.rs::ConnectorCatalogEntry`.
+// Mirrors `crates/cinderpaw-core/src/connectors.rs::ConnectorCatalogEntry`.
 //
 // v2 (2026-07-07) — added QRSetupEndpoint. QR-paired connectors (only
 // WhatsApp today) carry the gateway endpoint the wizard POSTs to in
@@ -943,7 +1003,7 @@ const ProviderCatalogVersionExpected = 1
 // The shared CatalogVersionExpected constant was split because the
 // two catalogs track independent schema versions (a byok-side bump
 // does NOT also require a connector-side bump and vice versa).
-const ConnectorCatalogVersionExpected = 2
+const ConnectorCatalogVersionExpected = 3
 
 // fetchCatalog is the shared GET-with-version-header helper for the
 // two catalog endpoints. On a non-2xx it returns a typed
@@ -970,7 +1030,7 @@ func fetchCatalog(baseURL, token, path string, expectedVersion int) (*CatalogRes
 		}, nil
 	}
 	version := 0
-	if v := resp.Header.Get("X-Feral-Catalog-Version"); v != "" {
+	if v := resp.Header.Get("X-Cinderpaw-Catalog-Version"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			version = n
 		}
@@ -1007,7 +1067,7 @@ func FetchConnectorCatalog(baseURL, token string) (*CatalogResult, error) {
 	return fetchCatalog(baseURL, token, "/runtime/connectors/catalog", ConnectorCatalogVersionExpected)
 }
 
-// ConnectorFileConfig is the on-disk format of `~/.feral/connectors.json`.
+// ConnectorFileConfig is the on-disk format of `~/.cinderpaw/connectors.json`.
 // Mirrors the Rust `ConnectorConfigFile` shape in src-tauri/src/connectors.rs.
 type ConnectorFileConfig struct {
 	Connectors []ConnectorFileEntry `json:"connectors"`
@@ -1023,7 +1083,7 @@ type ConnectorFileEntry struct {
 }
 
 // SaveConnectorConfig persists a connector's secrets and enabled flag to
-// `~/.feral/connectors.json`, then pokes the gateway to reload. F4
+// `~/.cinderpaw/connectors.json`, then pokes the gateway to reload. F4
 // chat-platform connector counterpart to the cloud-provider keychain path
 // (SaveByokKey + /runtime/byok/save). Phase 2 of the terminal-onboarding
 // slice replaces this file-only writer with a keychain-backed endpoint
@@ -1031,11 +1091,10 @@ type ConnectorFileEntry struct {
 // will be deleted then; the file-shape type and the reload call survive
 // in a narrower form.
 func SaveConnectorConfig(id string, secrets map[string]string, enable bool) error {
-	home, err := os.UserHomeDir()
+	dir, err := Home()
 	if err != nil {
 		return fmt.Errorf("cannot find home directory: %w", err)
 	}
-	dir := filepath.Join(home, ".feral")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("cannot create %s: %w", dir, err)
 	}
@@ -1172,7 +1231,7 @@ func StreamChat(baseURL, token, content, sessionID string, chunks chan<- Chunk, 
 	req, _ := http.NewRequest("POST", baseURL+"/runtime/chat", strings.NewReader(string(body)))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(streamClient, req)
 	if err != nil {
 		done <- err
 		return
@@ -1182,7 +1241,11 @@ func StreamChat(baseURL, token, content, sessionID string, chunks chan<- Chunk, 
 	tagBuffer := ""
 	inThink := false
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 65536), 65536)
+	// A single SSE `data:` line can be far larger than 64 KB — a grep with
+	// many hits, a directory listing, any big tool result. At the old size
+	// the scanner returned `token too long` and the stream ended mid-answer,
+	// with nothing on screen to say why. 8 MB is past any real tool result.
+	scanner.Buffer(make([]byte, 0, 65536), 8*1024*1024)
 	// SSE records are separated by a blank line. We track the current
 	// event-name across the lines of one record so typed events
 	// (`event: tool_start`) attach to the next `data:` line correctly.
@@ -1352,7 +1415,7 @@ func AskRespond(baseURL, token, requestID string, answers []AskAnswer) error {
 	req, _ := http.NewRequest("POST", baseURL+"/runtime/ask/respond", strings.NewReader(string(body)))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(httpClient, req)
 	if err != nil {
 		return err
 	}
@@ -1505,7 +1568,7 @@ func feedTag(buf *string, inThink *bool, piece string) string {
 // RuntimeEvent is one event from GET /events. The SSE data is:
 //
 //	event: runtime
-//	data: {"event":"feral://agent-output","data":{"data":"<json>"}}
+//	data: {"event":"cinderpaw://agent-output","data":{"data":"<json>"}}
 //
 // where the inner `<json>` string has a `type` field. We flatten to
 // Kind (the type) and Message (the rendered form) here; the formatter
@@ -1553,7 +1616,7 @@ func StreamEvents(baseURL, token string, events chan<- RuntimeEvent, done chan<-
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doRequest(streamClient, req)
 	if err != nil {
 		done <- err
 		return
@@ -1561,7 +1624,11 @@ func StreamEvents(baseURL, token string, events chan<- RuntimeEvent, done chan<-
 	defer resp.Body.Close()
 
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 65536), 65536)
+	// A single SSE `data:` line can be far larger than 64 KB — a grep with
+	// many hits, a directory listing, any big tool result. At the old size
+	// the scanner returned `token too long` and the stream ended mid-answer,
+	// with nothing on screen to say why. 8 MB is past any real tool result.
+	scanner.Buffer(make([]byte, 0, 65536), 8*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		line = strings.TrimSpace(line)

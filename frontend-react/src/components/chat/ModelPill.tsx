@@ -7,9 +7,12 @@ export function ModelPill() {
   const progress  = useModel((s) => s.loadProgress);
 
   return (
-    <div className="relative flex items-center h-9 rounded-full bg-bg-elevated border border-border-default overflow-hidden shrink-0 shadow-sm">
+    // A ghost chip inside the composer, not a bordered button floating in the
+    // page corner. The model is context for the field you are typing in, so it
+    // belongs on the field — and the name alone is the label, because "Add a
+    // model" was an instruction on a screen where nobody had to obey it.
+    <div className="relative flex items-center h-8 rounded-full hover:bg-bg-hover transition-colors overflow-hidden shrink-0">
       <ModelPickerPopover />
-      <div className="w-px h-4 bg-white/10 shrink-0" />
       <ControlsPopover />
       {/* Thin progress bar at the bottom of the pill while a local model is
           loading. The store's load() emits model-load-progress events which

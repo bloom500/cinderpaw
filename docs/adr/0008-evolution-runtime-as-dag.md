@@ -50,7 +50,7 @@ the refactor scope is different.
 
 ## Decision
 
-Feral has two views of the architecture:
+Cinderpaw has two views of the architecture:
 
 1. **Layers (for presentation).** BRSI §5 keeps the L0–L6 ladder
    for slides, documentation, marketing. Layers are intuitive for

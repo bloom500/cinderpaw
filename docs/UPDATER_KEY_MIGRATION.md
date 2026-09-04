@@ -4,7 +4,7 @@
 **Background:** the original Tauri updater signing key (`.tauri-key`) was
 committed to the public repository (commits `7a96557` / `295fd5d`) and must be
 treated as **compromised**. A new keypair was generated on 2026-06-10
-(`~/.tauri/feral-updater.key`) and `tauri.conf.json` now embeds the new public
+(`~/.tauri/cinderpaw-updater.key`) and `tauri.conf.json` now embeds the new public
 key. The old key file was removed from the working tree and the git history
 purge + `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret rotation are done.
 

@@ -12,13 +12,13 @@
  *     → writes Z/adapter.gguf (dummy bytes), prints metric lines, exit 0
  *
  * Build:  bun build scripts/fake-lora-trainer.ts --compile --outfile scripts/fake-lora-trainer
- * Use:    set FERAL_LORA_TRAINER_BIN=D:\FeralLocalAI\scripts\fake-lora-trainer.exe
+ * Use:    set CINDERPAW_LORA_TRAINER_BIN=D:\CinderpawLocalAI\scripts\fake-lora-trainer.exe
  *
  * NOTE: the adapter it writes is NOT a real LoRA — approving it will make
  * the model reload FAIL loudly at rsi_set_lora (llama.cpp rejects the
  * file), which is itself part of the smoke: the fail-loud path. For a
  * quiet approve test, point --out at a REAL adapter GGUF via
- * FERAL_FAKE_ADAPTER_SRC to copy instead.
+ * CINDERPAW_FAKE_ADAPTER_SRC to copy instead.
  */
 
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
@@ -39,7 +39,7 @@ if (args[0] === "finetune") {
   }
   mkdirSync(out, { recursive: true });
   const target = join(out, "adapter.gguf");
-  const realSrc = process.env.FERAL_FAKE_ADAPTER_SRC;
+  const realSrc = process.env.CINDERPAW_FAKE_ADAPTER_SRC;
   if (realSrc) copyFileSync(realSrc, target);
   else writeFileSync(target, "GGUF-fake-adapter-for-smoke-testing");
   // A couple of plausible metric lines for the card/provenance.

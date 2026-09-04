@@ -29,7 +29,7 @@ export function CodeBlock({ children, ...rest }: CodeBlockProps) {
   };
 
   return (
-    <pre {...rest} className="relative group">
+    <pre {...rest} className="relative group overflow-x-auto max-w-full">
       <button
         type="button"
         onClick={onCopy}

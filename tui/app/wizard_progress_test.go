@@ -12,7 +12,7 @@ import (
 // file: save → load returns the same step. F1 introduced the v2 format;
 // load must ignore older v1 (unprefixed) files and reset to WizWelcome.
 func TestSaveLoadWizardProgressRoundtrip(t *testing.T) {
-	// Redirect to a temp dir so we don't touch the real ~/.feral/.
+	// Redirect to a temp dir so we don't touch the real ~/.cinderpaw/.
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
@@ -36,7 +36,7 @@ func TestLoadWizardProgressRejectsOldFormat(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := testHomeDir(t)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestLoadWizardProgressRejectsWrongVersion(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := testHomeDir(t)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestLoadWizardProgressRejectsOutOfRange(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := testHomeDir(t)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestHasExistingConfigTrueOnWizardDone(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := testHomeDir(t)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestHasExistingConfigTrueOnByok(t *testing.T) {
 	t.Setenv("HOME", tmp)
 	t.Setenv("USERPROFILE", tmp)
 
-	dir := filepath.Join(tmp, ".feral")
+	dir := testHomeDir(t)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}

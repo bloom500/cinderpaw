@@ -25,8 +25,8 @@ func TestRenderWizardFrame_visualSnapshot(t *testing.T) {
 		Total int
 		Body  string
 	}{
-		{"Welcome", 1, 14, "Welcome to Feral\n\nOwn your agent.\nPress Enter to continue."},
-		{"Security", 2, 14, "Feral may execute actions using the connectors you enable.\n\nOnly connect services you trust.\n\nRead: docs.feral.local/security\n\nPress y to accept, n to decline."},
+		{"Welcome", 1, 14, "Welcome to Cinderpaw\n\nOwn your agent.\nPress Enter to continue."},
+		{"Security", 2, 14, "Cinderpaw may execute actions using the connectors you enable.\n\nOnly connect services you trust.\n\nRead: docs.cinderpaw.local/security\n\nPress y to accept, n to decline."},
 		{"Setup mode", 3, 14, "Pick a path. QuickStart uses safe defaults; Manual\nlets you change every step. Import is coming soon."},
 		{"Hardware probe", 4, 14, "Probing your machine...\n\n  CPU:   16 cores\n  RAM:   32 GB\n  GPU:   NVIDIA RTX 4080 (16 GB VRAM)\n  Disk:  500 GB free"},
 		{"Model", 5, 14, "Run locally  /  Use a cloud key\n\nLocal: download a model. Private, free, on your machine.\nCloud: paste a key. Instant, stronger, some free tiers."},

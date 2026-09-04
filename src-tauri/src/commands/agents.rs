@@ -43,22 +43,22 @@ pub(crate) async fn run_agent(
         .ok_or_else(|| format!("agent {} not found", agent_id))?;
 
     // Local llama.cpp agent loop — requires a model to be loaded.
-    // For AI without a local model, use feral_send_message which routes through
-    // the Feral Agent sidecar (Ollama-backed, with sandbox + memory).
+    // For AI without a local model, use cinderpaw_send_message which routes through
+    // the Cinderpaw Agent sidecar (Ollama-backed, with sandbox + memory).
     let manager = state.manager.clone();
     if manager.current().is_none() {
         return Err(
-            "No local model loaded. Use Feral Agent (feral_send_message) for AI without \
+            "No local model loaded. Use Cinderpaw Agent (cinderpaw_send_message) for AI without \
              a local model, or load a GGUF model first."
                 .to_string(),
         );
     }
     let mut rx = agents::run(cfg, prompt, manager);
 
-    // Stream each AgentEvent (already JSON-serialized) over the feral:// event
+    // Stream each AgentEvent (already JSON-serialized) over the cinderpaw:// event
     // bus, tagged with session_id so concurrent run panels don't cross streams.
     while let Some(ev) = rx.recv().await {
-        let _ = app.emit("feral://agent-event", events::AgentStreamEvent {
+        let _ = app.emit("cinderpaw://agent-event", events::AgentStreamEvent {
             session_id: session_id.clone(),
             data: ev,
         });

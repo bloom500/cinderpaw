@@ -16,14 +16,14 @@
 
 | Module | File | Wire to | When |
 | ------ | ---- | ------- | ---- |
-| ~~`confidence.ts`~~ **WIRED 2026-07-01** | `FeralAgent/src/rsi/confidence.ts` | `ratchet-handler.ts` (optional `evaluateGate` dep) + live in `sidecar.ts:369` | Before `ratchetAttempt` |
-| ~~`journal.ts`~~ **WIRED 2026-07-01 (§2b only)** | `FeralAgent/src/rsi/journal.ts` | `dream-cycle.ts` `onEpisodeEnd` (per-episode summary) + live in `index.ts` | On cycle end (per-candidate §2a deferred to Contract FSM) |
-| `budget.ts` | `FeralAgent/src/rsi/budget.ts` | Contract FSM (new) | Before each contract stage |
-| `fitness.ts` | `FeralAgent/src/rsi/fitness.ts` | `eval-worker.ts:56` + `ratchet-handler.ts:80` | Lift `ScoreResult` to `FitnessVector` |
-| `personal-fitness.ts` | `FeralAgent/src/rsi/personal-fitness.ts` | `ratchet-handler.ts:80` (or `engine.ts`) | Compute `userSatisfaction` before compose |
-| `provenance.ts` | `FeralAgent/src/rsi/provenance.ts` | Frontend (dashboard, journal viewer) | Read-only; no engine wire needed |
-| `contract.ts` (NEW) | `FeralAgent/src/rsi/contract.ts` | Engine composition root | Type layer shipped; handlers = Opus |
-| `instance-paths.ts` (NEW) | `FeralAgent/src/rsi/instance-paths.ts` | All path users | `journal.ts` already uses it |
+| ~~`confidence.ts`~~ **WIRED 2026-07-01** | `CinderpawAgent/src/rsi/confidence.ts` | `ratchet-handler.ts` (optional `evaluateGate` dep) + live in `sidecar.ts:369` | Before `ratchetAttempt` |
+| ~~`journal.ts`~~ **WIRED 2026-07-01 (§2b only)** | `CinderpawAgent/src/rsi/journal.ts` | `dream-cycle.ts` `onEpisodeEnd` (per-episode summary) + live in `index.ts` | On cycle end (per-candidate §2a deferred to Contract FSM) |
+| `budget.ts` | `CinderpawAgent/src/rsi/budget.ts` | Contract FSM (new) | Before each contract stage |
+| `fitness.ts` | `CinderpawAgent/src/rsi/fitness.ts` | `eval-worker.ts:56` + `ratchet-handler.ts:80` | Lift `ScoreResult` to `FitnessVector` |
+| `personal-fitness.ts` | `CinderpawAgent/src/rsi/personal-fitness.ts` | `ratchet-handler.ts:80` (or `engine.ts`) | Compute `userSatisfaction` before compose |
+| `provenance.ts` | `CinderpawAgent/src/rsi/provenance.ts` | Frontend (dashboard, journal viewer) | Read-only; no engine wire needed |
+| `contract.ts` (NEW) | `CinderpawAgent/src/rsi/contract.ts` | Engine composition root | Type layer shipped; handlers = Opus |
+| `instance-paths.ts` (NEW) | `CinderpawAgent/src/rsi/instance-paths.ts` | All path users | `journal.ts` already uses it |
 
 ---
 
@@ -313,7 +313,7 @@ git substrate (`IterationMetadata`).
 
 ## 7. Provenance graph → frontend (no engine wire)
 
-`FeralAgent/src/rsi/provenance.ts` is a read-only module over the git
+`CinderpawAgent/src/rsi/provenance.ts` is a read-only module over the git
 substrate. Wiring happens in the frontend:
 
 ```ts
@@ -333,7 +333,7 @@ by git substrate).
 
 ## 8. Contract FSM → engine composition root
 
-`FeralAgent/src/rsi/contract.ts` ships the **type layer** only:
+`CinderpawAgent/src/rsi/contract.ts` ships the **type layer** only:
 
 - `STAGE_ORDER` (9 stages)
 - `ContractState` (the data object)

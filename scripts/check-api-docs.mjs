@@ -3,7 +3,7 @@
  * check-api-docs.mjs — B1 spec gate.
  *
  * The HTTP API reference (`docs/API.md`) MUST list every route
- * registered in `crates/feral-core/src/api.rs::router()`. Drift between
+ * registered in `crates/cinderpaw-core/src/api.rs::router()`. Drift between
  * the source (which is the source of truth) and the doc surfaces as
  * missing or extra routes — both are bugs.
  *
@@ -14,7 +14,7 @@
  *      leading string literal). Axum's `merge` chains are resolved
  *      manually by walking forward.
  *   2. Parse `docs/API.md` and extract the canonical list from a
- *      fenced ```feral-api-routes ... ``` block near the bottom of the
+ *      fenced ```cinderpaw-api-routes ... ``` block near the bottom of the
  *      doc. Entries are `METHOD path`, one per line.
  *   3. Diff source-set vs doc-set. Report:
  *        MISSING (source has it, doc does not) — failure
@@ -24,7 +24,7 @@
  *   node scripts/check-api-docs.mjs            # exit 0 if clean
  *   node scripts/check-api-docs.mjs --strict   # exit 1 on MISSING
  *
- * Wired into the bun suite via FeralAgent/tests/api-docs.test.ts.
+ * Wired into the bun suite via CinderpawAgent/tests/api-docs.test.ts.
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
-const API_RS = join(ROOT, "crates", "feral-core", "src", "api.rs");
+const API_RS = join(ROOT, "crates", "cinderpaw-core", "src", "api.rs");
 const DOC = join(ROOT, "docs", "API.md");
 
 function harvestRoutes() {
@@ -64,10 +64,10 @@ function documentedRoutes() {
     throw new Error(`docs/API.md not found at ${DOC}`);
   }
   const md = readFileSync(DOC, "utf8");
-  const m = md.match(/```feral-api-routes\n([\s\S]*?)\n```/);
+  const m = md.match(/```cinderpaw-api-routes\n([\s\S]*?)\n```/);
   if (!m) {
     throw new Error(
-      "docs/API.md must contain a fenced block tagged ```feral-api-routes listing every route as METHOD path, one per line. See scripts/check-api-docs.mjs.",
+      "docs/API.md must contain a fenced block tagged ```cinderpaw-api-routes listing every route as METHOD path, one per line. See scripts/check-api-docs.mjs.",
     );
   }
   return new Set(

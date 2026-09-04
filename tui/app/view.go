@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"feral-tui/ui"
+	"cinderpaw-tui/ui"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -45,8 +45,15 @@ func (a *App) View() string {
 		if chatH < 10 {
 			chatH = 10
 		}
-		a.ChatVP.Height = chatH
-		a.ChatVP.Width = a.Width - 2
+		// Write only on change: View() must be idempotent. Unconditional
+		// stores here made every repaint mutate model state, which fed
+		// back into the next frame's layout decisions.
+		vpW := a.Width - 2
+		if a.ChatVP.Height != chatH || a.ChatVP.Width != vpW {
+			a.ChatVP.Height = chatH
+			a.ChatVP.Width = vpW
+			a.needsRebuild = true
+		}
 		if a.needsRebuild {
 			a.rebuildViewport()
 		}
@@ -79,13 +86,19 @@ func (a *App) View() string {
 		chatH = 4
 	}
 
-	// Always set dimensions so the viewport renders at the correct size.
-	a.ChatVP.Height = chatH
-	a.ChatVP.Width = a.Width - 2
+	// Set dimensions only when they actually changed — View() must be
+	// idempotent (same reasoning as the wizard branch above).
+	vpW := a.Width - 2
+	widthChanged := a.ChatVP.Width != vpW
+	if a.ChatVP.Height != chatH || widthChanged {
+		a.ChatVP.Height = chatH
+		a.ChatVP.Width = vpW
+	}
 
 	// Detect auxH changes (streaming start/stop, completion popup) that
 	// affect viewport height — force a rebuild when the layout shifts.
-	if chatH != a.prevChatH {
+	// Width changes need the same treatment; prevChatH only covers height.
+	if chatH != a.prevChatH || widthChanged {
 		a.needsRebuild = true
 	}
 	a.prevChatH = chatH
@@ -142,7 +155,7 @@ func (a *App) renderWelcomeContent() string {
 	}
 
 	var lines []string
-	lines = append(lines, ui.WelcomeTagline.Render(ui.G.Spark+" feral chat"))
+	lines = append(lines, ui.WelcomeTagline.Render(ui.G.Spark+" cinderpaw chat"))
 	if a.Cwd != "" {
 		lines = append(lines, ui.WelcomeValue.Render(a.Cwd))
 	}
@@ -345,7 +358,7 @@ func (a *App) renderHeader() string {
 	} else {
 		state = "no sidecar"
 	}
-	brand := ui.BrandStyle.Render("feral")
+	brand := ui.BrandStyle.Render("cinderpaw")
 	right := fmt.Sprintf("%s %s", dot, state)
 
 	// Build left segments right-to-left, dropping the rightmost segment
@@ -491,7 +504,7 @@ func humanKind(k string) string {
 		return "no model"
 	case "runtime_lost":
 		// Terminal surfaces say "gateway" — the same noun as the CLI's
-		// `feral gateway` command — so a user can transfer the word straight
+		// `cinderpaw gateway` command — so a user can transfer the word straight
 		// into the fix (audit 2026-07-10 Part 5, gateway had 4 names).
 		return "gateway lost"
 	case "rate_limited":
@@ -641,7 +654,7 @@ func renderWizResume(w *WizardState, width int) string {
 		{"Start over", "Clear progress and re-run the wizard from the top.", 1},
 	}
 	var b strings.Builder
-		b.WriteString(wizLine("  You exited before finishing setup. Last completed:"))
+	b.WriteString(wizLine("  You exited before finishing setup. Last completed:"))
 	b.WriteByte('\n')
 	b.WriteString(wizLine("    " + resumeStepLabel(w.ResumeStep)))
 	b.WriteByte('\n')
@@ -703,24 +716,22 @@ func resumeStepLabel(s WizardStep) string {
 	}
 }
 
-
-
 // renderToolViewerOverlay draws the full-screen tool-result browser.
 // Layout:
 //
-//   tools  · 3 calls
-//   ───────────────────────────────────────────────────────────
-//   ▸ ● read_file (project_local_models_gpu.md)  ⏱ 0.1s ✓
-//     ● scan_workspace                           ⏱ 1.2s ✓
-//     ● tool_health                              ⏱ 0.4s ✓
-//   ───────────────────────────────────────────────────────────
-//   ▸ result ────────────────────────────────────────────────
-//   # project_local_models_gpu.md
-//   On-disk models:
-//   - bge-small-en-v1.5 (default embed)
-//   ...
-//   ───────────────────────────────────────────────────────────
-//   ↑↓ navigate · enter expand · esc close
+//	tools  · 3 calls
+//	───────────────────────────────────────────────────────────
+//	▸ ● read_file (project_local_models_gpu.md)  ⏱ 0.1s ✓
+//	  ● scan_workspace                           ⏱ 1.2s ✓
+//	  ● tool_health                              ⏱ 0.4s ✓
+//	───────────────────────────────────────────────────────────
+//	▸ result ────────────────────────────────────────────────
+//	# project_local_models_gpu.md
+//	On-disk models:
+//	- bge-small-en-v1.5 (default embed)
+//	...
+//	───────────────────────────────────────────────────────────
+//	↑↓ navigate · enter expand · esc close
 //
 // The expanded preview panel appears under the list only when
 // `ToolViewer.Expanded` is true; otherwise the box closes after the
@@ -777,7 +788,7 @@ func (a *App) renderToolViewerOverlay(under string) string {
 		absoluteIdx := start + i
 		line := formatToolViewerRow(row, a.Now)
 		if absoluteIdx == a.ToolViewer.Idx {
-			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed+" "+stripAnsiLocal(line))
+			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed + " " + stripAnsiLocal(line))
 		} else {
 			line = "  " + ui.ToolViewerRow.Render(stripAnsiLocal(line))
 		}
@@ -806,12 +817,12 @@ func (a *App) renderToolViewerOverlay(under string) string {
 
 // renderModelPickerOverlay draws the full-screen model picker. Layout:
 //
-//   models  ·  2 available
-//   ─────────────────────────────────────────────────────────
-//   ▸ cloud nvidia:stepfun-ai/step-3.7-flash   cloud · nvidia
-//     local Qwen_Qwen3-4B-Q5_K_M.gguf          local · llama.cpp
-//   ─────────────────────────────────────────────────────────
-//   ↑↓ navigate · enter switch · esc close
+//	models  ·  2 available
+//	─────────────────────────────────────────────────────────
+//	▸ cloud nvidia:stepfun-ai/step-3.7-flash   cloud · nvidia
+//	  local Qwen_Qwen3-4B-Q5_K_M.gguf          local · llama.cpp
+//	─────────────────────────────────────────────────────────
+//	↑↓ navigate · enter switch · esc close
 //
 // The kind column (cloud / local) replaces an icon, the active model is
 // marked with a leading "▸".
@@ -888,7 +899,7 @@ func (a *App) renderModelPickerOverlay(under string) string {
 		line := fmt.Sprintf("%s %s   %s",
 			marker, row.ID, ui.ToolViewerMeta.Render(kind))
 		if absIdx == a.ModelPicker.Idx {
-			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed+" "+stripAnsiLocal(line))
+			line = ui.ToolViewerSel.Render(ui.G.ThinkClosed + " " + stripAnsiLocal(line))
 		} else {
 			line = "  " + ui.ToolViewerRow.Render(stripAnsiLocal(line))
 		}
@@ -1102,7 +1113,7 @@ func (a *App) renderErrorCard(e ErrorCard, width int) string {
 //
 // Layout per row:
 //
-//   ▸ /help              show this overlay
+//	▸ /help              show this overlay
 //
 // where `▸` marks the highlighted row and the right column shows the
 // command's one-line description. The bottom strip carries a hint so the
@@ -1239,9 +1250,11 @@ func collapsedToolSummary(turn *Turn, gutter string, now time.Time) string {
 }
 
 // renderToolPill renders one tool call as flat lines:
-//   ⏺ tool_name(main arg)  ⏱ 0.4s ✓
-//     ⎿ result preview / note / error
-//     ⎿ … (+N more chars · /tools)
+//
+//	⏺ tool_name(main arg)  ⏱ 0.4s ✓
+//	  ⎿ result preview / note / error
+//	  ⎿ … (+N more chars · /tools)
+//
 // No emoji, no bullet card — the leading ⏺ is colored by status
 // (accent = running, meta = done, fail = error) so the eye reads state
 // from color before reading the name, same idea Claude Code uses.
@@ -1549,7 +1562,7 @@ func wizSep(int) string { return "" }
 // "only use the bear in branding").
 func renderWizWelcome(w *WizardState, width int) string {
 	var b strings.Builder
-	b.WriteString(ui.AccentStyle.Render(ui.FeralLogo))
+	b.WriteString(ui.AccentStyle.Render(ui.CinderpawLogo))
 	b.WriteByte('\n')
 	b.WriteString(ui.WarnStyle.Render(ui.BearLogo))
 	b.WriteByte('\n')
@@ -1589,21 +1602,20 @@ func renderWizWelcome(w *WizardState, width int) string {
 	if w.HasExistingConfig {
 		b.WriteByte('\n')
 		if w.ResetPending {
-			b.WriteString(ui.WarnStyle.Render("  reset ~/.feral and start fresh?  y/N"))
+			b.WriteString(ui.WarnStyle.Render("  reset ~/.cinderpaw and start fresh?  y/N"))
 		} else {
-			b.WriteString(wizLine("  " + ui.AccentStyle.Render("r") + " reset - wipe ~/.feral and start fresh"))
+			b.WriteString(wizLine("  " + ui.AccentStyle.Render("r") + " reset - wipe ~/.cinderpaw and start fresh"))
 		}
 		b.WriteByte('\n')
 	}
 	b.WriteByte('\n')
 	// Security note as body copy (not a step).
-	b.WriteString(wizLine("  Feral can run tools and connect to services you enable. You approve"))
+	b.WriteString(wizLine("  Cinderpaw can run tools and connect to services you enable. You approve"))
 	b.WriteByte('\n')
 	b.WriteString(wizLine("  each connector. Nothing leaves this machine unless you add a cloud key."))
 	b.WriteByte('\n')
 	return b.String()
 }
-
 
 // modelDisplayName turns a model repo id into a short, human label for the
 // Engine/download rows (e.g. "bartowski/Qwen_Qwen3.5-9B-GGUF" → "Qwen3.5 9B").
@@ -1739,7 +1751,7 @@ func renderWizCloudProvider(w *WizardState, width int) string {
 	b.WriteString(wizSep(width))
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-		// F2 / spec §SEARCHABLE LISTS: search input + filtered list.
+	// F2 / spec §SEARCHABLE LISTS: search input + filtered list.
 	// The cursor (`_`) marks the end of the query.
 	cursor := ui.G.Cursor
 	if w.SearchQuery == "" {
@@ -1828,7 +1840,7 @@ func renderWizCloudKey(w *WizardState, width int) string {
 	}
 	b.WriteByte('\n')
 	b.WriteByte('\n')
-	b.WriteString(wizLine("  tip: or set FERAL_BYOK_KEY in your environment"))
+	b.WriteString(wizLine("  tip: or set CINDERPAW_BYOK_KEY in your environment"))
 	b.WriteByte('\n')
 	return b.String()
 }
@@ -1837,7 +1849,7 @@ func renderWizTestIt(w *WizardState, width int) string {
 	var b strings.Builder
 	running := w.TestItRunning || anyCheckRunning(w.HealthChecks)
 	if running {
-				// Show all four granular checks with live status.
+		// Show all four granular checks with live status.
 		for i := 0; i < 4; i++ {
 			hc := w.HealthChecks[i]
 			name := hc.Kind.String()
@@ -1968,7 +1980,7 @@ func renderWizTestIt(w *WizardState, width int) string {
 // renderWizFinish renders P1 screen 4: Ready. One consolidated receipt
 // (provider/model + benchmark, rendered once), a ⚠ warning when the health
 // check was skipped, a try-this suggestion (pre-filled on Enter), and the
-// two slash-command pointers. No `feral chat/doctor/desktop` list — the
+// two slash-command pointers. No `cinderpaw chat/doctor/desktop` list — the
 // user is already inside the TUI.
 func renderWizFinish(w *WizardState, width int) string {
 	var b strings.Builder
@@ -2024,4 +2036,3 @@ func renderWizardFooter(w *WizardState) string {
 	}
 	return ui.FooterStyle.Render(hint)
 }
-

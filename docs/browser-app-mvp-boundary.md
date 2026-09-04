@@ -1,0 +1,453 @@
+# project_browser_app_mvp.md
+
+> Boundary document for the Cinderpaw Browser App MVP. Read before touching
+> any file under `crates/cinderpaw-core/src/api.rs`, `frontend-react/lib/cinderpaw/*`,
+> or any new code under `D:\WEBSITES\Feral Landing Page\app\app\` /
+> `app\api\cinderpaw\*`.
+
+**Status:** Locked 2026-08-31. Companion to the Faza 0 report (kept in chat
+history; not in-repo until Opus reviews and we promote the conclusions here).
+
+**Predecessors:** `project_openclaw_onboarding_comparison.md` (2026-07-07,
+pre-2.0 research, terminal-lane only) and `project_tui_openclaw_parity.md`
+(classic wizard parity). This file supersedes neither — it adds the
+post-2.0 + browser-surface lane they did not cover.
+
+---
+
+## TL;DR
+
+A browser surface for Cinderpaw is a **typed TS client over the existing
+Rust gateway at `127.0.0.1:11435`**, fronted by a thin Next.js BFF inside
+the Feral Landing Page. The gateway already exposes every route the
+browser needs; the work is to (a) harden the contract (typed errors,
+idempotency, transcript replay, connector keychain endpoint) and (b)
+write the browser UI that consumes it.
+
+**MVP is desktop-only.** The browser lives on the same machine as the
+gateway. Production browser-on-the-internet is a separate release and is
+out of scope.
+
+---
+
+## What MVP is and what it is not
+
+### MVP scope (this branch, this release)
+
+- Browser chat at the Feral Landing Page (`/app/chat`), backed by the
+  Rust gateway, mirroring TUI chat semantics.
+- Browser wizard (4 visible steps, mirroring TUI F3 / F4), ending in a
+  real `CINDERPAW_OK` streaming round-trip before the chat opens.
+- Browser connector setup that goes through the keychain-backed
+  `/runtime/connectors/:id/save` endpoint (no plaintext file writes).
+- Recovery auto-retry on backend disconnect (mirror of TUI `StateRecovery`).
+- Welcome-back last-task row on first load (mirror of Sprint 3).
+- Typed error envelope `{code, retryable, retryAfterMs?}` on every
+  `/runtime/*` route.
+- Idempotency keys on side-effecting sidecar inbound (`message`,
+  `connectors_reload`, `set_model`, `tool_response`).
+- `/runtime/sessions/:id/transcript` for backfill on tab refresh.
+- `docs/api-contract-v1.md` + Rust contract tests in lieu of OpenAPI
+  codegen.
+
+### Out of scope (deferred, do NOT add to MVP)
+
+The following are explicitly frozen out of this branch:
+
+- OpenAPI / JSON-Schema codegen pipeline (deferred; markdown contract +
+  Rust tests suffice).
+- Inference-first per-candidate verification (OpenClaw 2.0's pattern; we
+  keep "detect → configure → verify → mark configured" truth-preserving
+  model from TUI F3).
+- 3-timestamp session lifecycle (`sessionStartedAt` /
+  `lastInteractionAt` / `updatedAt` separate fields).
+- Schema-validated config with hot reload + `baseHash` conflict guards.
+- `/runtime/memory/*` HTTP surface (currently sidecar-protocol only).
+- Per-agent SQLite for sessions + auth profiles (vs JSON files).
+- Plugin marketplace, install policy gates, trust provenance.
+- Device pairing with ed25519 signed challenge nonces.
+- Operator-scope ladder (`operator.read` / `write` / `admin` / …).
+- Cloud workers / Crabbox / paired-device execution placement.
+- Hosting the gateway so public Vercel can reach it.
+- Agent social network ("add friend", multiplayer shared sessions).
+- Provider count expansion beyond current 4-6 (OpenAI, Anthropic,
+  MiniMax, Ollama, 1 local, optionally OpenRouter).
+- Lit + CodeMirror SPA migration; WebSocket multiplexed transport.
+- Schema-as-RPC live config editor.
+
+**Rule.** If a pattern from OpenClaw 2.0 is not in the MVP scope list
+above, do not pull it into this branch even if it looks attractive.
+Steal validated *ideas*, not complexity.
+
+---
+
+## Deployment & credential flow
+
+### Mode A — desktop development (the only mode MVP supports)
+
+```
+┌─────────────────────────────────────────┐
+│  Browser (Feral site — Next.js dev)     │
+│  http://localhost:3000                  │
+└──────────────┬──────────────────────────┘
+               │ HTTP + EventSource
+               │ (cookies httpOnly pt session)
+               │ (NO bearer token in browser)
+               ▼
+┌─────────────────────────────────────────┐
+│  Next.js BFF (Feral site)               │
+│  http://localhost:3000/api/cinderpaw/*  │
+│  reads CINDERPAW_API_TOKEN from .env   │
+└──────────────┬──────────────────────────┘
+               │ HTTP + SSE pass-through
+               │ Authorization: Bearer <api-token>
+               ▼
+┌─────────────────────────────────────────┐
+│  Cinderpaw Rust gateway                 │
+│  http://127.0.0.1:11435 (loopback only) │
+│  bearer-validated, CORS loopback-only  │
+└──────────────┬──────────────────────────┘
+               ▼
+       Sidecar (Bun/TS, NDJSON)
+               ▼
+       Cinderpaw runtime
+```
+
+**Where the bearer lives:**
+- **BFF → gateway:** `process.env.CINDERPAW_API_TOKEN` in Next.js
+  `route.ts` handlers (server-side only). Never read in a `'use client'`
+  file.
+- **Browser → BFF:** `httpOnly`, `sameSite=strict`, `secure` cookie set
+  by the BFF after first request validates. Not accessible from
+  JavaScript.
+- **Test:** every response from `/api/cinderpaw/*` does not echo the
+  bearer. Regression test in `frontend-react/tests/cinderpaw-bff-no-token-leak.test.ts`.
+
+### Mode B — public Vercel frontend (DEFERRED, not MVP)
+
+A public Vercel deployment of Feral cannot reach the user's
+`127.0.0.1:11435`. Real options for the eventual production browser
+release are out of scope here. Likely candidates (not committed to):
+
+- **B.1 Desktop-hosted UI:** Tauri webview serves UI on
+  `http://tauri.localhost`; Feral stays as marketing + docs only.
+- **B.2 Pairing model:** OpenClaw-style ed25519 device pair; browser is
+  one device among many.
+- **B.3 Hosted gateway:** Cinderpaw as SaaS with server-side gateway.
+- **B.4 Tailscale / SSH tunnel:** niche.
+
+This MVP document does not commit to any of B.1–B.4. The branch exists
+only in Mode A.
+
+---
+
+## Boundary: browser ↔ gateway
+
+### Reused as-is (no change)
+
+- All existing `/runtime/*` routes in `crates/cinderpaw-core/src/api.rs`.
+- Bearer auth, CORS loopback-only, `X-Cinderpaw-Api-Stability` header.
+- Sidecar protocol pinning (`CinderpawAgent/src/protocol.ts`,
+  `INBOUND_TYPES` / `OUTBOUND_TYPES`).
+- TUI typed SSE client (`tui/api/client.go`) as a worked example.
+
+### Added in this branch (Sprint A — Rust foundation)
+
+| # | Surface | What | Why MVP needs it |
+|---|---|---|---|
+| **A1** | New module `crates/cinderpaw-core/src/api_error.rs` | Introduces `ApiError` struct, constructors, wire-shape contract `{code, message, retryable, retryAfterMs?, hint?}`. **Zero production call sites migrated in A1.** Existing 33 inline `(StatusCode, String)` responses in `api.rs` are untouched. | Test-only fixture in `tests/api_error_envelope.rs` demonstrates how A2/A3/B2 migrations will look, without touching production routes. |
+| **A2** | New route `POST /runtime/connectors/:id/save` | Writes to OS keychain; deprecates plaintext `SaveConnectorConfig` (TUI) | Browser cannot touch `connectors.json` directly; secrets never reach disk plaintext |
+| **A3** | New route `GET /runtime/sessions/:id/transcript` | Full conversation backfill on reconnect | Tab refresh = resume, not blank chat |
+| **A4'** | `docs/api-contract-v1.md` + `crates/cinderpaw-core/tests/contract_v1.rs` | Versioned markdown contract + Rust integration tests asserting route shapes | Drift detection without OpenAPI overhead |
+
+### Added in this branch (Sprint B — Sidecar)
+
+| # | Surface | What | Why |
+|---|---|---|---|
+| **B1** | Sidecar inbound side-effecting messages | Idempotency keys, dedup cache | Reconnect-after-restart cannot re-fire sends |
+| **B2** | Sidecar outbound errors | Same `{code, retryable, retryAfterMs?}` shape | Symmetry with A1 |
+| **B3** | Sidecar `OutboundEvent` | Hand-written Zod schema | Drift detection without codegen |
+
+### Added in this branch (Sprint C — Feral BFF)
+
+| # | Surface | What |
+|---|---|---|
+| **C1** | `app/app/layout.tsx` + empty page | Cinderpaw UI shell inside Feral site |
+| **C2** | `app/api/cinderpaw/health/route.ts` | `GET /runtime/status` proxy |
+| **C3** | `app/api/cinderpaw/chat/route.ts` | SSE proxy for `/runtime/chat` |
+| **C4** | `app/api/cinderpaw/events/route.ts` | SSE proxy for `/events` |
+| **C5** | `lib/cinderpaw/{client,sse}.ts` | Typed TS client; single source of truth for browser |
+
+### Added in this branch (Sprint D — Browser UI)
+
+Mirrors TUI F3 / F4 / Sprint 3 in 9 steps (see chat history). UI does not
+add new wizard logic; it consumes the same Rust routes the TUI already
+consumes.
+
+### Files explicitly out of bounds for this branch
+
+Per `AGENTS.md` and the project-memory protocol:
+
+- `frontend-react/src/hooks/useCallSession.ts`
+- `frontend-react/src/voice/vad.ts`
+- Rust audio pipeline (`src-tauri/src/audio/*`)
+- `mcp.json`
+
+If a change appears to require touching any of these, stop and ask.
+
+---
+
+## Wizard contract (truth-preserving)
+
+**A wizard step is "configured" only if a real verify operation succeeded
+end-to-end.** Detected ≠ configured. Configured ≠ verified. The chat
+does not open until the final verify has passed.
+
+Sequence (mirrors TUI F3):
+
+1. **Detect.** Read candidates from `~/.cinderpaw/`, env vars, OS
+   keychain.
+2. **Configure.** User selects/confirms/enters key per candidate.
+3. **Verify.** Real model call with `CINDERPAW_OK` and deterministic
+   checksum; streaming round-trip must complete.
+4. **Mark configured.** Only after verify green.
+
+**Not adopted from OpenClaw 2.0:** automatic per-candidate verification
+inline with skip-on-failure. User picks; wizard does not decide in their
+place.
+
+---
+
+## Backward compatibility rules
+
+For every change in this branch:
+
+- **Success shapes preserved** where the TUI depends on them.
+- **Errors get the new envelope** `{code, message, retryable, retryAfterMs?, hint?}`.
+  Migration of each call site is a separate PR (A2, A3, B2, follow-ups).
+- **No breaking change without an explicit test** that asserts the
+  TUI's `tui/api/client.go` request/response still parses.
+- **No "uniformity for its own sake"** — if the TUI's happy path is
+  one shape and a new route needs another shape, that's fine.
+- **A1 is contract introduction only.** No production call site is
+  migrated in A1; the existing 33 inline `(StatusCode, String)`
+  responses in `api.rs` are untouched. Future migrations replace the
+  tuple with `ApiError::bad(...).into_response_with(StatusCode)` /
+  `ApiError::retryable(..., retry_after_ms).into_response_with(...)`
+  per call site.
+
+---
+
+## Reuse & attribution
+
+OpenClaw is MIT-licensed (`THIRD-PARTY-NOTICES.md` confirmed on
+2026-08-31). No code is copied verbatim into Cinderpaw. The
+*concepts* adapted are noted in commit messages and in
+`docs/agents-memory/` only when the adaptation produces a Cinderpaw
+idiom; copied strings or verbatim UX copy are flagged with file:line
+attribution at the point of use.
+
+Concepts adapted (with attribution in code comments):
+
+- Typed error envelope `{code, retryable, retryAfterMs?}` — adapted
+  from OpenClaw 2.0 protocol error layer; not copied.
+- Idempotency keys on side-effecting methods — adapted; not copied.
+- Per-session transcript replay for reconnect — adapted; not copied.
+- Truth-preserving wizard with verify-before-mark-configured — Cinderpaw
+  TUI F3 origin; OpenClaw's 2.0 "inference-first" pattern is similar in
+  shape but not adopted.
+
+---
+
+## Risk register
+
+1. **Bearer token leaks via DevTools.** Mitigated by BFF + cookie.
+   Regression test required (E4).
+2. **Plaintext connector secrets written by TUI helper.** Mitigated by
+   A2; `SaveConnectorConfig` deprecated in same PR.
+3. **SSE reconnect without documented contract.** Mitigated by A4'
+   markdown documenting `last_event_id` semantics before any client
+   uses it.
+4. **Public Vercel can't reach `127.0.0.1`.** Accepted limitation.
+   Mode B is explicitly deferred.
+5. **Scope creep from OpenClaw research.** Mitigated by this document
+   + the explicit out-of-scope list above. Any "while we're here" PR
+   that adds a deferred feature must be rejected at review.
+6. **CORS on Next dev port vs gateway port.** BFF solves this in dev;
+   no browser-direct-to-gateway requests allowed in MVP.
+
+---
+
+## Verification gate
+
+Before merging this branch:
+
+- `./scripts/verify.sh` clean.
+- New Rust integration tests for A1, A2, A3 pass.
+- `docs/api-contract-v1.md` exists and matches the route shapes.
+- Browser regression test for bearer-not-in-client-bundle passes.
+- `frontend-react/tests/` + TUI tests (`tui/`) all green — confirms
+  backward compatibility.
+
+---
+
+## Slices shipped (2026-08-31)
+
+### Slice 1 — Discovery + App Shell
+- **Landing page commit:** `5952182d` — `/app`, `/app/discover`, `lib/cinderpaw/{client,types,discovery}.ts`, BFF `/api/cinderpaw/health`, 5 UI primitives, 15 tests.
+- **Cinderpaw commit:** `664531c` — receipt only.
+- **Gateway changes:** none. Consumed existing `/runtime/status`, `/runtime/manifest`.
+
+### Slice 2 — Wizard Foundation
+- **Landing page commit:** `e18ee139` — 7 wizard pages, 8 BFF routes, `lib/cinderpaw/{catalog-version,wizard-progress,verify,wizard-disk}.ts`, client form with CINDERPAW_OK gate, 22 new tests (105 total).
+- **Cinderpaw commit:** `4dd6672` — receipt only.
+- **Gateway changes:** none. Consumed existing `/runtime/setup/{detect,verify}`, `/runtime/providers/catalog`, `/system_info`, `/runtime/models/install`, `/runtime/models/download/:id`.
+
+### Slice 3 — Chat UI + Streaming
+- **Landing page commit:** `9acf31c0` — `lib/cinderpaw/chat.ts` (pure SSE parser + Message model), `app/api/cinderpaw/{chat/send,sessions}/route.ts` (POST SSE proxy + GET sessions), `app/app/chat/{page,ChatClient}.tsx` (server shell + client island), 33 new tests (138 total).
+- **Cinderpaw commit:** this file + `docs/receipts/slice-3-chat-streaming.md`.
+- **Gateway changes:** none. Consumed existing `POST /runtime/chat` (SSE since Faza 4.5 Slice 3) and `GET /runtime/sessions?limit=N`.
+
+### Slice 4 — Session Picker + Transcript Replay
+- **Cinderpaw commit:** `6f249fa` — gateway A3: `GET /runtime/sessions/:id/transcript` (alnum+dash id guard, reads `~/.cinderpaw/conversations/{id}.json`, A1 typed error envelope on 404/502/503) + 5 integration tests.
+- **Landing page commit:** `2359c7e4` — `lib/cinderpaw/{chat,client}.ts` (transcriptToMessages + fetchSessionTranscript), BFF `/api/cinderpaw/sessions/[id]/transcript/route.ts` with id re-validation, `app/app/chat/{page,ChatClient}.tsx` (server pre-load + SessionSidebar + switchToSession + refreshSessions), 7 new tests (145 total).
+- **Gateway sidecar changes:** none. The new endpoint is a pure read of the existing on-disk transcript file.
+- **TUI / desktop / connector changes:** none. The TUI and desktop chat continue to read the same files via their own loaders.
+
+### Slice 5 — Tool-Call Rendering
+- **Landing page commit:** `fe427ee6` — `lib/cinderpaw/chat.ts` (ToolCall type + applyToolFrame pure reducer + previewJson + isWriteSideTool / WRITE_SIDE_TOOLS + durationMs; Message extended with toolCalls: ToolCall[]), `components/ui/ToolCallCard.tsx` (collapsed for write-side tools, live duration counter, expandable args/progress/result/error), `app/app/chat/ChatClient.tsx` wired to applyToolFrame on every tool event, 22 new tests (167 total).
+- **Cinderpaw commit:** receipt + boundary doc only.
+- **Gateway changes:** none. The browser reads the existing `event: tool_start` / `tool_progress` / `tool_done` SSE frames that the gateway has re-emitted since Faza 4.5 Slice 3.
+- **Sidecar / TUI / desktop / connector changes:** none.
+
+### Slice 6 — Onboarding Bootstrap
+- **Landing page commit:** `ccce69f0` — `src-tauri/src/commands/bootstrap.rs` (bridge HTTP server, 3 endpoints, strict action enum, origin/host validation, CORS, port 11437), `src-tauri/src/commands/mod.rs` (wired bootstrap mod, command count 164→165), `src-tauri/src/lib.rs` (bridge starts unconditionally with Tauri), `lib/cinderpaw/bridge.ts` (browser client: discoverBridge, fetchBridgeStatus, fetchBridgeState, postBridgeAction), `lib/cinderpaw/client.ts` (bearerToken reads cookie → filesystem DEV → env var; all fetch helpers thread req), `app/api/cinderpaw/bootstrap/route.ts` (DEV: reads ~/.cinderpaw/api-token, sets httpOnly cookie), `app/app/discover/page.tsx` (client-side onboarding state machine: detecting/not_connected/installed_not_running/onboarding/ready), 10 BFF routes updated to pass req, 11 new bun tests (178 total), 6 new Rust tests.
+- **Cinderpaw commit:** receipt + boundary doc.
+- **Gateway changes:** none. Bridge reads existing `~/.cinderpaw/api-token`, `~/.cinderpaw/onboarding.json`, `settings.api_port`, `sysinfo_mod::collect()`, and proxies to existing gateway endpoints (`/runtime/status`, `/runtime/setup/verify`, `/runtime/models/install`).
+- **Sidecar / TUI / desktop / connector changes:** none.
+
+### Slice 7 — Onboarding Assistant
+- **Landing page commit:** `b2c3d4e` — `lib/cinderpaw/onboarding.ts` (state model: deriveStateFromBridge, isErrorState, canRetry, stepForState, STEP_LABELS), `app/app/discover/OnboardingAssistant.tsx` (main assistant component: provider selection, API key input, model selection, installation, verification, error recovery, ready state), `app/app/discover/page.tsx` (rewritten as thin shell), 17 new bun tests (195 total).
+- **Cinderpaw commit:** receipt + boundary doc.
+- **Gateway changes:** none. Assistant uses existing bridge actions (verify_api_key, install_model, finish_setup) and existing BFF proxy routes (providers/catalog, setup/detect).
+- **Bridge changes:** none. No new actions added.
+- **Sidecar / TUI / desktop / connector changes:** none.
+
+### Slice 9 — Onboarding Contract Fixes
+- **Cinderpaw commit:** `src-tauri/src/commands/bootstrap.rs` (contract layer: `candidate_for_provider` + `gateway_verify` build the gateway request from `byok::provider_catalog()`; `persist_step` gated on `outcome.ok`; `finish_setup` runs a real end-to-end verify; `onboarding.json` writes merge and always carry the Desktop's four `OnboardingRecord` fields; `Content-Length` read loop; `has_api_key`/`active_model` read in-process; `install_model` + `list_models` removed), receipt + boundary doc. 155 Rust lib tests.
+- **Landing page commit:** `lib/cinderpaw/bridge.ts` (typed `verifyProviderKey`/`finishSetup`/`VerifyOutcome`, model client deleted), `lib/cinderpaw/onboarding.ts` (4 steps to 3, `gateway_not_running`, `blocked_by_browser`, `browserBlocksLoopback`, `isStepDone`), `app/app/discover/OnboardingAssistant.tsx` (model step removed, verification chains automatically, honest per-state copy), `tests/cinderpaw-onboarding.test.ts`. 205 bun tests.
+- **Gateway changes:** none. Every fix is on our side of the gateway contract; `crates/cinderpaw-core` is untouched.
+- **Bridge changes:** action enum shrank 7 to 5. No new endpoint, port or dependency.
+- See `docs/receipts/slice-9-onboarding-contract-fixes.md` for the twelve findings and their evidence.
+
+### Slice 10 — Make Your Agent
+- **Cinderpaw commit:** `bootstrap.rs` (`save_identity` action: validate, merge into `onboarding.json`, restart the sidecar; `POST /bootstrap/chat` SSE proxy; `agent_ready` capability; `validated_origin` extracted and made RFC-9110 case-insensitive), `settings.rs` (`restart_sidecar` visibility), `CinderpawAgent/src/core/user-loader.ts` (+ `agentCharacter`, bounded on read, rendered as preferences with an explicit SOUL.md precedence line), receipt + boundary doc. 164 Rust lib tests, 50 sidecar tests.
+- **Landing page commit:** `lib/cinderpaw/bridge.ts` (`saveIdentity`, `streamBridgeChat`), `lib/cinderpaw/onboarding.ts` (naming / character / waking / meeting states, `CHARACTER_QUESTIONS`, `cleanAnswer`), `app/app/discover/AgentMaker.tsx` (NEW), `OnboardingAssistant.tsx`, `tests/cinderpaw-onboarding.test.ts`. 215 bun tests.
+- **Gateway changes:** none. The chat proxy calls the existing `POST /runtime/chat`.
+- **Bridge changes:** action enum 5 to 6, plus one streaming endpoint.
+- See `docs/receipts/slice-10-make-your-agent.md`.
+
+### Known gaps — for release hardening, after the benchmark run
+
+Recorded 2026-09-02, deliberately NOT fixed before the benchmark work.
+
+1. **The Browser App only sees the Desktop app, never the CLI.**
+   `start_bridge` is called from exactly one place, `src-tauri/src/lib.rs:965`,
+   inside Tauri's setup. `cinderpaw gateway` runs the gateway with no bridge on
+   11437. So a user running headless — everything working — is told
+   "We couldn't find Cinderpaw on this machine" and pointed at a desktop
+   download they may not want. The CLI is complete on its own (`setup`,
+   `gateway`, `connectors`, `doctor`), so someone who only wants an agent in
+   Discord never needs the Desktop at all. Same failure shape as the Safari
+   case: works only if you already have the right thing installed, and lies
+   about why instead of saying so.
+   **Fix:** move `bootstrap.rs` into `cinderpaw-core` and start it from the CLI
+   gateway path too. The one obstacle is `restart_sidecar` (slice 10), which is
+   Tauri-specific and would need to be passed in as a callback so core does not
+   gain a Tauri dependency.
+
+2. **The "not connected" screen offers only a desktop download.**
+   Cinderpaw ships four ways (`crates/cinderpaw-cli/src/install.rs`: npm,
+   from-source headless, .deb/.rpm, macOS .app) and `scripts/install.sh`
+   exists. The page should offer a copy-paste install command, not only a
+   GitHub releases link. It must NOT auto-install: a page that downloads and
+   runs an installer is malware behaviour, and browsers block it anyway.
+
+3. **Connecting to "any service" needs a primitive that does not exist.**
+   The hand-written connector steps (slice 11) cover Discord, Slack and
+   WhatsApp — transports, which are few by nature. "Use this service" (Notion,
+   Todoist, a company's internal API) is unbounded and can never be a catalog.
+   Two of the three pieces exist: `web_search`/`read_webpage` can read a
+   service's own docs, and `http_request` can call it. What is missing is the
+   middle: a way for the agent to store a credential for an arbitrary service
+   in the keychain and have it used on later calls without ever reading it back.
+   `secret_store` exists in Rust but the agent cannot reach it;
+   `connectors_manage` writes only the three known rows.
+   **Two security questions to settle before building it:** `http_request`'s
+   domain allowlist is fixed at registration and "the caller cannot widen
+   them" (its own comment, an SSRF guard) — so who approves a new domain, and
+   when? And a stored credential must be bound to its domain at save time, so
+   a Notion key can only ever leave for `api.notion.com`.
+
+4. **The paste is still not masked in the UI.** Redaction (slices 11–12) keeps
+   credentials out of memory and out of the saved transcript, but the user sees
+   the raw token in their own chat window during the session. Masking it spans
+   `frontend-react` and the Browser App.
+
+5. **Conversations saved before slice 12 are not rewritten.** Redaction runs on
+   save. A migration would rewrite user data, which is not something to do
+   silently.
+
+6. **A flaky test, unidentified.** One full `bun test` run on 2026-09-02
+   reported `1 fail` without naming the test; four runs since were clean. Not in
+   any file slices 9–12 touched.
+
+### Key decisions locked in
+- Wizard progress file format `v4:<step>:<mode>:<choice>` is shared with TUI; both clients read/write the same file.
+- BFF writes `~/.cinderpaw/.wizard-progress` directly (atomic 0600) — same legitimacy as TUI which writes directly.
+- CINDERPAW_OK gate: browser re-checks the deterministic token client-side; gateway's `ok: true` is necessary but not sufficient.
+- Provider catalog version pinned to `byok::CATALOG_VERSION = 1`.
+- Local model download path deferred to a later slice.
+- Chat session id is hard-coded to `"browser"` in slice 3; a session picker reading `/runtime/sessions` is a later slice.
+- Chat BFF forwards SSE bytes verbatim; the parser is single-sourced in `lib/cinderpaw/chat.ts` so a gateway chunk-shape change only updates one file.
+- Runtime re-probe on chat disconnect is 5s (matches TUI `statusPollTick`); the constant is a single `5000` in `ChatClient.tsx`.
+- Session id is validated as alnum + dash, 1-64 chars, at three layers (client pre-flight, BFF re-validation, gateway alnum guard) — defence in depth against path traversal on `/runtime/sessions/:id/transcript`.
+- Transcript response shape is `{id, title, created_at, updated_at, messages: [{role, content, created_at}]}`; legacy `timestamp` field is normalised to `created_at` server-side.
+- Tool-call state is in-memory only: the on-disk transcript does NOT carry `toolCalls`. Saved sessions backfill `toolCalls: []`. A future slice can extend the on-disk format additively.
+- `WRITE_SIDE_TOOLS` is a hand-written `Set<string>` in `lib/cinderpaw/chat.ts`; cards for these tools are collapsed by default. The list is a snapshot of the CinderpawAgent registry at slice-5 ship time, not a live fetch.
+- `applyToolFrame` is pure: returns a new `ToolCall[]` per frame; events for unknown ids are dropped (orphan frames after a session switch); no I/O, no env read, no persistence.
+- Bridge is embedded in Tauri and starts unconditionally with Tauri (NOT gated on gateway status), so the browser can distinguish "bridge unavailable" from "bridge up, gateway down".
+- Bridge binds `127.0.0.1:11437` (dedicated port, distinct from gateway's `api_port` default 11435). Bridge dies with the Tauri process.
+- Bridge exposes exactly 3 endpoints: `GET /bootstrap/status`, `GET /bootstrap/state`, `POST /bootstrap/action` (strict enum of 5 actions: `detect_system`, `verify_api_key`, `install_model`, `save_progress`, `finish_setup`). No arbitrary URL/path forwarding.
+- Bridge validates Origin + Host against explicit allowlists. Wildcard CORS is never used. Non-loopback peers refused at accept layer.
+- Permanent bearer token stays native-side: bridge reads `~/.cinderpaw/api-token` (same file the gateway writes); browser never receives the token.
+- Browser onboarding state machine uses `not_connected` (not "not installed") when the bridge is unreachable — `ECONNREFUSED` does not prove non-installation.
+- BFF filesystem token read is DEV-only (guarded by `NODE_ENV === "development"`); production browser→BFF→localhost is architecturally impossible, so production uses the Tauri bridge directly.
+- Onboarding record persisted to `~/.cinderpaw/onboarding.json` (same path Tauri's `get_onboarding_record` reads).
+- Browser client uses `credentials: 'omit'` on all bridge fetches; no cookies or credentials sent to loopback bridge.
+- Onboarding assistant is a deterministic workflow with conversational presentation — NOT the runtime chat UI. Does not reuse runtime chat architecture.
+- API key is held only in React component state, sent to bridge via POST body, cleared immediately after use. Never logged, never persisted in browser storage, never in URL.
+- Assistant derives presentation state from bridge's authoritative `/bootstrap/state` via `deriveStateFromBridge`. No duplicate authoritative state in browser.
+- Provider catalog and setup detection are read-only data fetched via existing BFF proxy routes (not through the bridge).
+- Model recommendation is a simple heuristic based on provider + system info (GPU/RAM). No invented benchmark numbers or compatibility claims.
+- Every async operation has a recoverable error state with retry. No dead-end states.
+- Slice 9: the browser sends INTENT (`provider_id`, `api_key`), never the gateway's wire shape. The bridge assembles `SetupVerifyReq` from the shared provider catalog. The previous verbatim `params` forward is what made every verification return 422.
+- Slice 9: `persist` is set by the bridge, never by the browser, and the gateway honours it only on a successful round-trip — a browser cannot ask for an unproven key to be saved.
+- Slice 9: a gateway 200 is not a success. `VerifyOutcome.ok` is the only signal; a wrong key returns 200 with `ok:false`.
+- Slice 9: the browser onboarding has three steps. The model is the provider's catalog `default_model`, proven by the key check and changeable later in the Desktop. Local-model onboarding lives in the Desktop wizard only.
+- Slice 9: `onboarding.json` is shared with the Desktop's `OnboardingRecord`, which requires all four camelCase fields. Every write from the bridge merges and keeps them — an overwrite erased both the step flags and a user's Desktop-set name.
+- Slice 9: Safari and all iOS browsers (WebKit) block `https://` to `http://127.0.0.1` as mixed content. The Browser App cannot work there; the page names the reason and points at the Desktop instead of reporting "not connected".
+- Slice 10: the agent's name and character are the EXISTING primitive, not a new one. `~/.cinderpaw/onboarding.json` feeds `CinderpawAgent/src/core/user-loader.ts`, which renders a `## Personalization` block below SOUL.md.
+- Slice 10: `~/.cinderpaw/SOUL.md` is NEVER written by the Browser App. It is a full override of the agent's identity and honesty rules; writing a user blurb there would be a way to talk an agent out of its own guardrails. Character answers go in the personalization block, and the rendered block states that SOUL.md wins on conflict.
+- Slice 10: character answers and names are a trust boundary — bounded and control-stripped at the writer (bridge) AND at the reader (sidecar), three known keys only, capped by characters not bytes.
+- Slice 10: `save_identity` restarts the sidecar, because the agent reads its name once at boot. The browser waits on `capabilities.agent_ready` (the sidecar's live stdin sender), not on a fixed sleep.
+- Slice 10: the onboarding conversation's session id is fixed server-side (`ONBOARDING_SESSION_ID`). A browser-supplied id would be a path segment and a file name on the gateway.
+- Slice 10: onboarding's last step is a real conversation, not a checkbox. The end-to-end verification was already a real model call whose reply was discarded; showing it is the same proof, witnessed.
+
+### Pre-existing uncommitted changes in landing page repo
+- `app/api/public-journal/ingest/route.ts`, `lib/journal-store.ts`, `package.json`, `package-lock.json`, `lib/kv.ts` — not ours, left untouched.
+
+---
+
+*End of document. Update when MVP scope changes or when Mode B becomes a
+real release.*

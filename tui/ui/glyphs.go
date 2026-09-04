@@ -49,10 +49,14 @@ var Ascii = GlyphSet{
 	Spinner: []string{"|", "/", "-", "\\"},
 }
 
-// pickWith selects Ascii when FERAL_ASCII=1, TERM=dumb, or the locale isn't
-// UTF-8 — env is injected so tests don't need to mutate process env.
+// pickWith selects Ascii when CINDERPAW_ASCII=1, TERM=dumb, or the locale
+// isn't UTF-8 — env is injected so tests don't need to mutate process env.
+//
+// FERAL_ASCII is the old name and still works: someone who put it in a shell
+// profile before the rename is exactly the person who needs ASCII glyphs, and
+// silently dropping back to Unicode fills their terminal with boxes.
 func pickWith(env func(string) string) GlyphSet {
-	if env("FERAL_ASCII") == "1" {
+	if env("CINDERPAW_ASCII") == "1" || env("FERAL_ASCII") == "1" {
 		return Ascii
 	}
 	if env("TERM") == "dumb" {

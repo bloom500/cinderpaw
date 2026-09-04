@@ -16,15 +16,15 @@
 //! see [`security`]:
 //!
 //!   * **Opt-in.** The agent-facing `control_app` tool is only registered when
-//!     `FERAL_ENABLE_DESKTOP_CONTROL=true` (mirrors `shell_exec`). The Tauri
+//!     `CINDERPAW_ENABLE_DESKTOP_CONTROL=true` (mirrors `shell_exec`). The Tauri
 //!     commands themselves additionally refuse to run unless the same flag is
 //!     set, so the React UI can't reach them by accident either.
 //!   * **Hard denylist.** Security-sensitive targets can NEVER be driven,
-//!     regardless of any allowlist: Feral itself (no self-manipulation /
+//!     regardless of any allowlist: Cinderpaw itself (no self-manipulation /
 //!     confused-deputy), the Windows UAC/consent + credential UIs, the OS
 //!     keychain, and well-known password managers. Reads and writes against
 //!     these are blocked.
-//!   * **Optional allowlist.** When `FERAL_DESKTOP_CONTROL_ALLOWED_APPS` is
+//!   * **Optional allowlist.** When `CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS` is
 //!     set (comma-separated process names), ONLY those apps may be driven.
 //!     Unset → every app except the denylist.
 //!   * **Secure-field redaction.** Password / secure-text fields are never
@@ -152,7 +152,10 @@ pub mod security {
     /// `consent.exe`, `Consent`, etc. all match. Keep this list conservative
     /// and additive — when in doubt, block.
     pub const HARD_DENY: &[&str] = &[
-        // Feral itself — no confused-deputy / self-manipulation.
+        // Cinderpaw itself — no confused-deputy / self-manipulation.
+        // "cinderpaw" is the current binary stem; "feral" stays so old
+        // builds on disk keep their guard too.
+        "cinderpaw",
         "feral",
         // Windows UAC / consent / credential surfaces.
         "consent",
@@ -188,10 +191,10 @@ pub mod security {
     ];
 
     /// Env var holding the optional comma-separated allowlist of process names.
-    pub const ALLOWLIST_ENV: &str = "FERAL_DESKTOP_CONTROL_ALLOWED_APPS";
+    pub const ALLOWLIST_ENV: &str = "CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS";
 
     /// Env flag that must be exactly "true" to enable desktop control at all.
-    pub const ENABLE_ENV: &str = "FERAL_ENABLE_DESKTOP_CONTROL";
+    pub const ENABLE_ENV: &str = "CINDERPAW_ENABLE_DESKTOP_CONTROL";
 
     /// True when desktop control is enabled for this process.
     pub fn is_enabled() -> bool {
@@ -223,7 +226,13 @@ pub mod security {
         if !allowlist.is_empty() {
             let permitted = allowlist.iter().any(|a| {
                 let a = norm(a);
-                !a.is_empty() && (n == a || n.contains(&a))
+                // Exact match only. `n.contains(&a)` meant allowlisting
+                // "notepad" silently also allowed "notepad-evil.exe" and
+                // "xxnotepad.exe" — an allowlist that grows entries the user
+                // never wrote. (The denylist above stays substring-based: there
+                // the loose match errs toward refusing, which is the safe way
+                // to be wrong.)
+                !a.is_empty() && n == a
             });
             if !permitted {
                 return Err(format!(
@@ -399,7 +408,7 @@ pub async fn send_keys(element_id: String, keys: String) -> Result<(), String> {
 /// Launch a desktop application by executable name or absolute path.
 ///
 /// Security: this is process creation, so it is tightly constrained —
-///   * desktop control must be enabled (`FERAL_ENABLE_DESKTOP_CONTROL`);
+///   * desktop control must be enabled (`CINDERPAW_ENABLE_DESKTOP_CONTROL`);
 ///   * `app` is treated as a SINGLE program token — never a shell command line.
 ///     Shell metacharacters are rejected and no arguments are forwarded, so
 ///     there is no command chaining / injection (unlike a real shell);
@@ -466,7 +475,7 @@ fn is_chromium_app(basename: &str) -> bool {
     CHROMIUM_STEMS.contains(&stem)
 }
 
-/// Spawn a GUI app detached from Feral. Cross-platform: `open -a` on macOS,
+/// Spawn a GUI app detached from Cinderpaw. Cross-platform: `open -a` on macOS,
 /// direct exec elsewhere (PATH-resolved). No shell, no agent-supplied arguments
 /// — the only flag ever added is the constant `--force-renderer-accessibility`
 /// for known Chromium/Electron apps (see [`is_chromium_app`]), which carries no
@@ -533,10 +542,10 @@ where
 // Sidecar bridge dispatch
 // ---------------------------------------------------------------------------
 
-/// Dispatch a `desktop_control_request` coming from the Feral Agent sidecar.
+/// Dispatch a `desktop_control_request` coming from the Cinderpaw Agent sidecar.
 /// `action` + `params` mirror the `control_app` tool's input. Returns a JSON
 /// value on success or an error string. This is the single entry point the
-/// `feral_agent` stdout reader calls, so all gating lives in the command
+/// `cinderpaw_agent` stdout reader calls, so all gating lives in the command
 /// wrappers above which this re-uses.
 pub async fn handle_request(
     action: &str,
@@ -708,9 +717,9 @@ mod tests {
     #[test]
     fn denylist_blocks_sensitive_apps_even_with_allowlist() {
         // An attacker-set allowlist must not be able to re-enable a denied app.
-        let allow = vec!["1password.exe".to_string(), "feral.exe".to_string()];
+        let allow = vec!["1password.exe".to_string(), "cinderpaw.exe".to_string()];
         assert!(security::check_app("1Password.exe", &allow).is_err());
-        assert!(security::check_app("feral.exe", &allow).is_err());
+        assert!(security::check_app("cinderpaw.exe", &allow).is_err());
         assert!(security::check_app("consent.exe", &[]).is_err());
         assert!(security::check_app("BitWarden.exe", &[]).is_err());
     }
