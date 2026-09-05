@@ -52,7 +52,7 @@ describe("HostToolBridge", () => {
     expect(ev.sessionId).toBe("s1");
 
     expect(bridge.resolve(ev.id, "booked")).toBe(true);
-    expect(await pending).toBe("booked");
+    expect(await pending).toEqual({ content: "booked" });
     expect(bridge.pendingCount).toBe(0);
   });
 
@@ -209,6 +209,26 @@ describe("loadHostTools", () => {
     expect(ev.sessionId).toBe("sess-9");
     bridge.resolve(ev.id, "Sofia Ahmed");
     expect(await running).toEqual({ ok: true, content: "Sofia Ahmed" });
+  });
+
+  test("images from the host ride back on the tool result", async () => {
+    // The point of the whole path: a host tool whose output is a picture (a
+    // scanned form, a screenshot) hands the pixels back, and they reach the
+    // model on the tool turn instead of being transcribed into prose first.
+    const events: OutboundEvent[] = [];
+    const bridge = new HostToolBridge((e) => events.push(e));
+    const path = writeDecl([{ name: "read_file", inputSchema: { type: "object" } }]);
+    const [tool] = loadHostTools(path, bridge);
+
+    const running = tool!.execute({ path: "/workspace/form.png" }, ctx("sess-img"));
+    const ev = events[0] as Extract<OutboundEvent, { type: "tool_request" }>;
+    const url = "data:image/png;base64,iVBORw0KGgo=";
+    bridge.resolve(ev.id, "form.png — image/png, 812 bytes", [url]);
+    expect(await running).toEqual({
+      ok: true,
+      content: "form.png — image/png, 812 bytes",
+      images: [url],
+    });
   });
 
   test("a host failure reaches the model as a readable tool failure", async () => {

@@ -1136,10 +1136,18 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           log(`tool_response: missing requestId — ignored`);
           break;
         }
+        // A host tool whose output is a picture (a screenshot, a scan) hands
+        // the pixels back here; they ride the tool turn so a vision model sees
+        // the image itself instead of the tool's description of it. Filtered to
+        // data URLs for the same reason the `message` path filters them: a bare
+        // file path or http URL would be silently dropped by every provider.
+        const toolImages = Array.isArray(msg.images)
+          ? msg.images.filter((i): i is string => typeof i === "string" && i.startsWith("data:image/"))
+          : undefined;
         const routed =
           typeof msg.error === "string"
             ? hostTools.fail(msg.requestId, msg.error)
-            : hostTools.resolve(msg.requestId, msg.content ?? "");
+            : hostTools.resolve(msg.requestId, msg.content ?? "", toolImages);
         // An unmatched id means the agent already gave up on that call (the
         // registry's own 60s timeout, or a stop). Silence here is how a host
         // ends up waiting forever on a conversation that already moved on.

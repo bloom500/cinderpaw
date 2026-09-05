@@ -27,6 +27,29 @@ const MAX_BYTES = 64 * 1024;
 const MAX_SLURP_BYTES = 8 * 1024 * 1024;
 
 /**
+ * Image files, by extension, and what MIME type to send them as.
+ *
+ * A PNG read as UTF-8 is mojibake with line numbers on it — the tool used to
+ * return exactly that, and the model would then try to recover the picture from
+ * the garbage. Every mainstream vision API accepts these four, so an image goes
+ * to the model as pixels instead.
+ */
+const IMAGE_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
+/**
+ * Largest image we will inline. Above this the providers reject the request
+ * anyway (5 MB is the common ceiling), and a refusal that names the size is
+ * something the agent can act on - resize it, or crop the part that matters.
+ */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/**
  * `cat -n` layout: right-aligned line number, tab, content.
  *
  * Measured, three clean live runs asked for the line counts of two files they
@@ -72,10 +95,12 @@ export function createReadFileTool(allowedPaths: string[]): Tool {
   const manifest: ToolManifest = {
     name: "read_file",
     description:
-      "Read the contents of a UTF-8 text file. Output starts with a header " +
+      "Read the contents of a file. A UTF-8 text file comes back as a header " +
       "giving the file's exact line count, then the lines prefixed `N<tab>` " +
       "like `cat -n`. Those prefixes are NOT part of the file: strip them " +
-      "before passing text to edit_file or write_file. " +
+      "before passing text to edit_file or write_file. An image file " +
+      "(.png/.jpg/.jpeg/.gif/.webp) comes back as the image itself, so read " +
+      "one instead of trying to decode its bytes. " +
       (allowedPaths.length > 0
         ? `Reads are allowed ONLY inside these directories: ${allowedPaths.join(", ")}. ` +
           "A path outside them is refused — never guess a directory; use one of these roots."
@@ -111,6 +136,33 @@ export function createReadFileTool(allowedPaths: string[]): Tool {
       const safePath = resolveAllowedPath(ctx.manifest, "fs:read", requested);
 
       const size = (await stat(safePath)).size;
+
+      // An image is returned as pixels, not as text. Whether the model can
+      // actually SEE them depends on the route it is on; a text-only model gets
+      // the note and nothing else, which is at least honest about what it has.
+      const dot = safePath.lastIndexOf(".");
+      const mediaType = dot >= 0 ? IMAGE_TYPES[safePath.slice(dot).toLowerCase()] : undefined;
+      if (mediaType) {
+        if (size > MAX_IMAGE_BYTES) {
+          return {
+            ok: false,
+            content:
+              `${safePath} is a ${mediaType} image of ${size} bytes, over the ` +
+              `${MAX_IMAGE_BYTES}-byte limit for an image. Resize or crop it ` +
+              `(e.g. with a shell command) and read the smaller file.`,
+            error: "too_large",
+          };
+        }
+        const bytes = await readFile(safePath);
+        noteRead(ctx.sessionId, safePath);
+        return {
+          ok: true,
+          content: `${safePath} — ${mediaType} image, ${size} bytes. It is attached below; describe what it shows before acting on it.`,
+          images: [`data:${mediaType};base64,${bytes.toString("base64")}`],
+          data: { path: safePath, bytes: size, mediaType },
+        };
+      }
+
       let buf: Buffer;
       let totalLines: number | null;
       if (size <= MAX_SLURP_BYTES) {

@@ -58,8 +58,20 @@ import type {
  */
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
+/**
+ * What the host handed back: its text, plus any images it looked at.
+ *
+ * Images are data URLs and reach the model as real pixels on the tool turn
+ * (see `ToolResult.images`). A host that returns none — every host until one
+ * has a picture to show — is unaffected.
+ */
+export interface HostToolAnswer {
+  content: string;
+  images?: string[];
+}
+
 interface Pending {
-  resolve: (content: string) => void;
+  resolve: (answer: HostToolAnswer) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   tool: string;
@@ -90,9 +102,9 @@ export class HostToolBridge {
     args: Record<string, unknown>,
     sessionId: string,
     signal?: AbortSignal,
-  ): Promise<string> {
+  ): Promise<HostToolAnswer> {
     const id = randomUUID();
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<HostToolAnswer>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pending.delete(id);
         reject(
@@ -133,12 +145,12 @@ export class HostToolBridge {
   }
 
   /** Host answered. Called by the transport on `tool_response`. */
-  resolve(id: string, content: string): boolean {
+  resolve(id: string, content: string, images?: string[]): boolean {
     const p = this.#pending.get(id);
     if (!p) return false;
     clearTimeout(p.timer);
     this.#pending.delete(id);
-    p.resolve(content);
+    p.resolve({ content, ...(images && images.length > 0 ? { images } : {}) });
     return true;
   }
 
@@ -224,8 +236,12 @@ export function loadHostTools(path: string, bridge: HostToolBridge): Tool[] {
       ctx: ToolContext,
     ): Promise<ToolResult> => {
       try {
-        const content = await bridge.call(def.name, args, ctx.sessionId, ctx.signal);
-        return { ok: true, content: content || "(no output)" };
+        const answer = await bridge.call(def.name, args, ctx.sessionId, ctx.signal);
+        return {
+          ok: true,
+          content: answer.content || "(no output)",
+          ...(answer.images ? { images: answer.images } : {}),
+        };
       } catch (err) {
         // The host's own failures reach the model as ordinary tool failures —
         // it can read them and try different arguments, which is the point.

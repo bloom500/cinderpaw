@@ -1927,7 +1927,7 @@ export class AgentLoop {
           ctx.emit({ type: "tool_done", id: messageId, tool: call.name, result, traceId, sessionId });
           if (result.error === "cancelled") ctx.stopped = true;
           const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
-          memory.addToolResult(call.name, rendered);
+          memory.addToolResult(call.name, rendered, result.images);
           const episodicContent = `${call.name}: ${rendered}`.slice(0, 400);
           const toolLeafId = this.#episodic.record(sessionId, "tool", episodicContent);
           if (toolLeafId !== null) {
@@ -1972,7 +1972,10 @@ export class AgentLoop {
         }
 
         const rendered = result.ok ? result.content : `ERROR: ${result.content}`;
-        memory.addToolResult(call.name, rendered);
+        // A tool that looked at a picture hands the pixels along with its text
+        // (ToolResult.images). Attached to the tool turn so a vision-capable
+        // model sees the image itself; text-only models ignore them.
+        memory.addToolResult(call.name, rendered, result.images);
 
         // Record any decision ask_user made on the user's behalf (autonomous
         // mode or a timeout auto-resolve), for the end-of-turn summary.

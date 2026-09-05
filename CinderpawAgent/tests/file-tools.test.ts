@@ -135,6 +135,48 @@ describe("read_file states the line count instead of leaving it to be guessed", 
       cleanup();
     }
   });
+
+  it("returns an image as pixels, not as mojibake with line numbers on it", async () => {
+    // A PNG decoded as UTF-8 is garbage, and the model would then try to
+    // recover the picture from the garbage. The bytes go back as a data URL so
+    // a vision route sees the image itself.
+    const f = join(tmp, "shot.png");
+    // Smallest real PNG: 1x1, so the assertion is about the path, not the file.
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    writeFileSync(f, png);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const r = await createReadFileTool([tmp]).execute({ path: f }, ctx);
+      expect(r.ok).toBe(true);
+      expect(r.images).toHaveLength(1);
+      expect(r.images![0]).toBe(`data:image/png;base64,${png.toString("base64")}`);
+      // The note beside it carries the facts a text-only model still gets.
+      expect(r.content).toContain("image/png");
+      expect(r.content).not.toContain("1\t");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("refuses an oversized image with the size in the message", async () => {
+    // Providers reject past ~5 MB anyway. A refusal that names the number is
+    // something the agent can act on: crop it, resize it, read the smaller one.
+    const f = join(tmp, "huge.jpg");
+    writeFileSync(f, Buffer.alloc(5 * 1024 * 1024 + 1));
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const r = await createReadFileTool([tmp]).execute({ path: f }, ctx);
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe("too_large");
+      expect(r.content).toContain(String(5 * 1024 * 1024 + 1));
+      expect(r.images).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("edit_file", () => {

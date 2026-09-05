@@ -331,6 +331,19 @@ export interface ToolResult {
   ok: boolean;
   /** Human/LLM-readable content describing the outcome. */
   content: string;
+  /**
+   * Images the tool looked at, as data URLs (`data:image/png;base64,...`).
+   *
+   * A tool whose output IS a picture — a screenshot, a scanned form, a photo
+   * of a spreadsheet — cannot say what it saw in text without transcribing it,
+   * and a transcription loses whatever the transcriber did not think mattered
+   * (a ticked box, a smudged digit). These ride along with `content` and are
+   * attached to the tool turn in the transcript, so a vision-capable model
+   * sees the pixels itself. Text-only models ignore them and still get
+   * `content`, which must therefore describe the image well enough to be
+   * useful on its own.
+   */
+  images?: string[];
   /** Optional structured data for programmatic consumers. */
   data?: unknown;
   error?: string;
@@ -1351,6 +1364,9 @@ export interface InboundMessage {
    * Image attachments as data URLs, forwarded by the host app alongside the
    * text content (type === "message"). Threaded into the user ChatMessage so
    * vision-capable models receive the actual pixels.
+   *
+   * Also valid on `tool_response`: a host tool that looked at a picture hands
+   * the pixels back next to its text, and they are attached to the tool turn.
    */
   images?: string[];
   /**

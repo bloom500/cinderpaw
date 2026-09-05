@@ -479,6 +479,41 @@ describe("WorkingMemory.maybeCompress — context-window safety", () => {
     expect(rendered).toContain("migrate the billing service to Postgres");
   });
 
+  test("stale images are dropped, the newest ones survive", async () => {
+    // An image is re-sent in full on every later turn and no text ceiling
+    // catches it: the note beside it is two lines long, so every size check
+    // passes and the pixels ride along forever. This is the only thing that
+    // drops them.
+    const mem = new WorkingMemory("sys");
+    const png = "data:image/png;base64," + "A".repeat(4_000);
+    for (let i = 0; i < 8; i++) {
+      mem.addUser(`step ${i}`);
+      mem.addToolResult(
+        "read_file",
+        `shot-${i}.png - image/png\n${"x".repeat(8_000)}`,
+        [png],
+      );
+    }
+    // Only just over budget, so the tool-result layer alone gets us back
+    // under and the summarizer never runs: what is left is what it dropped.
+    const before = mem.estimatedTokens();
+    let summarizerCalls = 0;
+    await mem.maybeCompress(
+      (msgs) => { summarizerCalls++; return summarize(msgs); },
+      before - 1_000,
+    );
+    expect(summarizerCalls).toBe(0);
+
+    const tools = mem.turns.filter((m) => m.role === "tool");
+    for (const m of tools.slice(-4)) expect(m.images).toEqual([png]);
+    for (const m of tools.slice(0, -4)) {
+      expect(m.images).toBeUndefined();
+      // The note stays: the model can still see what it looked at, and
+      // re-read the file if it needs the pixels again.
+      expect(m.content).toContain("image/png");
+    }
+  });
+
   test("stale tool results are trimmed; recent ones stay verbatim", async () => {
     const mem = new WorkingMemory("sys");
     for (let i = 0; i < 8; i++) {

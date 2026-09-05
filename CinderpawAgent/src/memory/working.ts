@@ -269,8 +269,13 @@ export class WorkingMemory {
     this.add({ role, content, replayed: true });
   }
 
-  addToolResult(toolName: string, content: string): void {
-    this.add({ role: "tool", name: toolName, content });
+  addToolResult(toolName: string, content: string, images?: string[]): void {
+    this.add({
+      role: "tool",
+      name: toolName,
+      content,
+      ...(images && images.length > 0 ? { images } : {}),
+    });
   }
 
   /** Current non-system turns. */
@@ -825,6 +830,12 @@ export class WorkingMemory {
       if (msg.role !== "tool") continue;
       // The freshest results are what the current reasoning step is built on.
       if (++seen <= TOOL_RESULT_KEEP_RECENT) continue;
+      // An image is re-sent in full on every later turn and no text ceiling
+      // catches it: the note beside it is a couple of lines long, so the checks
+      // below all pass and the pixels stay forever. Drop the stale ones here —
+      // this method only runs when the transcript is already over budget, the
+      // model has seen them, and `content` still says what was looked at.
+      if (msg.images) this.#messages[i] = { ...msg, images: undefined };
       // Cheap guards before paying for real BPE tokenization on every turn:
       // one token is at least one character, so anything under the ceiling in
       // CHARS is certainly under it in tokens.
@@ -832,7 +843,7 @@ export class WorkingMemory {
       if (msg.content.endsWith(TRIMMED_MARK)) continue;
       if (countTokens(msg.content) <= TOOL_RESULT_MAX_TOKENS) continue;
       this.#messages[i] = {
-        ...msg,
+        ...this.#messages[i]!,
         content: `${truncateToBudget(msg.content, TOOL_RESULT_MAX_TOKENS)}\n${TRIMMED_MARK}`,
       };
     }
