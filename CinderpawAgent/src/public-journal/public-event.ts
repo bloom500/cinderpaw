@@ -29,6 +29,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { NAME_WORDS } from "./name-words.ts";
 import type { ExperimentLayer, JournalEntry } from "../rsi/infra/journal.ts";
 
 /** Bump only on incompatible changes. The landing-page validator pins this. */
@@ -259,85 +260,41 @@ export function assertPublicSafe(event: unknown, label = "event"): void {
 /* ------------------------------------------------- names, not hashes */
 
 /**
- * The vocabulary a candidate can be named from.
- *
- * Real words, because generated ones were not readable. The first attempt built
- * names from syllables — no list at all, genuinely arbitrary — and produced
- * "Moareathousk" and "Broagleatio": invented, unsayable, and no easier to keep
- * in your head than the hash they replaced. A word is real because it is in a
- * dictionary and for no other reason, so real words need a dictionary; this is
- * it. What stays arbitrary is which one a given candidate draws.
- *
- * Everyday concrete nouns, nothing technical, and nothing that reads as a
- * verdict — a candidate called "failure" would be read as its own result.
- *
- * 250 of them. Two candidates can draw the same word across a long
- * journal, which is why `candidateRef` stays in the payload beside the name.
- */
-const CANDIDATE_WORDS = [
-  "anchor", "anvil", "apple", "apron", "arbor", "arrow", "attic",
-  "autumn", "bakery", "balcony", "bamboo", "banner", "barley", "basket",
-  "beacon", "beetle", "bellows", "bench", "berry", "bicycle", "blanket",
-  "blossom", "bobbin", "bonfire", "bookcase", "bottle", "boulder", "bracket",
-  "bramble", "brass", "bridge", "bucket", "bundle", "burrow", "button",
-  "cabin", "cactus", "candle", "canoe", "canvas", "canyon", "cargo",
-  "carpet", "cavern", "cedar", "cellar", "chimney", "cinder", "cistern",
-  "clover", "cobble", "compass", "copper", "coral", "cottage", "cradle",
-  "crane", "crater", "crayon", "crescent", "cricket", "crystal", "cupboard",
-  "curtain", "cushion", "daisy", "dawn", "delta", "desert", "dial",
-  "diary", "dolphin", "domino", "drawer", "driftwood", "dune", "dusk",
-  "eagle", "ember", "engine", "envelope", "fabric", "falcon", "fennel",
-  "ferry", "fiddle", "flagon", "flannel", "flint", "forest", "fountain",
-  "freckle", "furnace", "garden", "garnet", "gazebo", "glacier", "glider",
-  "granite", "grotto", "gutter", "hammock", "harbor", "harvest", "hazel",
-  "hearth", "hedge", "heron", "hollow", "island", "ivory", "jacket",
-  "jasmine", "kettle", "keystone", "kitchen", "lagoon", "lantern", "lattice",
-  "ledger", "lemon", "library", "lichen", "lighthouse", "lilac", "linen",
-  "lobster", "locket", "lumber", "magnet", "mailbox", "mallet", "mantel",
-  "maple", "marble", "marigold", "marsh", "meadow", "melon", "meteor",
-  "mirror", "mitten", "mosaic", "moss", "mustard", "nectar", "needle",
-  "nutmeg", "oasis", "orchard", "organ", "otter", "oyster", "paddle",
-  "pantry", "parcel", "parlor", "pasture", "pebble", "pelican", "pepper",
-  "pewter", "pillar", "pinecone", "plateau", "plover", "pocket", "pollen",
-  "poppy", "porch", "pottery", "prairie", "pumpkin", "quarry", "quilt",
-  "rafter", "railing", "rattle", "raven", "reef", "ribbon", "ridge",
-  "river", "rooster", "rosemary", "rudder", "saddle", "saffron", "sailboat",
-  "sandbar", "sapling", "satchel", "saucer", "sawmill", "scarf", "seagull",
-  "seashell", "shovel", "shutter", "signal", "silver", "skillet", "slate",
-  "sleigh", "sparrow", "spindle", "spruce", "stable", "stairway", "starling",
-  "steeple", "stirrup", "sugar", "sunflower", "swallow", "sycamore", "tackle",
-  "tangerine", "teapot", "thicket", "thimble", "thistle", "thrush", "thunder",
-  "timber", "tinder", "toaster", "torch", "trellis", "trolley", "trumpet",
-  "tulip", "tunnel", "turnip", "umbrella", "valley", "vanilla", "velvet",
-  "vineyard", "violet", "walnut", "wagon", "walrus", "watermill", "whistle",
-  "willow", "window", "windmill", "wren", "yarn",
-] as const;
-
-/**
  * The word for a candidate, drawn from its public ref.
+ *
+ * The public journal used to identify a candidate only by `candidateRef`, a
+ * twelve-character hash. Correct and unreadable: nobody can hold it in their
+ * head, repeat it to someone, or recognise it two screens later, so "which one
+ * got promoted" was not a question the page could answer.
+ *
+ * The vocabulary is BIP-39's (see name-words.ts) — a published standard for
+ * words a person can read back without ambiguity — rather than a list chosen
+ * by whoever wrote this. An earlier version generated names from syllables
+ * instead, which needed no list at all and produced "Moareathousk": invented,
+ * unsayable, and no better than the hash.
  *
  * Drawn from the HASH, never from the candidate id. `candidateId` is
  * attacker-influenceable in L3/L4 — a code candidate can be named after a file
- * — which is why it is hashed before anything is published. A function of the
- * hash can leak nothing the hash does not already, and this one keeps about
- * eight of its forty-eight bits.
+ * — which is why it is hashed before anything is published at all. A function
+ * of the hash can leak nothing the hash does not already, and this one keeps
+ * about eleven of its forty-eight bits.
  *
- * Deterministic, so the same candidate keeps the same word across restarts and
- * re-exports. A word rolled at export time would rename history on every
+ * Deterministic, so a candidate keeps its name across restarts and
+ * re-exports. A name rolled at export time would rename history on every
  * republish: the candidate a reader remembers being promoted becomes a
  * different word overnight. The name belongs to the candidate, not to the
  * moment it was printed.
  */
 export function candidateWord(ref: string): string {
   // xorshift32 over the ref rather than a plain modulo: the low hex digits of
-  // a truncated SHA-256 are fine, but mixing first means neighbouring refs do
-  // not land on neighbouring words.
+  // a truncated SHA-256 are fine on their own, but mixing first keeps
+  // neighbouring refs from landing on neighbouring words.
   let x = Number.parseInt(ref.slice(0, 8), 16);
   if (!Number.isFinite(x) || x === 0) x = 1;
   x ^= x << 13;
   x ^= x >>> 17;
   x ^= x << 5;
-  const word = CANDIDATE_WORDS[Math.abs(x) % CANDIDATE_WORDS.length]!;
+  const word = NAME_WORDS[Math.abs(x) % NAME_WORDS.length]!;
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
