@@ -29,6 +29,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -87,6 +88,30 @@ fn read_machine_id() -> Option<String> {
 
 fn file_path() -> PathBuf {
     crate::paths::cinderpaw_dir().join(FILE_NAME)
+}
+
+/// Serialises the whole read-modify-write below.
+///
+/// Every writer here loads the entire map, changes one key and writes the
+/// entire map back. Two of them running at once each save a map that never
+/// saw the other's change: the second rename wins and the first secret is
+/// gone, while `set` returned Ok to whoever asked for it. Nothing tells the
+/// user their credential was dropped.
+///
+/// ponytail: a Mutex, so it holds within one process — which is where the
+/// concurrency is (an API that saves two connectors at once, a startup
+/// migration beside a save). Two Cinderpaw processes sharing one home would
+/// still race; that needs a lock file, and nothing shares a home today.
+static STORE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Take [`STORE_LOCK`], ignoring poisoning.
+///
+/// A writer that panicked mid-map leaves the lock poisoned, and the map on
+/// disk is whatever the last completed rename put there — never half a file.
+/// Refusing every later write because of that would turn one panic into a
+/// secret store that never works again.
+fn lock_store() -> std::sync::MutexGuard<'static, ()> {
+    STORE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Loads the in-memory map from disk. A missing or unparseable file is
@@ -151,6 +176,7 @@ fn decrypt(encoded: &str) -> Option<String> {
 /// I/O or serialisation failure — encryption failure means the OS RNG
 /// refused, which is unrecoverable.
 pub fn file_set(provider_id: &str, key: &str) -> anyhow::Result<()> {
+    let _guard = lock_store();
     let mut store = load_store();
     store.insert(provider_id.to_string(), encrypt(key.as_bytes())?);
     save_store(&store)
@@ -166,6 +192,7 @@ pub fn file_get(provider_id: &str) -> Option<String> {
 /// Remove a provider key. A missing entry is success (matches
 /// `keyring::Error::NoEntry` semantics upstream).
 pub fn file_clear(provider_id: &str) -> anyhow::Result<()> {
+    let _guard = lock_store();
     let mut store = load_store();
     store.remove(provider_id);
     save_store(&store)

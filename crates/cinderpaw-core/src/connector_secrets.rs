@@ -179,27 +179,44 @@ mod tests {
         assert_eq!(read("connector:matrix"), None);
     }
 
+    /// Both round-trip tests write through a real backend, and on Linux with
+    /// no Secret Service that backend is a file under `CINDERPAW_HOME`. That
+    /// variable is process-global and other tests in this same binary point it
+    /// at a temp dir and back, so an unguarded test here writes to one home and
+    /// deletes from another: `forget` clears nothing and the value is still
+    /// there on the next read. That is how this failed on Linux CI, with
+    /// `Some("s3cret")` where `None` was expected — a swapped home, not a
+    /// broken vault. Taking the same lock every home-touching test takes fixes
+    /// it, and keeps the developer's real `~/.cinderpaw` out of the run.
+    fn with_temp_home<R>(f: impl FnOnce() -> R) -> R {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_| f())
+    }
+
     #[test]
     fn put_and_read_with_colon_in_ids() {
-        if put("test:conn", "TEST:TOKEN", "s3cret").is_err() {
-            eprintln!("no secret backend available; skipping");
-            return;
-        }
-        let r = secret_ref("test:conn", "TEST:TOKEN");
-        assert_eq!(read(&r).as_deref(), Some("s3cret"));
-        forget("test:conn", "TEST:TOKEN").expect("forget");
-        assert_eq!(read(&r), None);
+        with_temp_home(|| {
+            if put("test:conn", "TEST:TOKEN", "s3cret").is_err() {
+                eprintln!("no secret backend available; skipping");
+                return;
+            }
+            let r = secret_ref("test:conn", "TEST:TOKEN");
+            assert_eq!(read(&r).as_deref(), Some("s3cret"));
+            forget("test:conn", "TEST:TOKEN").expect("forget");
+            assert_eq!(read(&r), None);
+        });
     }
 
     #[test]
     fn a_ref_from_put_reads_back_the_value() {
-        if put("test-conn", "TEST_TOKEN", "s3cret").is_err() {
-            eprintln!("no secret backend available; skipping");
-            return;
-        }
-        let r = secret_ref("test-conn", "TEST_TOKEN");
-        assert_eq!(read(&r).as_deref(), Some("s3cret"));
-        forget("test-conn", "TEST_TOKEN").expect("forget");
-        assert_eq!(read(&r), None);
+        with_temp_home(|| {
+            if put("test-conn", "TEST_TOKEN", "s3cret").is_err() {
+                eprintln!("no secret backend available; skipping");
+                return;
+            }
+            let r = secret_ref("test-conn", "TEST_TOKEN");
+            assert_eq!(read(&r).as_deref(), Some("s3cret"));
+            forget("test-conn", "TEST_TOKEN").expect("forget");
+            assert_eq!(read(&r), None);
+        });
     }
 }

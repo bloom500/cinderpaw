@@ -152,15 +152,22 @@ mod tests {
     /// teaches people to ignore red.
     #[test]
     fn set_then_get_returns_the_value() {
-        let service = "ai.bloom.cinderpaw.test";
-        let entry = "secret-store-roundtrip";
-        if set(service, entry, "hunter2").is_err() {
-            eprintln!("no secret backend available; skipping");
-            return;
-        }
-        assert_eq!(get(service, entry).as_deref(), Some("hunter2"));
-        clear(service, entry).expect("clear");
-        assert_eq!(get(service, entry), None);
+        // Inside the shared home lock for the same reason the connector-secret
+        // tests are: on Linux the backend here is a file under CINDERPAW_HOME,
+        // and another test in this binary can point that somewhere else between
+        // this test's write and its read. This one happened to pass; it was one
+        // thread schedule away from the failure its neighbour hit.
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_| {
+            let service = "ai.bloom.cinderpaw.test";
+            let entry = "secret-store-roundtrip";
+            if set(service, entry, "hunter2").is_err() {
+                eprintln!("no secret backend available; skipping");
+                return;
+            }
+            assert_eq!(get(service, entry).as_deref(), Some("hunter2"));
+            clear(service, entry).expect("clear");
+            assert_eq!(get(service, entry), None);
+        });
     }
 
     /// Pins the fix for a review finding: a file-store clear failure must
