@@ -1,9 +1,13 @@
 //! Append-only, hash-chained audit log for `SandboxBounds` mutations.
 //!
-//! INVARIANT I9 — this file is the audit pillar for SandboxBounds
+//! INVARIANT I9 AUDIT — this file is the audit pillar for SandboxBounds
 //! agent-immutability: every bounds mutation lands here before the JSON is
 //! written, and `verify()` is what makes a tampered bounds file detectable
 //! rather than merely discouraged.
+//!
+//! INVARIANT I7 AUDIT — the scorer formula lives inside `SandboxBounds`
+//! (`bounds.scorer.weights`), so a change to what "better" means is a bounds
+//! mutation and lands in this same chain, with the changed fields named.
 //!
 //! Mirrors the design of the sidecar's `audit-log.ts`: each row carries
 //! `prev_hash` (the previous row's `entry_hash`) and

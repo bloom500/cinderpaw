@@ -128,7 +128,12 @@ export class PendingPatchStore {
     return p ? structuredClone(p) : undefined;
   }
 
-  /** pending → approved/rejected. Anything else is a caller bug. */
+  /** pending → approved/rejected. Anything else is a caller bug.
+   *
+   *  INVARIANT I14 AUDIT: the verdict and its timestamp are persisted to the
+   *  patch store here, before any apply can read them. `applyPatchLive` refuses
+   *  a patch whose store row does not say "approved", so the record is what the
+   *  gate is checked against, not a side note about it. */
   resolve(id: string, action: "approve" | "reject"): PendingPatch {
     const p = this.#require(id);
     if (p.status !== "pending") {

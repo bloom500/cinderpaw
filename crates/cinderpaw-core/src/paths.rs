@@ -214,6 +214,15 @@ pub fn rsi_sandbox_bounds_audit_path() -> PathBuf {
     rsi_dir().join("sandbox_bounds_audit.log")
 }
 
+/// `~/.cinderpaw/rsi/ratchet_audit.log` — append-only hash-chained log of every
+/// ratchet attempt, advanced or refused. Same row format and same `verify()` as
+/// the bounds log, on its own chain: a ratchet row and a bounds row are
+/// different events and sharing one chain would let either one's rewrite break
+/// the other's history.
+pub fn rsi_ratchet_audit_path() -> PathBuf {
+    rsi_dir().join("ratchet_audit.log")
+}
+
 /// `~/.cinderpaw/rsi/PLAN.md` — versioned architectural plan. Read-only for the
 /// agent after bootstrap (writes require an out-of-band user confirmation).
 pub fn rsi_plan_path() -> PathBuf {

@@ -189,6 +189,10 @@ export function defaultJournalPath(date: Date = new Date()): string {
  *  is atomic-enough for a single-process writer. The engine emits one
  *  cycle at a time so there is no contention. */
 export function appendJournal(path: string, entry: JournalEntry): void {
+  // INVARIANT I3 AUDIT: the append-only trail for the Journal is this row plus
+  // its hash link. Every row is chained here (prevHash/hash, genesis per day
+  // file) and `verifyJournal` names the first break, so a deleted or edited row
+  // is detectable rather than merely discouraged.
   try {
     mkdirSync(dirname(path), { recursive: true });
     // Chain fields are writer-owned: recompute, never trust the caller.

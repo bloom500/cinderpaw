@@ -307,6 +307,7 @@ impl SandboxBounds {
             paths::rsi_dir(),
             paths::rsi_sandbox_bounds_path(),
             paths::rsi_sandbox_bounds_audit_path(),
+            paths::rsi_ratchet_audit_path(),
             paths::rsi_plan_path(),
             paths::rsi_genomes_dir(),
             paths::rsi_meta_dir(),
@@ -385,6 +386,10 @@ mod tests {
         });
     }
 
+    /// INVARIANT I9 TEST: a bounds mutation that does not land in the audit
+    /// chain is an undetectable bounds mutation, which is the whole of what I9
+    /// forbids. This fails if `save_with_audit` ever writes the JSON without
+    /// the row, or writes a row that does not name the field that changed.
     #[test]
     fn save_with_audit_records_changed_fields_only() {
         crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
@@ -409,6 +414,41 @@ mod tests {
             // Bootstrap row (scorer) + one changed-field row (max_total_cost_usd).
             assert_eq!(rows.len(), 2);
             assert_eq!(rows[1]["field"], "max_total_cost_usd");
+        });
+    }
+
+    /// INVARIANT I7 TEST: "the agent cannot redefine better" is, concretely,
+    /// "the agent cannot write the file the scorer weights live in". The
+    /// weights are `bounds.scorer.weights` inside `sandbox_bounds.json`, so
+    /// this asserts that file is refused by the protected-path check, and that
+    /// a weights change is recorded under the `scorer` field rather than
+    /// passing silently. Until now I7 had a runtime wall and no test at all.
+    #[test]
+    fn the_agent_cannot_redefine_what_better_means() {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
+            let bounds_path = crate::paths::rsi_sandbox_bounds_path();
+            std::fs::create_dir_all(bounds_path.parent().unwrap()).unwrap();
+            let bounds = SandboxBounds::default();
+            std::fs::write(&bounds_path, serde_json::to_string_pretty(&bounds).unwrap()).unwrap();
+
+            assert!(
+                bounds.is_protected_path(&bounds_path).unwrap(),
+                "the file holding the scorer weights must be refused to the agent"
+            );
+
+            let audit_path = crate::paths::rsi_sandbox_bounds_audit_path();
+            let audit = SandboxBoundsAudit::open(&audit_path).unwrap();
+            let mut heavier = bounds.clone();
+            heavier.scorer.weights.w_success += 1.0;
+            heavier
+                .save_with_audit(&audit, "test: someone moved the goalposts")
+                .unwrap();
+
+            let rows = std::fs::read_to_string(&audit_path).unwrap();
+            assert!(
+                rows.contains("scorer"),
+                "a change to what better means names the scorer field: {rows}"
+            );
         });
     }
 

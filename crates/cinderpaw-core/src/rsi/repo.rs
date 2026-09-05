@@ -31,7 +31,8 @@ use anyhow::{anyhow, Context, Result};
 use git2::{BranchType, Commit, DiffOptions, Oid, Repository, Signature};
 use serde::{Deserialize, Serialize};
 
-use crate::paths::rsi_dir;
+use crate::paths::{rsi_dir, rsi_ratchet_audit_path};
+use crate::rsi::audit::SandboxBoundsAudit;
 
 /// Subdirectory of the RSI repo where genome snapshots live. Must
 /// match `paths::rsi_genomes_dir()`; we re-declare it here so this
@@ -263,6 +264,11 @@ fn ensure_branch_exists(repo: &Repository, branch: &str) -> Result<()> {
 /// commit hash. The genome JSON is written to
 /// `genomes/<commit>.json` and the metadata is encoded into the
 /// commit message.
+///
+/// INVARIANT I12 AUDIT: the parent oids passed here become the commit's real
+/// parents, so the provenance record is the git DAG itself — libgit2 refuses a
+/// cycle at commit time and the hashes cannot be rewritten without rewriting
+/// every descendant.
 pub fn commit_genome(
     genome_id: &str,
     genome_json: &serde_json::Value,
@@ -330,11 +336,29 @@ pub fn commit_genome(
     Ok(commit_oid.to_string())
 }
 
+/// One row on the ratchet's own audit chain. `field` is always `main_tip`, so
+/// `last_values()` on this log answers "what did the ratchet last set main to".
+fn append_ratchet_audit(old_tip: Option<&str>, new_tip: &str, reason: &str) -> Result<()> {
+    let log = SandboxBoundsAudit::open(rsi_ratchet_audit_path())?;
+    log.append("main_tip", old_tip, new_tip, reason)?;
+    Ok(())
+}
+
 /// Attempt to advance `main` to `candidate_commit`. Succeeds only if
 /// the candidate's metadata score is strictly greater than the
 /// current `main` tip's score. Returns a `RatchetResult` describing
 /// the outcome (advanced or not, and the before/after tips).
+///
+/// INVARIANT I1 AUDIT, INVARIANT I2 AUDIT: every attempt, advanced or refused,
+/// appends one row to `ratchet_audit.log` with both scores and the Rust call
+/// site. An advance that cannot be recorded does not happen: the row is written
+/// BEFORE `main` moves, and a failure to write returns an error instead of
+/// moving the ref, the same fail-closed order `save_with_audit` uses for
+/// SandboxBounds. A refused attempt is logged best-effort, because nothing
+/// changed and losing the row costs a line of history, not a lie about state.
+#[track_caller]
 pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
+    let caller = std::panic::Location::caller();
     let repo = open()?;
     let candidate_oid =
         Oid::from_str(candidate_commit).with_context(|| format!("parse candidate oid '{}'", candidate_commit))?;
@@ -362,6 +386,20 @@ pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
     let advanced = candidate_score > prior_score_value;
 
     if !advanced {
+        // Best-effort: main did not move, so a lost row costs a line of history
+        // rather than an unrecorded change of state.
+        let _ = append_ratchet_audit(
+            previous_tip.as_deref(),
+            previous_tip.as_deref().unwrap_or("none"),
+            &format!(
+                "refused: candidate {candidate_score} is not greater than prior {} (called from {}:{})",
+                prior_score
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "none".into()),
+                caller.file(),
+                caller.line(),
+            ),
+        );
         // previous_tip is cloned into new_tip because the contract is
         // "no advance → main tip unchanged". Rust's move checker
         // refuses to use the same String twice without cloning.
@@ -373,6 +411,23 @@ pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
             prior_score,
         });
     }
+
+    // The row goes down before the ref moves. If the audit cannot be written,
+    // the advance is abandoned rather than made silently: `main` moving with no
+    // record of why is the one outcome I1 exists to forbid.
+    append_ratchet_audit(
+        previous_tip.as_deref(),
+        candidate_commit,
+        &format!(
+            "advanced: candidate {candidate_score} beats prior {} (called from {}:{})",
+            prior_score
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "none".into()),
+            caller.file(),
+            caller.line(),
+        ),
+    )
+    .context("ratchet refused to advance main because the audit row could not be written")?;
 
     // Fast-forward main. We do NOT merge — the ratchet is a strict
     // replacement of the tip with a strictly-higher-scoring commit.
@@ -855,6 +910,60 @@ mod tests {
             // does not create a duplicate genesis.
             let head2 = bootstrap().expect("second bootstrap is a no-op");
             assert_eq!(head, head2, "bootstrap is idempotent");
+        });
+    }
+
+    /// INVARIANT I1 TEST, INVARIANT I2 TEST: a ratchet that moves `main`
+    /// without leaving a row behind is exactly the unrecorded advancement both
+    /// invariants forbid, and until now nothing wrote one. Asserts both
+    /// outcomes land on the chain, that the chain verifies, and that the
+    /// refused attempt names both scores it compared.
+    #[test]
+    fn every_ratchet_attempt_lands_on_the_audit_chain() {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
+            let genesis = bootstrap().expect("bootstrap");
+            let meta = |score: f64| IterationMetadata {
+                score,
+                strategy: "audit-test".into(),
+                parent_lineage: vec![genesis.clone()],
+                mutation_type: "noop".into(),
+                cost_tokens: 0,
+                duration_ms: 0,
+            };
+            let better = commit_genome(
+                "gen-better",
+                &serde_json::json!({"id": "gen-better"}),
+                &[&genesis],
+                &meta(90.0),
+                "genome/gen-better",
+            )
+            .expect("commit better");
+            let worse = commit_genome(
+                "gen-worse",
+                &serde_json::json!({"id": "gen-worse"}),
+                &[&genesis],
+                &meta(1.0),
+                "genome/gen-worse",
+            )
+            .expect("commit worse");
+
+            assert!(ratchet_attempt(&better).expect("advance").advanced);
+            assert!(!ratchet_attempt(&worse).expect("refusal").advanced);
+
+            let log = SandboxBoundsAudit::open(rsi_ratchet_audit_path()).expect("open");
+            crate::rsi::audit::ensure_ok(&log.verify().expect("verify"))
+                .expect("the ratchet chain verifies");
+            let rows = std::fs::read_to_string(rsi_ratchet_audit_path()).expect("read");
+            let lines: Vec<&str> = rows.lines().filter(|l| !l.trim().is_empty()).collect();
+            assert_eq!(lines.len(), 2, "one row per attempt, advanced or not");
+            assert!(lines[0].contains("advanced:"), "the advance is named: {}", lines[0]);
+            assert!(lines[0].contains(&better), "the new tip is recorded");
+            assert!(lines[1].contains("refused:"), "the refusal is named: {}", lines[1]);
+            assert!(
+                lines[1].contains("90") && lines[1].contains('1'),
+                "the refusal names both scores it compared: {}",
+                lines[1]
+            );
         });
     }
 

@@ -217,6 +217,11 @@ function terminal(
   decided: JournalDecision,
 ): ContractState {
   const finalState: ContractState = { ...state, currentStage: at, decided };
+  // INVARIANT I5 AUDIT, INVARIANT I6 AUDIT, INVARIANT I15 AUDIT: this is the
+  // only exit from the contract, so the row written here is the audit record
+  // for all three — `budgetRemaining` (I5, with its unmeasured caps flagged as
+  // such), `result.confidence` (I6), and `decided.reason`, which is never empty
+  // even on a halt with no recorded decision (I15).
   deps.writeJournal(toJournalEntry(finalState));
   return finalState;
 }

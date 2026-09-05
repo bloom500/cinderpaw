@@ -61,6 +61,9 @@ interface PillarStatus {
   test: boolean;
   runtime: boolean;
   audit: boolean;
+  /** The doc's own "Verified By" block says an audit row makes no sense here
+   *  (a pure function has no side effect to record). Not a missing pillar. */
+  auditNotApplicable: boolean;
   testRef?: string;
   runtimeRef?: string;
   auditRef?: string;
@@ -121,10 +124,15 @@ function parseInvariants(): Invariant[] {
     const id = m[1]!;
     const name = m[2]!.trim();
 
-    // Find Status in next ~40 lines
+    // Find Status, and the doc's own Audit line, in the next ~40 lines
     let status = "UNKNOWN";
+    let auditNotApplicable = false;
     for (let j = i + 1; j < Math.min(i + 40, lines.length); j++) {
       const sLine = lines[j]!;
+      const aMatch = sLine.match(/^- Audit: (.+)$/);
+      if (aMatch && /^(not applicable|n\/a)/i.test(aMatch[1]!.trim())) {
+        auditNotApplicable = true;
+      }
       const sMatch = sLine.match(/^\*\*Status:\*\* (.+)$/);
       if (sMatch) {
         status = sMatch[1]!.trim();
@@ -142,6 +150,7 @@ function parseInvariants(): Invariant[] {
         test: false,
         runtime: false,
         audit: false,
+        auditNotApplicable,
       },
     });
   }
@@ -207,12 +216,27 @@ function scanForId(id: string): IdReferences {
       if (!re.test(content)) continue;
 
       const rel = relative(ROOT, file).split(sep).join("/");
-      if (TEST_PATTERN.test(file)) {
-        if (result.test === undefined) result.test = rel;
-      } else if (rel.includes("audit")) {
-        if (result.audit === undefined) result.audit = rel;
-      } else {
-        if (result.runtime === undefined) result.runtime = rel;
+      // One bucket per file was the second reason correct work could not turn
+      // this report green: Rust keeps its tests inline in the module it tests,
+      // and the code that writes the audit row is usually the code that
+      // enforces the invariant. A file can now carry more than one pillar.
+      // Rust keeps its tests inline in the module it tests, so the file that
+      // owns the invariant is often also the file that proves it. Naming the ID
+      // in the header is not that proof, though: an explicit marker on the test
+      // itself is what claims the pillar.
+      const testMarker = new RegExp(`\\bINVARIANT ${id} TEST\\b`);
+      const isTest = TEST_PATTERN.test(file) || testMarker.test(content);
+      if (isTest && result.test === undefined) result.test = rel;
+      if (!TEST_PATTERN.test(file) && result.runtime === undefined) result.runtime = rel;
+      // Audit used to be credited when the *path* contained "audit", which both
+      // over- and under-counted: an invariant whose trail lives elsewhere (I14
+      // in the patch store, I5/I6/I15 in the Journal) could never claim it,
+      // while any ID mentioned anywhere under audit.rs got it for free. The
+      // marker sits on the line that writes the row, so the claim is made where
+      // it can be checked.
+      const auditMarker = new RegExp(`\\bINVARIANT ${id} AUDIT\\b`);
+      if (auditMarker.test(content) && result.audit === undefined) {
+        result.audit = rel;
       }
     }
   }
@@ -226,18 +250,13 @@ function scanForId(id: string): IdReferences {
 function buildReport(invariants: Invariant[]): CoverageReport {
   const hard = invariants.filter((i) => i.klass === "HARD");
   const soft = invariants.filter((i) => i.klass === "SOFT");
-  const hardComplete = hard.filter((i) =>
+  const complete = (i: Invariant) =>
     i.pillars.documentation &&
     i.pillars.test &&
     i.pillars.runtime &&
-    i.pillars.audit,
-  );
-  const softComplete = soft.filter((i) =>
-    i.pillars.documentation &&
-    i.pillars.test &&
-    i.pillars.runtime &&
-    i.pillars.audit,
-  );
+    (i.pillars.audit || i.pillars.auditNotApplicable);
+  const hardComplete = hard.filter(complete);
+  const softComplete = soft.filter(complete);
   return {
     totalHard: hard.length,
     hardWithAllPillars: hardComplete.length,
@@ -272,7 +291,11 @@ function printHumanReport(report: CoverageReport, mode: "report" | "strict"): vo
       ["Audit", inv.pillars.audit],
     ] as const;
     const symbols = checks
-      .map(([name, ok]) => `${ok ? "✓" : "✗"} ${name}`)
+      .map(([name, ok]) =>
+        !ok && name === "Audit" && inv.pillars.auditNotApplicable
+          ? "— Audit n/a"
+          : `${ok ? "✓" : "✗"} ${name}`,
+      )
       .join("  ");
     console.log(`      ${symbols}`);
     if (inv.pillars.testRef) {
@@ -303,7 +326,7 @@ function printHumanReport(report: CoverageReport, mode: "report" | "strict"): vo
     console.log("✅ All HARD invariants have all 4 pillars.");
   } else if (mode === "strict") {
     console.log(
-      `❌ ${report.hardMissingPillars} HARD invariant(s) missing pillar(s). Add explicit // INVARIANT I[N] markers in tests / runtime / audit code.`,
+      `${report.hardMissingPillars} HARD invariant(s) missing pillar(s). Add explicit // INVARIANT I[N] markers in tests / runtime / audit code. Strict fails on the ACTIVE ones only — verdict below.`,
     );
   } else {
     console.log(
@@ -346,8 +369,32 @@ function main(): void {
     printHumanReport(report, mode);
   }
 
-  if (strict && report.hardMissingPillars > 0) {
-    process.exit(1);
+  // Strict guards what the doc calls ACTIVE. An invariant whose Status begins
+  // with PENDING is declared unfinished in `docs/invariants.md`, where a reader
+  // sees it — I13 waits on the per-instance split and cannot have an audit row
+  // until there is more than one instance to tell apart. Failing CI on it would
+  // mean a permanently red gate that no correct work can turn green, which is
+  // how a check gets ignored. Downgrading an ACTIVE invariant to PENDING to
+  // dodge this is a doc edit, in public, in the diff.
+  const blocking = invariants.filter(
+    (i) =>
+      i.klass === "HARD" &&
+      !i.status.startsWith("PENDING") &&
+      !(
+        i.pillars.documentation &&
+        i.pillars.test &&
+        i.pillars.runtime &&
+        (i.pillars.audit || i.pillars.auditNotApplicable)
+      ),
+  );
+  if (strict) {
+    if (blocking.length > 0) {
+      console.error(
+        `\n❌ strict: ${blocking.map((i) => i.id).join(", ")} — ACTIVE and missing a pillar.`,
+      );
+      process.exit(1);
+    }
+    console.log("\n✅ strict: every ACTIVE HARD invariant has all four pillars.");
   }
 }
 

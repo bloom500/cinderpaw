@@ -83,7 +83,11 @@ truth** for "main advances only on improvement".
   fixture tests)
 - Runtime Assert: Rust-side invariant; TS-side Confidence gate pre-check
   (`CinderpawAgent/src/rsi/confidence.ts`) before any `rsi_commit_genome`
-- Audit: every `RatchetAdvanced` event logged
+- Audit: `ratchet_attempt` appends one row per attempt to
+  `~/.cinderpaw/rsi/ratchet_audit.log` (same hash-chained format and same
+  `verify()` as the bounds log). On an advance the row is written **before**
+  `main` moves and a failed write refuses the advance, so a moved ref with no
+  record cannot exist.
 
 **Failure Mode:** HALT — a non-ratchet code path attempting to advance
 main is an invariant violation.
@@ -103,16 +107,23 @@ intervention.
 permitted to advance main, regardless of score.
 
 **Owner:**
-- TypeScript: `CinderpawAgent/src/rsi/ratchet-handler.ts`
-- Rust: `src-tauri/src/rsi/repo.rs::ratchet_attempt`
+- TypeScript: the deploy leaves — `src/rsi/infra/contract-leaves.ts` (L1) and
+  `src/rsi/l3-code/code-leaves.ts` (L3). `ratchet-handler.ts` owned this before
+  the contract FSM landed; the doc kept naming it for months after.
+- Rust: `crates/cinderpaw-core/src/rsi/repo.rs::ratchet_attempt`
 
 **Verified By:**
 - Documentation: this entry
-- Test: integration test that asserts no other module calls
-  `rsi_ratchet_attempt` (grep-based guard)
+- Test: `CinderpawAgent/tests/rsi-single-advancement-path.test.ts` — the
+  grep-based guard this line asked for, finally written. It pins both rings:
+  the modules that may put `rsi_ratchet_attempt` on the wire, and the modules
+  that may call the injected adapter.
 - Runtime Assert: Rust-side access control — `ratchet_attempt` is the
   only command in `commands.rs` that mutates the main ref
-- Audit: every ratchet attempt logged with caller context
+- Audit: the same `ratchet_audit.log` row, which names both compared scores
+  and the Rust call site (`#[track_caller]`). The TypeScript caller is not on
+  the wire, so the module-level rule is held by the guard test above rather
+  than by the row.
 
 **Failure Mode:** HALT.
 
@@ -141,9 +152,9 @@ allows modifying, deleting, or reordering existing entries.
   `deleteJournal` API exists; happy-path tests cover append-only)
 - Runtime Assert: `readJournal` THROWS on malformed JSON
   (`isJournalEntry` type guard rejects stale-schema rows)
-- Audit: hash chain discipline (TODO v2 — see `audit.rs:228-229` for
-  the pattern to mirror; chain marker `0x02` for cross-language
-  auditors)
+- Audit: `journal.ts::appendJournal` chains every appended row
+  (`prevHash`/`hash`, marker `0x02`) and `verifyJournal` names the first
+  broken row. The chain shipped; this line said TODO for a year after.
 
 **Failure Mode:** Corruption — a malformed row throws on read. The
 engine does NOT silently drop a corrupt row; the operator must
@@ -169,8 +180,8 @@ signal that the audit trail needs inspection.
 - Documentation: this entry
 - Test: `tests/rsi-journal.test.ts > readJournal > throws on malformed JSON`
 - Runtime Assert: `readJournal` propagates `JSON.parse` errors
-- Audit: journal reads are not themselves audited (read is idempotent);
-  the missing/corrupt row is its own signal
+- Audit: not applicable. A read has no side effect to record, and the
+  missing or corrupt row is its own signal.
 
 **Failure Mode:** Reading the journal fails loudly. Cycles that need
 the journal must handle the error (logged in the next cycle).
@@ -252,12 +263,17 @@ agent's side. The agent can ship better eval OUTCOMES but cannot
 redefine what "better" means.
 
 **Owner:**
-- Rust: `src-tauri/src/rsi/scorer.rs`
-- Audit: `src-tauri/src/rsi/sandbox_bounds.rs` (weights change → audit)
+- Rust: `crates/cinderpaw-core/src/rsi/scorer.rs`
+- Audit: `crates/cinderpaw-core/src/rsi/sandbox_bounds.rs` (the weights live in
+  `bounds.scorer`, so a weights change is a bounds mutation → audit row)
 
 **Verified By:**
 - Documentation: this entry + the scorer.rs module header
-- Test: `scorer.rs::tests` (determinism, edge cases)
+- Test: `scorer.rs::tests` (determinism, edge cases), plus
+  `sandbox_bounds.rs::the_agent_cannot_redefine_what_better_means` — the file
+  the weights live in is refused by the protected-path check, and a weights
+  change lands a row naming the `scorer` field. The determinism tests never
+  covered the immutability half; this one does.
 - Runtime Assert: scorer is compiled into the sidecar binary the agent
   has no filesystem write access to
 - Audit: every weights change → row in `sandbox_bounds.audit.log`
@@ -285,8 +301,8 @@ remove them.
 - Test: `tier0.rs::tests`
 - Runtime Assert: Tier 0 specs are loaded from a constant, not from
   the filesystem
-- Audit: any future change to Tier 0 would be an ADR + version bump
-  (the constant cannot be modified at runtime)
+- Audit: not applicable. Tier 0 is a compile-time constant, so a change is
+  an ADR and a version bump, not a row at runtime.
 
 **Failure Mode:** HALT — a missing Tier 0 check would fail the eval
 worker.
@@ -430,7 +446,9 @@ learned skills are not on run N+1's disk to be read.
 - Runtime Assert: `paths.rs::is_under` rejects paths outside the
   tenant root; `assertValidRunId` refuses a traversing run id before it
   can become a directory
-- Audit: every IO op logs the tenant id
+- Audit: **claimed, not implemented.** Nothing logs a tenant id. v1 gives
+  every tenant the same paths, so there is nothing to tell apart yet; this
+  pillar lands with the per-instance split, like the rest of I13.
 
 **Failure Mode:** HALT — a path outside the tenant root fails the
 containment check.
