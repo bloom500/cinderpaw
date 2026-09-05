@@ -351,3 +351,120 @@ in afara de o rulare locala — si o regresie care apare doar pe Linux/macOS, cu
 a fost asta, nu e prinsa de rularea locala. Ambele directii sunt oarbe.
 Adaugarea lui `windows-latest` acolo e o linie; costul e timp de runner. Decizie
 de proces, nu am luat-o singur.
+
+---
+
+# ADDENDUM 2 — matricea de CI, si a patra granita de paritate
+
+Din cele trei lucruri ramase, Darius a intrebat pe care il atac cu bugetul care
+mai era. Am ales unul si am refuzat doua, cu motive.
+
+## Ce am refuzat, si de ce
+
+**I5 (bugetul).** Nu e o datorie de reparat, e o functie nescrisa. Ca s-o
+inchizi trebuie construit un estimator per etapa — functionalitate noua, pe care
+brief-ul o interzice explicit intr-o trecere de hardening. Ramane declarat
+onest: `PENDING (consumer)` in doc, spus in trei locuri in cod, `unmeasured` in
+jurnal.
+
+**Cele ~50 de findings de frontend.** Au nevoie de mai mult buget decat mai
+era, cu aplicatia pornita, si sunt judecati vizuale. Le-as fi facut superficial
+exact pe cele care au fost amanate trei zile pentru ca sunt greu de facut bine.
+Mai bine neatinse decat atinse prost.
+
+## Ce am facut
+
+### `windows-latest` in matricea `check`
+
+Rula pe ubuntu si macos. Windows — platforma pe care `PROMISES.md` o numeste
+"the version we test most" — nu era in matrice, deci suita agentului si cea de
+frontend erau verificate acolo de nimic, in afara de cineva care isi aduce
+aminte sa le ruleze de mana.
+
+Ambele directii ale gaurii sunt reale si ambele s-au platit in aceeasi zi: o
+garda de preload pe care Bun 1.3.14 o accepta si Bun-ul `latest` al runnerelor
+o refuza a omorat toate cele 325 de fisiere de test pe ubuntu si macos, in timp
+ce acelasi commit trecea local pe Windows, unde CI-ul nu se uita. Oglinda — o
+regresie doar-pe-Windows care ajunge intr-un release — avea acelasi singur punct
+de esec si pur si simplu nu se declansase inca.
+
+Verificat local INAINTE de a plati timpul de runner, cu acelasi mediu pe care il
+seteaza pasul de Test:
+
+```
+windows  3748 pass  1 skip  1 todo  0 fail   (local, CINDERPAW_E2E=1 CINDERPAW_FMS_BENCH=1)
+macos    3748 pass                  0 fail   (CI)
+ubuntu   3744 pass                  0 fail   (CI)
+```
+
+**Corectie la Addendumul 1.** Acolo scrie ca "Windows trece cele mai PUTINE
+teste dintre cele trei (3735)". Gresit, si concluzia trasa din cifra era gresita
+cu ea. 3735 era artefactul rularilor mele locale fara cele doua porti
+(`CINDERPAW_E2E`, `CINDERPAW_FMS_BENCH`) pe care CI-ul le seteaza si eu nu.
+Cu acelasi mediu, Windows face 3748 — identic cu macOS. Ubuntu e cel cu 3744,
+si diferenta sunt exact testele mele de case-insensitivity, care se sar corect
+acolo. Nicio platforma nu ramane in urma.
+
+CI-ul de pe main dupa schimbare: **12 job-uri, toate verzi**, inclusiv cele doua
+noi (`windows-latest / cinderpaw-agent`, `windows-latest / frontend-react`).
+
+### A patra granita de paritate
+
+`cowork_event.eventType` e declarat de doua ori — de sidecar-ul care il emite
+(`CinderpawAgent/src/types.ts`) si de frontend-ul care il deseneaza
+(`frontend-react/src/lib/tauri/index.ts`) — in doua pachete care nu-si vad
+tipurile unul altuia. Nimic nu le tinea de acord.
+
+Driftul aici nu iese ca eroare de tip. `stores/coworkTranscript.ts` deriva
+statusul cu un lant ternar care enumera felurile `running`, apoi felurile
+`error`, si trateaza **tot restul ca `done`**; nici switch-ul reducer-ului n-are
+caz pentru unul necunoscut. Deci un fel de care frontend-ul n-a auzit se
+deseneaza ca **schimb INCHEIAT, fara text**. Un esec al unui coleg ar aparea pe
+ecran ca un succes al lui — exact clasa pe care `eebc4b5` a reparat-o ieri
+("three failures the panel showed as success"), venind pe alt drum.
+
+Cele doua uniuni sunt sincrone azi (10 si 10). Testul e ce le tine asa.
+Verificat adaugand `handoff_abandoned` in uniunea sidecar-ului si urmarindu-l sa
+pice cu fisierul de deschis in mesaj.
+
+**Al doilea test din fisier isi merita locul.** Primul parser pe care l-am scris
+se oprea la un `;` dinauntrul unui comentariu si citea 6 din cele 10 feluri.
+Doua multimi trunchiate se compara egal, deci testul de paritate ar fi trecut la
+nesfarsit pazind nimic. Self-check-ul l-a prins.
+
+A patra granita din repo care primeste tratamentul asta, dupa
+`protocol_drift.rs`, `secret-redaction-cases.json` si
+`rsi-code-patch-denylist-parity.test.ts`.
+
+Traieste in suita sidecar-ului, nu in cea de frontend: e un test de contract
+intre pachete, nu unul de UI, iar tsconfig-ul frontend-ului n-are tipuri de
+Node — l-as fi platit fie cu o dependenta noua, fie cu globale Node in cod de
+browser, ca sa verific un fisier pe care niciuna dintre parti nu-l deseneaza.
+
+## Ce am mai atacat si a tinut
+
+**Ciclul de viata al apelului voice.** `Session::drop` opreste ambii copii;
+ambele procese sunt pornite cu `kill_on_drop(true)`, deci o anulare la mijlocul
+boot-ului nu lasa copii orfani. `reap_orphan_server` verifica NUMELE procesului
+inainte sa semnaleze ceva, deci un pid reciclat nu duce la omorarea altui
+program de pe masina omului. `join_or_boot` recitasteste slotul sub poarta.
+N-am gasit nimic de reparat.
+
+Ramane, ne-reparat si ne-reprodus: worker-ul Node nu e inregistrat in pid file,
+deci un crash pe Windows il lasa in viata. Nu produce doua voci — serverul lui e
+mort — dar e o scurgere de proces per crash.
+
+## Starea la inchidere
+
+```
+main  6779c4c  CI success  —  12/12 job-uri verzi
+CinderpawAgent   3750 pass  0 fail   (327 fisiere)
+frontend-react    685 pass  0 fail   (80 fisiere)
+Rust              659 pass  0 fail
+TUI               toate pachetele ok
+ambele typecheck-uri curate
+```
+
+Verdictul ramane **CONDITIONAL**, si acum cu o singura conditie: cele ~50 de
+findings vizuale de frontend. Prima conditie (Linux nedovedit) a cazut ieri;
+gaura de CI care le ascundea pe amandoua s-a inchis azi.
