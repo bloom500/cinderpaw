@@ -1,19 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { CONFIG_SCHEMA } from "../src/config.ts";
 
 const SRC = join(import.meta.dir, "..", "src");
 
-function walkTsFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === "config.ts") continue; // the schema itself may reference names as strings
-    const p = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walkTsFiles(p));
-    else if (entry.name.endsWith(".ts")) out.push(p);
-  }
-  return out;
+// Every directory is listed concurrently and every file read concurrently.
+// This guard reads all 284 source files, which is 57ms of I/O on a warm disk
+// and seconds of waiting on a busy one - and it runs at the tail of a 3700-test
+// suite, where the disk is never idle. Sequential I/O waits are the whole cost:
+// overlapping them is what keeps this under the 5s test budget instead of
+// asking for a bigger budget.
+async function walkTsFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map(async (entry) => {
+      if (entry.name === "config.ts") return []; // the schema itself may reference names as strings
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) return walkTsFiles(p);
+      return entry.name.endsWith(".ts") ? [p] : [];
+    }),
+  );
+  return nested.flat();
 }
 
 // Grandfathered: vars read directly via process.env.CINDERPAW_* outside
@@ -96,13 +104,14 @@ const GRANDFATHERED = new Set<string>([
 ]);
 
 describe("config.ts", () => {
-  test("no new process.env.CINDERPAW_ reads outside config.ts and the grandfathered list", () => {
+  test("no new process.env.CINDERPAW_ reads outside config.ts and the grandfathered list", async () => {
+    const files = await walkTsFiles(SRC);
+    const texts = await Promise.all(files.map((f) => Bun.file(f).text()));
     const offenders: string[] = [];
-    for (const file of walkTsFiles(SRC)) {
-      const text = readFileSync(file, "utf8");
+    for (const [i, text] of texts.entries()) {
       const matches = text.matchAll(/process\.env\.(CINDERPAW_[A-Z_]*)/g);
       for (const m of matches) {
-        if (!GRANDFATHERED.has(m[1]!)) offenders.push(`${file}: ${m[1]}`);
+        if (!GRANDFATHERED.has(m[1]!)) offenders.push(`${files[i]}: ${m[1]}`);
       }
     }
     expect(offenders).toEqual([]);
