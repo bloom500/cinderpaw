@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Outlet } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Minus, Square, X } from 'lucide-react';
@@ -109,17 +110,28 @@ export function AppShell() {
         className="fixed top-0 inset-x-0 h-8"
       />
       {/* Window controls — fixed top-right, above EVERYTHING including
-          full-screen overlays and modals. These used to share z-40 with the
-          voice-call overlay and got buried by it, leaving a frameless window with
-          no way to minimize, maximize or close it. Window chrome is the one layer
-          a page must never be able to cover. */}
+          full-screen overlays and modals. Window chrome is the one layer a page
+          must never be able to cover.
+
+          Portalled to <body>, and raising the z-index is why that is necessary
+          rather than tidy. This band lives inside `.app-pane`, which has a
+          `backdrop-filter`, and inside `#root`, which sets `z-index: 1`. Both
+          open a stacking context, so `z-[200]` here is 200 WITHIN a layer whose
+          own value is 1 — and the call overlay is portalled to <body> at z-40,
+          outside all of it. 40 beats 1, whatever the number inside says. The
+          controls were raised from z-40 to z-200 once already to fix exactly
+          this, and could not have worked: the comparison was never between 200
+          and 40. Leaving the context is the only thing that does. */}
       {/* Download status rides in the same strip: it is transient application
           state, like the toasts below it, and the sidebar it used to live in
           hid it whenever the rail was collapsed. */}
-      <div className="fixed top-0 right-0 z-[200] flex items-center">
-        <DownloadStatus />
-        <WinControls />
-      </div>
+      {createPortal(
+        <div className="fixed top-0 right-0 z-[200] flex items-center">
+          <DownloadStatus />
+          <WinControls />
+        </div>,
+        document.body,
+      )}
       {searchOpen && <SearchOverlay />}
       {/* Notification layer — one column, top-right, tucked under the window
           controls (h-8 = 32px, so top-11 clears them with air to spare). Toasts
@@ -128,13 +140,17 @@ export function AppShell() {
           corner beneath it. They now stack together where the eye already goes.
           pointer-events-none so the empty column never swallows clicks meant
           for the page; each card re-enables them. */}
-      {/* z-[200], not z-[100]: the call overlay also sits at 100 and, being
-          portalled to <body> later in the DOM, painted over every toast — so the
-          errors that explain a failed call were invisible exactly when needed. */}
-      <div className="fixed top-11 right-4 z-[200] w-80 flex flex-col gap-2 pointer-events-none">
-        <UpdateToast />
-        <Toasts />
-      </div>
+      {/* Portalled for the same reason as the controls above: z-[200] inside
+          `#root`'s z-index-1 stacking context lost to the call overlay's z-40
+          outside it, so the errors that explain a failed call were invisible
+          exactly when they were needed. */}
+      {createPortal(
+        <div className="fixed top-11 right-4 z-[200] w-80 flex flex-col gap-2 pointer-events-none">
+          <UpdateToast />
+          <Toasts />
+        </div>,
+        document.body,
+      )}
       <SkillHubDrawer />
       <OnboardingOrchestrator />
     </div>
