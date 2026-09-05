@@ -66,6 +66,18 @@ fn classify(word: &str) -> Option<&'static str> {
     if let Some(rest) = word.strip_prefix("sk-") {
         return long_enough(rest, 20).then_some("api_key");
     }
+    // Groq and NVIDIA NIM. Not academic: `byok.rs` ships both as first-class
+    // providers and declares these exact prefixes as their `key_format`, so
+    // the connector flow asks the user to paste one into the chat — and the
+    // transcript kept it in plaintext, because this list stopped at the
+    // formats somebody happened to think of. `byok_key_formats_are_redacted`
+    // in the parity test pins the catalog to this function from now on.
+    if let Some(rest) = word.strip_prefix("gsk_") {
+        return long_enough(rest, 20).then_some("api_key");
+    }
+    if let Some(rest) = word.strip_prefix("nvapi-") {
+        return long_enough(rest, 20).then_some("api_key");
+    }
     // Google: AIza + exactly 35 more.
     if let Some(rest) = word.strip_prefix("AIza") {
         return (rest.chars().count() == 35 && rest.chars().all(is_token_char))

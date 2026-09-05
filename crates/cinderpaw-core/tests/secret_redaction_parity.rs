@@ -94,3 +94,37 @@ fn a_transcript_keeps_everything_except_the_secret() {
     // conversation rather than one long smear.
     assert_eq!(r.text.lines().count(), 3);
 }
+
+/// Every key prefix the BYOK catalog advertises must be one the redactor
+/// knows.
+///
+/// This is the rule the Groq and NVIDIA gap broke. `byok.rs` ships a provider,
+/// declares `key_format: Some("gsk_")`, and the setup flow tells the person to
+/// paste that key — into a chat whose transcript the Desktop writes to disk.
+/// The redactor's list, meanwhile, grew by whoever remembered. Two of the five
+/// declared prefixes were missing, so two providers' keys were saved in
+/// plaintext.
+///
+/// Pinning the catalog to the redactor means the day somebody adds a twelfth
+/// provider with a new prefix, this fails instead of the user's key leaking.
+#[test]
+fn byok_key_formats_are_redacted() {
+    for entry in cinderpaw_core::byok::provider_catalog() {
+        let Some(prefix) = entry.key_format.as_deref() else { continue };
+        // A plausible key of that shape: the prefix plus enough body that no
+        // minimum-length rule can be the reason it is skipped.
+        let sample = format!("{prefix}{}", "a".repeat(40));
+        let r = cinderpaw_core::secret_redact::redact_secrets(&sample);
+        assert_eq!(
+            r.redactions, 1,
+            "provider '{}' advertises key_format '{prefix}' but the redactor does not \
+             recognise it — a key of that shape is written to the transcript in plaintext",
+            entry.id
+        );
+        assert!(
+            !r.text.contains(&sample),
+            "provider '{}': the key survived redaction",
+            entry.id
+        );
+    }
+}
