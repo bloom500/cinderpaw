@@ -320,6 +320,19 @@ function printHumanReport(report: CoverageReport, mode: "report" | "strict"): vo
   console.log(
     `HARD missing pillars: ${report.hardMissingPillars}; SOFT missing: ${report.softMissingPillars}`,
   );
+  // What this number is, stated where the number is read. A pillar is credited
+  // when a file NAMES the invariant's id — that is all a grep can know. It
+  // cannot tell an enforcement from a comment about one, and the marker
+  // comments that turn a row green are written by hand. Read the score as
+  // "every invariant is labelled where it is meant to live", never as "every
+  // invariant is enforced". The second sentence is what a stranger reading a
+  // 93% would otherwise assume, and the pillars that matter most (I5's
+  // consumer, I13's per-tenant split) are exactly the ones a grep cannot see.
+  console.log("");
+  console.log(
+    "Coverage = the invariant's id appears in a file of that pillar's kind. It is a\n" +
+      "labelling check, not proof of enforcement: verify the code before trusting a ✓.",
+  );
   console.log("");
   console.log(`Mode: ${mode}`);
   if (report.hardMissingPillars === 0) {
