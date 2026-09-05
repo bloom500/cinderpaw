@@ -114,6 +114,14 @@ const SECRET_PATTERNS: SecretPattern[] = [
   // Anthropic before the generic `sk-`, so the more specific kind wins.
   { kind: "api_key", re: /\bsk-ant-[A-Za-z0-9_-]{20,}/g },
   { kind: "api_key", re: /\bsk-[A-Za-z0-9_-]{20,}/g },
+  // Groq and NVIDIA NIM. Not academic: `byok.rs` ships both as first-class
+  // providers, declares these exact prefixes as their `key_format`, and the
+  // connector flow asks the user to paste the key into the chat — which the
+  // Desktop then saved to disk in plaintext, because this list stopped at the
+  // formats somebody happened to think of. Every prefix the BYOK catalog
+  // declares belongs here; a test now asserts that.
+  { kind: "api_key", re: /\bgsk_[A-Za-z0-9_-]{20,}/g },
+  { kind: "api_key", re: /\bnvapi-[A-Za-z0-9_-]{20,}/g },
   // Google API keys.
   { kind: "api_key", re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
   // GitHub personal access / OAuth / server / refresh tokens.
