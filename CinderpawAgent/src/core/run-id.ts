@@ -12,17 +12,42 @@
  * worse than a loud rejection.
  */
 
-/** Characters a run id may contain. Deliberately narrow and portable. */
-const RUN_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+/**
+ * Characters a run id may contain. Deliberately narrow and portable.
+ *
+ * LOWERCASE ONLY, and that is the portability half rather than a style rule.
+ * Windows (NTFS) and macOS (APFS) resolve directory names case-insensitively,
+ * so `run-1` and `RUN-1` are two ids and one directory: the second run's
+ * journal, skills and connector store land on top of the first's, and run N's
+ * learned skills are on run N+1's disk to be read. Measured — `mkdir run1`
+ * followed by `mkdir RUN1` leaves one directory on this machine.
+ *
+ * That is the exact leak the per-run scoping exists to prevent (INVARIANT I13),
+ * arriving with no traversal and no rewriting. Case-FOLDING would be the wrong
+ * fix for the reason stated above: it maps two different runs onto one
+ * directory, which is the leak rather than the cure.
+ */
+const RUN_ID_PATTERN = /^[a-z0-9._-]+$/;
 
 export function assertValidRunId(runId: unknown): asserts runId is string {
   if (typeof runId !== "string" || runId.trim() === "") {
     throw new Error(`runId must be a non-empty string, got ${String(runId)}`);
   }
   if (!RUN_ID_PATTERN.test(runId) || runId === "." || runId === "..") {
+    // Two messages, because the two refusals have different fixes and a
+    // reader who is told "not path-safe" for `RUN-1` goes looking for a slash
+    // that is not there.
+    if (/[A-Z]/.test(runId)) {
+      throw new Error(
+        `runId "${runId}" must be lowercase — use "${runId.toLowerCase()}". ` +
+          "Windows and macOS treat it as the same directory as its lowercase " +
+          "spelling, so two runs whose ids differ only in case would share one " +
+          "profile dir and read each other's data.",
+      );
+    }
     throw new Error(
-      `runId "${runId}" is not path-safe - use only letters, digits, dot, ` +
-        "underscore or hyphen",
+      `runId "${runId}" is not path-safe - use only lowercase letters, digits, ` +
+        "dot, underscore or hyphen",
     );
   }
 }
