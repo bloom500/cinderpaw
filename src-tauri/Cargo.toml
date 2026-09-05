@@ -26,6 +26,12 @@ tauri-plugin-dialog = "2"
 # xdg-portal both on: the plugin turns gtk3 on, features unify, and the
 # Linux build died in rfd's build script. Windows and macOS never saw it.
 rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
+# The frontend has imported `@tauri-apps/plugin-shell` since it had links, in
+# four files including markdown rendering — every link the agent writes. The
+# Rust half was never added, so `open()` rejected, and `ExternalLink` swallowed
+# the rejection: clicking any link did nothing at all, "get your API key here"
+# on onboarding included.
+tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 specta = "=2.0.0-rc.25"

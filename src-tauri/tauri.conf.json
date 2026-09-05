@@ -78,6 +78,9 @@
     "createUpdaterArtifacts": true
   },
   "plugins": {
+    "shell": {
+      "open": true
+    },
     "deep-link": {
       "desktop": {
         "schemes": ["cinderpaw"]

@@ -872,6 +872,7 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(state)
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
