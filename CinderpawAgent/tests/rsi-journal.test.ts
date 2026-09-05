@@ -242,18 +242,31 @@ describe("readJournal", () => {
     expect(() => readJournal(path)).toThrow();
   });
 
-  test("skips entries that fail the type guard (stale schema, missing fields)", () => {
+  // REPLACED, deliberately. This test used to assert that a row which parses
+  // as JSON but fails the type guard is SKIPPED — the behaviour INVARIANT I4
+  // forbids in its own words ("never silently dropped or skipped"). The test
+  // was pinning the violation, so the assertion is inverted rather than the
+  // invariant relaxed. What made it more than a wording quarrel: `verifyJournal`
+  // only walks the hash chain, so a row written broken passes verification, and
+  // `collectJournal` then reported `excludedRows: 0` for a file it had just
+  // silently lost rows from.
+  test("throws on a row that parses but is not a JournalEntry (I4)", () => {
+    for (const bad of [JSON.stringify({ cycleId: "x" }), JSON.stringify(42)]) {
+      const dir = freshTmpDir();
+      const path = join(dir, "mixed.jsonl");
+      appendJournal(path, sampleEntry({ cycleId: "c-good" }));
+      appendFileSync(path, bad + "\n", "utf8");
+      expect(() => readJournal(path)).toThrow(/INVARIANT I4/);
+    }
+  });
+
+  test("the thrown error names the row an operator has to look at", () => {
     const dir = freshTmpDir();
-    const path = join(dir, "mixed.jsonl");
-    const a = sampleEntry({ cycleId: "c-good" });
-    appendJournal(path, a);
-    // Valid JSON but missing required fields — type guard must reject.
+    const path = join(dir, "rownum.jsonl");
+    appendJournal(path, sampleEntry({ cycleId: "c-1" }));
+    appendJournal(path, sampleEntry({ cycleId: "c-2" }));
     appendFileSync(path, JSON.stringify({ cycleId: "x" }) + "\n", "utf8");
-    // And a non-object value — type guard must reject.
-    appendFileSync(path, JSON.stringify(42) + "\n", "utf8");
-    const entries = readJournal(path);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]!.cycleId).toBe("c-good");
+    expect(() => readJournal(path)).toThrow(/row 3/);
   });
 });
 

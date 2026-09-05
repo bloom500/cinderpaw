@@ -8,7 +8,7 @@
  * router exist before any tool is registered or any message is handled.
  */
 
-import { resolve, join, delimiter, sep } from "node:path";
+import { resolve, join, delimiter } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
@@ -18,6 +18,7 @@ import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, ci
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
+import { pathWithin } from "./egress/tool-permissions.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { isRestrictedSession } from "./core/session-visibility.ts";
@@ -237,11 +238,6 @@ const CLOUD_REBUILD_LEAF_CAP = 200;
  *  in a separator) doesn't produce a double-separator prefix that never
  *  matches — the trailing-separator bug that let `CINDERPAW_WORKSPACE=/` slip the
  *  self-protection wall. */
-function isWithin(child: string, parent: string): boolean {
-  if (child === parent) return true;
-  const base = parent.endsWith(sep) ? parent : parent + sep;
-  return child.startsWith(base);
-}
 
 export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
   const raw = env.CINDERPAW_WORKSPACE;
@@ -257,7 +253,7 @@ export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
   roots.push(scratch);
 
   const guarded = roots.filter((r) => {
-    if (isWithin(r, scratch)) return true; // scratch subtree — the one allowed path under ~/.cinderpaw
+    if (pathWithin(r, scratch)) return true; // scratch subtree — the one allowed path under ~/.cinderpaw
     // Only drop roots that sit INSIDE ~/.cinderpaw (RSI repo, db, SOUL): every
     // access through them would be refused by the call-time deny wall in
     // resolveAllowedPath, so registering them just produces confusing tools.
@@ -267,7 +263,7 @@ export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
     // migrated machine it still holds agent state and the call-time deny wall
     // refuses it. Warning about only the current one meant a root under the
     // other registered fine and then failed on every single access.
-    const home = agentProfileDirs().find((h) => isWithin(r, h));
+    const home = agentProfileDirs().find((h) => pathWithin(r, h));
     if (home !== undefined) {
       console.warn(
         `[config] dropping workspace root "${r}" — it is inside ${home} ` +

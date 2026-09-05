@@ -207,6 +207,42 @@ function modePermits(
 }
 
 /**
+ * Windows (NTFS) and macOS (APFS, in its default configuration) resolve paths
+ * case-INSENSITIVELY: `~/.Cinderpaw/byok.json` opens the very same bytes as
+ * `~/.cinderpaw/byok.json`. Comparing the two strings verbatim therefore let a
+ * single capital letter walk straight past the deny wall and onto the API keys,
+ * the OAuth tokens and the RSI repo — and, in the other direction, locked the
+ * agent out of a legitimate root typed with a lowercase drive letter.
+ *
+ * `commit_genome_inner` learned this for `refs/heads/Main`; the wall had not.
+ *
+ * ponytail: platform flag, not a per-volume probe. A case-SENSITIVE volume on
+ * either OS is possible (macOS if formatted that way, Windows per-directory);
+ * there we over-match, which denies a little more than strictly necessary and
+ * never less. That is the safe direction for a deny wall, and probing every
+ * ancestor's case sensitivity per call is not worth it.
+ */
+const CASE_INSENSITIVE_FS =
+  process.platform === "win32" || process.platform === "darwin";
+
+/** The comparison key for a path, in the case space its filesystem uses. */
+function pathKey(p: string): string {
+  return CASE_INSENSITIVE_FS ? p.toLowerCase() : p;
+}
+
+/**
+ * True when `child` is `parent` or lives underneath it. The one containment
+ * predicate for this module — the deny wall, the scratch exemption and the
+ * allowedPaths match all route through it, so they cannot disagree about what
+ * "inside" means.
+ */
+export function pathWithin(child: string, parent: string): boolean {
+  const c = pathKey(child);
+  const p = pathKey(parent);
+  return c === p || c.startsWith(p.endsWith(sep) ? p : p + sep);
+}
+
+/**
  * Deny wall — paths no fs tool may touch even when an allowed root contains
  * them. Workspace roots are broad by default (the user's whole home dir), so
  * the self-protection guarantee ("the agent can't modify its own brain") and
@@ -288,11 +324,9 @@ export function resolveAllowedPath(
   // Deny wall first — an allowed root may legitimately CONTAIN a denied
   // subtree (home contains ~/.cinderpaw), so containment success is not enough.
   const { deny, exempt } = deniedPaths();
-  const within = (child: string, parent: string): boolean =>
-    child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
   if (
-    deny.some((d) => within(target, d)) &&
-    !exempt.some((e) => within(target, e))
+    deny.some((d) => pathWithin(target, d)) &&
+    !exempt.some((e) => pathWithin(target, e))
   ) {
     throw new PermissionDeniedError(
       `path "${target}" is protected (agent state/credentials) — denied for "${manifest.name}"`,
@@ -305,13 +339,9 @@ export function resolveAllowedPath(
   //      `mode: "read"` cannot be used to satisfy an fs:write call and
   //      vice versa, even if the target IS inside the root. This is the
   //      whole point of the gap.
-  const match = roots.find((root) => {
-    const normalizedRoot = realpathBestEffort(root.path);
-    return (
-      target === normalizedRoot ||
-      target.startsWith(normalizedRoot + sep)
-    );
-  });
+  const match = roots.find((root) =>
+    pathWithin(target, realpathBestEffort(root.path)),
+  );
 
   if (!match) {
     throw new PermissionDeniedError(
