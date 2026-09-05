@@ -132,9 +132,17 @@ inference = ["dep:llama-cpp-2"]
 #   macOS                → inference-metal    (Metal ships with Xcode; no extra SDK)
 # A GPU build still falls back to CPU at runtime if GPU init fails (see
 # inference.rs::backend::load), so a missing/broken driver degrades gracefully.
-inference-cuda   = ["dep:llama-cpp-2", "llama-cpp-2/cuda"]
-inference-vulkan = ["dep:llama-cpp-2", "llama-cpp-2/vulkan"]
-inference-metal  = ["dep:llama-cpp-2", "llama-cpp-2/metal"]
+# Each GPU backend turns `inference` ON. Every real inference path in
+# inference.rs is `#[cfg(feature = "inference")]`, so a GPU feature on its own
+# links llama.cpp and compiles the whole engine out: a binary that loads no
+# model and reports no error, which reads as "the model produced nothing"
+# rather than "this build has no inference". Additive features hide it — the
+# release jobs pass `--features inference-vulkan` on top of the default, so
+# they never saw it — but `--no-default-features --features inference-vulkan`
+# builds the inert binary, and did.
+inference-cuda   = ["inference", "dep:llama-cpp-2", "llama-cpp-2/cuda"]
+inference-vulkan = ["inference", "dep:llama-cpp-2", "llama-cpp-2/vulkan"]
+inference-metal  = ["inference", "dep:llama-cpp-2", "llama-cpp-2/metal"]
 whisper = ["dep:whisper-rs"]
 # On-device TTS. Off by default so `cargo check` stays fast and a broken native
 # toolchain cannot block the whole workspace; the desktop build turns it on.

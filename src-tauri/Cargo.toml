@@ -143,9 +143,9 @@ inference = ["cinderpaw-core/inference"]
 #   macOS                → inference-metal    (Metal ships with Xcode; no extra SDK)
 # A GPU build still falls back to CPU at runtime if GPU init fails (see
 # inference.rs::backend::load), so a missing/broken driver degrades gracefully.
-inference-cuda   = ["cinderpaw-core/inference-cuda"]
-inference-vulkan = ["cinderpaw-core/inference-vulkan"]
-inference-metal  = ["cinderpaw-core/inference-metal"]
+inference-cuda   = ["inference", "cinderpaw-core/inference-cuda"]
+inference-vulkan = ["inference", "cinderpaw-core/inference-vulkan"]
+inference-metal  = ["inference", "cinderpaw-core/inference-metal"]
 whisper          = ["cinderpaw-core/whisper"]
 # On-device text-to-speech. Both engines ride the same two native pieces —
 # ONNX Runtime and espeak-ng — so the second one is a model, not a toolchain.
