@@ -36,6 +36,7 @@ import type { CodeEvalMeasurements, CodeEvalResult } from "./code-sandbox.ts";
 import type { StageHandlerDeps } from "../infra/contract-stages.ts";
 import type { GateDecision, PairedSample } from "../infra/confidence.ts";
 import { scoreToFitnessVector } from "../l1-config/fitness.ts";
+import type { RatchetAck } from "../infra/adapters.ts";
 
 /** The primitives the code leaves compose. Production: bridge adapters
  *  (`makeCodeStageAdapters` in code-rsi.ts) + the Slice 2 worktree
@@ -60,7 +61,7 @@ export interface CodeStageDeps {
   ratchetAttempt: (
     commitHash: string,
     score: number,
-  ) => Promise<{ advanced: boolean; previousBest: number }>;
+  ) => Promise<RatchetAck>;
 }
 
 /** What the leaves learned while running — read by the caller after
@@ -166,7 +167,15 @@ export function contractLeavesForCodePatch(
         commitHash,
         ...(r.advanced
           ? {}
-          : { reason: `ratchet declined: previous best ${r.previousBest} >= ${score}` }),
+          : {
+              // Third copy of this message in the tree; all three printed a
+              // comparison the ratchet never made. `candidateScore` is the
+              // score read from the commit metadata, which is the only side
+              // the Rust ratchet looks at.
+              reason: r.hadPrior
+                ? `ratchet declined: candidate scored ${r.candidateScore}, main already scores ${r.previousBest} (strictly greater required)`
+                : `ratchet declined: candidate scored ${r.candidateScore} and main carries no parseable score to beat`,
+            }),
       };
     },
 

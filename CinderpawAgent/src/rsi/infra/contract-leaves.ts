@@ -263,7 +263,15 @@ export function contractLeavesFromRatchet(
         commitHash,
         ...(r.advanced
           ? {}
-          : { reason: `ratchet declined: previous best ${r.previousBest} >= ${ctx.score}` }),
+          : {
+              // Both numbers come from the ratchet itself. The candidate's is
+              // read out of its commit metadata, which is what the comparison
+              // uses — not the sidecar's own `ctx.score`, which is what this
+              // message used to print and which can differ.
+              reason: r.hadPrior
+                ? `ratchet declined: candidate scored ${r.candidateScore}, main already scores ${r.previousBest} (strictly greater required)`
+                : `ratchet declined: candidate scored ${r.candidateScore} and main carries no parseable score to beat`,
+            }),
       };
     },
 

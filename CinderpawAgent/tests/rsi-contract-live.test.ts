@@ -47,6 +47,43 @@ const REJECT: GateDecision = {
 };
 
 describe("Contract FSM in the live ratchet path — per-candidate Journal rows", () => {
+  test("a decline names the two scores the ratchet actually compared", async () => {
+    // The old message read `ratchet declined: previous best 0 >= 50`, built
+    // from the sidecar's own score and the prior best. It is false as written
+    // — 0 is not >= 50 — and it names neither side of the real comparison,
+    // which is the candidate's COMMITTED score against main's. Journals full
+    // of that sentence are unreadable, and one of them is the whole artifact
+    // of an evolution run.
+    const bus = new EventBus();
+    new RatchetHandler(bus, {
+      commitGenome: async () => ({ commitHash: "a".repeat(40) }),
+      ratchetAttempt: async () => ({
+        advanced: false,
+        previousBest: 62,
+        candidateScore: 50,
+        hadPrior: true,
+      }),
+      journalPath,
+    });
+
+    await bus.emit({
+      type: "EvalComplete",
+      genomeId: "g1",
+      score: 73,
+      outcomes: [outcome("t0", true, 0)],
+      errored: false,
+    });
+
+    const reason = readRows()[0]!.decided.reason ?? "";
+    expect(reason).toContain("candidate scored 50");
+    expect(reason).toContain("main already scores 62");
+    // 73 is the sidecar's score for the same candidate. It is deliberately
+    // NOT in the message: the ratchet never saw it, and printing it is how
+    // the old message misled.
+    expect(reason).not.toContain("73");
+    expect(reason).not.toMatch(/>=/);
+  });
+
   test("a promoted candidate writes an accept row with a real result", async () => {
     const bus = new EventBus();
     const advanced: RsiEvent[] = [];

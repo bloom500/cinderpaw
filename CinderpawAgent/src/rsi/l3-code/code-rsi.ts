@@ -130,8 +130,17 @@ export function makeCodeStageAdapters(args: {
       const r = await bridge.request<{
         advanced: boolean;
         prior_score: number | null;
+        candidate_score: number;
       }>("rsi_ratchet_attempt", { candidate_commit: commitHash }, BRIDGE_TIMEOUT_MS);
-      return { advanced: r.advanced, previousBest: r.prior_score ?? 0 };
+      // Same shape as the L1 adapter in infra/adapters.ts, deliberately: this
+      // is a second copy of the same wire mapping, and the first copy dropped
+      // `candidate_score` — the only number the ratchet actually compares.
+      return {
+        advanced: r.advanced,
+        previousBest: r.prior_score ?? 0,
+        candidateScore: r.candidate_score,
+        hadPrior: r.prior_score !== null && r.prior_score !== undefined,
+      };
     },
   };
 }

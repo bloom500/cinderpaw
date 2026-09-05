@@ -53,7 +53,7 @@ function journalRow(overrides: Record<string, unknown> = {}) {
       tier0: "passed",
       tier1: "no_regression",
     },
-    decided: { action: "reject", reason: "ratchet declined: previous best 0 >= 50", nextStep: "try another" },
+    decided: { action: "reject", reason: "ratchet declined: candidate scored 50, main already scores 62 (strictly greater required)", nextStep: "try another" },
     budgetRemaining: { wallClockMin: 30, tokens: 100000, cpuPct: 50, ramMb: 2048, diskMb: 5120 },
     prevHash: "GENESIS",
     hash: "3a722a6c99de2e206c31d7cb7d3ff70c95cbd18a65a3825a361960d704954b24",

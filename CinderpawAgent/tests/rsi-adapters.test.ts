@@ -235,7 +235,16 @@ describe("RSI bridge adapters", () => {
     });
 
     const result = await promise;
-    expect(result).toEqual({ advanced: true, previousBest: 50 });
+    // candidateScore is the number the ratchet actually compared — read out
+    // of the commit's own metadata. It used to be dropped here, which is why
+    // a decline could report `previous best 0 >= 50`, a sentence that is false
+    // as written and names neither side of the real comparison.
+    expect(result).toEqual({
+      advanced: true,
+      previousBest: 50,
+      candidateScore: 73.4,
+      hadPrior: true,
+    });
 
     const req = bridge.sent[0]!;
     expect(req.method).toBe("rsi_ratchet_attempt");
@@ -259,6 +268,10 @@ describe("RSI bridge adapters", () => {
     const result = await promise;
     expect(result.previousBest).toBe(0);
     expect(result.advanced).toBe(true);
+    // …and `hadPrior` keeps "there was no champion" distinguishable from
+    // "the champion scored zero", which previousBest alone flattens.
+    expect(result.hadPrior).toBe(false);
+    expect(result.candidateScore).toBe(73.4);
   });
 
   test("ratchetAttempt surfaces Rust errors verbatim", async () => {

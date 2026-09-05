@@ -30,6 +30,7 @@ import {
   type CandidateRun,
 } from "../infra/contract-leaves.ts";
 import { DEFAULT_BUDGET_CAPS } from "../infra/budget.ts";
+import type { RatchetAck } from "../infra/adapters.ts";
 
 // Re-exported from their new home so existing importers/tests keep working.
 export { tier0FloorBreach, buildPairedSamples } from "../infra/contract-leaves.ts";
@@ -52,7 +53,7 @@ export interface RatchetDeps {
   ratchetAttempt: (
     commitHash: string,
     score: number,
-  ) => Promise<{ advanced: boolean; previousBest: number }>;
+  ) => Promise<RatchetAck>;
   /** BRSI §2.7 confidence gate. Optional: when supplied, a candidate is
    *  only offered to `ratchetAttempt` if it clears the gate against the
    *  current champion's per-task outcomes (INVARIANT I6). When absent,

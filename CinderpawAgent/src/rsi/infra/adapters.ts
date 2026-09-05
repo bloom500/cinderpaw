@@ -61,6 +61,23 @@ export interface RatchetAck {
   /** The previous best score on main (None → -Infinity on the Rust side,
    *  normalised to 0 here so the ratchet handler's UI display is sane). */
   previousBest: number;
+  /**
+   * The candidate's score AS THE RATCHET READ IT — out of the commit's own
+   * metadata, which is the only number the comparison uses.
+   *
+   * This used to be dropped on the floor, and the decline reason was built
+   * from the sidecar's `ctx.score` instead. When the two differ the journal
+   * printed a comparison that is false as written — `previous best 0 >= 50`
+   * — and no reader could tell which half was wrong. Carrying it costs a
+   * field and makes the rejection legible.
+   */
+  candidateScore: number;
+  /**
+   * False when main carried no parseable score at all. `previousBest`
+   * flattens that case to 0, which reads as "the champion scored zero"
+   * rather than "there was no champion".
+   */
+  hadPrior: boolean;
 }
 
 /** Dependencies for the bridge-based adapters. */
@@ -169,6 +186,8 @@ export function makeRatchetAttemptAdapter(deps: { bridge: RsiBridge }) {
     return {
       advanced: result.advanced,
       previousBest: result.prior_score ?? 0,
+      candidateScore: result.candidate_score,
+      hadPrior: result.prior_score !== null && result.prior_score !== undefined,
     };
   };
 }
