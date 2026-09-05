@@ -247,3 +247,29 @@ jobs:
       - name: bun audit (CinderpawAgent)
         working-directory: CinderpawAgent
         run: bun audit --audit-level=high
+
+  # Dead links in the docs. A link to a file that was never committed is a 404
+  # for every reader but the person who wrote it, who has the file open locally.
+  # PROMISES.md was linked from the Discord onboarding and did not exist; four
+  # links in ARCHITECTURE.md pointed one folder too high. Both were invisible
+  # from inside the repo, and both are a grep away from CI.
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Check Markdown links
+        run: bun run scripts/check-doc-links.ts
+
+      # The four-pillar report for docs/invariants.md. Strict fails on ACTIVE
+      # invariants only; one declared PENDING in the doc is reported, not fatal.
+      # The report ran nowhere until now, which is how it sat at a false 0/15.
+      - name: Check invariant coverage
+        run: bun run scripts/check-invariant-coverage.ts --strict

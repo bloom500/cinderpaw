@@ -140,3 +140,7 @@ __pycache__/
 # because they are results, not source.
 .e1-home/
 .e1-broken/
+
+# Same for the TAC comparison homes: agent state from real runs, including a
+# SQLite database that holds whatever keys the run was given.
+.tac-home-*/

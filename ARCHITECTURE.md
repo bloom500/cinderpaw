@@ -5,11 +5,11 @@
 > incrementally while hard walls block the changes that matter.
 >
 > **Companion docs:**
-> - [docs/CONTRIBUTOR_GUIDE.md](./CONTRIBUTOR_GUIDE.md) — long-form
+> - [docs/CONTRIBUTOR_GUIDE.md](docs/CONTRIBUTOR_GUIDE.md) — long-form
 >   contributor guide, runtime narrative, dev workflow, build pipeline.
-> - [docs/CONFIGURATION.md](./CONFIGURATION.md) — every `CINDERPAW_*` env var.
-> - [docs/invariants.md](./invariants.md) — the BRSI safety contracts.
-> - [docs/brsi-spec.md](./brsi-spec.md) — Bounded RSI, conceptual foundation.
+> - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — every `CINDERPAW_*` env var.
+> - [docs/invariants.md](docs/invariants.md) — the BRSI safety contracts.
+> - [docs/brsi-spec.md](docs/brsi-spec.md) — Bounded RSI, conceptual foundation.
 
 This document is the *map*: layer responsibilities, file locations, the
 Faza ↔ L-layer translation, the poetic-term glossary, and the "where

@@ -19,11 +19,28 @@
   <a href="https://github.com/bloom500/cinderpaw/discussions"><img src="https://img.shields.io/badge/Community-Discussions-purple?style=for-the-badge&logo=github" alt="Discussions" /></a>
 </p>
 
-[Download](https://github.com/bloom500/cinderpaw/releases/latest) · [Report an issue](https://github.com/bloom500/cinderpaw/issues) · [Discussions](https://github.com/bloom500/cinderpaw/discussions) · Discord: *coming soon* · Website: *coming soon*
+[Download](https://github.com/bloom500/cinderpaw/releases/latest) · [Report an issue](https://github.com/bloom500/cinderpaw/issues) · [Discussions](https://github.com/bloom500/cinderpaw/discussions) · [What we promise](PROMISES.md) · [Discord](https://discord.gg/eqvfVRD6y7) · Website: *coming soon*
 
 ---
 
-Cinderpaw is a desktop app that runs AI on your machine. With local GGUF models, everything happens offline — no API bills, no data leaving your computer, and absolutely zero VC-funded "alignment" teams reading your conversations at 3am. Prefer frontier models? Plug in your own API keys (BYOK) and talk to OpenAI, Anthropic, Gemini and friends directly — your key, your bill, no proxy in between. Either way: chat, deploy a full agentic runtime with memory and tool-use, and run deep multi-step web research. It's your computer. Do whatever you want.
+Cinderpaw is a desktop app that runs AI on your own computer.
+
+Download a model onto your disk and it works with the wifi switched off. Nothing
+you type leaves the machine. No monthly bill, and absolutely zero VC-funded
+"alignment" teams reading your conversations at 3am.
+
+Want one of the big cloud models instead? Paste in your own key from OpenAI,
+Anthropic, Google or a dozen others. Your key, your bill, and your messages go
+straight to them. We are never in the middle, because we do not own a single
+server.
+
+Either way you get the same three things: a chat, an agent that can use tools
+and remember things, and deep research that reads the web and writes you a
+report with its sources.
+
+It's your computer. Do whatever you want.
+
+**New here?** [What we promise](PROMISES.md) · [How to use it](docs/USER_GUIDE.md) · [Install it](#quick-install)
 
 ![Chat](frontend-react/public/READMEdemo1.png)
 
@@ -221,6 +238,8 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 - **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (DuckDuckGo or your own SearXNG instance, Jina Reader, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
 - **Update check:** once per launch, Cinderpaw asks GitHub Releases whether a newer version exists. Only the version request is sent — no usage data, no identifiers beyond a normal HTTP request. Turn it off in **Settings → General** for a fully offline app.
 
+The full list of what we promise, what we deliberately do not promise, and how to check each one yourself is in [PROMISES.md](PROMISES.md).
+
 | | |
 |---|---|
 | ![Privacy settings](frontend-react/public/READMEdemo7.png) | ![General settings](frontend-react/public/READMEdemo4.png) |
@@ -247,6 +266,14 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 | **Workspace Scanner** | Detect hardcoded secrets, API keys, and code security anti-patterns before you accidentally push them to GitHub and ruin your week. |
 | **Hardware Monitor** | Live GPU/VRAM/RAM readout and Vulkan detection in the title bar. |
 | **Auto-updater** | Silent background update checks. One click to install. |
+
+---
+
+## Under the hood
+
+Everything above is what you need in order to use Cinderpaw. Everything from
+here down is how it is built, written for people who want to change it. If you
+just want to use the app, you can stop reading here.
 
 ---
 
@@ -500,6 +527,7 @@ cd CinderpawAgent && bun install && bun test    # 2400+ tests, ~60s
 That's the fastest loop in the repo and where most of the interesting work is. If you want real impact, the biggest open gap is **end-to-end tests against a live provider** — the entire suite currently mocks `fetch`, and that single gap is the main limit on Cinderpaw's release maturity.
 
 - Deep dive: [Contributor guide](docs/CONTRIBUTOR_GUIDE.md) (IPC protocols, test matrix, build & release flow)
+- Ask in the [Discord](https://discord.gg/eqvfVRD6y7) if you want an answer the same day
 - Open a [Discussion](https://github.com/bloom500/cinderpaw/discussions) for ideas and questions
 - Check [open issues](https://github.com/bloom500/cinderpaw/issues) for something to pick up
 

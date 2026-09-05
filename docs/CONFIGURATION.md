@@ -308,6 +308,7 @@ it from the voice settings in the app.
 | `CINDERPAW_LIVE_STT_MODEL` | `livekit.rs` | Pipeline mode only. Default `small`. |
 | `CINDERPAW_LIVE_STT_PROVIDER` | `livekit.rs` | Pipeline mode only. Default `local`. |
 | `CINDERPAW_LIVE_STT_LANGUAGE` | `livekit.rs` | Pipeline mode only. Empty = autodetect. |
+| `CINDERPAW_LIVE_LANGUAGE` | `livekit.rs` | The app's own language, two letters. What the voice agent says on its own (the line it keeps warm during a tool call) is said in it. Empty = English. |
 | `CINDERPAW_WORKER_PORT` | `livekit.rs` | Port the voice worker listens on. |
 | `CINDERPAW_API_URL` | `livekit.rs` | Local gateway URL the voice agent calls back into. |
 | `CINDERPAW_API_TOKEN` | `livekit.rs` | Token for that callback. Never leaves the machine. |
@@ -404,6 +405,7 @@ CINDERPAW_LIVE_MODEL
 CINDERPAW_LIVE_PIPELINE
 CINDERPAW_LIVE_PROVIDER
 CINDERPAW_LIVE_STT_LANGUAGE
+CINDERPAW_LIVE_LANGUAGE
 CINDERPAW_LIVE_STT_MODEL
 CINDERPAW_LIVE_STT_PROVIDER
 CINDERPAW_LIVE_TOOLS

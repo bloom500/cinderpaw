@@ -1,5 +1,23 @@
 # Security Policy
 
+> **In plain words.** Cinderpaw runs on your computer, so most of what is below
+> is about keeping other programs on that computer, and the web pages the agent
+> reads, from getting at your files and your keys. Three things are worth
+> knowing even if you skip the rest:
+>
+> 1. The agent **can run commands on your computer** as soon as you install it.
+>    That is how it does real work. Turn it off by setting
+>    `CINDERPAW_ENABLE_SHELL_EXEC=false`.
+> 2. Its **file tools** can read and write your files, but never inside
+>    `~/.cinderpaw` or `~/.ssh`, where its own keys and your login keys live.
+>    That deny wall does not extend to a program `shell_exec` starts: a spawned
+>    process runs with your permissions and can read what you can read. Only
+>    destructive commands aimed outside the workspace roots are refused.
+> 3. If you find a hole, **do not post it publicly**. Email us instead. The
+>    address is right below.
+>
+> The rest of this page is written for security researchers.
+
 ## Reporting a vulnerability
 
 Please **do not** open a public GitHub issue for security problems.
@@ -48,10 +66,20 @@ Every tool call passes a security layer before execution:
   rate limits, and an audit log.
 - **Path containment** — filesystem tools resolve against declared roots with
   `realpath` symlink-following; traversal is rejected before any disk access.
-- **Process sandbox** — `shell_exec` is **off by default**
-  (`CINDERPAW_ENABLE_SHELL_EXEC`), argv-only (no shell interpretation), restricted
-  to a binary whitelist, with a scrubbed environment (`LD_PRELOAD`,
-  `NODE_OPTIONS`, `PYTHONPATH` etc. stripped) and output caps.
+- **Process sandbox** — `shell_exec` is **on by default**; set
+  `CINDERPAW_ENABLE_SHELL_EXEC=false` to unregister it. It is argv-only: the
+  command is spawned directly, never through `sh -c`, so shell metacharacters
+  are literal arguments rather than a second command. There is deliberately
+  **no binary allowlist** (the old one listed the shells themselves, so
+  `sh -c "<anything>"` walked straight past it); `CINDERPAW_SHELL_WHITELIST`
+  restricts to a named set when that is genuinely wanted. What holds the line
+  instead: owner-only exposure (`PUBLIC_ALLOWED_TOOLS` omits the tool, and every
+  connector session is gated by that connector's inbound allowlist), a scrubbed
+  environment (`LD_*`, `DYLD_*`, `NODE_*`, `PYTHONPATH` stripped, PATH forced
+  from a safe base), `read_only` mode refusing mutating intents by
+  classification, output caps and a hard timeout ceiling. The catastrophic-
+  command denylist (`rm -rf /`, `mkfs`, fork bombs) is a footgun guard, not a
+  boundary: `python -c` walks past it.
 - **Audit log** — every tool call, network request, and inference call is
   written to SQLite.
 
