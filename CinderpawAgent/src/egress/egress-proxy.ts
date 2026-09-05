@@ -695,10 +695,18 @@ function parseIPv4(host: string): [number, number, number, number] | null {
  * self-hosted service they run) — see that field's contract.
  */
 export function hostMatchesWhitelist(host: string, whitelist: string[]): boolean {
+  // Both sides, not one. This normalised the ENTRY and trusted the caller for
+  // the HOST — an unstated precondition on a security predicate, and the shape
+  // that invites the mistake. Every caller today does lowercase the host
+  // (`parsed.hostname` is already folded by WHATWG URL), so this is latent
+  // rather than live; the failure it would produce is an over-deny, which is
+  // the safe direction but reads to the user as "my allowlist entry does
+  // nothing". DNS is case-insensitive, so the comparison must be too.
+  const h = host.toLowerCase();
   return whitelist.some((entry) => {
     if (entry === "*") return true;
     const e = entry.toLowerCase().replace(/^\*\./, "");
-    return host === e || host.endsWith(`.${e}`);
+    return h === e || h.endsWith(`.${e}`);
   });
 }
 
