@@ -85,8 +85,8 @@ pub fn scan_models_dir() -> Result<Vec<ModelInfo>> {
 /// the GGUF header for a missing chat template — means opening every file on
 /// every scan, and the scan runs on screens that just want a list.
 ///
-/// Wrong in the safe direction if it ever misses one: the load path refuses
-/// embedding models too, so a miss here costs a confusing entry in a picker,
+/// Wrong in the safe direction if it ever misses one: `refuse_if_embedding`
+/// guards the load itself, so a miss here costs a confusing entry in a picker,
 /// not a broken chat.
 ///
 /// ponytail: name match. Read the GGUF metadata if a model ever slips through.
@@ -95,6 +95,29 @@ pub fn is_embedding_model(name: &str) -> bool {
     ["bge", "e5-", "gte-", "embed", "minilm", "nomic-embed", "all-mpnet"]
         .iter()
         .any(|m| n.contains(m))
+}
+
+/// Refuse an embedding model wherever a chat model is expected.
+///
+/// Hiding it from a list is not enough, and this is the second time that has
+/// been learned. The API and the TUI got both halves on 2026-08-23; the desktop
+/// got neither, so its two model pickers listed `bge-m3` and its load command
+/// accepted it. On a fresh install the embedding model arrives automatically,
+/// because memory needs it, and it sorts before every chat model, so it was the
+/// first row in a menu that focuses its first row on open.
+///
+/// A list is never the only way in either: a stale `active_route` in
+/// settings.json, a saved preset, a command line, or anything calling the load
+/// path directly all arrive past any filter. One sentence naming the reason
+/// beats a 335M encoder with no chat template loading successfully and then
+/// answering nothing, which is what this cost the first time.
+pub fn refuse_if_embedding(name: &str) -> Result<(), String> {
+    if is_embedding_model(name) {
+        return Err(format!(
+            "'{name}' is an embedding model: it turns text into vectors for memory and search, and cannot hold a conversation. Pick a chat model, or add one in Models."
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn parse_quant(name: &str) -> Option<String> {
@@ -345,6 +368,16 @@ mod tests {
         // Q4_K_M should be found before Q4_K_S in the list
         let result = parse_quant("model.Q4_K_M.gguf");
         assert_eq!(result.as_deref(), Some("Q4_K_M"));
+    }
+
+    /// The refusal is a sentence somebody reads, so it is checked like one.
+    #[test]
+    fn refusing_an_embedding_model_says_what_it_is_and_what_to_do() {
+        let err = refuse_if_embedding("bge-m3-Q8_0.gguf").unwrap_err();
+        assert!(err.contains("bge-m3-Q8_0.gguf"), "name the file: {err}");
+        assert!(err.contains("cannot hold a conversation"), "say why: {err}");
+        assert!(err.contains("Pick a chat model"), "say what to do instead: {err}");
+        assert!(refuse_if_embedding("Qwen3.8-4B-Q6_K.gguf").is_ok());
     }
 
     #[test]

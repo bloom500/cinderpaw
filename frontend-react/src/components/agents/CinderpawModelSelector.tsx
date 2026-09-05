@@ -37,8 +37,15 @@ export function CinderpawModelSelector() {
     if (!open) return;
     // List Cinderpaw's local GGUF models (with paths so we can load on select) and
     // enabled BYOK providers.
+      // Embedding models are on disk but cannot hold a conversation, and
+      // `bge-m3` sorts before every chat model on a normal install, so it was
+      // the first row here and menus focus their first row on open. Opening the
+      // picker looked like it had chosen the one model that can only ever
+      // return vectors. `is_embedding` exists on ModelInfo for exactly this;
+      // the Models tab and the download panel deliberately do not filter,
+      // because deleting a file you cannot see is worse.
     void tauri.models.list()
-      .then(setLocalModels)
+      .then((all) => setLocalModels(all.filter((m) => !m.is_embedding)))
       .catch(() => setLocalModels([]));
     void tauri.raw.getByokSettings()
       .then((ps) => setCloudProviders(ps.filter((p) => p.enabled && p.has_api_key && !!p.default_model)))

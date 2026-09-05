@@ -67,7 +67,17 @@ export function ModelPickerPopover() {
 
   useEffect(() => {
     if (!open) return;
-    void tauri.models.list().then(setLocalModels).catch(() => {});
+      // Embedding models are on disk but cannot hold a conversation, and
+      // `bge-m3` sorts before every chat model on a normal install, so it was
+      // the first row here and menus focus their first row on open. Opening the
+      // picker looked like it had chosen the one model that can only ever
+      // return vectors. `is_embedding` exists on ModelInfo for exactly this;
+      // the Models tab and the download panel deliberately do not filter,
+      // because deleting a file you cannot see is worse.
+    void tauri.models
+      .list()
+      .then((all) => setLocalModels(all.filter((m) => !m.is_embedding)))
+      .catch(() => {});
     void refreshCloud();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshCloud is stable enough; open is the trigger
   }, [open]);

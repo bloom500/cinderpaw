@@ -8,6 +8,7 @@ import type { ModelInfo } from '@/lib/tauri';
 const model: ModelInfo = {
   id: 'test', name: 'llama3.Q4_K_M.gguf', path: '/models/llama3.Q4_K_M.gguf',
   size_bytes: 4_700_000_000, quant: 'Q4_K_M', ctx_len: 4096, loaded: false,
+  is_embedding: false,
 };
 
 vi.mock('@/stores/model', () => ({

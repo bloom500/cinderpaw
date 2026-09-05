@@ -278,8 +278,16 @@ pub(crate) async fn start_model_load(
 ) -> Result<inference::LoadedModel, String> {
     use std::time::Duration;
 
-    let manager = state.manager.clone();
     let path_buf = PathBuf::from(&path);
+    // Before the progress bar starts, because a refusal that arrives after
+    // ninety seconds of "Loading attention layers..." reads as a crash. The
+    // pickers no longer offer an embedding model, but a list is not the only
+    // way in: a saved preset, a stale path, or a future screen all land here.
+    cinderpaw_core::models::refuse_if_embedding(
+        path_buf.file_name().and_then(|n| n.to_str()).unwrap_or(&path),
+    )?;
+
+    let manager = state.manager.clone();
     let n_gpu_layers = state.settings.default_gpu_layers;
 
     let _ = app.emit("model-load-progress", events::ModelLoadProgressEvent {
