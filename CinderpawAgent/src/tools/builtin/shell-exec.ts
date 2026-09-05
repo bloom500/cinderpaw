@@ -160,7 +160,10 @@ const ABSOLUTE_PATH =
 /** Case-insensitive path comparison on Windows, exact everywhere else. */
 function samePathSpace(p: string): string {
   const normal = resolve(p).replace(/[\\/]+$/, "");
-  return process.platform === "win32" ? normal.toLowerCase() : normal;
+  // macOS (APFS, default) is case-insensitive too, and was missing here.
+  return process.platform === "win32" || process.platform === "darwin"
+    ? normal.toLowerCase()
+    : normal;
 }
 
 function isInside(path: string, root: string): boolean {

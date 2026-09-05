@@ -361,8 +361,14 @@ export function defaultReadWindowVerified(
     }
     try {
       out.push(...readJournal(path));
-    } catch {
-      // readJournal throws on malformed JSON — skip the day, keep going.
+    } catch (err) {
+      // readJournal throws on a corrupt row (malformed JSON, or a row that is
+      // not a JournalEntry). Skipping the day is right — but skipping it
+      // SILENTLY was not: the branch six lines up reports a bad file and
+      // counts its rows as lost evidence, and this one reported a clean zero
+      // for exactly the same kind of damage. Same accounting, same signal.
+      excludedRows += countRows(path);
+      opts.onBadFile?.(path, err instanceof Error ? err.message : String(err));
     }
   }
   return {

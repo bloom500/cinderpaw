@@ -25,7 +25,7 @@ import {
   verifyJournal,
   type JournalEntry,
 } from "../src/rsi/infra/journal.ts";
-import { defaultReadWindow } from "../src/rsi/l6-meta/meta-evolution.ts";
+import { defaultReadWindow, defaultReadWindowVerified } from "../src/rsi/l6-meta/meta-evolution.ts";
 
 const tmpDirs: string[] = [];
 afterEach(() => {
@@ -209,6 +209,36 @@ describe("defaultReadWindow — G-INV-4 skip", () => {
     expect(window.map((e) => e.cycleId)).toEqual(["c-good"]);
     expect(surfaced).toHaveLength(1);
     expect(surfaced[0]).toContain(journalFilename(new Date(now)));
+  });
+
+  test("a chain-valid file with a schema-broken row is counted as lost, not as zero", () => {
+    // The gap this closes: verifyJournal only walks the HASH CHAIN, so a row
+    // written with broken fields verifies fine. readJournal then threw (I4),
+    // the catch in collectJournal swallowed it, and the caller was told
+    // excludedRows: 0 for a day whose rows had all just been dropped.
+    const dir = freshTmpDir();
+    mkdirSync(dir, { recursive: true });
+    const now = Date.UTC(2026, 6, 8, 12, 0, 0);
+    const path = join(dir, journalFilename(new Date(now)));
+    appendJournal(path, entry("c-1", now));
+    // Chain-valid by construction — appended through the writer, then the
+    // row's own required field removed at the JSON level so the guard fails
+    // while the hash still covers what is on disk.
+    const broken = { ...entry("c-2", now + 1) } as Record<string, unknown>;
+    delete broken.cycleId;
+    const prev = JSON.parse(readFileSync(path, "utf8").split(String.fromCharCode(10)).filter((l) => l.trim())[0]!) as JournalEntry;
+    const withChain = { ...broken, prevHash: prev.hash, hash: chainHash(prev.hash!, broken) };
+    appendFileSync(path, JSON.stringify(withChain) + String.fromCharCode(10), "utf8");
+
+    expect(verifyJournal(path).ok).toBe(true);
+    const surfaced: string[] = [];
+    const res = defaultReadWindowVerified(0, now, {
+      dir,
+      onBadFile: (p2, reason) => surfaced.push(`${p2}: ${reason}`),
+    });
+    expect(res.excludedRows).toBeGreaterThan(0);
+    expect(surfaced).toHaveLength(1);
+    expect(surfaced[0]).toContain("INVARIANT I4");
   });
 
   test("legacy files still flow into the window (back-compat)", () => {

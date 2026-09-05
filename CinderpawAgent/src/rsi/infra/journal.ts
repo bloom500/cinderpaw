@@ -284,11 +284,27 @@ export function readJournal(path: string): JournalEntry[] {
   if (!existsSync(path)) return [];
   const text = readFileSync(path, "utf8");
   const out: JournalEntry[] = [];
+  let row = 1;
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     const parsed = JSON.parse(trimmed) as unknown;
-    if (isJournalEntry(parsed)) out.push(parsed);
+    // INVARIANT I4: a corrupt row is surfaced, never silently dropped. A row
+    // that parses as JSON but is not a JournalEntry is corruption just the
+    // same, and skipping it thinned the audit trail with no signal anywhere —
+    // `collectJournal` even reported `excludedRows: 0` for a file it had just
+    // lost rows from, because `verifyJournal` (which only checks the hash
+    // chain) had passed it. Row number is 1-based over non-blank lines, the
+    // same numbering `verifyJournal` reports, so the two agree about which
+    // row an operator has to go look at.
+    if (!isJournalEntry(parsed)) {
+      throw new Error(
+        `journal row ${row} in ${path} is not a JournalEntry (stale schema or ` +
+          `corrupt fields) — INVARIANT I4: inspect it, do not ignore it`,
+      );
+    }
+    out.push(parsed);
+    row++;
   }
   return out;
 }

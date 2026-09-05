@@ -130,13 +130,29 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
         };
       }
 
-      const clash = roster.find((a) => a.name.toLowerCase() === name.toLowerCase());
+      // The row id is DERIVED from the name, so the duplicate check has to be
+      // on the id as well as on the name. Checking only the name let two
+      // different names that slug to one id ("Atlas" and "Atlas!", or any two
+      // names sharing their first 32 sluggable characters) fall through to
+      // `upsert`, whose ON CONFLICT(id) DO UPDATE overwrote the existing
+      // teammate — role, instructions, tool scope, model pin — and handed the
+      // newcomer that teammate's inbox, while reporting a successful creation.
+      // Identity is an ownership boundary; creating one teammate must never
+      // mutate another.
+      const id = slugify(name);
+      const clash =
+        roster.find((a) => a.name.toLowerCase() === name.toLowerCase()) ??
+        roster.find((a) => a.id === id);
       if (clash) {
         return {
           ok: false,
           content:
-            `A teammate called "${clash.name}" already exists. Pick another name, or ` +
-            `say you want to change that one instead — this tool will not overwrite them.`,
+            `A teammate called "${clash.name}" already exists` +
+            (clash.name.toLowerCase() === name.toLowerCase()
+              ? ". "
+              : ` — "${name}" and "${clash.name}" both shorten to the id "${id}". `) +
+            `Pick another name, or say you want to change that one instead — ` +
+            `this tool will not overwrite them.`,
           error: "name_taken",
         };
       }
@@ -161,7 +177,7 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
       }
 
       const agent = deps.agents.upsert({
-        id: slugify(name),
+        id,
         name,
         role,
         instructions: typeof args.instructions === "string" ? args.instructions : "",

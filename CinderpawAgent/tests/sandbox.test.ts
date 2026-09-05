@@ -170,6 +170,64 @@ describe("call-time deny wall (~/.cinderpaw, ~/.ssh, CINDERPAW_FS_DENY)", () => 
     }
   });
 
+  // On Windows (NTFS) and macOS (APFS, default) the filesystem is
+  // case-INSENSITIVE, so `~/.Cinderpaw/byok.json` opens exactly the same file
+  // as `~/.cinderpaw/byok.json`. The wall compared path strings verbatim, so a
+  // single capital letter walked the agent straight past it and onto the API
+  // keys, the OAuth tokens and the RSI repo. Same lesson `commit_genome_inner`
+  // already learned for `refs/heads/Main`.
+  const caseInsensitiveFs = process.platform === "win32" || process.platform === "darwin";
+  test.if(caseInsensitiveFs)("a case-variant of the profile dir is denied too", () => {
+    for (const variant of [".Cinderpaw", ".CINDERPAW", ".cinderPaw"]) {
+      const p = join(homedir(), variant, "byok.json");
+      expect(() => resolveAllowedPath(homeManifest, "fs:read", p)).toThrow(
+        PermissionDeniedError,
+      );
+      expect(() => resolveAllowedPath(homeManifest, "fs:write", p)).toThrow(
+        PermissionDeniedError,
+      );
+    }
+  });
+
+  test.if(caseInsensitiveFs)("a case-variant of ~/.ssh is denied too", () => {
+    expect(() =>
+      resolveAllowedPath(homeManifest, "fs:read", join(homedir(), ".SSH", "id_rsa")),
+    ).toThrow(PermissionDeniedError);
+  });
+
+  test.if(caseInsensitiveFs)("a case-variant of CINDERPAW_FS_DENY is denied too", () => {
+    process.env.CINDERPAW_FS_DENY = join(homedir(), "very-secret-dir");
+    try {
+      expect(() =>
+        resolveAllowedPath(homeManifest, "fs:read", join(homedir(), "VERY-SECRET-DIR", "f.txt")),
+      ).toThrow(PermissionDeniedError);
+    } finally {
+      delete process.env.CINDERPAW_FS_DENY;
+    }
+  });
+
+  test.if(caseInsensitiveFs)("a case-variant of an allowed root still resolves", () => {
+    // The mirror of the above: containment must not FALSE-deny either. On
+    // Windows a drive letter arrives in either case depending on who typed it.
+    const home = homedir();
+    const flipped = home[0] === home[0]!.toUpperCase()
+      ? home[0]!.toLowerCase() + home.slice(1)
+      : home[0]!.toUpperCase() + home.slice(1);
+    const p = resolveAllowedPath(homeManifest, "fs:read", join(flipped, "Documents", "todo.txt"));
+    expect(p.toLowerCase().endsWith("todo.txt")).toBe(true);
+  });
+
+  test("the scratch exemption is not case-sensitive either", () => {
+    // Exempt matching has the opposite failure: a case variant that is denied
+    // when it should be allowed. Same helper, so one fix covers both.
+    const p = resolveAllowedPath(
+      homeManifest,
+      "fs:write",
+      join(homedir(), APP_HOME_DIR_NAME, "workspace", "notes.txt"),
+    );
+    expect(p.endsWith("notes.txt")).toBe(true);
+  });
+
   test("ordinary home paths pass", () => {
     const p = resolveAllowedPath(
       homeManifest,
