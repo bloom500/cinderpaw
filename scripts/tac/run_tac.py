@@ -60,6 +60,7 @@ WHAT MUST BE SAID NEXT TO ANY NUMBER THIS PRODUCES
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -216,7 +217,7 @@ class Container:
         # Remove a leftover from an interrupted run before claiming the name;
         # otherwise a resumed run dies on "name already in use" and looks like
         # a docker problem rather than a stale container.
-        docker("rm", "-f", self.name)
+        docker("rm", "-fv", self.name)
         # `--network host` is what lets the container reach the services on
         # the-agent-company.com. On Windows it requires Docker Desktop's host
         # networking to be enabled (Settings > Resources > Network).
@@ -398,7 +399,37 @@ class Container:
         return json.loads(out.stdout)
 
     def stop(self) -> None:
-        docker("rm", "-f", self.name, timeout=120.0)
+        # `-v` removes the anonymous volumes docker created for this container.
+        # Without it every graded task leaves its whole workspace on disk: 18
+        # tasks in, a run measured 82.88GB of local volumes, 87% of it orphaned,
+        # against 45.55GB of images. A 175-task run fills any disk you rent, and
+        # the failure arrives around task 25 as an unexplained docker error.
+        # Images are deliberately NOT removed: task images share their base
+        # layers, so each costs about 200MB on top of the services, and deleting
+        # them would trade a little disk for a re-pull per task, which is wall
+        # clock we cannot spare.
+        docker("rm", "-fv", self.name, timeout=120.0)
+        self.reclaim_orphaned_volumes()
+
+    @staticmethod
+    def reclaim_orphaned_volumes() -> None:
+        """
+        Drop anonymous volumes no container references any more.
+
+        Removing the task container with `-v` is not enough, and measuring said
+        so: on 2026-09-04 the newest orphan on this machine belonged to
+        `owncloud`, not to any task. `reset.sh` RECREATES the service containers
+        during a task's init, and each new one gets a fresh anonymous volume
+        while the previous one is left behind. 57 of 72 volumes were orphans,
+        87% of 82.88GB, and the run only got 20 tasks in.
+
+        `docker volume prune -f` on Docker 23+ removes ANONYMOUS unused volumes
+        only. A volume a container still references, running or stopped, is not
+        unused, so the live services keep their data and a named volume
+        (`plane-app_pgdata`, `theagentcompany_mongodb_data`) is never a
+        candidate. Anything else on the machine is protected by the same rule.
+        """
+        docker("volume", "prune", "-f", timeout=300.0)
 
 
 # ─────────────────────────────────────────────────────────────── host tools
@@ -427,7 +458,12 @@ HOST_TOOLS = BROWSER_TOOLS + [
     },
     {
         "name": "read_file",
-        "description": "Read a file on the company workstation.",
+        "description": (
+            "Read a file on the company workstation. A text file comes back as text. "
+            "A PDF or an image (.png/.jpg/.jpeg/.gif/.webp) comes back as the PAGES "
+            "THEMSELVES, attached to this tool's result, so just read one - do not "
+            "try to decode a document with python, PIL or OCR."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -494,8 +530,89 @@ HOST_TOOLS = BROWSER_TOOLS + [
 # user's machine, and this is not it.
 
 
+# Extension to MIME, for the images `read_file` hands back as pixels. Sixteen of
+# the 175 tasks reference a picture - a photo of a spreadsheet, a scanned form, a
+# survey - and a text-only read of one is mojibake the model then tries to decode
+# by hand. Five formats, and every vision API accepts them.
+IMAGE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+# Providers reject an inlined image much over this, and the refusal arrives as
+# an opaque 400 mid-task. Better to say so in the tool result, where the agent
+# can crop or resize and read it again.
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+# PDFs, rendered page by page. Sixteen tasks reference a document and most of
+# those documents are PDFs, not images: the three tasks lost on 3 Sep - the
+# drinks survey, the I-9 forms, the spreadsheet built from that survey - are all
+# PDF. Rendering happens on the HOST, because the task containers ship neither
+# ghostscript nor a python PDF library, and installing one per task would put a
+# network fetch in front of every image read.
+MAX_PDF_PAGES = 8
+
+# 140 dpi is the lowest that kept a ticked checkbox and a handwritten digit
+# legible on the real drinks survey; JPEG because a scan at PNG is three to four
+# times the bytes for no readable difference.
+# ponytail: fixed dpi/quality. If a task turns up whose fine print is lost,
+# raise the dpi for that read rather than for all of them.
+PDF_DPI = 140
+PDF_JPEG_QUALITY = 80
+
+
+def render_pdf(data: bytes, label: str) -> "tuple[str, list[str]]":
+    """
+    Turn PDF bytes into page images, plus whatever text layer is already there.
+
+    Both, deliberately. The text layer is exact where it exists (a generated
+    invoice, a paper) and absent where it does not (a scan, a photo of a form),
+    and the failure that cost three tasks was an agent given only the bytes. A
+    model that can see gets the page; a model that cannot still gets the text.
+    """
+    try:
+        import pymupdf  # type: ignore[import-not-found]
+    except ImportError:
+        return (
+            f"{label} is a PDF, but PyMuPDF is not installed on the harness host, "
+            "so its pages cannot be rendered. Run `python -m pip install pymupdf` "
+            "and read the file again.",
+            [],
+        )
+
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    images: list[str] = []
+    text_parts: list[str] = []
+    total = doc.page_count
+    shown = min(total, MAX_PDF_PAGES)
+    for i in range(shown):
+        page = doc.load_page(i)
+        pix = page.get_pixmap(dpi=PDF_DPI)
+        jpeg = pix.tobytes("jpeg", jpg_quality=PDF_JPEG_QUALITY)
+        images.append("data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii"))
+        t = (page.get_text() or "").strip()
+        if t:
+            text_parts.append(f"--- page {i + 1} text layer ---\n{t}")
+    doc.close()
+
+    note = (
+        f"{label} - PDF, {total} page(s); "
+        f"page{'s' if shown != 1 else ''} 1-{shown} attached below as images. "
+        "Read the images: a scanned form's ticks and handwriting exist only there."
+    )
+    if shown < total:
+        note += f" Pages {shown + 1}-{total} were NOT rendered."
+    if text_parts:
+        note += "\n\n" + "\n\n".join(text_parts)
+    return note, images
+
+
 def run_host_tool(ctr: Container, name: str, args: dict,
-                  br: "Browser | None" = None) -> str:
+                  br: "Browser | None" = None) -> "str | tuple[str, list[str]]":
     def out(r: subprocess.CompletedProcess) -> str:
         text = (r.stdout or "") + (("\n" + r.stderr) if r.stderr else "")
         if r.returncode != 0:
@@ -520,7 +637,40 @@ def run_host_tool(ctr: Container, name: str, args: dict,
         return out(ctr.exec(["bash", "-lc", str(args["command"])], cwd=cwd, timeout=600.0))
 
     if name == "read_file":
-        return out(ctr.exec(["cat", str(args["path"])], cwd="/"))
+        path = str(args["path"])
+        mime = IMAGE_TYPES.get(os.path.splitext(path)[1].lower())
+        if mime:
+            # Base64 is produced INSIDE the container: docker exec hands us
+            # decoded text, so raw image bytes would arrive mangled either way.
+            r = ctr.exec(["bash", "-lc", 'base64 -w0 -- "$1"', "_", path],
+                         cwd="/", timeout=120.0)
+            if r.returncode != 0:
+                return out(r)
+            b64 = "".join((r.stdout or "").split())
+            size = len(b64) * 3 // 4
+            if size > MAX_IMAGE_BYTES:
+                return (
+                    f"{path} is a {mime} image of about {size} bytes, over the "
+                    f"{MAX_IMAGE_BYTES}-byte ceiling for one image. Crop or resize it "
+                    "with shell_exec and read the smaller file."
+                )
+            return (
+                f"{path} - {mime} image, about {size} bytes. The image itself is "
+                "attached below; say what it shows before acting on it.",
+                [f"data:{mime};base64,{b64}"],
+            )
+        if path.lower().endswith(".pdf"):
+            r = ctr.exec(["bash", "-lc", 'base64 -w0 -- "$1"', "_", path],
+                         cwd="/", timeout=180.0)
+            if r.returncode != 0:
+                return out(r)
+            try:
+                raw = base64.b64decode("".join((r.stdout or "").split()), validate=False)
+            except Exception as e:  # noqa: BLE001 - the model gets to see it
+                return f"{path} could not be decoded off the workstation: {e}"
+            note, images = render_pdf(raw, path)
+            return (note, images) if images else note
+        return out(ctr.exec(["cat", path], cwd="/"))
 
     if name == "write_file":
         path = str(args["path"])
@@ -831,8 +981,15 @@ def drive(sc: Sidecar, ctr: Container, deadline: float, turn_timeout: float,
 
         if kind == "tool_request":
             try:
-                content = run_host_tool(ctr, ev["tool"], ev.get("arguments") or {}, br)
-                sc.send({"type": "tool_response", "requestId": ev["id"], "content": content})
+                got = run_host_tool(ctr, ev["tool"], ev.get("arguments") or {}, br)
+                # A tool that looked at a picture answers with pixels beside its
+                # text; the sidecar attaches them to the tool turn, so the model
+                # sees the image rather than someone's description of it.
+                content, images = got if isinstance(got, tuple) else (got, None)
+                answer = {"type": "tool_response", "requestId": ev["id"], "content": content}
+                if images:
+                    answer["images"] = images
+                sc.send(answer)
             except subprocess.TimeoutExpired:
                 # A hung command is a tool failure the model can read and route
                 # around, not a dead run.
@@ -917,13 +1074,28 @@ def run_task(task: str, args, decl: Path, env_llm: dict[str, str], prog: Progres
 
         prog.emit(event="task_start", task=task)
         ctr.start()
+
+        # Spawned HERE, before the init, and not after it.
+        #
+        # Under `--home shared` a fresh sidecar first drains what the previous
+        # task left in the shared home: background seeds and unfinished tool
+        # requests, still tagged with the previous session's id. Measured on
+        # 2026-09-04, that drain delayed the agent's first word by 330 seconds
+        # on one task, where the same task under `--home fresh` answered at 0s.
+        # Across 175 tasks that is up to 16 hours of an agent sitting mute.
+        #
+        # The drain does not need the services, and the init below spends 279s
+        # on average (726s from cold) doing nothing but waiting on docker. So
+        # the two are simply overlapped. `agent_started` still begins after the
+        # healthcheck, so `agent_seconds` keeps measuring the agent's own work
+        # and stays comparable with every run recorded before this change.
+        sc = Sidecar.spawn(home, decl, {})
+
         prog.emit(event="init_start", task=task)
         ctr.init(args.server_hostname, env_llm)
         prog.emit(event="init_done", task=task, seconds=round(time.time() - started, 1),
                   services=ctr.services())
         require_services_healthy(args.server_hostname, ctr.services())
-
-        sc = Sidecar.spawn(home, decl, {})
 
         agent_started = time.time()
         record["stop_reason"] = drive(
@@ -990,7 +1162,10 @@ def self_check() -> None:
 
         def exec(self, argv, cwd="/workspace", env=None, timeout=300.0, stdin=None):
             calls.append(argv)
-            out = self.body if argv[0] == "cat" and stdin is None else ""
+            # `cat` for a text read, `base64` for an image one - the image
+            # branch never shells out to cat.
+            reading = argv[0] == "cat" or any("base64" in a for a in argv)
+            out = self.body if reading and stdin is None else ""
             return subprocess.CompletedProcess(argv, 0, out, "")
 
     ctr = FakeContainer()
@@ -1009,7 +1184,33 @@ def self_check() -> None:
         if name == "edit_file" or name.startswith("browser_"):
             continue  # edit_file is checked below; browser tools need a browser
         got = run_host_tool(ctr, name, sample[name])
-        assert not got.startswith("unknown host tool"), name
+        assert isinstance(got, str) and not got.startswith("unknown host tool"), name
+
+    # An image read comes back as pixels, not as text. This is the leg whose
+    # absence cost three tasks outright.
+    png = run_host_tool(FakeContainer("aGVsbG8=" + chr(10)), "read_file",
+                        {"path": "/workspace/sheet.PNG"})
+    assert isinstance(png, tuple), png
+    assert png[1] == ["data:image/png;base64,aGVsbG8="], png
+    assert "image/png" in png[0], png
+
+    # A PDF comes back as rendered pages plus whatever text layer it had. The
+    # three tasks lost on 3 Sep were all PDF, so this leg is checked for real
+    # against a one-page document rather than mocked.
+    try:
+        import pymupdf  # type: ignore[import-not-found]
+    except ImportError:
+        print("self-check: pymupdf absent, PDF leg not exercised")
+    else:
+        doc = pymupdf.open()
+        doc.new_page().insert_text((72, 72), "SURVEY RESULTS")
+        note, images = render_pdf(doc.tobytes(), "/workspace/survey.pdf")
+        doc.close()
+        assert len(images) == 1, images
+        assert images[0].startswith("data:image/jpeg;base64,"), images[0][:40]
+        assert "1 page" in note, note
+        # The text layer rides along: a model that cannot see still gets it.
+        assert "SURVEY RESULTS" in note, note
 
     # shell_exec must get a real shell, or every pipeline in the benchmark fails.
     assert ["bash", "-lc", "ls"] in calls, calls
