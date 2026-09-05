@@ -38,12 +38,9 @@ descoperite de un strain.
 
 **Conditiile:**
 
-1. **Linux nu a fost construit niciodata in trecerea asta.** Conflictul `rfd`
-   gtk3/xdg-portal notat pe 4 septembrie **pare reparat in arbore**
-   (`src-tauri/Cargo.toml:28` are acum `default-features = false`), dar
-   verificarea are nevoie de un job `rust / ubuntu-22.04` care sa treaca
-   efectiv. Nu se poate reproduce pe Windows: conflictul e exclusiv Linux.
-   Pana nu e verde un build real, e nedovedit, nu reparat.
+1. ~~Linux nu a fost construit.~~ **REZOLVAT** — vezi addendumul de mai jos.
+   `rust / ubuntu-22.04` e verde, si intreaga suita ruleaza acum pe ubuntu si
+   macOS.
 2. **~50 de findings de frontend raman neverificate** (mascota, onboarding) —
    sunt judecati vizuale, cu aplicatia pornita. Erau primul lucru pe lista de
    ieri si tot nu s-au facut.
@@ -255,3 +252,102 @@ Brief-ul cere si asta, nu doar lista de gauri.
    lista.
 3. `progress.ts`: o zi corupta nu trebuie sa arate ca o zi linistita.
 4. Restul invariantilor HARD, atacati pana la capat, nu doar cititi.
+
+---
+
+# ADDENDUM — CI, dupa trecerea principala
+
+Darius a intrebat daca macOS si Linux primesc aceleasi lucruri ca Windows, si a
+aratat ca ultimul CI picase pe mac si pe ubuntu. Raspunsul a schimbat verdictul
+in doua locuri.
+
+## Al saptelea bug, si cel mai rau dintre toate
+
+**Toate cele 325 de fisiere de test ale agentului picau pe Linux si macOS.**
+
+`0a8d761` (de azi) a facut `CINDERPAW_HOME` nesters cu:
+
+```
+Object.defineProperty(process.env, "CINDERPAW_HOME", { configurable: false })
+```
+
+Node specifica `process.env` sa accepte doar descriptori de date configurable,
+writable si enumerable, si refuza orice altceva cu
+`ERR_INVALID_OBJECT_DEFINE_PROPERTY`. Bun 1.3.14 — ce are masina asta — il
+accepta. Bun-ul `latest` pe care runnerele si-l instaleaza, nu. Apelul arunca
+eroare **in preload**, care ruleaza inainte ca vreun fisier de test sa fie
+importat:
+
+```
+0 pass, 325 fail, 325 errors. Ran 325 tests across 325 files. [34.00ms]
+```
+
+Nimic nu a rulat. `ubuntu-latest` si `macos-latest` sunt singurele doua
+platforme pe care suita agentului ruleaza in CI, deci **suita nu a avut nicio
+acoperire de CI nicaieri**, in timp ce trecea 3735/0 local pe Windows — care nu
+e in acea matrice. Baseline-ul din tabelul de mai sus era Windows-only si nu
+stiam asta cand l-am scris.
+
+O protectie care depinde de o permisiune pe care runtime-ul are dreptul sa o
+refuze nu e o protectie. Inlocuita cu un `afterEach` global inregistrat din
+acelasi preload: nu cere nicio permisiune, pastreaza atribuirea (un test isi
+poate alege propriul home), si pica **testul care a sters variabila**, nu unul
+nevinovat de mai tarziu. Restaurarea se face inainte de aruncarea erorii.
+
+Dovedit cu o sonda de doua teste: A sterge si e picat pe nume, B de dupa are in
+continuare home-ul temporar.
+
+## Baseline pe trei platforme
+
+PR #19, toate cele 10 job-uri verzi:
+
+```
+ubuntu-latest  / cinderpaw-agent   3744 pass  0 fail   3750 in 326 fisiere
+macos-latest   / cinderpaw-agent   3748 pass  0 fail   3750 in 326 fisiere
+windows (local)                    3735 pass  0 fail   3750 in 326 fisiere
+rust / ubuntu-22.04                verde  ← blocajul rfd chiar s-a dus
+rust / windows-latest              verde  (--features piper,kokoro)
+frontend-react (ubuntu + macos)    verde
+tui (go), docs, security-audit, headless-cli   verde
+```
+
+Doua lucruri de citit din cifrele alea:
+
+1. **macOS a rulat testele mele de case-insensitivity si le-a trecut.** Local nu
+   puteam verifica decat jumatatea win32; APFS a confirmat-o pe cealalta pe
+   hardware real. Pe Linux se sar corect (`test.if(caseInsensitiveFs)`).
+2. **Windows trece cele mai PUTINE teste dintre cele trei** (3735 vs 3744 vs
+   3748). Diferenta e in skip-uri, nu in esecuri — dar platforma pe care scrie
+   ca o testam cel mai mult e cea pe care ruleaza cel mai putin.
+
+## Paritate — raspunsul la intrebare
+
+Toate cele patru build-uri pleaca din acelasi commit si acelasi cod. Nu sunt
+insa identice, si diferenta e deliberata:
+
+| Build | Features |
+|---|---|
+| Windows x64 | `inference-vulkan, piper, kokoro` |
+| macOS Apple Silicon | `inference-metal, piper, kokoro` |
+| macOS Intel | `inference, piper, kokoro` |
+| **Linux x64** | `inference-vulkan` — **fara piper, fara kokoro** |
+
+**Utilizatorul de Linux nu primeste TTS on-device.** Ambele motoare merg pe
+acelasi ONNX Runtime, al carui prebuilt de Linux cere glibc 2.38, iar 22.04 are
+2.35. E documentat in `ci.yml` si in `src-tauri/Cargo.toml`, si e o alegere, nu
+o scapare. Restul — agentul, memoria, RSI, cowork, uneltele, voice prin
+provider — e acelasi cod pe toate patru.
+
+`PROMISES.md` spune deja "The Mac and Linux builds are still beta. Windows is
+the version we test most." Prima jumatate e onesta. A doua a fost, pentru o zi
+intreaga, exact pe dos: Windows era singura platforma **fara** CI pentru suita
+agentului, si celelalte doua erau moarte.
+
+## De rezolvat
+
+**Matricea `cinderpaw-agent` nu are Windows.** `os: [ubuntu-latest,
+macos-latest]`. O regresie care apare doar pe Windows nu ar fi prinsa de nimic
+in afara de o rulare locala — si o regresie care apare doar pe Linux/macOS, cum
+a fost asta, nu e prinsa de rularea locala. Ambele directii sunt oarbe.
+Adaugarea lui `windows-latest` acolo e o linie; costul e timp de runner. Decizie
+de proces, nu am luat-o singur.
