@@ -21,7 +21,11 @@ tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 # Native message box for the one failure that happens before a window exists
 # (the home-folder migration). Already present as tauri-plugin-dialog's own dep.
-rfd = "0.16"
+# Feature set copied from tauri-plugin-dialog's own rfd dependency. Default
+# features would add xdg-portal, and rfd refuses to build with gtk3 and
+# xdg-portal both on: the plugin turns gtk3 on, features unify, and the
+# Linux build died in rfd's build script. Windows and macOS never saw it.
+rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 specta = "=2.0.0-rc.25"
