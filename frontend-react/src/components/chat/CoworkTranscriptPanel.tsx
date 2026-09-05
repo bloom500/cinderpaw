@@ -315,6 +315,23 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
  */
 function TypingRow({ e }: { e: CoworkExchange }) {
   const who = displayName(e.toAgentId, e.toName);
+  /** Why Stop did not stop anything, if it did not. The one control whose
+   *  whole purpose is to halt something must not report a success it never
+   *  got: swallowed, a failed stop looks exactly like a stopped teammate
+   *  while the turn keeps running and keeps spending. */
+  const [stopFailed, setStopFailed] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const stop = async () => {
+    setStopping(true);
+    setStopFailed(null);
+    try {
+      await tauri.cinderpawAgent.coworkStop(e.toAgentId);
+    } catch (err) {
+      setStopFailed(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStopping(false);
+    }
+  };
   return (
     <li className="flex w-full gap-1.5 justify-start">
       <Avatar id={e.toAgentId} name={e.toName} />
@@ -364,15 +381,22 @@ function TypingRow({ e }: { e: CoworkExchange }) {
           session `cowork:<agentId>`, so the existing stop path already
           addresses it. With turns running minutes long, "I misspoke, stop"
           had no answer at all before this. */}
-      <button
-        type="button"
-        onClick={() => void tauri.cinderpawAgent.coworkStop(e.toAgentId).catch(() => {})}
-        className="self-center rounded-full border border-border-default px-2 py-0.5 text-2xs
-                   text-text-muted hover:text-error hover:border-error/40 cursor-pointer"
-        title={`Stop ${who}`}
-      >
-        Stop
-      </button>
+      <span className="self-center flex flex-col items-end gap-0.5">
+        <button
+          type="button"
+          onClick={() => void stop()}
+          disabled={stopping}
+          className="rounded-full border border-border-default px-2 py-0.5 text-2xs
+                     text-text-muted hover:text-error hover:border-error/40 cursor-pointer
+                     disabled:opacity-40 disabled:cursor-not-allowed"
+          title={`Stop ${who}`}
+        >
+          {stopping ? 'Stopping…' : 'Stop'}
+        </button>
+        {stopFailed && (
+          <span className="text-2xs text-error">{who} did not stop: {stopFailed}</span>
+        )}
+      </span>
     </li>
   );
 }
@@ -395,15 +419,26 @@ function ApprovalRow({ e }: { e: CoworkExchange }) {
   // that arrived some other way simply gets no buttons rather than a broken pair.
   const requestId = e.id.startsWith('approval:') ? e.id.slice('approval:'.length) : null;
   const [answered, setAnswered] = useState(false);
+  /** Why the last verdict did not land, if it did not. */
+  const [failed, setFailed] = useState<string | null>(null);
   const label = pending
     ? `${who} needs your approval`
     : e.status === 'error'
       ? `${who} was not approved`
       : `${who} was approved`;
-  const answer = (approve: boolean) => {
+  const answer = async (approve: boolean) => {
     if (!requestId) return;
     setAnswered(true);
-    useChat.getState().resolveCoworkApproval(requestId, approve);
+    setFailed(null);
+    try {
+      await useChat.getState().resolveCoworkApproval(requestId, approve);
+    } catch (err) {
+      // The verdict did not reach the sidecar. Hand the decision back rather
+      // than leaving "sending…" on screen for ever: the teammate is blocked on
+      // this answer, and an approval nobody can give again is a stuck turn.
+      setAnswered(false);
+      setFailed(err instanceof Error ? err.message : String(err));
+    }
   };
   return (
     <li className="flex w-full justify-center">
@@ -438,7 +473,7 @@ function ApprovalRow({ e }: { e: CoworkExchange }) {
           <span role="group" aria-label={`Approval request: ${e.requestText ?? e.approvalClass ?? who}`} className="flex items-center gap-1.5 pt-0.5">
             <button
               type="button"
-              onClick={() => answer(true)}
+              onClick={() => void answer(true)}
               className="rounded-full border border-brand/40 bg-brand/15 px-2.5 py-0.5 text-2xs
                          font-medium text-text-primary hover:bg-brand/25 cursor-pointer"
             >
@@ -446,7 +481,7 @@ function ApprovalRow({ e }: { e: CoworkExchange }) {
             </button>
             <button
               type="button"
-              onClick={() => answer(false)}
+              onClick={() => void answer(false)}
               className="rounded-full border border-error/40 bg-error/10 px-2.5 py-0.5 text-2xs
                          font-medium text-text-primary hover:bg-error/20 cursor-pointer"
             >
@@ -455,6 +490,7 @@ function ApprovalRow({ e }: { e: CoworkExchange }) {
           </span>
         )}
         {answered && pending && <span className="text-text-muted">sending…</span>}
+        {failed && <span className="text-error">Not sent: {failed}</span>}
       </span>
     </li>
   );
@@ -705,13 +741,30 @@ export function CoworkTranscriptPanel() {
   const convId = useConversations((s) => s.currentId);
   const chatSid = useChat((s) => s.sessionId);
   const currentId = convId ?? chatSid ?? null;
+  /** Set when this thread's mailbox could not be read. See the effect below. */
+  const [historyFailed, setHistoryFailed] = useState(false);
   useEffect(() => {
     // Point the transcript at this chat FIRST, so the previous one's bubbles
     // are gone on the same frame the conversation changes rather than lingering
     // until the mailbox answers — and so a new chat (no id yet) shows nothing.
     useCoworkTranscript.getState().setThread(currentId);
+    setHistoryFailed(false);
     if (!currentId) return;
-    void tauri.cinderpawAgent.coworkHistory(currentId).catch(() => {});
+    let current = true;
+    void tauri.cinderpawAgent
+      .coworkHistory(currentId)
+      .catch(() => {
+        // Swallowed, this is a transcript that is quietly missing everything
+        // that happened before the app was opened, looking exactly like a
+        // transcript that is complete. Said out loud only when the panel is on
+        // screen anyway (see `isEmpty`): raising a whole panel to report a
+        // failure to load something the person has never used would be worse
+        // than the silence it replaces.
+        if (current) setHistoryFailed(true);
+      });
+    return () => {
+      current = false;
+    };
   }, [currentId]);
   // Changing chats is not mail arriving.
   //
@@ -982,8 +1035,19 @@ export function CoworkTranscriptPanel() {
   const isEmpty = exchanges.length === 0;
   if (isEmpty) return null;
 
-  // Collapsed = tiny liquid bubble, not a bar. Saves visual field; click to
-  // morph into the full panel with a spring (border-radius 999→16).
+  // Collapsed = tiny liquid bubble, not a bar. Saves visual field.
+  //
+  // The two states are two separate appearances now, not one morph. They used
+  // to share a `layoutId`, and that is where the bounce came from: framer ran a
+  // LAYOUT projection springing this element from the panel's box down to the
+  // bubble's, while `initial`/`animate` ran a SECOND scale spring on the same
+  // element, while the Tailwind `transition-transform` with `hover:scale-105`
+  // ran a THIRD transform animation in CSS on top of both. Three owners of one
+  // transform, two of them springs, is a wobble by construction.
+  //
+  // A morph between a 56 px circle and a 350 px panel was never worth that. Now
+  // each state fades and scales a little from its own place, on a TWEEN rather
+  // than a spring, so there is nothing that can overshoot.
   if (collapsed) {
     return (
       <motion.button
@@ -1001,25 +1065,22 @@ export function CoworkTranscriptPanel() {
         data-testid="cowork-bubble"
         aria-label="Open cowork transcript"
         aria-expanded={false}
-        layoutId="cowork-panel"
-        transition={{ type: 'spring', stiffness: 420, damping: 28 }}
-        // `borderRadius` inline, and NOT via `rounded-full`, because this
-        // element shares `layoutId` with the expanded panel. A shared layout
-        // transition projects one box onto the other and scale-corrects it —
-        // but it can only correct a radius it can read, and a Tailwind class
-        // is not one. So the circle was drawn at the panel's rectangular
-        // radius for the length of the morph, and `ring-2` (a box-shadow,
-        // which follows border-radius) traced that rectangle: the square
-        // around the bubble. The panel already animates its radius inline;
-        // this is the other half of the same pair.
+        // `borderRadius` inline rather than via `rounded-full`: `ring-2` is a
+        // box-shadow and follows the border radius, so the circle and its ring
+        // have to agree about the shape from the first frame.
         style={{ top: pos.top, right: pos.right, borderRadius: 9999 }}
-        initial={{ scale: 0.85, opacity: 0, borderRadius: 9999 }}
-        animate={{ scale: 1, opacity: 1, borderRadius: 9999 }}
-        exit={{ scale: 0.85, opacity: 0, borderRadius: 9999 }}
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.14, ease: 'easeOut' }}
+        // Hover and press are framer's too. As Tailwind's `hover:scale-105
+        // active:scale-95 transition-transform` they were a second animation
+        // writing the same `transform` property that framer writes inline every
+        // frame, which is half of what made this bounce.
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
         className="absolute z-30 size-14 shadow-lg
                    flex items-center justify-center cursor-pointer
-                   ring-2 ring-bg-elevated
-                   hover:scale-105 active:scale-95 transition-transform"
+                   ring-2 ring-bg-elevated"
       >
         {/* A chat head: the person you are talking to, filling the circle,
             the way every messenger draws one. The first version stacked two
@@ -1073,13 +1134,17 @@ export function CoworkTranscriptPanel() {
     <motion.aside
       // @ts-ignore — motion ref type
       ref={panelRef as any}
-      layoutId="cowork-panel"
       data-testid="cowork-transcript-panel"
       style={{ width: `${width}px`, maxWidth: '42%', top: pos.top, right: pos.right }}
-      initial={{ scale: 0.92, opacity: 0, borderRadius: 999 }}
-      animate={{ scale: 1, opacity: 1, borderRadius: 16 }}
-      exit={{ scale: 0.92, opacity: 0, borderRadius: 999 }}
-      transition={{ type: 'spring', stiffness: 380, damping: 30, layout: { duration: 0 } }}
+      // No `borderRadius` here on purpose, and that is only safe because the
+      // `layoutId` is gone. While it was shared with the bubble, framer wrote
+      // the bubble's 9999 px radius onto this element as an INLINE style, which
+      // `rounded-2xl` could not beat: dropping it once left the panel as an
+      // ellipse with the transcript spilling out. With no layout projection
+      // there is nothing writing the radius but the class.
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.16, ease: 'easeOut' }}
       // z-30, not z-20: the chat input wrapper is z-20 AND comes later in the
       // DOM, so at the same level it painted its own panel straight over a
       // floating window the person had dragged there. Modals (z-40+) still
@@ -1206,6 +1271,15 @@ export function CoworkTranscriptPanel() {
           style={{ height: `${height}px`, maxHeight: '65vh' }}
           className="flex-1 overflow-y-auto thin-scrollbar px-2.5 pb-2.5"
         >
+          {/* An incomplete transcript looks exactly like a complete one, so
+              this has to be said. What is on screen is what arrived live;
+              anything from before the app opened did not load. */}
+          {historyFailed && (
+            <p role="status" className="mb-2 rounded-lg border border-warning/30 bg-warning/5 px-2 py-1 text-2xs text-warning">
+              Earlier messages in this thread could not be loaded, so this
+              transcript starts where the app did.
+            </p>
+          )}
           {pinnedMessages.length > 0 && (
             <div className="mb-2 rounded-lg border border-warning/20 bg-warning/5 p-2">
               <div className="text-2xs font-medium text-warning mb-1.5 flex items-center gap-1">

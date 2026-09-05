@@ -87,8 +87,15 @@ export function ToolCallStack({ events, active }: ToolCallStackProps) {
                   >
                     <button
                       type="button"
+                      // The store puts this ask back when the verdict does not
+                      // land, which is the recovery this bubble shows. Nothing
+                      // more to do here than not turn that into an unhandled
+                      // rejection.
                       onClick={() =>
-                        useChat.getState().resolveCoworkApproval(e.approval!.requestId, true)
+                        void useChat
+                          .getState()
+                          .resolveCoworkApproval(e.approval!.requestId, true)
+                          .catch(() => {})
                       }
                       className="text-micro px-1.5 py-0.5 rounded bg-brand/15 border border-brand/40 hover:bg-brand/25 text-text-primary"
                     >
@@ -96,8 +103,15 @@ export function ToolCallStack({ events, active }: ToolCallStackProps) {
                     </button>
                     <button
                       type="button"
+                      // The store puts this ask back when the verdict does not
+                      // land, which is the recovery this bubble shows. Nothing
+                      // more to do here than not turn that into an unhandled
+                      // rejection.
                       onClick={() =>
-                        useChat.getState().resolveCoworkApproval(e.approval!.requestId, false)
+                        void useChat
+                          .getState()
+                          .resolveCoworkApproval(e.approval!.requestId, false)
+                          .catch(() => {})
                       }
                       className="text-micro px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/40 hover:bg-red-500/20 text-text-primary"
                     >

@@ -240,6 +240,62 @@ describe('CoworkTranscriptPanel', () => {
     expect(screen.queryByRole('button', { name: 'Deny' })).toBeNull();
   });
 
+  test('a verdict that never reached the sidecar can be given again', async () => {
+    // The mascot bubble already recovers from this: the store puts the ask
+    // back. The panel kept its own `answered` flag and never heard about the
+    // failure, so it sat on "sending…" with no buttons and no error, and the
+    // teammate waited on an approval nobody could give again.
+    vi.mocked(tauri.cinderpawAgent.coworkApprovalResolve).mockRejectedValueOnce(
+      new Error('sidecar is not running'),
+    );
+    useCoworkTranscript.setState({
+      exchanges: [
+        exchange({
+          id: 'approval:r9',
+          kind: 'approval',
+          fromAgentId: 'demo-agent-bolt',
+          fromName: 'Bolt',
+          toAgentId: 'human',
+          requestText: 'rm -rf dist/',
+          approvalClass: 'delete',
+          status: 'running',
+          responseText: null,
+        }),
+      ],
+    });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+
+    expect(await screen.findByText(/sidecar is not running/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+  });
+
+  test('the stop button says so when the teammate did not stop', async () => {
+    // Swallowed, this reads as "stopped" while the turn runs on. The one
+    // control whose whole purpose is to halt something must not report
+    // success it did not get.
+    vi.mocked(tauri.cinderpawAgent.coworkStop).mockRejectedValueOnce(
+      new Error('sidecar is not running'),
+    );
+    useCoworkTranscript.setState({
+      exchanges: [exchange({ id: 'msg:s1', status: 'running' })],
+    });
+    render(<CoworkTranscriptPanel />);
+    await userEvent.click(screen.getByRole('button', { name: /Stop/ }));
+    expect(await screen.findByText(/did not stop/i)).toBeInTheDocument();
+  });
+
+  test('says so when the thread history could not be loaded', async () => {
+    // Swallowed, a transcript missing everything from before the app opened
+    // looks exactly like a complete one.
+    vi.mocked(tauri.cinderpawAgent.coworkHistory).mockRejectedValueOnce(
+      new Error('sidecar is not running'),
+    );
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'msg:h1' })] });
+    render(<CoworkTranscriptPanel />);
+    expect(await screen.findByText(/could not be loaded/i)).toBeInTheDocument();
+  });
+
   test('a settled approval offers no buttons', () => {
     useCoworkTranscript.setState({
       exchanges: [
@@ -419,5 +475,42 @@ describe('the height ceiling', () => {
     // No dock element: the panel is being rendered somewhere without one.
     expect(maxBodyHeight(40)).toBeGreaterThanOrEqual(PANEL_MIN_H);
     expect(maxBodyHeight(40)).toBeLessThanOrEqual(PANEL_MAX_H);
+  });
+});
+
+describe('the panel and its bubble animate once, not three times', () => {
+  /**
+   * The bounce Darius saw on closing the panel was not one animation being
+   * wrong. It was three animations owning one `transform` at the same time: a
+   * shared-`layoutId` layout projection, a scale spring in `initial`/`animate`,
+   * and Tailwind's `transition-transform` with `hover:scale-105`. Two of the
+   * three were springs, so overshoot was guaranteed.
+   *
+   * jsdom runs no animations and computes no transforms, so what is pinned here
+   * is the one part it can see: that the CSS half is gone from the class list,
+   * and that the two states no longer claim to be the same element.
+   */
+  test('the bubble leaves its transform to one owner', () => {
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'msg:b1' })] });
+    localStorage.setItem('cowork-panel-collapsed', '1');
+    render(<CoworkTranscriptPanel />);
+
+    const bubble = screen.getByTestId('cowork-bubble');
+    expect(bubble.className).not.toMatch(/transition-transform/);
+    expect(bubble.className).not.toMatch(/hover:scale-/);
+    expect(bubble.className).not.toMatch(/active:scale-/);
+    localStorage.removeItem('cowork-panel-collapsed');
+  });
+
+  test('the expanded panel keeps its corners', () => {
+    // The radius comes from the class now. It could not while a shared layout
+    // projection was writing an inline one over the top of it, and the panel
+    // rendered as an ellipse the one time that was overlooked.
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'msg:b2' })] });
+    render(<CoworkTranscriptPanel />);
+
+    const panel = screen.getByTestId('cowork-transcript-panel');
+    expect(panel.className).toMatch(/rounded-2xl/);
+    expect(panel.style.borderRadius).toBe('');
   });
 });

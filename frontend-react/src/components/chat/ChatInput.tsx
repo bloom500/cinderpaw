@@ -597,6 +597,9 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       />
       <CallOverlay
         phase={call.phase}
+        // Only the LiveKit engine ever reports a stage; the retired two share the
+        // shape and pass none, so this needs no branch on the engine.
+        stage={call.stage}
         heard={call.heard}
         level={call.level}
         notice={call.notice}

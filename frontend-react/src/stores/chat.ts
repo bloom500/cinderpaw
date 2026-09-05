@@ -188,7 +188,10 @@ interface ChatStore {
    * stays "running" until the sidecar's terminal event reconciles it, so a
    * dropped reply is visible as a stuck request instead of a silent lie).
    */
-  resolveCoworkApproval: (requestId: string, approve: boolean) => void;
+  /** Rejects when the verdict did not reach the sidecar, so every surface
+   *  showing this ask can offer it again rather than each inventing its own
+   *  recovery. The mascot bubble's ask is restored here either way. */
+  resolveCoworkApproval: (requestId: string, approve: boolean) => Promise<void>;
   clearToolCallStream: () => void;
 }
 
@@ -591,7 +594,7 @@ export const useChat = create<ChatStore>((set, get) => ({
     }
   },
 
-  resolveCoworkApproval: (requestId, approve) => {
+  resolveCoworkApproval: async (requestId, approve) => {
     // Detach the buttons FIRST so a double-click is impossible even before
     // the sidecar answers; the terminal cowork_event then closes the bubble.
     set((s) => ({
@@ -601,22 +604,28 @@ export const useChat = create<ChatStore>((set, get) => ({
           : e,
       ),
     }));
-    void tauri.cinderpawAgent
-      .coworkApprovalResolve(requestId, approve)
-      .catch(() =>
-        // The verdict never reached the sidecar — put the ask back so the
-        // user can retry instead of staring at buttons that do nothing.
-        set((s) => ({
-          toolCallStream: s.toolCallStream.map((e) => {
-            if (e.id !== `approval:${requestId}` || e.kind !== 'cowork') return e;
-            const description = e.detail ?? '';
-            return {
-              ...e,
-              approval: { requestId, approvalClass: 'unknown', description },
-            };
-          }),
-        })),
-      );
+    try {
+      await tauri.cinderpawAgent.coworkApprovalResolve(requestId, approve);
+    } catch (err) {
+      // The verdict never reached the sidecar. Put the ask back so the user
+      // can retry instead of staring at buttons that do nothing.
+      set((s) => ({
+        toolCallStream: s.toolCallStream.map((e) => {
+          if (e.id !== `approval:${requestId}` || e.kind !== 'cowork') return e;
+          const description = e.detail ?? '';
+          return {
+            ...e,
+            approval: { requestId, approvalClass: 'unknown', description },
+          };
+        }),
+      }));
+      // Re-thrown rather than swallowed here. The mascot bubble is not the
+      // only place this ask appears: the cowork panel shows the same one, and
+      // when this recovery was private to the store that panel sat on
+      // "sending…" for ever, with no buttons, no error, and a teammate
+      // waiting on an approval nobody could give again.
+      throw err;
+    }
   },
 
   // A running worker SURVIVES the clear. The stream is wiped 5s after the turn
