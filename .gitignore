@@ -134,3 +134,9 @@ vendor/
 __pycache__/
 *.pyc
 .tac-home/
+
+# Isolated homes for evolution experiments (E1). Real runs, not fixtures:
+# a journal, a git substrate and a champion per run. Kept out of the repo
+# because they are results, not source.
+.e1-home/
+.e1-broken/
