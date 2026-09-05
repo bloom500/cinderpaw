@@ -104,6 +104,28 @@ describe("2.3 — the network kill-switch", () => {
     process.env.CINDERPAW_BENCHMARK_RUN_ID = "../escape";
     expect(() => benchmarkRunId()).toThrow(/path-safe/);
   });
+
+  // "run-1" and "RUN-1" are two ids and, on Windows (NTFS) and macOS (APFS),
+  // one directory. Measured on this machine: mkdir "run1" then mkdir "RUN1"
+  // leaves ONE directory, and the second run's files land on top of the
+  // first's. That is exactly the cross-run leak I13's per-run half exists to
+  // prevent, arriving without any traversal and without any rewriting — and
+  // "two runs never share a profile dir" is the sentence the invariant makes.
+  // Refusal, not case-folding, for the reason run-id.ts already gives: folding
+  // maps two runs onto one directory, which is the leak, not the fix.
+  test("a run id that differs only in case is refused, not silently merged", () => {
+    for (const id of ["RUN-1", "Run-1", "runA"]) {
+      process.env.CINDERPAW_BENCHMARK_RUN_ID = id;
+      expect(() => benchmarkRunId()).toThrow(/lower/i);
+    }
+  });
+
+  test("ordinary lowercase run ids still pass", () => {
+    for (const id of ["run-1", "bench-full-affine-cipher", "ep_2026.09.05"]) {
+      process.env.CINDERPAW_BENCHMARK_RUN_ID = id;
+      expect(benchmarkRunId()).toBe(id);
+    }
+  });
 });
 
 describe("the profile dir the sidecar picks agrees with the Rust host", () => {
