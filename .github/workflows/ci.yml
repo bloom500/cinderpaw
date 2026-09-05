@@ -113,7 +113,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest]
+        include:
+          # On-device TTS (piper/kokoro) is Windows/macOS only: both ride one
+          # ONNX Runtime whose Linux prebuilt needs glibc 2.38, and 22.04 has
+          # 2.35. Windows is where they ship, so Windows is where they are
+          # compiled and tested. See src-tauri/Cargo.toml's `default`.
+          - os: ubuntu-22.04
+            features: ""
+          - os: windows-latest
+            features: "--features cinderpaw/piper,cinderpaw/kokoro"
 
     steps:
       - name: Checkout
@@ -158,7 +166,7 @@ jobs:
         run: npm ci && npm run build
 
       - name: cargo test
-        run: cargo test --workspace
+        run: cargo test --workspace ${{ matrix.features }}
 
   # The headless/server build (`cargo build -p cinderpaw-cli --no-default-features`)
   # compiles the cfg(not(feature = "inference")) stubs that no other job

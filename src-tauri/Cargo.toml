@@ -117,7 +117,16 @@ url = "2"
 # not a flag to flip; it needs the two crates to share one ggml build, or whisper
 # to run out-of-process. Until then the honest fix is the UI not offering local
 # transcription, NOT this line.
-default = ["inference", "piper", "kokoro"]
+# `piper` and `kokoro` are deliberately NOT in this list, and the reason is one
+# library. Both engines ride ONNX Runtime, and the only Linux prebuilt ort can
+# fetch (pyke, ONNX Runtime 1.24.2) references `__isoc23_strtol`,
+# `__isoc23_strtoll` and `__isoc23_strtoull` — symbols that exist only in glibc
+# 2.38 and later. Ubuntu 22.04 ships 2.35 and Debian 12 ships 2.36, so anyone
+# building on either gets three undefined symbols from the linker and no hint
+# of what asked for them. Off by default means `cargo build` works on every
+# platform a contributor might have; the Windows and macOS jobs turn them on
+# explicitly, which is also exactly where they ship.
+default = ["inference"]
 # CPU-only baseline (works everywhere; slow for larger models).
 inference = ["cinderpaw-core/inference"]
 # GPU backends — additive on top of `inference`. Pick at most ONE per build
