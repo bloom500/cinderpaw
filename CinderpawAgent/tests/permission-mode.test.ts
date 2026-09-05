@@ -57,6 +57,7 @@ describe("resolving the mode", () => {
     // That made "read-only for a public connector" a per-launch ceremony nobody
     // would perform. The process that ENFORCES the mode reads it instead.
     const home = await mkdtemp(join(tmpdir(), "cinderpaw-mode-"));
+    const priorHome = process.env.CINDERPAW_HOME;
     process.env.CINDERPAW_HOME = home;
     delete process.env.CINDERPAW_PERMISSION_MODE;
     try {
@@ -77,7 +78,10 @@ describe("resolving the mode", () => {
       resetPermissionModeCache();
       expect(permissionMode({} as NodeJS.ProcessEnv)).toBe("workspace_write");
     } finally {
-      delete process.env.CINDERPAW_HOME;
+      // Restore, never delete: the suite's own home comes from the preload,
+      // and removing the variable drops every later test onto the developer's
+      // real ~/.cinderpaw. The preload now refuses the delete outright.
+      process.env.CINDERPAW_HOME = priorHome;
       resetPermissionModeCache();
     }
   });
