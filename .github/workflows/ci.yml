@@ -12,7 +12,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Windows is here because it is the platform PROMISES.md calls "the
+        # version we test most", and it was the only one this matrix did not
+        # cover. Both directions of that gap are real and both have been paid:
+        # on 2026-09-05 a preload guard that Bun 1.3.14 accepts and the runners'
+        # `latest` Bun refuses killed all 325 agent test FILES on ubuntu and
+        # macos — 0 pass, 325 fail in 34 ms — while the same commit passed
+        # 3735/0 on a Windows dev box, which nothing in CI was checking. A
+        # Windows-only regression had exactly one thing standing between it and
+        # a release: somebody remembering to run the suite by hand.
+        os: [ubuntu-latest, macos-latest, windows-latest]
         step:
           - name: cinderpaw-agent
             workdir: CinderpawAgent
