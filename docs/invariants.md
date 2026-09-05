@@ -70,19 +70,19 @@ four are present.
 
 **Statement:** The main lineage advances if and only if
 `candidate_score > prior_score_value`. The strict-greater comparison in
-`crates/cinderpaw-core/src/rsi/repo.rs:362` is the **single source of
+`crates/cinderpaw-core/src/rsi/repo.rs::ratchet_attempt` is the **single source of
 truth** for "main advances only on improvement".
 
 **Owner:**
 - TypeScript: `CinderpawAgent/src/rsi/l1-config/ratchet-handler.ts`
-- Rust: `crates/cinderpaw-core/src/rsi/repo.rs::ratchet_attempt` (line 337)
+- Rust: `crates/cinderpaw-core/src/rsi/repo.rs::ratchet_attempt`
 
 **Verified By:**
 - Documentation: this entry
 - Test: `crates/cinderpaw-core/src/rsi/repo.rs::tests` (ratchet_attempt
   fixture tests)
 - Runtime Assert: Rust-side invariant; TS-side Confidence gate pre-check
-  (`CinderpawAgent/src/rsi/confidence.ts`) before any `rsi_commit_genome`
+  (`CinderpawAgent/src/rsi/infra/confidence.ts`) before any `rsi_commit_genome`
 - Audit: `ratchet_attempt` appends one row per attempt to
   `~/.cinderpaw/rsi/ratchet_audit.log` (same hash-chained format and same
   `verify()` as the bounds log). On an advance the row is written **before**
@@ -143,15 +143,17 @@ ambiguous.
 **Statement:** Journal entries are immutable once written. No API
 allows modifying, deleting, or reordering existing entries.
 
-**Owner:** `CinderpawAgent/src/rsi/journal.ts::appendJournal`,
+**Owner:** `CinderpawAgent/src/rsi/infra/journal.ts::appendJournal`,
 `readJournal`
 
 **Verified By:**
 - Documentation: this entry
 - Test: `tests/rsi-journal.test.ts` (no `updateJournal` /
   `deleteJournal` API exists; happy-path tests cover append-only)
-- Runtime Assert: `readJournal` THROWS on malformed JSON
-  (`isJournalEntry` type guard rejects stale-schema rows)
+- Runtime Assert: `readJournal` THROWS on any corrupt row — malformed JSON,
+  and (since 2026-09-05) a row that parses but fails the `isJournalEntry`
+  guard. It used to SKIP the second kind, which is the thing I4 forbids;
+  the error names the 1-based row so an operator knows where to look.
 - Audit: `journal.ts::appendJournal` chains every appended row
   (`prevHash`/`hash`, marker `0x02`) and `verifyJournal` names the first
   broken row. The chain shipped; this line said TODO for a year after.
@@ -174,12 +176,18 @@ the row in place + restart, (b) accept data loss + restart (audited).
 on read, never silently dropped or skipped. This is the operator's
 signal that the audit trail needs inspection.
 
-**Owner:** `CinderpawAgent/src/rsi/journal.ts::readJournal`
+**Owner:** `CinderpawAgent/src/rsi/infra/journal.ts::readJournal`
 
 **Verified By:**
 - Documentation: this entry
-- Test: `tests/rsi-journal.test.ts > readJournal > throws on malformed JSON`
-- Runtime Assert: `readJournal` propagates `JSON.parse` errors
+- Test: `tests/rsi-journal.test.ts > readJournal > throws on malformed JSON`,
+  and `> throws on a row that parses but is not a JournalEntry (I4)`
+- Runtime Assert: `readJournal` propagates `JSON.parse` errors AND throws on a
+  row that fails the type guard. The second half was missing until 2026-09-05:
+  such a row was silently dropped, and because `verifyJournal` only walks the
+  hash chain, a row written broken passed verification while
+  `collectJournal` reported `excludedRows: 0` for a file it had just lost rows
+  from. Both the read and the L6 consumer's accounting are loud now.
 - Audit: not applicable. A read has no side effect to record, and the
   missing or corrupt row is its own signal.
 
@@ -201,7 +209,7 @@ stage MUST halt the cycle, not skip the phase. The fail-open path
 applies ONLY when `estimate === null` (no estimator available).
 
 **Owner:**
-- TypeScript: `CinderpawAgent/src/rsi/budget.ts::assertCanSpend`
+- TypeScript: `CinderpawAgent/src/rsi/infra/budget.ts::assertCanSpend`
 - Contract FSM consumer (Opus territory — Steps 9-10 of BRSI refactor)
 
 **Verified By:**
@@ -235,7 +243,7 @@ exhausted budget.
 sample size → direction → significance → magnitude → confidence.
 Each check rejects with a specific reason; no check may be skipped.
 
-**Owner:** `CinderpawAgent/src/rsi/confidence.ts::evaluateGate`
+**Owner:** `CinderpawAgent/src/rsi/infra/confidence.ts::evaluateGate`
 
 **Verified By:**
 - Documentation: this entry
@@ -294,7 +302,7 @@ runtime assertion would catch a missing module.
 `tier0.rs`) are frozen. The agent may not modify, reorder, or
 remove them.
 
-**Owner:** `src-tauri/src/rsi/tier0.rs`
+**Owner:** `crates/cinderpaw-core/src/rsi/tier0.rs`
 
 **Verified By:**
 - Documentation: this entry
@@ -322,8 +330,8 @@ via the UI, never by the agent. Every change is hash-chained and
 audited.
 
 **Owner:**
-- Rust: `src-tauri/src/rsi/sandbox_bounds.rs`
-- Audit: `src-tauri/src/rsi/audit.rs::save_with_audit`
+- Rust: `crates/cinderpaw-core/src/rsi/sandbox_bounds.rs`
+- Audit: `crates/cinderpaw-core/src/rsi/audit.rs::save_with_audit`
 
 **Verified By:**
 - Documentation: this entry
@@ -348,7 +356,7 @@ a contract violation.
 **Statement:** `computePersonalFitness` returns values in `[0, 1]`,
 never outside. NaN inputs are normalised to 0.
 
-**Owner:** `CinderpawAgent/src/rsi/personal-fitness.ts::computePersonalFitness`
+**Owner:** `CinderpawAgent/src/rsi/l2-adapt/personal-fitness.ts::computePersonalFitness`
 
 **Verified By:**
 - Documentation: this entry
@@ -373,7 +381,7 @@ slightly biased — observable in regression tests.
 **Statement:** `fitnessVectorAggregate(v)` returns values in `[0, 1]`,
 even for pathological inputs.
 
-**Owner:** `CinderpawAgent/src/rsi/fitness.ts::fitnessVectorAggregate`
+**Owner:** `CinderpawAgent/src/rsi/l1-config/fitness.ts::fitnessVectorAggregate`
 
 **Verified By:**
 - Documentation: this entry
@@ -399,8 +407,8 @@ substrate (commits have parent hashes but never child hashes; the
 graph is built by walking forward).
 
 **Owner:**
-- Rust: `src-tauri/src/rsi/repo.rs` (git substrate)
-- TypeScript: `CinderpawAgent/src/rsi/provenance.ts::walkDescendants`
+- Rust: `crates/cinderpaw-core/src/rsi/repo.rs` (git substrate)
+- TypeScript: `CinderpawAgent/src/rsi/infra/provenance.ts::walkDescendants`
 
 **Verified By:**
 - Documentation: this entry
@@ -435,7 +443,7 @@ learned skills are not on run N+1's disk to be read.
 
 **Owner:**
 - Per run: `CinderpawAgent/src/config.ts::cinderpawHome` + `benchmarkRunId`
-- Path layout: `src-tauri/src/rsi/paths.rs`
+- Path layout: `crates/cinderpaw-core/src/rsi/paths.rs`
 - Per-instance split: BRSI §3.3 in `continual-personal-adaptation-plan.md`
 
 **Verified By:**
@@ -509,7 +517,7 @@ why a candidate was rejected before evaluation. Silent rejections
 are exactly the failure mode BRSI is designed to prevent.
 
 **Owner:**
-- TypeScript: `CinderpawAgent/src/rsi/event-bus.ts` (the union type with
+- TypeScript: `CinderpawAgent/src/rsi/infra/event-bus.ts` (the union type with
   `reason: string` non-optional); the Contract FSM (Opus territory)
   is the primary emitter.
 - Wire-level: `RsiEvent` discriminated union extension per
@@ -570,7 +578,7 @@ the Journal stream.
 **Statement:** The population manager should maintain at least 3
 niches (NEAT-speciation threshold at 0.85 cosine similarity).
 
-**Owner:** `CinderpawAgent/src/rsi/extinction-handler.ts`
+**Owner:** `CinderpawAgent/src/rsi/l1-config/extinction-handler.ts`
 
 **Verification:** Metric on `population.nicheCount`.
 
