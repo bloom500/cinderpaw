@@ -92,6 +92,20 @@ export interface LoadedModel   { path: string; name: string; ctx_len: number; n_
 export interface ModelInfo     {
   id: string; name: string; path: string; size_bytes: number;
   quant?: string | null; ctx_len?: number | null; loaded: boolean;
+  /**
+   * True for a model that turns text into vectors and cannot hold a
+   * conversation.
+   *
+   * Rust has carried this on `ModelInfo` for a while, with a doc comment saying
+   * it exists so each of its many callers can decide for itself. This
+   * hand-written mirror never gained the field, so no caller on this side could
+   * decide anything: both model pickers listed `bge-m3`, and because it sorts
+   * before every chat model and a menu focuses its first row on open, opening
+   * the picker looked like it had chosen the one model that can only return
+   * vectors. The Models tab and the download panel must still NOT filter on it
+   * — hiding a file somebody is trying to delete is worse.
+   */
+  is_embedding: boolean;
 }
 export interface SystemInfo {
   os: string;
@@ -1000,13 +1014,13 @@ const raw = {
   // Rejects with `livekit-no-node` when no Node runtime is installed — a code
   // rather than a sentence, because the answer needs a link the UI can put in
   // the user's language.
-  startLivekitCall:     (provider?: string | null, voice?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo' }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: pipeline?.sttLanguage ?? null }),
+  startLivekitCall:     (provider?: string | null, voice?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }, language?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo'; warm: boolean }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: language ?? pipeline?.sttLanguage ?? null }),
   endLivekitCall:       () => invoke<void>('end_livekit_call'),
   /** Same arguments as `startLivekitCall`, and that is load-bearing: a chain
    *  is warmed FOR one vendor, voice and pair of engines, and Rust throws
    *  away one that was warmed for anything else. Warming with fewer
    *  arguments than the call will use is a warmup guaranteed to be discarded. */
-  warmLivekit:          (provider?: string | null, voice?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }) => invoke<void>('warm_livekit', { provider: provider ?? null, voice: voice ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: pipeline?.sttLanguage ?? null }),
+  warmLivekit:          (provider?: string | null, voice?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }, language?: string | null) => invoke<void>('warm_livekit', { provider: provider ?? null, voice: voice ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: language ?? pipeline?.sttLanguage ?? null }),
   // Which speech-to-speech vendors this build can run a call on, and which of
   // them actually have a key. Asked of Rust rather than listed here: the same
   // table decides which npm plugin gets installed, and a second list in

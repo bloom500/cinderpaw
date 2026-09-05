@@ -128,6 +128,9 @@ const en = {
   'call.replyStopped': 'That reply was cut off. Say it again.',
   'call.voiceMissing': 'This engine has no voice downloaded yet. Get one from “Change voice engine”.',
   'call.keyNeeded': 'This voice engine needs an API key. It goes straight to your OS keychain.',
+  // Names the vendor, because the field used to say Google whichever vendor was
+  // picked, and a key pasted under the wrong name is worse than one refused.
+  'call.keyNeededFor': 'No {provider} key stored. Paste one below and it goes straight to your OS keychain.',
   'call.keyPlaceholder': 'Paste the API key',
   'call.keySave': 'Save',
   'call.chat': 'Chat',
@@ -148,6 +151,13 @@ const en = {
   'call.liveNoKey': 'No Google API key stored. The same AI Studio key the chat side uses. Paste it below.',
   'call.liveClosed': 'Disconnected. Press call to reconnect.',
   'call.liveConnecting': 'Connecting…',
+  // The three stages of getting into a call, named rather than hidden behind
+  // one spinner: fifteen seconds of "connecting" is indistinguishable from a
+  // hang, and these are the waits that are actually happening.
+  'call.stage.starting': 'Starting the voice engine…',
+  'call.stage.joining': 'Joining the call…',
+  'call.stage.mic': 'Opening the microphone…',
+  'call.reconnecting': 'Connection lost — reconnecting…',
   // The work panel — what Cinderpaw is doing while the call waits.
   'call.toolSearching': 'searching…',
   'call.toolDone': 'done',
@@ -279,6 +289,7 @@ const ro: Strings = {
   'call.replyStopped': 'Răspunsul a fost întrerupt. Mai zi o dată.',
   'call.voiceMissing': 'Motorul ăsta n-are încă nicio voce descărcată. Ia una din „Schimbă motorul de voce”.',
   'call.keyNeeded': 'Motorul ăsta de voce are nevoie de o cheie API. Merge direct în keychain-ul sistemului.',
+  'call.keyNeededFor': 'Nu e salvată nicio cheie {provider}. Lipește una mai jos, merge direct în keychain-ul sistemului.',
   'call.keyPlaceholder': 'Lipește cheia API',
   'call.keySave': 'Salvează',
   'call.chat': 'Chat',
@@ -297,6 +308,10 @@ const ro: Strings = {
   'call.liveNoKey': 'Nu e salvată nicio cheie Google. E aceeași cheie AI Studio pe care o folosește și chatul. Lipește-o mai jos.',
   'call.liveClosed': 'Deconectat. Apasă pe apel ca să reconectezi.',
   'call.liveConnecting': 'Se conectează…',
+  'call.stage.starting': 'Pornește motorul vocal…',
+  'call.stage.joining': 'Intră în apel…',
+  'call.stage.mic': 'Deschide microfonul…',
+  'call.reconnecting': 'Conexiune pierdută, se reconectează…',
   'call.toolSearching': 'caută…',
   'call.toolDone': 'gata',
   'call.toolFailed': 'a eșuat',

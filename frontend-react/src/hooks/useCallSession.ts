@@ -46,7 +46,36 @@ import { t } from '@/lib/i18n';
  * loop stops speaking when it hears you. The Interrupt button stays for a room
  * loud enough that the threshold never trips.
  */
-export type CallPhase = 'idle' | 'ready' | 'listening' | 'thinking' | 'speaking';
+/**
+ * Where a call is, as far as the person looking at it is concerned.
+ *
+ * `connecting` and `reconnecting` are here because the two states they name
+ * were previously invisible. Between the button press and the first audio the
+ * screen showed `ready` with the same button on it, which is what a fifteen
+ * second wait looks like when nothing changes; and when the room dropped, the
+ * screen went on saying it was listening while the transport retried, which is
+ * worse, because the person keeps talking into it.
+ *
+ * The pipeline engines never enter either one. They have no room to join and
+ * nothing to reconnect, so the states exist without being claimed falsely.
+ */
+export type CallPhase =
+  | 'idle'
+  | 'ready'
+  | 'connecting'
+  | 'listening'
+  | 'thinking'
+  | 'speaking'
+  | 'reconnecting';
+
+/**
+ * How far a `connecting` call has got.
+ *
+ * One spinner for fifteen seconds is indistinguishable from a hang, and the
+ * stages are already known at the point where they are waited on. `null`
+ * whenever the call is not connecting.
+ */
+export type CallStage = 'starting' | 'joining' | 'mic' | null;
 
 /** How often the mic level is sampled. ~16 Hz: fast enough that the trailing
  *  silence is measured to within a frame, slow enough to be free. */
@@ -1095,5 +1124,8 @@ export function useCallSession(send: (text: string) => Promise<void>) {
     releaseMic();
   }, [releaseMic]);
 
-  return { phase, heard, level, notice, open, begin, hangUp, interrupt, say };
+  // `stage` is part of the shape all three engines share so the overlay has no
+  // branch on which one is running. These two are retired and never enter
+  // `connecting`, so the honest value is none rather than an invented stage.
+  return { phase, stage: null as CallStage, heard, level, notice, open, begin, hangUp, interrupt, say };
 }

@@ -48,7 +48,16 @@ const SPOKEN_RULES: &[&str] = &[
     "Your memory of every earlier conversation, your files, the web, and everything you can DO all live behind one tool: ask_cinder. You have no other way to reach them, and no recollection of your own — so when the user refers to anything past, anything on this machine, or anything you would have to look up, call ask_cinder rather than saying you do not know or do not remember.",
     "You are speaking out loud in a phone call. Answer in two or three sentences.",
     "Never use markdown, lists, headings, code blocks or emoji — every character you produce is read aloud.",
-    "Speak the language the user speaks to you in.",
+    // One short line among long paragraphs, and it lost. A caller speaking
+    // Romanian got English back mid-conversation, which is not a translation
+    // problem: it is the product changing identity between two sentences.
+    //
+    // Stated as an absolute with the failure named, because the model's own
+    // default is to drift back to English the moment it reaches for something
+    // it half-remembers in English — a tool result, a technical term, a
+    // hesitation. The language is the USER'S, every turn, whatever the app is
+    // set to and whatever language the material it is quoting happens to be in.
+    "ALWAYS answer in the language the user is speaking to you in, every single turn, from the first word to the last. If they speak Romanian, you speak Romanian; if they switch, you switch with them. This is not affected by the language of anything you looked up, by a setting, or by what you were thinking in: a technical result in English is reported in the user's language. Never answer in English because the material was in English, and never drift back to English part-way through an answer.",
     "This changes how you SPEAK, not what you DO. Use your tools exactly as you otherwise would, and say what you are doing while you do it.",
     // Measured on the first working call: `ask_cinder` took 100 seconds, and the
     // model stayed silent for all of it. It was NOT blocked — asked "are you
@@ -169,6 +178,25 @@ fn non_empty(field: &Option<String>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The one rule a caller notices instantly when it breaks.
+    ///
+    /// It used to be a single short line among long paragraphs and lost to
+    /// them: a Romanian caller got English back mid-conversation. Pinned as an
+    /// absolute, because "prefer" is a rule that yields to the language of
+    /// whatever the model just read.
+    #[test]
+    fn the_language_rule_is_absolute_and_survives_a_foreign_tool_result() {
+        let text = system_instruction(&Briefing::default());
+        assert!(
+            text.contains("ALWAYS answer in the language the user is speaking"),
+            "the language rule was softened or dropped",
+        );
+        assert!(
+            text.contains("never drift back to English"),
+            "the rule no longer covers the way it actually breaks",
+        );
+    }
 
     #[test]
     fn the_model_is_told_who_and_where_it_is() {

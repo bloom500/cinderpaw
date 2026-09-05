@@ -38,18 +38,6 @@ const IDLE_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(180);
 /// the thing being cancelled is "the intent to shut down", not a task.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// True while a warmup is booting a chain. See `warm_livekit`.
-static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Clears `WARMING` however the warmup leaves — including its early returns,
-/// which is the half a bare `store(false)` at the bottom would miss.
-struct WarmGuard;
-impl Drop for WarmGuard {
-    fn drop(&mut self) {
-        WARMING.store(false, Ordering::SeqCst);
-    }
-}
-
 /// One row in the voice-provider picker.
 #[derive(serde::Serialize, specta::Type)]
 pub struct S2sProviderInfo {
@@ -160,35 +148,6 @@ pub(crate) async fn start_livekit_call(
         stt_language.as_deref(),
     );
 
-    // Already warm: mint a fresh token and let the webview back in. The room is
-    // recreated by the join, which is what makes LiveKit dispatch the agent
-    // again — the worker never stopped being registered.
-    //
-    // Only when the chain is bound to what is being asked for. A running agent
-    // took its vendor, voice and engines from its environment and cannot be
-    // re-pointed; handing this one back after somebody switched vendor is a
-    // call that connects and then answers in the wrong voice, from the wrong
-    // account. A mismatch is torn down here and paid for once, which is what
-    // somebody who just changed a setting is expecting anyway.
-    {
-        let mut slot = state.livekit_call.lock();
-        if slot.as_ref().is_some_and(|s| s.spec != wanted) {
-            tracing::info!("livekit: the warm chain is for something else, taking it down");
-            drop(slot.take());
-        }
-        if let Some(session) = slot.as_mut() {
-            let token = session.rejoin("you");
-            tracing::info!("livekit: rejoining the running call");
-            return Ok(LiveKitCall {
-                url: session.url.clone(),
-                token,
-                room: session.room.clone(),
-                mode: session.mode.clone(),
-                warm: true,
-            });
-        }
-    }
-
     let extra: Vec<std::path::PathBuf> = app.path().resource_dir().ok().into_iter().collect();
 
     // The same briefing the engine being replaced sends, so the assistant on
@@ -197,47 +156,75 @@ pub(crate) async fn start_livekit_call(
         cinderpaw_core::live::Briefing { current_task: None, workspace: None, context: None };
 
     let emitter = app.clone();
-    let session = cinderpaw_core::livekit::start(
-        &extra,
-        "you",
-        Some(cinderpaw_core::live::system_instruction(&brief)),
-        provider,
-        voice,
-        // Whichever engines the user actually picked. Hard-coding Piper here is
-        // what made Kokoro, Fish Audio, Azure and ElevenLabs unreachable from a
-        // call while all four sat in the catalogue — the synthesis route takes
-        // any of them, so the only thing that ever excluded them was this line.
-        tts_engine,
-        stt_model,
-        stt_provider,
-        stt_language,
-        move |event| {
-            // Failing to emit is not worth interrupting a call over: the audio
-            // path is unaffected, and the person is mid-sentence.
-            if let Err(e) = emitter.emit("cinderpaw://livekit-event", event) {
-                tracing::warn!("livekit: could not forward an agent event ({e})");
-            }
+    let runtime = state.runtime.clone();
+    // Warm, booting, or not there at all, this is the one place that decides.
+    //
+    // `wait: true` is the entire entry-latency fix. The warmup started when the
+    // pre-call screen appeared and takes about fourteen seconds; a button
+    // pressed inside that window used to look in the slot, find it still empty,
+    // and boot a SECOND chain from scratch. Waiting for the one already being
+    // built turns that second full boot into whatever is left of the first.
+    //
+    // A chain warmed for another vendor is torn down in here rather than out
+    // there, so there is one rule about when a warm chain may be reused and it
+    // lives next to the gate that enforces it.
+    let chain = cinderpaw_core::livekit::join_or_boot(
+        &cinderpaw_core::livekit::BOOT_GATE,
+        &state.livekit_call,
+        &wanted,
+        |s| s.spec.as_str(),
+        true,
+        || async move {
+            cinderpaw_core::livekit::start(
+                &extra,
+                "you",
+                Some(cinderpaw_core::live::system_instruction(&brief)),
+                provider,
+                voice,
+                // Whichever engines the user actually picked. Hard-coding Piper
+                // here is what made Kokoro, Fish Audio, Azure and ElevenLabs
+                // unreachable from a call while all four sat in the catalogue.
+                tts_engine,
+                stt_model,
+                stt_provider,
+                stt_language,
+                move |event| {
+                    // Failing to emit is not worth interrupting a call over: the
+                    // audio path is unaffected, and the person is mid-sentence.
+                    if let Err(e) = emitter.emit("cinderpaw://livekit-event", event) {
+                        tracing::warn!("livekit: could not forward an agent event ({e})");
+                    }
+                },
+                // The runtime is what makes `ask_cinder` work: it is a door to
+                // the local agent, and only a host that owns a sidecar can open
+                // it.
+                Some(runtime),
+            )
+            .await
         },
-        // The runtime is what makes `ask_cinder` work: it is a door to the
-        // local agent, and only a host that owns a sidecar can open it.
-        Some(state.runtime.clone()),
     )
     .await?;
 
-    let call = LiveKitCall {
+    // One join path for both, because there is no difference worth branching
+    // on: `rejoin` mints a room and a token, and a room being created is what
+    // makes LiveKit dispatch the agent. A fresh token rather than the chain's
+    // original one also means an app left open for an hour still joins.
+    let mut slot = state.livekit_call.lock();
+    let session = slot
+        .as_mut()
+        .ok_or_else(|| "the voice chain went away while the call was starting".to_string())?;
+    let token = session.rejoin("you");
+    tracing::info!(
+        "livekit: joining a {} chain",
+        if chain == cinderpaw_core::livekit::Chain::Warm { "warm" } else { "freshly booted" }
+    );
+    Ok(LiveKitCall {
         url: session.url.clone(),
-        token: session.token.clone(),
+        token,
         room: session.room.clone(),
         mode: session.mode.clone(),
-        warm: false,
-    };
-
-    // Lock only after the await: a `parking_lot` guard held across one is both
-    // a compile error and, if it ever compiled, a deadlock.
-    let previous = state.livekit_call.lock().replace(session);
-    drop(previous);
-
-    Ok(call)
+        warm: chain == cinderpaw_core::livekit::Chain::Warm,
+    })
 }
 
 /// Bring the whole chain up while the pre-call screen is on, so pressing Call
@@ -267,16 +254,8 @@ pub(crate) async fn warm_livekit(
     stt_provider: Option<String>,
     stt_language: Option<String>,
 ) -> Result<(), String> {
-    // Two warmups racing would boot two servers and two agents, and only one
-    // can be parked — the other becomes orphan processes holding ports. The
-    // pre-call screen can mount more than once (a re-render, a reopened
-    // overlay), so this is a normal path, not a pathological one.
-    if WARMING.swap(true, Ordering::SeqCst) {
-        return Ok(());
-    }
-    let _guard = WarmGuard;
-
-    // Never touch a chain that already exists. It may be a live call.
+    // Never touch a chain that already exists. It may be a live call, and a
+    // warmup is not entitled to end one.
     if state.livekit_call.lock().is_some() {
         return Ok(());
     }
@@ -291,45 +270,61 @@ pub(crate) async fn warm_livekit(
         return Ok(());
     }
 
+    let wanted = cinderpaw_core::livekit::session_spec(
+        provider.as_deref(),
+        voice.as_deref(),
+        tts_engine.as_deref(),
+        stt_model.as_deref(),
+        stt_provider.as_deref(),
+        stt_language.as_deref(),
+    );
+
     let brief =
         cinderpaw_core::live::Briefing { current_task: None, workspace: None, context: None };
     let emitter = app.clone();
-    let session = match cinderpaw_core::livekit::start(
-        &extra,
-        "you",
-        Some(cinderpaw_core::live::system_instruction(&brief)),
-        provider,
-        voice,
-        tts_engine,
-        stt_model,
-        stt_provider,
-        stt_language,
-        move |event| {
-            if let Err(e) = emitter.emit("cinderpaw://livekit-event", event) {
-                tracing::warn!("livekit: could not forward an agent event ({e})");
-            }
+    let runtime = state.runtime.clone();
+    // The same gate the button uses, asked not to wait. Two warmups racing
+    // would boot two servers and two agents and only one could be parked; the
+    // other would become orphan processes holding ports. The pre-call screen
+    // can mount more than once (a re-render, a reopened overlay), so this is a
+    // normal path, not a pathological one.
+    let chain = match cinderpaw_core::livekit::join_or_boot(
+        &cinderpaw_core::livekit::BOOT_GATE,
+        &state.livekit_call,
+        &wanted,
+        |s| s.spec.as_str(),
+        false,
+        || async move {
+            cinderpaw_core::livekit::start(
+                &extra,
+                "you",
+                Some(cinderpaw_core::live::system_instruction(&brief)),
+                provider,
+                voice,
+                tts_engine,
+                stt_model,
+                stt_provider,
+                stt_language,
+                move |event| {
+                    if let Err(e) = emitter.emit("cinderpaw://livekit-event", event) {
+                        tracing::warn!("livekit: could not forward an agent event ({e})");
+                    }
+                },
+                Some(runtime),
+            )
+            .await
         },
-        Some(state.runtime.clone()),
     )
     .await
     {
-        Ok(s) => s,
+        Ok(c) => c,
         Err(e) => {
             tracing::info!("livekit: warmup did not finish ({e}); the call will do it");
             return Ok(());
         }
     };
-
-    // Between the await and here somebody may have pressed Call and booted
-    // their own chain. Theirs wins; this one is dropped, which kills its two
-    // children rather than leaving them holding ports.
-    {
-        let mut slot = state.livekit_call.lock();
-        if slot.is_some() {
-            drop(session);
-            return Ok(());
-        }
-        *slot = Some(session);
+    if chain != cinderpaw_core::livekit::Chain::Booted {
+        return Ok(());
     }
     tracing::info!("livekit: warm, the next call is a join");
 

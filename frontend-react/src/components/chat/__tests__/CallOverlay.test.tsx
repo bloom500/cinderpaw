@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { CallTranscript, compactCallTranscript } from '../CallOverlay';
+import { CallTranscript, compactCallTranscript, keyOwner } from '../CallOverlay';
 
 describe('compactCallTranscript', () => {
   it('keeps complete trailing words within 280 characters', () => {
@@ -41,5 +41,30 @@ describe('CallTranscript', () => {
     expect(transcript).toHaveClass('line-clamp-3', 'overflow-hidden');
     expect(transcript).toHaveAttribute('aria-label', text);
     expect(transcript.textContent?.length).toBeLessThanOrEqual(282);
+  });
+});
+
+describe('whose key the call screen asks for', () => {
+  const openai = { id: 'openai', label: 'OpenAI Realtime', pipeline: false };
+  const google = { id: 'google', label: 'Gemini Live', pipeline: false };
+  const pipeline = { id: 'pipeline', label: 'On this machine', pipeline: true };
+  const eleven = { id: 'elevenlabs', label: 'ElevenLabs' };
+
+  it('asks for the vendor that is actually selected', () => {
+    // It used to ask for Google whichever vendor was picked, because it
+    // branched on "is this a LiveKit call" and every realtime call is one.
+    expect(keyOwner(openai, null)).toEqual({ id: 'openai', label: 'OpenAI Realtime' });
+    expect(keyOwner(google, null)).toEqual({ id: 'google', label: 'Gemini Live' });
+  });
+
+  it('asks for the speaking engine when the call is assembled locally', () => {
+    // The pipeline row holds no key of its own. Asking for one under its name,
+    // or under Google's, sends the key to the wrong keychain entry.
+    expect(keyOwner(pipeline, eleven)).toEqual(eleven);
+  });
+
+  it('asks for nobody when there is nobody to ask for', () => {
+    expect(keyOwner(null, null)).toBeNull();
+    expect(keyOwner(pipeline, null)).toBeNull();
   });
 });

@@ -758,6 +758,16 @@ struct RuntimeChatReq {
     /// SSE token stream (default) vs a single JSON reply.
     #[serde(default = "default_true")]
     stream: bool,
+    /// Where the answer will be READ, when the caller knows.
+    ///
+    /// `"voice"` is the difference between a reply somebody can listen to and
+    /// the desktop's full markdown read out loud: 1382 characters and ninety
+    /// seconds of speech in answer to "what can you do?". The sidecar has had
+    /// the mechanism for this all along (`setSessionSurface`); this endpoint
+    /// simply never passed it on, so the one caller that is always spoken to
+    /// could not say so. Absent leaves whatever brief that surface already set.
+    #[serde(default)]
+    surface: Option<String>,
 }
 fn default_session() -> String { "api".to_string() }
 fn default_true() -> bool { true }
@@ -1145,6 +1155,7 @@ async fn runtime_chat(
         "id": msg_id,
         "content": req.content,
         "sessionId": req.session_id,
+        "surface": req.surface,
     })
     .to_string();
     if tx.send(outbound).await.is_err() {
@@ -2564,14 +2575,11 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
     // anything calling this endpoint directly all arrive past that filter. A
     // sentence naming the reason beats a model that loads and then answers
     // nothing, which is what this cost on 2026-08-23.
-    if crate::models::is_embedding_model(&requested) {
-        return (
-            StatusCode::BAD_REQUEST,
-            format!(
-                "'{requested}' is an embedding model — it turns text into vectors for memory and search, and cannot hold a conversation. Pick a chat model, or add one in Models."
-            ),
-        )
-            .into_response();
+    if let Err(why) = crate::models::refuse_if_embedding(&requested) {
+        // One sentence, written once. It used to live here as a literal while
+        // the desktop had no refusal at all, so the two surfaces disagreed
+        // about whether this was even an error.
+        return (StatusCode::BAD_REQUEST, why).into_response();
     }
 
     // ── Cloud / BYOK path ────────────────────────────────────────────────
@@ -3154,6 +3162,52 @@ mod tests {
     use super::*;
     use crate::host::HostEvent;
     use crate::models::ModelInfo;
+
+    /// The voice agent talks to this endpoint from JavaScript, so nothing in
+    /// either language checks that the body it sends is a body this endpoint
+    /// can read. Nothing did, and it was wrong: the agent posted the whole
+    /// conversation as `messages`, while `RuntimeChatReq` requires `content`
+    /// and has no `messages` field at all. Every turn of an on-device voice
+    /// call was rejected before it reached a model.
+    ///
+    /// It also matters beyond the 422. `content` plus a session id is the
+    /// contract that lets the SIDECAR own the history, which is what compacts
+    /// it. Sending the transcript instead meant an unbounded prompt that grew
+    /// with every turn, which is the long-horizon slowdown in the same bug.
+    #[test]
+    fn the_voice_agent_posts_a_body_this_endpoint_can_read() {
+        let src = include_str!("livekit_agent.mjs");
+        let call = src
+            .find("/runtime/chat")
+            .expect("the voice agent should still be calling /runtime/chat");
+        let body_at = src[call..]
+            .find("JSON.stringify({")
+            .expect("that call should still have a JSON body")
+            + call;
+        // Just the object literal, so a comment further down cannot answer for
+        // the code.
+        let rest = &src[body_at..];
+        let body = &rest[..rest.find("})").map(|i| i + 2).unwrap_or(rest.len().min(240))];
+
+        assert!(
+            body.contains("content,") || body.contains("content:"),
+            "the voice agent must send `content`; this endpoint has no other way to              read the turn. Body was: {body}"
+        );
+        assert!(
+            !body.contains("messages"),
+            "sending the transcript is both rejected here and the reason a long call              gets slower. Body was: {body}"
+        );
+
+        assert!(
+            body.contains("surface"),
+            "a spoken reply has to say it is spoken, or the sidecar reads the desktop's              markdown out loud. Body was: {body}"
+        );
+
+        // And the shape it used to send, refused, so the reason this test
+        // exists is not only in a comment.
+        let old = serde_json::json!({ "messages": [{ "role": "user", "content": "hi" }], "stream": true });
+        assert!(serde_json::from_value::<RuntimeChatReq>(old).is_err());
+    }
 
     #[test]
     fn cors_allows_loopback_only_and_not_lookalikes() {

@@ -36,7 +36,7 @@ import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import type { CallPhase } from '@/hooks/useCallSession';
+import type { CallPhase, CallStage } from '@/hooks/useCallSession';
 
 /**
  * The in-call screen: one orb, one line of state, two buttons.
@@ -109,8 +109,34 @@ export function CallTranscript({ text, fallback }: { text: string; fallback: str
   );
 }
 
+/**
+ * Whose key this screen is asking for.
+ *
+ * One decision, used by both the sentence and the save, because they were
+ * making it separately and only one of them was ever corrected. `saveKey`
+ * learned to write to the SELECTED vendor; the sentence above it went on
+ * naming Google, because it branched on the ENGINE (`live`, i.e. "is this a
+ * LiveKit call") rather than on the vendor. Every realtime call is a LiveKit
+ * call, so picking OpenAI Realtime asked for a Gemini key, and so did the local
+ * pipeline, where the key belongs to whichever TTS engine is selected.
+ *
+ * A field that names the wrong vendor is worse than one that names none: a
+ * person who pastes an OpenAI key under a prompt that says Google has no reason
+ * to believe the call that follows.
+ */
+export function keyOwner(
+  s2s: { id: string; label: string; pipeline: boolean } | null,
+  ttsEngine: { id: string; label: string } | null,
+): { id: string; label: string } | null {
+  // In pipeline mode the row itself holds no key: its halves do, and the one
+  // that can need a key is the engine that speaks.
+  if (s2s?.pipeline) return ttsEngine;
+  return s2s ? { id: s2s.id, label: s2s.label } : null;
+}
+
 export function CallOverlay({
   phase,
+  stage = null,
   heard,
   level,
   notice,
@@ -122,6 +148,8 @@ export function CallOverlay({
   onChangeStt,
 }: {
   phase: CallPhase;
+  /** Which wait a `connecting` call is in. See `CallStage`. */
+  stage?: CallStage;
   heard: string;
   level: number;
   /** Why the last turn said nothing, when it said nothing. */
@@ -298,7 +326,7 @@ export function CallOverlay({
     // keychain entry — a key stored under the wrong name is worse than one that
     // failed to store, because nothing reports it and the real entry is now
     // wrong too.
-    const target = currentS2s?.pipeline ? voice?.id : currentS2s?.id;
+    const target = keyOwner(currentS2s, voice)?.id;
     if (!target || !key.trim()) return;
     setSaving(true);
     try {
@@ -352,6 +380,14 @@ export function CallOverlay({
     // up as its answer arriving. This phase is only ever the socket opening.
     : phase === 'thinking' ? t(live ? 'call.liveConnecting' : 'call.thinking')
     : speaking ? t('call.speaking')
+    // Which wait it is, not just that there is one. The stage is known at the
+    // point it is being waited on, and a person who can see the engine start
+    // and then the room join is watching progress rather than a frozen screen.
+    : phase === 'connecting'
+      ? stage === 'joining' ? t('call.stage.joining')
+      : stage === 'mic' ? t('call.stage.mic')
+      : t('call.stage.starting')
+    : phase === 'reconnecting' ? t('call.reconnecting')
     : t('call.title');
 
   return createPortal(
@@ -625,7 +661,12 @@ export function CallOverlay({
             {ready === false && (live || voice?.needsKey) && (
               <div className="w-full max-w-sm">
                 <p className="mb-2 text-center text-xs text-text-muted">
-                  {t(live ? 'call.liveNoKey' : 'call.keyNeeded')}
+                  {keyOwner(currentS2s, voice)
+                    ? t('call.keyNeededFor').replace(
+                        '{provider}',
+                        keyOwner(currentS2s, voice)!.label,
+                      )
+                    : t('call.keyNeeded')}
                 </p>
                 <div className="flex gap-2">
                   <Input
@@ -806,6 +847,11 @@ const ORB_TEMPO: Record<CallPhase, { a: string; b: string; c: string; breathe: s
   // hummingbird.
   idle:      { a: '30s', b: '38s', c: '24s', breathe: '7s' },
   ready:     { a: '26s', b: '34s', c: '20s', breathe: '6s' },
+  // Connecting and reconnecting are both waits, and a wait has to look like
+  // work or it looks like a hang. Faster than `ready` and slower than
+  // `thinking`: something is happening, and it is not an answer arriving.
+  connecting:   { a: '8s',  b: '11s', c: '6s',  breathe: '3s' },
+  reconnecting: { a: '8s',  b: '11s', c: '6s',  breathe: '3s' },
   listening: { a: '13s', b: '17s', c: '10s', breathe: '5s' },
   thinking:  { a: '6s',  b: '8s',  c: '5s',  breathe: '2.4s' },
   speaking:  { a: '9s',  b: '12s', c: '7s',  breathe: '3.2s' },

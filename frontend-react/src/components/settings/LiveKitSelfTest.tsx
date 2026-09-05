@@ -3,6 +3,7 @@ import { Loader2, PhoneOff, Headphones } from 'lucide-react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 import { tauri } from '@/lib/tauri';
 import { events, type LiveKitAgentEvent } from '@/lib/tauri/events';
+import { callMark, callTimeline, type CallMark } from '@/lib/callTiming';
 
 /**
  * Does a voice call actually work on this machine?
@@ -42,6 +43,12 @@ export function LiveKitSelfTest() {
    *  settings row, not a transcript viewer — and an unbounded list in a panel
    *  nobody scrolls is a memory leak with a nice name. */
   const [lines, setLines] = useState<LiveKitAgentEvent[]>([]);
+  /** How long each stage of the last attempt took. The one question a slow
+   *  call raises is WHICH part was slow, and until this was on screen the only
+   *  way to answer it was to attach a debugger to somebody else's machine. */
+  const [timeline, setTimeline] = useState<{ mark: CallMark; ms: number }[]>([]);
+  /** Whether this attempt joined machinery that was already running. */
+  const [warm, setWarm] = useState<boolean | null>(null);
   const room = useRef<Room | null>(null);
   /** Every element `track.attach()` handed us, so every one can be taken back
    *  down. Attaching creates a NEW element per subscribed track, so keeping a
@@ -95,13 +102,27 @@ export function LiveKitSelfTest() {
     setPhase('starting');
     setDetail('');
     setLines([]);
+    setTimeline([]);
+    setWarm(null);
+    callMark('call_requested');
+    callMark('call_ui_ready');
     try {
       const call = await tauri.raw.startLivekitCall();
+      callMark('room_join_started');
+      // Rust already knows whether this reused a chain that was up. Without it
+      // on screen, the difference between a four-second start and an instant
+      // one looks like the app being randomly slow.
+      setWarm(call.warm);
       const r = new Room();
       room.current = r;
 
       r.on(RoomEvent.TrackSubscribed, (track) => {
         if (track.kind !== Track.Kind.Audio) return;
+        // The far end publishing audio is the first moment the call is worth
+        // anything, and it lands after everything this function awaits. A
+        // timeline that stopped at `connect` was measuring the easy half.
+        callMark('agent_session_started');
+        setTimeline(callTimeline());
         const el = track.attach();
         el.autoplay = true;
         sinks.current.push(el);
@@ -115,9 +136,12 @@ export function LiveKitSelfTest() {
       });
 
       await r.connect(call.url, call.token);
+      callMark('room_joined');
       await r.localParticipant.setMicrophoneEnabled(true);
+      callMark('microphone_ready');
       setMode(call.mode);
       setPhase('live');
+      setTimeline(callTimeline());
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
       setPhase('error');
@@ -128,6 +152,7 @@ export function LiveKitSelfTest() {
             ? 'The microphone was refused. Allow it for Cinderpaw in your system settings.'
             : raw,
       );
+      setTimeline(callTimeline());
       await tauri.raw.endLivekitCall().catch(() => {});
     }
   }, []);
@@ -192,6 +217,27 @@ export function LiveKitSelfTest() {
       )}
 
       {phase === 'error' && <p className="text-xs text-error">{detail}</p>}
+
+      {/* Where the wait went, in milliseconds from the button press. On screen
+          rather than in a log file: the person who can see a call take fifteen
+          seconds is not the person with a terminal open, and "it is slow" is
+          not a report anybody can act on. Stage names only, never content. */}
+      {timeline.length > 0 && (
+        <dl className="rounded-lg border border-border-subtle bg-bg-surface px-3 py-2 text-xs">
+          {warm !== null && (
+            <div className="flex justify-between gap-4">
+              <dt className="text-text-muted">voice engine</dt>
+              <dd className="text-text-primary">{warm ? 'already running' : 'started for this call'}</dd>
+            </div>
+          )}
+          {timeline.map(({ mark, ms }) => (
+            <div key={mark} className="flex justify-between gap-4">
+              <dt className="text-text-muted">{mark.replace(/_/g, ' ')}</dt>
+              <dd className="text-text-primary tabular-nums">{ms} ms</dd>
+            </div>
+          ))}
+        </dl>
+      )}
 
       {/* The readable half of the call. Shown while it runs AND after it ends,
           because the last thing said is usually what you want to check once it

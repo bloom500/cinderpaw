@@ -349,6 +349,27 @@ pub fn catalog() -> Vec<TtsEngine> {
     ]
 }
 
+/// The engine a call uses when nobody has picked one.
+///
+/// Not a hard-coded id, and the reason is the whole point. The pipeline used to
+/// fall back to `"piper"`, which is a name, not a promise: Piper and Kokoro are
+/// both behind cargo features, and a build without them (every Linux build, and
+/// the Vulkan desktop build) has no Piper to speak through. The call then
+/// listened, thought, and could not answer, because the default named an engine
+/// that was not there.
+///
+/// Whatever this returns is something this binary can actually run. `None`
+/// means no engine in this build can speak without one being configured first,
+/// which is a sentence the caller has to say out loud rather than a fallback.
+pub fn default_engine() -> Option<String> {
+    // Local first, and that ordering is deliberate: `catalog()` already lists
+    // the on-device engines before the hosted ones (there is a test for it), so
+    // the first available row is also the one that needs no key and sends no
+    // audio anywhere. A default that quietly picked a hosted engine would be a
+    // default that quietly starts uploading somebody's voice.
+    catalog().into_iter().find(|e| e.available && !e.needs_key).map(|e| e.id)
+}
+
 /// What an engine needs to start speaking, beyond the text itself.
 ///
 /// A struct rather than positional arguments because engines disagree about
@@ -420,6 +441,28 @@ mod tests {
         };
         assert!(err.contains("unknown TTS provider"), "{err}");
         assert!(err.contains(fish::ID), "the error should list what IS known: {err}");
+    }
+
+    /// The default has to be an engine THIS BINARY HAS.
+    ///
+    /// It used to be the literal `"piper"`, which is a name rather than a
+    /// promise: Piper and Kokoro are both behind cargo features, so on a build
+    /// without them the default named an engine that could not speak, and the
+    /// call listened, thought and then said nothing.
+    #[test]
+    fn the_default_engine_is_one_this_build_can_actually_run() {
+        match default_engine() {
+            Some(id) => {
+                let e = catalog().into_iter().find(|e| e.id == id).expect("a real catalog row");
+                assert!(e.available, "{id} is the default but is not built into this version");
+                assert!(!e.needs_key, "{id} is the default and would need a key first");
+                assert!(from_id(&id, EngineConfig::default()).is_ok(), "{id} is not wired");
+            }
+            // A build with no local engine (every Linux build: see the ONNX
+            // Runtime glibc floor) has no honest default. Saying so is the
+            // point; the caller must ask rather than guess.
+            None => assert!(catalog().iter().all(|e| !e.available || e.needs_key)),
+        }
     }
 
     #[test]

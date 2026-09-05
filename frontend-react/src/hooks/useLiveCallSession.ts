@@ -7,7 +7,7 @@ import { captureMicPcm, pcm16Base64 } from '@/lib/micPcm';
 import { TARGET_RATE } from '@/lib/audio';
 import { forSpeech } from '@/lib/speechText';
 import { useSpeechPlayer } from './useSpeechPlayer';
-import { LEVEL_CEILING, type CallPhase } from './useCallSession';
+import { LEVEL_CEILING, type CallPhase, type CallStage } from './useCallSession';
 import { SPEECH_RMS } from '@/lib/vad';
 
 /**
@@ -457,5 +457,8 @@ export function useLiveCallSession() {
     setPhase('thinking');
   }, [beginSpeech, stopSpeech]);
 
-  return { phase, heard, level, notice, transcribing, open, begin, hangUp, interrupt, say };
+  // `stage` is part of the shape all three engines share so the overlay has no
+  // branch on which one is running. These two are retired and never enter
+  // `connecting`, so the honest value is none rather than an invented stage.
+  return { phase, stage: null as CallStage, heard, level, notice, transcribing, open, begin, hangUp, interrupt, say };
 }

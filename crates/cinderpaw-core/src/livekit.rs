@@ -561,6 +561,98 @@ pub fn session_spec(
     )
 }
 
+/// The lock that makes one boot at a time mean one boot at a time.
+///
+/// Passed in rather than reached for as a global inside `join_or_boot`. There
+/// is exactly one in the app (`BOOT_GATE`, right below) because there is one
+/// voice chain per process, but a gate that only exists as a process-wide
+/// static cannot be tested: the cases worth testing are two callers racing,
+/// and every test in the binary would race every other one through the same
+/// lock. The parameter costs one word at the two call sites and buys the
+/// tests that prove the thing works.
+pub type BootGate = tokio::sync::Mutex<()>;
+
+/// The app's gate. Its partner is `AppState::livekit_call`.
+pub static BOOT_GATE: BootGate = tokio::sync::Mutex::const_new(());
+
+/// What a request for the voice chain ended up doing.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Chain {
+    /// The chain that was already up is the one being used.
+    Warm,
+    /// Nothing was up, so this call paid for the boot.
+    Booted,
+    /// Somebody else is booting one and the caller asked not to wait.
+    Busy,
+}
+
+/// At most one voice chain is ever booted at a time, and a second asker joins
+/// the first one's chain instead of starting its own.
+///
+/// This gate is the whole reason a warmup helps at all. Warming and pressing
+/// Call are the same operation started from two places, and without it they
+/// raced: the warmup was fourteen seconds away from parking its chain, the
+/// button looked in the slot, found it empty, and booted a second chain from
+/// scratch. The person paid in full the boot the warmup existed to spare them,
+/// the machine briefly ran two LiveKit servers and two Node workers, and the
+/// warmup's chain was thrown away the moment it finished. The slot check was
+/// never wrong; it just could not see work that had started and not landed.
+///
+/// `wait` is what separates the two callers. A pressed button wants the chain
+/// however long it takes, so it waits. A warmup that has to queue is a warmup
+/// nobody asked for, so it gives up and says `Busy`.
+///
+/// On success the chain is parked in `slot` and the caller reads it from there.
+/// It is deliberately not returned: the slot is what the next call looks in,
+/// and a value that exists outside it is a chain nobody can find.
+pub async fn join_or_boot<T, Fut>(
+    gate: &BootGate,
+    slot: &parking_lot::Mutex<Option<T>>,
+    wanted: &str,
+    spec_of: fn(&T) -> &str,
+    wait: bool,
+    boot: impl FnOnce() -> Fut,
+) -> Result<Chain, String>
+where
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    // The common case, and the reason the gate is not simply taken first: a
+    // second call on a chain that is already up must not queue behind an
+    // unrelated boot.
+    if slot.lock().as_ref().is_some_and(|c| spec_of(c) == wanted) {
+        return Ok(Chain::Warm);
+    }
+
+    let _held = if wait {
+        gate.lock().await
+    } else {
+        match gate.try_lock() {
+            Ok(g) => g,
+            Err(_) => return Ok(Chain::Busy),
+        }
+    };
+
+    // Re-read under the gate. Between the check above and here a boot may have
+    // finished and parked exactly the chain being asked for, which is the whole
+    // point of having waited.
+    {
+        let mut held = slot.lock();
+        match held.as_ref() {
+            Some(c) if spec_of(c) == wanted => return Ok(Chain::Warm),
+            // A chain is bound to the vendor, voice and engines it was started
+            // with; it cannot be re-pointed. One warmed for something else is
+            // taken down here and paid for once, which is what somebody who
+            // just changed a setting is expecting anyway.
+            Some(_) => drop(held.take()),
+            None => {}
+        }
+    }
+
+    let booted = boot().await?;
+    *slot.lock() = Some(booted);
+    Ok(Chain::Booted)
+}
+
 /// A running call: the server, the far end, and what the webview needs to join.
 ///
 /// Dropping it ends the call. Both children are killed rather than signalled
@@ -882,12 +974,32 @@ pub async fn start(
             // branch: no assistant, no tools, no `ask_cinder`, and nothing
             // anywhere saying why. One boolean beats two files agreeing on a
             // string.
+            // Whichever engine this build can actually run, not the literal
+            // "piper" that used to be here. Piper and Kokoro are both behind
+            // cargo features, so on a build without them that default named an
+            // engine that cannot speak: the call listened, thought, and then
+            // said nothing, with the reason reachable only from a log.
+            let engine = match tts_engine.as_deref() {
+                Some(id) if !id.is_empty() => id.to_string(),
+                _ => match crate::tts::default_engine() {
+                    Some(id) => id,
+                    None => return Err(
+                        "No speech engine is set, and this build has none that works without a key. Pick one in the voice settings first."
+                            .into(),
+                    ),
+                },
+            };
             cmd.env("CINDERPAW_LIVE_PIPELINE", "1")
-                .env("CINDERPAW_LIVE_TTS_ENGINE", tts_engine.as_deref().unwrap_or("piper"))
+                .env("CINDERPAW_LIVE_TTS_ENGINE", &engine)
                 .env("CINDERPAW_LIVE_STT_MODEL", stt_model.as_deref().unwrap_or("small"))
                 .env("CINDERPAW_LIVE_STT_PROVIDER", stt_provider.as_deref().unwrap_or("local"))
                 .env("CINDERPAW_LIVE_STT_LANGUAGE", stt_language.as_deref().unwrap_or(""));
         }
+        // Outside the pipeline branch, because it is not a transcription
+        // setting here: it is the language anything the agent says on its own
+        // has to be said in. A Romanian caller hearing "one moment" in English
+        // has been handed a different product mid-sentence.
+        cmd.env("CINDERPAW_LIVE_LANGUAGE", stt_language.as_deref().unwrap_or(""));
         cmd.env("CINDERPAW_LIVE_PROVIDER", p.id)
             .env("CINDERPAW_LIVE_API_KEY", k)
             .env("CINDERPAW_LIVE_MODEL", p.model)
@@ -1032,6 +1144,248 @@ pub async fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
+
+    /// The shape this replaced, kept because it is the reason the gate exists.
+    ///
+    /// Slot-check then boot, with nothing between them: the warmup and the
+    /// button both look, both find the slot empty, and both pay for a chain.
+    /// Two LiveKit servers, two Node workers, and the person waiting the full
+    /// boot they had been warmed out of.
+    #[tokio::test]
+    async fn without_a_gate_a_warmup_and_a_pressed_button_both_boot() {
+        // No gate here on purpose: this is the old shape.
+        let slot: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
+        let boots = std::sync::atomic::AtomicUsize::new(0);
+        let unguarded = |wanted: &'static str| async {
+            if slot.lock().as_deref() == Some(wanted) {
+                return;
+            }
+            boots.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+            *slot.lock() = Some(wanted.to_string());
+        };
+        tokio::join!(unguarded("gemini||||"), unguarded("gemini||||"));
+        assert_eq!(boots.load(Ordering::SeqCst), 2, "this is the bug being fixed");
+    }
+
+    #[tokio::test]
+    async fn a_button_pressed_during_a_warmup_joins_it_instead_of_booting_again() {
+        let gate = BootGate::const_new(());
+        let slot: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
+        let boots = std::sync::atomic::AtomicUsize::new(0);
+        let boot = || async {
+            boots.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+            Ok("gemini||||".to_string())
+        };
+
+        let warm = join_or_boot(&gate, &slot, "gemini||||", |c| c.as_str(), false, boot);
+        let pressed = async {
+            // Long enough to be inside the warmup's boot, which is the window
+            // the old code booted a second chain in.
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            join_or_boot(&gate, &slot, "gemini||||", |c| c.as_str(), true, boot).await
+        };
+        let (w, p) = tokio::join!(warm, pressed);
+
+        assert_eq!(w.unwrap(), Chain::Booted);
+        assert_eq!(p.unwrap(), Chain::Warm, "the button must join the warm chain");
+        assert_eq!(boots.load(Ordering::SeqCst), 1, "one chain, not two");
+    }
+
+    /// A warmup exists to be free. One that queues behind another boot is a
+    /// background task holding the gate against the button that follows it.
+    #[tokio::test]
+    async fn a_warmup_that_would_have_to_queue_gives_up() {
+        let gate = BootGate::const_new(());
+        let slot: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
+        let boot = || async {
+            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+            Ok("gemini||||".to_string())
+        };
+        let first = join_or_boot(&gate, &slot, "gemini||||", |c| c.as_str(), true, boot);
+        let second = async {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            join_or_boot(&gate, &slot, "openai||||", |c| c.as_str(), false, boot).await
+        };
+        let (_, s) = tokio::join!(first, second);
+        assert_eq!(s.unwrap(), Chain::Busy);
+    }
+
+    /// A chain carries its vendor, voice and engines in the environment of a
+    /// process that is already running. Handing that one back to somebody who
+    /// switched vendor is a call that connects and answers in the wrong voice.
+    #[tokio::test]
+    async fn a_chain_warmed_for_something_else_is_taken_down_not_handed_over() {
+        let gate = BootGate::const_new(());
+        let slot: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(Some("gemini||||".into()));
+        let out = join_or_boot(&gate, &slot, "openai||||", |c| c.as_str(), true, || async {
+            Ok("openai||||".to_string())
+        })
+        .await;
+        assert_eq!(out.unwrap(), Chain::Booted);
+        assert_eq!(slot.lock().as_deref(), Some("openai||||"));
+    }
+
+    /// Every setting Rust hands the agent is one the agent reads.
+    ///
+    /// Rust and the worker agree about these names in two files, in two
+    /// languages, with nothing between them. That has already been wrong twice:
+    /// once when Rust sent `pipeline` and the agent compared against `local`, so
+    /// every on-device call silently fell through to echo, and once when the
+    /// agent posted a body `/runtime/chat` could not read. Both were invisible
+    /// until somebody made a call and got nothing.
+    #[test]
+    fn every_setting_rust_hands_the_agent_is_one_the_agent_reads() {
+        let rust = include_str!("livekit.rs");
+        let agent = include_str!("livekit_agent.mjs");
+        // The names Rust puts in the child's environment, taken from the source
+        // rather than listed here, so a new one cannot be added without this
+        // test seeing it.
+        let mut sent: Vec<&str> = rust
+            .match_indices(".env(\"CINDERPAW_")
+            .map(|(i, _)| {
+                let start = i + ".env(\"".len();
+                let end = start + rust[start..].find('"').expect("a closed string");
+                &rust[start..end]
+            })
+            .collect();
+        sent.sort_unstable();
+        sent.dedup();
+        assert!(sent.len() >= 5, "found only {sent:?}; the scan is not finding them");
+        for name in sent {
+            // The worker's own port is read by the SDK's own options block, and
+            // the API pair is read by the tool bridge; all of them appear in the
+            // file by name, which is the whole check.
+            assert!(
+                agent.contains(name),
+                "Rust sends {name} and livekit_agent.mjs never reads it"
+            );
+        }
+    }
+
+    /// The call must not go silent while a tool runs.
+    ///
+    /// The brief already asks the model to keep talking, at length, and on every
+    /// vendor except Gemini's native-audio model it CANNOT: the tool call runs
+    /// inside the turn, so the model is not choosing silence, it is unable to
+    /// speak. Thirty seconds of that is indistinguishable from a dropped call,
+    /// which is why the filler is spoken by the worker rather than asked of the
+    /// model, and why no prompt change can replace it.
+    #[test]
+    fn the_worker_speaks_for_itself_while_a_tool_is_running() {
+        let agent = include_str!("livekit_agent.mjs");
+        assert!(agent.contains("keepLineWarm"), "nothing warms the line while ask_cinder runs");
+        assert!(
+            agent.contains("session.say("),
+            "the filler has to be spoken by the worker, not requested from a model that is blocked",
+        );
+        // Not decoration: an English "one moment" inside a Romanian call is the
+        // product changing identity mid-sentence.
+        assert!(agent.contains("O secund"), "the filler is English-only");
+        // And Rust has to tell it which language to use.
+        assert!(
+            agent.contains("CINDERPAW_LIVE_LANGUAGE"),
+            "the worker cannot know the language it should speak in",
+        );
+    }
+
+    /// What entering a call actually costs, on this machine, with the real
+    /// server and the real Node worker.
+    ///
+    /// Ignored by default because it spawns processes, takes half a minute and
+    /// needs the chain installed. It is here rather than in a script because
+    /// the thing being measured is this module, and a number produced by a
+    /// different code path is a number about a different program.
+    ///
+    ///   cargo test -p cinderpaw-core --lib livekit_entry_latency -- --ignored --nocapture
+    ///
+    /// It reports four numbers: a cold boot, a warm join, what a button press
+    /// two seconds into a warmup costs WITH the gate, and what the same press
+    /// cost before it, which is a second cold boot.
+    #[tokio::test]
+    #[ignore]
+    async fn livekit_entry_latency() {
+        use std::time::Instant;
+        if find_server(&[]).is_none() {
+            eprintln!("no server binary installed; nothing to measure");
+            return;
+        }
+        // Whatever a default call on THIS machine resolves to. Hard-coding
+        // "echo" here measured a chain that was never asked for on a machine
+        // with a key stored.
+        let spec = session_spec(None, None, None, None, None, None);
+        let spec = spec.as_str();
+        let boot = || async {
+            start(&[], "you", None, None, None, None, None, None, None, |_| {}, None).await
+        };
+
+        let gate = BootGate::const_new(());
+        let slot = parking_lot::Mutex::new(None);
+        let t = Instant::now();
+        let cold = join_or_boot(&gate, &slot, spec, |s: &Session| s.spec.as_str(), true, boot).await;
+        let cold_ms = t.elapsed().as_millis();
+        assert!(cold.is_ok(), "cold boot failed: {cold:?}");
+
+        let t = Instant::now();
+        let warm = join_or_boot(&gate, &slot, spec, |s: &Session| s.spec.as_str(), true, boot).await;
+        let warm_ms = t.elapsed().as_millis();
+        assert_eq!(warm.unwrap(), Chain::Warm);
+        drop(slot.lock().take());
+
+        // The pre-call screen warms; two seconds later the button is pressed.
+        let gate = BootGate::const_new(());
+        let slot = parking_lot::Mutex::new(None);
+        let warming = join_or_boot(&gate, &slot, spec, |s: &Session| s.spec.as_str(), false, boot);
+        let pressed_at = std::sync::Mutex::new(None);
+        let pressed = async {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let t = Instant::now();
+            let r = join_or_boot(&gate, &slot, spec, |s: &Session| s.spec.as_str(), true, boot).await;
+            *pressed_at.lock().unwrap() = Some(t.elapsed().as_millis());
+            r
+        };
+        let (_, p) = tokio::join!(warming, pressed);
+        assert!(p.is_ok());
+        let gated_ms = pressed_at.lock().unwrap().unwrap();
+        drop(slot.lock().take());
+
+        // The same press without the gate, which is what shipped: the slot is
+        // still empty two seconds in, so it boots its own chain from scratch.
+        let slot: parking_lot::Mutex<Option<Session>> = parking_lot::Mutex::new(None);
+        let warming = async {
+            let s = boot().await;
+            if let Ok(s) = s {
+                *slot.lock() = Some(s);
+            }
+        };
+        let ungated_at = std::sync::Mutex::new(None);
+        let pressed = async {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let t = Instant::now();
+            let second = if slot.lock().is_some() { None } else { Some(boot().await) };
+            *ungated_at.lock().unwrap() = Some(t.elapsed().as_millis());
+            second
+        };
+        let (_, second) = tokio::join!(warming, pressed);
+        let ungated_ms = ungated_at.lock().unwrap().unwrap();
+        // Not asserted, because the interesting result is that it often does
+        // not merely take twice as long: the second boot's `reap_orphan_server`
+        // reads the pid file the first one just wrote and kills its server.
+        let ungated_outcome = match &second {
+            Some(Ok(_)) => "booted a second chain".to_string(),
+            Some(Err(e)) => format!("failed: {e}"),
+            None => "joined".to_string(),
+        };
+        drop(second);
+        drop(slot.lock().take());
+
+        println!("cold boot                       {cold_ms} ms");
+        println!("warm join                       {warm_ms} ms");
+        println!("press 2s into a warmup, gated   {gated_ms} ms");
+        println!("press 2s into a warmup, before  {ungated_ms} ms  ({ungated_outcome})");
+    }
 
     /// A token the server rejects looks exactly like a token it accepts until
     /// the call fails, so the parts that grant entry are checked here.

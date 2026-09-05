@@ -4,7 +4,8 @@ import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { tauri } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
-import type { CallPhase } from './useCallSession';
+import type { CallPhase, CallStage } from './useCallSession';
+import { callMark, turnMark, resetTurns } from '@/lib/callTiming';
 
 /**
  * A call carried by LiveKit, wearing the same face as the other two engines.
@@ -45,6 +46,11 @@ function callArgs() {
   return {
     provider: s2sProvider,
     voice: voiceKey ? (ttsVoice[voiceKey] ?? null) : null,
+    // Sent for EVERY call, not only the pipeline's. Whatever the agent says on
+    // its own while a tool runs has to be said in the language the app is being
+    // used in; a Romanian caller hearing "one moment" in English has been
+    // handed a different product mid-sentence.
+    language,
     pipeline: pipeline
       ? {
           ttsEngine: ttsProvider,
@@ -70,7 +76,7 @@ function callArgs() {
  */
 export function warmLiveKit(): void {
   const a = callArgs();
-  void tauri.raw.warmLivekit(a.provider, a.voice, a.pipeline).catch(() => {});
+  void tauri.raw.warmLivekit(a.provider, a.voice, a.pipeline, a.language).catch(() => {});
 }
 
 /** The far end's own words for what it is doing, mapped to the overlay's four
@@ -91,6 +97,7 @@ function phaseOf(state: string): CallPhase | null {
 
 export function useLiveKitCallSession() {
   const [phase, setPhase] = useState<CallPhase>('idle');
+  const [stage, setStage] = useState<CallStage>(null);
   const [heard, setHeard] = useState('');
   const [level, setLevel] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -105,11 +112,16 @@ export function useLiveKitCallSession() {
   /** Bumped by every open and hang-up; an async step that finds it changed
    *  gives up rather than reviving a call the person already ended. */
   const generation = useRef(0);
-  /** True from the moment `begin` is entered until its room is connected or
-   *  it has failed. `room.current` cannot cover that window on its own: it is
-   *  only assigned after an await, and the whole bug was two `begin`s racing
-   *  inside exactly that gap. */
-  const starting = useRef(false);
+  /** The generation whose `begin` is currently in flight, or `null`.
+   *
+   *  A plain boolean here was a dead call button. It was set on entry and only
+   *  cleared when that `begin` finished, so cancelling during a fifteen second
+   *  boot and pressing Call again did nothing at all: the guard was still held
+   *  by an attempt the person had already abandoned, and stayed held for the
+   *  rest of the boot. Scoping it to the generation keeps the guard that stops
+   *  two live calls (same generation, second press refused) while letting a
+   *  cancelled one be replaced immediately. */
+  const starting = useRef<number | null>(null);
 
   const cleanup = useCallback(() => {
     meter.current?.();
@@ -123,11 +135,14 @@ export function useLiveKitCallSession() {
 
   const hangUp = useCallback(() => {
     generation.current += 1;
+    callMark('call_disconnected');
+    resetTurns();
     void room.current?.disconnect();
     room.current = null;
     cleanup();
     void tauri.raw.endLivekitCall().catch(() => {});
     setPhase('idle');
+    setStage(null);
     setHeard('');
     setLevel(0);
     setNotice(null);
@@ -139,6 +154,8 @@ export function useLiveKitCallSession() {
   useEffect(() => {
     const pending = events.liveKitEvent.listen((e) => {
       if (e.kind === 'heard' && e.text) {
+        callMark('first_transcript');
+        turnMark(e.partial ? 'heard' : 'transcribed');
         // On screen immediately, whether or not it has settled — the point of
         // a partial is that it arrives while the person is still speaking.
         setHeard(e.text);
@@ -147,10 +164,32 @@ export function useLiveKitCallSession() {
         // copies of every utterance in the chat history.
         if (!e.partial) writeToChat('user', e.text);
       }
-      if (e.kind === 'said' && e.text) writeToChat('assistant', e.text);
+      if (e.kind === 'said' && e.text) {
+        callMark('first_agent_response');
+        const done = turnMark('answered');
+        // One line per turn, not per event: this is the only place the shape
+        // of a long call is visible, and the whole complaint is that it
+        // changes between turn 1 and turn 100. Stage names and milliseconds,
+        // never a word of what was said.
+        if (done) {
+          console.info(
+            `[call] turn ${done.turn}: transcript ${done.spans.transcribed ?? '?'}ms, ` +
+              `answer started ${done.spans.answering ?? '?'}ms, complete ${done.spans.answered ?? '?'}ms`,
+          );
+        }
+        writeToChat('assistant', e.text);
+      }
       if (e.kind === 'state') {
+        if (e.text === 'speaking') turnMark('answering');
         const next = phaseOf(e.text ?? '');
-        if (next) setPhase((p) => (p === 'idle' || p === 'ready' ? p : next));
+        // Never over a state the far end cannot know about. It has no idea
+        // the transport is retrying or that this window has not joined yet,
+        // and a `listening` from it during either is the wrong thing on
+        // screen at exactly the moment the screen is being trusted.
+        if (next)
+          setPhase((p) =>
+            p === 'idle' || p === 'ready' || p === 'connecting' || p === 'reconnecting' ? p : next,
+          );
       }
       if (e.kind === 'error') {
         setNotice(
@@ -171,6 +210,7 @@ export function useLiveKitCallSession() {
     setNotice(null);
     setHeard('');
     setPhase('ready');
+    setStage(null);
     // The screen appearing IS the signal to boot. Waiting for the button means
     // the person watches the boot; starting here means they read the screen
     // while it happens.
@@ -178,55 +218,95 @@ export function useLiveKitCallSession() {
   }, []);
 
   const begin = useCallback(async () => {
-    // One call at a time. This guard is the entire fix for two voices
+    // One call at a time, and this guard is the entire fix for two voices
     // answering one question, so it is worth saying why it has to be here.
     //
-    // Nothing stopped `begin` from running twice — a second tap on the call
+    // Nothing stopped `begin` from running twice: a second tap on the call
     // button, a re-render, a retry after a slow start. Every entry asked Rust
-    // for a call, and Rust's `rejoin` mints a NEW room; a new room dispatches
-    // a NEW agent, because the worker carries no name and LiveKit dispatches
+    // for a call, and Rust minted a NEW room; a new room dispatches a NEW
+    // agent, because the worker carries no name and LiveKit dispatches
     // nameless workers on room creation. Meanwhile `room.current` was
     // overwritten below, so the PREVIOUS room object was lost with its
     // microphone still enabled and nobody left holding a reference to
-    // disconnect it. Two rooms, two agents, one person's voice reaching both,
-    // and two different answers spoken over each other.
-    if (starting.current || room.current) return;
-    starting.current = true;
+    // disconnect it. Two rooms, two agents, one person's voice reaching both.
+    //
+    // Scoped to the generation, not to the hook: an attempt the person already
+    // hung up on has no claim on the next press.
+    if (starting.current === generation.current || room.current) return;
     const mine = ++generation.current;
+    starting.current = mine;
+    // Before anything is awaited. This is the whole difference between a
+    // button that answers and a button that looks broken for fifteen seconds,
+    // and it is not a way of hiding the wait: the stages below say where the
+    // wait actually is, and the warm chain is what shortens it.
+    callMark('call_requested');
     setNotice(null);
+    setPhase('connecting');
+    setStage('starting');
+    callMark('call_ui_ready');
     try {
       // Read at call time, not captured in a dep: a provider picked while
       // the pre-call screen is open has to apply to THIS call, not the
       // next one.
       const args = callArgs();
-      const call = await tauri.raw.startLivekitCall(args.provider, args.voice, args.pipeline);
+      const call = await tauri.raw.startLivekitCall(
+        args.provider,
+        args.voice,
+        args.pipeline,
+        args.language,
+      );
       if (mine !== generation.current) {
-        // Hung up while starting — but Rust has ALREADY minted a room and
-        // dispatched an agent for it. Returning without saying so leaves that
-        // agent alive in a room nobody will ever join, holding a vendor
+        // Hung up while starting. Rust has already minted a room and
+        // dispatched an agent for it, so leaving now without saying so would
+        // leave that agent alive in a room nobody joins, holding a vendor
         // session open and, on a metered key, billing for silence.
-        void tauri.raw.endLivekitCall().catch(() => {});
+        //
+        // Unless somebody else is now using that same chain. A later attempt
+        // reuses the chain this one booted, and ending it from here would hang
+        // up a call that is connected or about to be, which is how a cancel
+        // three minutes ago kills a conversation happening now.
+        if (starting.current === null && !room.current) {
+          void tauri.raw.endLivekitCall().catch(() => {});
+        }
         return;
       }
+      setStage('joining');
+      callMark('room_join_started');
       const r = new Room();
       room.current = r;
 
       r.on(RoomEvent.TrackSubscribed, (track) => {
         if (track.kind !== Track.Kind.Audio) return;
+        callMark('agent_session_started');
         const el = track.attach();
         el.autoplay = true;
         sinks.current.push(el);
         document.body.appendChild(el);
       });
       r.on(RoomEvent.Disconnected, () => hangUp());
+      // The transport retrying is not the same as the call being up, and for
+      // as long as it was reported as neither, the screen went on saying it
+      // was listening to somebody it could not hear. LiveKit only reports
+      // `Disconnected` once it has given up, so without these two the whole
+      // retry window is a lie on screen.
+      r.on(RoomEvent.Reconnecting, () => setPhase('reconnecting'));
+      r.on(RoomEvent.Reconnected, () => setPhase('listening'));
 
       await r.connect(call.url, call.token);
+      if (mine !== generation.current) {
+        void r.disconnect();
+        return;
+      }
+      callMark('room_joined');
+      setStage('mic');
       await r.localParticipant.setMicrophoneEnabled(true);
       if (mine !== generation.current) {
         void r.disconnect();
         return;
       }
+      callMark('microphone_ready');
       setPhase('listening');
+      setStage(null);
       meter.current = startMeter(r, setLevel);
     } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
@@ -237,13 +317,17 @@ export function useLiveKitCallSession() {
             ? 'The microphone was refused. Allow it for Cinderpaw in your system settings.'
             : raw,
       );
+      // Back to the screen with the button on it, which is the only state a
+      // failed call can be retried from.
       setPhase('ready');
+      setStage(null);
+      room.current = null;
       void tauri.raw.endLivekitCall().catch(() => {});
     } finally {
-      // Released on every path, success or failure. Left set after a failed
-      // start, the guard above would refuse every retry and the call button
-      // would be dead until the app restarted.
-      starting.current = false;
+      // Released on every path, success or failure, and only by the attempt
+      // that took it: a stale `begin` finishing after a newer one started must
+      // not clear the newer one's guard.
+      if (starting.current === mine) starting.current = null;
     }
   }, [hangUp]);
 
@@ -267,7 +351,7 @@ export function useLiveKitCallSession() {
   // `transcribing` exists because the other two engines expose it; here the far
   // end transcribes continuously and never reports a gap, so claiming a moment
   // of it would be invention.
-  return { phase, heard, level, notice, transcribing: false, open, begin, hangUp, interrupt, say };
+  return { phase, stage, heard, level, notice, transcribing: false, open, begin, hangUp, interrupt, say };
 }
 
 /**

@@ -203,14 +203,22 @@ class LocalTTS extends tts.TTS {
 class LocalLLMStream extends llm.LLMStream {
   label = 'cinderpaw.LocalLLMStream';
   async run() {
-    const messages = this.chatCtx.items
-      .filter((i) => i.type === 'message')
-      .map((i) => ({
-        role: i.role === 'assistant' ? 'assistant' : i.role === 'system' ? 'system' : 'user',
-        content: Array.isArray(i.content)
-          ? i.content.filter((c) => typeof c === 'string').join(' ')
-          : String(i.content ?? ''),
-      }));
+    // The newest thing the person said, and nothing else.
+    //
+    // This used to post the whole `chatCtx` as `messages`, which was wrong
+    // twice. `/runtime/chat` has no `messages` field: it takes `content` plus a
+    // session id and rejects anything else, so every turn of an on-device call
+    // came back 422 and the model was never reached. And the history is the
+    // sidecar's to keep (it is the same store the typed chat uses, and it
+    // compacts), so sending a transcript that grew by two entries a turn was
+    // also the reason a long call answered slower and slower.
+    const items = this.chatCtx.items.filter((i) => i.type === 'message');
+    const last = [...items].reverse().find((i) => i.role !== 'assistant' && i.role !== 'system');
+    const content = last
+      ? Array.isArray(last.content)
+        ? last.content.filter((c) => typeof c === 'string').join(' ')
+        : String(last.content ?? '')
+      : '';
     // Stream, not wait-for-full: the non-streaming path blocked the turn for
     // the whole generation (10-20s on a local 7B), so the screen stayed on the
     // stale transcript until the answer was complete. Streaming puts the first
@@ -219,7 +227,13 @@ class LocalLLMStream extends llm.LLMStream {
     const res = await fetch(`${API_URL}/runtime/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
-      body: JSON.stringify({ messages, system: INSTRUCTIONS || undefined, stream: true }),
+      // One session per call, named after the room. Stable for the whole call,
+      // so the sidecar keeps the conversation and compacts it; different for
+      // the next one, so two calls do not bleed into each other. The persona is
+      // the sidecar's too, which is why no `system` is sent from here.
+      // Spoken, and it has to say so: without it the reply is the desktop's
+      // full markdown read out loud.
+      body: JSON.stringify({ content, session_id: SESSION_ID, stream: true, surface: 'voice' }),
       signal: this.abortSignal,
     });
     if (!res.ok) throw new Error(`Local model failed: ${await res.text()}`);
@@ -398,6 +412,106 @@ const TOOL_DECLARATIONS = JSON.parse(process.env.CINDERPAW_LIVE_TOOLS || '[]');
  */
 const API_URL = process.env.CINDERPAW_API_URL || '';
 const API_TOKEN = process.env.CINDERPAW_API_TOKEN || '';
+
+/**
+ * Which conversation the sidecar files this call under.
+ *
+ * One per worker process, which is one per call: the SDK forks a child per job
+ * and this module is loaded again inside it. Stable for the length of the call
+ * so the history and its compaction belong to somebody, and distinct from the
+ * desktop's own session so a spoken call does not append itself to whatever
+ * chat happens to be open.
+ */
+const SESSION_ID = `voice-${process.pid}`;
+
+/**
+ * The language the app is being used in, so anything this file says out loud is
+ * said in it. Two letters, or empty when nothing was chosen.
+ */
+const LANGUAGE = (process.env.CINDERPAW_LIVE_LANGUAGE || '').trim().toLowerCase().slice(0, 2);
+
+/**
+ * What the agent says while a tool call is running.
+ *
+ * Spoken by THIS FILE, not by the model, and that is the whole point. The brief
+ * already tells the model at length to keep the line warm, and on Gemini's
+ * native-audio model it can: `ask_cinder` is declared NON_BLOCKING and the
+ * session stays free to talk. Every other vendor runs the tool call inside the
+ * turn, so the model is not choosing to stay quiet, it is unable to speak.
+ * Thirty seconds of that is indistinguishable from a dropped call, and no
+ * amount of prompt fixes something the model cannot do.
+ *
+ * Short, plain, and varied, because the same sentence twice in twenty seconds
+ * sounds more broken than silence. Nothing here claims a result: the model says
+ * what was found when the answer arrives, and a second voice announcing "found
+ * it" first is exactly the two-voices bug in a smaller coat.
+ */
+const FILLER = {
+  en: {
+    start: ['One moment, let me look that up.', "Right, I'm on it.", 'Let me go and find out.'],
+    waiting: [
+      "Still working on it.",
+      "Give me a few more seconds.",
+      "Nearly there, still looking.",
+      "I'm still here, this one is taking a while.",
+    ],
+  },
+  ro: {
+    start: ['O secundă, mă uit acum.', 'Bun, mă ocup.', 'Stai să văd exact.'],
+    waiting: [
+      'Încă lucrez la asta.',
+      'Mai durează puțin.',
+      'Aproape gata, încă mă uit.',
+      'Sunt aici, asta durează mai mult.',
+    ],
+  },
+};
+
+/** How long a tool call may run before the line needs warming, and how often. */
+const FIRST_FILLER_MS = 1200;
+const NEXT_FILLER_MS = 12_000;
+
+/**
+ * Keep the line warm for as long as `stop()` has not been called.
+ *
+ * Best effort in the strictest sense: a session with no way to speak text
+ * (which some realtime integrations are) throws here, and a call that works
+ * silently is enormously better than a call that dies because it could not say
+ * "one moment". Every failure is swallowed after the first, which is also why
+ * the first one is logged: a filler that never speaks should be findable.
+ */
+function keepLineWarm(session) {
+  const lines = FILLER[LANGUAGE] ?? FILLER.en;
+  let stopped = false;
+  let complained = false;
+  let n = 0;
+  const speak = (text) => {
+    if (stopped) return;
+    try {
+      // `addToChatCtx: false`: this is the app talking over the gap, not a turn
+      // the model should later believe it took. Left in the context, the model
+      // reads its own filler back as something it already said and answers the
+      // next question as if the work were done.
+      session.say(text, { allowInterruptions: true, addToChatCtx: false });
+    } catch (e) {
+      if (!complained) {
+        complained = true;
+        console.error(`filler could not be spoken (${String(e?.message ?? e)}); the call runs silent while tools work`);
+      }
+    }
+  };
+  const first = setTimeout(() => {
+    speak(lines.start[Math.floor(Math.random() * lines.start.length)]);
+  }, FIRST_FILLER_MS);
+  const later = setInterval(() => {
+    speak(lines.waiting[n++ % lines.waiting.length]);
+  }, NEXT_FILLER_MS);
+  return () => {
+    stopped = true;
+    clearTimeout(first);
+    clearInterval(later);
+  };
+}
 let nextCallId = 0;
 
 async function askRust(name, args) {
@@ -437,7 +551,7 @@ async function askRust(name, args) {
 const emit = (obj) => console.log('CINDERPAW_EVENT ' + JSON.stringify(obj));
 
 /** Build the LiveKit tool set from what Rust declared. */
-function toolsFromDeclarations() {
+function toolsFromDeclarations(session) {
   const out = {};
   for (const decl of TOOL_DECLARATIONS) {
     out[decl.name] = llm.tool({
@@ -456,9 +570,18 @@ function toolsFromDeclarations() {
         // reasonably concluded the tool was broken. These two lines are the
         // only thing that ever told them otherwise.
         emit({ kind: 'toolCall', text: String(args?.request ?? '').trim() });
-        const out = await askRust(decl.name, args);
-        emit({ kind: 'toolResult', text: out?.ok === false ? String(out.output ?? 'failed') : '' });
-        return out;
+        // The panel says what is running; this says it out loud, which is the
+        // half a person on a phone call actually receives.
+        const done = keepLineWarm(session);
+        try {
+          const out = await askRust(decl.name, args);
+          emit({ kind: 'toolResult', text: out?.ok === false ? String(out.output ?? 'failed') : '' });
+          return out;
+        } finally {
+          // On every path. Left running after a failure, the call would go on
+          // promising it was nearly there for as long as the room was open.
+          done();
+        }
       },
     });
   }
@@ -597,7 +720,7 @@ async function assistant(ctx, makeSession) {
   });
 
   await session.start({
-    agent: new voice.Agent({ instructions: INSTRUCTIONS, tools: toolsFromDeclarations() }),
+    agent: new voice.Agent({ instructions: INSTRUCTIONS, tools: toolsFromDeclarations(session) }),
     room: ctx.room,
   });
 
