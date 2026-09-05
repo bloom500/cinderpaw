@@ -627,6 +627,10 @@ export class RsiSidecar {
 
     const engine = createRsiEngine({
       seeds,
+      // The SAME population the commit adapter above was built with. Without
+      // this the engine made its own, and every genome born by selection was
+      // invisible to `commitGenome` — see the field's doc in engine.ts.
+      pop,
       goal: {
         goal: opts.goal,
         maxIterations: opts.maxIterations,

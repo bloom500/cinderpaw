@@ -56,6 +56,22 @@ import { TasteMiner, makeTasteDeps } from "./l1-config/taste-miner.ts";
 export interface RsiEngineDeps {
   /** Initial population (the bootstrap strategy seeds). */
   seeds: GenomeSpec[];
+  /**
+   * The population every part of this run shares. MUST be the same instance
+   * the commit adapter was built with.
+   *
+   * When this was omitted the engine made its own, and the two were seeded
+   * from the same list — so the four seeds existed in both and committed
+   * fine, while every genome BORN here (`SelectionMutationHandler` →
+   * `pop.add(child)`) landed only in the engine's copy. `commitGenome` looked
+   * the child up in the sidecar's copy, did not find it, and halted the
+   * episode with "unknown genome". Measured on a live run: 4 seeds scored, 4
+   * offspring halted, every episode, so nothing but a hand-written seed could
+   * ever reach the ratchet.
+   *
+   * Optional only so the engine tests can let it default.
+   */
+  pop?: PopulationManager;
   /** Stop conditions + objective. */
   goal: GoalConfig;
   /** Eval runner + scorer (real: makeRunEval + makeScoreGenomeAdapter). */
@@ -104,7 +120,7 @@ export interface RsiEngine {
 /** Construct and wire the full RSI engine. Does not start it — call run(). */
 export function createRsiEngine(deps: RsiEngineDeps): RsiEngine {
   const bus = new EventBus();
-  const pop = new PopulationManager({ concurrency: deps.concurrency ?? 1 });
+  const pop = deps.pop ?? new PopulationManager({ concurrency: deps.concurrency ?? 1 });
   for (const seed of deps.seeds) pop.add(seed);
 
   const evalWorker = new EvalWorker(bus, deps.evalDeps);

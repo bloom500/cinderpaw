@@ -11,6 +11,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { createRsiEngine } from "../src/rsi/engine.ts";
+import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
 import type { GenomeConfig } from "../src/rsi/l1-config/genome.ts";
 import type { RsiEvent } from "../src/rsi/infra/event-bus.ts";
 
@@ -75,6 +76,64 @@ describe("createRsiEngine", () => {
     const res = await engine.run();
     expect(res.reason).toBe("TargetReached");
     expect(res.best?.score).toBe(75);
+  });
+
+  test("a genome born here is visible to the population the commit adapter holds", async () => {
+    // The bug this pins: the engine used to build its own PopulationManager.
+    // Both were seeded from the same list, so the seeds existed in both and
+    // committed fine, while every genome BORN by selection landed only in the
+    // engine's copy. `commitGenome` looked children up in the caller's copy,
+    // missed, and halted the episode with "unknown genome". On a live run that
+    // was 4 seeds scored and 4 offspring halted, every episode — nothing but a
+    // hand-written seed could ever reach the ratchet.
+    //
+    // The assertion is deliberately the production shape: a commit adapter
+    // that resolves ids against the caller's population and throws on a miss,
+    // exactly like makeCommitGenomeAdapter.
+    const pop = new PopulationManager({ concurrency: 1 });
+    const seeds = [{ id: "seed", generation: 0, lineage: [], config: CFG }];
+    for (const seed of seeds) pop.add(seed);
+
+    const missed: string[] = [];
+    let gitBest = 0;
+    let idN = 0;
+    const engine = createRsiEngine({
+      ...baseDeps({ seeds }),
+      pop,
+      selection: {
+        capacity: 8,
+        bounds: BOUNDS,
+        rng: () => 0,
+        gaussian: () => 0,
+        newId: () => `child-${++idN}`,
+      },
+      goal: { goal: "x", maxIterations: 6, maxTotalTokens: 1e9 },
+      evalDeps: {
+        runEval: async () => [
+          { taskId: "t", tier: 0, success: true, latencyMs: 10, tokens: 100, errored: false },
+        ],
+        scoreGenome: async () => ({ score: 50 + idN }),
+      },
+      ratchetDeps: {
+        commitGenome: async (req: { genomeId: string }) => {
+          if (!pop.get(req.genomeId)) missed.push(req.genomeId);
+          return { commitHash: "x".repeat(40) };
+        },
+        ratchetAttempt: async (_h: string, score: number) => {
+          const previousBest = gitBest;
+          const advanced = score > gitBest;
+          if (advanced) gitBest = score;
+          return { advanced, previousBest, candidateScore: score, hadPrior: true };
+        },
+      },
+    });
+
+    await engine.run();
+
+    // At least one child was actually born — otherwise this asserts nothing.
+    expect(idN).toBeGreaterThan(0);
+    expect(pop.get("child-1")).toBeDefined();
+    expect(missed).toEqual([]);
   });
 
   test("the wired extinction handler fires on monoculture + plateau", async () => {
