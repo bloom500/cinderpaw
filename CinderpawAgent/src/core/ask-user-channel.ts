@@ -107,6 +107,17 @@ interface PendingChannelAsk {
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   questions: AskUserQuestion[];
+  /** The promise handed to every caller sharing this entry (see the dedupe
+   *  in `ask`). Assigned synchronously right after creation, before the
+   *  send await — the same ordering the pending registration already keeps. */
+  promise: Promise<AskUserAnswer[]>;
+}
+
+/** Same rendered question? Parallel bursts (two experimental-tool approvals
+ *  at once) build identical question arrays; JSON order is stable because
+ *  both come through the same tool path. */
+function sameQuestions(a: AskUserQuestion[], b: AskUserQuestion[]): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 export class ChannelAskRouter {
@@ -188,6 +199,14 @@ export class ChannelAskRouter {
     if (!sender) {
       throw new Error(`no channel sender for session ${sessionId}`);
     }
+    // Dedupe, not supersede: an identical ask while one is pending shares
+    // it. Bursts used to cancel each other — the first tool errored
+    // "superseded", the agent retried, and the chat got the same question
+    // twice while the user's answer fell into the collision.
+    const existing = this.#pending.get(sessionId);
+    if (existing && sameQuestions(existing.questions, questions)) {
+      return existing.promise;
+    }
     // Replace-not-queue: a second ask in the same chat would be unanswerable.
     this.#cancel(sessionId, "superseded by a newer question");
 
@@ -195,16 +214,31 @@ export class ChannelAskRouter {
     // asks otherwise interleave at the send await and the first entry is
     // silently overwritten instead of cancelled — an unsettled Promise and
     // an orphaned timer.
+    //
+    // Built in two steps because the executor runs synchronously inside
+    // `new Promise`, before `answered` exists: resolvers first, then the
+    // timer and the stored entry, all still synchronous and still before
+    // the send await below.
+    let resolveEntry!: (answers: AskUserAnswer[]) => void;
+    let rejectEntry!: (err: Error) => void;
     const answered = new Promise<AskUserAnswer[]>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.#pending.delete(sessionId);
-        void sender(
-          sessionId,
-          "⏳ No answer — going with the recommended option.",
-        ).catch(() => {});
-        reject(new AskUserTimeoutError(sessionId, this.#timeoutMs));
-      }, this.#timeoutMs);
-      this.#pending.set(sessionId, { resolve, reject, timer, questions });
+      resolveEntry = resolve;
+      rejectEntry = reject;
+    });
+    const timer = setTimeout(() => {
+      this.#pending.delete(sessionId);
+      void sender(
+        sessionId,
+        "⏳ No answer — going with the recommended option.",
+      ).catch(() => {});
+      rejectEntry(new AskUserTimeoutError(sessionId, this.#timeoutMs));
+    }, this.#timeoutMs);
+    this.#pending.set(sessionId, {
+      resolve: resolveEntry,
+      reject: rejectEntry,
+      timer,
+      questions,
+      promise: answered,
     });
     // Mark the rejection path observed: a supersede/cancel can reject before
     // the caller adopts the promise (it is suspended at the send await), and

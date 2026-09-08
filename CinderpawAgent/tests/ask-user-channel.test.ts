@@ -125,6 +125,28 @@ describe("ChannelAskRouter", () => {
     expect(answers[0]!.selected).toEqual(["Blue"]);
   });
 
+  it("identical concurrent asks share one pending (no duplicate message)", async () => {
+    // Seen live on Discord: two parallel approval asks for the same decision
+    // each sent the same question, the second cancelled the first, the first
+    // tool errored, the agent retried, and the chat got the question twice
+    // while the user's answer fell into the collision. Same rendered question
+    // = one pending entry, one message, one answer for both callers.
+    const sent: string[] = [];
+    const router = new ChannelAskRouter();
+    router.registerSender("discord", async (_s, text) => {
+      sent.push(text);
+    });
+    const first = router.ask([DB], "discord:1");
+    const second = router.ask([DB], "discord:1");
+    await Bun.sleep(0); // let the send land
+    expect(sent.length).toBe(1);
+    expect(router.pendingCount).toBe(1);
+    router.handleInbound("discord:1", "1");
+    const [a1, a2] = await Promise.all([first, second]);
+    expect(a1[0]!.selected).toEqual(["Postgres"]);
+    expect(a2).toEqual(a1);
+  });
+
   it("unregisterSender cancels that connector's pending asks", async () => {
     const router = new ChannelAskRouter();
     router.registerSender("discord", async () => {});
