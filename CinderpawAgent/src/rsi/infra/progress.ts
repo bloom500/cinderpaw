@@ -11,6 +11,7 @@
  */
 
 import { readJournal, journalFilename } from "./journal.ts";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 export interface ProgressDay {
@@ -25,6 +26,12 @@ export interface ProgressDay {
   meanAggregate: number | null;
   /** Mean confidence over the same cycles; null when none. */
   meanConfidence: number | null;
+  /** True when the day's journal file exists but cannot be read (a corrupt
+   *  row — readJournal throws per INVARIANT I4). Counts stay zero, but the
+   *  flag keeps the day from rendering like a day the agent did nothing:
+   *  same zeros, opposite meaning. A missing file is a genuinely empty
+   *  day and reads false. */
+  corrupt: boolean;
 }
 
 export interface ProgressSeries {
@@ -41,7 +48,9 @@ export interface ProgressSeries {
 
 /** Aggregate the last `days` UTC days of journal files under `journalDir`.
  *  Missing files are simply empty days — a fresh install draws a flat
- *  zero line, never throws. */
+ *  zero line, never throws. Files that exist but fail to parse are
+ *  marked `corrupt` on their day (counts stay zero) so they never read
+ *  as quiet days. */
 export function improvementSeries(journalDir: string, days: number, now: Date = new Date()): ProgressSeries {
   const n = Math.max(1, Math.min(365, Math.floor(days)));
   const out: ProgressDay[] = [];
@@ -50,10 +59,15 @@ export function improvementSeries(journalDir: string, days: number, now: Date = 
     const d = new Date(now.getTime() - i * 86_400_000);
     const path = join(journalDir, journalFilename(d));
     let entries: ReturnType<typeof readJournal> = [];
-    try {
-      entries = readJournal(path);
-    } catch {
-      // Corrupt day file → empty day (journal discipline).
+    let corrupt = false;
+    if (existsSync(path)) {
+      try {
+        entries = readJournal(path);
+      } catch {
+        // Corrupt day file → zero counts AND the flag (journal discipline:
+        // readJournal throws on a corrupt row instead of thinning the day).
+        corrupt = true;
+      }
     }
     const evaluated = entries.filter((e) => e.result !== null);
     const aggregates = evaluated.map((e) => e.result!.aggregate);
@@ -66,6 +80,7 @@ export function improvementSeries(journalDir: string, days: number, now: Date = 
       halted: entries.filter((e) => e.decided.action === "halt").length,
       meanAggregate: mean(aggregates),
       meanConfidence: mean(confidences),
+      corrupt,
     });
   }
 

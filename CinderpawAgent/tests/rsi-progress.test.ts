@@ -4,7 +4,7 @@
  * valid) across two UTC days, then checks the aggregation and trend.
  */
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendJournal, journalFilename, type JournalEntry } from "../src/rsi/infra/journal.ts";
@@ -84,5 +84,34 @@ test("empty dir → flat zero series, null trend, never throws", () => {
     expect(s.days.every((d) => d.meanAggregate === null)).toBe(true);
   } finally {
     rmSync(empty, { recursive: true, force: true });
+  }
+});
+
+test("a corrupt day file reads as corrupt, not as a quiet day", () => {
+  // A corrupt journal file must never render like a day the agent did
+  // nothing: same zeros, opposite meaning. Own dir — the shared one above
+  // already holds rows for these UTC days.
+  const broken = mkdtempSync(join(tmpdir(), "cinderpaw-progress-broken-"));
+  try {
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 86_400_000);
+    appendJournal(join(broken, journalFilename(yesterday)), entry({ aggregate: 0.5 }));
+    writeFileSync(join(broken, journalFilename(now)), "{ this is not json\n");
+
+    const s = improvementSeries(broken, 7, now);
+    const yRow = s.days[s.days.length - 2]!;
+    expect(yRow.corrupt).toBe(false);
+    expect(yRow.cycles).toBe(1);
+
+    const tRow = s.days[s.days.length - 1]!;
+    expect(tRow.corrupt).toBe(true);
+    expect(tRow.cycles).toBe(0);
+
+    // Missing files are genuinely empty days, not corrupt ones.
+    expect(s.days[0]!.corrupt).toBe(false);
+    // A corrupt day contributes no measurements to the trend.
+    expect(s.aggregateTrend).toBeNull();
+  } finally {
+    rmSync(broken, { recursive: true, force: true });
   }
 });
