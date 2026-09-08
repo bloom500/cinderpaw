@@ -6,8 +6,9 @@
  * layers together: Sandbox → Memory → Tools → Agent core → Transport, and
  * arms the message handler) and `dispatch.ts` (the per-message switch). This
  * file is just the process entry point: it re-exports `main()` for
- * `src/tui/chat.ts`'s dynamic `await import("../index.ts")`, re-exports
- * `loadWorkspaceRoots()` for its unit test, and dispatches CLI subcommands.
+ * `src/tui/chat.ts`'s dynamic `await import("../index.ts")`, and dispatches
+ * CLI subcommands (`loadWorkspaceRoots()` lives in `config.ts`; its unit
+ * test imports it from there directly).
  */
 
 import type { Transport } from "./types.ts";

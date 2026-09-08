@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// SPDX-License-Identifier: Apache-2.0 - see root LICENSE.
 /**
  * check-invariant-coverage.ts — Linter for INVARIANTS.md four-pillar discipline.
  *

@@ -1,0 +1,6 @@
+The files in this directory are licensed under the Apache License 2.0.
+See ../../LICENSE-APACHE for the full text (summary table: ../../LICENSE).
+
+Note: skills *listed* in manifest.json / community-manifest.json keep
+their own licences; this file covers only the manifest files themselves
+and skill files authored in this repo.

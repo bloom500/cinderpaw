@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 — see root LICENSE. -->
+
 # Cinderpaw Contributor Guide
 
 Welcome! This is the long-form companion to [CONTRIBUTING.md](./CONTRIBUTING.md) —

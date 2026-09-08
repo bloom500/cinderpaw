@@ -22,13 +22,14 @@ import {
   runExport,
   WORKING_WINDOW_MS,
 } from "../src/public-journal/exporter.ts";
+import { defaultJournalDir } from "../src/rsi/infra/journal.ts";
 
 /** How often --watch publishes. Also the heartbeat rate, so the site's
  *  staleness threshold must be a comfortable multiple of it. */
 const WATCH_INTERVAL_MS = 60_000;
 
 async function once(dryRun: boolean): Promise<void> {
-  const config = configFromEnv();
+  const config = configFromEnv(process.env, defaultJournalDir());
 
   if (dryRun) {
     const cursor = readCursor(config.cursorFile);

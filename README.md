@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/bloom500/cinderpaw/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/cinderpaw?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
-  <img src="https://img.shields.io/badge/license-BSL%201.1-green?style=for-the-badge" alt="License" />
+  <img src="https://img.shields.io/badge/license-Apache--2.0_%2B_BSL_1.1-green?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge" alt="Platform" />
   <img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=for-the-badge&logo=tauri" alt="Tauri" />
 </p>
@@ -532,16 +532,19 @@ That's the fastest loop in the repo and where most of the interesting work is. I
 - Open a [Discussion](https://github.com/bloom500/cinderpaw/discussions) for ideas and questions
 - Check [open issues](https://github.com/bloom500/cinderpaw/issues) for something to pick up
 
-Note that Cinderpaw is **source-available under BSL 1.1, not OSI open source** — free for individuals and small orgs, converting to Apache 2.0 four years after each release. Details in [Licence](#license) below; we'd rather you know upfront.
+Note that Cinderpaw is **split-licensed: Apache-2.0 agent runtime, BSL 1.1 app and adaptive core, not OSI open source throughout** — details in [Licence](#license) below; we'd rather you know upfront.
 
 ## License
 
-Cinderpaw is source-available under the [Business Source License 1.1](LICENSE) (BSL).
+Split-licensed per directory — see [LICENSE](LICENSE) for the exact table.
+
+The agent runtime (`CinderpawAgent/`, `skills/`) is Apache-2.0. The desktop app, TUI and the adaptive core (`crates/`) are BSL 1.1, converting to Apache-2.0 after the change date.
 
 **What that means in practice:**
-- ✅ **Free forever for you** — personal use, small businesses (under $2M annual revenue), education, research, self-hosting, modifying, redistributing.
-- 🚫 **Not free for big enterprise** — organizations above the revenue threshold, or anyone offering Cinderpaw as a hosted/managed service, need a [commercial license](mailto:bloommediacorporation@gmail.com).
-- 🕓 **Becomes fully open source automatically** — each version converts to Apache 2.0 four years after its release.
+- ✅ **Runtime is free forever for everyone** — personal use, commercial use, self-hosting, modifying, redistributing, including as a hosted service.
+- ✅ **App and core are free for you** — personal use, small businesses (under $2M annual revenue), education, research, self-hosting, modifying, redistributing.
+- 🚫 **App and core are not free for big enterprise** — organizations above the revenue threshold, or anyone offering Cinderpaw as a hosted/managed service, need a [commercial license](mailto:bloommediacorporation@gmail.com).
+- 🕓 **BSL parts become fully open source automatically** — each version converts to Apache 2.0 four years after its release.
 
 This protects a small independent project from being repackaged by large companies while keeping it free for the people it's built for.
 

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 — see root LICENSE. -->
+
 # CINDERPAW configuration reference
 
 > **Audience:** operators, integrators, and security reviewers. End users

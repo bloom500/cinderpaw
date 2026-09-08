@@ -1,5 +1,11 @@
 [
   {
+    "id": "_manifest-license-note",
+    "name": "Manifest license note (not a skill)",
+    "description": "This manifest file itself is Apache-2.0, see skills/LICENSE. Each listed skill keeps its own license from its entry's license field.",
+    "license": "Apache-2.0"
+  },
+  {
     "id": "systematic-debugging",
     "name": "Systematic Debugging",
     "description": "Step-by-step debugging workflow for Claude Code. Forces hypothesis-first thinking before touching code.",

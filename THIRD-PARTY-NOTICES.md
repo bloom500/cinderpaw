@@ -1,10 +1,12 @@
 # Third-party notices
 
-Cinderpaw is licensed under BUSL-1.1 (see `LICENSE`). This file records third-party
+Cinderpaw is split-licensed per directory (see `LICENSE`): the agent runtime
+is Apache-2.0, the app and adaptive core are BSL 1.1. This file records third-party
 work Cinderpaw builds on, and the notices that work requires.
 
 It covers two things: designs we derived from, and source we copied into this
-tree. Package-manager dependencies are not listed here. Those ship with their
+tree. Package-manager dependencies are not listed here — with ONE exception
+below. Those ship with their
 own licenses and are resolved at install time; this file is for work that would
 otherwise look like ours.
 
@@ -80,3 +82,27 @@ SOFTWARE.
 Used to recover tool calls emitted in formats other than the one we ask models
 for. See `CinderpawAgent/src/vendor/tool-call-repair/README.md` for what it
 covers, what it does not, and why the rest of that package was left behind.
+
+---
+
+## libsignal — bundled into the sidecar binary (exception to the rule above)
+
+**Embedded in:** every shipped sidecar binary (`dist/`, npm platform
+packages, Tauri bundle) via the WhatsApp transport:
+`CinderpawAgent/src/transports/connectors.ts` statically imports
+`@whiskeysockets/baileys`, which statically imports `libsignal`
+(`Utils/crypto.js`: `import * as curve from 'libsignal/src/curve.js'`), so
+`bun build --compile` bakes it in. Verified 2026-09-08 against
+`libsignal@6.0.0` in `CinderpawAgent/node_modules`.
+
+- **Source:** https://github.com/signalapp/libsignal
+- **License:** GPL-3.0. The combined binary is therefore GPL-covered for
+  the libsignal portion: redistributing the binary requires the GPL-3.0
+  notices, which this entry provides, and source availability, which this
+  repo (plus the dependency's own published source) satisfies. The
+  Apache-2.0 CinderpawAgent *source files* remain Apache-2.0; copyleft
+  attaches to the compiled combination, not to the sources.
+- **Consequence for the split:** the Apache-licensed `transports/` sources
+  cannot be distributed *in binary form together with the WhatsApp path*
+  under Apache-only terms. Removing or externalising that transport is
+  tracked work, not part of this commit.

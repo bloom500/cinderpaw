@@ -1,0 +1,17 @@
+Cinderpaw — NOTICE
+
+Copyright (c) 2026 Bloom Media. All rights reserved where applicable;
+see LICENSE (the per-directory split), LICENSE-APACHE and LICENSE-BSL.
+
+This distribution bundles third-party software. See THIRD-PARTY-NOTICES.md
+for the full list (including the vendored MIT sources and the Apache-2.0
+NOTICE entry for the LiveKit voice component, per docs/voice-livekit.md).
+
+Trademark notice
+----------------
+The name "Cinderpaw", the Cinderpaw logo and the mascot are NOT licensed
+under Apache-2.0, BSL 1.1 or any other open-source licence. Any use of the
+name, logo or mascot — including in forks, distributions, hosted services
+or derivative products — requires prior written permission from Bloom Media
+(bloommediacorporation@gmail.com). This does not restrict nominative,
+factual references (e.g. "a fork of Cinderpaw", "compatible with Cinderpaw").

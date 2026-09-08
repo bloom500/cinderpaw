@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0 - see root LICENSE.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,6 +13,7 @@ run() {
 
 run "CinderpawAgent tests" bash -c "cd \"$ROOT/CinderpawAgent\" && bun test --timeout 20000"
 run "CinderpawAgent typecheck" bash -c "cd \"$ROOT/CinderpawAgent\" && bunx tsc --noEmit"
+run "License boundary" bash -c "cd \"$ROOT\" && node scripts/check-license-boundary.mjs"
 run "React tests" bash -c "cd \"$ROOT/frontend-react\" && bunx vitest run --pool=threads --maxWorkers=1"
 run "React typecheck" bash -c "cd \"$ROOT/frontend-react\" && bunx tsc --noEmit"
 run "Sidecar build" bash -c "cd \"$ROOT/src-tauri\" && node scripts/build-sidecar.mjs"

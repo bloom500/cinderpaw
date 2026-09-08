@@ -1,5 +1,11 @@
 [
   {
+    "id": "_manifest-license-note",
+    "name": "Manifest license note (not a skill)",
+    "description": "This manifest file itself is Apache-2.0, see skills/LICENSE. Each listed skill keeps its own license from its entry's license field.",
+    "license": "Apache-2.0"
+  },
+  {
     "id": "using-git-worktrees",
     "name": "Using Git Worktrees",
     "description": "Ensures an isolated workspace via native tools or git worktree fallback before starting feature work.",

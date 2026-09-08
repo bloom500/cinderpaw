@@ -1,4 +1,10 @@
 /**
+ * LICENSE NOTE (see root LICENSE): this module is Apache-2.0. If learned
+ * weights / online adaptation are introduced here, that code moves under
+ * BSL before merge.
+ */
+
+/**
  * Brain Stack — slice 3: scoring + routing.
  *
  * This is the *policy* layer. Registry (S1) is data. Classifier (S2) is

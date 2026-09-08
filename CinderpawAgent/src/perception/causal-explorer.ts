@@ -1,4 +1,10 @@
 /**
+ * LICENSE NOTE (see root LICENSE): this module is Apache-2.0. If it is
+ * ever coupled to the RSI / fractal adaptation loop, that coupling moves
+ * under BSL before merge.
+ */
+
+/**
  * causal-explorer.ts — Causal Exploration for interactive ARC-AGI-3 worlds.
  *
  * Compares two SceneGraph snapshots (before/after one executed action) and

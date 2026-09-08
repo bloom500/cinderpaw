@@ -76,6 +76,14 @@ export interface SelfContext {
   version: string;
   /** When the sidecar booted (ms since epoch). */
   bootedAt: number;
+  /**
+   * RSI-provided trend reader, registered by boot wiring (which already
+   * imports the BSL journal code). Returns an opaque value the tool only
+   * reads `aggregateTrend` from and spreads. Absent in pure-Apache builds,
+   * where `self_progress` reports honestly instead of importing RSI
+   * itself — see root LICENSE.
+   */
+  getImprovementSeries?: (journalDir: string, days: number) => unknown;
 }
 
 /** Sync JSON read for hot paths (`self_status` callsite is latency-sensitive). */
@@ -1380,7 +1388,7 @@ function makeSelfHealth(ctx: SelfContext): Tool {
   };
 }
 
-function makeSelfProgress(): Tool {
+function makeSelfProgress(getImprovementSeries: SelfContext["getImprovementSeries"]): Tool {
   const manifest: ToolManifest = {
     name: "self_progress",
     description:
@@ -1406,18 +1414,22 @@ function makeSelfProgress(): Tool {
         typeof args.days === "number" && Number.isFinite(args.days)
           ? Math.max(1, Math.min(365, Math.floor(args.days)))
           : 30;
-      const { improvementSeries } = await import("../../rsi/infra/progress.ts");
-      const series = improvementSeries(join(RSI_ROOT, "journal"), days);
+      const series = (getImprovementSeries?.(join(RSI_ROOT, "journal"), days) ?? null) as {
+        aggregateTrend: number | null;
+        [key: string]: unknown;
+      } | null;
       const out = {
-        ...series,
+        ...(series ?? { aggregateTrend: null as number | null }),
         champion: shapeChampion(),
         journal_dir: join(RSI_ROOT, "journal"),
         note:
-          series.aggregateTrend === null
-            ? "Not enough measured days yet for a trend — the curve needs at least 2 active days."
-            : series.aggregateTrend >= 0
-              ? "Mean candidate score is flat-to-rising across the window."
-              : "Mean candidate score fell across the window — worth inspecting recent journal rows.",
+          series === null
+            ? "RSI journal not wired in this build — the trend curve needs the adaptive core."
+            : series.aggregateTrend === null
+              ? "Not enough measured days yet for a trend — the curve needs at least 2 active days."
+              : series.aggregateTrend >= 0
+                ? "Mean candidate score is flat-to-rising across the window."
+                : "Mean candidate score fell across the window — worth inspecting recent journal rows.",
       };
       return { ok: true, content: JSON.stringify(out, null, 2), data: out };
     },
@@ -1540,7 +1552,7 @@ export function createSelfTools(ctx: SelfContext): Tool[] {
     makeSelfLora(ctx),
     makeSelfHealth(ctx),
     makeSelfSubsystem(),
-    makeSelfProgress(),
+    makeSelfProgress(ctx.getImprovementSeries),
   ];
 }
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0 - see root LICENSE.
 // scripts/gen-config-docs.mjs
 // R3: regenerates the TS-side table in docs/CONFIGURATION.md from
 // CinderpawAgent/src/config.ts CONFIG_SCHEMA. Rust-side vars are hand-maintained

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0 - see root LICENSE.
 <#
 .SYNOPSIS
   The verification gate, runnable on Windows without bash.

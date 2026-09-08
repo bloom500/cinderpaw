@@ -19,7 +19,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { atomicWriteFileSync } from "../atomic-write.ts";
 import { dirname, join } from "node:path";
-import { defaultJournalDir } from "../rsi/infra/journal.ts";
 import { cinderpawHome } from "../config.ts";
 import {
   assertPublicSafe,
@@ -175,8 +174,12 @@ export interface ExporterConfig {
 
 /** Read config from the environment. Throws with an actionable message rather
  *  than half-configuring — a publisher that silently no-ops is worse than one
- *  that refuses to start. */
-export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ExporterConfig {
+ *  that refuses to start.
+ *
+ *  `journalDirFallback` is injected by the caller (boot wiring / publish
+ *  script) so this Apache-licensed module never imports the BSL journal
+ *  defaults itself — see root LICENSE. */
+export function configFromEnv(env: NodeJS.ProcessEnv = process.env, journalDirFallback: string): ExporterConfig {
   const url = env.CINDERPAW_PUBLIC_JOURNAL_URL?.trim();
   const token = env.CINDERPAW_PUBLIC_JOURNAL_TOKEN?.trim();
   if (!url) throw new Error("CINDERPAW_PUBLIC_JOURNAL_URL is not set");
@@ -193,7 +196,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ExporterCon
     url,
     token,
     publisher,
-    journalDir: env.CINDERPAW_PUBLIC_JOURNAL_DIR?.trim() || defaultJournalDir(),
+    journalDir: env.CINDERPAW_PUBLIC_JOURNAL_DIR?.trim() || journalDirFallback,
     cursorFile: cursorPath(),
     agentVersion: env.CINDERPAW_PUBLIC_JOURNAL_VERSION?.trim() || null,
     limit: Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : DEFAULT_BATCH_LIMIT,

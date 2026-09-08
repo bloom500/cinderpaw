@@ -17,11 +17,12 @@
 // scripts/gen-config-docs.mjs — do not hand-edit the table between the
 // <!-- TS-SCHEMA-TABLE --> markers.
 
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 import { assertValidRunId } from "./core/run-id.ts";
+import { pathWithin } from "./egress/tool-permissions.ts";
 
 export interface ConfigEntry {
   name: string;
@@ -541,6 +542,59 @@ export function benchmarkRunId(): string | null {
  */
 export function scratchRoot(): string {
   return join(cinderpawHome(), "workspace");
+}
+
+/**
+ * Resolve the agent's filesystem sandbox roots.
+ *
+ * - `CINDERPAW_WORKSPACE` is a path-list (`;` on Windows, `:` elsewhere). When
+ *   unset it defaults to the launch cwd PLUS the user's home directory — the
+ *   agent is a local assistant and should be able to work anywhere the user
+ *   can, not just in one project folder. Set CINDERPAW_WORKSPACE to RESTRICT.
+ * - A dedicated scratch dir under ~/.cinderpaw/workspace is ALWAYS added, so a
+ *   task always has somewhere it fully owns to read/write even if cwd is
+ *   read-only.
+ * - Self-protection wall: broad roots are fine because the real guarantee
+ *   moved to CALL TIME — resolveAllowedPath (tool-permissions.ts) denies any
+ *   target inside ~/.cinderpaw (except scratch), ~/.ssh, or CINDERPAW_FS_DENY on every
+ *   single access. Here we only drop roots that sit ENTIRELY inside ~/.cinderpaw
+ *   (every call through them would fail anyway — better to warn at boot).
+ */
+export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
+  const raw = env.CINDERPAW_WORKSPACE;
+  const requested = raw && raw.trim()
+    ? raw.split(delimiter).map((s) => s.trim()).filter(Boolean)
+    : [process.cwd(), homedir()];
+  const roots = requested.map((p) => resolve(p));
+
+  // Same resolver the file tools use to decide whether a write is "scratchpad"
+  // or "the user's project" — they must never disagree about where it is.
+  const scratch = scratchRoot();
+  try { mkdirSync(scratch, { recursive: true }); } catch { /* best effort */ }
+  roots.push(scratch);
+
+  const guarded = roots.filter((r) => {
+    if (pathWithin(r, scratch)) return true; // scratch subtree — the one allowed path under ~/.cinderpaw
+    // Only drop roots that sit INSIDE ~/.cinderpaw (RSI repo, db, SOUL): every
+    // access through them would be refused by the call-time deny wall in
+    // resolveAllowedPath, so registering them just produces confusing tools.
+    // Ancestors of ~/.cinderpaw (home, drive root) are ALLOWED — the deny wall
+    // guards the brain per-access, not per-root.
+    // Both profile dirs: the rename migration never deletes ~/.feral, so on a
+    // migrated machine it still holds agent state and the call-time deny wall
+    // refuses it. Warning about only the current one meant a root under the
+    // other registered fine and then failed on every single access.
+    const home = agentProfileDirs().find((h) => pathWithin(r, h));
+    if (home !== undefined) {
+      console.warn(
+        `[config] dropping workspace root "${r}" — it is inside ${home} ` +
+          `(agent state/identity). Point CINDERPAW_WORKSPACE at a project dir instead.`,
+      );
+      return false;
+    }
+    return true;
+  });
+  return [...new Set(guarded)];
 }
 
 /**

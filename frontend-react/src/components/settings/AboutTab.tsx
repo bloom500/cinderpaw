@@ -18,18 +18,17 @@ export function AboutTab() {
       <div className="space-y-1">
         <p className="text-sm font-semibold text-text-primary">Cinderpaw {version ?? '…'}</p>
         <p className="text-xs text-text-muted">Local-first AI desktop, built with Tauri + React</p>
-        {/* The licence shown here was wrong: this repo ships under the Business
-            Source License 1.1 (see LICENSE, and `license` in Cargo.toml), not
-            MIT/Apache. A licence line is something people act on — it decides
-            whether they can use Cinderpaw at work — so it states the real terms and
-            the date they change. */}
+        {/* Licence split (see root LICENSE): the agent runtime is Apache-2.0;
+            the desktop app, TUI and adaptive core are BSL 1.1, converting to
+            Apache 2.0 four years after each release. A licence line is
+            something people act on, so it states the real terms. */}
         <p className="text-xs text-text-muted">
-          Built by <span className="font-medium text-text-secondary">Bloom Media</span> · Business Source License 1.1
+          Built by <span className="font-medium text-text-secondary">Bloom Media</span> · Runtime Apache-2.0 · App BSL 1.1
         </p>
         <p className="text-xs text-text-muted">
-          Source-available: use, modify and redistribute it, including in production, as long
-          as you do not resell Cinderpaw itself as a hosted service. Each release turns
-          Apache 2.0 four years after it ships.
+          Runtime: use, modify and redistribute freely, including hosted. App and
+          adaptive core: source-available — no resale as a hosted service. Each
+          release turns Apache 2.0 four years after it ships.
         </p>
       </div>
 

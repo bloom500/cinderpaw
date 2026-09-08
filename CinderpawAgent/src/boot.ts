@@ -8,17 +8,15 @@
  * router exist before any tool is registered or any message is handled.
  */
 
-import { resolve, join, delimiter } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { resolve, join } from "node:path";
+import { existsSync } from "node:fs";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
+import { benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, loadWorkspaceRoots, readEnv, searxngOrigin } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
-import { pathWithin } from "./egress/tool-permissions.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { isRestrictedSession } from "./core/session-visibility.ts";
@@ -119,6 +117,7 @@ import "./transports/mattermost.ts";
 import "./transports/twitch.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
+import { improvementSeries } from "./rsi/infra/progress.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
 import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
 import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
@@ -215,66 +214,6 @@ const BOOT_EPOCH_MS = Date.now();
  * long-context provider where the whole corpus does fit.
  */
 const CLOUD_REBUILD_LEAF_CAP = 200;
-
-/**
- * Resolve the agent's filesystem sandbox roots.
- *
- * - `CINDERPAW_WORKSPACE` is a path-list (`;` on Windows, `:` elsewhere). When
- *   unset it defaults to the launch cwd PLUS the user's home directory — the
- *   agent is a local assistant and should be able to work anywhere the user
- *   can, not just in one project folder. Set CINDERPAW_WORKSPACE to RESTRICT.
- * - A dedicated scratch dir under ~/.cinderpaw/workspace is ALWAYS added, so a
- *   task always has somewhere it fully owns to read/write even if cwd is
- *   read-only.
- * - Self-protection wall: broad roots are fine because the real guarantee
- *   moved to CALL TIME — resolveAllowedPath (tool-permissions.ts) denies any
- *   target inside ~/.cinderpaw (except scratch), ~/.ssh, or CINDERPAW_FS_DENY on every
- *   single access. Here we only drop roots that sit ENTIRELY inside ~/.cinderpaw
- *   (every call through them would fail anyway — better to warn at boot).
- */
-
-/** True iff `child` is `parent` or lies beneath it. Appends a separator before
- *  the prefix test so a filesystem root (`"/"` / `"C:\\"`, which already ends
- *  in a separator) doesn't produce a double-separator prefix that never
- *  matches — the trailing-separator bug that let `CINDERPAW_WORKSPACE=/` slip the
- *  self-protection wall. */
-
-export function loadWorkspaceRoots(env: NodeJS.ProcessEnv): string[] {
-  const raw = env.CINDERPAW_WORKSPACE;
-  const requested = raw && raw.trim()
-    ? raw.split(delimiter).map((s) => s.trim()).filter(Boolean)
-    : [process.cwd(), homedir()];
-  const roots = requested.map((p) => resolve(p));
-
-  // Same resolver the file tools use to decide whether a write is "scratchpad"
-  // or "the user's project" — they must never disagree about where it is.
-  const scratch = scratchRoot();
-  try { mkdirSync(scratch, { recursive: true }); } catch { /* best effort */ }
-  roots.push(scratch);
-
-  const guarded = roots.filter((r) => {
-    if (pathWithin(r, scratch)) return true; // scratch subtree — the one allowed path under ~/.cinderpaw
-    // Only drop roots that sit INSIDE ~/.cinderpaw (RSI repo, db, SOUL): every
-    // access through them would be refused by the call-time deny wall in
-    // resolveAllowedPath, so registering them just produces confusing tools.
-    // Ancestors of ~/.cinderpaw (home, drive root) are ALLOWED — the deny wall
-    // guards the brain per-access, not per-root.
-    // Both profile dirs: the rename migration never deletes ~/.feral, so on a
-    // migrated machine it still holds agent state and the call-time deny wall
-    // refuses it. Warning about only the current one meant a root under the
-    // other registered fine and then failed on every single access.
-    const home = agentProfileDirs().find((h) => pathWithin(r, h));
-    if (home !== undefined) {
-      console.warn(
-        `[config] dropping workspace root "${r}" — it is inside ${home} ` +
-          `(agent state/identity). Point CINDERPAW_WORKSPACE at a project dir instead.`,
-      );
-      return false;
-    }
-    return true;
-  });
-  return [...new Set(guarded)];
-}
 
 /** True when a base URL points at a loopback (local) host. */
 function isLoopbackUrl(url: string): boolean {
@@ -2104,6 +2043,10 @@ export async function boot(transportOverride?: Transport) {
     brainStackEnabled,
     version: VERSION,
     bootedAt: BOOT_EPOCH_MS,
+    // RSI registers its trend reader here (boot already imports the BSL
+    // journal code) so self_progress never imports RSI itself — see
+    // getImprovementSeries in tools/builtin/self.ts and root LICENSE.
+    getImprovementSeries: (dir, days) => improvementSeries(dir, days),
   })) {
     registry.register(t);
   }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0 - see root LICENSE.
 /**
  * check-env-docs.mjs — B2 spec gate, extended by R3.
  *

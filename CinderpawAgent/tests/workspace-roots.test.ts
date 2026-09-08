@@ -10,11 +10,8 @@
 import { test, expect } from "bun:test";
 import { resolve, delimiter, parse } from "node:path";
 import { homedir } from "node:os";
-// Imported from boot.ts, where it is defined. index.ts used to re-export it,
-// but that static re-export forced every short-lived invocation to evaluate
-// the whole agent module graph — see the note in index.ts.
-import { loadWorkspaceRoots } from "../src/boot.ts";
-import { agentProfileDirs, cinderpawHome } from "../src/config.ts";
+// Imported from config.ts, where it is defined.
+import { agentProfileDirs, cinderpawHome, loadWorkspaceRoots } from "../src/config.ts";
 
 // The profile dir the code actually uses, not a second hardcoded copy of
 // it: this test asserted ".feral" while the app had moved to ".cinderpaw",

@@ -12,10 +12,24 @@ deliberately short.
 
 ## Read this first: the license
 
-Cinderpaw is **Business Source License 1.1** — source-available, *not* OSI open
-source. Free for individuals, small orgs (<$2M revenue), education, research and
-self-hosting; commercial licence needed above that or to offer Cinderpaw as a hosted
-service. **Each version converts to Apache 2.0 four years after its release.**
+Cinderpaw is split-licensed per directory (see root `LICENSE` for the
+table): the agent runtime (`CinderpawAgent/` except `src/rsi/` and
+`src/memory/fractal/`, `skills/`) is **Apache-2.0**; the desktop app, TUI
+and adaptive core (`crates/`, `src-tauri/`, `frontend-react/`, `tui/`,
+`CinderpawAgent/src/rsi/`, `CinderpawAgent/src/memory/fractal/`) are
+**Business Source License 1.1** — free for individuals, small orgs (<$2M
+revenue), education, research and self-hosting; commercial licence needed
+above that or to offer those parts as a hosted service. Each BSL version
+converts to Apache 2.0 four years after its release.
+
+**Contributions:** patches to Apache-2.0 directories are inbound=outbound
+(accepted under Apache-2.0, no extra paperwork). Patches to BSL parts
+require a Contributor Licence Agreement before merge — the short version:
+you grant Bloom Media a non-exclusive, worldwide, royalty-free licence to
+your contribution, including the right to relicense it (including
+commercially), and you declare the work is yours to give. The full CLA text
+is sent with the first PR touching a BSL path; if that process puts you
+off, Apache-side contributions need none of it.
 
 By submitting a contribution you agree it ships under those terms. We would
 rather you know that in the first thirty seconds than after writing a patch.

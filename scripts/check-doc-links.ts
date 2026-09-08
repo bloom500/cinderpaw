@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// SPDX-License-Identifier: Apache-2.0 - see root LICENSE.
 /**
  * check-doc-links.ts — every relative link in a Markdown file must point at a
  * file that is actually in the repository.

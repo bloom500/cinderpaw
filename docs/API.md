@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 — see root LICENSE. This file is the canonical host↔sidecar protocol spec. -->
+
 # CINDERPAW HTTP API reference
 
 > **Stability policy:** As of v1.0 the Cinderpaw HTTP API is **unstable
