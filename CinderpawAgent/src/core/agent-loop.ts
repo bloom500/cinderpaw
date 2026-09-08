@@ -2599,7 +2599,11 @@ export class AgentLoop {
         const oldest = this.#sessions.keys().next().value;
         if (oldest === undefined) break; // defensive: empty map
         this.#sessions.delete(oldest);
-        this.#sessionProfile.delete(oldest);
+        // The profile binding is NOT deleted: setSessionProfile promises it
+        // is "sticky until cleared", and dropping it here would resurrect the
+        // session as the owner (full toolset, owner prompt, owner resume
+        // reporting). The intent selection IS transient per-turn state and
+        // is correctly reset. See #evictIdleSessions for the same split.
         this.#toolIntentSelection.delete(oldest);
       }
       // A profiled session (connector surface) runs under the profile's own
@@ -2726,7 +2730,8 @@ export class AgentLoop {
     for (const [sessionId, entry] of this.#sessions) {
       if (entry.lastAccess < cutoff) {
         this.#sessions.delete(sessionId);
-        this.#sessionProfile.delete(sessionId);
+        // Keep the profile binding (sticky until cleared — see the LRU path
+        // above for why dropping it resurrects the session as the owner).
         this.#toolIntentSelection.delete(sessionId);
       }
     }
