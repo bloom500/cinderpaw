@@ -18,7 +18,7 @@ pub(crate) fn deny_cinderpaw_private(canonical: &std::path::Path) -> Result<(), 
     // that had never been set up.
     let cinderpaw = paths::cinderpaw_dir();
     let cinderpaw = cinderpaw.canonicalize().unwrap_or(cinderpaw);
-    if canonical.starts_with(&cinderpaw) {
+    if denied_path_match(canonical, &cinderpaw) {
         return Err("Access denied: path is inside the Cinderpaw private directory".into());
     }
     deny_sensitive_home_paths(canonical)
@@ -54,7 +54,7 @@ pub(crate) fn deny_sensitive_home_paths(canonical: &std::path::Path) -> Result<(
     ];
     for sub in DENIED {
         let denied = sub.split('/').fold(home.clone(), |p, part| p.join(part));
-        if canonical == denied || canonical.starts_with(&denied) {
+        if denied_path_match(canonical, &denied) {
             return Err(format!(
                 "Access denied: {} holds credentials and is never readable from the app",
                 sub
@@ -267,6 +267,65 @@ fn strip_xml_to_text(xml: &str) -> String {
     out.replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+}
+
+/// Component-wise "equal or contained" test that folds case on
+/// case-insensitive filesystems (Windows NTFS, macOS APFS default) —
+/// the same doctrine as the TS `pathWithin` and shell-exec
+/// `samePathSpace`. `Path::starts_with` compares exact components, so
+/// without the fold `~/.SSH/id_rsa` would not match the `~/.ssh`
+/// deny entry on the platforms we ship, even though it opens the
+/// same file.
+fn denied_path_match(canonical: &std::path::Path, base: &std::path::Path) -> bool {
+    denied_path_match_fold(canonical, base, cfg!(windows) || cfg!(target_os = "macos"))
+}
+
+fn denied_path_match_fold(
+    canonical: &std::path::Path,
+    base: &std::path::Path,
+    fold_case: bool,
+) -> bool {
+    if !fold_case {
+        return canonical == base || canonical.starts_with(base);
+    }
+    let folded = |p: &std::path::Path| {
+        p.components()
+            .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+            .collect::<Vec<_>>()
+    };
+    let c = folded(canonical);
+    let b = folded(base);
+    c.len() >= b.len() && c[..b.len()] == b[..]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sensitive_home_deny_matches_case_variants_when_folding() {
+        let base = std::path::Path::new("/home/u/.ssh");
+        let variant = std::path::Path::new("/home/u/.SSH/id_rsa");
+        assert!(denied_path_match_fold(variant, base, true));
+        assert!(denied_path_match_fold(base, base, true));
+        // A sibling with a shared string prefix is NOT inside: the
+        // comparison stays component-wise, only the case is folded.
+        assert!(!denied_path_match_fold(
+            std::path::Path::new("/home/u/.ssh2/k"),
+            base,
+            true
+        ));
+        // Exact behaviour preserved where the fs is case-sensitive.
+        assert!(!denied_path_match_fold(variant, base, false));
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn platform_selector_folds_on_case_insensitive_filesystems() {
+        let base = std::path::Path::new("/home/u/.ssh");
+        let variant = std::path::Path::new("/home/u/.SSH/id_rsa");
+        assert!(denied_path_match(variant, base));
+    }
 }
