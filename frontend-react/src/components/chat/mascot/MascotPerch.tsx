@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
 import { ToolCallStack } from './ToolCallStack';
-import { atRest, step, type Body } from './physics';
+import { atRest, leanDegrees, squashFor, step, type Body } from './physics';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
@@ -51,9 +51,14 @@ const DRAG_SLOP_PX = 4;
  *  composer or dragged out past the right of it. Keep in sync with `DISPLAY`
  *  in CinderpawMascot. */
 const MASCOT_W = 48;
-/** How high above the perch it can be lifted. Enough to make a drop worth
- *  watching, not so much that it leaves the chat. */
+/** Only a fallback for the moment before the element has been measured. The
+ *  real ceiling is the top of the window — see `boundsNow`. */
 const LIFT_LIMIT_PX = 220;
+/** Kept clear of every window edge, so it never sits half cut off. */
+const EDGE_MARGIN_PX = 8;
+/** How long the squash of a landing lasts. Short: this is the impact, not a
+ *  pose, and anything slower reads as the creature melting. */
+const SQUASH_MS = 130;
 /** A frame longer than this is a tab that was in the background or a machine
  *  that stalled. Integrating it as one step teleports the creature through the
  *  floor, so the step is clamped instead. */
@@ -125,6 +130,7 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   useEffect(
     () => () => {
       if (reactionTimer.current !== null) window.clearTimeout(reactionTimer.current);
+      if (squashTimer.current !== null) window.clearTimeout(squashTimer.current);
     },
     [],
   );
@@ -174,6 +180,12 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [held, setHeld] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  /** Degrees of lean, and how flat it is right now. A rigid sprite has no
+   *  other way to show that it has weight, and without them a drag is a
+   *  picture sliding across the screen rather than something being carried. */
+  const [lean, setLean] = useState(0);
+  const [squash, setSquash] = useState(1);
+  const squashTimer = useRef<number | null>(null);
   /** Live physics, and the pointer bookkeeping that feeds it. Refs, not state:
    *  these are written every animation frame and every pointer move, and none
    *  of those writes should cost a render of its own — `pos` is the one thing
@@ -183,14 +195,33 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   const lastMove = useRef<{ t: number; x: number; y: number } | null>(null);
   const raf = useRef<number | null>(null);
 
-  /** How far it may travel sideways, measured now rather than assumed: the
-   *  composer is resizable and a number baked in at build time is wrong on
-   *  every window but one. */
-  const boundsNow = useCallback(() => {
-    const parent = wrapRef.current?.offsetParent as HTMLElement | null;
-    const left = wrapRef.current?.offsetLeft ?? 0;
-    const room = parent ? parent.clientWidth - left - MASCOT_W : 240;
-    return { minX: -left, maxX: Math.max(0, room) };
+  /**
+   * The box it may not leave, measured against the WINDOW.
+   *
+   * This used to be measured against `offsetParent`, which meant trusting a
+   * particular ancestor to be positioned, to be the composer, and to stay that
+   * way. The window is the one boundary that is true no matter what the DOM
+   * around it does, and "the pet cannot leave the screen" is the promise worth
+   * keeping — a hard throw used to put it hundreds of pixels above the window,
+   * out of sight until gravity brought it back.
+   *
+   * Measured live on each frame rather than cached: the window is resizable,
+   * the composer grows as you type, and a box captured at grab time is wrong
+   * by the time the throw lands.
+   */
+  const boundsNow = useCallback((): { minX: number; maxX: number; minY: number } => {
+    const el = wrapRef.current;
+    if (!el) return { minX: -240, maxX: 240, minY: -LIFT_LIMIT_PX };
+    const r = el.getBoundingClientRect();
+    // Where the perch itself sits, with the current offset taken back out.
+    const homeLeft = r.left - body.current.x;
+    const homeTop = r.top - body.current.y;
+    const w = r.width || MASCOT_W;
+    return {
+      minX: -(homeLeft - EDGE_MARGIN_PX),
+      maxX: window.innerWidth - homeLeft - w - EDGE_MARGIN_PX,
+      minY: -(homeTop - EDGE_MARGIN_PX),
+    };
   }, []);
 
   const stopFalling = useCallback(() => {
@@ -204,11 +235,21 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     const frame = (now: number) => {
       const dt = Math.min((now - prev) / 1000, MAX_FRAME_S);
       prev = now;
-      const { body: next, landed } = step(body.current, dt, boundsNow());
+      const { body: next, landed, impact } = step(body.current, dt, boundsNow());
       body.current = next;
       setPos({ x: next.x, y: next.y });
+      setLean(leanDegrees(next.vx));
+      if (landed && impact > 0) {
+        const s = squashFor(impact);
+        if (s < 1) {
+          setSquash(s);
+          if (squashTimer.current !== null) window.clearTimeout(squashTimer.current);
+          squashTimer.current = window.setTimeout(() => setSquash(1), SQUASH_MS);
+        }
+      }
       if (landed && atRest(next)) {
         raf.current = null;
+        setLean(0);
         // Shakes it off, which is also what tells you the drop is over.
         react('stretching', POKED_MS);
         return;
@@ -275,6 +316,10 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     body.current.x = x;
     body.current.y = y;
     setPos({ x, y });
+    // Leaning is what makes a carry feel like weight rather than a picture
+    // being slid across the screen. It comes from the same velocity the throw
+    // will use, so the lean you see while carrying is the lean it flies with.
+    setLean(leanDegrees(body.current.vx));
   }, [boundsNow]);
 
   const onUp = useCallback((e: React.PointerEvent<HTMLSpanElement>) => {
@@ -295,6 +340,9 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     <div
       ref={wrapRef}
       className="pointer-events-none absolute -top-[43px] left-5 z-10"
+      // Position only. The lean and the squash go on the creature inside, so
+      // the tool-call stack it carries stays upright and readable while the
+      // creature itself is being swung around.
       style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
     >
       {/* Only the creature itself takes the pointer. The wrapper stays
@@ -302,7 +350,17 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
           had, and `ToolCallStack` keeps its own buttons. */}
       <span
         className="pointer-events-auto inline-block touch-none"
-        style={{ cursor: held ? 'grabbing' : 'grab' }}
+        style={{
+          cursor: held ? 'grabbing' : 'grab',
+          // Squashed from the feet: a landing flattens a creature against the
+          // ground it hit, it does not shrink it towards its own middle.
+          transformOrigin: 'bottom center',
+          transform: `rotate(${lean}deg) scaleY(${squash}) scaleX(${2 - squash})`,
+          // The lean follows the pointer with no smoothing, because it IS the
+          // pointer. Only the squash is eased, so a landing recovers instead of
+          // snapping back.
+          transition: squash === 1 ? `transform ${SQUASH_MS}ms ease-out` : 'none',
+        }}
         onPointerEnter={() => setNoticed(true)}
         onPointerLeave={onLeave}
         onPointerDown={onDown}

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { atRest, step, type Body } from '../physics';
+import { atRest, leanDegrees, squashFor, step, type Body } from '../physics';
 
 const FRAME = 1 / 60;
-const WIDE = { minX: -1_000, maxX: 1_000 };
+const WIDE = { minX: -1_000, maxX: 1_000, minY: -1_000 };
 
 /** Run the body until it stops, or give up. The cap is the guard: a bounce
  *  that keeps half its speed forever never settles, and a test that waits for
@@ -40,16 +40,58 @@ describe('mascot physics', () => {
   });
 
   it('cannot be thrown out of the composer', () => {
-    const bounds = { minX: -20, maxX: 120 };
+    const bounds = { minX: -20, maxX: 120, minY: -400 };
     const { body } = settle({ x: 100, y: -50, vx: 4_000, vy: 0 }, bounds);
     expect(body.x).toBeLessThanOrEqual(bounds.maxX);
     expect(body.x).toBeGreaterThanOrEqual(bounds.minX);
   });
 
   it('a hard throw still comes to rest', () => {
-    const { body, frames } = settle({ x: 0, y: -10, vx: 3_000, vy: -3_000 }, { minX: -200, maxX: 200 });
+    const { body, frames } = settle({ x: 0, y: -10, vx: 3_000, vy: -3_000 }, { minX: -200, maxX: 200, minY: -400 });
     expect(frames).not.toBe(Infinity);
     expect(atRest(body)).toBe(true);
+  });
+
+  // The bug this file exists for. The first version had a floor and no
+  // ceiling, so an upward flick sent the creature hundreds of pixels above the
+  // window: gravity did bring it back, but for a second or more it was simply
+  // gone from the screen, and being yeeted out of the app is not physics.
+  it('cannot be thrown off the top of the screen', () => {
+    const bounds = { minX: -200, maxX: 200, minY: -300 };
+    let b: Body = { x: 0, y: 0, vx: 0, vy: -6_000 };
+    let highest = 0;
+    for (let i = 0; i < 600 && !atRest(b); i++) {
+      b = step(b, FRAME, bounds).body;
+      highest = Math.min(highest, b.y);
+    }
+    expect(highest).toBeGreaterThanOrEqual(bounds.minY);
+    expect(atRest(b)).toBe(true);
+  });
+
+  it('a ceiling shorter than one frame of travel is not passed through', () => {
+    // 6000 px/s covers 100px in a single 60Hz frame. Checking the ceiling
+    // after the move rather than before is what keeps that inside the box.
+    const bounds = { minX: -50, maxX: 50, minY: -20 };
+    const b = step({ x: 0, y: 0, vx: 0, vy: -6_000 }, FRAME, bounds).body;
+    expect(b.y).toBeGreaterThanOrEqual(bounds.minY);
+  });
+
+  it('reports how hard it landed, so a drop can be told from a throw', () => {
+    const gentle = step({ x: 0, y: -1, vx: 0, vy: 200 }, FRAME, WIDE);
+    const thrown = step({ x: 0, y: -1, vx: 0, vy: 3_000 }, FRAME, WIDE);
+    expect(gentle.landed).toBe(true);
+    expect(thrown.impact).toBeGreaterThan(gentle.impact);
+    expect(squashFor(thrown.impact)).toBeLessThan(squashFor(gentle.impact));
+    // A creature set down softly is not squashed at all.
+    expect(squashFor(gentle.impact)).toBe(1);
+  });
+
+  it('leans into the direction it is moving, and stands up when it stops', () => {
+    expect(leanDegrees(0)).toBe(0);
+    expect(leanDegrees(600)).toBeGreaterThan(0);
+    expect(leanDegrees(-600)).toBeLessThan(0);
+    // Clamped, or a hard throw spins it right over.
+    expect(Math.abs(leanDegrees(99_000))).toBeLessThanOrEqual(22);
   });
 
   it('never sits still in the air', () => {
