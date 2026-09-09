@@ -21,6 +21,7 @@ import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI, type CallEngine } from '@/stores/ui';
+import { useConversations } from '@/stores/conversations';
 import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useCallSession } from '@/hooks/useCallSession';
@@ -71,6 +72,44 @@ export interface ChatInputProps {
   alwaysEnabled?: boolean;
 }
 
+/**
+ * The half-written message, kept where a reload cannot take it.
+ *
+ * The composer clears itself optimistically on send, and a failed send puts
+ * the words back — so the only thing that ever lost a draft was leaving. Close
+ * the app mid-sentence, reload the window, or click another chat, and what was
+ * typed was gone with nothing to undo. Nobody types a long message twice; they
+ * type a shorter, worse one.
+ *
+ * Per conversation, because a draft belongs to the thread it was aimed at.
+ * Carrying one across a switch would put words in front of the wrong person.
+ *
+ * `localStorage` throws rather than returning null in a browser set to block
+ * site data, so every call is wrapped: a composer that cannot remember a draft
+ * still has to accept one.
+ */
+export const DRAFT_KEY = (id: string) => `cinderpaw.draft.${id}`;
+
+export function readDraft(id: string): string {
+  try {
+    return window.localStorage.getItem(DRAFT_KEY(id)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function writeDraft(id: string, text: string): void {
+  try {
+    // An empty draft is removed rather than stored. A sent message would
+    // otherwise leave an empty string behind for every conversation ever
+    // opened, which is a slow leak of keys nobody reads.
+    if (text.trim()) window.localStorage.setItem(DRAFT_KEY(id), text);
+    else window.localStorage.removeItem(DRAFT_KEY(id));
+  } catch {
+    /* the draft is lost on reload, exactly as it always was */
+  }
+}
+
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
@@ -80,6 +119,54 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // hundred characters of address in the text box (the ChatGPT composer, 24
   // Sep). They go back into the message, first, when it is sent.
   const [links, setLinks] = useState<string[]>([]);
+
+  // `'new'` for a conversation that has not been saved yet — it still has a
+  // draft, and it is the single most likely one to be interrupted.
+  const convId = useConversations((s) => s.currentId) ?? 'new';
+  // The live text, readable from a cleanup that must not re-run on every
+  // keystroke. Assigned during render on purpose: a ref is not state, and this
+  // one only ever mirrors what was just rendered.
+  const textRef = useRef(text);
+  textRef.current = text;
+  // Text a caller typed in for the person (Teach, an artifact question). Those
+  // start a new chat and fill the box in one go, and the draft restore below
+  // would otherwise wipe it the moment the switch lands.
+  const prefill = useRef<string | null>(null);
+
+  /**
+   * Restore this conversation's draft, and save the one being left behind.
+   *
+   * The save lives in the CLEANUP rather than in a second effect watching
+   * `text`. React runs a cleanup before the next effect, and the closure still
+   * holds the id the outgoing text belonged to — so switching chats writes the
+   * old draft under the old id, instead of writing it under the new one a
+   * moment before the restore overwrites the box.
+   */
+  useEffect(() => {
+    const id = convId;
+    const typed = prefill.current;
+    prefill.current = null;
+    setText(typed ?? readDraft(id));
+    return () => writeDraft(id, textRef.current);
+  }, [convId]);
+  // Declared after the restore on purpose: effects run in order, so a prefill
+  // made together with a chat switch reaches the restore above first, and one
+  // made without a switch is forgotten here before the next switch sees it.
+  useEffect(() => { prefill.current = null; });
+
+  /**
+   * Closing the window is the case the cleanup above cannot cover.
+   *
+   * React unmounts nothing when a tab is closed or reloaded, so the effect
+   * cleanup never runs and the draft dies exactly where it matters most.
+   * `pagehide` fires for all of it — close, reload, and quitting the desktop
+   * app — where `beforeunload` is unreliable and can prompt.
+   */
+  useEffect(() => {
+    const save = () => writeDraft(convId, textRef.current);
+    window.addEventListener('pagehide', save);
+    return () => window.removeEventListener('pagehide', save);
+  }, [convId]);
   const [dragOver, setDragOver] = useState(false);
   const loaded      = useModel((s) => s.loaded);
   const cloudModel  = useModel((s) => s.cloudModel);
@@ -265,6 +352,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
 
   useImperativeHandle(ref, () => ({
     setText: (t: string) => {
+      prefill.current = t;
       setText(t);
       setTimeout(() => taRef.current?.focus(), 0);
     },

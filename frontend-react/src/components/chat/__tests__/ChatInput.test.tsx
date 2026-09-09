@@ -14,11 +14,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { createRef } from 'react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatInput } from '../ChatInput';
 import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
+import { useConversations } from '@/stores/conversations';
 
 // Everything the composer mounts that talks to the OS, the microphone or a
 // call. None of it participates in the send path under test.
@@ -51,6 +53,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   useChat.setState({ messages: [], streamStatus: 'idle' });
   useNotifications.setState({ toasts: [] });
+  useConversations.setState({ currentId: null });
+  window.localStorage.clear();
 });
 
 async function type(text: string) {
@@ -160,5 +164,28 @@ describe('a pasted link', () => {
     expect(screen.getByText('a/b')).toBeTruthy();
     await userEvent.keyboard('{Backspace}');
     expect(screen.queryByText('a/b')).toBeNull();
+  });
+});
+
+describe('a draft', () => {
+  it('stays with its conversation across a switch', async () => {
+    useConversations.setState({ currentId: 'c1' });
+    render(<ChatInput alwaysEnabled sendFn={vi.fn()} />);
+    const box = await type('half a sentence');
+
+    act(() => useConversations.setState({ currentId: 'c2' }));
+    await waitFor(() => expect(box.value).toBe(''));
+    act(() => useConversations.setState({ currentId: 'c1' }));
+    await waitFor(() => expect(box.value).toBe('half a sentence'));
+  });
+
+  it('does not wipe text typed in for the person as the chat switches (Teach)', async () => {
+    const ref = createRef<{ setText: (t: string) => void }>();
+    render(<ChatInput ref={ref as never} alwaysEnabled sendFn={vi.fn()} />);
+    act(() => {
+      useConversations.setState({ currentId: 'fresh' });
+      ref.current!.setText('Teach me a skill');
+    });
+    await waitFor(() => expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Teach me a skill'));
   });
 });
