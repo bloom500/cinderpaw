@@ -97,6 +97,13 @@ pub fn kokoro_dir() -> PathBuf {
     cinderpaw_dir().join("kokoro")
 }
 
+/// Downloaded Moonshine STT models. One DIRECTORY of eight files per model,
+/// named by `moonshine::Arch::id`, because that is the shape upstream ships —
+/// unlike a whisper model, which is a single `.bin`.
+pub fn moonshine_dir() -> PathBuf {
+    cinderpaw_dir().join("moonshine")
+}
+
 /// HuggingFace repo hosting Piper voices (MIT).
 pub const PIPER_VOICES_REPO: &str = "rhasspy/piper-voices";
 

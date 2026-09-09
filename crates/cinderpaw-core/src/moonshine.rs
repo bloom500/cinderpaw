@@ -48,28 +48,36 @@
 //! checksum verification. That is the same risk `ort` already carries for ONNX
 //! Runtime itself, so this is the second time rather than the first.
 //!
-//! ## Open question, and why nothing enables this yet
+//! ## The coexistence question, answered on 2026-09-09
 //!
-//! Moonshine ships its own `onnxruntime.dll` (1.17.1) and `ort` copies a newer
-//! one beside the binary. **A Windows process loads one file of a given name**,
-//! so one of them serves both. Three observations, and an inference that is not
-//! yet a measurement:
+//! Moonshine ships its own `onnxruntime.dll` (1.17.1) and `ort` links a newer
+//! runtime, so one of them has to serve both. That was an inference from three
+//! observations until `tests/kokoro_moonshine_coexist.rs` made both engines do
+//! real work in one process, in the order a call does it:
 //!
-//! * A scratch binary with an `ort` session and a Moonshine transcription in
-//!   one process worked, and printed no complaint.
-//! * This crate's tests with `moonshine` alone print `The requested API version
-//!   [23] is not available, only API versions [1, 17] are supported in this
-//!   build. Current ORT Version is: 1.17.1`.
-//! * The same tests with `kokoro,moonshine` print nothing.
+//! ```text
+//! [1] kokoro spoke 156000 bytes of PCM16
+//! [2] moonshine heard: "The quick brown fox jumps over the lazy dog."
+//! [3] kokoro spoke again after moonshine: 69600 bytes
+//! ```
 //!
-//! That reads as "ort's newer runtime wins and satisfies both", which is the
-//! outcome we want — but these tests never load a model, so what has been shown
-//! is that the two link together, not that both run under load inside the
-//! product. Until a build loads a Kokoro voice and a Moonshine model in one
-//! process, `moonshine` stays off everywhere and `stt_local_available` keeps
-//! answering `false`. Turning it on first would put a control in Settings whose
-//! only outcome might be a failure the user cannot act on, which is the exact
-//! shape `transcribe_audio` has been apologising for since it was written.
+//! Step 3 is the one that mattered. A runtime clash would not announce itself
+//! at startup, it would kill Kokoro halfway through a call, after Moonshine had
+//! loaded. It did not: the transcript is Kokoro's own sentence back, word for
+//! word, and Kokoro spoke again afterwards.
+//!
+//! The measurement also found a crash that had nothing to do with Moonshine and
+//! everything to do with shipping: Kokoro's ONNX session segfaulted at ONNX
+//! Runtime's default optimisation level, in a feature that is on the Windows
+//! and macOS installers. See the comment at the session builder in
+//! `tts/kokoro.rs`. Nothing here caused it; running the two together is simply
+//! the first thing that ever loaded that model outside the app.
+//!
+//! What is still not done, and why `stt_local_available` still answers `false`:
+//! there are no Tauri commands and no download UI for a Moonshine model. Until
+//! those exist, turning the feature on would put a control in Settings whose
+//! only outcome is a failure the user cannot act on, which is the exact shape
+//! `transcribe_audio` has been apologising for since it was written.
 #![cfg(feature = "moonshine")]
 
 use anyhow::{anyhow, bail, Context, Result};

@@ -301,6 +301,24 @@ fn synthesize_blocking(voice: &str, text: &str, speed: f32) -> Result<Vec<f32>> 
     if guard.is_none() {
         let session = ort::session::Session::builder()
             .context("create an ONNX session builder")?
+            // Load-bearing, and it is a crash rather than a preference.
+            //
+            // ONNX Runtime's optimisation level defaults to ORT_ENABLE_ALL when
+            // it is never set, and ORT_ENABLE_ALL segfaults this model here:
+            // the process dies inside the optimiser, no error, no log line, the
+            // whole app gone the first time somebody picks Kokoro. Measured
+            // against `model_q8f16.onnx` on 2026-09-09 — Disable, Level1,
+            // Level2 and Level3 all load in ~3.9s; leaving it unset and setting
+            // `All` explicitly both die at 0xC0000005.
+            //
+            // `ort`'s `Level3` is ORT_ENABLE_LAYOUT, one step below ALL, so
+            // this is the highest optimisation the model survives rather than a
+            // retreat to none.
+            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
+            // `map_err` rather than `.context`: this builder's error carries the
+            // builder itself, which is neither Send nor Sync, so anyhow cannot
+            // take it.
+            .map_err(|e| anyhow!("set the ONNX graph optimisation level: {e}"))?
             .commit_from_file(model_path())
             .with_context(|| format!("load the Kokoro model at {}", model_path().display()))?;
         let vocab = load_vocab(&tokenizer_path())?;
