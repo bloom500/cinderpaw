@@ -46,7 +46,7 @@ four are present.
 | I2  | Single advancement path             | HARD | `ratchet-handler.ts`, `repo.rs` | ACTIVE |
 | I3  | Journal append-only                 | HARD | `journal.ts` | ACTIVE |
 | I4  | Journal corruption observable       | HARD | `journal.ts` | ACTIVE |
-| I5  | Budget halt on breach               | HARD | `budget.ts`, Contract FSM (Opus) | ACTIVE (logic) / PENDING (consumer) |
+| I5  | Budget halt on breach               | HARD | `budget.ts`, `contract-deps.ts::budgetDep`, `contract-runner.ts` | ACTIVE (logic + halt) / PENDING (estimator) |
 | I6  | Confidence gate precedence          | HARD | `confidence.ts` | ACTIVE |
 | I7  | Trust boundary — scorer immutable   | HARD | `scorer.rs` | ACTIVE |
 | I8  | Tier 0 immutable                    | HARD | `tier0.rs` | ACTIVE |
@@ -209,13 +209,20 @@ stage MUST halt the cycle, not skip the phase. The fail-open path
 applies ONLY when `estimate === null` (no estimator available).
 
 **Owner:**
-- TypeScript: `CinderpawAgent/src/rsi/infra/budget.ts::assertCanSpend`
-- Contract FSM consumer (Opus territory — Steps 9-10 of BRSI refactor)
+- Decision: `CinderpawAgent/src/rsi/infra/budget.ts::assertCanSpend`
+- Wiring: `CinderpawAgent/src/rsi/infra/contract-deps.ts::budgetDep` — the
+  one dep every `runContract` consumer must hand over
+- Halt: `CinderpawAgent/src/rsi/infra/contract-runner.ts` (the precheck
+  before each stage; `!allow` → terminal `halt`)
+- Consumers: `l3-code/code-rsi.ts`, `l1-config/ratchet-handler.ts`,
+  `l4-modules/module-lifecycle.ts`
 
 **Verified By:**
 - Documentation: this entry
 - Test: `tests/rsi-budget.test.ts` (breach → allow=false; null estimate
-  → allow=true with explicit reason)
+  → allow=true with explicit reason);
+  `tests/rsi-contract-deps.test.ts` (`budgetDep` denies an explicit
+  breach, and every `assertBudget:` in `src/rsi` delegates to it)
 - Runtime Assert: `assertCanSpend` returns `allow=false` for any breach
 - Audit: every budget decision is logged in the Journal's
   `budget_remaining` + `decided.reason` fields
@@ -226,8 +233,21 @@ applies ONLY when `estimate === null` (no estimator available).
 the next cycle.
 
 **Introduced:** v0.9.0
-**Status:** ACTIVE (logic) / PENDING (consumer — Contract FSM not yet
-written)
+**Status:** ACTIVE (logic + halt) / PENDING (estimator). The Contract FSM
+this entry was waiting on is written: `contract-runner.ts` prechecks every
+stage and halts on `!allow`, and all three consumers now go through
+`budgetDep`. What is still missing is a per-stage ESTIMATOR — the runner
+passes `estimate: null`, which is the fail-open path below, so the halt
+branch cannot fire in production yet. Until then the guarantee is
+"correctly wired", not "enforced".
+
+**Wiring is the failure mode here.** L4 hand-rolled `assertBudget` as
+`() => ({ allow: true })` with the stated reason "l4 eval ran inside dream
+budget" — untrue, since `dispatch.ts`'s `module_evaluate` refuses to run
+while the RSI engine is up. It survived because the invariant id never
+appeared in the line, so `check-invariant-coverage` credited I5 from the
+other two consumers. A pillar can be labelled and opted out of at once;
+`rsi-contract-deps.test.ts` is what actually holds this one now.
 
 **Critical note:** the `null` estimate path is fail-open by design
 (BRSI §4.5) so the engine doesn't block on missing estimators. This

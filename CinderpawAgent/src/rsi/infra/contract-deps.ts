@@ -57,6 +57,35 @@ export interface ContractDepsOptions {
 }
 
 /**
+ * INVARIANT I5 — the one budget dep every `runContract` consumer must use.
+ *
+ * Exported on its own because not every consumer can go through
+ * `contractDepsFrom`: L4 (`module-lifecycle.ts`) supplies its own eight stage
+ * handlers built from a module eval report, so it assembles `ContractDeps` by
+ * hand. It did that with `assertBudget: () => ({ allow: true })` — a constant,
+ * not a question. That opted L4 out of I5 permanently and invisibly: the
+ * invariant id appears nowhere in the line, so the coverage linter still scored
+ * I5 as covered, and the day a per-stage estimator lands the other two
+ * consumers would start halting on a breach while L4 kept answering `true`.
+ *
+ * The stub's stated reason — "l4 eval ran inside dream budget" — was also the
+ * opposite of what the caller guarantees: `dispatch.ts`'s `module_evaluate`
+ * refuses to start while `rsiSidecar.isRunning()`, so an L4 eval runs exactly
+ * when no dream cycle is in flight, under no cycle budget at all.
+ *
+ * A shared function rather than a copied line so the next hand-rolled consumer
+ * has one obvious thing to reach for, and so a test can hold the wiring itself
+ * to the contract instead of holding each call site to it separately.
+ */
+export function budgetDep(
+  caps: BudgetCaps = DEFAULT_BUDGET_CAPS,
+): ContractDeps["assertBudget"] {
+  // ponytail: spend is a zero snapshot until an estimator lands — thread the
+  // live cycle spend through when the runner starts passing real estimates.
+  return (phase, estimate) => assertCanSpend(caps, zeroSpend(), phase, estimate);
+}
+
+/**
  * Build the `ContractDeps` for `runContract` from the injectable stage leaves
  * plus the live engine-half primitives. The 8 handlers are the stage factories
  * closed over `stage`; the gate / journal / budget are bound from the modules.
@@ -82,9 +111,7 @@ export function contractDepsFrom(
     // I5 — per-phase budget precheck. The runner passes `estimate: null` today
     // (fail-open), so `assertCanSpend` returns allow:true regardless of spend;
     // the caps + spend only bite once a per-stage estimator exists.
-    // ponytail: spend is a zero snapshot until an estimator lands — thread the
-    // live cycle spend through when the runner starts passing real estimates.
-    assertBudget: (phase, estimate) => assertCanSpend(caps, zeroSpend(), phase, estimate),
+    assertBudget: budgetDep(caps),
     // I6 — confidence gate the runner calls after regression, before deploy.
     evaluateConfidence,
     // I3/I4 — one append-only Journal row per terminal (best-effort; the writer
