@@ -989,6 +989,25 @@ pub async fn start(
                     ),
                 },
             };
+            // The same check for the ear, which nothing had.
+            //
+            // The engine check above is why a call no longer connects and then
+            // says nothing. There was no equivalent for hearing, so a build
+            // without an on-device transcriber started the call anyway: the
+            // room opened, the microphone was published, the overlay showed a
+            // healthy call, and every word went into a recogniser that answers
+            // `voice-unavailable`. Silent, and the reason reachable only from a
+            // log file the person does not have open.
+            //
+            // Only for `local`. A cloud transcriber has nothing to do with what
+            // this binary was compiled with.
+            let stt_is_local = stt_provider.as_deref().unwrap_or("local") == "local";
+            if stt_is_local && crate::stt::resolve(stt_model.as_deref()).is_none() {
+                return Err(
+                    "This build has no on-device transcriber, so a local call could not hear you. Pick a cloud transcriber in the voice settings, or use a build that ships one."
+                        .into(),
+                );
+            }
             cmd.env("CINDERPAW_LIVE_PIPELINE", "1")
                 .env("CINDERPAW_LIVE_TTS_ENGINE", &engine)
                 // Empty rather than "small" for the same reason the agent defaults to

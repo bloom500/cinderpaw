@@ -70,8 +70,24 @@ silently ignore `default_gpu_layers`:
 
 ```bash
 cargo tauri dev --features inference-vulkan     # GPU
-cargo tauri dev --features whisper              # on-device STT (needs LLVM on Windows)
 ```
+
+Speech is compile-time too, and the same shape of surprise: a build without
+`moonshine` starts a local voice call that connects, publishes a microphone,
+and can never hear a word. Build what the release builds, or dev is testing a
+product nobody receives:
+
+```bash
+# What the Windows release job ships (.github/workflows/release.yml):
+cargo tauri dev --features inference-vulkan,kokoro,moonshine
+```
+
+`--features whisper` used to be documented here for on-device STT. It does not
+link — `LNK2005: ggml_abort already defined`, because `whisper-rs` and
+`llama-cpp-2` both vendor ggml — so anyone who followed that line got a build
+error, not a transcriber. `moonshine` is the on-device engine that works.
+`kokoro` is the on-device voice; `piper` also exists and is deliberately in no
+release, because it compiles espeak-ng (GPLv3) into a BUSL-1.1 bundle.
 
 **Just want to work on the agent?** You do not need the desktop app at all:
 

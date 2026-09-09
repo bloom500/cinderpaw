@@ -621,6 +621,19 @@ async function echo(ctx) {
   });
 }
 
+/** How long a call may go without reaching `listening` before the person is
+ *  told it cannot hear them.
+ *
+ *  This is a CALIBRATION KNOB, not a measurement. A cold VAD load and a first
+ *  model read are seconds, and how many seconds depends on the machine — the
+ *  one this is developed on is a 16 GB box with a 4 GB card, and a slower one
+ *  exists. So the number is generous, the message below never claims the call
+ *  is dead, and a session that reaches `listening` late still recovers on its
+ *  own: the state event moves the overlay on, and this timer is cleared.
+ *
+ *  Raise it if a healthy call on a slow machine ever trips it. */
+const DEAF_AFTER_MS = 12_000;
+
 /**
  * The chosen vendor's realtime API, driven by the Agents session.
  *
@@ -717,19 +730,39 @@ async function assistant(ctx, makeSession) {
     }
   };
 
+  // Whether the session ever started listening, and a deadline for saying so.
+  //
+  // `listening` is the state the activity only reaches once audio recognition
+  // is actually running, which makes it the one honest answer to "can this
+  // call hear me". A session that never reaches it stays connected: the room
+  // is joined, the microphone is published, the overlay looks like a working
+  // call, and every word is dropped. That failure had no output at all — not a
+  // line in the log, and certainly nothing on screen.
+  let listened = false;
+  let deaf = null;
+  const stopDeafTimer = () => {
+    if (deaf !== null) { clearTimeout(deaf); deaf = null; }
+  };
   session.on(AgentSessionEventTypes.AgentStateChanged, (e) => {
     const state = String(e.newState ?? '');
     emit({ kind: 'state', text: state });
     // The greeting waits for this rather than firing right after `start()`.
-    // See `greet` below for why.
-    if (state === 'listening') greet();
+    // See below for why.
+    if (state === 'listening') {
+      listened = true;
+      stopDeafTimer();
+      greet();
+    }
   });
 
   session.on(AgentSessionEventTypes.Error, (e) => {
     const message = String(e?.error?.message ?? e?.error ?? 'unknown error');
     emit({ kind: 'error', text: message, recoverable: Boolean(e?.recoverable) });
   });
-  session.on(AgentSessionEventTypes.Close, () => emit({ kind: 'closed' }));
+  session.on(AgentSessionEventTypes.Close, () => {
+    stopDeafTimer();
+    emit({ kind: 'closed' });
+  });
 
   // Commands from the window, over LiveKit's own data channel.
   //
@@ -776,12 +809,40 @@ async function assistant(ctx, makeSession) {
   //   error in entry function: AgentSession is closing, cannot use generateReply()
   //   AgentSession closed, reason: user_initiated
   //
-  // Two things are wrong there and both are fixed here. The greeting now waits
-  // for the session to report `listening`, which is the state the activity
-  // reaches only once audio recognition has started; and it can no longer end
-  // the call whatever it does, because a person who cannot be greeted can
-  // still be heard, and being heard is the product.
-  greet();
+  // Two things are wrong there and both are fixed here. The greeting waits for
+  // the session to report `listening`, which is the state the activity reaches
+  // only once audio recognition has started; and it can no longer end the call
+  // whatever it does, because a person who cannot be greeted can still be
+  // heard, and being heard is the product.
+  //
+  // There used to be an unconditional `greet()` right here, immediately after
+  // `start()` resolved. It defeated the wait completely — `start()` resolving
+  // is what happens FIRST, so the greeting fired inside the very gap the
+  // paragraph above says it must not, threw, and logged "greeting failed" on
+  // every single call. It recovered, because a synchronous throw resets
+  // `greeted` and the state handler greets again later; but it made a warning
+  // that means "this call is broken" indistinguishable from one that means
+  // nothing at all, and a canary that cries every morning is not a canary.
+  //
+  // What goes here instead is the check nobody had. If the session has not
+  // started listening by now, this call cannot hear anyone, and the person is
+  // TOLD instead of being left talking into a microphone nothing is reading.
+  // The deadline is generous — a cold VAD and a first model load are seconds —
+  // so it only ever fires when the answer is already bad.
+  deaf = setTimeout(() => {
+    deaf = null;
+    if (listened) return;
+    console.error(`the call has not started listening after ${DEAF_AFTER_MS} ms`);
+    // `recoverable`, and worded as what is observed rather than as a verdict.
+    // The alternative was "nothing you say is being heard, hang up" — which is
+    // a lie on a slow machine that is still loading, and telling someone to
+    // hang up a call that was about to work is worse than the silence.
+    emit({
+      kind: 'error',
+      text: 'This call has not started listening yet, so it may not be hearing you. If it stays this way, hang up and start it again.',
+      recoverable: true,
+    });
+  }, DEAF_AFTER_MS);
 }
 
 /**
