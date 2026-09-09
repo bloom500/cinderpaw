@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
 import { ToolCallStack } from './ToolCallStack';
 import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from './physics';
+import { useBond } from './familiarity';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
@@ -36,12 +37,11 @@ const SLEEP_AFTER_MS = 45_000;
 
 /** How long a poke reaction holds before it hands the state back. */
 const POKED_MS = 900;
-const SMITTEN_MS = 1_800;
 
 /** Pokes this close together are the same bout of attention, and enough of
- *  them in one bout turns being startled into being pleased. */
+ *  them in one bout turns being startled into being pleased. How many is
+ *  "enough" is the creature's own, not a constant: see `useBond`. */
 const POKE_BOUT_MS = 2_500;
-const POKES_TO_SMITTEN = 3;
 
 /** Move the pointer this far while holding it and you meant to pick it up, not
  *  to poke it. Small, because a poke is deliberately still, but not zero: a
@@ -104,6 +104,23 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   const pokes = useRef<{ count: number; last: number }>({ count: 0, last: 0 });
 
   /**
+   * How well it knows you, from every session before this one.
+   *
+   * This is the only thing about the creature that survives a reload, and it
+   * is allowed to change nothing except which of the existing poses it picks
+   * and how long it holds them. Tier 0 is a complete creature on its own; the
+   * rest is what a stranger turns into.
+   */
+  const { traits, remember } = useBond();
+
+  // A turn that finished is time spent working together, and it is worth more
+  // to the bond than poking is. Only success counts: a creature that gets
+  // closer to you when its own run fails is measuring the wrong thing.
+  useEffect(() => {
+    if (baseState === 'done') remember('turns');
+  }, [baseState, remember]);
+
+  /**
    * The OS setting already answered this question.
    *
    * `CinderpawMascot` honours `prefers-reduced-motion` by freezing its sprite
@@ -162,13 +179,17 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     const p = pokes.current;
     p.count = now - p.last < POKE_BOUT_MS ? p.count + 1 : 1;
     p.last = now;
-    if (p.count >= POKES_TO_SMITTEN) {
+    remember('pokes');
+    if (p.count >= traits.pokesToSmitten) {
       p.count = 0;
-      react('love', SMITTEN_MS);
+      react('love', traits.smittenMs);
     } else {
-      react('surprised', POKED_MS);
+      // A stranger being touched is startled by it. One that has been around
+      // for a while has seen the cursor coming and greets it instead, which is
+      // the same gesture reading as two different creatures.
+      react(traits.greeting, POKED_MS);
     }
-  }, [react]);
+  }, [react, remember, traits]);
 
   // ---- picked up, thrown, dropped -------------------------------------
   //
@@ -347,9 +368,10 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     capture(e.currentTarget, e.pointerId, false);
     // Never moved: that was a poke, and it should feel like one.
     if (!g.moved) { poke(); return; }
+    remember('throws');
     setHeld(false);
     fall();
-  }, [fall, poke]);
+  }, [fall, poke, remember]);
 
   const airborne = held || pos.y !== 0;
 
