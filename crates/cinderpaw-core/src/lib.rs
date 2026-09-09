@@ -44,4 +44,5 @@ pub mod sysinfo_mod;
 pub mod toolchain;
 pub mod tools;
 pub mod utf8_stream;
+pub mod moonshine;
 pub mod transcription;

@@ -49,6 +49,14 @@ llama-cpp-2 = { version = "0.1", default-features = false, features = ["common"]
 # Speech-to-text — whisper.cpp bindings (CPU by default; feature-gated like inference)
 whisper-rs = { version = "0.16", default-features = false, optional = true }
 
+# The other speech-to-text engine, and the only one that can actually ship.
+# whisper-rs cannot: it and llama-cpp-sys-2 each statically link their own ggml,
+# so both in one binary is a duplicate-symbol link error. Moonshine rides ONNX
+# Runtime instead, which `ort` already loads as a DLL - measured coexisting with
+# a live `ort` session on 2026-09-09. MIT OR Apache-2.0; see src/moonshine.rs
+# for the one non-commercial trap in its model weights and how it is fenced off.
+moonshine-rs = { version = "0.2", optional = true }
+
 # Text-to-speech on device — Piper voices through ONNX Runtime. Optional and
 # feature-gated for the same reason whisper is: it pulls a native runtime and
 # compiles espeak-ng from C, so a toolchain that cannot build it must still be
@@ -151,6 +159,8 @@ inference-cuda   = ["inference", "dep:llama-cpp-2", "llama-cpp-2/cuda"]
 inference-vulkan = ["inference", "dep:llama-cpp-2", "llama-cpp-2/vulkan"]
 inference-metal  = ["inference", "dep:llama-cpp-2", "llama-cpp-2/metal"]
 whisper = ["dep:whisper-rs"]
+# On-device STT that can be shipped. Unlike `whisper`, this one links.
+moonshine = ["dep:moonshine-rs"]
 # On-device TTS. Off by default so `cargo check` stays fast and a broken native
 # toolchain cannot block the whole workspace; the desktop build turns it on.
 piper = ["dep:piper-rs"]
