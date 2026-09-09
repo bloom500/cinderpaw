@@ -38,6 +38,26 @@ export function MessageList() {
     prevLenRef.current = messages.length;
   }, [messages, status]);
 
+  /**
+   * How tall the composer is right now.
+   *
+   * The jump button has to sit just above it, and "just above it" is not a
+   * constant: the field grows a line as you type, and the mascot perches on
+   * its top edge. A hardcoded offset is wrong the first time somebody writes a
+   * paragraph, so the dock is measured instead — and re-measured when it
+   * resizes, which is the only way this stays true.
+   */
+  const [dockH, setDockH] = useState(96);
+  useEffect(() => {
+    const dock = document.querySelector('[data-chat-input-dock]');
+    if (!dock) return;
+    const measure = () => setDockH(dock.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(dock);
+    return () => ro.disconnect();
+  }, []);
+
   const jumpToBottom = () => {
     const el = containerRef.current;
     if (el) {
@@ -54,7 +74,15 @@ export function MessageList() {
     // No `scroll-smooth` on the container: the autoscroll effect sets
     // scrollTop on every streamed frame, and CSS smooth scrolling turns each
     // of those into an overlapping animation — visible jank on long chats.
-    <div ref={containerRef} className="h-full overflow-y-auto thin-scrollbar relative">
+    // Two elements, and the split is the fix for the jump button.
+    //
+    // The button used to live INSIDE the scroller, positioned `absolute
+    // bottom-20`. Absolute positioning inside a scrolling box is relative to
+    // that box's CONTENT, not to what you can see — so the button travelled
+    // with the text and turned up halfway down the screen, wherever the reader
+    // happened to be. It has to hang off something that does not scroll.
+    <div className="relative h-full">
+    <div ref={containerRef} className="h-full overflow-y-auto thin-scrollbar">
       <div className="max-w-3xl mx-auto px-6 py-6 pb-48 space-y-6">
         {messages.map((m, i) => (
           // A message arrives, it does not blink into existence. 200ms and two
@@ -77,11 +105,14 @@ export function MessageList() {
           ) : null;
         })()}
       </div>
+    </div>
       {!isAtBottom && (
         <button
           type="button"
           onClick={jumpToBottom}
-          className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10 rounded-full bg-brand text-white text-xs px-3 py-1.5 shadow-lg hover:bg-brand-hover flex items-center gap-1.5 cursor-pointer border border-brand-hover"
+          // Sits on the composer's own top edge, measured, plus 12px of air.
+          style={{ bottom: dockH + 12 }}
+          className="absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-brand text-white text-xs px-3 py-1.5 shadow-lg hover:bg-brand-hover flex items-center gap-1.5 cursor-pointer border border-brand-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           ↓ {newCount > 0 ? `${newCount} new` : 'Jump to bottom'}
         </button>
