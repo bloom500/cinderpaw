@@ -1,244 +1,150 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
 import { ToolCallStack } from './ToolCallStack';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
 
-// Idle sequence: idle →(8s)→ curious →(10s)→ run →(3.6s)→ sleep →(15s)→ stretching →(2s)→ idle
-// After 2 complete idle cycles: gaming →(10s)→ back to curious
-const CURIOUS_DELAY_MS       = 8_000;
-const RUN_AFTER_CURIOUS_MS   = 10_000;
-const LEG_MS                 = 1_800;
-const SLEEP_AFTER_RUN_MS     = 15_000;
-const STRETCHING_MS          = 2_000;
-const GAMING_MS              = 10_000;
-const GAMING_TRIGGER_CYCLES  = 2;
-// Expressive hand-drawn states that aren't part of the core travel choreography.
-// One plays at the end of each idle cycle so the creature shows its full range
-// (these used to live in useMascotState's ambient loop, which broke the run).
-const EXPRESSIVE: MascotState[] = ['wave', 'love', 'cool', 'surprised', 'celebrate'];
-const EXPRESSIVE_MS          = 2_200;
-const LEFT_OFFSET            = 20;
-const MASCOT_W               = 48; // keep in sync with DISPLAY in CinderpawMascot
-const PUFF_EVERY_MS          = 380;
-const PUFF_FADE_MS           = 600;
+/**
+ * What the creature does when nobody is doing anything, and what it does when
+ * somebody is.
+ *
+ * This used to be a 48-second scripted loop: idle → curious → run the width of
+ * the composer → sleep → stretch → a random expressive beat → repeat, plus a
+ * gaming detour every second cycle. Every step was a `setTimeout`, and that is
+ * exactly why it stopped being seen. A loop that is the same length and the
+ * same order every time is predictable, and the brain filters predictable
+ * motion out within a few repetitions — the mascot was still moving and had
+ * become wallpaper.
+ *
+ * What does not filter out is CONTINGENCY: motion caused by something the
+ * person just did. It cannot be predicted, because it depends on them. So the
+ * timers are down to one — a long quiet eventually puts it to sleep, which is
+ * information rather than decoration — and the rest of the life is reaction.
+ *
+ * The first reaction is being touchable at all. Both this wrapper and the
+ * canvas inside it carried `pointer-events: none`, so a cursor went straight
+ * through the creature as if it were a ghost. Something you cannot poke is not
+ * something that feels alive.
+ */
 
-interface Puff { id: number; x: number; born: number; }
+/** Quiet for this long and it dozes off. Long on purpose: this is the only
+ *  timed behaviour left, and it should read as "the app went quiet", not as an
+ *  animation waiting for its turn. */
+const SLEEP_AFTER_MS = 45_000;
 
-function DustPuff({ x }: { x: number }) {
-  const [gone, setGone] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setGone(true), 40);
-    return () => clearTimeout(t);
-  }, []);
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: 'absolute',
-        top: 8,
-        left: x,
-        width: 8,
-        height: 5,
-        borderRadius: '50%',
-        background: 'rgba(180, 160, 140, 0.7)',
-        pointerEvents: 'none',
-        zIndex: 9,
-        transition: `opacity ${PUFF_FADE_MS}ms ease-out, transform ${PUFF_FADE_MS}ms ease-out`,
-        opacity: gone ? 0 : 0.7,
-        transform: gone ? 'translateY(-12px) scale(2)' : 'translateY(0) scale(1)',
-      }}
-    />
-  );
-}
+/** How long a poke reaction holds before it hands the state back. */
+const POKED_MS = 900;
+const SMITTEN_MS = 1_800;
+
+/** Pokes this close together are the same bout of attention, and enough of
+ *  them in one bout turns being startled into being pleased. */
+const POKE_BOUT_MS = 2_500;
+const POKES_TO_SMITTEN = 3;
 
 export function MascotPerch({ baseState }: { baseState: MascotState }) {
   // #24: user-facing kill switch (Settings → Appearance). Early-return keeps
-  // all the idle timers below from even starting.
+  // the sleep timer below from even starting.
   const mascotEnabled = useUI((s) => s.mascotEnabled);
   if (!mascotEnabled) return null;
   return <MascotPerchInner baseState={baseState} />;
 }
 
 function MascotPerchInner({ baseState }: { baseState: MascotState }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const timers = useRef<number[]>([]);
   const [renderState, setRenderState] = useState<MascotState>(baseState);
-  const [x, setX] = useState(0);
-  const [flip, setFlip] = useState(false);
-  const [traveling, setTraveling] = useState(false);
-  const [puffs, setPuffs] = useState<Puff[]>([]);
-  const puffId = useRef(0);
-  const travelRef = useRef<{ startX: number; targetX: number; startTime: number } | null>(null);
-  const idleCycleCount = useRef(0);
+  /** A reaction to something the person did. Outranks idle, never outranks the
+   *  agent: see the resolve step below. */
+  const [reaction, setReaction] = useState<MascotState | null>(null);
+  /** The pointer is on it right now. Not a timed reaction: it lasts exactly as
+   *  long as the cursor does, which is the point. */
+  const [noticed, setNoticed] = useState(false);
+  const [dozing, setDozing] = useState(false);
+  const reactionTimer = useRef<number | null>(null);
+  const pokes = useRef<{ count: number; last: number }>({ count: 0, last: 0 });
 
   /**
    * The OS setting already answered this question.
    *
-   * `CinderpawMascot` honoured `prefers-reduced-motion` by freezing its sprite
-   * frames — and then this component ran the frozen creature the full width of
-   * the composer and back, trailing dust puffs, every thirty seconds, forever.
-   * Freezing the small motion while keeping the large one is the setting
-   * half-honoured, which for a vestibular trigger is not honoured at all.
-   *
-   * The mascot does not disappear: it sits at its perch and still shows the
-   * state of the turn, and the tool-call stack it carries is information, not
-   * decoration. What stops is the travel, the dust, and the idle choreography.
-   * The kill switch in Settings -> Appearance stays, for people who want it
-   * gone without telling their whole OS.
+   * `CinderpawMascot` honours `prefers-reduced-motion` by freezing its sprite
+   * frames. The travel across the composer that used to run past that freeze
+   * is gone entirely now, so what is left to honour is the doze: a creature
+   * that changes pose on its own while nobody asked is the ambient motion the
+   * setting is about. Reactions stay, because a reaction is something the
+   * person started, which is the one kind of motion the setting does not ask
+   * anyone to give up.
    */
   const reduced = usePrefersReducedMotion();
 
+  const react = useCallback((state: MascotState, holdMs: number) => {
+    if (reactionTimer.current !== null) window.clearTimeout(reactionTimer.current);
+    setReaction(state);
+    reactionTimer.current = window.setTimeout(() => {
+      setReaction(null);
+      reactionTimer.current = null;
+    }, holdMs);
+  }, []);
+
+  // Cleared on unmount, so a reaction started a moment before the composer
+  // goes away cannot land on a component that is no longer there.
+  useEffect(
+    () => () => {
+      if (reactionTimer.current !== null) window.clearTimeout(reactionTimer.current);
+    },
+    [],
+  );
+
+  // The one timer left. It only runs while genuinely idle, and any turn, any
+  // poke, or the pointer arriving cancels it by resetting the effect.
   useEffect(() => {
-    const clearTimers = () => {
-      timers.current.forEach((t) => window.clearTimeout(t));
-      timers.current = [];
-    };
-    clearTimers();
-
-    // Reduced motion parks it exactly where a non-idle turn does: at the perch,
-    // showing its state, with no travel and no dust.
-    if (reduced || baseState !== 'idle') {
-      setTraveling(false);
-      setX(0);
-      setFlip(false);
-      setRenderState(baseState);
-      setPuffs([]);
-      travelRef.current = null;
-      return clearTimers;
-    }
-
-    setTraveling(false);
-    setX(0);
-    setFlip(false);
-    setRenderState('idle');
-    setPuffs([]);
-    travelRef.current = null;
-
-    const startIdleSequence = () => {
-      // After 2 full cycles, insert gaming before curious
-      if (idleCycleCount.current >= GAMING_TRIGGER_CYCLES) {
-        idleCycleCount.current = 0;
-        setRenderState('gaming');
-        timers.current.push(window.setTimeout(() => {
-          setRenderState('idle');
-          startGamingSequence();
-        }, GAMING_MS));
-        return;
-      }
-
-      // Step 1: curious after 8 s idle
-      timers.current.push(window.setTimeout(() => {
-        setRenderState('curious');
-
-        // Step 2: run after 10 s more
-        timers.current.push(window.setTimeout(() => {
-          const parent = wrapRef.current?.offsetParent as HTMLElement | null;
-          const maxX = parent
-            ? Math.max(0, parent.clientWidth - MASCOT_W - LEFT_OFFSET * 2)
-            : 120;
-
-          setRenderState('running');
-          setTraveling(true);
-          setFlip(false);
-          setX(maxX);
-          travelRef.current = { startX: 0, targetX: maxX, startTime: Date.now() };
-
-          // Step 3: run back left
-          timers.current.push(window.setTimeout(() => {
-            setFlip(true);
-            setX(0);
-            travelRef.current = { startX: maxX, targetX: 0, startTime: Date.now() };
-
-            // Step 4: collapse into sleep
-            timers.current.push(window.setTimeout(() => {
-              setTraveling(false);
-              setFlip(false);
-              setPuffs([]);
-              travelRef.current = null;
-              setRenderState('sleep');
-
-              // Step 5: stretching after sleep
-              timers.current.push(window.setTimeout(() => {
-                setRenderState('stretching');
-
-                // Step 6: a random expressive beat, then loop. Surfaces the
-                // wave/love/cool/surprised/celebrate states that the old ambient
-                // loop used to show — without overriding the base idle state, so
-                // the run-travel above still fires every cycle.
-                timers.current.push(window.setTimeout(() => {
-                  idleCycleCount.current += 1;
-                  const beat = EXPRESSIVE[Math.floor(Math.random() * EXPRESSIVE.length)]!;
-                  setRenderState(beat);
-                  timers.current.push(window.setTimeout(() => {
-                    setRenderState('idle');
-                    startIdleSequence();
-                  }, EXPRESSIVE_MS));
-                }, STRETCHING_MS));
-              }, SLEEP_AFTER_RUN_MS));
-            }, LEG_MS));
-          }, LEG_MS));
-        }, RUN_AFTER_CURIOUS_MS));
-      }, CURIOUS_DELAY_MS));
-    };
-
-    const startGamingSequence = () => {
-      timers.current.push(window.setTimeout(() => {
-        setRenderState('idle');
-        startIdleSequence();
-      }, CURIOUS_DELAY_MS));
-    };
-
-    startIdleSequence();
-    return clearTimers;
-  }, [baseState, reduced]);
-
-  useEffect(() => {
-    if (!traveling) return;
-    const id = window.setInterval(() => {
-      const tr = travelRef.current;
-      if (!tr) return;
-      const progress = Math.min((Date.now() - tr.startTime) / LEG_MS, 1);
-      const curX = tr.startX + (tr.targetX - tr.startX) * progress;
-      const goingRight = tr.targetX > tr.startX;
-      const puffX = LEFT_OFFSET + curX + (goingRight ? -4 : MASCOT_W + 2);
-      setPuffs((prev) => [
-        ...prev,
-        { id: puffId.current++, x: Math.max(2, puffX), born: Date.now() },
-      ]);
-    }, PUFF_EVERY_MS);
-    return () => window.clearInterval(id);
-  }, [traveling]);
-
-  useEffect(() => {
-    if (puffs.length === 0) return;
-    const t = window.setTimeout(() => {
-      const cutoff = Date.now() - PUFF_FADE_MS - 50;
-      setPuffs((prev) => prev.filter((p) => p.born > cutoff));
-    }, PUFF_FADE_MS + 100);
+    setDozing(false);
+    if (reduced || baseState !== 'idle' || reaction !== null || noticed) return;
+    const t = window.setTimeout(() => setDozing(true), SLEEP_AFTER_MS);
     return () => window.clearTimeout(t);
-  }, [puffs]);
+  }, [baseState, reaction, noticed, reduced]);
+
+  // Resolve, in priority order. The agent's own state is INFORMATION — what it
+  // is thinking, reading, calling — and a poke must not paint over it, so a
+  // reaction only decorates an idle creature.
+  useEffect(() => {
+    if (baseState !== 'idle') setRenderState(baseState);
+    else if (reaction) setRenderState(reaction);
+    else if (noticed) setRenderState('curious');
+    else if (dozing) setRenderState('sleep');
+    else setRenderState('idle');
+  }, [baseState, reaction, noticed, dozing]);
+
+  const onLeave = useCallback(() => setNoticed(false), []);
+
+  const onPoke = useCallback(() => {
+    const now = Date.now();
+    const p = pokes.current;
+    p.count = now - p.last < POKE_BOUT_MS ? p.count + 1 : 1;
+    p.last = now;
+    if (p.count >= POKES_TO_SMITTEN) {
+      p.count = 0;
+      react('love', SMITTEN_MS);
+    } else {
+      react('surprised', POKED_MS);
+    }
+  }, [react]);
 
   return (
-    <>
-      {puffs.map((p) => (
-        <DustPuff key={p.id} x={p.x} />
-      ))}
-      <div
-        ref={wrapRef}
-        className="pointer-events-none absolute -top-[43px] left-5 z-10"
-        style={{
-          transform: `translateX(${x}px)`,
-          transition: traveling ? `transform ${LEG_MS}ms linear` : 'none',
-        }}
+    <div className="pointer-events-none absolute -top-[43px] left-5 z-10">
+      {/* Only the creature itself takes the pointer. The wrapper stays
+          transparent to it so the composer underneath keeps every click it
+          had, and `ToolCallStack` keeps its own buttons. */}
+      <span
+        className="pointer-events-auto inline-block cursor-pointer"
+        onPointerEnter={() => setNoticed(true)}
+        onPointerLeave={onLeave}
+        onPointerDown={onPoke}
       >
-        <CinderpawMascot state={renderState} flip={flip} />
-        <ToolCallStack
-          events={useChat((s) => s.toolCallStream)}
-          active={renderState !== 'idle'}
-        />
-      </div>
-    </>
+        <CinderpawMascot state={renderState} flip={false} />
+      </span>
+      <ToolCallStack
+        events={useChat((s) => s.toolCallStream)}
+        active={renderState !== 'idle'}
+      />
+    </div>
   );
 }
