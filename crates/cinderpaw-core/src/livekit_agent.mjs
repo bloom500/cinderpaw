@@ -693,8 +693,36 @@ async function assistant(ctx, makeSession) {
   // had four states; without this it would have to guess them from audio
   // energy, which is how a call that is thinking looks identical to one that
   // has died.
+  // Speaking first is not decoration. A person who has just pressed a button
+  // and hears nothing cannot tell a working call from a broken one, and the
+  // usual response is to hang up during the pause before the first reply.
+  //
+  // Once, whenever it first becomes possible, and never fatally.
+  let greeted = false;
+  const greet = () => {
+    if (greeted) return;
+    greeted = true;
+    try {
+      // Not awaited: the greeting plays while the call gets on with listening.
+      // The `catch` is not optional though — an unhandled rejection here would
+      // take the process down and the call with it.
+      Promise.resolve(session.generateReply()).catch((e) => {
+        console.error(`greeting failed (the call continues): ${String(e?.message ?? e)}`);
+      });
+    } catch (e) {
+      // Thrown synchronously, which is exactly what used to escape into the
+      // entry function and close the session.
+      greeted = false;
+      console.error(`greeting could not start (the call continues): ${String(e?.message ?? e)}`);
+    }
+  };
+
   session.on(AgentSessionEventTypes.AgentStateChanged, (e) => {
-    emit({ kind: 'state', text: String(e.newState ?? '') });
+    const state = String(e.newState ?? '');
+    emit({ kind: 'state', text: state });
+    // The greeting waits for this rather than firing right after `start()`.
+    // See `greet` below for why.
+    if (state === 'listening') greet();
   });
 
   session.on(AgentSessionEventTypes.Error, (e) => {
@@ -733,10 +761,27 @@ async function assistant(ctx, makeSession) {
     `CINDERPAW_AGENT_READY mode=assistant provider=${PROVIDER} persona=${INSTRUCTIONS.length} tools=${TOOL_DECLARATIONS.length}`,
   );
 
-  // Speaking first is not decoration. A person who has just pressed a button
-  // and hears nothing cannot tell a working call from a broken one, and the
-  // usual response is to hang up during the pause before the first reply.
-  session.generateReply();
+  // A greeting that misfires used to take the whole call with it, and that is
+  // the bug this shape exists to prevent.
+  //
+  // `start()` can resolve while the session's activity is still being
+  // scheduled. Calling `generateReply()` inside that gap throws
+  // "AgentSession is closing, cannot use generateReply()" — synchronously, out
+  // of the entry function. The SDK catches an entry-function throw, logs
+  // "error in entry function", and closes the primary session. So the call
+  // connected, the microphone was published, and then the session shut down
+  // 2 ms later because the assistant could not say hello. Measured 2026-09-09:
+  //
+  //   CINDERPAW_AGENT_READY ... provider=pipeline
+  //   error in entry function: AgentSession is closing, cannot use generateReply()
+  //   AgentSession closed, reason: user_initiated
+  //
+  // Two things are wrong there and both are fixed here. The greeting now waits
+  // for the session to report `listening`, which is the state the activity
+  // reaches only once audio recognition has started; and it can no longer end
+  // the call whatever it does, because a person who cannot be greeted can
+  // still be heard, and being heard is the product.
+  greet();
 }
 
 /**
