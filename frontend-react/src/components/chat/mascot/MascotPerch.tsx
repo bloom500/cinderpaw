@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
 import { ToolCallStack } from './ToolCallStack';
+import { atRest, step, type Body } from './physics';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
@@ -41,6 +42,41 @@ const SMITTEN_MS = 1_800;
  *  them in one bout turns being startled into being pleased. */
 const POKE_BOUT_MS = 2_500;
 const POKES_TO_SMITTEN = 3;
+
+/** Move the pointer this far while holding it and you meant to pick it up, not
+ *  to poke it. Small, because a poke is deliberately still, but not zero: a
+ *  mouse drifts a pixel or two under a real finger. */
+const DRAG_SLOP_PX = 4;
+/** The creature's own width, so it cannot be dropped off the left of the
+ *  composer or dragged out past the right of it. Keep in sync with `DISPLAY`
+ *  in CinderpawMascot. */
+const MASCOT_W = 48;
+/** How high above the perch it can be lifted. Enough to make a drop worth
+ *  watching, not so much that it leaves the chat. */
+const LIFT_LIMIT_PX = 220;
+/** A frame longer than this is a tab that was in the background or a machine
+ *  that stalled. Integrating it as one step teleports the creature through the
+ *  floor, so the step is clamped instead. */
+const MAX_FRAME_S = 1 / 30;
+
+/**
+ * Take or give back the pointer, without letting it end the drag if it fails.
+ *
+ * Capture is what keeps a fast drag attached to the creature when the cursor
+ * outruns it. It is also the one call here that throws on its own: the spec
+ * says `NotFoundError` for a pointer that is no longer active, which happens
+ * routinely when a drag ends outside the window, and jsdom has no active
+ * pointers at all. An exception from a nicety is not a reason to drop what the
+ * person is holding.
+ */
+function capture(el: Element, pointerId: number, take: boolean) {
+  try {
+    if (take) el.setPointerCapture?.(pointerId);
+    else if (el.hasPointerCapture?.(pointerId)) el.releasePointerCapture?.(pointerId);
+  } catch {
+    /* the drag works without it, just less well when the cursor gets ahead */
+  }
+}
 
 export function MascotPerch({ baseState }: { baseState: MascotState }) {
   // #24: user-facing kill switch (Settings → Appearance). Early-return keeps
@@ -115,7 +151,7 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
 
   const onLeave = useCallback(() => setNoticed(false), []);
 
-  const onPoke = useCallback(() => {
+  const poke = useCallback(() => {
     const now = Date.now();
     const p = pokes.current;
     p.count = now - p.last < POKE_BOUT_MS ? p.count + 1 : 1;
@@ -128,18 +164,156 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     }
   }, [react]);
 
+  // ---- picked up, thrown, dropped -------------------------------------
+  //
+  // The whole point of a pet you can grab is that the result is yours, not a
+  // canned animation: fling it and it flies, let go gently and it drops. So
+  // the pointer writes velocity into a body and gravity does the rest, rather
+  // than a `transition` playing the same arc every time.
+
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [held, setHeld] = useState(false);
+  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  /** Live physics, and the pointer bookkeeping that feeds it. Refs, not state:
+   *  these are written every animation frame and every pointer move, and none
+   *  of those writes should cost a render of its own — `pos` is the one thing
+   *  the screen needs and it is set once per frame. */
+  const body = useRef<Body>({ x: 0, y: 0, vx: 0, vy: 0 });
+  const grab = useRef<{ id: number; px: number; py: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const lastMove = useRef<{ t: number; x: number; y: number } | null>(null);
+  const raf = useRef<number | null>(null);
+
+  /** How far it may travel sideways, measured now rather than assumed: the
+   *  composer is resizable and a number baked in at build time is wrong on
+   *  every window but one. */
+  const boundsNow = useCallback(() => {
+    const parent = wrapRef.current?.offsetParent as HTMLElement | null;
+    const left = wrapRef.current?.offsetLeft ?? 0;
+    const room = parent ? parent.clientWidth - left - MASCOT_W : 240;
+    return { minX: -left, maxX: Math.max(0, room) };
+  }, []);
+
+  const stopFalling = useCallback(() => {
+    if (raf.current !== null) cancelAnimationFrame(raf.current);
+    raf.current = null;
+  }, []);
+
+  const fall = useCallback(() => {
+    stopFalling();
+    let prev = performance.now();
+    const frame = (now: number) => {
+      const dt = Math.min((now - prev) / 1000, MAX_FRAME_S);
+      prev = now;
+      const { body: next, landed } = step(body.current, dt, boundsNow());
+      body.current = next;
+      setPos({ x: next.x, y: next.y });
+      if (landed && atRest(next)) {
+        raf.current = null;
+        // Shakes it off, which is also what tells you the drop is over.
+        react('stretching', POKED_MS);
+        return;
+      }
+      raf.current = requestAnimationFrame(frame);
+    };
+    raf.current = requestAnimationFrame(frame);
+  }, [boundsNow, react, stopFalling]);
+
+  useEffect(() => stopFalling, [stopFalling]);
+
+  const onDown = useCallback(
+    (e: React.PointerEvent<HTMLSpanElement>) => {
+      // Reduced motion keeps the poke and loses the throw: a creature arcing
+      // across the composer under gravity is exactly the large, unrequested
+      // movement the setting is about, even when the person started it.
+      if (reduced) { poke(); return; }
+      stopFalling();
+      capture(e.currentTarget, e.pointerId, true);
+      grab.current = {
+        id: e.pointerId,
+        px: e.clientX,
+        py: e.clientY,
+        ox: body.current.x,
+        oy: body.current.y,
+        moved: false,
+      };
+      lastMove.current = { t: performance.now(), x: e.clientX, y: e.clientY };
+      body.current = { ...body.current, vx: 0, vy: 0 };
+    },
+    [poke, reduced, stopFalling],
+  );
+
+  const onMove = useCallback((e: React.PointerEvent<HTMLSpanElement>) => {
+    const g = grab.current;
+    if (!g || g.id !== e.pointerId) return;
+    const dx = e.clientX - g.px;
+    const dy = e.clientY - g.py;
+    if (!g.moved && Math.hypot(dx, dy) < DRAG_SLOP_PX) return;
+    if (!g.moved) {
+      g.moved = true;
+      setHeld(true);
+    }
+    const b = boundsNow();
+    const x = Math.min(b.maxX, Math.max(b.minX, g.ox + dx));
+    // Held ABOVE the perch is negative, and it cannot be pushed below the
+    // floor it is standing on.
+    const y = Math.min(0, Math.max(-LIFT_LIMIT_PX, g.oy + dy));
+
+    // Velocity comes from the pointer's own recent movement, so a flick
+    // carries and a slow carry does not. Guarded against a zero interval:
+    // two moves inside one millisecond would otherwise divide by zero and
+    // launch the creature off the screen.
+    const now = performance.now();
+    const lm = lastMove.current;
+    if (lm) {
+      const dtS = (now - lm.t) / 1000;
+      if (dtS > 0.004) {
+        body.current.vx = (e.clientX - lm.x) / dtS;
+        body.current.vy = (e.clientY - lm.y) / dtS;
+        lastMove.current = { t: now, x: e.clientX, y: e.clientY };
+      }
+    }
+    body.current.x = x;
+    body.current.y = y;
+    setPos({ x, y });
+  }, [boundsNow]);
+
+  const onUp = useCallback((e: React.PointerEvent<HTMLSpanElement>) => {
+    const g = grab.current;
+    if (!g || g.id !== e.pointerId) return;
+    grab.current = null;
+    lastMove.current = null;
+    capture(e.currentTarget, e.pointerId, false);
+    // Never moved: that was a poke, and it should feel like one.
+    if (!g.moved) { poke(); return; }
+    setHeld(false);
+    fall();
+  }, [fall, poke]);
+
+  const airborne = held || pos.y !== 0;
+
   return (
-    <div className="pointer-events-none absolute -top-[43px] left-5 z-10">
+    <div
+      ref={wrapRef}
+      className="pointer-events-none absolute -top-[43px] left-5 z-10"
+      style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
+    >
       {/* Only the creature itself takes the pointer. The wrapper stays
           transparent to it so the composer underneath keeps every click it
           had, and `ToolCallStack` keeps its own buttons. */}
       <span
-        className="pointer-events-auto inline-block cursor-pointer"
+        className="pointer-events-auto inline-block touch-none"
+        style={{ cursor: held ? 'grabbing' : 'grab' }}
         onPointerEnter={() => setNoticed(true)}
         onPointerLeave={onLeave}
-        onPointerDown={onPoke}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
       >
-        <CinderpawMascot state={renderState} flip={false} />
+        {/* Dangling and falling override everything, the agent's states
+            included: whatever the turn is doing, a creature being held by the
+            scruff is not calmly reading a file. */}
+        <CinderpawMascot state={airborne ? 'surprised' : renderState} flip={false} />
       </span>
       <ToolCallStack
         events={useChat((s) => s.toolCallStream)}

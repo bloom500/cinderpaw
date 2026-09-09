@@ -16,6 +16,12 @@ vi.mock('../CinderpawMascot', () => ({
 vi.mock('../ToolCallStack', () => ({ ToolCallStack: () => null }));
 
 const shown = () => screen.getByTestId('mascot').getAttribute('data-state');
+/** A poke is now a press and a release that never moved: the same gesture that
+ *  used to be a bare `pointerdown`, since holding it is how you pick it up. */
+const pokeIt = () => {
+  fireEvent.pointerDown(creature(), { pointerId: 1, clientX: 0, clientY: 0 });
+  fireEvent.pointerUp(creature(), { pointerId: 1, clientX: 0, clientY: 0 });
+};
 /** The pointer target is the creature's own wrapper, not the perch. */
 const creature = () => screen.getByTestId('mascot').parentElement!;
 
@@ -37,17 +43,17 @@ describe('MascotPerch', () => {
 
   it('is startled by one poke and smitten by three in a row', () => {
     render(<MascotPerch baseState="idle" />);
-    fireEvent.pointerDown(creature());
+    pokeIt();
     expect(shown()).toBe('surprised');
-    fireEvent.pointerDown(creature());
-    fireEvent.pointerDown(creature());
+    pokeIt();
+    pokeIt();
     expect(shown()).toBe('love');
   });
 
   it('forgets the bout when the pokes are far apart', () => {
     render(<MascotPerch baseState="idle" />);
     for (let i = 0; i < 3; i++) {
-      fireEvent.pointerDown(creature());
+      pokeIt();
       // Asserted while the reaction is still on screen. Checking after it
       // expired would pass whether the bout reset or not, since both `love`
       // and `surprised` are gone by then.
@@ -62,7 +68,7 @@ describe('MascotPerch', () => {
   it('never paints a reaction over what the agent is doing', () => {
     render(<MascotPerch baseState="thinking" />);
     fireEvent.pointerEnter(creature());
-    fireEvent.pointerDown(creature());
+    pokeIt();
     // `thinking` is information about the turn in flight. A poke is not
     // allowed to hide it.
     expect(shown()).toBe('thinking');
@@ -74,7 +80,28 @@ describe('MascotPerch', () => {
     expect(shown()).toBe('idle');
     act(() => { vi.advanceTimersByTime(2_000); });
     expect(shown()).toBe('sleep');
-    fireEvent.pointerDown(creature());
+    pokeIt();
+    expect(shown()).toBe('surprised');
+  });
+
+  it('can be picked up and carried, and that is not a poke', () => {
+    render(<MascotPerch baseState="idle" />);
+    const perch = creature().parentElement!;
+    fireEvent.pointerDown(creature(), { pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(creature(), { pointerId: 1, clientX: 30, clientY: -40 });
+    // Held by the scruff, which outranks every other state including a turn in
+    // flight, and the perch has actually moved with the pointer.
+    expect(shown()).toBe('surprised');
+    expect(perch.style.transform).toBe('translate(30px, -40px)');
+  });
+
+  it('ignores a wobble of a pixel or two, so a shaky poke stays a poke', () => {
+    render(<MascotPerch baseState="idle" />);
+    const perch = creature().parentElement!;
+    fireEvent.pointerDown(creature(), { pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(creature(), { pointerId: 1, clientX: 2, clientY: 1 });
+    fireEvent.pointerUp(creature(), { pointerId: 1, clientX: 2, clientY: 1 });
+    expect(perch.style.transform).toBe('translate(0px, 0px)');
     expect(shown()).toBe('surprised');
   });
 
