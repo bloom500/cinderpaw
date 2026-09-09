@@ -318,7 +318,11 @@ pub fn catalog() -> Vec<TtsEngine> {
             ..engine(
                 fish::ID,
                 "Fish Audio S2.1 Pro",
-                "Hosted. Free tier announced through 31 Aug 2026, no SLA.",
+                // No date here on purpose. The previous copy promised the
+                // free tier "through 31 Aug 2026" and kept saying it after
+                // that date passed, on the user's screen. A date in a string
+                // is a claim that rots; the shape of the offer does not.
+                "Hosted. Free tier, extended repeatedly and can end at any time. No SLA.",
             )
         },
         TtsEngine {
