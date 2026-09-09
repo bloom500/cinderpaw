@@ -63,8 +63,17 @@ pub(crate) fn save_byok_provider(
     // the providers that failed were exactly the ones already set up. An
     // empty key here means "leave the stored one alone" — `save_provider`
     // already skips the keychain write in that case.
+    //
+    // The guard above is about a HOSTED vendor, and it locked out the engines
+    // that are not one. A local voice engine (Kokoro, Piper) has no API key on
+    // any machine, ever, and still writes a BYOK record because that is where
+    // its chosen voice is stored. So on a fresh install, picking Kokoro and
+    // pressing Save was refused with "paste the key" for a key that does not
+    // exist and never will. It only worked on a machine where some record had
+    // already been written by hand.
     let api_key = api_key.trim().to_string();
-    if enabled && api_key.is_empty() && byok::byok_get(&provider_id).is_none() {
+    let keyless = cinderpaw_core::tts::needs_api_key(&provider_id) == Some(false);
+    if enabled && !keyless && api_key.is_empty() && byok::byok_get(&provider_id).is_none() {
         return Err(format!(
             "{provider_id} cannot be enabled without an API key — paste the key, or leave the provider off"
         ));

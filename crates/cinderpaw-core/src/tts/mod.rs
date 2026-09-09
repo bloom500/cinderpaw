@@ -400,6 +400,18 @@ pub struct EngineConfig<'a> {
     pub model: Option<&'a str>,
 }
 
+/// Does the engine `id` need an API key? `None` when `id` is not a TTS engine.
+///
+/// Exists because the BYOK save path guards "enabled without a key" and had no
+/// way to ask. A local engine has no key on any machine, ever, and still writes
+/// a BYOK record — that is where its chosen VOICE is stored. So the guard,
+/// which is right for a hosted vendor, refused to save Kokoro and Piper on
+/// every fresh install and the user was told to paste a key that does not
+/// exist.
+pub fn needs_api_key(id: &str) -> Option<bool> {
+    catalog().into_iter().find(|e| e.id == id).map(|e| e.needs_key)
+}
+
 /// Resolve an engine id from settings.
 ///
 /// Unknown *and unbuilt* ids are both errors rather than silent fallbacks:
@@ -444,6 +456,25 @@ mod tests {
 
     fn cfg(key: &str) -> EngineConfig<'_> {
         EngineConfig { api_key: key, ..Default::default() }
+    }
+
+    /// The BYOK save path refuses "enabled with no key" for a hosted vendor,
+    /// and asks this before applying it. A local engine that answers `true`
+    /// here cannot be saved on a fresh machine at all: the guard demands a key
+    /// the engine has no field for and no use for.
+    #[test]
+    fn no_local_engine_claims_to_need_an_api_key() {
+        for e in catalog() {
+            if e.is_local {
+                assert!(
+                    !e.needs_key,
+                    "{} is local and says it needs an API key; the BYOK guard refuses to save that on a machine with none",
+                    e.id
+                );
+                assert_eq!(needs_api_key(&e.id), Some(false), "{}", e.id);
+            }
+        }
+        assert_eq!(needs_api_key("not-an-engine"), None);
     }
 
     #[test]

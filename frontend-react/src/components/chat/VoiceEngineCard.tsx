@@ -303,8 +303,14 @@ export function VoiceEngineCard({
       if (picked) setTtsVoice(selected.id, picked);
       onOpenChange(false);
       onChosen?.();
-    } catch {
-      useNotifications.getState().push('error', t('voice.keySaveFailed'));
+    } catch (err) {
+      // The real reason, not a generic line. This swallowed
+      // "kokoro cannot be enabled without an API key" and showed "couldn't
+      // save the API key" instead, which sent somebody looking for a key
+      // field on an engine that has none. The fallback stays for an error
+      // with no message of its own.
+      const why = err instanceof Error ? err.message : String(err);
+      useNotifications.getState().push('error', why || t('voice.keySaveFailed'));
     } finally {
       setSaving(false);
     }
