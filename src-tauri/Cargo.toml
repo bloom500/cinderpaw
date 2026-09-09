@@ -102,11 +102,18 @@ tauri-plugin-single-instance = { version = "2.4.4", features = ["deep-link"] }
 url = "2"
 
 [features]
-# `piper` is on by default because it is the voice the product should answer in:
-# on device, no key, no expiring tier. It costs a native ONNX Runtime download
-# and an espeak-ng C build at compile time (cmake, already required by
-# llama.cpp), so a platform whose toolchain cannot do that drops this one flag
-# and the picker reports Piper as unavailable instead of offering a mute engine.
+# `piper` is NOT on by default, and is on no shipping job either. This comment
+# used to say the opposite ("on by default because it is the voice the product
+# should answer in") while `default` below has only ever listed `inference` — a
+# stale sentence that told the next reader the wrong thing about what we ship.
+#
+# The reason it ships nowhere is a licence, not a toolchain: `piper-rs` compiles
+# espeak-ng (GPLv3) into the binary, and these bundles go out under BUSL-1.1.
+# Kokoro carried the same dependency until `cinderpaw-core/src/tts/g2p.rs`
+# replaced it with a permissive phonemiser; Piper has no seam to do that
+# through, because `piper-rs` calls espeak from inside its own synthesise.
+# The feature stays so anyone can build it for themselves — their distribution,
+# not ours — and the picker reports Piper unavailable in the builds we hand out.
 # `whisper` is NOT here, and it cannot be until something upstream changes.
 #
 # It looks like an oversight: Settings has an on-device transcription model

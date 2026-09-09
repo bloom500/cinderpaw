@@ -45,10 +45,10 @@ jobs:
           # a stable image. (CPU/Linux/macOS are unaffected.)
           - name: Windows x64
             os: windows-2022
-            features: inference-vulkan,piper,kokoro
+            features: inference-vulkan,kokoro
           - name: macOS Apple Silicon
             os: macos-latest
-            features: inference-metal,piper,kokoro
+            features: inference-metal,kokoro
           # macOS Intel is CROSS-COMPILED from the Apple Silicon runner.
           #
           # It used to say `macos-14` — which is an Apple Silicon image, as is
@@ -70,9 +70,17 @@ jobs:
           # keeps the cross-compile down to one C++ toolchain instead of two.
           - name: macOS Intel
             os: macos-latest
-            features: inference,piper,kokoro
+            features: inference,kokoro
             target: x86_64-apple-darwin
-          # No `piper`/`kokoro` here, and not by oversight: their shared ONNX
+          # `piper` is on NO job in this file, and that is a licence bound
+          # rather than a platform one: `piper-rs` compiles espeak-ng (GPLv3)
+          # into the binary, and these jobs produce the installers we hand to
+          # strangers under BUSL-1.1. Kokoro used to link it too; `tts::g2p`
+          # replaced it, and Piper has no seam to do the same through. Anyone
+          # who wants Piper can still build it themselves with `--features
+          # piper` — that is their distribution, not ours.
+          #
+          # No `kokoro` here, and not by oversight: their shared ONNX
           # Runtime prebuilt needs glibc 2.38, which Ubuntu 22.04 does not have.
           # Adding them back would trade every 22.04 and Debian 12 user for a
           # local voice. On-device TTS is therefore Windows/macOS only for now;
@@ -486,9 +494,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NO_STRIP: "true"
         with:
-          # piper/kokoro on Windows only — see the Linux note in the matrix
-          # above; the same ONNX Runtime glibc floor applies to this job.
-          args: --features inference-cuda${{ runner.os == 'Windows' && ',piper,kokoro' || '' }}
+          # kokoro on Windows only — see the Linux note in the matrix above;
+          # the same ONNX Runtime glibc floor applies to this job. `piper` is
+          # not here and must not come back: it links espeak-ng (GPLv3) into a
+          # BUSL-1.1 bundle.
+          args: --features inference-cuda${{ runner.os == 'Windows' && ',kokoro' || '' }}
 
       # Suffix the bundles so they sit next to the Vulkan ones on the release
       # instead of overwriting them, and so the filename tells the user what it
