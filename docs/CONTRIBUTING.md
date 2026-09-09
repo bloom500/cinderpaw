@@ -20,6 +20,32 @@ service. **Each version converts to Apache 2.0 four years after its release.**
 By submitting a contribution you agree it ships under those terms. We would
 rather you know that in the first thirty seconds than after writing a patch.
 
+### Sign your commits, and what you are granting
+
+Every commit needs a `Signed-off-by` line. `git commit -s` adds it, and CI
+rejects a pull request without one on every commit.
+
+That line is the [Developer Certificate of Origin](https://developercertificate.org/):
+you are stating the work is yours to give. **On its own it would not let us
+change Cinderpaw's licence later**, because a contribution accepted under
+BUSL-1.1 stays under BUSL-1.1 unless its author says otherwise. So the sign-off
+here carries one more thing, stated plainly rather than buried:
+
+> By signing off on a contribution you also grant Bloom Media a perpetual,
+> worldwide, irrevocable, royalty-free licence to use, modify and **relicense**
+> that contribution under any licence, including licences other than BUSL-1.1.
+
+**Why we ask, in the open.** Cinderpaw may move to a different licence — a more
+permissive one (BUSL is not OSI-approved, which closes some grant and packaging
+doors), or a copyleft one. Without this grant that decision would need every
+past contributor to agree individually, which in practice means it can never
+happen. You keep the copyright in your work; this is a licence to us, not an
+assignment, and nothing here takes away your right to use your own code however
+you like.
+
+If you would rather not grant that, say so in the pull request. We would rather
+have the contribution and talk about it than have you walk away quietly.
+
 ---
 
 ## Five minutes to a running build

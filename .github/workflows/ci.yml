@@ -6,6 +6,50 @@ on:
   pull_request:
 
 jobs:
+  # Every commit in a PR must carry `Signed-off-by`. That line is the DCO, and
+  # in this project it also carries a relicensing grant (docs/CONTRIBUTING.md).
+  #
+  # Without it, Cinderpaw's licence is frozen at BUSL-1.1 the moment the first
+  # outside contribution lands: changing it would need every past contributor to
+  # agree one by one. That is not a thing you can fix later, which is why a
+  # check for one text line blocks a merge.
+  dco:
+    name: sign-off
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The merge commit GitHub builds for a PR has no sign-off of its own,
+          # and a shallow clone cannot see the branch's own commits. Fetch the
+          # range this PR actually adds.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Every commit carries Signed-off-by
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          missing=0
+          # `%H %s` on one line, then the body checked per commit: a sign-off is
+          # a trailer, so grepping the whole log at once would let one signed
+          # commit cover an unsigned neighbour.
+          for sha in $(git rev-list "$BASE..$HEAD"); do
+            if ! git log -1 --format=%B "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
+              echo "::error::missing Signed-off-by: $(git log -1 --format='%h %s' "$sha")"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "Add it with:  git commit -s   (or: git rebase --signoff $BASE)"
+            echo "What you are signing, and the relicensing grant it carries:"
+            echo "  docs/CONTRIBUTING.md -> 'Sign your commits, and what you are granting'"
+            exit 1
+          fi
+          echo "all commits signed off"
+
   check:
     name: ${{ matrix.os }} / ${{ matrix.step.name }}
     runs-on: ${{ matrix.os }}
