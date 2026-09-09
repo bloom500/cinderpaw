@@ -20,7 +20,7 @@
 //!   block — 522,240 bytes = 510 frames x 256 — and the row is chosen by how
 //!   many phoneme tokens the utterance has. The frame count is derived from the
 //!   file's length, so a repack with a different cap keeps working.
-//! * **It takes phonemes, not text.** espeak-ng does the G2P, the same
+//! * **It takes phonemes, not text.** `tts::g2p` does the G2P, the same
 //!   phonemizer Piper already links, and the voice's first letter picks the
 //!   language it phonemizes in.
 //! * **It is 24 kHz**, which is the contract in `super` exactly. Nothing here
@@ -104,13 +104,17 @@ pub fn voice_present(voice: &str) -> bool {
     }
 }
 
-/// The espeak language a voice's phonemes must be produced in.
+/// The language tag a voice's phonemes must be produced in.
+///
+/// Named for espeak until 2026-09-09, when `tts::g2p` replaced it. The tags are
+/// still espeak's spellings (`en-us`, `cmn`) because `locale_for` maps them to
+/// BCP-47 and the picker sorts on that; only the phonemiser changed.
 ///
 /// Kokoro's ids encode it in the first letter (`a` American, `b` British, …);
 /// the second is the speaker's gender and carries nothing we need. An unknown
 /// prefix falls back to American English rather than failing: a voice we have
 /// not seen is more likely a new English one than a new language.
-fn espeak_lang(voice: &str) -> &'static str {
+fn voice_lang(voice: &str) -> &'static str {
     match voice.as_bytes().first() {
         Some(b'b') => "en-gb",
         Some(b'e') => "es",
@@ -143,7 +147,7 @@ fn label_for(voice: &str) -> String {
 
 /// BCP-47 for the picker, so a voice can be ranked by language like any other.
 fn locale_for(voice: &str) -> String {
-    match espeak_lang(voice) {
+    match voice_lang(voice) {
         "en-gb" => "en-GB",
         "es" => "es-ES",
         "fr-fr" => "fr-FR",
@@ -184,10 +188,10 @@ fn load_vocab(path: &std::path::Path) -> Result<std::collections::HashMap<String
     Ok(vocab)
 }
 
-/// IPA from espeak → token ids.
+/// IPA from `tts::g2p` → token ids.
 ///
 /// Symbols the vocabulary does not contain are dropped. That is deliberate and
-/// it is what the reference implementations do: espeak emits stress marks and
+/// it is what the reference implementations do: the phonemiser emits stress marks and
 /// ties Kokoro was not trained on, and refusing the whole utterance over one of
 /// them would mean a reply that says nothing at all.
 fn tokenize(phonemes: &str, vocab: &std::collections::HashMap<String, i64>) -> Vec<i64> {
@@ -283,9 +287,7 @@ fn synthesize_blocking(voice: &str, text: &str, speed: f32) -> Result<Vec<f32>> 
 
     // Phonemes first: it needs no lock, and a text that phonemises to nothing
     // should not have loaded 86 MB of weights to find that out.
-    let sentences = espeak_rs::text_to_phonemes(text, espeak_lang(voice), None)
-        .map_err(|e| anyhow!("espeak could not phonemise the reply: {e}"))?;
-    let phonemes = sentences.join(" ");
+    let phonemes = super::g2p::phonemise(voice, text)?;
     if phonemes.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -385,6 +387,12 @@ impl TtsProvider for KokoroTts {
             .filter_map(|e| {
                 let name = e.file_name();
                 let id = name.to_str()?.strip_suffix(".bin")?.to_string();
+                // A downloaded voice this build cannot phonemise is not offered.
+                // Listing it would put a row in the picker whose only outcome is
+                // an error after the user has already chosen it.
+                if !super::g2p::can_speak(&id) {
+                    return None;
+                }
                 Some(Voice { label: label_for(&id), locale: locale_for(&id), id })
             })
             .collect();
@@ -438,16 +446,16 @@ mod tests {
 
     #[test]
     fn the_voice_prefix_picks_the_phonemizer_language() {
-        // Getting this wrong is not an accent: espeak would phonemise Spanish
+        // Getting this wrong is not an accent: the phonemiser would read Spanish
         // through English letter rules and the model would say other words.
-        assert_eq!(espeak_lang("af_heart"), "en-us");
-        assert_eq!(espeak_lang("bm_george"), "en-gb");
-        assert_eq!(espeak_lang("ef_dora"), "es");
-        assert_eq!(espeak_lang("jf_alpha"), "ja");
-        assert_eq!(espeak_lang("zf_xiaobei"), "cmn");
+        assert_eq!(voice_lang("af_heart"), "en-us");
+        assert_eq!(voice_lang("bm_george"), "en-gb");
+        assert_eq!(voice_lang("ef_dora"), "es");
+        assert_eq!(voice_lang("jf_alpha"), "ja");
+        assert_eq!(voice_lang("zf_xiaobei"), "cmn");
         // A prefix nobody has mapped falls back to American English: a voice we
         // have not seen is likelier a new English one than a new language.
-        assert_eq!(espeak_lang("qq_unknown_future_voice"), "en-us");
+        assert_eq!(voice_lang("qq_unknown_future_voice"), "en-us");
     }
 
     #[test]
@@ -478,7 +486,7 @@ mod tests {
         let vocab: std::collections::HashMap<String, i64> =
             [("h".to_string(), 1i64), ("i".to_string(), 2i64)].into_iter().collect();
         assert_eq!(tokenize("hi", &vocab), vec![1, 2]);
-        // espeak emits stress marks the model was not trained on.
+        // The phonemiser emits stress marks the model was not trained on.
         assert_eq!(tokenize("hˈi", &vocab), vec![1, 2]);
         assert!(tokenize("ˈˌː", &vocab).is_empty());
     }

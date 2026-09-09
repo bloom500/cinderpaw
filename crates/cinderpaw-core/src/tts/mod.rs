@@ -21,6 +21,8 @@ pub mod azure;
 pub mod elevenlabs;
 pub mod fish;
 #[cfg(feature = "kokoro")]
+pub mod g2p;
+#[cfg(feature = "kokoro")]
 pub mod kokoro;
 pub mod openai_compat;
 #[cfg(feature = "piper")]
@@ -287,7 +289,11 @@ pub fn catalog() -> Vec<TtsEngine> {
             ..engine(
                 PIPER_ID,
                 "Piper",
-                "On device. ~60 MB voice, 35+ languages. MIT.",
+                // NOT "MIT". piper-rs is MIT and calls espeak-ng, which is
+                // GPLv3 and is compiled into the binary — so a build with this
+                // feature on cannot be distributed under BUSL-1.1 at all. The
+                // row said MIT to the user's face while that was true.
+                "On device. ~60 MB voice, 35+ languages. Needs a GPL-licensed                  phonemiser, so it is not in the installers.",
             )
         },
         TtsEngine {
@@ -298,7 +304,11 @@ pub fn catalog() -> Vec<TtsEngine> {
             ..engine(
                 KOKORO_ID,
                 "Kokoro",
-                "On device. Better voice than Piper, ~90 MB. English, ES, FR, HI, IT, JA, PT, ZH. Apache-2.0.",
+                // English only, and that is this build's limit rather than
+                // the model's: the model speaks eight languages, the GPL-free
+                // phonemiser that replaced espeak speaks two (`tts::g2p`).
+                // Non-English voices are refused there and hidden by `voices()`.
+                "On device. Better voice than Piper, ~90 MB. American and British English. Apache-2.0.",
             )
         },
         TtsEngine {

@@ -3,10 +3,17 @@
 Cinderpaw is licensed under BUSL-1.1 (see `LICENSE`). This file records third-party
 work Cinderpaw builds on, and the notices that work requires.
 
-It covers two things: designs we derived from, and source we copied into this
-tree. Package-manager dependencies are not listed here. Those ship with their
-own licenses and are resolved at install time; this file is for work that would
-otherwise look like ours.
+It covers three things: designs we derived from, source we copied into this
+tree, and the few package-manager dependencies whose licence asks for something
+a lockfile cannot deliver.
+
+Ordinary dependencies are not listed individually. **That is a judgement, not a
+rule, and it is weaker for a binary than it looks here:** someone who installs
+the `.exe` or the `.dmg` gets no Cargo registry and no `node_modules`, so "their
+licence ships with them" is only true of a source checkout. Several permissive
+licences require their notice to accompany a *binary* distribution. Closing that
+properly means generating a full notice file at build time; until that exists,
+this file carries the cases where the obligation is explicit.
 
 ---
 
@@ -80,3 +87,68 @@ SOFTWARE.
 Used to recover tool calls emitted in formats other than the one we ask models
 for. See `CinderpawAgent/src/vendor/tool-call-repair/README.md` for what it
 covers, what it does not, and why the rest of that package was left behind.
+
+---
+
+## grapheme_to_phoneme and arpabet — pronouncing words the dictionary lacks
+
+**Used in:** `crates/cinderpaw-core/src/tts/g2p.rs` (the `kokoro` feature)
+
+Both are by Brandon Thomas and both are **BSD-4-Clause**. They replace
+espeak-ng, which is GPLv3, as the source of pronunciations for words no
+dictionary contains — the reason Kokoro can be shipped in a BUSL-1.1 binary at
+all.
+
+They are listed here, unlike other Cargo dependencies, because BSD-4-Clause's
+third clause is an obligation that no lockfile discharges:
+
+> 3. All advertising materials mentioning features or use of this software must
+>    display the following acknowledgement:
+>
+>    This product includes software developed by Brandon Thomas
+>    (bt@brand.io, echelon@gmail.com).
+
+**This binds marketing, not just the repository.** Any advertising material that
+mentions Cinderpaw's on-device voice must carry that acknowledgement.
+
+- https://github.com/echelon/grapheme_to_phoneme.rs
+- https://crates.io/crates/arpabet
+
+The notice follows in full.
+
+```
+Copyright (c) 2020, Brandon Thomas. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+3. All advertising materials mentioning features or use of this software
+   must display the following acknowledgement:
+
+   This product includes software developed by Brandon Thomas
+   (bt@brand.io, echelon@gmail.com).
+
+4. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY COPYRIGHT HOLDER "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL COPYRIGHT HOLDER BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+```

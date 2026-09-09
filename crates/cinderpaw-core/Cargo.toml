@@ -57,13 +57,20 @@ whisper-rs = { version = "0.16", default-features = false, optional = true }
 # this build does not contain.
 piper-rs = { version = "0.2", optional = true }
 
-# Kokoro runs on the same two native pieces Piper already pulls — ONNX Runtime
-# for the model and espeak-ng for the G2P — so it is a second engine over one
-# toolchain rather than a second toolchain. Declared directly (rather than
-# leaning on piper-rs pulling them in) because `kokoro` must be buildable with
-# `piper` off; the versions are the ones already in the lockfile.
+# Kokoro rides ONNX Runtime for the model. It used to ride espeak-ng for the
+# G2P as well, which is GPLv3 and was compiled straight into a BUSL-1.1 binary;
+# `tts::g2p` replaces it with a permissive dictionary plus a letter-to-sound
+# predictor. See that module for what each piece does and why one alone is not
+# enough.
 ort = { version = "=2.0.0-rc.12", optional = true }
-espeak-rs = { version = "0.2", optional = true }
+# MIT. Kokoro's own G2P, ported to Rust. `default-features = false` is load
+# bearing: the default feature is an espeak-ng fallback, which is the exact
+# dependency we are removing.
+misaki-rs = { version = "0.6", default-features = false, optional = true }
+# BSD-4-Clause (advertising clause - owes an entry in THIRD-PARTY-NOTICES.md).
+# Predicts a pronunciation from the letters of a word the dictionary lacks,
+# which is what espeak's rules used to do for names like "Cinderpaw".
+grapheme_to_phoneme = { version = "0.1", optional = true }
 
 # Utilities
 anyhow = "1"
@@ -147,8 +154,8 @@ whisper = ["dep:whisper-rs"]
 # On-device TTS. Off by default so `cargo check` stays fast and a broken native
 # toolchain cannot block the whole workspace; the desktop build turns it on.
 piper = ["dep:piper-rs"]
-# The other on-device engine. Same native pieces as Piper, its own model.
-kokoro = ["dep:ort", "dep:espeak-rs"]
+# The other on-device engine, and the only GPL-free one: no espeak-ng.
+kokoro = ["dep:ort", "dep:misaki-rs", "dep:grapheme_to_phoneme"]
 
 [dev-dependencies]
 tempfile = "3"
