@@ -49,11 +49,26 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
+    // An icon button says its name to a screen reader and said nothing to
+    // anyone else. About twenty components across the app render a bare glyph
+    // with an `aria-label` and no tooltip, so a sighted person hovering one
+    // waits and learns nothing — the label existed the whole time, it just had
+    // one audience. `title` is the browser's own tooltip: no wrapper, no
+    // provider, no layout to get wrong, and it works in every one of those
+    // components at once because it is applied here instead of there.
+    //
+    // Only for `size="icon"`: every other button already shows its words.
+    // An explicit `title` always wins, so a component that wants different
+    // hover text than its accessible name keeps it.
+    const title =
+      props.title ??
+      (size === "icon" ? props["aria-label"] ?? undefined : undefined)
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         {...props}
+        title={title}
       />
     )
   }

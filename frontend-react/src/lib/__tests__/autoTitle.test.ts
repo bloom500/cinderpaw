@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { autoTitle } from '@/lib/autoTitle';
 import type { ChatMessage } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
+import { t } from '@/lib/i18n';
 
 const msg = (role: 'user' | 'assistant', content: string): ChatMessage => ({
   id: 'x', role, content, createdAt: 0,
@@ -30,5 +32,22 @@ describe('autoTitle', () => {
 
   it('collapses newlines in title', () => {
     expect(autoTitle([msg('user', 'line one\nline two')])).toBe('line one line two');
+  });
+
+  // This title is WRITTEN to the conversation record, not rendered, so an
+  // English fallback on a machine being used in Romanian is stored and stays
+  // stored long after any language switch. The two assertions above only prove
+  // the English default; this one is what fails if somebody puts the literal
+  // back.
+  it('saves the fallback in the language the app is being used in', () => {
+    const previous = useUI.getState().language;
+    try {
+      useUI.setState({ language: 'ro' });
+      const title = autoTitle([]);
+      expect(title).not.toBe('New chat');
+      expect(title).toBe(t('chats.untitled'));
+    } finally {
+      useUI.setState({ language: previous });
+    }
   });
 });

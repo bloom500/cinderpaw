@@ -138,7 +138,7 @@ export function SttModelPicker() {
         </div>
       ) : selected?.present ? (
         <p className="text-xs text-text-muted flex items-center gap-1.5">
-          <Check size={14} className="text-green-500" />
+          <Check size={14} className="text-success" />
           Downloaded and ready.
         </p>
       ) : (

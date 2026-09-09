@@ -188,6 +188,10 @@ const en = {
   'engine.downloading': 'Downloading the voice…',
   // Conversation list headings. Deliberately the same words every other app
   // uses — this is a list someone scans, not a place to be inventive.
+  // The name a conversation is SAVED under when nobody has said anything in
+  // it yet. Stored, not just rendered, so it has to be in the reader's own
+  // language at the moment of saving.
+  'chats.untitled': 'New chat',
   'chats.group.today': 'Today',
   'chats.group.yesterday': 'Yesterday',
   'chats.group.last7': 'Previous 7 days',
@@ -338,6 +342,7 @@ const ro: Strings = {
   'engine.voicePlaceholder': 'Voce',
   'engine.downloadVoice': 'Descarcă vocea (~60 MB)',
   'engine.downloading': 'Se descarcă vocea…',
+  'chats.untitled': 'Conversatie noua',
   'chats.group.today': 'Azi',
   'chats.group.yesterday': 'Ieri',
   'chats.group.last7': 'Ultimele 7 zile',
