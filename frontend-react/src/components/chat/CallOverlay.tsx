@@ -9,6 +9,7 @@ import {
   Mic, MicOff, Phone, X, Loader2, MessageSquare, ArrowUp, Laptop, Cloud, Settings2,
   AudioLines, ChevronDown, Archive,
 } from 'lucide-react';
+import { resolveSttModelRow } from '@/lib/voiceModel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -172,6 +173,18 @@ export function CallOverlay({
   // list teaches the user it is empty, and they stop opening it.
   const artifactCount = useSyncExternalStore(subscribeArtifacts, artifactsSnapshot).length;
   const sttProvider = useUI((s) => s.sttProvider);
+  // Which on-device transcriber this build actually has, asked rather than
+  // assumed. `null` while unknown AND when there is none — the row shows
+  // "not chosen yet" for both, which is true in a way that naming an engine
+  // that is not there is not.
+  const [localSttName, setLocalSttName] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void resolveSttModelRow()
+      .then((m) => { if (alive) setLocalSttName(m?.label ?? null); })
+      .catch(() => { if (alive) setLocalSttName(null); });
+    return () => { alive = false; };
+  }, []);
   const ttsProvider = useUI((s) => s.ttsProvider);
   const callEngine = useUI((s) => s.callEngine);
   const s2sProvider = useUI((s) => s.s2sProvider);
@@ -617,7 +630,19 @@ export function CallOverlay({
                 <>
                   <EngineLine
                     label={t('call.stt')}
-                    name={sttProvider === 'groq' ? 'Groq · whisper-large-v3' : 'Whisper'}
+                    // Not the literal "Whisper". Which on-device engine
+                    // this is depends on what the binary was built with, and
+                    // the name was hard-coded to an engine that has never
+                    // shipped in any installer — this line named Whisper to
+                    // the user's face for a year while the answer underneath
+                    // was "nothing at all". `null` means this build has no
+                    // on-device transcriber, which the row says rather than
+                    // inventing a name for it.
+                    name={
+                      sttProvider === 'groq'
+                        ? 'Groq · whisper-large-v3'
+                        : (localSttName ?? t('call.engineUnset'))
+                    }
                     local={sttProvider === 'local' ? true : sttProvider === 'groq' ? false : null}
                     t={t}
                     // Both halves of the call are configurable from here. Only the

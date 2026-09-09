@@ -1,4 +1,4 @@
-import { tauri } from '@/lib/tauri';
+import { tauri, type SttModel } from '@/lib/tauri';
 import { useUI } from '@/stores/ui';
 
 /**
@@ -14,7 +14,7 @@ import { useUI } from '@/stores/ui';
  * build does offer, otherwise `null` — which means this build cannot transcribe
  * on the machine at all and the caller must not offer it.
  */
-export async function resolveSttModel(): Promise<string | null> {
+export async function resolveSttModelRow(): Promise<SttModel | null> {
   let models;
   try {
     models = await tauri.voice.sttModels();
@@ -26,7 +26,12 @@ export async function resolveSttModel(): Promise<string | null> {
   }
   if (models.length === 0) return null;
   const stored = useUI.getState().sttModel;
-  return models.some((m) => m.id === stored) ? stored : models[0].id;
+  return models.find((m) => m.id === stored) ?? models[0];
+}
+
+/** Just the id, for the callers that only need something to pass on. */
+export async function resolveSttModel(): Promise<string | null> {
+  return (await resolveSttModelRow())?.id ?? null;
 }
 
 /**

@@ -19,7 +19,8 @@ import { cn } from '@/lib/utils';
 
 /**
  * First-mic-tap (and long-press) chooser for the speech-to-text backend:
- * local whisper (private, on-device) vs cloud Groq whisper-large-v3 (more
+ * on-device (private, whichever engine this build has) vs cloud Groq
+ * whisper-large-v3 (more
  * accurate, needs an API key, audio leaves the device). The Groq key reuses the
  * BYOK keychain, entered inline so non-technical users never leave the flow.
  */

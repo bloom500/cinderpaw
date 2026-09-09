@@ -88,7 +88,19 @@ export function LiveKitSelfTest() {
         if (!e.recoverable) setPhase('error');
         return;
       }
-      setLines((prev) => [...prev, e].slice(-6));
+      setLines((prev) => {
+        // A partial transcript is the same sentence mid-revision, not a new
+        // one. Appending each made "test one two three" arrive as four
+        // separate `You` lines, which reads as the agent being asked four
+        // times — the event carries `partial` precisely so a receiver does not
+        // have to guess, and this one ignored it. The call overlay already
+        // honours the flag; this panel is the one that did not.
+        const last = prev[prev.length - 1];
+        if (e.kind === 'heard' && last?.kind === 'heard' && last.partial) {
+          return [...prev.slice(0, -1), e];
+        }
+        return [...prev, e].slice(-6);
+      });
     });
     return () => { void pending.then((un) => un()); };
   }, []);

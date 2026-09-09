@@ -1032,13 +1032,27 @@ async fn runtime_voice_transcribe(
     // `None` from `resolve` means this build has no on-device engine at all,
     // which is a different thing from a model that is not downloaded yet, and
     // the caller acts on each differently.
+    // Logged on the way in AND on the way out, because a call that hears
+    // nothing produced no line anywhere: not "asked", not "answered", not
+    // "failed". "The agent never sent audio" and "it sent audio and got an
+    // empty transcript back" are different bugs with the same symptom, and
+    // nothing on disk could tell them apart.
+    tracing::info!(
+        samples = req.pcm.len(),
+        seconds = req.pcm.len() as f32 / 16_000.0,
+        asked_for = ?req.model_size,
+        "voice: local transcription asked"
+    );
+
     let Some(model) = crate::stt::resolve(req.model_size.as_deref()) else {
         // Named, not silently empty. An empty transcript is what a person who
         // said nothing produces, and this is a build that cannot listen.
         let _ = req.pcm;
+        tracing::warn!("voice: this build has no on-device transcriber");
         return (StatusCode::SERVICE_UNAVAILABLE, "voice-unavailable").into_response();
     };
     if !crate::stt::model_present(model) {
+        tracing::warn!(model, "voice: the on-device model is not downloaded");
         return (StatusCode::SERVICE_UNAVAILABLE, "model-missing").into_response();
     }
 
@@ -1047,9 +1061,23 @@ async fn runtime_voice_transcribe(
     // stops answering for the length of every utterance.
     let out = tokio::task::spawn_blocking(move || crate::stt::transcribe(&pcm, model)).await;
     match out {
-        Ok(Ok(text)) => Json(serde_json::json!({ "text": text })).into_response(),
-        Ok(Err(e)) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(Ok(text)) => {
+            // The LENGTH, and the text itself only at debug. An empty
+            // transcript is the interesting case and it needs no words to
+            // report; a call's contents are not something to write to a log
+            // file by default.
+            tracing::info!(model, chars = text.len(), "voice: local transcription answered");
+            tracing::debug!(model, transcript = %text, "voice: local transcription text");
+            Json(serde_json::json!({ "text": text })).into_response()
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(model, error = %e, "voice: local transcription failed");
+            (StatusCode::BAD_GATEWAY, e.to_string()).into_response()
+        }
+        Err(e) => {
+            tracing::error!(model, error = %e, "voice: the transcription task panicked");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
     }
 }
 
