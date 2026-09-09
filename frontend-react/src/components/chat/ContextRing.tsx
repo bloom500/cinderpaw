@@ -79,6 +79,12 @@ export function ContextRing() {
         <div
           className="flex items-center shrink-0 text-text-muted cursor-default"
           aria-label={`Context: ~${used.toLocaleString()} / ${ctxWindow.toLocaleString()} tokens (${pctLabel}%)`}
+          // The same sentence a screen reader already got. Without it this is a
+          // small arc that turns yellow and then red beside the composer, with
+          // nothing anywhere saying it is the context filling up — so it reads
+          // as a warning about something unnamed, which is worse than no
+          // warning at all.
+          title={`Context: ~${used.toLocaleString()} of ${ctxWindow.toLocaleString()} tokens (${pctLabel}%) · ${remainingLabel}`}
         >
           <svg width="18" height="18" viewBox="0 0 20 20" className="shrink-0">
             <circle cx="10" cy="10" r={R} fill="none" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />

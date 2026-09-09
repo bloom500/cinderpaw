@@ -22,6 +22,10 @@ import { BackendBadge } from '@/components/BackendBadge';
 const CINDERPAW_API_BASE = 'http://localhost:11435';
 const LOCAL_PROVIDER_ID = 'cinderpaw-local';
 
+/** Keyboard-only focus ring, matching the one in the shared `Button`. Written
+ *  once so the composer's own controls cannot drift from the rest of the app. */
+const RING_CLASSES = 'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+
 function formatBytes(n: number): string {
   if (n > 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
   if (n > 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
@@ -65,8 +69,21 @@ export function ModelPickerPopover() {
       .then((providers) => setCloudProviders(providers.filter((p) => p.has_api_key)))
       .catch(() => {});
 
+  /**
+   * Read the lists once on mount, and again whenever the menu is opened.
+   *
+   * It used to read them ONLY on open, and the trigger's own label is computed
+   * from them: with both lists still empty, `unpinnedLabel` resolved to "Add a
+   * model" on a machine with models already installed. So the composer opened
+   * telling people to go get something they already had, and the label only
+   * corrected itself to "Automatic" after the first click on the pill — the
+   * click being what fetched the lists. The label was describing the fetch, not
+   * the machine.
+   *
+   * A close also runs this, which is one extra read per open/close cycle and
+   * costs a directory listing. Worth it over a `useRef` dance to skip it.
+   */
   useEffect(() => {
-    if (!open) return;
       // Embedding models are on disk but cannot hold a conversation, and
       // `bge-m3` sorts before every chat model on a normal install, so it was
       // the first row here and menus focus their first row on open. Opening the
@@ -79,7 +96,7 @@ export function ModelPickerPopover() {
       .then((all) => setLocalModels(all.filter((m) => !m.is_embedding)))
       .catch(() => {});
     void refreshCloud();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshCloud is stable enough; open is the trigger
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshCloud is stable enough; mount + open are the triggers
   }, [open]);
 
   /**
@@ -171,7 +188,13 @@ export function ModelPickerPopover() {
   return (
     <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-muted hover:text-text-secondary transition-colors outline-none">
+        {/* `outline-none` on its own used to be here, which switches the focus
+            ring off for EVERYBODY — including the person navigating by Tab, who
+            is the only one it exists for. `focus-visible` is the browser's own
+            answer to the thing that was really being avoided: it marks an
+            element focused by keyboard and not one clicked with a mouse, so the
+            ring appears when it helps and stays away when it would be noise. */}
+        <button className={`flex items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-muted hover:text-text-secondary transition-colors rounded-full ${RING_CLASSES}`}>
           <span className="truncate max-w-[150px]">{label}</span>
           {/* Only meaningful for a local model — BackendBadge renders nothing
               when none is loaded, so a cloud route stays clean. */}

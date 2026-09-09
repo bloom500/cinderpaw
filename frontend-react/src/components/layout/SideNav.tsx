@@ -12,6 +12,7 @@ import {
 import { NewProjectDialog } from '@/components/items/NewProjectDialog';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
+import { shortcut } from '@/hooks/useGlobalHotkeys';
 import { groupByRecency, type DatedGroup } from '@/lib/chatGroups';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
@@ -55,11 +56,13 @@ const NAV = [
 ] as const;
 
 function Row({
-  icon: Icon, label, collapsed, onClick, to, active,
+  icon: Icon, label, collapsed, onClick, to, active, hint,
 }: {
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
   label: string;
   collapsed: boolean;
+  /** A keyboard shortcut this row also answers to, e.g. `Ctrl+K`. */
+  hint?: string;
   onClick?: () => void;
   to?: string;
   active?: boolean;
@@ -88,15 +91,22 @@ function Row({
       : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
   );
 
+  // A shortcut nobody is told about is not a feature. `Search` has had one for
+  // as long as it has existed and said so nowhere, so the only people who knew
+  // were the people who wrote it. It rides the browser's own tooltip, which
+  // costs no layout in a 216px column and is the same mechanism the icon
+  // buttons already use for their names.
+  const tip = hint ? `${label} (${hint})` : collapsed ? label : undefined;
+
   if (to) {
     return (
-      <NavLink to={to} title={collapsed ? label : undefined} className={({ isActive }) => classes(isActive)}>
+      <NavLink to={to} title={tip} className={({ isActive }) => classes(isActive)}>
         {inner}
       </NavLink>
     );
   }
   return (
-    <button type="button" onClick={onClick} title={collapsed ? label : undefined} className={classes(Boolean(active))}>
+    <button type="button" onClick={onClick} title={tip} className={classes(Boolean(active))}>
       {inner}
     </button>
   );
@@ -432,7 +442,7 @@ export function SideNav() {
               <DropdownMenuItem onSelect={newChat} className="gap-2">
                 <MessageSquare size={14} />
                 New chat
-                <span className="ml-auto text-2xs text-text-muted">⌘N</span>
+                <span className="ml-auto text-2xs text-text-muted">{shortcut('n')}</span>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setProjectOpen(true)} className="gap-2">
                 <FolderPlus size={14} />
@@ -441,7 +451,7 @@ export function SideNav() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Row icon={Search} label="Search" collapsed={collapsed} onClick={() => openSearch()} />
+          <Row icon={Search} label="Search" hint={shortcut('k')} collapsed={collapsed} onClick={() => openSearch()} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} collapsed={collapsed} to={n.to} />
           ))}
