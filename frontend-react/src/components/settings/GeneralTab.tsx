@@ -1,10 +1,11 @@
 import { LiveKitSelfTest } from './LiveKitSelfTest';
+import { SttModelPicker } from './SttModelPicker';
 import { useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { RefreshCw, CheckCircle, AlertCircle, Sparkles } from 'lucide-react';
 import { useSettings } from '@/stores/settings';
-import { useUI, type LangPref, type WhisperModel } from '@/stores/ui';
+import { useUI, type LangPref } from '@/stores/ui';
 import { useUpdater } from '@/stores/updater';
 import { useAppVersion } from '@/hooks/useAppVersion';
 import { useOnboarding } from '@/stores/onboarding';
@@ -18,8 +19,6 @@ export function GeneralTab() {
   const saved       = useSettings((s) => s.saved);
   const language    = useUI((s) => s.language);
   const setLanguage = useUI((s) => s.setLanguage);
-  const whisperModel    = useUI((s) => s.whisperModel);
-  const setWhisperModel = useUI((s) => s.setWhisperModel);
   const reopenOnboarding = useOnboarding((s) => s.reopen);
 
   const handleChangeFolder = async () => {
@@ -132,22 +131,12 @@ export function GeneralTab() {
         </select>
       </div>
 
-      {/* Voice transcription model */}
+      {/* Voice transcription model, plus the download it needs. The rows come
+          from the binary rather than from a list here — see SttModelPicker. */}
       <div className={rowCls}>
-        <div>
-          <p className="text-sm font-medium text-text-primary">Voice transcription</p>
-          <p className="text-xs text-text-muted mt-0.5">
-            On-device speech-to-text model for voice messages
-          </p>
+        <div className="min-w-0 flex-1">
+          <SttModelPicker />
         </div>
-        <select
-          value={whisperModel}
-          onChange={(e) => setWhisperModel(e.target.value as WhisperModel)}
-          className="px-2 py-1.5 rounded-md border border-border-subtle bg-bg-surface text-sm text-text-primary"
-        >
-          <option value="small">Small (~466 MB, better accuracy)</option>
-          <option value="base">Base (~142 MB, lighter)</option>
-        </select>
       </div>
 
       {/* Voice call self-test — next to the transcription model, because both

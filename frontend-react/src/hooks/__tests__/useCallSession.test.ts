@@ -24,7 +24,7 @@ vi.mock('../useSendMessage', () => ({
   saveVoiceBlobToDisk: vi.fn(async () => 'voice.webm'),
   transcribeVoiceBlob,
 }));
-vi.mock('@/lib/voiceModel', () => ({ ensureWhisperModel: vi.fn(async () => {}) }));
+vi.mock('@/lib/voiceModel', () => ({ ensureSttModel: vi.fn(async () => 'ready') }));
 vi.mock('@/lib/streamControl', () => ({ stopActiveStream }));
 vi.mock('@/lib/tauri', () => ({
   tauri: {

@@ -62,7 +62,12 @@ const MODEL = process.env.CINDERPAW_LIVE_MODEL || '';
 const VOICE = process.env.CINDERPAW_LIVE_VOICE || '';
 const INSTRUCTIONS = process.env.CINDERPAW_LIVE_INSTRUCTIONS || '';
 /** Local pipeline only: which on-device engines to use. */
-const STT_MODEL = process.env.CINDERPAW_LIVE_STT_MODEL || 'small';
+// Empty by default, NOT 'small'. A default here is a claim about which
+// engine the host has, and 'small' is a whisper id — on a build whose
+// transcriber is Moonshine it names nothing, and every utterance came back
+// "model-missing". Empty means "whatever this host offers", which the host is
+// the only one who knows.
+const STT_MODEL = process.env.CINDERPAW_LIVE_STT_MODEL || '';
 /** `local` (Whisper here) or a cloud id such as `groq`. */
 const STT_PROVIDER = process.env.CINDERPAW_LIVE_STT_PROVIDER || 'local';
 /** ISO-639-1 the app already knows the user speaks. */

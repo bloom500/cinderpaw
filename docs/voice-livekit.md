@@ -317,9 +317,24 @@ share one ggml build, or whisper to run out-of-process — a piece of work, not 
 line in `Cargo.toml`.
 
 So the honest fix went the other way: the STT picker asks the binary
-(`stt_local_available`) and does not offer a choice that can only fail. The
-pipeline transcribes through Groq today. **Speaking is unaffected** — Piper and
-Kokoro are default features and work, so the Romanian voices are reachable.
+(`stt_local_available`) and does not offer a choice that can only fail.
+
+**As of 2026-09-09 the binary can answer `true`.** Moonshine is not ggml, it
+rides the same ONNX Runtime Kokoro already uses, and the two were measured
+doing real work in one process rather than merely linking
+(`crates/cinderpaw-core/tests/kokoro_moonshine_coexist.rs`). It is on the
+Windows installer only, because that is the only platform the measurement was
+run on. Everywhere else `stt_local_available` still answers `false` and the
+settings row says so in words.
+
+Which model loads is decided in one place, `cinderpaw_core::stt`, and both
+doors ask it: the Tauri command behind voice messages, and the
+`/runtime/voice/transcribe` route a call hears you through. They used to decide
+separately and both hard-coded whisper's `"small"`, so teaching one about a
+second engine would have left calls deaf while voice messages worked.
+
+**Speaking is unaffected** — Kokoro is a default feature on the installers and
+works, so the Romanian voices are reachable.
 
 **The row pins nothing, and that took two goes.** It first shipped hard-wired to
 Piper, which made Kokoro, Fish Audio, Azure and ElevenLabs unreachable from a

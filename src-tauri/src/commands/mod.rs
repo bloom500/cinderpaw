@@ -94,7 +94,11 @@ mod command_count_test {
     // 164 -> 165 = pre-existing drift (a command was added without bumping
     // the constant; CI does not run src-tauri, so it went unnoticed).
     // Slice 6 adds the `bootstrap` module but no new commands.
-    const EXPECTED_COMMAND_COUNT: usize = 165;
+    // 165 -> 166 = - whisper_model_present - download_whisper_model
+    // + stt_models + stt_model_present + download_stt_model. The local
+    // transcription surface stopped being whisper-shaped: the build says which
+    // models it has and what they cost, instead of the frontend guessing.
+    const EXPECTED_COMMAND_COUNT: usize = 166;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

@@ -45,4 +45,7 @@ pub mod toolchain;
 pub mod tools;
 pub mod utf8_stream;
 pub mod moonshine;
+/// Which on-device transcriber this build has. Both doors into local STT ask
+/// this rather than each deciding for itself.
+pub mod stt;
 pub mod transcription;

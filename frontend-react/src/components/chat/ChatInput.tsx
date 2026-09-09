@@ -24,7 +24,7 @@ import { useLiveCallSession } from '@/hooks/useLiveCallSession';
 import { useLiveKitCallSession } from '@/hooks/useLiveKitCallSession';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
-import { ensureWhisperModel } from '@/lib/voiceModel';
+import { ensureSttModel } from '@/lib/voiceModel';
 import { stopActiveStream } from '@/lib/streamControl';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
@@ -76,7 +76,6 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const t = useT();
   const rec = useVoiceRecorder();
   const [voicePeaks, setVoicePeaks] = useState<number[]>([]);
-  const whisperModel = useUI((s) => s.whisperModel);
   const sttProvider = useUI((s) => s.sttProvider);
   const [providerCardOpen, setProviderCardOpen] = useState(false);
   // Long-press detection on the mic: a held press opens the provider card; a
@@ -151,9 +150,9 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         .catch((err) => console.error('[voice] decodeToPcm16k FAILED (preview)', err));
       // Only the local backend needs the 466 MB whisper model on disk; a cloud
       // user should never trigger that download.
-      if (sttProvider === 'local') void ensureWhisperModel(whisperModel);
+      if (sttProvider === 'local') void ensureSttModel();
     }
-  }, [rec.state, rec.blob, whisperModel, sttProvider]);
+  }, [rec.state, rec.blob, sttProvider]);
 
   const onMic = async () => {
     if (rec.state === 'recording') { rec.stop(); return; }

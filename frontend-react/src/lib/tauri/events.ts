@@ -378,6 +378,17 @@ export const events = {
   onTtsDownloadProgress: wrap<DownloadProgressEvent>('cinderpaw://tts-download-progress'),
   onTtsDownloadComplete: wrap<DownloadCompleteEvent>('cinderpaw://tts-download-complete'),
   onTtsDownloadError:    wrap<DownloadErrorEvent>('cinderpaw://tts-download-error'),
+  /**
+   * On-device transcription model download (Moonshine today, whisper in a build
+   * that has it). Same `Download*Event` shape as every other channel;
+   * `filename` carries the model id, `repoId` is always `'stt'`.
+   *
+   * A Moonshine model is a directory of eight files and the bar covers all of
+   * them, so it moves once and reaches 100% once.
+   */
+  onSttDownloadProgress: wrap<DownloadProgressEvent>('cinderpaw://stt-download-progress'),
+  onSttDownloadComplete: wrap<DownloadCompleteEvent>('cinderpaw://stt-download-complete'),
+  onSttDownloadError:    wrap<DownloadErrorEvent>('cinderpaw://stt-download-error'),
   onEmbeddingDownloadProgress: wrap<DownloadProgressEvent>('cinderpaw://embedding-download-progress'),
   onEmbeddingDownloadComplete: wrap<DownloadCompleteEvent>('cinderpaw://embedding-download-complete'),
   onEmbeddingDownloadError:    wrap<DownloadErrorEvent>('cinderpaw://embedding-download-error'),

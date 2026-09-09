@@ -10,6 +10,7 @@ import { currentInferParams } from '@/lib/inferParams';
 import { autoTitle } from '@/lib/autoTitle';
 import { splitThinking } from '@/lib/parseThink';
 import { tauri, type PersistedMessage } from '@/lib/tauri';
+import { resolveSttModel } from '@/lib/voiceModel';
 import { buildMemoryContext, extractChatMemory } from '@/lib/chatMemory';
 import { decodeToPcm16k } from '@/lib/audio';
 import type { AttachedFile } from '@/components/chat/AttachedFileChip';
@@ -476,7 +477,7 @@ export async function saveVoiceBlobToDisk(blob: Blob): Promise<string> {
  * "voice-unavailable") propagate to the caller for toast handling.
  */
 export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promise<string> {
-  const { whisperModel, sttProvider } = useUI.getState();
+  const { sttProvider } = useUI.getState();
   if (sttProvider === 'groq') {
     // No language is ever sent. Whisper's `language` is an ORDER, not a hint:
     // an English UI once forced `language=en` on Romanian speech and turned
@@ -487,9 +488,15 @@ export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promis
     console.log('[voice] cloud transcript ->', JSON.stringify(transcript));
     return transcript;
   }
+  // Resolved here rather than read from the store: the stored id may name a
+  // model this build has no engine for, and `null` means there is no local
+  // engine at all — which is the same sentinel the Rust side would answer with,
+  // reached without decoding the audio first.
+  const model = await resolveSttModel();
+  if (!model) throw new Error('voice-unavailable');
   const pcm = await decodeToPcm16k(blob);
   console.log('[voice] transcribe decoded', { pcmLength: pcm.length });
-  const transcript = await tauri.voice.transcribe(Array.from(pcm), whisperModel);
+  const transcript = await tauri.voice.transcribe(Array.from(pcm), model);
   console.log('[voice] transcript ->', JSON.stringify(transcript));
   return transcript;
 }

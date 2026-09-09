@@ -8,7 +8,17 @@ export type ReasoningMode = 'auto' | 'on' | 'off';
 export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' | 'code_execute';
 export type LangPref = 'en' | 'ro';
 export type InputMode = 'chat' | 'agent';
-export type WhisperModel = 'small' | 'base';
+/**
+ * Which on-device transcription model to use, by id.
+ *
+ * A plain string, not a union, and that is the point: the ids come from the
+ * Rust catalog (`stt_models`), so they depend on which engine the binary was
+ * built with. A union here would have to be edited every time the engine
+ * changes, and would keep type-checking while naming a model that no longer
+ * exists. `''` means "not chosen yet" and resolves to the first model the
+ * build offers.
+ */
+export type SttModelId = string;
 /** Speech-to-text backend for voice messages. `null` = user hasn't chosen yet
  *  (first mic tap opens the provider card). `groq` = cloud whisper-large-v3. */
 export type SttProvider = 'local' | 'groq';
@@ -70,9 +80,10 @@ interface UIStore {
   /** #24: pixel-art mascot on the typing bar. Some users want it off. */
   mascotEnabled: boolean;
   setMascotEnabled: (v: boolean) => void;
-  /** Whisper STT model size for voice messages. */
-  whisperModel: WhisperModel;
-  setWhisperModel: (m: WhisperModel) => void;
+  /** On-device transcription model id, from the Rust catalog. `''` until the
+   *  user picks one, or when the stored one is not in this build. */
+  sttModel: SttModelId;
+  setSttModel: (m: SttModelId) => void;
   /** Chosen STT backend. `null` until the user picks in the provider card. */
   sttProvider: SttProvider | null;
   setSttProvider: (p: SttProvider) => void;
@@ -162,8 +173,11 @@ export const useUI = create<UIStore>()(
       setInputMode: (inputMode) => set({ inputMode }),
       mascotEnabled: true,
       setMascotEnabled: (mascotEnabled) => set({ mascotEnabled }),
-      whisperModel: 'small',
-      setWhisperModel: (whisperModel) => set({ whisperModel }),
+      // Empty, not 'small'. A default that names a specific model is a promise
+      // about which engine is underneath, and the answer differs per build —
+      // the picker resolves this against what the binary actually offers.
+      sttModel: '',
+      setSttModel: (sttModel) => set({ sttModel }),
       sttProvider: null,
       setSttProvider: (sttProvider) => set({ sttProvider }),
       ttsProvider: null,
@@ -192,7 +206,7 @@ export const useUI = create<UIStore>()(
         // mode overrides with the agent's own tools.
         inputMode: s.inputMode,
         mascotEnabled: s.mascotEnabled,
-        whisperModel: s.whisperModel,
+        sttModel: s.sttModel,
         sttProvider: s.sttProvider,
         ttsProvider: s.ttsProvider,
         callEngine: s.callEngine,

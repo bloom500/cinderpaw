@@ -43,9 +43,19 @@ jobs:
           # crate — reproduced identically on both VS 2022 and VS 2026, so it's
           # the generator, not the toolchain version. Pinned to windows-2022 for
           # a stable image. (CPU/Linux/macOS are unaffected.)
+          # `moonshine` is on THIS job only, and that is a measurement bound
+          # rather than a platform one. The two ONNX runtimes coexisting was
+          # proven on Windows on 2026-09-09 (a Kokoro voice and a Moonshine
+          # model doing real work in one process — see
+          # `crates/cinderpaw-core/tests/kokoro_moonshine_coexist.rs`). Nobody
+          # has run that on macOS. Shipping it there on the strength of "it is
+          # the same crate" is how the on-device voice shipped a crash nobody
+          # had triggered, so macOS keeps answering `stt_local_available =
+          # false` and the settings row says so out loud, until somebody runs
+          # the test on one.
           - name: Windows x64
             os: windows-2022
-            features: inference-vulkan,kokoro
+            features: inference-vulkan,kokoro,moonshine
           - name: macOS Apple Silicon
             os: macos-latest
             features: inference-metal,kokoro

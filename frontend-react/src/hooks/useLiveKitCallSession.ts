@@ -35,7 +35,7 @@ export const LIVEKIT_ENGINE_ID = 'livekit';
  * while the pre-call screen is open has to apply to THIS call, not the next.
  */
 function callArgs() {
-  const { s2sProvider, ttsVoice, ttsProvider, whisperModel, sttProvider, language } =
+  const { s2sProvider, ttsVoice, ttsProvider, sttModel, sttProvider, language } =
     useUI.getState();
   // In pipeline mode the voice belongs to the TTS ENGINE, not to the row — the
   // row has no voices of its own. Filing it under the row would lose the choice
@@ -54,7 +54,11 @@ function callArgs() {
     pipeline: pipeline
       ? {
           ttsEngine: ttsProvider,
-          sttModel: whisperModel,
+          // The stored id, which the Rust side resolves against the models
+          // THIS build has. Sending it raw was safe while there was one engine
+          // and one set of ids; it is not now, and `stt::resolve` is where that
+          // decision lives for both doors into local transcription.
+          sttModel,
           sttProvider,
           // Whisper treats language as an override, not a hint, and the app
           // already knows which one the user reads the interface in. Left out,

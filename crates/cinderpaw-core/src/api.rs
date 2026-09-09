@@ -988,6 +988,10 @@ struct TranscribeRequest {
     /// 16 kHz mono f32, which is what Whisper wants and what the worker
     /// resamples to before sending.
     pcm: Vec<f32>,
+    /// A PREFERENCE, not an instruction. The caller's build may have a
+    /// different engine than this one, so `stt::resolve` decides what actually
+    /// loads and this is only what the user picked. The field keeps its old
+    /// name because the node agent on the other end sends it.
     #[serde(default)]
     model_size: Option<String>,
     /// `local` (Whisper on this machine) or a cloud id such as `groq`.
@@ -1020,33 +1024,32 @@ async fn runtime_voice_transcribe(
     if provider != "local" {
         return transcribe_cloud(provider, &req.pcm, req.language.as_deref()).await;
     }
-    let size = req.model_size.unwrap_or_else(|| "small".into());
-    let model_path = crate::paths::whisper_model_path(&size);
-    if !model_path.exists() {
+    // Which model, decided by `stt` rather than here. This route used to
+    // default to whisper's "small" and load it directly, which made the call
+    // path deaf on any build whose engine is not whisper — while voice messages
+    // kept working, so the symptom read as a call bug.
+    //
+    // `None` from `resolve` means this build has no on-device engine at all,
+    // which is a different thing from a model that is not downloaded yet, and
+    // the caller acts on each differently.
+    let Some(model) = crate::stt::resolve(req.model_size.as_deref()) else {
+        // Named, not silently empty. An empty transcript is what a person who
+        // said nothing produces, and this is a build that cannot listen.
+        let _ = req.pcm;
+        return (StatusCode::SERVICE_UNAVAILABLE, "voice-unavailable").into_response();
+    };
+    if !crate::stt::model_present(model) {
         return (StatusCode::SERVICE_UNAVAILABLE, "model-missing").into_response();
     }
-    #[cfg(feature = "whisper")]
-    {
-        let pcm = req.pcm;
-        // Whisper is CPU-bound; keep it off the async runtime's threads or the
-        // API server stops answering for the length of every utterance.
-        let out = tokio::task::spawn_blocking(move || {
-            crate::transcription::transcribe_pcm(&pcm, &model_path)
-        })
-        .await;
-        return match out {
-            Ok(Ok(text)) => Json(serde_json::json!({ "text": text })).into_response(),
-            Ok(Err(e)) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
-            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-        };
-    }
-    #[cfg(not(feature = "whisper"))]
-    {
-        let _ = req.pcm;
-        // Named, not silently empty. A build without Whisper cannot transcribe
-        // at all, and an empty transcript would look like a person who said
-        // nothing rather than a build that cannot listen.
-        (StatusCode::SERVICE_UNAVAILABLE, "voice-unavailable").into_response()
+
+    let pcm = req.pcm;
+    // CPU-bound; keep it off the async runtime's threads or the API server
+    // stops answering for the length of every utterance.
+    let out = tokio::task::spawn_blocking(move || crate::stt::transcribe(&pcm, model)).await;
+    match out {
+        Ok(Ok(text)) => Json(serde_json::json!({ "text": text })).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 

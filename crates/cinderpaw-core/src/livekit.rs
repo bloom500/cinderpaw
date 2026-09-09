@@ -991,7 +991,9 @@ pub async fn start(
             };
             cmd.env("CINDERPAW_LIVE_PIPELINE", "1")
                 .env("CINDERPAW_LIVE_TTS_ENGINE", &engine)
-                .env("CINDERPAW_LIVE_STT_MODEL", stt_model.as_deref().unwrap_or("small"))
+                // Empty rather than "small" for the same reason the agent defaults to
+                // empty: a model id is engine-specific and the route resolves it.
+                .env("CINDERPAW_LIVE_STT_MODEL", stt_model.as_deref().unwrap_or(""))
                 .env("CINDERPAW_LIVE_STT_PROVIDER", stt_provider.as_deref().unwrap_or("local"))
                 .env("CINDERPAW_LIVE_STT_LANGUAGE", stt_language.as_deref().unwrap_or(""));
         }

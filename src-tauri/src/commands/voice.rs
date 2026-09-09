@@ -61,37 +61,90 @@ fn prune_old_voice_blobs(dir: &std::path::Path) {
     }
 }
 
-/// True if the whisper ggml model for `model_size` is already downloaded.
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn whisper_model_present(model_size: String) -> bool {
-    paths::whisper_model_path(&model_size).exists()
+/// One on-device transcription model this build can actually load.
+///
+/// The list is built from the features this binary was compiled with, not from
+/// a table in the frontend. The frontend is one bundle for every build and
+/// cannot know which engine is underneath it, so a hard-coded picker offered
+/// whisper's "Small (466 MB)" to a build that has no whisper in it — a row
+/// whose only outcome is a failure the user cannot act on.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub(crate) struct SttModel {
+    /// Stable id. Names a file or a directory on disk, and is what
+    /// `transcribe_audio` and `download_stt_model` take.
+    pub id: String,
+    /// What the picker shows. Includes the engine, because "on-device
+    /// transcription" is not the same product on two different engines.
+    pub label: String,
+    /// Roughly what the download costs, in MB. The number is the reason a
+    /// person picks one row over another, so it belongs next to the row rather
+    /// than behind the download.
+    pub size_mb: u32,
+    /// Already on disk and complete. Not "the file exists": a half-finished
+    /// download leaves something that exists and then fails inside the engine.
+    pub present: bool,
 }
 
-/// Download the whisper ggml model for `model_size` into the whisper dir.
-/// Streams over `cinderpaw://whisper-download-progress`; completion/failure over
-/// `cinderpaw://whisper-download-complete` / `-error`. Distinct from `download_model`
-/// so the LLM auto-load listener never tries to load a whisper model as a llama.
+/// The on-device transcription models this build offers, best-first.
+///
+/// Empty means this binary cannot transcribe locally at all, and that is the
+/// single source of truth for `stt_local_available`.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn download_whisper_model(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    model_size: String,
-) -> Result<String, String> {
-    let repo = paths::WHISPER_REPO.to_string();
-    let filename = paths::whisper_filename(&model_size).to_string();
-    let key = format!("whisper::{}", filename);
+pub(crate) fn stt_models() -> Vec<SttModel> {
+    #[allow(unused_mut)]
+    let mut out: Vec<SttModel> = Vec::new();
 
-    {
-        let map = state.downloads.lock();
-        if map.contains_key(&key) {
-            return Err(format!("Download already in progress: {}", key));
-        }
+    for m in cinderpaw_core::stt::models() {
+        out.push(SttModel {
+            id: m.id.to_string(),
+            label: m.label.to_string(),
+            size_mb: m.size_mb,
+            present: cinderpaw_core::stt::model_present(m.id),
+        });
     }
 
-    // Already present — nothing to do.
-    if paths::whisper_model_path(&model_size).exists() {
+    out
+}
+
+/// True if `id` is fully downloaded. Unknown ids answer `false` rather than
+/// erroring: the caller's next move is the same either way, which is to offer
+/// the download.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn stt_model_present(id: String) -> bool {
+    cinderpaw_core::stt::is_known(&id) && cinderpaw_core::stt::model_present(&id)
+}
+
+/// Download the on-device transcription model `id`.
+///
+/// One progress stream whatever the engine underneath: streams over
+/// `cinderpaw://stt-download-progress`, ends on `cinderpaw://stt-download-complete`
+/// / `-error`, exactly like the TTS voice download the voice card already draws
+/// a bar for.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn download_stt_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<String, String> {
+    let known = stt_models();
+    let Some(model) = known.iter().find(|m| m.id == id) else {
+        return Err(format!(
+            "unknown transcription model {id:?}. This build offers: {}",
+            if known.is_empty() {
+                "none".to_string()
+            } else {
+                known.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(", ")
+            }
+        ));
+    };
+
+    let key = format!("stt::{id}");
+    // Already here. The caller gets the same key back so it does not have to
+    // special-case "no download started".
+    if model.present {
         return Ok(key);
     }
 
@@ -101,22 +154,23 @@ pub(crate) async fn download_whisper_model(
     {
         let mut map = state.downloads.lock();
         if map.contains_key(&key) {
-            return Err(format!("Download already in progress: {}", key));
+            return Err(format!("Download already in progress: {key}"));
         }
         map.insert(key.clone(), cancel.clone());
     }
+    let cancel_for_task = cancel.clone();
 
     let (tx, mut rx) = mpsc::channel::<f32>(32);
     {
         let app = app.clone();
-        let file = filename.clone();
+        let id = id.clone();
         tokio::spawn(async move {
             while let Some(p) = rx.recv().await {
                 let _ = app.emit(
-                    "cinderpaw://whisper-download-progress",
+                    "cinderpaw://stt-download-progress",
                     events::DownloadProgressEvent {
-                        repo_id: "whisper".into(),
-                        filename: file.clone(),
+                        repo_id: "stt".into(),
+                        filename: id.clone(),
                         progress: p,
                     },
                 );
@@ -124,20 +178,12 @@ pub(crate) async fn download_whisper_model(
         });
     }
 
-    let app_for_task = app.clone();
     let downloads_map = state.downloads.clone();
     let key_for_task = key.clone();
-    let file_for_task = filename.clone();
-    let cancel_for_task = cancel.clone();
+    let id_for_task = id.clone();
     tokio::spawn(async move {
-        let result = models::download_hf_model_to(
-            repo,
-            file_for_task.clone(),
-            paths::whisper_dir(),
-            tx,
-            cancel_for_task.clone(),
-        )
-        .await;
+        let result = fetch_stt_model(&id_for_task, tx, cancel.clone()).await;
+
         // Only remove OUR entry. A download that finishes after a new one has
         // claimed the same key used to delete the newcomer's cancel flag, so
         // pressing Cancel on the second download did nothing at all — the flag
@@ -153,23 +199,23 @@ pub(crate) async fn download_whisper_model(
         }
         match result {
             Ok(path) => {
-                let _ = app_for_task.emit(
-                    "cinderpaw://whisper-download-complete",
+                let _ = app.emit(
+                    "cinderpaw://stt-download-complete",
                     events::DownloadCompleteEvent {
-                        repo_id: "whisper".into(),
-                        filename: file_for_task.clone(),
+                        repo_id: "stt".into(),
+                        filename: id_for_task.clone(),
                         path: path.to_string_lossy().into_owned(),
                     },
                 );
             }
             Err(e) => {
                 let cancelled = cancel_for_task.load(Ordering::Relaxed);
-                let _ = app_for_task.emit(
-                    "cinderpaw://whisper-download-error",
+                let _ = app.emit(
+                    "cinderpaw://stt-download-error",
                     events::DownloadErrorEvent {
-                        repo_id: "whisper".into(),
-                        filename: file_for_task.clone(),
-                        error: e.to_string(),
+                        repo_id: "stt".into(),
+                        filename: id_for_task.clone(),
+                        error: e,
                         cancelled,
                     },
                 );
@@ -180,12 +226,64 @@ pub(crate) async fn download_whisper_model(
     Ok(key)
 }
 
+/// Where the bytes actually come from, per engine.
+///
+/// Moonshine asks upstream for its own file list rather than carrying one here,
+/// because a model is a directory of eight files that upstream may repack.
+#[allow(unused_variables, unused_mut)]
+async fn fetch_stt_model(
+    id: &str,
+    progress: mpsc::Sender<f32>,
+    cancel: CancelFlag,
+) -> Result<std::path::PathBuf, String> {
+    #[cfg(feature = "moonshine")]
+    {
+        use cinderpaw_core::moonshine::{self, Arch};
+        if let Ok(arch) = Arch::from_id(id) {
+            let dir = cinderpaw_core::stt::model_dir(arch);
+            let done = dir.clone();
+            let progress = progress.clone();
+            let flag = cancel.clone();
+            moonshine::download_model(
+                &dir,
+                arch,
+                move |p| {
+                    // `try_send` rather than `send`: this closure is called per
+                    // chunk and dropping a progress tick is better than stalling
+                    // the download behind a full channel.
+                    let _ = progress.try_send(p);
+                },
+                move || flag.load(Ordering::Relaxed),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            return Ok(done);
+        }
+    }
+
+    #[cfg(feature = "whisper")]
+    {
+        if matches!(id, "base" | "small") {
+            return models::download_hf_model_to(
+                paths::WHISPER_REPO.to_string(),
+                paths::whisper_filename(id).to_string(),
+                paths::whisper_dir(),
+                progress.clone(),
+                cancel.clone(),
+            )
+            .await
+            .map_err(|e| e.to_string());
+        }
+    }
+
+    Err(format!("this build has no engine that can download {id:?}"))
+}
+
 /// Whether this build can transcribe on the machine at all.
 ///
-/// It cannot, in every build we ship: `whisper-rs-sys` and `llama-cpp-sys-2`
-/// each vendor their own ggml, so the two cannot be linked into one binary —
-/// see the note on `default` in `src-tauri/Cargo.toml`. The picker offered
-/// "local" anyway, which is a choice that can only fail, so it asks first now.
+/// Derived from `stt_models` rather than from a `cfg!` of its own, so a build
+/// that offers no model can never answer `true` and put a control in front of
+/// somebody whose only outcome is an error.
 ///
 /// A compile-time answer over IPC rather than a `cfg!` in the frontend: the
 /// frontend is one bundle for every build, and it cannot know which features
@@ -193,31 +291,29 @@ pub(crate) async fn download_whisper_model(
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn stt_local_available() -> bool {
-    cfg!(feature = "whisper")
+    !cinderpaw_core::stt::models().is_empty()
 }
 
-/// Transcribe 16 kHz mono f32 PCM. Errors: "model-missing" | "voice-unavailable".
+/// Transcribe 16 kHz mono f32 PCM with the on-device model `model_id`.
+/// Errors: "model-missing" | "voice-unavailable".
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn transcribe_audio(pcm: Vec<f32>, model_size: String) -> Result<String, String> {
-    let model_path = paths::whisper_model_path(&model_size);
-    if !model_path.exists() {
-        return Err("model-missing".into());
+#[allow(unused_variables)]
+pub(crate) async fn transcribe_audio(pcm: Vec<f32>, model_id: String) -> Result<String, String> {
+    if !stt_model_present(model_id.clone()) {
+        // Two different things the caller must tell apart: this build has no
+        // engine at all, or it has one and the weights are not here yet. Only
+        // the second is worth offering a download for.
+        return Err(if stt_local_available() { "model-missing" } else { "voice-unavailable" }.into());
     }
-    #[cfg(feature = "whisper")]
-    {
-        // Whisper is CPU-bound; run off the async runtime thread.
-        tokio::task::spawn_blocking(move || {
-            transcription::transcribe_pcm(&pcm, &model_path).map_err(|e| e.to_string())
-        })
-        .await
-        .map_err(|e| e.to_string())?
-    }
-    #[cfg(not(feature = "whisper"))]
-    {
-        let _ = (pcm, model_path);
-        Err("voice-unavailable".into())
-    }
+
+    // Both engines are CPU-bound and synchronous; on the async runtime either
+    // would block every other task, including the one drawing the call screen.
+    tokio::task::spawn_blocking(move || {
+        cinderpaw_core::stt::transcribe(&pcm, &model_id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Print a line from the webview into the terminal running the app.

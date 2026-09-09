@@ -154,6 +154,11 @@ inference-cuda   = ["inference", "cinderpaw-core/inference-cuda"]
 inference-vulkan = ["inference", "cinderpaw-core/inference-vulkan"]
 inference-metal  = ["inference", "cinderpaw-core/inference-metal"]
 whisper          = ["cinderpaw-core/whisper"]
+# On-device STT that CAN be linked: Moonshine is not ggml, and it shares ONNX
+# Runtime with `kokoro` rather than fighting it. Proven to run alongside a live
+# Kokoro session in one process, not merely to link — see
+# `crates/cinderpaw-core/tests/kokoro_moonshine_coexist.rs`.
+moonshine        = ["cinderpaw-core/moonshine"]
 # On-device text-to-speech. Both engines ride the same two native pieces —
 # ONNX Runtime and espeak-ng — so the second one is a model, not a toolchain.
 piper            = ["cinderpaw-core/piper"]

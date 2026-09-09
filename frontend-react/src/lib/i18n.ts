@@ -73,8 +73,10 @@ const en = {
   'voice.keySaveFailed': "Couldn't save the API key. Try again.",
   'voice.provider.title': 'Choose voice transcription',
   'voice.provider.subtitle': 'How should your voice messages be turned into text? You can change this later (long-press the mic).',
-  'voice.provider.local.title': 'On your device (Whisper)',
-  'voice.provider.local.desc': 'Private · 100% offline · free. Uses ~0.5 GB RAM and is less accurate, especially for non-English.',
+  // The engine is deliberately not named. It differs per build, and this row
+  // said "Whisper" for a year in builds that had no whisper in them at all.
+  'voice.provider.local.title': 'On your device',
+  'voice.provider.local.desc': 'Private · 100% offline · free. Needs a one-time model download, and is less accurate than the cloud option.',
   'voice.provider.cloud.title': 'Cloud (Groq · whisper-large-v3)',
   'voice.provider.cloud.desc': 'Much more accurate · free tier. ⚠️ Your audio leaves your device.',
   'voice.provider.cloud.keyPlaceholder': 'Paste your Groq API key',
@@ -243,8 +245,8 @@ const ro: Strings = {
   'voice.keySaveFailed': 'Nu am putut salva cheia API. Mai încearcă.',
   'voice.provider.title': 'Alege transcrierea vocală',
   'voice.provider.subtitle': 'Cum transformăm mesajele tale vocale în text? Poți schimba mai târziu (ține apăsat pe microfon).',
-  'voice.provider.local.title': 'Pe dispozitivul tău (Whisper)',
-  'voice.provider.local.desc': 'Privat · 100% offline · gratis. Folosește ~0.5 GB RAM și e mai puțin precis, mai ales non-engleză.',
+  'voice.provider.local.title': 'Pe dispozitivul tău',
+  'voice.provider.local.desc': 'Privat · 100% offline · gratis. Cere o descărcare unică a modelului și e mai puțin precis decât varianta din cloud.',
   'voice.provider.cloud.title': 'Cloud (Groq · whisper-large-v3)',
   'voice.provider.cloud.desc': 'Mult mai precis · free tier. ⚠️ Audio-ul tău părăsește dispozitivul.',
   'voice.provider.cloud.keyPlaceholder': 'Lipește cheia ta API Groq',

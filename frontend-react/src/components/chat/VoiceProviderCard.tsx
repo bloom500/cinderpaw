@@ -92,11 +92,14 @@ export function VoiceProviderCard({
         </DialogHeader>
 
         <div className="flex flex-col gap-2">
-          {/* Only when the binary actually has it. `whisper-rs` and
-              `llama-cpp-sys` each vendor their own ggml and cannot be linked
-              together, so every build we ship answers `voice-unavailable` here
-              — and this row offered it anyway, which is a choice that can only
-              fail. See the note on `default` in src-tauri/Cargo.toml. */}
+          {/* Only when the binary actually has an on-device engine.
+              `stt_local_available` is derived from the model catalog the build
+              compiled with, so it cannot answer `true` for a build that would
+              then say `voice-unavailable` on first use. It said `false` for
+              every shipped build for a year — whisper cannot be linked next to
+              llama.cpp — and this row offered the choice anyway. The model
+              itself is downloaded from Settings → General, where its size is
+              on the row. */}
           {localAvailable !== false && (
             <OptionRow
               active={choice === 'local'}

@@ -25,7 +25,7 @@ import {
   SPEAK_CHUNK_CHARS,
 } from '@/lib/speechText';
 import { stopActiveStream } from '@/lib/streamControl';
-import { ensureWhisperModel } from '@/lib/voiceModel';
+import { ensureSttModel } from '@/lib/voiceModel';
 import { t } from '@/lib/i18n';
 
 /**
@@ -998,7 +998,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // Say it is downloading AND actually start the download. Without the
             // second half this branch was a dead end: every turn reported the
             // same message and nothing ever fetched the model.
-            void ensureWhisperModel(useUI.getState().whisperModel);
+            void ensureSttModel();
             useNotifications.getState().push('info', t('voice.modelDownloading'));
           }
           else if (code === 'voice-unavailable') useNotifications.getState().push('error', t('voice.unsupported'));
@@ -1073,7 +1073,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
     // fire-and-forget: a present model is a no-op, and an absent one downloads
     // while the call is already listening.
     if (useUI.getState().sttProvider === 'local') {
-      void ensureWhisperModel(useUI.getState().whisperModel);
+      void ensureSttModel();
     }
 
     const call = (callRef.current += 1);

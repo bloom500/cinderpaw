@@ -56,6 +56,18 @@ export interface TtsProviderInfo {
 export interface TtsVoice { id: string; label: string; locale: string }
 
 /**
+ * One on-device transcription model THIS build can load — mirrors
+ * `commands::voice::SttModel`.
+ *
+ * The list comes from the binary rather than from a table here, because the
+ * frontend ships as one bundle for every build and cannot know whether the
+ * engine underneath it is Moonshine, whisper, or nothing at all. `sizeMb` is
+ * on the row and not behind the download: it is the reason somebody picks one
+ * model over another.
+ */
+export interface SttModel { id: string; label: string; sizeMb: number; present: boolean }
+
+/**
  * One speech-to-speech vendor a call can run on — mirrors
  * `commands::livekit::S2sProviderInfo`.
  *
@@ -940,14 +952,21 @@ const raw = {
     invoke<void>('cinderpaw_lora_train', { domain: domain ?? null }),
   saveVoiceBlob:            (bytes: number[], ext: string) =>
     invoke<string>('save_voice_blob', { bytes, ext }),
-  whisperModelPresent:      (modelSize: string) =>
-    invoke<boolean>('whisper_model_present', { modelSize }),
-  transcribeAudio:          (pcm: number[], modelSize: string) =>
-    invoke<string>('transcribe_audio', { pcm, modelSize }),
+  // The models THIS build can load, with their sizes and whether they are on
+  // disk. The frontend is one bundle for every build, so it cannot know which
+  // engine is underneath it — asking is the only way not to offer a row that
+  // can only fail.
+  sttModels:                () => invoke<SttModel[]>('stt_models'),
+  sttModelPresent:          (id: string) =>
+    invoke<boolean>('stt_model_present', { id }),
+  transcribeAudio:          (pcm: number[], modelId: string) =>
+    invoke<string>('transcribe_audio', { pcm, modelId }),
   transcribeAudioCloud:     (audioPath: string, provider: string, language?: string) =>
     invoke<string>('transcribe_audio_cloud', { audioPath, provider, language: language ?? null }),
-  downloadWhisperModel:     (modelSize: string) =>
-    invoke<string>('download_whisper_model', { modelSize }),
+  // Idempotent — returns immediately if the model is already complete.
+  // Progress streams over `cinderpaw://stt-download-*`.
+  downloadSttModel:         (id: string) =>
+    invoke<string>('download_stt_model', { id }),
   // Diagnostics bridge: prints into the terminal running the app, because the
   // webview console is invisible there and the voice loop lives in the webview.
   uiLog:                    (scope: string, message: string) =>
@@ -1104,11 +1123,12 @@ export const tauri = {
 
   voice: {
     saveBlob:      async (bytes: number[], ext: string) => raw.saveVoiceBlob(bytes, ext),
-    modelPresent:  async (modelSize: string) => raw.whisperModelPresent(modelSize),
-    transcribe:    async (pcm: number[], modelSize: string) => raw.transcribeAudio(pcm, modelSize),
+    sttModels:     async () => raw.sttModels(),
+    modelPresent:  async (id: string) => raw.sttModelPresent(id),
+    transcribe:    async (pcm: number[], modelId: string) => raw.transcribeAudio(pcm, modelId),
     transcribeCloud: async (audioPath: string, provider: string, language?: string) =>
       raw.transcribeAudioCloud(audioPath, provider, language),
-    downloadModel: async (modelSize: string) => raw.downloadWhisperModel(modelSize),
+    downloadModel: async (id: string) => raw.downloadSttModel(id),
     ttsProviders:  async () => raw.ttsProviders(),
     ttsHasKey:     async (providerId: string) => raw.ttsHasKey(providerId),
     ttsReady:      async (providerId: string) => raw.ttsReady(providerId),
