@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { atRest, leanDegrees, squashFor, step, type Body } from '../physics';
+import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from '../physics';
 
 const FRAME = 1 / 60;
 const WIDE = { minX: -1_000, maxX: 1_000, minY: -1_000 };
@@ -92,6 +92,42 @@ describe('mascot physics', () => {
     expect(leanDegrees(-600)).toBeLessThan(0);
     // Clamped, or a hard throw spins it right over.
     expect(Math.abs(leanDegrees(99_000))).toBeLessThanOrEqual(22);
+  });
+
+  // The wall belongs at the edge of the page's CONTENT, which moves when the
+  // side navigation opens. `<main>` is `absolute inset-0` with an animated
+  // `paddingLeft`, so its border box is the whole window in both states —
+  // reading that instead of the content box lets the creature sit underneath
+  // the navigation.
+  describe('the box it may move in', () => {
+    // The perch sits 120px from the left of the window, and the content area
+    // starts at 300 because the nav is open.
+    const home = { left: 120, top: 200, width: 48 };
+    const navOpen = { left: 300, right: 1_000, top: 60 };
+    const navClosed = { left: 0, right: 1_000, top: 60 };
+
+    it('lets the creature reach further left when the nav is collapsed', () => {
+      const open = boundsFrom(home, navOpen, 8);
+      const closed = boundsFrom(home, navClosed, 8);
+      expect(closed.minX).toBeLessThan(open.minX);
+    });
+
+    it('stops it at the edge of the content, not the edge of the window', () => {
+      const b = boundsFrom(home, navOpen, 8);
+      // Travelling minX from the perch puts its left edge on the content edge
+      // plus the margin, never underneath the navigation.
+      expect(home.left + b.minX).toBe(navOpen.left + 8);
+    });
+
+    it('keeps its whole width inside on the right, not just its origin', () => {
+      const b = boundsFrom(home, navOpen, 8);
+      expect(home.left + b.maxX + home.width).toBe(navOpen.right - 8);
+    });
+
+    it('cannot be lifted above the top of the content area', () => {
+      const b = boundsFrom(home, navOpen, 8);
+      expect(home.top + b.minY).toBe(navOpen.top + 8);
+    });
   });
 
   it('never sits still in the air', () => {

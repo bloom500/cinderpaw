@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
 import { ToolCallStack } from './ToolCallStack';
-import { atRest, leanDegrees, squashFor, step, type Body } from './physics';
+import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from './physics';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
@@ -196,18 +196,22 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   const raf = useRef<number | null>(null);
 
   /**
-   * The box it may not leave, measured against the WINDOW.
+   * The box it may not leave: the page's content area, not the window.
    *
-   * This used to be measured against `offsetParent`, which meant trusting a
-   * particular ancestor to be positioned, to be the composer, and to stay that
-   * way. The window is the one boundary that is true no matter what the DOM
-   * around it does, and "the pet cannot leave the screen" is the promise worth
-   * keeping — a hard throw used to put it hundreds of pixels above the window,
-   * out of sight until gravity brought it back.
+   * `<main>` in AppShell is `absolute inset-0` with a `paddingLeft` that is
+   * animated to the width of the side navigation, so its CONTENT box is
+   * already exactly the room the page has — the full width of the app when the
+   * nav is collapsed, and everything to the right of the nav when it is open.
+   * Reading it here means the wall moves with the nav on its own, including
+   * mid-animation, with nothing to keep in sync.
    *
-   * Measured live on each frame rather than cached: the window is resizable,
-   * the composer grows as you type, and a box captured at grab time is wrong
-   * by the time the throw lands.
+   * The border box would be wrong: that is the whole window in both states,
+   * which is how the creature ended up able to sit underneath the navigation.
+   * The window is only the fallback, for a mount that has no `<main>` above it.
+   *
+   * Measured live on every frame rather than cached at grab time. The nav can
+   * be collapsed mid-throw, the window is resizable, and the composer grows as
+   * you type; a box measured once is wrong by the time the throw lands.
    */
   const boundsNow = useCallback((): { minX: number; maxX: number; minY: number } => {
     const el = wrapRef.current;
@@ -217,11 +221,24 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     const homeLeft = r.left - body.current.x;
     const homeTop = r.top - body.current.y;
     const w = r.width || MASCOT_W;
-    return {
-      minX: -(homeLeft - EDGE_MARGIN_PX),
-      maxX: window.innerWidth - homeLeft - w - EDGE_MARGIN_PX,
-      minY: -(homeTop - EDGE_MARGIN_PX),
-    };
+
+    const main = el.closest('main');
+    let left = 0;
+    let right = window.innerWidth;
+    let top = 0;
+    if (main) {
+      const mr = main.getBoundingClientRect();
+      const cs = window.getComputedStyle(main);
+      left = mr.left + (parseFloat(cs.paddingLeft) || 0);
+      right = mr.right - (parseFloat(cs.paddingRight) || 0);
+      top = mr.top + (parseFloat(cs.paddingTop) || 0);
+    }
+
+    return boundsFrom(
+      { left: homeLeft, top: homeTop, width: w },
+      { left, right, top },
+      EDGE_MARGIN_PX,
+    );
   }, []);
 
   const stopFalling = useCallback(() => {

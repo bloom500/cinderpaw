@@ -112,6 +112,31 @@ export function step(
 }
 
 /**
+ * Turn "where the perch is" and "what the page's content area is" into the box
+ * the creature may move in, expressed as offsets from the perch.
+ *
+ * Pure, and separate from the DOM reading that feeds it, because the mistake
+ * worth guarding against here is arithmetic rather than measurement: getting
+ * the creature's own width on the wrong side of the subtraction, or using an
+ * element's border box where its content box was meant, both produce a wall in
+ * the wrong place and neither is visible in a diff.
+ *
+ * `home` is where the perch sits on screen with any current offset already
+ * taken back out. `area` is the content box it must stay inside.
+ */
+export function boundsFrom(
+  home: { left: number; top: number; width: number },
+  area: { left: number; right: number; top: number },
+  margin: number,
+): Bounds {
+  return {
+    minX: -(home.left - area.left - margin),
+    maxX: area.right - home.left - home.width - margin,
+    minY: -(home.top - area.top - margin),
+  };
+}
+
+/**
  * How far to lean, in degrees, for a given sideways speed.
  *
  * The creature is one rigid sprite, so the only way it can look like it has
