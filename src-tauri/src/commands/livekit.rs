@@ -259,6 +259,15 @@ pub(crate) async fn warm_livekit(
     if state.livekit_call.lock().is_some() {
         return Ok(());
     }
+    // Read BEFORE the slow part, and checked again before the idle timer is
+    // armed at the bottom. Building the chain takes tens of seconds, and the
+    // person who opened the voice panel usually presses call inside that
+    // window: `start_call` bumps the generation, we finish afterwards, and the
+    // timer we then arm is NEWER than the call's — so three minutes later it
+    // wins the generation check and takes the voice server down underneath a
+    // conversation that is still happening. Measured 2026-09-09: call up at
+    // 17:12:29, "warm but unused" at 17:15:29, exactly `IDLE_SHUTDOWN` apart.
+    let began_at = GENERATION.load(Ordering::SeqCst);
     if cinderpaw_core::toolchain::find_node().is_none() {
         return Ok(());
     }
@@ -327,6 +336,16 @@ pub(crate) async fn warm_livekit(
         return Ok(());
     }
     tracing::info!("livekit: warm, the next call is a join");
+
+    // A call started while we were warming. It owns the chain and its own idle
+    // timer now, and arming a second one here is what used to hang up on it.
+    // ponytail: a generation counter, not a lock held across the whole warmup —
+    // the remaining window is the microseconds between this load and the
+    // `fetch_add` below, and closing that needs the call state and the timer to
+    // live behind one mutex.
+    if GENERATION.load(Ordering::SeqCst) != began_at {
+        return Ok(());
+    }
 
     // A warm chain nobody uses must not outlive the screen that asked for it.
     // The same timer the end of a call arms, for the same reason: somebody who

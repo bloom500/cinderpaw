@@ -1079,7 +1079,15 @@ pub async fn start(
                         Ok(v) => on_event(v),
                         Err(e) => tracing::warn!("livekit: unreadable agent event ({e}): {json}"),
                     },
-                    None => tracing::debug!("livekit agent: {line}"),
+                    // At `info`, not `debug`. Everything the agent SDK says
+                    // about itself comes down this pipe — which activity
+                    // started, why a session closed, which job it was handed —
+                    // and at `debug` none of it is on by default, so a call
+                    // that hears nothing leaves no trace anyone can read
+                    // without rebuilding with a different filter. A call is a
+                    // rare, short, person-initiated thing; a few dozen lines of
+                    // it in the log is the cheapest diagnosis we have.
+                    None => tracing::info!("livekit agent: {line}"),
                 }
             }
         });
