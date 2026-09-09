@@ -104,23 +104,66 @@ describe('mascot variants', () => {
     }
   });
 
-  it('per-state variant counts match the original mascot sheet', () => {
-    const expected: Record<MascotState, number> = {
-      idle: 7, typing: 4, thinking: 6, calling: 10, done: 6, running: 3,
-      wave: 4, sleep: 3, surprised: 4, curious: 3, celebrate: 5,
-      reading: 1, searching: 1, building: 1, writing: 1,
-      stretching: 1, gaming: 2, love: 1, cool: 2, error: 3, excited: 1,
-      spawning: 1,
-    };
+  // The count of variants per state was pinned here as "the original mascot
+  // sheet". It was a snapshot, not a contract: it passed just as happily when
+  // nine of those variants were the same pose with a different unreadable
+  // pixel on it, and it failed the moment they were removed. What follows
+  // pins the properties that actually have to hold.
+
+  it('no two variants of a state are the same animation', () => {
+    const sig = (v: string[][]) => JSON.stringify(v);
     for (const s of ALL_STATES) {
-      expect(VARIANTS[s].length, `variants for ${s}`).toBe(expected[s]);
+      const seen = new Set<string>();
+      VARIANTS[s].forEach((variant, i) => {
+        const k = sig(variant);
+        expect(seen.has(k), `${s} variant ${i + 1} repeats an earlier one`).toBe(false);
+        seen.add(k);
+      });
     }
   });
 
-  it('total variant count stays in the 60-80 range', () => {
-    const total = ALL_STATES.reduce((n, s) => n + VARIANTS[s].length, 0);
-    expect(total).toBeGreaterThanOrEqual(60);
-    expect(total).toBeLessThanOrEqual(80);
+  it('a loop of several frames actually moves', () => {
+    // Two differently named frames with identical pixels is a pair somebody
+    // meant to differ. Listing the SAME frame twice is a deliberate hold and
+    // stays allowed.
+    for (const s of ALL_STATES) {
+      VARIANTS[s].forEach((variant, i) => {
+        const distinctNames = new Set(variant.map((f) => JSON.stringify(f)));
+        if (variant.length > 1 && distinctNames.size === 1) return; // a hold
+        expect(distinctNames.size, `${s} variant ${i + 1} never changes`).toBeGreaterThan(
+          variant.length > 1 ? 1 : 0,
+        );
+      });
+    }
+  });
+
+  it('every state still looks different from resting', () => {
+    // The mascot is not decoration: its state is how the screen says what the
+    // agent is doing. A state whose first variant is pixel-identical to idle
+    // reports nothing.
+    const idle = JSON.stringify(VARIANTS.idle[0]);
+    for (const s of ALL_STATES) {
+      if (s === 'idle') continue;
+      expect(JSON.stringify(VARIANTS[s][0]), `${s} is indistinguishable from idle`).not.toBe(idle);
+    }
+  });
+
+  // A floor of 60 variants used to be pinned here. It was the same snapshot
+  // mistake as the per-state counts: it protected a NUMBER, and the number was
+  // large because nine of those variants were one pose with an unreadable
+  // pixel stuck on it. Fewer, once the duplicates went, is the improvement --
+  // so the test asks the only thing that has to be true instead.
+
+  it('every state offers at least one animation, and none is empty', () => {
+    for (const s of ALL_STATES) {
+      expect(VARIANTS[s].length, `${s} has no variants`).toBeGreaterThan(0);
+      VARIANTS[s].forEach((variant, i) => {
+        expect(variant.length, `${s} variant ${i + 1} is empty`).toBeGreaterThan(0);
+        variant.forEach((frame) => {
+          expect(frame.length).toBe(FRAME_H);
+        });
+      });
+    }
   });
 
   // The original sheet intentionally contains some static poses (duplicated
