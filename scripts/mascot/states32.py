@@ -339,6 +339,7 @@ def st_celebrate():
     arm_up(g, 'R')
     e_happy(g)
     m_open(g)
+    g.row(12, 13, 18, 'e')
     return [g]
 
 

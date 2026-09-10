@@ -18,7 +18,12 @@ GEM_ORANGE = '#f2822c'
 def build_d():
     g = d.Grid(W, H)
 
-    # ---- one mass (same shaggy silhouette as C) ---------------------------
+    # ---- one mass ---------------------------------------------------------
+    # Widths per row, centred. Narrow at the head, widest across the belly.
+    # The outline is DELIBERATELY calm: an alternating zigzag was tried and
+    # read as static, not fluff. Fluff comes from a handful of placed spikes
+    # below, plus the rim pass and the inner tufts -- not from breaking every
+    # row.
     silhouette = {
         4: 14, 5: 16, 6: 18, 7: 20, 8: 20, 9: 21, 10: 21, 11: 21, 12: 21,
         13: 21, 14: 20, 15: 20, 16: 21, 17: 22, 18: 24, 19: 26, 20: 26,
@@ -27,15 +32,14 @@ def build_d():
     for y, w in silhouette.items():
         x0 = 16 - w // 2
         g.row(y, x0, x0 + w - 1, 'k')
-    for y, w in silhouette.items():
-        x0 = 16 - w // 2
-        x1 = x0 + w - 1
-        if y % 2 == 0:
-            g.set(x0, y, '.')
-            g.set(x1, y, '.')
-        else:
-            g.set(x0 - 1, y, 'k')
-            g.set(x1 + 1, y, 'k')
+
+    # Six spikes, placed where fur sticks out on the reference: cheeks,
+    # shoulders, hips. Count them before adding more -- each one is a word
+    # in the silhouette, and a sentence of spikes is noise.
+    for y in (9, 16, 23):
+        x0 = 16 - silhouette[y] // 2
+        g.set(x0 - 1, y, 'k')
+        g.set(x0 + silhouette[y], y, 'k')
 
     # ---- horns: crescents, thick at the root, leaning out -------------------
     # The old horns were straight diagonal bars of even width: antennae. A horn
@@ -90,19 +94,15 @@ def build_d():
     g.set(13, 12, 'w')
     g.set(18, 12, 'w')
 
-    # ---- fur tufts: broken interior so the mass is not flat ------------------
-    # Generous on purpose: on a near-black fill these are what says "fur"
-    # instead of "hole". All clear of the face patch (x9-22, y7-14) and the
-    # belly (x10-21, y18-25), and rim_light only touches outline cells, so
-    # interior tufts stay exactly this dim.
-    for x, y in ((8, 15), (9, 15), (23, 15), (24, 15),
-                 (6, 16), (7, 16), (25, 16), (26, 16),
-                 (5, 18), (6, 18), (26, 18), (27, 18),
-                 (6, 19), (7, 19), (25, 19), (26, 19),
-                 (7, 21), (8, 21), (24, 21), (25, 21),
-                 (6, 22), (7, 22), (25, 22), (26, 22),
-                 (7, 24), (8, 24), (24, 24), (25, 24),
-                 (8, 26), (9, 26), (23, 26), (24, 26)):
+    # ---- fur tufts: a few quiet breaks inside the mass ----------------------
+    # Sparse on purpose: on a near-black fill every lighter cell shouts, and
+    # thirty shouting cells were the "static" complaint. Ten whisper. All
+    # clear of the face patch (x9-22, y7-14) and the belly (x10-21, y18-25).
+    for x, y in ((7, 17), (24, 17),
+                 (6, 20), (25, 20),
+                 (7, 23), (24, 23),
+                 (9, 26), (22, 26),
+                 (14, 27), (17, 27)):
         if g.cells[y][x] == 'k':
             g.set(x, y, 'd')
 
