@@ -148,6 +148,27 @@ describe('mascot variants', () => {
     }
   });
 
+  it('no two states wear the same face', () => {
+    // The check above only asks whether a state differs from IDLE, and all 22
+    // passed it while SIX of them -- searching, building, writing, love,
+    // excited and spawning -- wore one identical face and differed only by a
+    // prop pixel somewhere else on the sprite.
+    //
+    // The face is where a state is actually read. The reference pack keeps ONE
+    // body across all 73 of its illustrations and puts the whole expression in
+    // the eyes and mouth; rows 5 to 7 are ours, and this asks that each state
+    // says something different with them.
+    const FACE = [5, 6, 7];
+    const seen = new Map<string, MascotState>();
+    for (const s of ALL_STATES) {
+      const worn = new Set(VARIANTS[s].flat().map((f) => FACE.map((r) => f[r]).join('|')));
+      const key = [...worn].sort().join('//');
+      const twin = seen.get(key);
+      expect(twin, `${s} wears exactly the face ${twin} wears`).toBeUndefined();
+      seen.set(key, s);
+    }
+  });
+
   // A floor of 60 variants used to be pinned here. It was the same snapshot
   // mistake as the per-state counts: it protected a NUMBER, and the number was
   // large because nine of those variants were one pose with an unreadable
