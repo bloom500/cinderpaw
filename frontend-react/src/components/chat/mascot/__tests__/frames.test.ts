@@ -156,9 +156,9 @@ describe('mascot variants', () => {
     //
     // The face is where a state is actually read. The reference pack keeps ONE
     // body across all 73 of its illustrations and puts the whole expression in
-    // the eyes and mouth; rows 5 to 7 are ours, and this asks that each state
+    // the eyes and mouth; rows 9 to 14 are ours, and this asks that each state
     // says something different with them.
-    const FACE = [5, 6, 7];
+    const FACE = [9, 10, 11, 12, 13, 14];
     const seen = new Map<string, MascotState>();
     for (const s of ALL_STATES) {
       const worn = new Set(VARIANTS[s].flat().map((f) => FACE.map((r) => f[r]).join('|')));
@@ -235,7 +235,7 @@ describe('the creature is visible on the app it lives in', () => {
 
   it('the eyes stay crisp on the face they are drawn on', () => {
     // Mid-face tone, from the row shading ramp where the eyes sit.
-    const FACE = BODY_SHADE[6];
+    const FACE = BODY_SHADE[11];
     expect(contrast(PALETTE.e!, FACE), `ink ${PALETTE.e} on face ${FACE}`).toBeGreaterThan(4.5);
   });
 

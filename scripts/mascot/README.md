@@ -4,20 +4,24 @@ How `scenes.ts` is produced, and why it exists at all.
 
 ## The finding
 
-The 127 sprite frames in `frames.ts` were drawn from a free pack of 75 pixel-art
-illustrations (`Claude-Mascot-Pack-SVG.zip`, licensed for commercial use). Those
+The 50 sprite frames in `frames.ts` (32x32, one variant per state) are
+original bodies drawn for this creature. Their props were drawn from a free
+pack of 75 pixel-art illustrations (`Claude-Mascot-Pack-SVG.zip`, licensed for
+commercial use). Those
 illustrations all share **one body** and put everything else **around** it: the
 blocks below, the Z's above, the window beside. A prop in the pack occupies
-roughly 200 cells; the whole of our sprite is 256.
+roughly 200 cells; the whole of our sprite is 1024.
 
-Somebody translated those illustrations by carving the props **into** the 16×16
+Somebody translated those illustrations by carving the props **into** the 16x16
 body instead — a leaf on a tuft, a green dot crossing the belly, a yellow bar
 over a horn, two to four pixels each. At that size a prop has no silhouette, so
 none of them read as objects. They read as defects on the animal, which is
 exactly how they were described the first time anyone looked at them closely:
 *"it grows a second horn"*, *"a leaf sprouts from its head"*, *"a random pixel"*.
 
-41 of 70 variants had one. That is what this pipeline replaces.
+41 of 70 variants had one. That is what this pipeline replaces, and the 32x32
+bodies were drawn so it never comes back: poses carry no props at all, and
+`scenes.test.ts` fails the build if a prop ever lands on the creature again.
 
 ## What it does
 

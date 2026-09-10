@@ -11,11 +11,14 @@ import io, re, sys
 from PIL import Image, ImageDraw
 
 OUT = '../../frontend-react/src/components/chat/mascot/'
-S, GAP, COLS, PER = 6, 10, 6, 24
+S, GAP, COLS, PER = 6, 10, 4, 16
 MX, MT = 14, 20
-Y0, W, H = MT + 1, 44, 38
 
 src = io.open(OUT + 'frames.ts', encoding='utf-8').read()
+FW = int(re.search(r'export const FRAME_W = (\d+);', src).group(1))
+FH = int(re.search(r'export const FRAME_H = (\d+);', src).group(1))
+ORANGE = re.search(r"const MASCOT_ORANGE = '(#[0-9a-fA-F]+)';", src).group(1)
+Y0, W, H = MT + 1, FW + MX * 2, FH + 2 + MT
 frames = {n: re.findall(r"'([^']*)'", b)
           for n, b in re.findall(r"const (\w+): Frame = \[(.*?)\];", src, re.S)}
 PAL = dict(re.findall(r"(\w): '(#[0-9a-fA-F]+)'", src.split('PALETTE')[1].split('}')[0]))
@@ -34,11 +37,11 @@ def mix(a, b, t):
 
 
 SHADE = []
-for row in range(16):
-    t = max(0, min(1, (row - 2) / 11))
-    c = mix(mix('#cf7740', '#f4c285', max(0, 0.30 - t * 0.34)), '#7a3d1a', max(0, t - 0.45) * 0.55)
-    belly = 1 - abs(row - 8) / 5
-    SHADE.append(mix(c, '#ec8a33', belly * 0.30) if belly > 0 else c)
+for row in range(FH):
+    t = max(0, min(1, (row - 4) / 24))
+    c = mix(mix(ORANGE, '#f7c98d', max(0, 0.32 - t * 0.36)), '#6e3418', max(0, t - 0.5) * 0.6)
+    belly = 1 - abs(row - 21) / 7
+    SHADE.append(mix(c, '#f08c2e', belly * 0.35) if belly > 0 else c)
 
 sc = io.open(OUT + 'scenes.ts', encoding='utf-8').read()
 # SCENES first, PAWS after it: same shape, so the file is split once and each
@@ -73,7 +76,8 @@ for sheet in range((len(items) + PER - 1) // PER):
         d.text((ox, oy - 9), '%s / %s' % (state, name[:26]), fill=(150, 150, 160))
         for x, y, c in px:
             d.rectangle([ox + x * S, oy + y * S, ox + x * S + S - 1, oy + y * S + S - 1], rgb(c))
-        for r, row in enumerate(frames['SPA']):
+        # The resting body scenes are placed against (first idle frame).
+        for r, row in enumerate(frames['F32_IDLE_0']):
             for c, ch in enumerate(row):
                 if ch == '.':
                     continue

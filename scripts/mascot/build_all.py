@@ -7,7 +7,7 @@ illustrations were composed, and it is what this produces.
 import io, json, re
 
 OUT = '../../frontend-react/src/components/chat/mascot/'
-CANVAS_W, CANVAS_H = 44, 38
+CANVAS_W, CANVAS_H = 60, 54
 FX_MARGIN_X, FX_MARGIN_TOP = 14, 20
 Y0 = FX_MARGIN_TOP + 1
 CLEARANCE = 3
@@ -18,10 +18,10 @@ CLEARANCE = 3
 # always been a faithful translation of it.
 #
 # EVERY frame, not the resting one. A state animates: `wave` raises an arm,
-# `celebrate` throws both up, `error` leans. Placing against the resting pose
-# alone put 16 scenes on top of the creature's own limbs the moment it moved --
+# `celebrate` throws both up. Placing against the resting pose alone put
+# scenes on top of the creature's own limbs the moment it moved --
 # invisible while it sat still, a pixel welded to the arm as soon as it waved.
-# The union of all 98 frames is the footprint, so a prop clears the creature in
+# The union of all 50 frames is the footprint, so a prop clears the creature in
 # every pose it can take, and a redrawn frame re-clears the props automatically.
 _src = io.open(OUT + 'frames.ts', encoding='utf-8').read()
 bodies = {name: re.findall(r"'([^']*)'", body)
@@ -40,7 +40,7 @@ ASSIGN.setdefault('calling', []).append('artboard-3cla')     # a paw and a windo
 ASSIGN.setdefault('excited', []).append('artboard-2cla')     # sparks
 
 # ---- where our creature stands, from the body we just built ----------------
-idle_rows = bodies['SPA']
+idle_rows = bodies['F32_IDLE_0']
 occupied = {(Y0 + r, FX_MARGIN_X + c)
             for rows in bodies.values()
             for r, row in enumerate(rows) for c, ch in enumerate(row) if ch != '.'}
@@ -140,10 +140,10 @@ def place(name):
 # belly rows a paw sits on the dark flank; beside the face it moves one column
 # further out, because there the orange patch starts right behind the flank and
 # a paw on it merges into the face and only makes the head look wider.
-FLANK_L, FLANK_R = (1, 2), (13, 14)
-HEAD_L, HEAD_R = (0, 1), (14, 15)
-PAW_ROWS = (2, 11)      # never on the horns, never through the feet
-FACE_ROWS = 8           # above this the face is what the paw would touch
+FLANK_L, FLANK_R = (4, 5), (26, 27)
+HEAD_L, HEAD_R = (5, 6), (25, 26)
+PAW_ROWS = (5, 28)      # never on the horns and face, never through the feet
+FACE_ROWS = 15          # above this the face is what the paw would touch
 
 
 def paws_for(name):

@@ -25,13 +25,13 @@ export interface EffectPixel {
 }
 
 /**
- * Margin around the 16×18 sprite area inside the effects canvas.
+ * Margin around the 32x34 sprite area inside the effects canvas.
  *
  * It grows UPWARD and sideways, never down. Below the creature's feet is the
  * composer's text field, and a prop drawn there covers what somebody is
  * typing; above and beside is empty chat, which is why the perch already
- * bleeds into it. The canvas that results is 44×38 cells for a creature that
- * occupies 256 of them, and the app still reserves the same 48px of layout.
+ * bleeds into it. The canvas that results is 60x54 cells for a creature that
+ * occupies 722 of them, and the app still reserves the same 64px of layout.
  */
 export const FX_MARGIN_X = 14;
 export const FX_MARGIN_TOP = 20;

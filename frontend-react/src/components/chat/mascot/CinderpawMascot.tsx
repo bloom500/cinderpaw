@@ -5,14 +5,14 @@ import { pawsFor } from './scenes';
 
 const FRAME_MS = 160;
 const SPRITE_H = FRAME_H + 2; // body rows + 1px bob headroom
-// 3× integer scale: big enough that every state/effect reads clearly, small
+// 2× integer scale: big enough that every state/effect reads clearly, small
 // enough to perch on the input without stealing space. Integer scale keeps
 // the pixel-art crisp (non-integer scales smear pixel boundaries).
 //
 // SCALE is the constant, not the box: a frame of a different width must change
-// how much room the creature takes, never how big its pixels are. 48 divided by
-// a 20-cell frame is 2.4px per cell, which blurs pixel art.
-const SCALE = 3;
+// how much room the creature takes, never how big its pixels are. 64 divided by
+// a 32-cell frame is 2px per cell, which stays crisp.
+const SCALE = 2;
 export const DISPLAY = FRAME_W * SCALE;
 
 // The canvas is larger than the sprite so per-state pixel effects (confetti,

@@ -173,7 +173,7 @@ function WelcomeStep() {
         initial={{ scale: 0.8, rotate: -10 }}
         animate={{ scale: 1, rotate: 0 }}
         transition={{ type: 'spring', duration: 0.5 }}
-        className="flex justify-center [&_canvas]:w-24 [&_canvas]:h-24 [&_canvas]:[image-rendering:pixelated]"
+        className="flex justify-center [&_canvas]:w-[120px] [&_canvas]:h-[108px] [&_canvas]:[image-rendering:pixelated]"
         aria-hidden
       >
         <CinderpawMascot state="wave" />

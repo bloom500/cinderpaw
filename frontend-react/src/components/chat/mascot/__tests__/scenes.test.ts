@@ -3,8 +3,8 @@ import { SCENES, PAWS, sceneFor, pawsFor } from '../scenes';
 import { FX_MARGIN_X, FX_MARGIN_TOP } from '../effects';
 import { VARIANTS, FRAME_W, FRAME_H, type MascotState } from '../frames';
 
-const CANVAS_W = 44;
-const CANVAS_H = 38;
+const CANVAS_W = 60;
+const CANVAS_H = 54;
 const Y0 = FX_MARGIN_TOP + 1;
 
 /**
@@ -96,15 +96,15 @@ describe('mascot paws', () => {
     // they are mapped rather than copied: their creature is a different animal
     // at a different size, so a copied offset lands beside ours instead of on
     // it. Every paw cell has to be inside the frame and on a row the body
-    // actually occupies -- above row 2 is the horns and below row 11 is the
-    // feet, and a paw in either place reads as a lump, not a hand.
+    // actually occupies -- above row 5 is the horns and face, below row 28
+    // is the feet, and a paw in either place reads as a lump, not a hand.
     for (const [state, group] of Object.entries(PAWS)) {
       group.forEach((scene, i) => {
         for (const [c, r] of scene) {
           expect(c, `${state} scene ${i + 1}: column ${c}`).toBeGreaterThanOrEqual(0);
           expect(c, `${state} scene ${i + 1}: column ${c}`).toBeLessThan(FRAME_W);
-          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeGreaterThanOrEqual(2);
-          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeLessThanOrEqual(11);
+          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeGreaterThanOrEqual(5);
+          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeLessThanOrEqual(28);
         }
       });
     }
