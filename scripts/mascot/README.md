@@ -28,6 +28,8 @@ exactly how they were described the first time anyone looked at them closely:
                   cells (their eyes and mouth)
     preview.py    render all of it as PNG contact sheets, to be LOOKED at
     compare.py    one illustration, reference beside ours, for the same reason
+    faces.py      every state's face side by side
+    sheet.py      the sprite sheet out to a PNG and back, for drawing by hand
     assign.py     assign each of the 75 illustrations to the app state it
                   actually describes
     place.py      anchor a scene to the side of OUR body it was composed on,
@@ -96,3 +98,28 @@ gap in a bar also closes the deliberate gaps in dithered pixel art, and it
 turned the tree into a solid purple blob. The bites stay. `__tests__/scenes.test.ts` enforces the rest in CI: no prop pixel on any
 pose, at either lift, ever. It is the same guarantee this pipeline was built to
 deliver, so if it fails, do not move the prop by hand -- rerun the placement.
+
+## Drawing the creature by hand
+
+`frames.ts` is grids of text, which is the right storage -- it diffs, it gets
+reviewed, and the pipeline reads it to know where props must not stand. It is a
+terrible thing to draw in.
+
+    python sheet.py export     # frames-sheet.png, one pixel per cell
+    # draw in Aseprite, or anything else that keeps the transparency
+    python sheet.py import     # reads it back into frames.ts
+    python build_all.py && python emit.py
+
+The round trip is lossless: exporting and importing without touching the PNG
+leaves `frames.ts` byte-identical, and that is the check to run first if the
+importer is ever changed.
+
+Two things to know before drawing in it:
+
+- The body char `o` is not one colour. It is shaded per ROW so the creature
+  reads as lit from above, and the export paints that ramp. On the way back any
+  colour near the ramp for that row becomes `o` again, so hand-shading a body
+  pixel does nothing -- the ramp wins.
+- Transparent is `.` and has to stay genuinely transparent. A cell filled with
+  the background colour is not empty and comes back as a pixel.
+
