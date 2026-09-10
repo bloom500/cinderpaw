@@ -47,10 +47,11 @@ ASSIGN = {
     # left with an empty margin. A scene here is not decoration, it is the
     # difference between a creature in a room and a sprite on a background.
     #
-    # Small and still, on purpose: `idle` is permanent furniture, so it gets the
-    # 13x6 plant rather than one of the 200-cell machines.
-    'idle':       ['planting-small-trees'],
-    'typing':     ['artboard-25cla'],
+    # Each one is a single object with a shape, checked by eye against the
+    # creature in `preview.py`. `idle` is permanent furniture, so it gets the
+    # tree: something that belongs in a room and says nothing.
+    'idle':       ['visualizing-tree-data'],
+    'typing':     ['user-profile-settings'],
     'stretching': ['lifting-heavy-barbell'],
 }
 

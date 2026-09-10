@@ -42,6 +42,51 @@ def creature_cells(v):
     return best
 
 
+WHITES = {'#fff', '#ffffff', '#fefefe'}
+
+
+def strip_leftovers(cells, colors):
+    """Remove what is left of THEIR character after the body is subtracted.
+
+    Subtracting the largest run of body colour finds one creature. The sheets
+    have more than one: a second character standing beside the first, a paw, a
+    tail, and -- in every single illustration -- the white eyes and mouth, which
+    survive because they are drawn as separate specks and not in body colour.
+
+    Rendered next to OUR creature those fragments are unmistakable: a row of six
+    little bodies over the composer, a face floating in the middle of a prop, a
+    small white smile hanging beside our own. So:
+
+    - every pixel of body colour goes, not only the largest blob. That colour IS
+      their character; nothing else in the pack is drawn in it.
+    - white in runs shorter than six cells goes. A face is specks; a sheet of
+      paper or a highlight is a slab, and slabs stay.
+
+    Coloured specks are left alone. Sparkles, confetti and light rays are small
+    on purpose, and they are props.
+    """
+    keep = [c for c in cells if c[2] != BODY]
+    white = {(r, c) for r, c, col in keep if col.lower() in WHITES}
+    doomed, seen = set(), set()
+    for cell in white:
+        if cell in seen:
+            continue
+        comp, stack = set(), [cell]
+        seen.add(cell)
+        while stack:
+            y, x = stack.pop()
+            comp.add((y, x))
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    n = (y + dy, x + dx)
+                    if n in white and n not in seen:
+                        seen.add(n)
+                        stack.append(n)
+        if len(comp) < 6:
+            doomed |= comp
+    return [c for c in keep if (c[0], c[1]) not in doomed]
+
+
 out = {}
 for name, v in ref.items():
     body = creature_cells(v)
@@ -60,6 +105,7 @@ for name, v in ref.items():
             if ink and ch == ink and r0 <= r <= r1 and c0 <= c <= c1:
                 continue
             scene.append([r - r0, c - c0, v['colors'][int(ch, 16)]])
+    scene = strip_leftovers(scene, v['colors'])
     out[name] = {
         'body': [c1 - c0 + 1, r1 - r0 + 1],
         'bodyCells': len(body),
