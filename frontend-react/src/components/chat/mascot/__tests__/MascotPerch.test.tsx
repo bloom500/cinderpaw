@@ -10,6 +10,9 @@ vi.mock('../CinderpawMascot', () => ({
   CinderpawMascot: ({ state }: { state: string }) => (
     <span data-testid="mascot" data-state={state} />
   ),
+  // The perch reads the creature's real on-screen width from here rather than
+  // keeping its own copy of it, so the mock has to carry it too.
+  DISPLAY: 48,
   usePrefersReducedMotion: () => false,
 }));
 

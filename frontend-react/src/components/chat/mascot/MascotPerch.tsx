@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
+import { CinderpawMascot, DISPLAY, usePrefersReducedMotion } from './CinderpawMascot';
 import { ToolCallStack } from './ToolCallStack';
 import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from './physics';
 import { useBond } from './familiarity';
@@ -48,9 +48,9 @@ const POKE_BOUT_MS = 2_500;
  *  mouse drifts a pixel or two under a real finger. */
 const DRAG_SLOP_PX = 4;
 /** The creature's own width, so it cannot be dropped off the left of the
- *  composer or dragged out past the right of it. Keep in sync with `DISPLAY`
- *  in CinderpawMascot. */
-const MASCOT_W = 48;
+ *  composer or dragged out past the right of it. Imported rather than copied:
+ *  it was a 48 kept in sync by a comment, and the frame is 20 cells wide now. */
+const MASCOT_W = DISPLAY;
 /** Only a fallback for the moment before the element has been measured. The
  *  real ceiling is the top of the window — see `boundsNow`. */
 const LIFT_LIMIT_PX = 220;
