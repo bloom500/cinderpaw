@@ -40,14 +40,19 @@ def main():
     # it, and frames.test.ts requires every char to be a known key.
     src = src.replace('export const FRAME_W = 16;', 'export const FRAME_W = 32;')
     src = src.replace('export const FRAME_H = 16;', 'export const FRAME_H = 32;')
-    src = src.replace("const MASCOT_ORANGE = '#cf7740';",
-                      "const MASCOT_ORANGE = '#f2822c';")
-    src = src.replace("  k: '#4a4b53', e: '#1c1c1e',",
-                      "  k: '#0d0d11', e: '#1c1c1e',")
+    src = src.replace("const MASCOT_ORANGE = '#f2822c';",
+                      "const MASCOT_ORANGE = '#F9C180';")
+    src = src.replace("  k: '#0d0d11', e: '#1c1c1e',",
+                      "  k: '#2C2C2C', e: '#1c1c1e',")
     if "R: '#55555f'" not in src:
         src = src.replace("  c: '#16a085', s: '#7f8c8d', n: '#e67e22', m: '#e91e63',",
                           "  c: '#16a085', s: '#7f8c8d', n: '#e67e22', m: '#e91e63',\n"
                           "  d: '#31323a', R: '#55555f',")
+    if "h: '#925321'" not in src:
+        src = src.replace("  y: '#f1c40f', g: '#27ae60', b: '#2980b9', p: '#8e44ad',",
+                          "  y: '#f1c40f', g: '#27ae60', b: '#2980b9', p: '#8e44ad',\n"
+                          "  h: '#925321',")
+    src = src.replace("r: '#c0392b',", "r: '#FF9999',")
 
     # 2. swap every 16x16 frame const for the 32px set.
     bodies, n = re.subn(r"const \w+: Frame = \[.*?\];", '', src, flags=re.S)

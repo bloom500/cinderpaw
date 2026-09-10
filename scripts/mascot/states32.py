@@ -13,11 +13,11 @@ from PIL import Image, ImageDraw
 W = H = 32
 # Same keys the app PALETTE carries: y (hat, pencil), b (controller, tear),
 # r (mouths, blush), n (hat shade, pencil tip), s (steel tools).
-PAL = dict(base.GEM_PAL, y='#f1c40f', b='#2980b9', r='#c0392b',
-           n='#e67e22', s='#7f8c8d')
-PAL['k'] = '#23232e'
+PAL = dict(base.GEM_PAL, y='#f1c40f', b='#2980b9', r='#FF9999',
+           n='#e67e22', s='#7f8c8d', h='#925321')
+PAL['k'] = '#2C2C2C'
 PAL['R'] = '#55555f'
-ORANGE = base.GEM_ORANGE
+ORANGE = '#F9C180'
 
 FACE_ROWS = {8: (9, 22), 9: (8, 23), 10: (8, 23), 11: (8, 23),
              12: (8, 23), 13: (8, 23), 14: (8, 23), 15: (8, 23),
@@ -26,18 +26,21 @@ FACE_KEY_ROWS = (9, 10, 11, 12, 13, 14, 15)
 
 
 def fresh():
-    """Round body, face wiped. The fringe is gone with the old silhouette:
-    the friendly look is a clean patch edge, not fur teeth."""
+    """Round hooded body, face wiped. The long arms stay: states that raise
+    them clear their own side first (see arm_up)."""
     import bodies_g
-    g = bodies_g.build_g()
+    g = bodies_g.build_std()
     for y, (x0, x1) in FACE_ROWS.items():
         g.row(y, x0, x1, 'o')
-    for x, y in ((3, 16), (4, 16), (3, 17), (4, 17), (3, 18), (4, 18),
-                 (3, 19), (4, 19)):
-        g.set(x, y, '.')
-        g.set(31 - x, y, '.')
     rim_light(g)
     return g
+
+
+def clear_hanging(g, side):
+    xs = range(3, 5) if side == 'L' else range(27, 29)
+    for x in xs:
+        for y in range(14, 24):
+            g.set(x, y, '.')
 
 
 def rim_light(g):
@@ -163,11 +166,11 @@ def m_open(g):
     g.row(12, 14, 17, 'e')
     g.row(13, 14, 17, 'e')
     g.row(14, 15, 16, 'e')
-    g.row(13, 15, 16, 'r')
+    g.row(13, 15, 16, 'e')
 
 
 def m_small_o(g):
-    g.rect(15, 12, 16, 13, 'r')
+    g.rect(15, 12, 16, 13, 'e')
 
 
 def m_smirk(g):
@@ -186,6 +189,7 @@ def m_blush(g):
 
 # ---- arm kit ------------------------------------------------------------------
 def arm_up(g, side):
+    clear_hanging(g, side)
     xs = (27, 28) if side == 'R' else (3, 4)
     for x in xs:
         for y in range(6, 14):
@@ -201,6 +205,8 @@ def arm_tip_wave(g, side, alt):
 
 
 def arm_out(g, reach):
+    clear_hanging(g, 'L')
+    clear_hanging(g, 'R')
     for x in range(3 - reach, 4):
         g.set(x, 16, 'k')
         g.set(31 - x, 16, 'k')
@@ -210,6 +216,8 @@ def arm_out(g, reach):
 
 
 def arm_forward(g):
+    clear_hanging(g, 'L')
+    clear_hanging(g, 'R')
     for x, y in ((11, 20), (12, 20), (19, 20), (20, 20),
                  (11, 21), (12, 21), (19, 21), (20, 21)):
         g.set(x, y, 'k')
@@ -237,10 +245,12 @@ def st_idle():
     e_open(a)
     m_smile(a)
     m_fangs(a)
+    m_blush(a)
     b = fresh()
     e_blink(b)
     m_smile(b)
     m_fangs(b)
+    m_blush(b)
     return [a, a, b, a]
 
 
@@ -272,6 +282,17 @@ def st_calling():
 
 def st_done():
     g = fresh()
+    e_happy(g)
+    m_open(g)
+    return [g]
+
+
+def st_done_thumb():
+    """Second done pose: thumbs up, off the spec sheet's Interaction frame."""
+    g = fresh()
+    arm_up(g, 'R')
+    g.set(27, 3, 'o')
+    g.set(28, 3, 'o')
     e_happy(g)
     m_open(g)
     return [g]
@@ -550,6 +571,7 @@ STATES_EXTRA = {
     'building': [st_building_hat],
     'writing': [st_writing_pencil],
     'error': [st_error_angry],
+    'done': [st_done_thumb],
 }
 
 
