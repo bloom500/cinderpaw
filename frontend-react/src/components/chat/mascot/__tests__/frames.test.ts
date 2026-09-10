@@ -199,16 +199,12 @@ describe('mascot variants', () => {
 });
 
 describe('the creature is visible on the app it lives in', () => {
-  // This is the measurement that explained why the mascot could not be
-  // animated. At #1c1c1e the fur was 1.03:1 against the app's own dark
-  // surface -- three percent apart, so the whole body was invisible and only
-  // the orange face floated there. Ten different limb placements were drawn
-  // and every one read as a dot in mid-air, because the silhouette they should
-  // have hung off did not exist on screen.
-  //
-  // Lifting one shared colour would have taken the eyes with it, since they sit
-  // on the orange patch. So `k` is fur and `e` is ink, and each has its own
-  // floor here.
+  // The fill is near-black on purpose, the way the reference draws it -- so
+  // the silhouette cannot live in the fill. It lives in the rim: the top and
+  // left outline the generator lights on every frame. What this measures is
+  // the edge, not the mass. A rim below 1.6:1 on the dark surface is the old
+  // bug back (1.03:1, the whole body invisible, only the orange face
+  // floating), and no drawing skill fixes a number.
   const DARK_SURFACE = '#1C1916';   // --bg-surface, dark theme
   const LIGHT_SURFACE = '#F5EBE0';  // --bg-surface, light theme
 
@@ -227,10 +223,10 @@ describe('the creature is visible on the app it lives in', () => {
     return (hi + 0.05) / (lo + 0.05);
   };
 
-  it('the fur has a silhouette on both themes', () => {
-    const fur = PALETTE.k!;
-    expect(contrast(fur, DARK_SURFACE), `fur ${fur} on the dark surface`).toBeGreaterThan(1.6);
-    expect(contrast(fur, LIGHT_SURFACE), `fur ${fur} on the light surface`).toBeGreaterThan(1.6);
+  it('the rim holds the silhouette on both themes', () => {
+    const rim = PALETTE.R!;
+    expect(contrast(rim, DARK_SURFACE), `rim ${rim} on the dark surface`).toBeGreaterThan(1.6);
+    expect(contrast(rim, LIGHT_SURFACE), `rim ${rim} on the light surface`).toBeGreaterThan(1.6);
   });
 
   it('the eyes stay crisp on the face they are drawn on', () => {

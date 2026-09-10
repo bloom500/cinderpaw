@@ -12,6 +12,8 @@ from PIL import Image, ImageDraw
 
 W = H = 32
 PAL = dict(base.GEM_PAL, y='#f1c40f', b='#2980b9', r='#c0392b')
+PAL['k'] = '#0d0d11'
+PAL['R'] = '#55555f'
 ORANGE = base.GEM_ORANGE
 
 FACE_ROWS = {7: (12, 19), 8: (10, 21), 9: (9, 22), 10: (9, 22),
@@ -30,7 +32,28 @@ def fresh():
     for x, y in ((4, 15), (5, 15), (4, 16), (5, 16)):
         g.set(x, y, '.')
         g.set(31 - x, y, '.')
+    rim_light(g)
     return g
+
+
+def rim_light(g):
+    """Light catches the top and the left of the fluff, nothing else.
+
+    The fill is near-black, so the silhouette lives entirely in this pass:
+    outline cells open to the sky (or to the left) become rim, everything
+    below stays shadow. Top-only was tried: the sides vanished and the orange
+    patches floated on their own, which is the original invisibility bug with
+    better colours. Run AFTER any carving, so freshly exposed edges get lit
+    too. Never touch the face: eyes and mouth are not fur.
+    """
+    for y in range(H):
+        for x in range(W):
+            if g.cells[y][x] not in ('k', 'd'):
+                continue
+            above = g.cells[y - 1][x] if y > 0 else '.'
+            left = g.cells[y][x - 1] if x > 0 else '.'
+            if above == '.' or left == '.':
+                g.set(x, y, 'R')
 
 
 def translate(g, dy):

@@ -37,13 +37,18 @@ def build_d():
             g.set(x0 - 1, y, 'k')
             g.set(x1 + 1, y, 'k')
 
-    # ---- horns: thick, curved out, ROOTED two cells deep in the fur --------
-    # C's horns floated above the head like antennae. These start inside the
-    # mass (y4) and lean out, 3 wide at the base, 2 at the tip.
-    horn_l = [(9, 4), (10, 4), (11, 4),
-              (8, 3), (9, 3), (10, 3),
-              (7, 2), (8, 2), (9, 2),
-              (7, 1), (8, 1)]
+    # ---- horns: crescents, thick at the root, leaning out -------------------
+    # The old horns were straight diagonal bars of even width: antennae. A horn
+    # narrows toward the tip AND curves, with the outer edge convex and the
+    # inner edge concave. These root four wide at y5, inside the fur, and end
+    # two wide at the tip. Shorten or straighten them and they are antennae
+    # again; widen the tip and they are ears.
+    horn_l = [(9, 5), (10, 5), (11, 5), (12, 5),
+              (8, 4), (9, 4), (10, 4), (11, 4),
+              (7, 3), (8, 3), (9, 3), (10, 3),
+              (6, 2), (7, 2), (8, 2), (9, 2),
+              (6, 1), (7, 1),
+              (6, 0), (7, 0)]
     for x, y in horn_l:
         g.set(x, y, 'o')
         g.set(31 - x, y, 'o')
@@ -86,10 +91,18 @@ def build_d():
     g.set(18, 12, 'w')
 
     # ---- fur tufts: broken interior so the mass is not flat ------------------
+    # Generous on purpose: on a near-black fill these are what says "fur"
+    # instead of "hole". All clear of the face patch (x9-22, y7-14) and the
+    # belly (x10-21, y18-25), and rim_light only touches outline cells, so
+    # interior tufts stay exactly this dim.
     for x, y in ((8, 15), (9, 15), (23, 15), (24, 15),
+                 (6, 16), (7, 16), (25, 16), (26, 16),
+                 (5, 18), (6, 18), (26, 18), (27, 18),
                  (6, 19), (7, 19), (25, 19), (26, 19),
                  (7, 21), (8, 21), (24, 21), (25, 21),
-                 (7, 24), (8, 24), (24, 24), (25, 24)):
+                 (6, 22), (7, 22), (25, 22), (26, 22),
+                 (7, 24), (8, 24), (24, 24), (25, 24),
+                 (8, 26), (9, 26), (23, 26), (24, 26)):
         if g.cells[y][x] == 'k':
             g.set(x, y, 'd')
 

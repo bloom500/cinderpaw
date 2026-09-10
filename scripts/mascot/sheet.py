@@ -59,10 +59,10 @@ def shade_ramp(orange, h):
     """The same ramp `frames.ts` computes, so a round trip is lossless."""
     out = []
     for row in range(h):
-        t = max(0, min(1, (row - 2) / 11))
-        c = mix(mix(orange, '#f4c285', max(0, 0.30 - t * 0.34)), '#7a3d1a', max(0, t - 0.45) * 0.55)
-        belly = 1 - abs(row - 8) / 5
-        out.append(mix(c, '#ec8a33', belly * 0.30) if belly > 0 else c)
+        t = max(0, min(1, (row - 4) / 24))
+        c = mix(mix(orange, '#f7c98d', max(0, 0.32 - t * 0.36)), '#6e3418', max(0, t - 0.5) * 0.6)
+        belly = 1 - abs(row - 21) / 7
+        out.append(mix(c, '#f08c2e', belly * 0.35) if belly > 0 else c)
     return out
 
 
