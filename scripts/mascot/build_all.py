@@ -142,8 +142,8 @@ def place(name):
 # a paw on it merges into the face and only makes the head look wider.
 FLANK_L, FLANK_R = (4, 5), (26, 27)
 HEAD_L, HEAD_R = (5, 6), (25, 26)
-PAW_ROWS = (5, 28)      # never on the horns and face, never through the feet
-FACE_ROWS = 15          # above this the face is what the paw would touch
+PAW_ROWS = (6, 27)      # never on the horns and face, never through the feet
+FACE_ROWS = 18          # above this the face is what the paw would touch
 
 
 def paws_for(name):

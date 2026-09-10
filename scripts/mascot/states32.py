@@ -15,24 +15,25 @@ W = H = 32
 # r (mouths, blush), n (hat shade, pencil tip), s (steel tools).
 PAL = dict(base.GEM_PAL, y='#f1c40f', b='#2980b9', r='#c0392b',
            n='#e67e22', s='#7f8c8d')
-PAL['k'] = '#0d0d11'
+PAL['k'] = '#23232e'
 PAL['R'] = '#55555f'
 ORANGE = base.GEM_ORANGE
 
-FACE_ROWS = {7: (12, 19), 8: (10, 21), 9: (9, 22), 10: (9, 22),
-             11: (9, 22), 12: (9, 22), 13: (10, 21), 14: (12, 19)}
-FRINGE = [(13, 7), (14, 7), (18, 7), (12, 8), (19, 8)]
-FACE_KEY_ROWS = (9, 10, 11, 12, 13, 14)
+FACE_ROWS = {8: (9, 22), 9: (8, 23), 10: (8, 23), 11: (8, 23),
+             12: (8, 23), 13: (8, 23), 14: (8, 23), 15: (8, 23),
+             16: (8, 23), 17: (9, 22)}
+FACE_KEY_ROWS = (9, 10, 11, 12, 13, 14, 15)
 
 
 def fresh():
-    """D body with the default face and arm nubs wiped, fringe kept."""
-    g = base.build_d()
+    """Round body, face wiped. The fringe is gone with the old silhouette:
+    the friendly look is a clean patch edge, not fur teeth."""
+    import bodies_g
+    g = bodies_g.build_g()
     for y, (x0, x1) in FACE_ROWS.items():
         g.row(y, x0, x1, 'o')
-    for x, y in FRINGE:
-        g.set(x, y, 'k')
-    for x, y in ((4, 15), (5, 15), (4, 16), (5, 16)):
+    for x, y in ((3, 16), (4, 16), (3, 17), (4, 17), (3, 18), (4, 18),
+                 (3, 19), (4, 19)):
         g.set(x, y, '.')
         g.set(31 - x, y, '.')
     rim_light(g)
@@ -185,25 +186,25 @@ def m_blush(g):
 
 # ---- arm kit ------------------------------------------------------------------
 def arm_up(g, side):
-    xs = (24, 25) if side == 'R' else (6, 7)
+    xs = (27, 28) if side == 'R' else (3, 4)
     for x in xs:
-        for y in range(7, 14):
+        for y in range(6, 14):
             if g.cells[y][x] == '.':
                 g.set(x, y, 'k')
-    g.rect(xs[0], 5, xs[1], 6, 'o')
+    g.rect(xs[0], 4, xs[1], 5, 'o')
 
 
 def arm_tip_wave(g, side, alt):
-    xs = (24, 25) if side == 'R' else (6, 7)
-    g.set(xs[0], 5 - alt, 'o')
-    g.set(xs[1], 5, 'o')
+    xs = (27, 28) if side == 'R' else (3, 4)
+    g.set(xs[0], 4 - alt, 'o')
+    g.set(xs[1], 4, 'o')
 
 
 def arm_out(g, reach):
-    for x in range(4 - reach, 6):
+    for x in range(3 - reach, 4):
         g.set(x, 16, 'k')
         g.set(31 - x, 16, 'k')
-    for x in (4 - reach, 27 + reach):
+    for x in (3 - reach, 28 + reach):
         g.set(x, 15, 'o')
         g.set(x, 16, 'o')
 
@@ -383,11 +384,11 @@ def st_building_hat():
     e_brows(g)
     g.row(13, 14, 17, 'e')
     g.row(0, 13, 18, 'y')
-    g.row(1, 11, 20, 'y')
-    g.row(2, 10, 21, 'y')
-    g.set(10, 2, 'n')
-    g.set(21, 2, 'n')
-    g.row(3, 8, 23, 'y')
+    g.row(1, 12, 19, 'y')
+    g.row(2, 11, 20, 'y')
+    g.set(11, 2, 'n')
+    g.set(20, 2, 'n')
+    g.row(3, 10, 21, 'y')
     for x in range(25, 28):
         g.set(x, 12, 's')
         g.set(x, 14, 's')

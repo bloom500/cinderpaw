@@ -4,7 +4,7 @@ How `scenes.ts` is produced, and why it exists at all.
 
 ## The finding
 
-The 50 sprite frames in `frames.ts` (32x32, one variant per state) are
+The 54 sprite frames in `frames.ts` (32x32, one or two poses per state) are
 original bodies drawn for this creature. Their props were drawn from a free
 pack of 75 pixel-art illustrations (`Claude-Mascot-Pack-SVG.zip`, licensed for
 commercial use). Those

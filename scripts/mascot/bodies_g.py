@@ -1,0 +1,97 @@
+"""The round body: our mascot redrawn in the friendly language.
+
+Not a refinement of the shaggy beast (build_d): a different animal. Smooth
+rounded mass, short nub horns, a big face patch, stubby arms at the sides
+and feet it stands on. Same Grid API, same chars, so the face kit, the rim
+pass, the pipeline and the tests keep working around it.
+"""
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import draft32 as d
+
+W = H = 32
+
+
+def build_g():
+    g = d.Grid(W, H)
+
+    # ---- one round mass ---------------------------------------------------
+    # Wide and smooth. Corners cut deep so nothing reads as a box; no zigzag,
+    # no spikes -- calm was tried on the old silhouette and the shape itself
+    # was still a beast. This one is drawn round from the first row.
+    silhouette = {
+        4: 14, 5: 18, 6: 20, 7: 22, 8: 23, 9: 24, 10: 24, 11: 24,
+        12: 24, 13: 24, 14: 24, 15: 24, 16: 24, 17: 24, 18: 25, 19: 26,
+        20: 26, 21: 26, 22: 26, 23: 26, 24: 26, 25: 25, 26: 24, 27: 22,
+        28: 20,
+    }
+    for y, w in silhouette.items():
+        x0 = 16 - w // 2
+        g.row(y, x0, x0 + w - 1, 'k')
+
+    # ---- nub horns: short, tilted out, rooted deep -------------------------
+    for x, y in ((9, 3), (10, 3), (11, 3),
+                 (8, 2), (9, 2), (10, 2),
+                 (8, 1), (9, 1)):
+        g.set(x, y, 'o')
+        g.set(31 - x, y, 'o')
+
+    # ---- big face patch: most of the front ---------------------------------
+    face = [(8, 9, 22), (9, 8, 23), (10, 8, 23), (11, 8, 23),
+            (12, 8, 23), (13, 8, 23), (14, 8, 23), (15, 8, 23),
+            (16, 8, 23), (17, 9, 22)]
+    for y, x0, x1 in face:
+        g.row(y, x0, x1, 'o')
+
+    # ---- round belly, low ----------------------------------------------------
+    belly = [(20, 12, 19), (21, 11, 20), (22, 10, 21), (23, 10, 21),
+             (24, 10, 21), (25, 11, 20), (26, 12, 19), (27, 13, 18)]
+    for y, x0, x1 in belly:
+        g.row(y, x0, x1, 'o')
+
+    # ---- stubby arms at the sides --------------------------------------------
+    for x, y in ((3, 16), (4, 16), (3, 17), (4, 17), (3, 18), (4, 18),
+                 (3, 19), (4, 19)):
+        g.set(x, y, 'k')
+        g.set(31 - x, y, 'k')
+
+    # ---- feet it stands on -----------------------------------------------------
+    for x0 in (8, 19):
+        g.rect(x0, 29, x0 + 4, 31, 'k')
+        g.set(x0 + 2, 31, '.')
+
+    # ---- default face: dot eyes, small smile ------------------------------------
+    for x0 in (12, 18):
+        g.rect(x0, 11, x0 + 1, 12, 'e')
+        g.set(x0, 11, 'w')
+    g.row(15, 14, 17, 'e')
+    g.set(13, 14, 'e')
+    g.set(18, 14, 'e')
+
+    # ---- volume: darken outline cells -------------------------------------------
+    for y in range(4, 32):
+        for x in range(32):
+            if g.cells[y][x] != 'k':
+                continue
+            row = g.cells[y]
+            left = next((i for i, c in enumerate(row) if c != '.'), None)
+            right = next((i for i in range(31, -1, -1) if row[i] != '.'), None)
+            if left is None:
+                continue
+            if x <= left + 1 or x >= right - 1 or y >= 27:
+                g.set(x, y, 'd')
+    return g
+
+
+if __name__ == '__main__':
+    import draft32_d as base
+
+    PAL = dict(base.GEM_PAL, y='#f1c40f', b='#2980b9', r='#c0392b',
+               n='#e67e22', s='#7f8c8d')
+    PAL['k'] = '#23232e'
+    PAL['R'] = '#55555f'
+    rows = build_g().rows()
+    base.render_rows(rows, 'body-g.png', PAL, base.GEM_ORANGE, 12)
+    print('body-g ok')

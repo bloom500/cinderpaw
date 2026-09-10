@@ -61,7 +61,7 @@ def shade_ramp(orange, h):
     for row in range(h):
         t = max(0, min(1, (row - 4) / 24))
         c = mix(mix(orange, '#f7c98d', max(0, 0.32 - t * 0.36)), '#6e3418', max(0, t - 0.5) * 0.6)
-        belly = 1 - abs(row - 21) / 7
+        belly = 1 - abs(row - 23) / 8
         out.append(mix(c, '#f08c2e', belly * 0.35) if belly > 0 else c)
     return out
 

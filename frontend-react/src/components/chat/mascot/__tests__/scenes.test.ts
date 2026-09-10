@@ -96,15 +96,15 @@ describe('mascot paws', () => {
     // they are mapped rather than copied: their creature is a different animal
     // at a different size, so a copied offset lands beside ours instead of on
     // it. Every paw cell has to be inside the frame and on a row the body
-    // actually occupies -- above row 5 is the horns and face, below row 28
+    // actually occupies -- above row 6 is the horns and face, below row 27
     // is the feet, and a paw in either place reads as a lump, not a hand.
     for (const [state, group] of Object.entries(PAWS)) {
       group.forEach((scene, i) => {
         for (const [c, r] of scene) {
           expect(c, `${state} scene ${i + 1}: column ${c}`).toBeGreaterThanOrEqual(0);
           expect(c, `${state} scene ${i + 1}: column ${c}`).toBeLessThan(FRAME_W);
-          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeGreaterThanOrEqual(5);
-          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeLessThanOrEqual(28);
+          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeGreaterThanOrEqual(6);
+          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeLessThanOrEqual(27);
         }
       });
     }

@@ -158,7 +158,7 @@ describe('mascot variants', () => {
     // body across all 73 of its illustrations and puts the whole expression in
     // the eyes and mouth; rows 9 to 14 are ours, and this asks that each state
     // says something different with them.
-    const FACE = [9, 10, 11, 12, 13, 14];
+    const FACE = [9, 10, 11, 12, 13, 14, 15];
     const seen = new Map<string, MascotState>();
     for (const s of ALL_STATES) {
       const worn = new Set(VARIANTS[s].flat().map((f) => FACE.map((r) => f[r]).join('|')));
