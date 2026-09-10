@@ -665,7 +665,539 @@ export type Frame = string[];
 
 
 
-const F32_IDLE_0: Frame = [
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const F32_IDLE_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -700,7 +1232,7 @@ const F32_IDLE_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_IDLE_1: Frame = [
+const F32_IDLE_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -735,7 +1267,7 @@ const F32_IDLE_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_IDLE_2: Frame = [
+const F32_IDLE_0_2: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -770,7 +1302,7 @@ const F32_IDLE_2: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_IDLE_3: Frame = [
+const F32_IDLE_0_3: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -805,7 +1337,7 @@ const F32_IDLE_3: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_TYPING_0: Frame = [
+const F32_TYPING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -840,7 +1372,7 @@ const F32_TYPING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_THINKING_0: Frame = [
+const F32_THINKING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -875,7 +1407,7 @@ const F32_THINKING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_THINKING_1: Frame = [
+const F32_THINKING_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -910,7 +1442,42 @@ const F32_THINKING_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_CALLING_0: Frame = [
+const F32_THINKING_1_0: Frame = [
+  '......oo................oo......',
+  '......oo................oo......',
+  '......oooo............oooo......',
+  '.......oooo..........oooo.......',
+  '........ooooRRRRRRRRoooo........',
+  '........Rooookkkkkkooood........',
+  '.......RdkkkkkkkkkkkkkkdR.......',
+  '......RdkkkkokkoookokkkkdR......',
+  '......Rdkkookooooookookkdd......',
+  '.....RdkkooooooooooooookkkRR....',
+  '......Rdkooooooooooooookkdd.....',
+  '......Rdkoooeeooooeeoookkdd.....',
+  '......Rdkoobweooooweoookkdd.....',
+  '......Rdkkooooeeeeooookkkdd.....',
+  '......Rdkkkkoeooooeokkkkdd......',
+  '......Rkkkkkkkkkkkkkkkkkkk......',
+  '......Rkkkkkkkkkkkkkkkkkkk......',
+  '.....RddkkkkkkkkkkkkkkkkddR.....',
+  '....RdkkkkkkkooooookkkkkkkdR....',
+  '...RdkkkkkkooooooooookkkkkkdR...',
+  '...Rdkdkkkooooooooooookkkdkdd...',
+  '...RdkkkkkooooooooooookkkkkkdR..',
+  '...Rdkkkkkooooooooooookkkkkkdd..',
+  '..RdkkkdkkooooooooooookkdkkkkdR.',
+  '...Rdkkkkkkooooooooookkkkkkdd...',
+  '...Rdkkkkkkkkooooookkkkkkkkdd...',
+  '....Rdkkkdkkkkkkkkkkkkdkkkdd....',
+  '.....Rddddddddddddddddddddd.....',
+  '.......Rdddddddddddddddddd......',
+  '........Rdddd......Rdddd........',
+  '........Rdddd......Rdddd........',
+  '........Rd.Rd......Rd.Rd........',
+];
+
+const F32_CALLING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -945,7 +1512,7 @@ const F32_CALLING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_CALLING_1: Frame = [
+const F32_CALLING_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -980,7 +1547,7 @@ const F32_CALLING_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_DONE_0: Frame = [
+const F32_DONE_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1015,7 +1582,7 @@ const F32_DONE_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_RUNNING_0: Frame = [
+const F32_RUNNING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1050,7 +1617,7 @@ const F32_RUNNING_0: Frame = [
   '.......kkkkk....................',
 ];
 
-const F32_RUNNING_1: Frame = [
+const F32_RUNNING_0_1: Frame = [
   '......oo................oo......',
   '......oooo............oooo......',
   '.......oooo..........oooo.......',
@@ -1085,7 +1652,7 @@ const F32_RUNNING_1: Frame = [
   '.........kkkkk..................',
 ];
 
-const F32_WAVE_0: Frame = [
+const F32_WAVE_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1120,7 +1687,7 @@ const F32_WAVE_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_WAVE_1: Frame = [
+const F32_WAVE_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1155,7 +1722,7 @@ const F32_WAVE_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SLEEP_0: Frame = [
+const F32_SLEEP_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1190,7 +1757,7 @@ const F32_SLEEP_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SLEEP_1: Frame = [
+const F32_SLEEP_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1225,7 +1792,7 @@ const F32_SLEEP_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SLEEP_2: Frame = [
+const F32_SLEEP_0_2: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1260,7 +1827,7 @@ const F32_SLEEP_2: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SLEEP_3: Frame = [
+const F32_SLEEP_0_3: Frame = [
   '................................',
   '......oo................oo......',
   '......oo................oo......',
@@ -1295,7 +1862,7 @@ const F32_SLEEP_3: Frame = [
   '........Rdddd......Rdddd........',
 ];
 
-const F32_SLEEP_4: Frame = [
+const F32_SLEEP_0_4: Frame = [
   '................................',
   '......oo................oo......',
   '......oo................oo......',
@@ -1330,7 +1897,7 @@ const F32_SLEEP_4: Frame = [
   '........Rdddd......Rdddd........',
 ];
 
-const F32_SLEEP_5: Frame = [
+const F32_SLEEP_0_5: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1365,7 +1932,7 @@ const F32_SLEEP_5: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SURPRISED_0: Frame = [
+const F32_SURPRISED_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1400,7 +1967,7 @@ const F32_SURPRISED_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_CURIOUS_0: Frame = [
+const F32_CURIOUS_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1435,7 +2002,7 @@ const F32_CURIOUS_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_CURIOUS_1: Frame = [
+const F32_CURIOUS_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1470,7 +2037,7 @@ const F32_CURIOUS_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_CURIOUS_2: Frame = [
+const F32_CURIOUS_0_2: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1505,7 +2072,7 @@ const F32_CURIOUS_2: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_CURIOUS_3: Frame = [
+const F32_CURIOUS_0_3: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1540,7 +2107,7 @@ const F32_CURIOUS_3: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_CELEBRATE_0: Frame = [
+const F32_CELEBRATE_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1575,7 +2142,7 @@ const F32_CELEBRATE_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_READING_0: Frame = [
+const F32_READING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1610,7 +2177,7 @@ const F32_READING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_READING_1: Frame = [
+const F32_READING_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1645,7 +2212,7 @@ const F32_READING_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_READING_2: Frame = [
+const F32_READING_0_2: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1680,7 +2247,7 @@ const F32_READING_2: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SEARCHING_0: Frame = [
+const F32_SEARCHING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1715,7 +2282,7 @@ const F32_SEARCHING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SEARCHING_1: Frame = [
+const F32_SEARCHING_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1750,7 +2317,7 @@ const F32_SEARCHING_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_BUILDING_0: Frame = [
+const F32_BUILDING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1785,7 +2352,42 @@ const F32_BUILDING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_WRITING_0: Frame = [
+const F32_BUILDING_1_0: Frame = [
+  '......oo.....yyyyyy.....oo......',
+  '......oo...yyyyyyyyyy...oo......',
+  '......oooonyyyyyyyyyynoooo......',
+  '.......oyyyyyyyyyyyyyyyyo.......',
+  '........ooooRRRRRRRRoooo........',
+  '........Rooookkkkkkooood........',
+  '.......RdkkkkkkkkkkkkkkdR.......',
+  '......RdkkkkokkoookokkkkdR......',
+  '......Rdkkookooooookookkdd......',
+  '.....RdkkoooeeooooeeoookkkRR....',
+  '......Rdkoooweooooweoookkdd.....',
+  '......Rdkoooeeooooeeoookkdd.....',
+  '......Rdkooooooooooooookksss....',
+  '......Rdkkooooeeeeooookkksds....',
+  '......Rdkkkkooooooookkkkdsss....',
+  '......Rkkkkkkkkkkkkkkkkkkkss....',
+  '......Rkkkkkkkkkkkkkkkkkkksw....',
+  '.....Rddkkkkkkkkkkkkkkkkdkks....',
+  '....Rdkkkkkkkooooookkkkkkkks....',
+  '...RdkkkkkkooooooooookkkkkssR...',
+  '...Rdkdkkkooooooooooookkkdkdd...',
+  '...RdkkkkkooooooooooookkkkkkdR..',
+  '...Rdkkkkkooooooooooookkkkkkdd..',
+  '..RdkkkdkkooooooooooookkdkkkkdR.',
+  '...Rdkkkkkkooooooooookkkkkkdd...',
+  '...Rdkkkkkkkkooooookkkkkkkkdd...',
+  '....Rdkkkdkkkkkkkkkkkkdkkkdd....',
+  '.....Rddddddddddddddddddddd.....',
+  '.......Rdddddddddddddddddd......',
+  '........Rdddd......Rdddd........',
+  '........Rdddd......Rdddd........',
+  '........Rd.Rd......Rd.Rd........',
+];
+
+const F32_WRITING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1820,7 +2422,7 @@ const F32_WRITING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_WRITING_1: Frame = [
+const F32_WRITING_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1855,7 +2457,42 @@ const F32_WRITING_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_STRETCHING_0: Frame = [
+const F32_WRITING_1_0: Frame = [
+  '......oo................oo......',
+  '......oo................oo......',
+  '......oooo............oooo......',
+  '.......oooo..........oooo.......',
+  '........ooooRRRRRRRRoooo........',
+  '........Rooookkkkkkooood........',
+  '.......RdkkkkkkkkkkkkkkdR.......',
+  '......RdkkkkokkoookokkkkdR......',
+  '......Rdkkookooooookookkdd......',
+  '.....RdkkooooooooooooookkkRR....',
+  '......Rdkoooweooooweoookkdd.....',
+  '......Rdkoooeeooooeeoookkdd.....',
+  '......Rdkooooooooooooookkdd.....',
+  '......Rdkkooooeeeeooookkkyy.....',
+  '......Rdkkkkoowwwwookkkkdyy.....',
+  '......Rkkkkkkkkkkkkkkkkkkkk.....',
+  '......Rkkkkkkkkkkkkkkkkkkkk.....',
+  '.....Rddkkkkkkkkkkkkkkkkdyy.....',
+  '....RdkkkkkkkooooookkkkkkyyR....',
+  '...RdkkkkkkooooooooookkkkyydR...',
+  '...Rdkdkkkooooooooooookkknndd...',
+  '...RdkkkkkooooooooooookkkkekdR..',
+  '...Rdkkkkkooooooooooookkkkkkdd..',
+  '..RdkkkdkkooooooooooookkdkkkkdR.',
+  '...Rdkkkkkkooooooooookkkkkkdd...',
+  '...Rdkkkkkkkkooooookkkkkkkkdd...',
+  '....Rdkkkdkkkkkkkkkkkkdkkkdd....',
+  '.....Rddddddddddddddddddddd.....',
+  '.......Rdddddddddddddddddd......',
+  '........Rdddd......Rdddd........',
+  '........Rdddd......Rdddd........',
+  '........Rd.Rd......Rd.Rd........',
+];
+
+const F32_STRETCHING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1890,7 +2527,7 @@ const F32_STRETCHING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_STRETCHING_1: Frame = [
+const F32_STRETCHING_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1925,7 +2562,7 @@ const F32_STRETCHING_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_STRETCHING_2: Frame = [
+const F32_STRETCHING_0_2: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1960,7 +2597,7 @@ const F32_STRETCHING_2: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_GAMING_0: Frame = [
+const F32_GAMING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -1995,7 +2632,7 @@ const F32_GAMING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_GAMING_1: Frame = [
+const F32_GAMING_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2030,7 +2667,7 @@ const F32_GAMING_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_LOVE_0: Frame = [
+const F32_LOVE_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2065,7 +2702,7 @@ const F32_LOVE_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_LOVE_1: Frame = [
+const F32_LOVE_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2100,7 +2737,7 @@ const F32_LOVE_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_COOL_0: Frame = [
+const F32_COOL_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2135,7 +2772,7 @@ const F32_COOL_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_ERROR_0: Frame = [
+const F32_ERROR_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2170,7 +2807,42 @@ const F32_ERROR_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_EXCITED_0: Frame = [
+const F32_ERROR_1_0: Frame = [
+  '......oo................oo......',
+  '......oo................oo......',
+  '......oooo............oooo......',
+  '.......oooo..........oooo.......',
+  '........ooooRRRRRRRRoooo........',
+  '........Rooookkkkkkooood........',
+  '.......RdkkkkkkkkkkkkkkdR.......',
+  '......RdkkkkokkoookokkkkdR......',
+  '......Rdkkookooooookookkdd......',
+  '.....RdkkoooeeooooeeoookkkRR....',
+  '......Rdkoooweooooweoookkdd.....',
+  '......Rdkoooeeooooeeoookkdd.....',
+  '......Rdkooooooooooooookkdd.....',
+  '......Rdkkooooeeeeooookkkdd.....',
+  '......Rdkkkkoeooooeokkkkdd......',
+  '......Rkkkkkkkkkkkkkkkkkkk......',
+  '......Rkkkkkkkkkkkkkkkkkkk......',
+  '.....RddkkkkkkkkkkkkkkkkddR.....',
+  '....RdkkkkkkkooooookkkkkkkdR....',
+  '...RdkkkkkkooooooooookkkkkkdR...',
+  '...Rdkdkkkooooooooooookkkdkdd...',
+  '...RdkkkkkooooooooooookkkkkkdR..',
+  '...Rdkkkkkooooooooooookkkkkkdd..',
+  '..RdkkkdkkooooooooooookkdkkkkdR.',
+  '...Rdkkkkkkooooooooookkkkkkdd...',
+  '...Rdkkkkkkkkooooookkkkkkkkdd...',
+  '....Rdkkkdkkkkkkkkkkkkdkkkdd....',
+  '.....Rddddddddddddddddddddd.....',
+  '.......Rdddddddddddddddddd......',
+  '........Rdddd......Rdddd........',
+  '........Rdddd......Rdddd........',
+  '........Rd.Rd......Rd.Rd........',
+];
+
+const F32_EXCITED_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2205,7 +2877,7 @@ const F32_EXCITED_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_EXCITED_1: Frame = [
+const F32_EXCITED_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2240,7 +2912,7 @@ const F32_EXCITED_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SPAWNING_0: Frame = [
+const F32_SPAWNING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2275,7 +2947,7 @@ const F32_SPAWNING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SPAWNING_1: Frame = [
+const F32_SPAWNING_0_1: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2310,7 +2982,7 @@ const F32_SPAWNING_1: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_SPAWNING_2: Frame = [
+const F32_SPAWNING_0_2: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2345,7 +3017,7 @@ const F32_SPAWNING_2: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_MEDITATING_0: Frame = [
+const F32_MEDITATING_0_0: Frame = [
   '......oo................oo......',
   '......oo................oo......',
   '......oooo............oooo......',
@@ -2380,7 +3052,7 @@ const F32_MEDITATING_0: Frame = [
   '........Rd.Rd......Rd.Rd........',
 ];
 
-const F32_MEDITATING_1: Frame = [
+const F32_MEDITATING_0_1: Frame = [
   '......oo................oo......',
   '......oooo............oooo......',
   '.......oooo..........oooo.......',
@@ -2416,29 +3088,29 @@ const F32_MEDITATING_1: Frame = [
 ];
 
 export const VARIANTS: Record<MascotState, Frame[][]> = {
-  idle       : [[F32_IDLE_0,F32_IDLE_1,F32_IDLE_2,F32_IDLE_3]],
-  typing     : [[F32_TYPING_0]],
-  thinking   : [[F32_THINKING_0,F32_THINKING_1]],
-  calling    : [[F32_CALLING_0,F32_CALLING_1]],
-  done       : [[F32_DONE_0]],
-  running    : [[F32_RUNNING_0,F32_RUNNING_1]],
-  wave       : [[F32_WAVE_0,F32_WAVE_1]],
-  sleep      : [[F32_SLEEP_0,F32_SLEEP_1,F32_SLEEP_2,F32_SLEEP_3,F32_SLEEP_4,F32_SLEEP_5]],
-  surprised  : [[F32_SURPRISED_0]],
-  curious    : [[F32_CURIOUS_0,F32_CURIOUS_1,F32_CURIOUS_2,F32_CURIOUS_3]],
-  celebrate  : [[F32_CELEBRATE_0]],
-  reading    : [[F32_READING_0,F32_READING_1,F32_READING_2]],
-  searching  : [[F32_SEARCHING_0,F32_SEARCHING_1]],
-  building   : [[F32_BUILDING_0]],
-  writing    : [[F32_WRITING_0,F32_WRITING_1]],
-  stretching : [[F32_STRETCHING_0,F32_STRETCHING_1,F32_STRETCHING_2]],
-  gaming     : [[F32_GAMING_0,F32_GAMING_1]],
-  love       : [[F32_LOVE_0,F32_LOVE_1]],
-  cool       : [[F32_COOL_0]],
-  error      : [[F32_ERROR_0]],
-  excited    : [[F32_EXCITED_0,F32_EXCITED_1]],
-  spawning   : [[F32_SPAWNING_0,F32_SPAWNING_1,F32_SPAWNING_2]],
-  meditating : [[F32_MEDITATING_0,F32_MEDITATING_1]],
+  idle       : [[F32_IDLE_0_0,F32_IDLE_0_1,F32_IDLE_0_2,F32_IDLE_0_3]],
+  typing     : [[F32_TYPING_0_0]],
+  thinking   : [[F32_THINKING_0_0,F32_THINKING_0_1], [F32_THINKING_1_0]],
+  calling    : [[F32_CALLING_0_0,F32_CALLING_0_1]],
+  done       : [[F32_DONE_0_0]],
+  running    : [[F32_RUNNING_0_0,F32_RUNNING_0_1]],
+  wave       : [[F32_WAVE_0_0,F32_WAVE_0_1]],
+  sleep      : [[F32_SLEEP_0_0,F32_SLEEP_0_1,F32_SLEEP_0_2,F32_SLEEP_0_3,F32_SLEEP_0_4,F32_SLEEP_0_5]],
+  surprised  : [[F32_SURPRISED_0_0]],
+  curious    : [[F32_CURIOUS_0_0,F32_CURIOUS_0_1,F32_CURIOUS_0_2,F32_CURIOUS_0_3]],
+  celebrate  : [[F32_CELEBRATE_0_0]],
+  reading    : [[F32_READING_0_0,F32_READING_0_1,F32_READING_0_2]],
+  searching  : [[F32_SEARCHING_0_0,F32_SEARCHING_0_1]],
+  building   : [[F32_BUILDING_0_0], [F32_BUILDING_1_0]],
+  writing    : [[F32_WRITING_0_0,F32_WRITING_0_1], [F32_WRITING_1_0]],
+  stretching : [[F32_STRETCHING_0_0,F32_STRETCHING_0_1,F32_STRETCHING_0_2]],
+  gaming     : [[F32_GAMING_0_0,F32_GAMING_0_1]],
+  love       : [[F32_LOVE_0_0,F32_LOVE_0_1]],
+  cool       : [[F32_COOL_0_0]],
+  error      : [[F32_ERROR_0_0], [F32_ERROR_1_0]],
+  excited    : [[F32_EXCITED_0_0,F32_EXCITED_0_1]],
+  spawning   : [[F32_SPAWNING_0_0,F32_SPAWNING_0_1,F32_SPAWNING_0_2]],
+  meditating : [[F32_MEDITATING_0_0,F32_MEDITATING_0_1]],
 };
 
 export const FRAMES: Record<MascotState, Frame[]> = {

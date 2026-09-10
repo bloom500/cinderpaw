@@ -40,7 +40,7 @@ ASSIGN.setdefault('calling', []).append('artboard-3cla')     # a paw and a windo
 ASSIGN.setdefault('excited', []).append('artboard-2cla')     # sparks
 
 # ---- where our creature stands, from the body we just built ----------------
-idle_rows = bodies['F32_IDLE_0']
+idle_rows = bodies['F32_IDLE_0_0']
 occupied = {(Y0 + r, FX_MARGIN_X + c)
             for rows in bodies.values()
             for r, row in enumerate(rows) for c, ch in enumerate(row) if ch != '.'}

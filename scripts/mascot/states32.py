@@ -11,7 +11,10 @@ import draft32_d as base
 from PIL import Image, ImageDraw
 
 W = H = 32
-PAL = dict(base.GEM_PAL, y='#f1c40f', b='#2980b9', r='#c0392b')
+# Same keys the app PALETTE carries: y (hat, pencil), b (controller, tear),
+# r (mouths, blush), n (hat shade, pencil tip), s (steel tools).
+PAL = dict(base.GEM_PAL, y='#f1c40f', b='#2980b9', r='#c0392b',
+           n='#e67e22', s='#7f8c8d')
 PAL['k'] = '#0d0d11'
 PAL['R'] = '#55555f'
 ORANGE = base.GEM_ORANGE
@@ -369,6 +372,49 @@ def st_building():
     return [g]
 
 
+def st_building_hat():
+    """Second building pose: the crab's hard hat and wrench, on our body.
+
+    Held props live in the frame (a paw genuinely holds them), standing props
+    live in scenes. The hat brim covers the horns' inner cells; the horns poke
+    out from under it, the way ears do under a real helmet.
+    """
+    g = fresh()
+    e_brows(g)
+    g.row(13, 14, 17, 'e')
+    g.row(0, 13, 18, 'y')
+    g.row(1, 11, 20, 'y')
+    g.row(2, 10, 21, 'y')
+    g.set(10, 2, 'n')
+    g.set(21, 2, 'n')
+    g.row(3, 8, 23, 'y')
+    for x in range(25, 28):
+        g.set(x, 12, 's')
+        g.set(x, 14, 's')
+    g.set(25, 13, 's')
+    g.set(27, 13, 's')
+    g.rect(26, 15, 27, 19, 's')
+    g.set(27, 16, 'w')
+    for x, y in ((25, 17), (26, 17), (25, 18), (26, 18)):
+        g.set(x, y, 'k')
+    return [g]
+
+
+def st_writing_pencil():
+    """Second writing pose: a pencil in the paw. Same honest rule as the
+    wrench -- if the paw does not cover the handle, it is not holding it."""
+    g = fresh()
+    m_grin(g)
+    e_open(g)
+    g.rect(25, 13, 26, 19, 'y')
+    g.set(25, 20, 'n')
+    g.set(26, 20, 'n')
+    g.set(26, 21, 'e')
+    for x, y in ((25, 15), (26, 15), (25, 16), (26, 16)):
+        g.set(x, y, 'k')
+    return [g]
+
+
 def st_writing():
     a, b = fresh(), fresh()
     m_grin(a)
@@ -429,6 +475,29 @@ def st_error():
     return [g]
 
 
+def st_error_angry():
+    """Second error face: mad, not dizzy. Failure has two moods and the app
+    can only report one state, so they take turns."""
+    g = fresh()
+    e_brows(g)
+    g.row(13, 14, 17, 'e')
+    g.set(13, 14, 'e')
+    g.set(18, 14, 'e')
+    return [g]
+
+
+def st_thinking_sad():
+    """Second thinking face: stuck, not pondering. A sad thinker reads as
+    confused, which is honest for a long silent run."""
+    g = fresh()
+    e_down(g)
+    g.row(13, 14, 17, 'e')
+    g.set(13, 14, 'e')
+    g.set(18, 14, 'e')
+    g.set(11, 12, 'b')
+    return [g]
+
+
 def st_excited():
     a, b = fresh(), fresh()
     for g in (a, b):
@@ -473,6 +542,26 @@ STATES = {
     'spawning': st_spawning, 'meditating': st_meditating,
 }
 
+# Second poses. Same body, different reading: a state that can say two true
+# things takes turns saying them (the renderer picks at random on entry).
+STATES_EXTRA = {
+    'thinking': [st_thinking_sad],
+    'building': [st_building_hat],
+    'writing': [st_writing_pencil],
+    'error': [st_error_angry],
+}
+
+
+def all_groups():
+    """Every variant group, base first: {state: [[Grid, ...], ...]}."""
+    out = {}
+    for name, fn in STATES.items():
+        out[name] = [fn()]
+    for name, fns in STATES_EXTRA.items():
+        for fn in fns:
+            out[name].append(fn())
+    return out
+
 
 def face_key(grids):
     keys = set()
@@ -483,16 +572,22 @@ def face_key(grids):
 
 
 def check():
+    # Mirrors frames.test.ts: the worn set is every face across every variant
+    # of the state, so a second pose can never silently twin another state.
+    groups = all_groups()
     seen = {}
-    idle_key = face_key([g.rows() for g in STATES['idle']()])
-    for name, fn in STATES.items():
-        frames = [g.rows() for g in fn()]
-        for f in frames:
-            assert len(f) == 32 and all(len(r) == 32 for r in f), name
-            for r in f:
-                for ch in r:
-                    assert ch in PAL or ch in ('.', 'o'), (name, ch)
-        key = face_key(frames)
+    idle_key = face_key([g.rows() for grp in groups['idle'] for g in grp])
+    for name, variants in groups.items():
+        worn = set()
+        for grp in variants:
+            frames = [g.rows() for g in grp]
+            for f in frames:
+                assert len(f) == 32 and all(len(r) == 32 for r in f), name
+                for r in f:
+                    for ch in r:
+                        assert ch in PAL or ch in ('.', 'o'), (name, ch)
+            worn.add(face_key(frames))
+        key = '//'.join(sorted(worn))
         if name != 'idle':
             assert key != idle_key, '%s matches idle' % name
         assert key not in seen.values(), '%s twins %s' % (

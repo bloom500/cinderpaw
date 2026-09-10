@@ -77,7 +77,7 @@ for sheet in range((len(items) + PER - 1) // PER):
         for x, y, c in px:
             d.rectangle([ox + x * S, oy + y * S, ox + x * S + S - 1, oy + y * S + S - 1], rgb(c))
         # The resting body scenes are placed against (first idle frame).
-        for r, row in enumerate(frames['F32_IDLE_0']):
+        for r, row in enumerate(frames['F32_IDLE_0_0']):
             for c, ch in enumerate(row):
                 if ch == '.':
                     continue

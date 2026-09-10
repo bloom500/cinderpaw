@@ -69,7 +69,7 @@ for i, name in enumerate(names):
                         rgb(v['colors'][int(ch, 16)]))
     for x, y, c in px:
         d.rectangle([cellW + x * S, oy + y * S, cellW + x * S + S - 1, oy + y * S + S - 1], rgb(c))
-    for r, row in enumerate(frames['F32_IDLE_0']):
+    for r, row in enumerate(frames['F32_IDLE_0_0']):
         for c, ch in enumerate(row):
             if ch == '.':
                 continue
