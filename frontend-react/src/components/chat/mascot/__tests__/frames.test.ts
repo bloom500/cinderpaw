@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FRAMES, VARIANTS, FRAME_W, FRAME_H, PALETTE, type MascotState } from '../frames';
+import { FRAMES, VARIANTS, FRAME_W, FRAME_H, PALETTE, BODY_SHADE, type MascotState } from '../frames';
 
 const ALL_STATES: MascotState[] = [
   'idle', 'typing', 'thinking', 'calling', 'done', 'running',
@@ -195,5 +195,53 @@ describe('mascot variants', () => {
       const allSame = variant.every(f => f.join('') === variant[0].join(''));
       expect(allSame, `first variant of ${s} should animate`).toBe(false);
     }
+  });
+});
+
+describe('the creature is visible on the app it lives in', () => {
+  // This is the measurement that explained why the mascot could not be
+  // animated. At #1c1c1e the fur was 1.03:1 against the app's own dark
+  // surface -- three percent apart, so the whole body was invisible and only
+  // the orange face floated there. Ten different limb placements were drawn
+  // and every one read as a dot in mid-air, because the silhouette they should
+  // have hung off did not exist on screen.
+  //
+  // Lifting one shared colour would have taken the eyes with it, since they sit
+  // on the orange patch. So `k` is fur and `e` is ink, and each has its own
+  // floor here.
+  const DARK_SURFACE = '#1C1916';   // --bg-surface, dark theme
+  const LIGHT_SURFACE = '#F5EBE0';  // --bg-surface, light theme
+
+  const parse = (hex: string) =>
+    [0, 2, 4].map((i) => parseInt(hex.replace('#', '').slice(i, i + 2), 16));
+  const srgbToLinear = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = (hex: string) => {
+    const [r, g, b] = parse(hex).map(srgbToLinear);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a: string, b: string) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  it('the fur has a silhouette on both themes', () => {
+    const fur = PALETTE.k!;
+    expect(contrast(fur, DARK_SURFACE), `fur ${fur} on the dark surface`).toBeGreaterThan(1.6);
+    expect(contrast(fur, LIGHT_SURFACE), `fur ${fur} on the light surface`).toBeGreaterThan(1.6);
+  });
+
+  it('the eyes stay crisp on the face they are drawn on', () => {
+    // Mid-face tone, from the row shading ramp where the eyes sit.
+    const FACE = BODY_SHADE[6];
+    expect(contrast(PALETTE.e!, FACE), `ink ${PALETTE.e} on face ${FACE}`).toBeGreaterThan(4.5);
+  });
+
+  it('fur and ink are not the same colour', () => {
+    // They were, and that is the whole bug: one value could not be both a
+    // visible body and a sharp pupil.
+    expect(PALETTE.k).not.toBe(PALETTE.e);
   });
 });
