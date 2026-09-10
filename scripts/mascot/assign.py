@@ -25,7 +25,12 @@ ASSIGN = {
     # the turn ended
     'done':      ['with-success-checkmark', 'success-achievement-milestone', 'trending-up-pixel'],
     'celebrate': ['happy-pixel-celebrating', 'rocket-launch-success'],
-    'excited':   ['idea-lightbulb-pixel', 'in-glowing-aura', 'angry-powerful-lightning'],
+    'excited':   ['idea-lightbulb-pixel', 'angry-powerful-lightning'],
+
+    # `in-glowing-aura` sat under `excited`, where it read as nothing. It is a
+    # creature sitting still with light coming off it, which is the one thing
+    # the app does for six seconds at a time and never showed.
+    'meditating': ['in-glowing-aura'],
 
     # something went wrong
     'error': ['system-error-alert', 'error-state-pixel', 'marking-critical-error',

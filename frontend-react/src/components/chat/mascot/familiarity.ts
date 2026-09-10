@@ -136,20 +136,23 @@ export function forcedTier(): BondTier | null {
  * waits differently between them.
  */
 export interface BondTraits {
-  /** Pokes in one bout before being startled turns into being pleased. */
-  pokesToSmitten: number;
-  /** First touch of a bout. A stranger is startled; a friend says hello. */
+  /** How it answers the end of a turn. A stranger is startled by the thing it
+   *  just did; one that has been around a while says hello about it. */
   greeting: 'surprised' | 'wave';
-  /** How long the smitten reaction holds, in ms. */
+  /** How long it holds the moment the tier goes up, in ms. */
   smittenMs: number;
 }
 
+// `pokesToSmitten` was the third of these, and it is gone: pokes no longer
+// strike a pose at all. A creature that lives beside the text field is hovered
+// and clicked by accident dozens of times an hour, and a reaction that common
+// is not a reaction.
 export function traitsFor(tier: BondTier): BondTraits {
   switch (tier) {
-    case 3: return { pokesToSmitten: 1, greeting: 'wave', smittenMs: 2_600 };
-    case 2: return { pokesToSmitten: 2, greeting: 'wave', smittenMs: 2_200 };
-    case 1: return { pokesToSmitten: 3, greeting: 'surprised', smittenMs: 2_000 };
-    default: return { pokesToSmitten: 3, greeting: 'surprised', smittenMs: 1_800 };
+    case 3: return { greeting: 'wave', smittenMs: 2_600 };
+    case 2: return { greeting: 'wave', smittenMs: 2_200 };
+    case 1: return { greeting: 'surprised', smittenMs: 2_000 };
+    default: return { greeting: 'surprised', smittenMs: 1_800 };
   }
 }
 
@@ -165,7 +168,13 @@ export function traitsFor(tier: BondTier): BondTraits {
 export function useBond(): { tier: BondTier; traits: BondTraits; remember: (of: keyof Bond) => void } {
   const bond = useRef<Bond>(EMPTY_BOND);
   const counted = useRef(false);
-  const [tier, setTier] = useState<BondTier>(0);
+  // Read from storage during the FIRST render, not in an effect afterwards.
+  // Anything watching this value has to be able to tell "you have been here a
+  // while" from "you just crossed a threshold", and a tier that starts at 0
+  // and jumps to its real value one tick later is indistinguishable from
+  // earning it on the spot. `loadBond` cannot throw; a blocked or absent
+  // localStorage reads as a fresh install, which is tier 0 either way.
+  const [tier, setTier] = useState<BondTier>(() => forcedTier() ?? tierFor(loadBond()));
 
   useEffect(() => {
     // Guarded because React's development double-mount would otherwise count

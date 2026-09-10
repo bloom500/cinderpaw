@@ -42,14 +42,13 @@ describe('traits', () => {
   it('every tier is a complete creature, tier 0 included', () => {
     for (const t of [0, 1, 2, 3] as const) {
       const tr = traitsFor(t);
-      expect(tr.pokesToSmitten).toBeGreaterThan(0);
       expect(tr.smittenMs).toBeGreaterThan(0);
       expect(['surprised', 'wave']).toContain(tr.greeting);
     }
   });
 
   it('a familiar creature warms up in fewer pokes', () => {
-    expect(traitsFor(3).pokesToSmitten).toBeLessThan(traitsFor(0).pokesToSmitten);
+    expect(traitsFor(3).smittenMs).toBeGreaterThan(traitsFor(0).smittenMs);
   });
 });
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CinderpawMascot, DISPLAY, usePrefersReducedMotion } from './CinderpawMascot';
 import { ToolCallStack } from './ToolCallStack';
 import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from './physics';
-import { useBond } from './familiarity';
+import { useBond, type BondTier } from './familiarity';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
@@ -96,9 +96,6 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   /** A reaction to something the person did. Outranks idle, never outranks the
    *  agent: see the resolve step below. */
   const [reaction, setReaction] = useState<MascotState | null>(null);
-  /** The pointer is on it right now. Not a timed reaction: it lasts exactly as
-   *  long as the cursor does, which is the point. */
-  const [noticed, setNoticed] = useState(false);
   const [dozing, setDozing] = useState(false);
   const reactionTimer = useRef<number | null>(null);
   const pokes = useRef<{ count: number; last: number }>({ count: 0, last: 0 });
@@ -111,7 +108,7 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
    * and how long it holds them. Tier 0 is a complete creature on its own; the
    * rest is what a stranger turns into.
    */
-  const { traits, remember } = useBond();
+  const { tier, traits, remember } = useBond();
 
   // A turn that finished is time spent working together, and it is worth more
   // to the bond than poking is. Only success counts: a creature that gets
@@ -142,6 +139,26 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     }, holdMs);
   }, []);
 
+  /**
+   * The one time the bond is allowed to show its face.
+   *
+   * The tier used to be legible through poking: a stranger was startled by a
+   * click, a friend waved at it. With clicks no longer posing, the traits had
+   * nowhere left to land, and a tier nothing can observe is a counter, not a
+   * relationship. So it lands on the moment it is actually about -- the tier
+   * going UP, which happens about three times in a creature's life and never
+   * because a cursor went past.
+   *
+   * The first value after load is skipped: somebody returning at tier 3 has
+   * not just earned it.
+   */
+  const knownTier = useRef<BondTier | null>(null);
+  useEffect(() => {
+    const was = knownTier.current;
+    knownTier.current = tier;
+    if (was !== null && tier > was) react('love', traits.smittenMs);
+  }, [tier, traits, react]);
+
   // Cleared on unmount, so a reaction started a moment before the composer
   // goes away cannot land on a component that is no longer there.
   useEffect(
@@ -156,10 +173,10 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   // poke, or the pointer arriving cancels it by resetting the effect.
   useEffect(() => {
     setDozing(false);
-    if (reduced || baseState !== 'idle' || reaction !== null || noticed) return;
+    if (reduced || baseState !== 'idle' || reaction !== null) return;
     const t = window.setTimeout(() => setDozing(true), SLEEP_AFTER_MS);
     return () => window.clearTimeout(t);
-  }, [baseState, reaction, noticed, reduced]);
+  }, [baseState, reaction, reduced]);
 
   // Resolve, in priority order. The agent's own state is INFORMATION — what it
   // is thinking, reading, calling — and a poke must not paint over it, so a
@@ -167,29 +184,32 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   useEffect(() => {
     if (baseState !== 'idle') setRenderState(baseState);
     else if (reaction) setRenderState(reaction);
-    else if (noticed) setRenderState('curious');
     else if (dozing) setRenderState('sleep');
     else setRenderState('idle');
-  }, [baseState, reaction, noticed, dozing]);
+  }, [baseState, reaction, dozing]);
 
-  const onLeave = useCallback(() => setNoticed(false), []);
-
+  /**
+   * A touch is remembered, and it is not performed.
+   *
+   * Hovering and clicking used to change the pose: the cursor crossing the
+   * composer made it curious, a click startled it, three clicks made it
+   * smitten. On a creature that lives beside the text field the pointer
+   * crosses by ACCIDENT, dozens of times an hour, and a pose that fires that
+   * often stops being a reaction and becomes noise -- the reported complaint,
+   * and the same reason the old scripted idle loop was deleted.
+   *
+   * So the states did not go anywhere; what changed is what wakes them. They
+   * are on the agent's real work now, in `useMascotState`, and the bond still
+   * counts every touch: how well it knows you was never about the pose it
+   * struck at the time.
+   */
   const poke = useCallback(() => {
     const now = Date.now();
     const p = pokes.current;
     p.count = now - p.last < POKE_BOUT_MS ? p.count + 1 : 1;
     p.last = now;
     remember('pokes');
-    if (p.count >= traits.pokesToSmitten) {
-      p.count = 0;
-      react('love', traits.smittenMs);
-    } else {
-      // A stranger being touched is startled by it. One that has been around
-      // for a while has seen the cursor coming and greets it instead, which is
-      // the same gesture reading as two different creatures.
-      react(traits.greeting, POKED_MS);
-    }
-  }, [react, remember, traits]);
+  }, [remember]);
 
   // ---- picked up, thrown, dropped -------------------------------------
   //
@@ -400,8 +420,6 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
           // snapping back.
           transition: squash === 1 ? `transform ${SQUASH_MS}ms ease-out` : 'none',
         }}
-        onPointerEnter={() => setNoticed(true)}
-        onPointerLeave={onLeave}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}

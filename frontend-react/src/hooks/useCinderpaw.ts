@@ -37,7 +37,6 @@ import {
 } from '@/lib/cinderpawLiveSession';
 import { extractMainArg } from '@/components/chat/mascot/extractMainArg';
 import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
-import type { MascotState } from '@/components/chat/mascot/frames';
 
 interface StreamCallbacks {
   onToken:      (chunk: string) => void;
@@ -57,10 +56,6 @@ interface StreamCallbacks {
   chatMessageId: string;
 }
 
-interface MascotStateSink {
-  setMascotState(state: MascotState): void;
-}
-
 /**
  * Coerce a tool result of unknown shape into an ok/error boolean.
  *
@@ -76,7 +71,6 @@ function isOkResult(result: unknown): boolean {
   return true;
 }
 
-export { type MascotStateSink };
 
 /**
  * Join two answer segments with a blank line. Multi-step agent turns emit
@@ -169,7 +163,15 @@ export function useCinderpawStream(chatSessionId: string) {
   return { send };
 }
 
-export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: MascotStateSink) {
+/**
+ * `mascotSink` is gone from here.
+ *
+ * It was an optional parameter nothing ever passed, so the two states it drove
+ * -- `cool` after a tool-heavy turn, `error` after a failed one -- could not be
+ * reached by any user. Both are on real signals in `useMascotState` now, which
+ * reads the same store this would have written to.
+ */
+export function useCinderpawSendMessage(chatSessionId: string) {
   const { send } = useCinderpawStream(chatSessionId);
 
   return useCallback(
@@ -432,15 +434,11 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
             setTimeout(() => useChat.getState().clearToolCallStream(), 5000);
           }
           if (joinSegments(state.committed, state.answer).trim().length > 0) await persistFinal();
-          if (state.toolCallCount > 3 && mascotSink) {
-            mascotSink.setMascotState('cool');
-          }
           useConversations.getState().unmarkStreaming(sessionId);
         },
         onError: (err) => {
           endLiveSession(sessionId);
           if (isActive()) useChat.getState().setStreamStatus('error', err);
-          if (mascotSink) mascotSink.setMascotState('error');
           void persistFinal().finally(() => {
             useConversations.getState().unmarkStreaming(sessionId);
           });
@@ -464,7 +462,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         },
       }, images, opts?.surface);
     },
-    [send, mascotSink],
+    [send],
   );
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useChat } from '@/stores/chat';
 import type { StreamStatus, AgentPhase } from '@/stores/chat';
 import { useAskUser } from '@/stores/askUser';
 import { useCinderpawStore } from '@/stores/cinderpaw';
@@ -6,6 +7,12 @@ import type { MascotState } from './frames';
 
 export const DONE_HOLD_MS = 1200;
 export const COOL_HOLD_MS = DONE_HOLD_MS * 2;
+/** A turn that reached for this many tools was not a question, it was a job. */
+export const COOL_TOOLS = 4;
+/** Thinking for longer than this stops being a pause and becomes a sit. */
+export const MEDITATE_AFTER_MS = 6_000;
+/** How long the creature acknowledges its own helpers arriving. */
+export const SPAWN_HOLD_MS = 1_400;
 export const EXCITED_HOLD_MS = 800;
 export const ERROR_HOLD_MS = 1600;
 
@@ -35,8 +42,56 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
   // user) and "my agent process is down" (sidecar offline → asleep).
   const askPending = useAskUser((s) => s.pending !== null);
   const agentOffline = useCinderpawStore((s) => s.offline);
+  // Three states used to be unreachable -- nothing in the app could ever put
+  // the creature in them -- and `cool` had a hold constant sitting here with
+  // no caller. They are on real events now: helpers arriving, a turn that did
+  // a lot of work, and a long think.
+  const toolCount = useChat((s) => s.toolCallStream.length);
+  // Helpers are not a separate map: they land in the tool strip as entries of
+  // kind `worker`, which is the only place the app records them at all.
+  const workerCount = useChat((s) => s.toolCallStream.filter((e) => e.kind === 'worker').length);
 
   const isExcitedTransition = streamStatus === 'streaming' && prevStatus.current !== 'streaming' && idleTier.current > 0;
+
+  /**
+   * A long think is a sit, not a pause.
+   *
+   * `thinking` is the phase the agent spends the most time in and it looked
+   * identical at half a second and at half a minute. Past six seconds the
+   * creature settles instead: eyes closed, paws down, and the aura from the
+   * reference pack around it -- which is what that illustration always was,
+   * and it had been filed under `excited` where it made no sense at all.
+   */
+  const [meditating, setMeditating] = useState(false);
+  useEffect(() => {
+    if (streamStatus !== 'streaming' || agentPhase !== 'thinking') {
+      setMeditating(false);
+      return;
+    }
+    const id = setTimeout(() => setMeditating(true), MEDITATE_AFTER_MS);
+    return () => clearTimeout(id);
+  }, [streamStatus, agentPhase]);
+
+  // Helpers arriving is something the person should see happen, once, rather
+  // than a count that changes silently in a panel.
+  const [spawned, setSpawned] = useState(false);
+  const prevWorkers = useRef(workerCount);
+  useEffect(() => {
+    const grew = workerCount > prevWorkers.current;
+    prevWorkers.current = workerCount;
+    if (!grew) return;
+    setSpawned(true);
+    const id = setTimeout(() => setSpawned(false), SPAWN_HOLD_MS);
+    return () => clearTimeout(id);
+  }, [workerCount]);
+
+  // How much work the turn that just ended actually did. Read at the moment it
+  // ends, because the strip is cleared a few seconds later.
+  const toolsThisTurn = useRef(0);
+  useEffect(() => {
+    if (streamStatus === 'streaming') toolsThisTurn.current = toolCount;
+    if (streamStatus === 'idle') toolsThisTurn.current = 0;
+  }, [streamStatus, toolCount]);
 
   useEffect(() => {
     if (streamStatus === 'done' && prevStatus.current !== 'done') {
@@ -70,10 +125,12 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
 
   if (agentOffline) return 'sleep';
   if (errorActive) return 'error';
-  if (doneActive) return 'done';
+  if (doneActive) return toolsThisTurn.current >= COOL_TOOLS ? 'cool' : 'done';
+  if (spawned) return 'spawning';
   if (excitedActive) return 'excited';
   if (askPending) return 'curious';
   if (streamStatus === 'streaming') {
+    if (meditating) return 'meditating';
     switch (agentPhase) {
       case 'calling':   return 'calling';
       case 'reading':   return 'reading';

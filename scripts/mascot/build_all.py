@@ -78,6 +78,30 @@ def place(name):
     W, H = p['body']
     raw = [(axis(dc, W, ourLeft, ourRight, ourW), axis(dr, H, ourTop, ourBottom, ourH), col)
            for dr, dc, col in p['scene']]
+
+    # Some props are not standing NEXT to the creature, they are standing
+    # AROUND it: the glow of `in-glowing-aura` is drawn on all four sides at
+    # once. Sliding one of those to find three cells of air is the wrong move
+    # and it shows -- the aura ends up bunched on the right, which is a light
+    # source in the room rather than a creature that is glowing. A scene with
+    # cells on both sides of the body was composed around it, so it is left
+    # where it was mapped, and only the cells that land ON the creature go.
+    above = any(dr < 0 for dr, _, _ in p['scene'])
+    below = any(dr >= H for dr, _, _ in p['scene'])
+    leftof = any(dc < 0 for _, dc, _ in p['scene'])
+    rightof = any(dc >= W for _, dc, _ in p['scene'])
+    wraps = (above and below) or (leftof and rightof)
+    if wraps:
+        seen, kept = set(), []
+        for x, y, col in raw:
+            if not (0 <= x < CANVAS_W and 0 <= y and y + 1 < CANVAS_H):
+                continue
+            if (y, x) in occupiedLift or (y, x) in seen:
+                continue
+            seen.add((y, x))
+            kept.append([x, y, col])
+        return kept
+
     best = None
     for dy in range(-34, 16):
         for dx in range(-28, 29):

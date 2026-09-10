@@ -6,7 +6,7 @@ const ALL_STATES: MascotState[] = [
   'wave', 'sleep', 'surprised', 'curious', 'celebrate',
   'reading', 'searching', 'building', 'writing',
   'stretching', 'gaming', 'love', 'cool', 'error', 'excited',
-  'spawning',
+  'spawning', 'meditating',
 ];
 
 describe('mascot frames', () => {

@@ -45,7 +45,7 @@ def creature_cells(v):
 WHITES = {'#fff', '#ffffff', '#fefefe'}
 
 
-def strip_leftovers(cells, colors):
+def strip_leftovers(cells, box):
     """Remove what is left of THEIR character after the body is subtracted.
 
     Subtracting the largest run of body colour finds one creature. The sheets
@@ -59,12 +59,22 @@ def strip_leftovers(cells, colors):
 
     - every pixel of body colour goes, not only the largest blob. That colour IS
       their character; nothing else in the pack is drawn in it.
-    - white in runs shorter than six cells goes. A face is specks; a sheet of
-      paper or a highlight is a slab, and slabs stay.
+    - white in runs shorter than six cells goes, but ONLY where a face can be:
+      inside the creature's own box, or right beside a patch of body colour
+      that was just removed, which is where a SECOND character's face was.
+
+    Anywhere else, small white is a prop and stays. The first version of this
+    rule stripped every short white run, and it ate the rays of
+    `in-glowing-aura` -- the one illustration in the pack that is a creature
+    glowing, and the reason there is a `meditating` state at all.
 
     Coloured specks are left alone. Sparkles, confetti and light rays are small
     on purpose, and they are props.
     """
+    r0, r1, c0, c1 = box
+    theirs = {(r, c) for r, c, col in cells if col == BODY}
+    near_theirs = {(r + dy, c + dx) for r, c in theirs
+                   for dy in (-2, -1, 0, 1, 2) for dx in (-2, -1, 0, 1, 2)}
     keep = [c for c in cells if c[2] != BODY]
     white = {(r, c) for r, c, col in keep if col.lower() in WHITES}
     doomed, seen = set(), set()
@@ -82,7 +92,10 @@ def strip_leftovers(cells, colors):
                     if n in white and n not in seen:
                         seen.add(n)
                         stack.append(n)
-        if len(comp) < 6:
+        if len(comp) >= 6:
+            continue
+        in_box = all(r0 <= r <= r1 and c0 <= c <= c1 for r, c in comp)
+        if in_box or (comp & near_theirs):
             doomed |= comp
     return [c for c in keep if (c[0], c[1]) not in doomed]
 
@@ -105,7 +118,7 @@ for name, v in ref.items():
             if ink and ch == ink and r0 <= r <= r1 and c0 <= c <= c1:
                 continue
             scene.append([r - r0, c - c0, v['colors'][int(ch, 16)]])
-    scene = strip_leftovers(scene, v['colors'])
+    scene = strip_leftovers(scene, (0, r1 - r0, 0, c1 - c0))
     out[name] = {
         'body': [c1 - c0 + 1, r1 - r0 + 1],
         'bodyCells': len(body),

@@ -3,7 +3,7 @@ export type MascotState =
   | 'wave' | 'sleep' | 'surprised' | 'curious' | 'celebrate'
   | 'reading' | 'searching' | 'building' | 'writing'
   | 'stretching' | 'gaming' | 'love' | 'cool' | 'error' | 'excited'
-  | 'spawning';
+  | 'spawning' | 'meditating';
 
 export const FRAME_W = 16;
 export const FRAME_H = 16;
@@ -1937,6 +1937,44 @@ const SPA: Frame = [
   '....kk....kk....'
 ];
 
+const MEDI1: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkokkkookkkokk.',
+  '.kkooowwwwoookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kookooooooookook',
+  'kookooooooookook',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
+const MEDI2: Frame = [
+  '...o........o...',
+  '..oo..kkkk..oo..',
+  '..ookkkkkkkkoo..',
+  '.kkkkkkkkkkkkkk.',
+  '.kkooooooooookk.',
+  '.kkooooooooookk.',
+  '.kkokkkookkkokk.',
+  '.kkoooowwooookk.',
+  'kkkooooooooookkk',
+  'kkkkkooooookkkkk',
+  'kookooooooookook',
+  'kookooooooookook',
+  'kkkkkooooookkkkk',
+  '.kkkkkkkkkkkkkk.',
+  '....kkk..kkk....',
+  '....kk....kk....'
+];
+
 export const VARIANTS: Record<MascotState, Frame[][]> = {
   idle:      [[SPA,SPA,SPA,IDLE_BLINK],[IMA,IMB],[IBA,IBB,IBC],[IBRA,IBRB],[ISA],[ISIT1,ISIT2]],
   typing:    [[TYPING],[TCA,TCB],[TCC]],
@@ -1960,6 +1998,7 @@ export const VARIANTS: Record<MascotState, Frame[][]> = {
   error:     [[EXA],[EDA],[ESA]],
   excited:   [[EXC1,EXC2]],
   spawning:  [[SPA,SPB,SPC]],
+  meditating:[[MEDI1,MEDI2]],
 };
 
 export const FRAMES: Record<MascotState, Frame[]> = {
@@ -1971,4 +2010,5 @@ export const FRAMES: Record<MascotState, Frame[]> = {
   writing:VARIANTS.writing[0],stretching:VARIANTS.stretching[0],gaming:VARIANTS.gaming[0],
   love:VARIANTS.love[0],cool:VARIANTS.cool[0],error:VARIANTS.error[0],
   excited:VARIANTS.excited[0],spawning:VARIANTS.spawning[0],
+  meditating:VARIANTS.meditating[0],
 };
