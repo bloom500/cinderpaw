@@ -11,3 +11,6 @@ meditating.png
 fur-contrast.png
 frames-sheet.png
 frames-sheet.json
+sheet-tags.json
+to_aseprite.lua
+*.gif

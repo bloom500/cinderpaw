@@ -30,6 +30,7 @@ exactly how they were described the first time anyone looked at them closely:
     compare.py    one illustration, reference beside ours, for the same reason
     faces.py      every state's face side by side
     sheet.py      the sprite sheet out to a PNG and back, for drawing by hand
+    to_aseprite.py  the same sheet as an Aseprite file, one tag per state
     assign.py     assign each of the 75 illustrations to the app state it
                   actually describes
     place.py      anchor a scene to the side of OUR body it was composed on,
@@ -122,4 +123,25 @@ Two things to know before drawing in it:
   pixel does nothing -- the ramp wins.
 - Transparent is `.` and has to stay genuinely transparent. A cell filled with
   the background colour is not empty and comes back as a pixel.
+
+## Animating it
+
+`sheet.py` moves pixels. This moves the ANIMATION: it lays the sheet out as real
+Aseprite frames, in the order each state plays them, with a tag over each run.
+Onion skin, tweening, playback and frame diffing all address tags and frames, so
+without this the editor sees a grid of unrelated cells and none of them work.
+
+    python sheet.py export
+    python to_aseprite.py
+    aseprite -b --script to_aseprite.lua     # writes D:/build/asetest/cinderpaw.aseprite
+
+118 frames, 62 tags, at the app's own `FRAME_MS`. An animation previewed at the
+wrong speed is a different animation.
+
+Aseprite is not on this machine by default and is not free. It was built from
+source on 2026-09-10 into `D:/build/aseprite/build/bin/aseprite.exe`; the source
+licence allows compiling for personal use but not redistributing the binary. If
+it has to be rebuilt: `git clone --depth 1 --recursive` reports success and
+leaves five third_party submodules EMPTY, and `submodule update --init
+--recursive` then exits 0 without fixing them. Only `--force` populates them.
 
