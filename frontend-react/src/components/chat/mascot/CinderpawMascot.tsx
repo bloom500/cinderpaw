@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { VARIANTS, PALETTE, BODY_SHADE, BODY_CHAR, FRAME_W, FRAME_H, type MascotState, type Frame } from './frames';
 import { EFFECTS, FX_MARGIN_X, FX_MARGIN_TOP } from './effects';
+import { pawsFor } from './scenes';
 
 const FRAME_MS = 160;
 const SPRITE_H = FRAME_H + 2; // body rows + 1px bob headroom
@@ -111,6 +112,17 @@ export function CinderpawMascot({ state, flip = false }: { state: MascotState; f
         ctx.fillStyle = color;
         ctx.fillRect(FX_MARGIN_X + c, y0 + r, 1, 1);
       }
+    }
+
+    // The paws that belong to THIS scene, drawn after the body and with the
+    // body's own offset, so they rise and fall with it. They are not in the
+    // sprite sheet because they do not belong to the state: `reading` reaches
+    // for a scroll on its left and a log on its right depending on which scene
+    // came up, and a frame cannot know that. Same shading ramp as the body, so
+    // a paw is lit like the flank it rests on.
+    for (const [c, r] of pawsFor(state)) {
+      ctx.fillStyle = BODY_SHADE[r] ?? BODY_SHADE[BODY_SHADE.length - 1];
+      ctx.fillRect(FX_MARGIN_X + c, y0 + r, 1, 1);
     }
   }, [state, reduced, flip]);
 

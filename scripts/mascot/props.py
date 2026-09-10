@@ -13,6 +13,63 @@ INK = '#2f2f38'
 ref = json.loads(io.open('refpack.json', encoding='utf-8').read())
 
 
+def body_runs(v):
+    """Every connected run of body colour, largest first."""
+    idx = {c: i for i, c in enumerate(v['colors'])}
+    if BODY not in idx:
+        return []
+    b = '%x' % idx[BODY]
+    rows = v['rows']
+    H, W = len(rows), len(rows[0])
+    seen, out = set(), []
+    for r in range(H):
+        for c in range(W):
+            if rows[r][c] != b or (r, c) in seen:
+                continue
+            comp, stack = set(), [(r, c)]
+            seen.add((r, c))
+            while stack:
+                y, x = stack.pop()
+                comp.add((y, x))
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < H and 0 <= nx < W and (ny, nx) not in seen and rows[ny][nx] == b:
+                        seen.add((ny, nx))
+                        stack.append((ny, nx))
+            out.append(comp)
+    return sorted(out, key=len, reverse=True)
+
+
+HAND_MIN, HAND_MAX, HAND_REACH = 2, 14, 6
+
+
+def hands_of(runs, box):
+    """Where the reference creature put its HANDS in this illustration.
+
+    Its hands are not jointed to it. They are small separate blobs of body
+    colour placed against whatever it is using: two on the barbell, one on the
+    scroll, two up beside the banner. So the largest run is the creature and a
+    small run near it is a hand, and the offset of that hand from the creature's
+    box is the whole composition -- it says this illustration is one where the
+    creature is DOING the thing, and on which side, and how high.
+
+    45 of the 73 have none, and that is the honest answer for them: in those
+    the creature is just standing next to the object.
+    """
+    r0, r1, c0, c1 = box
+    out = []
+    for run in runs[1:]:
+        if not (HAND_MIN <= len(run) <= HAND_MAX):
+            continue
+        hr = min(r for r, _ in run)
+        hc = min(c for _, c in run)
+        near = (r0 - HAND_REACH <= hr <= r1 + HAND_REACH
+                and c0 - HAND_REACH <= hc <= c1 + HAND_REACH)
+        if near:
+            out.append([hr - r0, hc - c0])
+    return out
+
+
 def creature_cells(v):
     """Largest connected run of body colour, plus any ink inside its box."""
     idx = {c: i for i, c in enumerate(v['colors'])}
@@ -123,6 +180,7 @@ for name, v in ref.items():
         'body': [c1 - c0 + 1, r1 - r0 + 1],
         'bodyCells': len(body),
         'scene': scene,
+        'hands': hands_of(body_runs(v), (r0, r1, c0, c1)),
     }
 
 io.open('props.json', 'w', encoding='utf-8').write(json.dumps(out, separators=(',', ':')))

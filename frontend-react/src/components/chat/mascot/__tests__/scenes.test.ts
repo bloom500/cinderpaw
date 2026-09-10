@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SCENES, sceneFor } from '../scenes';
+import { SCENES, PAWS, sceneFor, pawsFor } from '../scenes';
 import { FX_MARGIN_X, FX_MARGIN_TOP } from '../effects';
 import { VARIANTS, FRAME_W, FRAME_H, type MascotState } from '../frames';
 
@@ -89,3 +89,44 @@ describe('mascot scenes', () => {
 // Referenced so a change to the sprite size is a compile error here too.
 void FRAME_W;
 void FRAME_H;
+
+describe('mascot paws', () => {
+  it('a paw is always on the creature, never in the air', () => {
+    // The paws are lifted from the reference the same way the scenes are, and
+    // they are mapped rather than copied: their creature is a different animal
+    // at a different size, so a copied offset lands beside ours instead of on
+    // it. Every paw cell has to be inside the frame and on a row the body
+    // actually occupies -- above row 2 is the horns and below row 11 is the
+    // feet, and a paw in either place reads as a lump, not a hand.
+    for (const [state, group] of Object.entries(PAWS)) {
+      group.forEach((scene, i) => {
+        for (const [c, r] of scene) {
+          expect(c, `${state} scene ${i + 1}: column ${c}`).toBeGreaterThanOrEqual(0);
+          expect(c, `${state} scene ${i + 1}: column ${c}`).toBeLessThan(FRAME_W);
+          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeGreaterThanOrEqual(2);
+          expect(r, `${state} scene ${i + 1}: row ${r}`).toBeLessThanOrEqual(11);
+        }
+      });
+    }
+  });
+
+  it('every scene has a paw list, so the two can never drift apart', () => {
+    // `pawsFor` indexes PAWS with the choice `sceneFor` made in SCENES. If one
+    // state had more scenes than paw lists, a scene change would silently start
+    // reaching for the wrong thing.
+    for (const [state, scenes] of Object.entries(SCENES)) {
+      expect(PAWS[state as MascotState]?.length, `${state} paw lists`).toBe(scenes.length);
+    }
+  });
+
+  it('the paws follow the scene that is actually showing', () => {
+    // Entering a state advances the choice once; asking again while it is still
+    // that state must not advance it, or the creature reaches for a prop that
+    // is no longer there.
+    sceneFor('idle', 0);
+    const scene = sceneFor('reading', 0);
+    const paws = pawsFor('reading');
+    expect(pawsFor('reading')).toEqual(paws);
+    expect(sceneFor('reading', 0)).toEqual(scene);
+  });
+});

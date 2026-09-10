@@ -30,13 +30,17 @@ props = json.loads(io.open('props.json', encoding='utf-8').read())
 ASSIGN = json.loads(io.open('assign.json', encoding='utf-8').read())
 
 # The accessory sheets, used only where the fragment has a shape of its own.
-ASSIGN.setdefault('wave', []).append('artboard-24cla')       # a "hi" and two arms
+# It reads OM, in letters, with sparks either side. It was filed under `wave`
+# because it looked like a greeting at thumbnail size; rendered next to the
+# creature it is unmistakably somebody sitting and humming.
+ASSIGN.setdefault('meditating', []).append('artboard-24cla')
 ASSIGN.setdefault('celebrate', []).append('artboard-4cla')   # a burst
 ASSIGN.setdefault('done', []).append('artboard-25cla3')      # an arrow, climbing
 ASSIGN.setdefault('calling', []).append('artboard-3cla')     # a paw and a window
 ASSIGN.setdefault('excited', []).append('artboard-2cla')     # sparks
 
 # ---- where our creature stands, from the body we just built ----------------
+idle_rows = bodies['SPA']
 occupied = {(Y0 + r, FX_MARGIN_X + c)
             for rows in bodies.values()
             for r, row in enumerate(rows) for c, ch in enumerate(row) if ch != '.'}
@@ -130,13 +134,58 @@ def place(name):
     return kept
 
 
+# ---- where OUR paws go, from where THEIRS were ----------------------------
+#
+# Two positions, and they were arrived at by drawing ten and looking. On the
+# belly rows a paw sits on the dark flank; beside the face it moves one column
+# further out, because there the orange patch starts right behind the flank and
+# a paw on it merges into the face and only makes the head look wider.
+FLANK_L, FLANK_R = (1, 2), (13, 14)
+HEAD_L, HEAD_R = (0, 1), (14, 15)
+PAW_ROWS = (2, 11)      # never on the horns, never through the feet
+FACE_ROWS = 8           # above this the face is what the paw would touch
+
+
+def paws_for(name):
+    """Map the reference's hand positions onto our creature.
+
+    Their hands say which SIDE the creature is working on and how high, and
+    that is all we take: the sprite is a different animal at a different size,
+    so copying the offset directly would put a paw in the air. Side and height,
+    snapped to the two positions our creature actually has.
+    """
+    p = props.get(name)
+    if not p:
+        return []
+    W, H = p['body']
+    out = []
+    for dr, dc in p.get('hands', []):
+        row = Y0 + int(round((dr / max(1, H - 1)) * (len(idle_rows) - 1)))
+        row = max(Y0 + PAW_ROWS[0], min(Y0 + PAW_ROWS[1], row))
+        left = dc + 1 < W / 2
+        r = row - Y0
+        cols = (HEAD_L if left else HEAD_R) if r < FACE_ROWS else (FLANK_L if left else FLANK_R)
+        for rr in (r, r + 1):
+            if not (PAW_ROWS[0] <= rr <= PAW_ROWS[1]):
+                continue
+            for cc in cols:
+                out.append([cc, rr])
+    seen, uniq = set(), []
+    for cell in out:
+        k = tuple(cell)
+        if k not in seen:
+            seen.add(k)
+            uniq.append(cell)
+    return uniq
+
+
 scenes, report = {}, []
 for state, names in ASSIGN.items():
     got = []
     for n in names:
         pl = place(n)
         if pl:
-            got.append({'from': n, 'px': pl})
+            got.append({'from': n, 'px': pl, 'paws': paws_for(n)})
             report.append((state, n, len(props[n]['scene']), len(pl)))
     if got:
         scenes[state] = got

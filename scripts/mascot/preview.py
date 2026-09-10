@@ -41,12 +41,26 @@ for row in range(16):
     SHADE.append(mix(c, '#ec8a33', belly * 0.30) if belly > 0 else c)
 
 sc = io.open(OUT + 'scenes.ts', encoding='utf-8').read()
+# SCENES first, PAWS after it: same shape, so the file is split once and each
+# half read with the same expression.
+scene_src, paw_src = sc.split('export const PAWS', 1)
+ROW = r"\n  (\w+): \[\n(.*?)\n  \],"
+NAME = r'/\* (.*?) \*/'
+
 items = []
-for m in re.finditer(r"\n  (\w+): \[\n(.*?)\n  \],", sc, re.S):
+for m in re.finditer(ROW, scene_src, re.S):
     for line in m.group(2).split('\n'):
         px = [(int(a), int(b), c) for a, b, c in re.findall(r'\[(\d+),(\d+),"(#[0-9a-fA-F]+)"\]', line)]
         if px:
-            items.append((m.group(1), re.search(r'/\* (.*?) \*/', line).group(1), px))
+            items.append((m.group(1), re.search(NAME, line).group(1), px))
+
+paws = {}
+for m in re.finditer(ROW, paw_src, re.S):
+    for line in m.group(2).split('\n'):
+        nm = re.search(NAME, line)
+        if nm:
+            paws[(m.group(1), nm.group(1))] = [
+                (int(a), int(b)) for a, b in re.findall(r'\[(\d+),(\d+)\]', line)]
 
 CW, CH = W * S + GAP, H * S + GAP + 9
 for sheet in range((len(items) + PER - 1) // PER):
@@ -66,5 +80,9 @@ for sheet in range((len(items) + PER - 1) // PER):
                 col = SHADE[r] if ch == 'o' else PAL.get(ch, '#ffffff')
                 d.rectangle([ox + (MX + c) * S, oy + (Y0 + r) * S,
                              ox + (MX + c) * S + S - 1, oy + (Y0 + r) * S + S - 1], rgb(col))
+        # The paws this scene asks for, on top of the body and shaded like it.
+        for c, r in paws.get((state, name), []):
+            d.rectangle([ox + (MX + c) * S, oy + (Y0 + r) * S,
+                         ox + (MX + c) * S + S - 1, oy + (Y0 + r) * S + S - 1], rgb(SHADE[r]))
     img.save('preview-%d.png' % (sheet + 1))
     print('preview-%d.png  %d scenes' % (sheet + 1, len(chunk)))

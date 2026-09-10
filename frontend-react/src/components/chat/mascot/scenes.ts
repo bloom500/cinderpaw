@@ -88,6 +88,7 @@ export const SCENES: Partial<Record<MascotState, readonly (readonly ScenePixel[]
   ],
   meditating: [
     /* in-glowing-aura */ [[21,15,"#ddd"],[22,15,"#ddd"],[16,16,"#ddd"],[21,16,"#ddd"],[22,16,"#ddd"],[27,16,"#ddd"],[16,17,"#ddd"],[17,17,"#ddd"],[21,17,"#ddd"],[22,17,"#ddd"],[26,17,"#ddd"],[27,17,"#ddd"],[16,18,"#ddd"],[17,18,"#ddd"],[18,18,"#ddd"],[21,18,"#ddd"],[22,18,"#ddd"],[25,18,"#ddd"],[26,18,"#ddd"],[27,18,"#ddd"],[17,19,"#ddd"],[26,19,"#ddd"]],
+    /* artboard-24cla */ [[17,17,"#fbff50"],[18,17,"#fbff50"],[19,17,"#fbff50"],[20,17,"#fbff50"],[22,17,"#fbff50"],[23,17,"#fbff50"],[25,17,"#fbff50"],[26,17,"#fbff50"],[17,18,"#fbff50"],[20,18,"#fbff50"],[22,18,"#fbff50"],[24,18,"#fbff50"],[26,18,"#fbff50"],[17,19,"#fbff50"],[18,19,"#fbff50"],[19,19,"#fbff50"],[20,19,"#fbff50"],[22,19,"#fbff50"],[26,19,"#fbff50"],[12,25,"#fbff50"],[31,25,"#fbff50"],[10,27,"#fbff50"],[33,27,"#fbff50"],[11,29,"#fbff50"],[12,29,"#fbff50"],[13,29,"#fbff50"],[30,29,"#fbff50"],[31,29,"#fbff50"],[32,29,"#fbff50"],[9,30,"#fbff50"],[11,30,"#fbff50"],[13,30,"#ffb052"],[30,30,"#ffb052"],[32,30,"#fbff50"],[34,30,"#fbff50"],[11,31,"#fbff50"],[12,31,"#ffb052"],[13,31,"#ffb052"],[30,31,"#ffb052"],[31,31,"#ffb052"],[32,31,"#fbff50"],[10,33,"#fbff50"],[33,33,"#fbff50"],[12,35,"#fbff50"],[31,35,"#fbff50"],[15,36,"#5bef7e"],[20,36,"#5bef7e"],[21,36,"#5bef7e"],[28,36,"#5bef7e"]],
   ],
   error: [
     /* system-error-alert */ [[2,1,"#e842e0"],[3,1,"#e842e0"],[4,1,"#e842e0"],[5,1,"#e842e0"],[6,1,"#e842e0"],[7,1,"#e842e0"],[8,1,"#e842e0"],[9,1,"#e842e0"],[10,1,"#e842e0"],[11,1,"#e842e0"],[12,1,"#e842e0"],[13,1,"#e842e0"],[14,1,"#e842e0"],[15,1,"#e842e0"],[1,2,"#e842e0"],[2,2,"#e842e0"],[3,2,"#e5d942"],[4,2,"#e842e0"],[5,2,"#e5d942"],[6,2,"#e842e0"],[7,2,"#e5d942"],[8,2,"#e842e0"],[9,2,"#e842e0"],[10,2,"#e842e0"],[11,2,"#e842e0"],[12,2,"#e842e0"],[13,2,"#e842e0"],[14,2,"#e842e0"],[15,2,"#e842e0"],[16,2,"#e842e0"],[1,3,"#e842e0"],[2,3,"#e842e0"],[3,3,"#e842e0"],[4,3,"#e842e0"],[5,3,"#e842e0"],[6,3,"#e842e0"],[7,3,"#e842e0"],[8,3,"#e842e0"],[9,3,"#e842e0"],[10,3,"#e842e0"],[11,3,"#e842e0"],[12,3,"#e842e0"],[13,3,"#e842e0"],[14,3,"#e842e0"],[15,3,"#e842e0"],[16,3,"#e842e0"],[1,4,"#ffc0ff"],[2,4,"#ffc0ff"],[3,4,"#ffc0ff"],[4,4,"#ffc0ff"],[5,4,"#ffc0ff"],[6,4,"#fc277e"],[7,4,"#ffc0ff"],[8,4,"#ffc0ff"],[9,4,"#ffc0ff"],[10,4,"#ffc0ff"],[11,4,"#ffc0ff"],[12,4,"#ffc0ff"],[13,4,"#ffc0ff"],[14,4,"#ffc0ff"],[15,4,"#ffc0ff"],[16,4,"#ffc0ff"],[1,5,"#ffc0ff"],[2,5,"#ffc0ff"],[3,5,"#ffc0ff"],[4,5,"#ffc0ff"],[5,5,"#fc277e"],[6,5,"#fc277e"],[7,5,"#fc277e"],[8,5,"#ffc0ff"],[9,5,"#ffc0ff"],[10,5,"#ffc0ff"],[11,5,"#ffc0ff"],[12,5,"#ffc0ff"],[13,5,"#ffc0ff"],[14,5,"#ffc0ff"],[15,5,"#ffc0ff"],[16,5,"#ffc0ff"],[1,6,"#ffc0ff"],[2,6,"#ffc0ff"],[3,6,"#ffc0ff"],[4,6,"#fc277e"],[5,6,"#fc277e"],[6,6,"#fff"],[7,6,"#fc277e"],[8,6,"#fc277e"],[9,6,"#ffc0ff"],[10,6,"#ffc0ff"],[11,6,"#ffc0ff"],[12,6,"#ffc0ff"],[13,6,"#ffc0ff"],[14,6,"#ffc0ff"],[15,6,"#ffc0ff"],[16,6,"#ffc0ff"],[1,7,"#ffc0ff"],[2,7,"#ffc0ff"],[3,7,"#ffc0ff"],[4,7,"#fc277e"],[5,7,"#fc277e"],[6,7,"#fff"],[7,7,"#fc277e"],[8,7,"#fc277e"],[9,7,"#ffc0ff"],[10,7,"#ffc0ff"],[11,7,"#ffc0ff"],[12,7,"#ffc0ff"],[13,7,"#fc277e"],[14,7,"#ffc0ff"],[15,7,"#ffc0ff"],[16,7,"#ffc0ff"],[1,8,"#ffc0ff"],[2,8,"#ffc0ff"],[3,8,"#fc277e"],[4,8,"#fc277e"],[5,8,"#fc277e"],[6,8,"#fc277e"],[7,8,"#fc277e"],[8,8,"#fc277e"],[9,8,"#fc277e"],[10,8,"#ffc0ff"],[11,8,"#ffc0ff"],[12,8,"#ffc0ff"],[13,8,"#fc277e"],[14,8,"#ffc0ff"],[15,8,"#ffc0ff"],[16,8,"#ffc0ff"],[1,10,"#ffc0ff"],[2,10,"#ffc0ff"],[3,10,"#fc277e"],[4,10,"#fc277e"],[5,10,"#fc277e"],[6,10,"#fff"],[7,10,"#fc277e"],[8,10,"#fc277e"],[9,10,"#fc277e"],[10,10,"#ffc0ff"],[11,10,"#ffc0ff"],[12,10,"#ffc0ff"],[13,10,"#ffc0ff"],[14,10,"#ffc0ff"],[15,10,"#ffc0ff"],[16,10,"#ffc0ff"],[1,11,"#ffc0ff"],[2,11,"#fc277e"],[3,11,"#fc277e"],[4,11,"#fc277e"],[5,11,"#fc277e"],[6,11,"#fc277e"],[7,11,"#fc277e"],[8,11,"#fc277e"],[9,11,"#fc277e"],[10,11,"#fc277e"],[11,11,"#ffc0ff"],[12,11,"#ffc0ff"],[13,11,"#fc277e"],[14,11,"#ffc0ff"],[15,11,"#ffc0ff"],[16,11,"#ffc0ff"],[1,12,"#ffc0ff"],[2,12,"#ffc0ff"],[3,12,"#ffc0ff"],[4,12,"#ffc0ff"],[5,12,"#ffc0ff"],[6,12,"#ffc0ff"],[7,12,"#ffc0ff"],[8,12,"#ffc0ff"],[9,12,"#ffc0ff"],[10,12,"#ffc0ff"],[11,12,"#ffc0ff"],[12,12,"#ffc0ff"],[13,12,"#ffc0ff"],[14,12,"#ffc0ff"],[15,12,"#ffc0ff"],[16,12,"#ffc0ff"],[1,14,"#ffc0ff"],[2,14,"#ffc0ff"],[3,14,"#ffc0ff"],[4,14,"#ec8fef"],[5,14,"#ec8fef"],[6,14,"#ec8fef"],[7,14,"#ec8fef"],[8,14,"#ec8fef"],[9,14,"#ffc0ff"],[10,14,"#ffc0ff"],[11,14,"#ffc0ff"],[12,14,"#ffc0ff"],[13,14,"#ffc0ff"],[14,14,"#ffc0ff"],[15,14,"#ffc0ff"],[16,14,"#ffc0ff"],[1,16,"#ffc0ff"],[2,16,"#ffc0ff"],[3,16,"#ffc0ff"],[4,16,"#ffc0ff"],[5,16,"#ffc0ff"],[6,16,"#ffc0ff"],[7,16,"#ffc0ff"],[8,16,"#ffc0ff"],[9,16,"#ffc0ff"],[10,16,"#ffc0ff"],[11,16,"#ffc0ff"],[12,16,"#ffc0ff"],[13,16,"#ffc0ff"],[14,16,"#ffc0ff"],[15,16,"#ffc0ff"],[16,16,"#ffc0ff"],[1,17,"#ffc0ff"],[2,17,"#ffc0ff"],[3,17,"#ffc0ff"],[4,17,"#ffc0ff"],[5,17,"#ffc0ff"],[6,17,"#ffc0ff"],[7,17,"#ffc0ff"],[8,17,"#ffc0ff"],[9,17,"#ffc0ff"],[10,17,"#ffc0ff"],[11,17,"#ffc0ff"],[12,17,"#ffc0ff"],[13,17,"#ffc0ff"]],
@@ -107,7 +108,6 @@ export const SCENES: Partial<Record<MascotState, readonly (readonly ScenePixel[]
   wave: [
     /* welcome-pixel-banner */ [[10,9,"#ff99c7"],[14,9,"#ff99c7"],[17,9,"#ff99c7"],[19,9,"#ff99c7"],[21,9,"#ff99c7"],[10,10,"#ff99c7"],[14,10,"#ff99c7"],[16,10,"#ff99c7"],[21,10,"#ff99c7"],[10,11,"#ff99c7"],[12,11,"#ff99c7"],[14,11,"#ff99c7"],[16,11,"#ff99c7"],[17,11,"#ff99c7"],[21,11,"#ff99c7"],[10,12,"#ff99c7"],[12,12,"#ff99c7"],[14,12,"#ff99c7"],[16,12,"#ff99c7"],[21,12,"#ff99c7"],[11,13,"#ff99c7"],[13,13,"#ff99c7"],[17,13,"#ff99c7"],[19,13,"#ff99c7"],[22,13,"#ff99c7"],[23,13,"#ff99c7"],[17,15,"#ff99c7"],[19,15,"#ff99c7"],[22,15,"#ff99c7"],[23,15,"#ff99c7"],[28,15,"#ff99c7"],[30,15,"#ff99c7"],[34,15,"#ff99c7"],[35,15,"#ff99c7"],[16,16,"#ff99c7"],[21,16,"#ff99c7"],[24,16,"#ff99c7"],[27,16,"#ff99c7"],[29,16,"#ff99c7"],[31,16,"#ff99c7"],[33,16,"#ff99c7"],[16,17,"#ff99c7"],[21,17,"#ff99c7"],[24,17,"#ff99c7"],[27,17,"#ff99c7"],[29,17,"#ff99c7"],[31,17,"#ff99c7"],[33,17,"#ff99c7"],[34,17,"#ff99c7"],[16,18,"#ff99c7"],[21,18,"#ff99c7"],[24,18,"#ff99c7"],[27,18,"#ff99c7"],[29,18,"#ff99c7"],[33,18,"#ff99c7"],[17,19,"#ff99c7"],[19,19,"#ff99c7"],[22,19,"#ff99c7"],[23,19,"#ff99c7"],[27,19,"#ff99c7"],[34,19,"#ff99c7"],[35,19,"#ff99c7"]],
     /* developer-pair-programming-scene */ [[33,12,"#4e4e93"],[33,13,"#4e4e93"],[34,13,"#4e4e93"],[35,13,"#4e4e93"],[36,13,"#4e4e93"],[23,14,"#27d834"],[26,14,"#28b22e"],[28,14,"#27d834"],[34,14,"#efa262"],[35,14,"#efa262"],[36,14,"#4e4e93"],[22,15,"#27d834"],[26,15,"#28b22e"],[29,15,"#27d834"],[34,15,"#efa262"],[35,15,"#efa262"],[36,15,"#efa262"],[22,16,"#27d834"],[26,16,"#28b22e"],[30,16,"#27d834"],[34,16,"#efa262"],[35,16,"#efa262"],[22,17,"#27d834"],[25,17,"#28b22e"],[30,17,"#27d834"],[34,17,"#27d834"],[36,17,"#27d834"],[22,18,"#27d834"],[25,18,"#28b22e"],[29,18,"#27d834"],[34,18,"#27d834"],[35,18,"#27d834"],[36,18,"#27d834"],[37,18,"#27d834"],[23,19,"#27d834"],[25,19,"#28b22e"],[28,19,"#27d834"],[33,19,"#27d834"],[34,19,"#27d834"],[35,19,"#27d834"],[36,19,"#27d834"],[37,19,"#27d834"],[38,19,"#27d834"],[33,20,"#27d834"],[34,20,"#27d834"],[35,20,"#27d834"],[36,20,"#27d834"],[37,20,"#27d834"],[38,20,"#27d834"],[39,20,"#27d834"],[33,21,"#27d834"],[34,21,"#27d834"],[35,21,"#27d834"],[36,21,"#27d834"],[37,21,"#27d834"],[38,21,"#27d834"],[39,21,"#27d834"],[33,23,"#efa262"],[34,23,"#27d834"],[35,23,"#27d834"],[36,23,"#27d834"],[37,23,"#27d834"],[38,23,"#27d834"],[39,23,"#efa262"],[33,24,"#efa262"],[34,24,"#28b22e"],[35,24,"#28b22e"],[36,24,"#28b22e"],[37,24,"#28b22e"],[38,24,"#28b22e"],[39,24,"#efa262"],[30,26,"#7af4d4"],[31,26,"#7af4d4"],[32,26,"#7af4d4"],[33,26,"#7af4d4"],[34,26,"#7af4d4"],[35,26,"#7af4d4"],[36,26,"#7af4d4"],[37,26,"#7af4d4"],[38,26,"#7af4d4"],[39,26,"#efa262"],[30,28,"#7af4d4"],[31,28,"#7af4d4"],[32,28,"#7af4d4"],[33,28,"#7af4d4"],[34,28,"#7af4d4"],[35,28,"#7af4d4"],[36,28,"#7af4d4"],[37,28,"#7af4d4"],[38,28,"#9736a8"],[39,28,"#9736a8"],[30,29,"#7af4d4"],[31,29,"#7af4d4"],[32,29,"#7af4d4"],[33,29,"#7caaf2"],[34,29,"#7af4d4"],[35,29,"#7af4d4"],[36,29,"#7af4d4"],[37,29,"#7af4d4"],[38,29,"#9736a8"],[39,29,"#9736a8"],[30,31,"#7af4d4"],[31,31,"#7af4d4"],[32,31,"#7caaf2"],[33,31,"#7af4d4"],[34,31,"#7af4d4"],[35,31,"#7af4d4"],[36,31,"#7af4d4"],[37,31,"#9736a8"],[38,31,"#9736a8"],[30,33,"#7af4d4"],[31,33,"#7af4d4"],[32,33,"#7af4d4"],[33,33,"#7af4d4"],[34,33,"#7af4d4"],[35,33,"#7af4d4"],[36,33,"#7af4d4"],[37,33,"#9736a8"],[30,34,"#3b35aa"],[31,34,"#3b35aa"],[32,34,"#3b35aa"],[33,34,"#3b35aa"],[34,34,"#3b35aa"],[35,34,"#3b35aa"],[36,34,"#9736a8"],[37,34,"#9736a8"],[32,36,"#9736a8"],[33,36,"#9736a8"],[35,36,"#9736a8"],[36,36,"#9736a8"]],
-    /* artboard-24cla */ [[17,17,"#fbff50"],[18,17,"#fbff50"],[19,17,"#fbff50"],[20,17,"#fbff50"],[22,17,"#fbff50"],[23,17,"#fbff50"],[25,17,"#fbff50"],[26,17,"#fbff50"],[17,18,"#fbff50"],[20,18,"#fbff50"],[22,18,"#fbff50"],[24,18,"#fbff50"],[26,18,"#fbff50"],[17,19,"#fbff50"],[18,19,"#fbff50"],[19,19,"#fbff50"],[20,19,"#fbff50"],[22,19,"#fbff50"],[26,19,"#fbff50"],[12,25,"#fbff50"],[31,25,"#fbff50"],[10,27,"#fbff50"],[33,27,"#fbff50"],[11,29,"#fbff50"],[12,29,"#fbff50"],[13,29,"#fbff50"],[30,29,"#fbff50"],[31,29,"#fbff50"],[32,29,"#fbff50"],[9,30,"#fbff50"],[11,30,"#fbff50"],[13,30,"#ffb052"],[30,30,"#ffb052"],[32,30,"#fbff50"],[34,30,"#fbff50"],[11,31,"#fbff50"],[12,31,"#ffb052"],[13,31,"#ffb052"],[30,31,"#ffb052"],[31,31,"#ffb052"],[32,31,"#fbff50"],[10,33,"#fbff50"],[33,33,"#fbff50"],[12,35,"#fbff50"],[31,35,"#fbff50"],[15,36,"#5bef7e"],[20,36,"#5bef7e"],[21,36,"#5bef7e"],[28,36,"#5bef7e"]],
   ],
   curious: [
     /* confusion-spiral-pixel */ [[17,7,"#602aad"],[20,7,"#602aad"],[21,7,"#602aad"],[22,7,"#674bef"],[23,7,"#602aad"],[27,7,"#602aad"],[19,8,"#674bef"],[24,8,"#602aad"],[18,9,"#602aad"],[20,9,"#674bef"],[21,9,"#602aad"],[22,9,"#674bef"],[23,9,"#602aad"],[25,9,"#674bef"],[17,10,"#674bef"],[20,10,"#602aad"],[23,10,"#674bef"],[25,10,"#602aad"],[27,10,"#674bef"],[17,11,"#602aad"],[19,11,"#674bef"],[21,11,"#602aad"],[22,11,"#674bef"],[23,11,"#602aad"],[25,11,"#674bef"],[17,12,"#674bef"],[19,12,"#602aad"],[20,12,"#674bef"],[23,12,"#674bef"],[25,12,"#602aad"],[27,12,"#674bef"],[17,13,"#602aad"],[19,13,"#674bef"],[21,13,"#602aad"],[22,13,"#674bef"],[23,13,"#602aad"],[25,13,"#674bef"],[27,13,"#602aad"],[17,14,"#674bef"],[20,14,"#602aad"],[24,14,"#602aad"],[27,14,"#674bef"],[18,15,"#602aad"],[20,15,"#674bef"],[21,15,"#602aad"],[22,15,"#674bef"],[23,15,"#602aad"],[26,15,"#602aad"],[19,16,"#674bef"],[25,16,"#674bef"],[17,17,"#602aad"],[20,17,"#602aad"],[21,17,"#602aad"],[22,17,"#674bef"],[23,17,"#602aad"],[24,17,"#602aad"],[27,17,"#602aad"]],
@@ -132,6 +132,132 @@ export const SCENES: Partial<Record<MascotState, readonly (readonly ScenePixel[]
 };
 
 /**
+ * Where the creature puts its paws for each scene, in FRAME cells.
+ *
+ * Lifted from the reference the same way the scene was. Its hands are separate
+ * blobs of body colour placed against whatever it is using -- two on the
+ * barbell, one on the scroll, two up beside the banner -- so the offset of a
+ * blob from its body says this is an illustration where the creature is DOING
+ * the thing, and on which side, and how high. That is all we take: side and
+ * height, snapped to the two positions our own creature has, because the sprite
+ * is a different animal at a different size and a copied offset would put a paw
+ * in mid-air.
+ *
+ * 45 of the 73 illustrations have no hands out at all, and those stay empty on
+ * purpose: in them the creature stands next to the object, it does not use it.
+ *
+ * Indexed alongside SCENES -- entry i belongs to scene i of the same state.
+ */
+export const PAWS: Partial<Record<MascotState, readonly (readonly (readonly [number, number])[])[]>> = {
+  calling: [
+    /* multi-window-workflow */ [],
+    /* api-success-pixel */ [],
+    /* server-stack-pixel */ [],
+    /* infrastructure-server-stacks */ [],
+    /* managing-server-rack */ [],
+    /* data-blocks-pixel */ [],
+    /* processing-logic-symbols */ [[0,2],[1,2],[0,3],[1,3],[0,4],[1,4],[14,3],[15,3],[14,4],[15,4],[14,2],[15,2],[1,11],[2,11],[13,11],[14,11]],
+    /* system-monitoring-dashboard */ [],
+    /* artboard-3cla */ [],
+  ],
+  building: [
+    /* building-colorful-blocks */ [],
+    /* repairing-with-tools */ [],
+    /* planting-small-trees */ [[1,9],[2,9],[1,10],[2,10]],
+    /* lab-science-testing */ [[1,11],[2,11],[13,11],[14,11]],
+    /* growing-pixel-nature */ [],
+  ],
+  writing: [
+    /* writing-software-code */ [[14,7],[15,7],[14,8],[15,8]],
+    /* professional-documentation-audit */ [[1,11],[2,11],[0,6],[1,6],[0,7],[1,7]],
+    /* baking-steaming-pie */ [],
+  ],
+  reading: [
+    /* reading-data-document */ [[1,11],[2,11]],
+    /* reviewing-long-data-log */ [[1,11],[2,11],[13,11],[14,11]],
+    /* holding-ancient-scroll */ [[0,2],[1,2],[0,3],[1,3]],
+    /* visualizing-tree-data */ [],
+  ],
+  searching: [
+    /* examining-green-globe */ [],
+    /* tracking-multiple-locations */ [],
+    /* debugging-system-bugs */ [],
+    /* secure-access-padlock */ [[14,2],[15,2],[14,3],[15,3]],
+  ],
+  thinking: [
+    /* thinking-in-code */ [],
+    /* thinking-pixel-bubble */ [],
+    /* it-depends-sign */ [],
+    /* in-constant-loop */ [],
+    /* user-profile-settings */ [],
+  ],
+  running: [
+    /* fast-performance-trail */ [],
+    /* refresh-sync-pixel */ [],
+    /* lifting-heavy-barbell */ [[0,2],[1,2],[0,3],[1,3],[14,2],[15,2],[14,3],[15,3]],
+  ],
+  done: [
+    /* with-success-checkmark */ [[0,2],[1,2],[0,3],[1,3],[14,2],[15,2],[14,3],[15,3]],
+    /* success-achievement-milestone */ [],
+    /* trending-up-pixel */ [],
+    /* artboard-25cla3 */ [],
+  ],
+  celebrate: [
+    /* happy-pixel-celebrating */ [[0,2],[1,2],[0,3],[1,3],[14,2],[15,2],[14,3],[15,3],[1,10],[2,10],[1,11],[2,11],[13,10],[14,10],[13,11],[14,11]],
+    /* rocket-launch-success */ [],
+    /* artboard-4cla */ [[0,2],[1,2],[0,3],[1,3],[14,2],[15,2],[14,3],[15,3],[1,11],[2,11],[13,11],[14,11]],
+  ],
+  excited: [
+    /* idea-lightbulb-pixel */ [[0,2],[1,2],[0,3],[1,3]],
+    /* angry-powerful-lightning */ [],
+    /* artboard-2cla */ [],
+  ],
+  meditating: [
+    /* in-glowing-aura */ [],
+    /* artboard-24cla */ [[1,11],[2,11],[13,11],[14,11]],
+  ],
+  error: [
+    /* system-error-alert */ [],
+    /* error-state-pixel */ [[13,11],[14,11]],
+    /* marking-critical-error */ [],
+    /* failed-process-error */ [[1,11],[2,11]],
+    /* dizzy-failed-state */ [],
+    /* angry-at-laptop */ [],
+    /* angry-pixel-coffee */ [],
+    /* fine-under-pressure */ [],
+  ],
+  love: [
+    /* love-cloud-pixel */ [[1,11],[2,11]],
+    /* holding-green-leaf */ [],
+    /* nature-growth-mushrooms */ [],
+  ],
+  wave: [
+    /* welcome-pixel-banner */ [[0,2],[1,2],[0,3],[1,3],[14,2],[15,2],[14,3],[15,3],[1,11],[2,11],[13,11],[14,11]],
+    /* developer-pair-programming-scene */ [],
+  ],
+  curious: [
+    /* confusion-spiral-pixel */ [],
+  ],
+  sleep: [
+    /* sleeping-soundly */ [],
+    /* disconnected-plug-pixel */ [[0,2],[1,2],[0,3],[1,3],[14,2],[15,2],[14,3],[15,3],[1,11],[2,11],[13,11],[14,11]],
+  ],
+  surprised: [
+    /* broken-heart-sad */ [],
+    /* crying-sad-reaction */ [[0,3],[1,3],[0,4],[1,4],[14,3],[15,3],[14,4],[15,4],[1,8],[2,8],[1,9],[2,9],[13,8],[14,8],[13,9],[14,9]],
+  ],
+  idle: [
+    /* visualizing-tree-data */ [],
+  ],
+  typing: [
+    /* user-profile-settings */ [],
+  ],
+  stretching: [
+    /* lifting-heavy-barbell */ [[0,2],[1,2],[0,3],[1,3],[14,2],[15,2],[14,3],[15,3]],
+  ],
+};
+
+/**
  * Which scene, and where it sits this tick.
  *
  * A state with several scenes shows a different one each time it comes round,
@@ -150,11 +276,30 @@ let pick = 0;
 export function sceneFor(state: MascotState, tick: number): EffectPixel[] {
   const group = SCENES[state];
   if (!group || group.length === 0) return [];
-  if (state !== lastState) {
-    lastState = state;
-    pick = (pick + 1) % group.length;
-  }
+  advance(state, group.length);
   const scene = group[pick % group.length];
   const lift = tick % 8 < 4 ? 0 : 1;
   return scene.map(([x, y, color]) => ({ x, y: y + lift, color }));
+}
+
+function advance(state: MascotState, count: number): void {
+  if (state === lastState) return;
+  lastState = state;
+  pick = (pick + 1) % count;
+}
+
+/**
+ * The paws that belong to the scene now on screen.
+ *
+ * It has to be the SAME scene, so it reads the choice `sceneFor` already made
+ * rather than making one of its own: a creature reaching to its left while the
+ * thing it is reaching for stands on its right is worse than not reaching at
+ * all. It advances the choice itself too, so it stays correct when the effects
+ * layer is skipped entirely, which is what reduced motion does.
+ */
+export function pawsFor(state: MascotState): readonly (readonly [number, number])[] {
+  const group = PAWS[state];
+  if (!group || group.length === 0) return [];
+  advance(state, group.length);
+  return group[pick % group.length] ?? [];
 }
