@@ -52,22 +52,35 @@ def build():
     # sprite works because it is chunky and touches its own edges. The extra
     # room at 32 is for ARMS, not for air.
 
-    # ---- horns: fur, tipped in orange -------------------------------------
-    for x0 in (5, 24):
-        g.rect(x0, 0, x0 + 2, 2, 'o')
-        g.rect(x0, 3, x0 + 2, 5, 'k')
+    # ---- horns ------------------------------------------------------------
+    # Tapered, not stubs. A three-by-three orange block on a stalk reads as a
+    # bolt; narrowing it toward the tip is what makes it a horn, and it is two
+    # cells of difference.
+    for left in (True, False):
+        base = 4 if left else 24
+        g.rect(base, 3, base + 3, 6, 'k')
+        g.rect(base + (0 if left else 1), 1, base + (2 if left else 3), 3, 'o')
+        g.rect(base + (0 if left else 2), 0, base + (1 if left else 3), 1, 'o')
 
     # ---- head -------------------------------------------------------------
+    # Corners cut deeper than a rounded rectangle. At 28 cells across a shallow
+    # bevel still reads as a television, and the creature is round.
     g.rect(2, 4, 29, 18, 'k')
-    for dy, cut in ((0, 3), (1, 2), (2, 1)):
+    for dy, cut in ((0, 4), (1, 3), (2, 2), (3, 1)):
         g.row(4 + dy, 2, 2 + cut - 1, '.')
         g.row(4 + dy, 30 - cut, 29, '.')
+    for dy, cut in ((0, 2), (1, 1)):
+        g.row(18 - dy, 2, 2 + cut - 1, '.')
+        g.row(18 - dy, 30 - cut, 29, '.')
 
     # the orange face patch, inset by two so the fur reads as a border
     g.rect(5, 7, 26, 17, 'o')
-    for dy, cut in ((0, 2), (1, 1)):
+    for dy, cut in ((0, 3), (1, 2), (2, 1)):
         g.row(7 + dy, 5, 5 + cut - 1, 'k')
         g.row(7 + dy, 27 - cut, 26, 'k')
+    for dy, cut in ((0, 2), (1, 1)):
+        g.row(17 - dy, 5, 5 + cut - 1, 'k')
+        g.row(17 - dy, 27 - cut, 26, 'k')
 
     # ---- body -------------------------------------------------------------
     # It bulges at the shoulders and tapers to the feet, the way the 16x16
@@ -101,13 +114,24 @@ def build():
         g.rect(x, 19, x, 27, '.')
 
     # ---- legs -------------------------------------------------------------
-    g.rect(8, 30, 13, 31, 'k')
-    g.rect(18, 30, 23, 31, 'k')
+    # A foot that is one flat tone on a dark background is invisible; the top
+    # row stays in the light fur so the leg has an edge where it leaves the body.
+    g.rect(8, 30, 13, 31, 'd')
+    g.rect(18, 30, 23, 31, 'd')
+    g.row(30, 9, 12, 'k')
+    g.row(30, 19, 22, 'k')
 
     # ---- face -------------------------------------------------------------
-    for x0 in (9, 19):
+    # The eyes get their outer corners cut. A five-by-five black square is a
+    # window; the same shape with two corners off is an eye, and it costs four
+    # cells.
+    for left in (True, False):
+        x0 = 9 if left else 18
         g.rect(x0, 9, x0 + 4, 13, 'e')
-        g.rect(x0, 9, x0 + 1, 10, 'w')
+        outer = x0 if left else x0 + 4
+        g.set(outer, 9, 'o')
+        g.set(outer, 13, 'o')
+        g.rect(x0 + (1 if left else 2), 9, x0 + (2 if left else 3), 10, 'w')
     g.row(15, 12, 19, 'r')
     g.row(16, 13, 18, 'r')
     g.set(11, 15, 'w')
@@ -123,7 +147,9 @@ def build():
     # on a dark background, so all anybody saw was two orange paws floating.
     # A limb has to stay in the lighter tone to have a silhouette at all.
     TORSO = range(4, 28)
-    for y in (18,):
+    # The neck. It used to run the full width as a straight rule, which reads
+    # as a seam between two parts rather than as a head sitting on a body.
+    for y in (17, 18):
         for x in range(2, 30):
             if g.cells[y][x] == 'k':
                 g.set(x, y, 'd')
