@@ -29,7 +29,7 @@ exactly how they were described the first time anyone looked at them closely:
                   then slide it as one piece to where it fits with three cells
                   of air around the creature
     build_all.py  all of the above for every state, against the live sprite
-    emit.py       write scenes.ts
+    emit.py       write scenes.ts, and nothing else
 
 `props.json`, `refpack.json` and `assign.json` are checked in so the pipeline
 runs without the original zip. The zip is not ours to redistribute; the derived
@@ -55,5 +55,17 @@ git. The pack supplies **props**, never anatomy.
     python build_all.py     # recomputes placement against the current sprite
     python emit.py          # writes scenes.ts
 
-`build_all.py` reads the live `SPA` frame for the creature's footprint, so a
-change to the body automatically re-clears every prop around it.
+`build_all.py` reads EVERY frame in `frames.ts` for the creature's footprint, so
+a change to the body automatically re-clears every prop around it.
+
+Two things it has to account for, both found the hard way:
+
+- **The creature moves.** `wave` raises an arm, `celebrate` throws both up. A
+  prop placed against the resting pose alone sits on a limb the moment the limb
+  appears, which is invisible in a still and obvious in the app.
+- **The scene lifts.** `sceneFor` draws every prop one cell lower on half the
+  ticks, so both positions have to be legal, not only the resting one.
+
+`__tests__/scenes.test.ts` enforces exactly that in CI: no prop pixel on any
+pose, at either lift, ever. It is the same guarantee this pipeline was built to
+deliver, so if it fails, do not move the prop by hand -- rerun the placement.

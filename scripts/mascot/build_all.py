@@ -16,9 +16,16 @@ CLEARANCE = 3
 # black FUR, not an outline -- the creature is a dark furry monster with orange
 # horns, an orange face patch and a round orange belly, and the sprite has
 # always been a faithful translation of it.
+#
+# EVERY frame, not the resting one. A state animates: `wave` raises an arm,
+# `celebrate` throws both up, `error` leans. Placing against the resting pose
+# alone put 16 scenes on top of the creature's own limbs the moment it moved --
+# invisible while it sat still, a pixel welded to the arm as soon as it waved.
+# The union of all 98 frames is the footprint, so a prop clears the creature in
+# every pose it can take, and a redrawn frame re-clears the props automatically.
 _src = io.open(OUT + 'frames.ts', encoding='utf-8').read()
-_m = re.search(r"const SPA: Frame = \[(.*?)\];", _src, re.S)
-bodies = {'IDLE': re.findall(r"'([^']*)'", _m.group(1))}
+bodies = {name: re.findall(r"'([^']*)'", body)
+          for name, body in re.findall(r"const (\w+): Frame = \[(.*?)\];", _src, re.S)}
 props = json.loads(io.open('props.json', encoding='utf-8').read())
 ASSIGN = json.loads(io.open('assign.json', encoding='utf-8').read())
 
@@ -30,12 +37,21 @@ ASSIGN.setdefault('calling', []).append('artboard-3cla')     # a paw and a windo
 ASSIGN.setdefault('excited', []).append('artboard-2cla')     # sparks
 
 # ---- where our creature stands, from the body we just built ----------------
-idle = bodies['IDLE']
 occupied = {(Y0 + r, FX_MARGIN_X + c)
-            for r, row in enumerate(idle) for c, ch in enumerate(row) if ch != '.'}
+            for rows in bodies.values()
+            for r, row in enumerate(rows) for c, ch in enumerate(row) if ch != '.'}
 ourTop = min(r for r, _ in occupied); ourBottom = max(r for r, _ in occupied)
 ourLeft = min(c for _, c in occupied); ourRight = max(c for _, c in occupied)
 ourW, ourH = ourRight - ourLeft + 1, ourBottom - ourTop + 1
+
+# `sceneFor` lifts the whole scene one cell DOWN on half the ticks, so a prop is
+# drawn at y and at y+1. Placement used to be scored at y only, and 14 of the 66
+# scenes spent half their frames either inside the creature or off the bottom of
+# the canvas -- a pixel stuck on the animal, which is the exact defect this
+# pipeline exists to remove, reappearing every fourth frame. So the body is
+# treated as one cell taller upward and the canvas as one row shorter downward:
+# both positions have to be legal, not just the resting one.
+occupiedLift = occupied | {(y - 1, x) for y, x in occupied}
 
 halo = {}
 for (by, bx) in occupied:
@@ -68,9 +84,9 @@ def place(name):
             off = over = crowd = 0
             for x, y, _ in raw:
                 X, Y = x + dx, y + dy
-                if not (0 <= X < CANVAS_W and 0 <= Y < CANVAS_H):
+                if not (0 <= X < CANVAS_W and 0 <= Y and Y + 1 < CANVAS_H):
                     off += 1
-                elif (Y, X) in occupied:
+                elif (Y, X) in occupiedLift:
                     over += 1
                 else:
                     crowd += halo.get((Y, X), 0)
@@ -81,9 +97,9 @@ def place(name):
     seen, kept = set(), []
     for x, y, col in raw:
         X, Y = x + dx, y + dy
-        if not (0 <= X < CANVAS_W and 0 <= Y < CANVAS_H):
+        if not (0 <= X < CANVAS_W and 0 <= Y and Y + 1 < CANVAS_H):
             continue
-        if (Y, X) in occupied or (Y, X) in seen:
+        if (Y, X) in occupiedLift or (Y, X) in seen:
             continue
         seen.add((Y, X))
         kept.append([X, Y, col])

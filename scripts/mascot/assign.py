@@ -38,6 +38,20 @@ ASSIGN = {
     'curious':   ['confusion-spiral-pixel'],
     'sleep':     ['sleeping-soundly', 'disconnected-plug-pixel'],
     'surprised': ['broken-heart-sad', 'crying-sad-reaction'],
+
+    # nobody asked for anything yet
+    #
+    # These three are the states a stranger sees MOST -- `idle` is every second
+    # the app is open, `typing` is every second they spend writing, and
+    # `stretching` is what a poke or a drop lands on -- and they were the three
+    # left with an empty margin. A scene here is not decoration, it is the
+    # difference between a creature in a room and a sprite on a background.
+    #
+    # Small and still, on purpose: `idle` is permanent furniture, so it gets the
+    # 13x6 plant rather than one of the 200-cell machines.
+    'idle':       ['planting-small-trees'],
+    'typing':     ['artboard-25cla'],
+    'stretching': ['lifting-heavy-barbell'],
 }
 
 props = json.loads(io.open('props.json', encoding='utf-8').read())
