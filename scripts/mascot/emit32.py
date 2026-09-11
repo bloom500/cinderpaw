@@ -57,7 +57,7 @@ def main():
     # 2. swap every 16x16 frame const for the 32px set.
     bodies, n = re.subn(r"const \w+: Frame = \[.*?\];", '', src, flags=re.S)
     print('removed %d old frame consts' % n)
-    assert n in (50, 54), n  # our 32px set, first emit or re-emit
+    assert n in (50, 54, 55), n  # our 32px sets across rounds
 
     # 3. fresh VARIANTS. FRAMES (variant[0] each) below it keeps working.
     m = re.search(r"export const VARIANTS: Record<MascotState, Frame\[\]\[\]> = \{.*?\n\};",

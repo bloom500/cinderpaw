@@ -398,7 +398,9 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   return (
     <div
       ref={wrapRef}
-      className="pointer-events-none absolute -top-[43px] left-5 z-10"
+      // 96px sprite, 6px overlap: sta PE bara, nu in ea. Retune dupa
+      // inaltime (offset = inaltime - 6).
+      className="pointer-events-none absolute -top-[90px] left-5 z-10"
       // Position only. The lean and the squash go on the creature inside, so
       // the tool-call stack it carries stays upright and readable while the
       // creature itself is being swung around.

@@ -1,0 +1,1028 @@
+{
+ "angry-at-laptop": {
+  "bbox": {
+   "x0": 37,
+   "x1": 105,
+   "y0": 26,
+   "y1": 80
+  },
+  "file": "angry-at-laptop.png",
+  "h": 128,
+  "states": [
+   "error"
+  ],
+  "w": 128
+ },
+ "angry-pixel-coffee": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 38,
+   "y1": 90
+  },
+  "file": "angry-pixel-coffee.png",
+  "h": 128,
+  "states": [
+   "error"
+  ],
+  "w": 128
+ },
+ "angry-powerful-lightning": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 41,
+   "y1": 87
+  },
+  "file": "angry-powerful-lightning.png",
+  "h": 128,
+  "states": [
+   "excited"
+  ],
+  "w": 128
+ },
+ "api-success-pixel": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 42,
+   "y1": 86
+  },
+  "file": "api-success-pixel.png",
+  "h": 128,
+  "states": [
+   "calling"
+  ],
+  "w": 128
+ },
+ "artboard-24cla": {
+  "bbox": {
+   "x0": 28,
+   "x1": 100,
+   "y0": 42,
+   "y1": 86
+  },
+  "file": "artboard-24cla.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-24cla2": {
+  "bbox": {
+   "x0": 42,
+   "x1": 86,
+   "y0": 49,
+   "y1": 79
+  },
+  "file": "artboard-24cla2.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-24cla3": {
+  "bbox": {
+   "x0": 28,
+   "x1": 100,
+   "y0": 43,
+   "y1": 85
+  },
+  "file": "artboard-24cla3.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-25cla": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 42,
+   "y1": 86
+  },
+  "file": "artboard-25cla.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-25cla2": {
+  "bbox": {
+   "x0": 35,
+   "x1": 93,
+   "y0": 41,
+   "y1": 87
+  },
+  "file": "artboard-25cla2.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-25cla3": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 42,
+   "y1": 86
+  },
+  "file": "artboard-25cla3.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-2cla": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 38,
+   "y1": 90
+  },
+  "file": "artboard-2cla.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-2cla2": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "artboard-2cla2.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-2cla3": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 43,
+   "y1": 85
+  },
+  "file": "artboard-2cla3.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-3cla": {
+  "bbox": {
+   "x0": 27,
+   "x1": 101,
+   "y0": 38,
+   "y1": 90
+  },
+  "file": "artboard-3cla.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-3cla2": {
+  "bbox": {
+   "x0": 34,
+   "x1": 94,
+   "y0": 38,
+   "y1": 90
+  },
+  "file": "artboard-3cla2.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-3cla3": {
+  "bbox": {
+   "x0": 34,
+   "x1": 94,
+   "y0": 38,
+   "y1": 90
+  },
+  "file": "artboard-3cla3.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-4cla": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 34,
+   "y1": 94
+  },
+  "file": "artboard-4cla.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-4cla2": {
+  "bbox": {
+   "x0": 28,
+   "x1": 100,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "artboard-4cla2.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "artboard-4cla3": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 41,
+   "y1": 87
+  },
+  "file": "artboard-4cla3.png",
+  "h": 128,
+  "states": [],
+  "w": 128
+ },
+ "baking-steaming-pie": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 39,
+   "y1": 89
+  },
+  "file": "baking-steaming-pie.png",
+  "h": 128,
+  "states": [
+   "writing"
+  ],
+  "w": 128
+ },
+ "broken-heart-sad": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 42,
+   "y1": 86
+  },
+  "file": "broken-heart-sad.png",
+  "h": 128,
+  "states": [
+   "surprised"
+  ],
+  "w": 128
+ },
+ "building-colorful-blocks": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "building-colorful-blocks.png",
+  "h": 128,
+  "states": [
+   "building"
+  ],
+  "w": 128
+ },
+ "confusion-spiral-pixel": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 35,
+   "y1": 93
+  },
+  "file": "confusion-spiral-pixel.png",
+  "h": 128,
+  "states": [
+   "curious"
+  ],
+  "w": 128
+ },
+ "crying-sad-reaction": {
+  "bbox": {
+   "x0": 34,
+   "x1": 94,
+   "y0": 46,
+   "y1": 82
+  },
+  "file": "crying-sad-reaction.png",
+  "h": 128,
+  "states": [
+   "surprised"
+  ],
+  "w": 128
+ },
+ "data-blocks-pixel": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 49,
+   "y1": 79
+  },
+  "file": "data-blocks-pixel.png",
+  "h": 128,
+  "states": [
+   "calling"
+  ],
+  "w": 128
+ },
+ "debugging-system-bugs": {
+  "bbox": {
+   "x0": 35,
+   "x1": 93,
+   "y0": 41,
+   "y1": 87
+  },
+  "file": "debugging-system-bugs.png",
+  "h": 128,
+  "states": [
+   "searching"
+  ],
+  "w": 128
+ },
+ "developer-pair-programming-scene": {
+  "bbox": {
+   "x0": 27,
+   "x1": 101,
+   "y0": 32,
+   "y1": 96
+  },
+  "file": "developer-pair-programming-scene.png",
+  "h": 128,
+  "states": [
+   "wave"
+  ],
+  "w": 128
+ },
+ "disconnected-plug-pixel": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 35,
+   "y1": 93
+  },
+  "file": "disconnected-plug-pixel.png",
+  "h": 128,
+  "states": [
+   "sleep"
+  ],
+  "w": 128
+ },
+ "dizzy-failed-state": {
+  "bbox": {
+   "x0": 32,
+   "x1": 96,
+   "y0": 38,
+   "y1": 90
+  },
+  "file": "dizzy-failed-state.png",
+  "h": 128,
+  "states": [
+   "error"
+  ],
+  "w": 128
+ },
+ "error-state-pixel": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 43,
+   "y1": 85
+  },
+  "file": "error-state-pixel.png",
+  "h": 128,
+  "states": [
+   "error"
+  ],
+  "w": 128
+ },
+ "examining-green-globe": {
+  "bbox": {
+   "x0": 34,
+   "x1": 94,
+   "y0": 43,
+   "y1": 82
+  },
+  "file": "examining-green-globe.png",
+  "h": 128,
+  "states": [
+   "searching"
+  ],
+  "w": 128
+ },
+ "failed-process-error": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 45,
+   "y1": 83
+  },
+  "file": "failed-process-error.png",
+  "h": 128,
+  "states": [
+   "error"
+  ],
+  "w": 128
+ },
+ "fast-performance-trail": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 45,
+   "y1": 83
+  },
+  "file": "fast-performance-trail.png",
+  "h": 128,
+  "states": [
+   "running"
+  ],
+  "w": 128
+ },
+ "fine-under-pressure": {
+  "bbox": {
+   "x0": 21,
+   "x1": 107,
+   "y0": 35,
+   "y1": 93
+  },
+  "file": "fine-under-pressure.png",
+  "h": 128,
+  "states": [
+   "error"
+  ],
+  "w": 128
+ },
+ "growing-pixel-nature": {
+  "bbox": {
+   "x0": 34,
+   "x1": 94,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "growing-pixel-nature.png",
+  "h": 128,
+  "states": [
+   "building"
+  ],
+  "w": 128
+ },
+ "happy-pixel-celebrating": {
+  "bbox": {
+   "x0": 28,
+   "x1": 100,
+   "y0": 39,
+   "y1": 89
+  },
+  "file": "happy-pixel-celebrating.png",
+  "h": 128,
+  "states": [
+   "celebrate"
+  ],
+  "w": 128
+ },
+ "holding-ancient-scroll": {
+  "bbox": {
+   "x0": 30,
+   "x1": 98,
+   "y0": 42,
+   "y1": 86
+  },
+  "file": "holding-ancient-scroll.png",
+  "h": 128,
+  "states": [
+   "reading"
+  ],
+  "w": 128
+ },
+ "holding-green-leaf": {
+  "bbox": {
+   "x0": 35,
+   "x1": 93,
+   "y0": 49,
+   "y1": 79
+  },
+  "file": "holding-green-leaf.png",
+  "h": 128,
+  "states": [
+   "love"
+  ],
+  "w": 128
+ },
+ "idea-lightbulb-pixel": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 32,
+   "y1": 96
+  },
+  "file": "idea-lightbulb-pixel.png",
+  "h": 128,
+  "states": [
+   "excited",
+   "spawning"
+  ],
+  "w": 128
+ },
+ "in-constant-loop": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 31,
+   "y1": 94
+  },
+  "file": "in-constant-loop.png",
+  "h": 128,
+  "states": [
+   "thinking"
+  ],
+  "w": 128
+ },
+ "in-glowing-aura": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 35,
+   "y1": 93
+  },
+  "file": "in-glowing-aura.png",
+  "h": 128,
+  "states": [
+   "meditating"
+  ],
+  "w": 128
+ },
+ "infrastructure-server-stacks": {
+  "bbox": {
+   "x0": 34,
+   "x1": 94,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "infrastructure-server-stacks.png",
+  "h": 128,
+  "states": [
+   "calling"
+  ],
+  "w": 128
+ },
+ "it-depends-sign": {
+  "bbox": {
+   "x0": 24,
+   "x1": 104,
+   "y0": 35,
+   "y1": 93
+  },
+  "file": "it-depends-sign.png",
+  "h": 128,
+  "states": [
+   "thinking"
+  ],
+  "w": 128
+ },
+ "lab-science-testing": {
+  "bbox": {
+   "x0": 28,
+   "x1": 100,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "lab-science-testing.png",
+  "h": 128,
+  "states": [
+   "building"
+  ],
+  "w": 128
+ },
+ "lifting-heavy-barbell": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 41,
+   "y1": 87
+  },
+  "file": "lifting-heavy-barbell.png",
+  "h": 128,
+  "states": [
+   "gaming",
+   "running",
+   "stretching"
+  ],
+  "w": 128
+ },
+ "love-cloud-pixel": {
+  "bbox": {
+   "x0": 30,
+   "x1": 98,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "love-cloud-pixel.png",
+  "h": 128,
+  "states": [
+   "love"
+  ],
+  "w": 128
+ },
+ "malware-detection-window": {
+  "bbox": {
+   "x0": 32,
+   "x1": 96,
+   "y0": 43,
+   "y1": 85
+  },
+  "file": "malware-detection-window.png",
+  "h": 128,
+  "states": [
+   "searching"
+  ],
+  "w": 128
+ },
+ "managing-server-rack": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 46,
+   "y1": 82
+  },
+  "file": "managing-server-rack.png",
+  "h": 128,
+  "states": [
+   "calling"
+  ],
+  "w": 128
+ },
+ "marking-critical-error": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "marking-critical-error.png",
+  "h": 128,
+  "states": [
+   "error"
+  ],
+  "w": 128
+ },
+ "multi-window-workflow": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "multi-window-workflow.png",
+  "h": 128,
+  "states": [
+   "calling"
+  ],
+  "w": 128
+ },
+ "nature-growth-mushrooms": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 39,
+   "y1": 89
+  },
+  "file": "nature-growth-mushrooms.png",
+  "h": 128,
+  "states": [
+   "love"
+  ],
+  "w": 128
+ },
+ "planting-small-trees": {
+  "bbox": {
+   "x0": 35,
+   "x1": 93,
+   "y0": 49,
+   "y1": 79
+  },
+  "file": "planting-small-trees.png",
+  "h": 128,
+  "states": [
+   "building"
+  ],
+  "w": 128
+ },
+ "processing-logic-symbols": {
+  "bbox": {
+   "x0": 28,
+   "x1": 100,
+   "y0": 41,
+   "y1": 87
+  },
+  "file": "processing-logic-symbols.png",
+  "h": 128,
+  "states": [
+   "calling"
+  ],
+  "w": 128
+ },
+ "professional-documentation-audit": {
+  "bbox": {
+   "x0": 20,
+   "x1": 91,
+   "y0": 28,
+   "y1": 80
+  },
+  "file": "professional-documentation-audit.png",
+  "h": 128,
+  "states": [
+   "writing"
+  ],
+  "w": 128
+ },
+ "reading-data-document": {
+  "bbox": {
+   "x0": 39,
+   "x1": 89,
+   "y0": 46,
+   "y1": 82
+  },
+  "file": "reading-data-document.png",
+  "h": 128,
+  "states": [
+   "reading"
+  ],
+  "w": 128
+ },
+ "refresh-sync-pixel": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "refresh-sync-pixel.png",
+  "h": 128,
+  "states": [
+   "running"
+  ],
+  "w": 128
+ },
+ "repairing-with-tools": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 39,
+   "y1": 89
+  },
+  "file": "repairing-with-tools.png",
+  "h": 128,
+  "states": [
+   "building"
+  ],
+  "w": 128
+ },
+ "reviewing-long-data-log": {
+  "bbox": {
+   "x0": 27,
+   "x1": 101,
+   "y0": 39,
+   "y1": 89
+  },
+  "file": "reviewing-long-data-log.png",
+  "h": 128,
+  "states": [
+   "reading"
+  ],
+  "w": 128
+ },
+ "rocket-launch-success": {
+  "bbox": {
+   "x0": 28,
+   "x1": 100,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "rocket-launch-success.png",
+  "h": 128,
+  "states": [
+   "celebrate"
+  ],
+  "w": 128
+ },
+ "secure-access-padlock": {
+  "bbox": {
+   "x0": 6,
+   "x1": 102,
+   "y0": 9,
+   "y1": 85
+  },
+  "file": "secure-access-padlock.png",
+  "h": 128,
+  "states": [
+   "searching"
+  ],
+  "w": 128
+ },
+ "server-stack-pixel": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 45,
+   "y1": 83
+  },
+  "file": "server-stack-pixel.png",
+  "h": 128,
+  "states": [
+   "calling"
+  ],
+  "w": 128
+ },
+ "sleeping-soundly": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 39,
+   "y1": 89
+  },
+  "file": "sleeping-soundly.png",
+  "h": 128,
+  "states": [
+   "sleep"
+  ],
+  "w": 128
+ },
+ "stealth-ninja-security": {
+  "bbox": {
+   "x0": 28,
+   "x1": 100,
+   "y0": 48,
+   "y1": 80
+  },
+  "file": "stealth-ninja-security.png",
+  "h": 128,
+  "states": [
+   "searching"
+  ],
+  "w": 128
+ },
+ "success-achievement-milestone": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 41,
+   "y1": 87
+  },
+  "file": "success-achievement-milestone.png",
+  "h": 128,
+  "states": [
+   "done"
+  ],
+  "w": 128
+ },
+ "system-error-alert": {
+  "bbox": {
+   "x0": 23,
+   "x1": 105,
+   "y0": 39,
+   "y1": 89
+  },
+  "file": "system-error-alert.png",
+  "h": 128,
+  "states": [
+   "error"
+  ],
+  "w": 128
+ },
+ "system-monitoring-dashboard": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 42,
+   "y1": 86
+  },
+  "file": "system-monitoring-dashboard.png",
+  "h": 128,
+  "states": [
+   "calling"
+  ],
+  "w": 128
+ },
+ "thinking-in-code": {
+  "bbox": {
+   "x0": 34,
+   "x1": 94,
+   "y0": 43,
+   "y1": 85
+  },
+  "file": "thinking-in-code.png",
+  "h": 128,
+  "states": [
+   "thinking"
+  ],
+  "w": 128
+ },
+ "thinking-pixel-bubble": {
+  "bbox": {
+   "x0": 27,
+   "x1": 101,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "thinking-pixel-bubble.png",
+  "h": 128,
+  "states": [
+   "thinking"
+  ],
+  "w": 128
+ },
+ "tracking-multiple-locations": {
+  "bbox": {
+   "x0": 32,
+   "x1": 96,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "tracking-multiple-locations.png",
+  "h": 128,
+  "states": [
+   "searching"
+  ],
+  "w": 128
+ },
+ "trending-up-pixel": {
+  "bbox": {
+   "x0": 32,
+   "x1": 96,
+   "y0": 39,
+   "y1": 89
+  },
+  "file": "trending-up-pixel.png",
+  "h": 128,
+  "states": [
+   "cool",
+   "done"
+  ],
+  "w": 128
+ },
+ "user-profile-settings": {
+  "bbox": {
+   "x0": 27,
+   "x1": 101,
+   "y0": 45,
+   "y1": 83
+  },
+  "file": "user-profile-settings.png",
+  "h": 128,
+  "states": [
+   "thinking",
+   "typing"
+  ],
+  "w": 128
+ },
+ "visualizing-tree-data": {
+  "bbox": {
+   "x0": 30,
+   "x1": 98,
+   "y0": 41,
+   "y1": 87
+  },
+  "file": "visualizing-tree-data.png",
+  "h": 128,
+  "states": [
+   "idle",
+   "reading"
+  ],
+  "w": 128
+ },
+ "welcome-pixel-banner": {
+  "bbox": {
+   "x0": 31,
+   "x1": 97,
+   "y0": 32,
+   "y1": 96
+  },
+  "file": "welcome-pixel-banner.png",
+  "h": 128,
+  "states": [
+   "wave"
+  ],
+  "w": 128
+ },
+ "with-success-checkmark": {
+  "bbox": {
+   "x0": 37,
+   "x1": 91,
+   "y0": 37,
+   "y1": 91
+  },
+  "file": "with-success-checkmark.png",
+  "h": 128,
+  "states": [
+   "done"
+  ],
+  "w": 128
+ },
+ "writing-software-code": {
+  "bbox": {
+   "x0": 26,
+   "x1": 102,
+   "y0": 45,
+   "y1": 83
+  },
+  "file": "writing-software-code.png",
+  "h": 128,
+  "states": [
+   "writing"
+  ],
+  "w": 128
+ }
+}

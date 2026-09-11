@@ -225,3 +225,98 @@ if __name__ == '__main__':
     render(rows, 'draft32.png')
     filled = sum(1 for r in rows for ch in r if ch != '.')
     print('draft32.png : %dx%d, %d cells filled of %d' % (W, H, filled, W * H))
+
+
+# The concept's own palette, measured off the generated art: grey-black fur in
+# two tones, and an orange far brighter than ours. Kept slightly warm so the
+# creature is still a Cinderpaw and not a rock.
+GEM_FUR = '#4a4b53'
+GEM_FUR_DARK = '#31323a'
+GEM_ORANGE = '#f2822c'
+
+
+def build_c():
+    """The creature as the concept draws it: ONE furry mass, two orange patches.
+
+    The measured difference from draft A is not detail, it is structure. A has a
+    head, a neck and a torso, each a separate rounded box. The concept has none
+    of that: it is a single shaggy silhouette with an orange face patch high up
+    and an orange belly low down, and the horns and feet interrupt the outline.
+    That is why it reads as a creature and A reads as a machine.
+
+    The outline is deliberately NOT clean. Every edge cell is nudged in or out
+    by one, because a smooth bevel is what makes fur look moulded.
+    """
+    g = Grid(W, H)
+
+    # ---- one mass ---------------------------------------------------------
+    # Widths per row, centred. Narrow at the head, widest across the belly.
+    silhouette = {
+        4: 14, 5: 16, 6: 18, 7: 20, 8: 20, 9: 21, 10: 21, 11: 21, 12: 21,
+        13: 21, 14: 20, 15: 20, 16: 21, 17: 22, 18: 24, 19: 26, 20: 26,
+        21: 27, 22: 27, 23: 27, 24: 26, 25: 26, 26: 24, 27: 22, 28: 19,
+    }
+    for y, w in silhouette.items():
+        x0 = 16 - w // 2
+        g.row(y, x0, x0 + w - 1, 'k')
+
+    # shaggy: pull single cells out of the outline, alternating, so the edge
+    # breaks up instead of curving
+    for y, w in silhouette.items():
+        x0 = 16 - w // 2
+        x1 = x0 + w - 1
+        if y % 2 == 0:
+            g.set(x0, y, '.')
+            g.set(x1, y, '.')
+        else:
+            g.set(x0 - 1, y, 'k')
+            g.set(x1 + 1, y, 'k')
+
+    # ---- horns: curved, leaning out ---------------------------------------
+    HORN = [(10, 4), (9, 4), (9, 3), (8, 3), (8, 2), (7, 2), (7, 1), (8, 1)]
+    for x, y in HORN:
+        for dx in (0, 1):
+            g.set(x + dx, y, 'o')
+            g.set(31 - x - dx, y, 'o')
+
+    # ---- the orange face patch, high on the mass --------------------------
+    face = [(7, 12, 19), (8, 10, 21), (9, 9, 22), (10, 9, 22), (11, 9, 22),
+            (12, 9, 22), (13, 10, 21), (14, 12, 19)]
+    for y, x0, x1 in face:
+        g.row(y, x0, x1, 'o')
+
+    # ---- the belly, a circle low on the mass -------------------------------
+    belly = [(18, 13, 18), (19, 11, 20), (20, 10, 21), (21, 10, 21),
+             (22, 10, 21), (23, 10, 21), (24, 11, 20), (25, 13, 18)]
+    for y, x0, x1 in belly:
+        g.row(y, x0, x1, 'o')
+
+    # ---- feet: they interrupt the outline, they are not bolted under it ----
+    for x0 in (8, 18):
+        g.rect(x0, 29, x0 + 5, 31, 'k')
+        g.set(x0 + 2, 31, '.')
+
+    # ---- face -------------------------------------------------------------
+    # Small eyes, set wide, with one white glint. The concept's eyes are tiny
+    # against a big orange patch, and that is most of what makes it read as
+    # gentle rather than as a mask.
+    for x0 in (12, 18):
+        g.rect(x0, 10, x0 + 1, 11, 'e')
+        g.set(x0, 10, 'w')
+    g.row(13, 13, 18, 'e')
+    g.set(12, 12, 'e')
+    g.set(19, 12, 'e')
+
+    # ---- volume -----------------------------------------------------------
+    for y in range(4, 32):
+        for x in range(32):
+            if g.cells[y][x] != 'k':
+                continue
+            row = g.cells[y]
+            left = next((i for i, c in enumerate(row) if c != '.'), None)
+            right = next((i for i in range(31, -1, -1) if row[i] != '.'), None)
+            if left is None:
+                continue
+            if x <= left + 1 or x >= right - 1 or y >= 27:
+                g.set(x, y, 'd')
+    return g

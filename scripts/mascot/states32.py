@@ -11,56 +11,28 @@ import draft32_d as base
 from PIL import Image, ImageDraw
 
 W = H = 32
-# Same keys the app PALETTE carries: y (hat, pencil), b (controller, tear),
-# r (mouths, blush), n (hat shade, pencil tip), s (steel tools).
+# His palette, measured off darius-sprite.png: near-black fill, grey outline,
+# vivid orange, beige horn nubs, plus our expression keys (pink cheeks,
+# steel, yellow, blue).
 PAL = dict(base.GEM_PAL, y='#f1c40f', b='#2980b9', r='#FF9999',
-           n='#e67e22', s='#7f8c8d', h='#925321')
-PAL['k'] = '#2C2C2C'
-PAL['R'] = '#55555f'
-ORANGE = '#F9C180'
+           n='#fbb060', s='#7f8c8d')
+PAL['k'] = '#191919'
+PAL['R'] = '#424242'
+ORANGE = '#ed8622'
 
-FACE_ROWS = {8: (9, 22), 9: (8, 23), 10: (8, 23), 11: (8, 23),
-             12: (8, 23), 13: (8, 23), 14: (8, 23), 15: (8, 23),
-             16: (8, 23), 17: (9, 22)}
-FACE_KEY_ROWS = (9, 10, 11, 12, 13, 14, 15)
+from traced_body import FACE_ROWS, FACE_KEY_ROWS, outline
 
 
 def fresh():
-    """Round hooded body, face wiped. The long arms stay: states that raise
-    them clear their own side first (see arm_up)."""
-    import bodies_g
-    g = bodies_g.build_std()
-    for y, (x0, x1) in FACE_ROWS.items():
-        g.row(y, x0, x1, 'o')
-    rim_light(g)
+    """His body, face zone ready. The patch and outline stay traced; only
+    features get redrawn, and row 12 is cleared first (the trace has melted
+    eye remnants there). Outline stays baked everywhere except hand-drawn
+    limbs, which call outline() themselves."""
+    import traced_body
+    g = traced_body.build()
+    g.row(12, 11, 13, 'o')
+    g.row(12, 17, 19, 'o')
     return g
-
-
-def clear_hanging(g, side):
-    xs = range(3, 5) if side == 'L' else range(27, 29)
-    for x in xs:
-        for y in range(14, 24):
-            g.set(x, y, '.')
-
-
-def rim_light(g):
-    """Light catches the top and the left of the fluff, nothing else.
-
-    The fill is near-black, so the silhouette lives entirely in this pass:
-    outline cells open to the sky (or to the left) become rim, everything
-    below stays shadow. Top-only was tried: the sides vanished and the orange
-    patches floated on their own, which is the original invisibility bug with
-    better colours. Run AFTER any carving, so freshly exposed edges get lit
-    too. Never touch the face: eyes and mouth are not fur.
-    """
-    for y in range(H):
-        for x in range(W):
-            if g.cells[y][x] not in ('k', 'd'):
-                continue
-            above = g.cells[y - 1][x] if y > 0 else '.'
-            left = g.cells[y][x - 1] if x > 0 else '.'
-            if above == '.' or left == '.':
-                g.set(x, y, 'R')
 
 
 def translate(g, dy):
@@ -74,55 +46,59 @@ def translate(g, dy):
 
 
 # ---- face kit ---------------------------------------------------------------
-def e_open(g, x0=12, x1=18):
-    for x in (x0, x1):
-        g.rect(x, 10, x + 1, 11, 'e')
-        g.set(x, 10, 'w')
+# His eyes are big dots: 3 wide, 2 tall, glint top-left. The whole kit keys
+# off these two rectangles; move them and every expression follows.
+EYE_L, EYE_R, EYE_Y = 11, 17, 10
+
+
+def e_open(g, x0=None):
+    for x in (EYE_L, EYE_R):
+        g.rect(x, EYE_Y, x + 2, EYE_Y + 1, 'e')
+        g.set(x, EYE_Y, 'w')
 
 
 def e_blink(g):
-    g.row(11, 12, 13, 'e')
-    g.row(11, 18, 19, 'e')
+    g.row(11, 11, 13, 'e')
+    g.row(11, 17, 19, 'e')
 
 
 def e_happy(g):
-    g.row(10, 12, 13, 'e')
-    g.row(10, 18, 19, 'e')
+    g.row(10, 11, 13, 'e')
+    g.row(10, 17, 19, 'e')
 
 
 def e_sleep(g):
-    g.row(10, 12, 14, 'w')
-    g.row(10, 17, 19, 'w')
+    g.row(10, 11, 14, 'w')
+    g.row(10, 17, 20, 'w')
 
 
 def e_calm(g):
-    g.row(11, 12, 14, 'e')
+    g.row(11, 11, 13, 'e')
     g.row(11, 17, 19, 'e')
 
 
 def e_wide(g):
-    for x0 in (11, 18):
-        g.rect(x0, 9, x0 + 2, 11, 'w')
-        g.rect(x0, 10, x0 + 1, 11, 'e')
+    for x0 in (10, 17):
+        g.rect(x0, 9, x0 + 3, 11, 'w')
+        g.rect(x0 + 1, 10, x0 + 2, 11, 'e')
 
 
 def e_look(g, side):
-    for x0 in (11, 18):
-        g.rect(x0, 10, x0 + 2, 11, 'w')
-    px = 11 if side == 'L' else 12
-    for x0 in (11, 18):
-        g.set(x0 + (px - 11), 10, 'e')
-        g.set(x0 + (px - 11), 11, 'e')
+    for x0 in (10, 17):
+        g.rect(x0, 10, x0 + 3, 11, 'w')
+    for x0 in (10, 17):
+        g.set(x0 + (0 if side == 'L' else 3), 10, 'e')
+        g.set(x0 + (0 if side == 'L' else 3), 11, 'e')
 
 
 def e_down(g):
-    for x0 in (12, 18):
-        g.rect(x0, 11, x0 + 1, 12, 'e')
+    for x0 in (11, 17):
+        g.rect(x0, 11, x0 + 2, 12, 'e')
         g.set(x0, 12, 'w')
 
 
 def e_dizzy(g):
-    for x0 in (11, 18):
+    for x0 in (11, 17):
         for dx, dy in ((0, 0), (1, 1), (2, 2), (2, 0), (0, 2)):
             g.set(x0 + dx, 10 + dy, 'e')
 
@@ -188,14 +164,22 @@ def m_blush(g):
 
 
 # ---- arm kit ------------------------------------------------------------------
+def clear_hanging(g, side):
+    xs = range(3, 6) if side == 'L' else range(26, 29)
+    for x in xs:
+        for y in range(14, 25):
+            g.set(x, y, '.')
+
+
 def arm_up(g, side):
     clear_hanging(g, side)
     xs = (27, 28) if side == 'R' else (3, 4)
     for x in xs:
-        for y in range(6, 14):
+        for y in range(6, 15):
             if g.cells[y][x] == '.':
                 g.set(x, y, 'k')
     g.rect(xs[0], 4, xs[1], 5, 'o')
+    outline(g)
 
 
 def arm_tip_wave(g, side, alt):
@@ -213,13 +197,13 @@ def arm_out(g, reach):
     for x in (3 - reach, 28 + reach):
         g.set(x, 15, 'o')
         g.set(x, 16, 'o')
+    outline(g)
 
 
 def arm_forward(g):
     clear_hanging(g, 'L')
     clear_hanging(g, 'R')
-    for x, y in ((11, 20), (12, 20), (19, 20), (20, 20),
-                 (11, 21), (12, 21), (19, 21), (20, 21)):
+    for x, y in ((13, 22), (14, 22), (17, 22), (18, 22)):
         g.set(x, y, 'k')
 
 
@@ -319,7 +303,7 @@ def st_running():
 
 def st_wave():
     out = []
-    for alt in (0, 1):
+    for alt in (0, 1, 0, -1):
         g = fresh()
         arm_up(g, 'R')
         arm_tip_wave(g, 'R', alt)
@@ -365,7 +349,8 @@ def st_celebrate():
     e_happy(g)
     m_open(g)
     g.row(12, 13, 18, 'e')
-    return [g]
+    h = translate(g, -2)
+    return [g, h]
 
 
 def st_reading():

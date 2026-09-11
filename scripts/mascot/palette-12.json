@@ -1,0 +1,30 @@
+{
+  "name": "cinderpaw-canonical-96",
+  "base": "96x96 personaj UI (gemini-96.png, originalul curat, 6 culori native)",
+  "scale_rule": "doar multipli/divizori intregi cu nearest neighbor: 48 (÷2), 32 (÷3), 16 (÷6). Niciodata 1.5x.",
+  "backgrounds": ["#100E09", "#1E1E1E"],
+  "colors": {
+    ".": null,
+    "k": "#1a1a1a",
+    "o": "#f28c28",
+    "h": "#ffb15e",
+    "e": "#000000",
+    "w": "#ffffff"
+  },
+  "roles": {
+    "k": "blana, layer silueta+blana",
+    "o": "fata si burta, layer blana",
+    "h": "coarne, layer blana",
+    "e": "ochi, gura, labe, layer blana",
+    "w": "sparkle ochi, layer blana"
+  },
+  "reserved": "Nuanțele de umbra/lumina (shift albastru/galben) se adauga DOAR de mana in Aseprite, pe layerul umbre. Niciodata automat.",
+  "rules": [
+    "Baza se traseaza 1 la 1 dupa original, fara reesantionare si fara netezire.",
+    "Transparentul e transparent real, nu #3a3a3a fundalului din preview.",
+    "Gaurile inchise (fundal prins in blana) se umplu cu blana; ce atinge portocaliul primeste muchie neagra.",
+    "Ochii se oglindesc dreapta -> stanga; despicaturile de 1-2 px din labe si maini se umplu cu blana, in zone explicite.",
+    "Accesoriile stau pe layerul lor, niciodata sapate in corp.",
+    "Contrastul se masoara fata de #100E09 si #1E1E1E, nu fata de alb."
+  ]
+}
