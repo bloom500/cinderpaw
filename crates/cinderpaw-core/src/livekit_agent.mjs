@@ -50,6 +50,9 @@ import {
   TrackSource,
 } from '@livekit/rtc-node';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const RATE = 48000;
 const CHANNELS = 1;
@@ -165,11 +168,16 @@ class LocalSTT extends stt.STT {
 /** One utterance of local synthesis, pulled as PCM and pushed as frames. */
 class LocalTTSStream extends tts.ChunkedStream {
   label = 'cinderpaw.LocalTTSStream';
+  constructor(text, engine, connOptions, abortSignal) {
+    super(text, engine, connOptions, abortSignal);
+    // ChunkedStream keeps its engine private; it exposes no `tts` getter.
+    this.voiceName = engine.voiceName;
+  }
   async run() {
     const res = await fetch(`${API_URL}/runtime/voice/speak`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
-      body: JSON.stringify({ provider: TTS_ENGINE, voice: VOICE || null, text: this.inputText }),
+      body: JSON.stringify({ provider: TTS_ENGINE, voice: this.voiceName, text: this.inputText }),
       signal: this.abortSignal,
     });
     if (!res.ok) throw new Error(`Local speech failed: ${await res.text()}`);
@@ -191,11 +199,12 @@ class LocalTTSStream extends tts.ChunkedStream {
 
 class LocalTTS extends tts.TTS {
   label = 'cinderpaw.LocalTTS';
-  constructor() {
+  constructor(voiceName = VOICE || null) {
     // The rate declared here is what the session resamples TO; the frames
     // themselves carry the engine's real rate, which is why the header above
     // is read rather than assumed.
     super(24000, 1, { streaming: false });
+    this.voiceName = voiceName;
   }
   get provider() { return 'cinderpaw'; }
   get model() { return TTS_ENGINE; }
@@ -355,6 +364,38 @@ const PLUGIN = {
   pipeline: () => import('@livekit/agents-plugin-silero'),
 };
 
+// Read per call. Missing file is normal; invalid overrides are reported and
+// ignored. These bounds are product safeguards, not claimed vendor limits.
+function endpointing() {
+  const defaults = { endOfSpeechSensitivity: 'END_SENSITIVITY_LOW', silenceDurationMs: 700, prefixPaddingMs: 300 };
+  const rules = {
+    endOfSpeechSensitivity: (v) => v === 'END_SENSITIVITY_LOW' || v === 'END_SENSITIVITY_HIGH',
+    silenceDurationMs: (v) => Number.isInteger(v) && v >= 0 && v <= 30_000,
+    prefixPaddingMs: (v) => Number.isInteger(v) && v >= 0 && v <= 5_000,
+  };
+  const home = (process.env.CINDERPAW_HOME || '').trim() || join(homedir(), '.cinderpaw');
+  let raw;
+  try {
+    raw = readFileSync(join(home, 'voice-tuning.json'), 'utf8');
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.error(`voice tuning: cannot read voice-tuning.json (${e.message}); using defaults`);
+    return defaults;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('expected an object');
+  } catch (e) {
+    console.error(`voice tuning: invalid voice-tuning.json (${e.message}); using defaults`);
+    return defaults;
+  }
+  for (const [key, value] of Object.entries(parsed)) {
+    if (Object.hasOwn(rules, key) && rules[key](value)) defaults[key] = value;
+    else console.error(`voice tuning: ignoring invalid or unknown setting ${key}`);
+  }
+  return defaults;
+}
+
 const REALTIME = {
   google: async () => {
     const google = await PLUGIN.google();
@@ -376,6 +417,9 @@ const REALTIME = {
       // stupidity. Also what a call needs to leave behind a readable trace.
       inputAudioTranscription: {},
       outputAudioTranscription: {},
+      // The Google plugin otherwise discards mic frames while tools are pending.
+      toolBehavior: 'NON_BLOCKING',
+      realtimeInputConfig: { automaticActivityDetection: endpointing() },
       instructions: INSTRUCTIONS,
     });
   },
@@ -587,7 +631,8 @@ function toolsFromDeclarations(session) {
         emit({ kind: 'toolCall', text: String(args?.request ?? '').trim() });
         // The panel says what is running; this says it out loud, which is the
         // half a person on a phone call actually receives.
-        const done = keepLineWarm(session);
+        // Gemini can speak in its own voice during a nonblocking tool call.
+        const done = PROVIDER === 'google' ? () => {} : keepLineWarm(session);
         try {
           const out = await askRust(decl.name, args);
           emit({ kind: 'toolResult', text: out?.ok === false ? String(out.output ?? 'failed') : '' });
@@ -660,7 +705,12 @@ async function assistant(ctx, makeSession) {
     );
     return echo(ctx);
   }
-  const session = makeSession ? await makeSession(ctx) : new voice.AgentSession({ llm: await build() });
+  const session = makeSession ? await makeSession(ctx) : new voice.AgentSession({
+    llm: await build(),
+    // Used by filler on OpenAI; normal realtime output uses the vendor voice.
+    // A vendor voice name is not a valid local TTS voice selection.
+    tts: new LocalTTS(null),
+  });
 
   // One line per event, on stdout, for Rust to forward to the window. A prefix
   // rather than a side channel because the pipe already exists and a second one
