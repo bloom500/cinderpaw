@@ -76,7 +76,7 @@
       }
     ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://t.me/BotFather",
     "validate_endpoint": "https://api.telegram.org/bot{TOKEN}/getMe"
   },

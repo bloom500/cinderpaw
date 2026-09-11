@@ -26,6 +26,7 @@ import "../src/transports/connectors.ts";
 import "../src/transports/matrix.ts";
 import "../src/transports/mattermost.ts";
 import "../src/transports/twitch.ts";
+import "../src/transports/telegram.ts";
 
 interface CatalogEntry {
   id: string;

@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 /// v2 (2026-07-07) — added `qr_setup_endpoint`. QR-paired connectors only;
 /// returns the gateway endpoint the wizard POSTs to in order to obtain a
 /// fresh QR payload to render on screen.
-pub const CONNECTORS_CATALOG_VERSION: u32 = 4;
+pub const CONNECTORS_CATALOG_VERSION: u32 = 5;
 
 /// Pairing flow for a connector. Decision D settles three distinct flows:
 ///
@@ -282,10 +282,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 secret: true,
             }],
             pairing_method: BotToken,
-            // Sidecar transport for Telegram isn't wired in this build —
-            // the card renders as a "Coming soon" placeholder; the token
-            // entry is disabled.
-            coming_soon: true,
+            coming_soon: false,
             console_url: Some("https://t.me/BotFather".into()),
             free_tier_note: None,
             // Telegram's `getMe` endpoint is the canonical probe.

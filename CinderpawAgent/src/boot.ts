@@ -117,6 +117,7 @@ import { ConnectorManager } from "./transports/connectors.ts";
 import "./transports/matrix.ts";
 import "./transports/mattermost.ts";
 import "./transports/twitch.ts";
+import "./transports/telegram.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
