@@ -1408,16 +1408,23 @@ function makeSelfProgress(): Tool {
           : 30;
       const { improvementSeries } = await import("../../rsi/infra/progress.ts");
       const series = improvementSeries(join(RSI_ROOT, "journal"), days);
+      const corruptDays = series.days.filter((d) => d.corrupt).length;
+      const trendNote =
+        series.aggregateTrend === null
+          ? "Not enough measured days yet for a trend — the curve needs at least 2 active days."
+          : series.aggregateTrend >= 0
+            ? "Mean candidate score is flat-to-rising across the window."
+            : "Mean candidate score fell across the window — worth inspecting recent journal rows.";
       const out = {
         ...series,
         champion: shapeChampion(),
         journal_dir: join(RSI_ROOT, "journal"),
+        corrupt_days: corruptDays,
         note:
-          series.aggregateTrend === null
-            ? "Not enough measured days yet for a trend — the curve needs at least 2 active days."
-            : series.aggregateTrend >= 0
-              ? "Mean candidate score is flat-to-rising across the window."
-              : "Mean candidate score fell across the window — worth inspecting recent journal rows.",
+          trendNote +
+          (corruptDays > 0
+            ? ` ${corruptDays} day(s) in this window have a corrupt journal file and read as zero: flat stretches may be data loss, not idleness.`
+            : ""),
       };
       return { ok: true, content: JSON.stringify(out, null, 2), data: out };
     },
