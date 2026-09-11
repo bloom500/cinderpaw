@@ -105,9 +105,10 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   agents, shared workspace with ownership locks, A2A handoff protocol,
   approval-gated escalation, routines. Slice plan S1–S5 inside; design
   decisions locked 2026-08-25 (SQLite storage, TUI-first surface, v1
-  strictly reactive). S1→S4.6 SHIPPED (2026-08-25, ox-alpha) — **start from
-  the "HANDOFF FOR OPUS" section at the top**: working tree is UNCOMMITTED,
-  and Open Problem #1 (demo DB mismatch) is unresolved. **Read before any
+  strictly reactive). S1→S4.6 shipped; `cowork_create_teammate` now creates
+  teammates without script seeding. **Start from the current status at the
+  top**; the old handoff's branch/uncommitted-file list is historical, not
+  current working-tree state. **Read before any
   work on cowork agents, mailboxes/handoffs, or worker loops.**
 - **`project_voice_mode_followups.md`** — open voice-mode regressions queued for
   2026-08-17: the user's new turn can take 15–30 seconds to appear after the

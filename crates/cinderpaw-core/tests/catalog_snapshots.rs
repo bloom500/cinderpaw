@@ -117,25 +117,14 @@ fn connector_catalog_required_fields_present() {
                 entry.id
             );
         }
-        // A `qr` connector must carry a `qr_setup_endpoint`. A non-qr
-        // connector must NOT (it's an "always-some" leak that signals
-        // a copy-paste bug). Decision D-F spec.
-        match entry.pairing_method {
-            cinderpaw_core::connectors::PairingMethod::Qr => {
-                assert!(
-                    entry.qr_setup_endpoint.is_some(),
-                    "connector {} is qr but has no qr_setup_endpoint",
-                    entry.id
-                );
-            }
-            _ => {
-                assert!(
-                    entry.qr_setup_endpoint.is_none(),
-                    "connector {} is not qr but has qr_setup_endpoint set",
-                    entry.id
-                );
-            }
-        }
+        // No gateway QR setup route exists. Do not advertise one even for
+        // WhatsApp, whose pairing code is delivered through the sidecar file.
+        assert!(
+            entry.qr_setup_endpoint.is_none(),
+            "connector {} advertises an unimplemented QR setup endpoint",
+            entry.id
+        );
+        assert!(json.get("qr_setup_endpoint").is_none());
     }
 }
 

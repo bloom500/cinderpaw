@@ -21,10 +21,9 @@ export function createProductInfoTool(): Tool {
     name: "product_info",
     description:
       "Load Cinderpaw's product documentation: what Cinderpaw is, setup/onboarding, " +
-      // Telegram is NOT implemented (connectors.ts has Discord, Slack and
-      // WhatsApp only; PRODUCT.md says "coming soon"). Listing it here made the
-      // agent promise users a connector that does not exist.
-      "connectors (Discord/WhatsApp/Slack), models & providers, " +
+      // Telegram remains coming soon; additional transports register in
+      // matrix.ts, mattermost.ts and twitch.ts and are imported at boot.
+      "connectors (Discord/WhatsApp/Slack/Matrix/Mattermost/Twitch), models & providers, " +
       "memory/dreams/LoRA, slash commands, CLI commands, troubleshooting. " +
       "ALWAYS call this before answering questions about Cinderpaw itself — " +
       "answer from the document, never from guesses.",

@@ -231,9 +231,9 @@ describe("end-to-end audit verification (happy path)", () => {
 });
 
 describe("conversation budget gate", () => {
-  /** Budget so small a single OLLAMA_OK (18 tokens) blows it on the next call. */
+  /** One OLLAMA_OK produces 7 completion tokens, exceeding this session cap. */
   const TINY_BUDGET = {
-    perConversation: 10,
+    perConversation: 6,
     perDay: 500_000,
     onExhausted: "stop",
   } as const;
@@ -250,14 +250,18 @@ describe("conversation budget gate", () => {
     };
     const router = new InferenceRouter(config, audit.logger, db.raw);
 
-    // First call succeeds and records 18 tokens, pushing the session over 10.
+    // The session counts 7 completion tokens; daily spend includes all 18.
     await router.complete({ sessionId: "s1", messages: [{ role: "user", content: "hi" }] });
-    expect(router.conversationTokens("s1")).toBe(18);
+    expect(router.conversationTokens("s1")).toBe(7);
+    expect(router.dayTokens()).toBe(18);
 
     // Second call is gated before reaching the network.
     await expect(
       router.complete({ sessionId: "s1", messages: [{ role: "user", content: "again" }] }),
     ).rejects.toMatchObject({ name: "BudgetExhaustedError", reason: "conversation" });
+    expect(mock.calls).toHaveLength(1);
+    expect(router.conversationTokens("s1")).toBe(7);
+    expect(router.dayTokens()).toBe(18);
     db.close();
   });
 
@@ -284,8 +288,10 @@ describe("conversation budget gate", () => {
       skipBudgetCheck: true,
     });
     expect(res.content).toBe("hi");
-    // …and its usage is still accounted for (gate bypassed, accounting kept).
-    expect(router.conversationTokens("s1")).toBe(36);
+    // Bypass preserves accounting: 14 completion tokens and 36 billed tokens.
+    expect(mock.calls).toHaveLength(2);
+    expect(router.conversationTokens("s1")).toBe(14);
+    expect(router.dayTokens()).toBe(36);
     db.close();
   });
 });

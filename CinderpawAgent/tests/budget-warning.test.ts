@@ -59,10 +59,14 @@ describe("InferenceRouter — soft budget warning (P1-#1)", () => {
 
       const { router, warnings, db } = newRouter();
       await router.complete({ sessionId: "s1", messages: [] });
-      // Conversation now at 910 → above 80% (800) → warning fired.
+      // Conversation now at 900 → above 80% (800) → warning fired.
+      // 900, not 910: the per-conversation budget counts COMPLETION tokens
+      // only. Counting the prompt too made the cap fire on long sessions
+      // rather than runaway ones, because the whole prompt is re-sent and
+      // re-counted every turn.
       expect(warnings.length).toBe(1);
       expect(warnings[0]?.kind).toBe("conversation");
-      expect(warnings[0]?.usage).toBe(910);
+      expect(warnings[0]?.usage).toBe(900);
       expect(warnings[0]?.limit).toBe(1000);
       expect(warnings[0]?.percent).toBeGreaterThanOrEqual(80);
       db.close();

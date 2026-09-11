@@ -117,9 +117,13 @@ func TestQuickStartNoGPUWalkthrough_AcceptanceP1(t *testing.T) {
 		t.Fatalf("expected APIKey captured, got %q", a.Wizard.APIKey)
 	}
 
-	// Auto: provider test → health checks → Ready.
-	a.Update(ProvidersTestMsg{Success: true, Msg: "ok"})
-	assertStep(t, a, WizTestIt, "provider-test→testit (auto)")
+	// Auto: provider test → model picker. Enter keeps the highlighted
+	// model and runs the health checks.
+	a.Update(ProvidersTestMsg{Success: true, Msg: "ok", Models: []string{"gpt-4o"}})
+	assertStep(t, a, WizCloudModel, "provider-test→model (auto)")
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	count()
+	assertStep(t, a, WizTestIt, "model→testit")
 	a.Update(WizardTestItResult{
 		Response: "CINDERPAW_OK", HealthLatency: 400 * time.Millisecond,
 		StreamLatency: 2000 * time.Millisecond, StreamVerified: true,
@@ -129,7 +133,7 @@ func TestQuickStartNoGPUWalkthrough_AcceptanceP1(t *testing.T) {
 	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter}) // ready→chat
 	count()
 
-	budget := 4 + 2 // 4 screen transitions + provider pick + key paste
+	budget := 4 + 3 // 4 screen transitions + provider pick + key paste + model pick
 	if interactions > budget {
 		t.Fatalf("QuickStart-no-GPU took %d user interactions; spec budget %d (4 + provider + key)", interactions, budget)
 	}

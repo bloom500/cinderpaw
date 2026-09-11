@@ -158,3 +158,8 @@ docs/superpowers/
 docs/review-prompts/
 docs/ui/2026-*.md
 docs/specs/2026-*.md
+
+# Windows: a botched `> nul` redirect creates a real 16MB file.
+nul
+# Process memory dumps. Never in a public repo: they can carry live keys.
+*.dmp

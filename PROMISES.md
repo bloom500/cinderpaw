@@ -3,70 +3,76 @@
 Cinderpaw runs on your computer. That only matters if you can trust what it
 does when you are not looking. So here is the list, in plain words.
 
-Every promise below is something you can check yourself. If one of them is not
-true, that is a bug, and we want to hear about it:
+This page describes current behavior and names limits that earlier versions
+overstated. Stronger guarantees about network isolation, credential isolation,
+and complete audit coverage are design goals, not fully enforced promises.
+Report a mismatch:
 [open an issue](https://github.com/bloom500/cinderpaw/issues).
 
 ## The promises
 
-**1. Your chats stay on your computer.**
-If you use a model that runs on your machine, nothing you type leaves it. Not
-the messages, not the files, not what the app remembers about you. All of it
-sits in a folder on your disk called `.cinderpaw`, in your home folder.
+**1. Local inference runs on your computer.**
+Conversation history and memory have local storage. A local model does not
+disable web tools, connectors, downloads, or other configured network services.
+Those features can send queries, files, or conversation content outside the machine.
 
-**2. We have no servers, so we cannot read anything.**
-There is no Cinderpaw account and no Cinderpaw cloud. Nothing you send passes
-through us. This is not a policy we could change our minds about later. The
-computers simply do not exist.
+**2. The runtime does not require a Cinderpaw account or conversation relay.**
+Inference requests go from your machine to the configured local or cloud API.
+This describes the shipped request paths, not a claim about all external infrastructure.
 
-**3. If you use a cloud model, your words go to that company and nobody else.**
-You can plug in your own key from OpenAI, Anthropic, Google and others. Then
-your message goes straight from your computer to them, with your key. We are
-not in the middle. What they do with it is covered by their rules, not ours.
+**3. Cloud requests use provider APIs directly.**
+You can supply a provider key. Fallback routes and configured background work
+can also call providers; requests are not limited to pressing Send. The
+September 6 audit found recipient-boundary gaps in fallback and redirect paths.
+An exclusive chosen-provider guarantee is not yet established across all paths.
 
-**4. No tracking of any kind.**
-No analytics. No crash reports. No ads. No profile of you. We do not count how
-many people use the app, because counting would mean phoning home.
+**4. No automatic analytics or crash-report uploads in the audited runtime.**
+Local logs and user memory do exist. Online features make their own requests;
+public-journal publication requires explicit configuration and invocation.
 
 **5. Your keys are yours.**
-Keys you paste in are stored on your own machine, in your operating system's
-key store where there is one. The part of the app that draws the screen never
-sees them, so a bad web page cannot steal them.
+Supported credential paths use the operating system's key store. This is not
+complete renderer isolation: key-entry UI handles keys, and the September 6
+audit found additional credential exposure and migration gaps. Do not assume
+every credential stays out of renderer memory, files, or diagnostics.
 
 **6. Nothing is behind a paywall.**
-No subscription, no locked features, no trial that runs out. You pay for cloud
-models only if you choose to use them, and you pay the model company directly.
+The runtime has no Cinderpaw subscription or trial gate. Cloud provider charges
+are separate and paid to the provider. Background work and fallbacks may incur
+usage; stopping the display is not proof that every remote request stopped.
 
 **7. Uninstalling does not throw away your things.**
 Remove the app and your settings, memory, keys and downloaded models stay
 where they are, so putting it back later picks up where you left off. When you
-really want them gone, `cinderpaw uninstall --purge` deletes them for good.
+want the profile directory removed, `cinderpaw uninstall --purge` removes it.
+It does not clear credentials from the OS key store or promise secure erasure
+of backups or previously deleted disk data.
 
-**8. One phone call, and you can hang it up.**
-Once each time it starts, Cinderpaw asks GitHub a single question: is there a
-newer version? It sends no information about you. Turn it off in
-**Settings → General** and the app never touches the network on its own again.
+**8. Automatic update checks can be disabled.**
+The desktop's **Settings → General** switch controls its startup update check.
+It does not control missing embedding-model or toolchain downloads, connectors,
+or other configured network activity. It is not a global offline switch.
 
-**9. We tell you what is switched on before you ask.**
-Some things are on by default because the app would be useless otherwise. We
-say so out loud instead of hiding it in a settings page. The list is in the
-next section.
+**9. Defaults are documented.**
+Shell execution, the notebook, recall injection, and public-host web access are
+enabled by default. See [CONFIGURATION.md](docs/CONFIGURATION.md) for their
+individual controls. No single switch disables every process or network path.
 
-**10. When we do not know something, we say we do not know.**
-Any speed or quality number we publish comes with how we measured it. If we
-have not measured it, we say that instead of guessing.
+**10. Measured results should be distinguishable from estimates.**
+This is a presentation requirement, not a guarantee that every existing number
+meets it. The September 6 audit found simulated loading phases and mismatched
+GPU-control units. Model fit scores are estimates, not measured inference speed.
 
 ## What we do not promise
 
 This half of the page matters as much as the other half.
 
 - **The agent can run commands on your computer out of the box.** That is how
-  it does real work, and it is a real risk. Its own file tools refuse
-  `~/.cinderpaw` and `~/.ssh` outright. A command it runs is a different thing:
-  that program starts with your permissions, so it can read whatever you can
-  read. Deleting things outside your working folders is refused, every command
-  is written down, and `CINDERPAW_ENABLE_SHELL_EXEC=false` turns the whole
-  ability off.
+  it does real work. File tools have root and protected-path checks, with a
+  scratch exception; these do not sandbox programs the agent starts. Processes
+  run with your permissions. `CINDERPAW_ENABLE_SHELL_EXEC=false` unregisters
+  that tool, not every process-capable tool. Audit writes are best-effort and
+  can fail; the log is not proof that every action was captured.
 - **Windows and macOS will warn you the first time.** We have not paid for the
   certificates that make those warnings go away. The README shows what the
   warnings look like and what to click.
@@ -83,12 +89,11 @@ This half of the page matters as much as the other half.
 
 - **Read the code.** All of it is here, and the installers are built in public
   by GitHub, from this repository.
-- **Look at the privacy page in the app**: **Settings → Privacy** lists exactly
-  what is stored and what is not.
+- **Look at the privacy page in the app**: **Settings → Privacy** summarizes
+  local storage and online features.
 - **Cut the network.** Turn off your wifi, load a local model, and keep
-  working. Nothing about the app stops.
-- **Read the log.** Every tool the agent uses, every page it fetches and every
-  command it runs is written down where you can read it.
+  using local inference. Features that require external services will be unavailable.
+- **Read the log.** It records audited operations; write failures can leave gaps.
 
 ## If we break one
 

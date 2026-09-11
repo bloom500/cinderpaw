@@ -300,8 +300,19 @@ class CinderpawAgent(HalfDuplexAgent[CinderpawAgentState]):
 
     def _send(self, state: CinderpawAgentState, payload: dict) -> None:
         assert state.proc is not None and state.proc.stdin is not None
-        state.proc.stdin.write(json.dumps(payload) + "\n")
-        state.proc.stdin.flush()
+        try:
+            state.proc.stdin.write(json.dumps(payload) + "\n")
+            state.proc.stdin.flush()
+        except (BrokenPipeError, OSError) as e:
+            # The sidecar died before it could be spoken to, and the reason is
+            # on ITS stderr, not in this exception. A bare "[Errno 32] Broken
+            # pipe" gets retried four times by the runner and then reported as
+            # an infrastructure error with the cause nowhere on screen: a whole
+            # domain can fail at boot and read as a flaky pipe.
+            raise AgentError(
+                f"the sidecar is gone before it could be written to ({e}); "
+                f"exit code {state.proc.poll()}. Last stderr:\n" + self._tail(state)
+            ) from None
 
     def _read_until_actionable(self, state: CinderpawAgentState) -> dict:
         """

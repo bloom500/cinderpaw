@@ -596,7 +596,11 @@ export class InferenceRouter {
         }
       }
 
-      this.#recordUsage(req.sessionId, response.totalTokens);
+      this.#recordUsage(
+        req.sessionId,
+        response.completionTokens,
+        response.totalTokens,
+      );
       this.#recordCompletionCost(
         req.sessionId,
         response,
@@ -679,18 +683,30 @@ export class InferenceRouter {
   #enforceBudget(sessionId: string): void {
     const { perConversation, perDay } = this.#tokenBudget;
 
-    if (this.conversationTokens(sessionId) >= perConversation) {
+    // Both messages name the number, the unit and the way out. Whoever hits
+    // this is mid-task with the work stopped, and "budget exhausted" alone
+    // leaves them nothing to do about it — the setting is not discoverable
+    // from the sentence, and on a fresh machine nobody chose it in the first
+    // place.
+    const conv = this.conversationTokens(sessionId);
+    if (conv >= perConversation) {
       this.#auditBlocked(sessionId, "conversation token budget exhausted");
       throw new BudgetExhaustedError(
         "conversation",
-        `conversation budget of ${perConversation} tokens exhausted`,
+        `this session has produced ${conv.toLocaleString()} completion tokens, ` +
+          `over the per-conversation cap of ${perConversation.toLocaleString()}. ` +
+          `Start a new session, or raise the cap with ` +
+          `CINDERPAW_BUDGET_CONVERSATION (set it to Infinity for no cap).`,
       );
     }
-    if (this.dayTokens() >= perDay) {
+    const day = this.dayTokens();
+    if (day >= perDay) {
       this.#auditBlocked(sessionId, "daily token budget exhausted");
       throw new BudgetExhaustedError(
         "day",
-        `daily budget of ${perDay} tokens exhausted`,
+        `${day.toLocaleString()} tokens billed today, over the daily cap of ` +
+          `${perDay.toLocaleString()}. It resets at midnight, or raise it with ` +
+          `CINDERPAW_BUDGET_DAY.`,
       );
     }
   }
@@ -772,13 +788,30 @@ export class InferenceRouter {
    */
   static #costWriteFailed = false;
 
-  #recordUsage(sessionId: string, tokens: number): void {
+  /**
+   * The two budgets count DIFFERENT things on purpose.
+   *
+   * `perConversation` counts COMPLETION tokens — the work the model actually
+   * produced in this session. It used to count `totalTokens`, which re-counts
+   * the entire prompt on every single turn: a 200-step task at ~25k of context
+   * accumulates 5M without anything having gone wrong, so the cap fired on
+   * "this conversation was long" rather than on "this conversation ran away".
+   * That is what it is there to catch, and prompt tokens cannot tell it apart.
+   *
+   * `perDay` still counts `totalTokens`, because that one IS a spend cap and
+   * the re-sent prompt is genuinely billed every time.
+   */
+  #recordUsage(
+    sessionId: string,
+    completionTokens: number,
+    totalTokens: number,
+  ): void {
     // N2 fix: bounded LRU — delete + re-insert moves the entry to the
     // tail of the Map's iteration order, so it becomes "newest" for the
     // cap check. On overflow, evict the oldest entry (head of the Map).
     const prev = this.#conversationTokens.get(sessionId) ?? 0;
     this.#conversationTokens.delete(sessionId);
-    this.#conversationTokens.set(sessionId, prev + tokens);
+    this.#conversationTokens.set(sessionId, prev + completionTokens);
     this.#evictOldestConversationsIfOver();
 
     this.#db
@@ -786,7 +819,7 @@ export class InferenceRouter {
         `INSERT INTO token_usage (day, tokens) VALUES ($day, $tokens)
          ON CONFLICT(day) DO UPDATE SET tokens = tokens + $tokens`,
       )
-      .run({ $day: today(), $tokens: tokens });
+      .run({ $day: today(), $tokens: totalTokens });
     // P1-#1: soft warning. After the increment, check if we just crossed
     // the threshold for either dimension. The fired-map ensures the
     // listener is called at most once per (session, kind).

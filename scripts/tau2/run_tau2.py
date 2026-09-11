@@ -115,6 +115,12 @@ def _seed_cinderpaw_route() -> None:
         # Default the agent to the same model the published baseline was run
         # with, so the comparison is about the scaffold, not the model.
         os.environ.setdefault("CINDERPAW_MODEL", "z-ai/glm-5.3-flash")
+        # Pin the FIRST-PARTY endpoint. One model id is 25 endpoints on
+        # OpenRouter and routing moves per request, which is the confound that
+        # swung identical tau2 runs by 40 points. The agent's own pin lives in
+        # this env var (see openRouterProviderPin); without it Cinderpaw's arm
+        # was the only unpinned thing in a benchmark that pins everything else.
+        os.environ.setdefault("CINDERPAW_OPENROUTER_PROVIDER", "z-ai/fp8")
 
     # The sidecar builds `${base}/v1/chat/completions` itself, while every
     # provider documents its base URL WITH the /v1 — so the obvious value
@@ -174,6 +180,35 @@ def _pin_litellm_provider(agent_model: str) -> str | None:
     return name
 
 
+def _route_nl_assertion_judge(model: str) -> str:
+    """
+    Point the NL-assertion judge at a provider we actually hold a key for.
+
+    Retail is the first domain here that GRADES with an LLM. 112 of its 114
+    tasks carry `reward_basis: [DB, NL_ASSERTION]`, and airline's tasks carry
+    nl_assertions too but never score on them, so this stayed invisible through
+    two published benchmarks. tau2 hardcodes the judge as `gpt-4.1-2025-04-14`
+    with no provider prefix, litellm resolves that to OpenAI, and with no
+    OPENAI_API_KEY every task raised AuthenticationError, was retried three
+    times, and terminated TOO_MANY_ERRORS with reward 0.00 - a harness failure
+    that reads exactly like an agent that cannot do retail.
+
+    Same rule as `--user-llm`: the MODEL is pinned by the published
+    leaderboard, the PROVIDER is ours to pick. `openrouter/openai/gpt-4.1-...`
+    is the same judge, billed somewhere we have credit.
+
+    Patched in two places because `evaluator_nl_assertions` did
+    `from tau2.config import DEFAULT_LLM_NL_ASSERTIONS` - it holds its OWN
+    binding, so setting only `tau2.config` would change nothing.
+    """
+    from tau2 import config as tau2_config
+    from tau2.evaluator import evaluator_nl_assertions as nl_eval
+
+    tau2_config.DEFAULT_LLM_NL_ASSERTIONS = model
+    nl_eval.DEFAULT_LLM_NL_ASSERTIONS = model
+    return model
+
+
 def _preflight(registry, args) -> bool:
     """
     Load the domain and print what is about to be measured, BEFORE any money is
@@ -190,7 +225,12 @@ def _preflight(registry, args) -> bool:
     76% of its graded actions are performed by the USER, not the agent.
     """
     try:
-        env = registry.get_env_constructor(args.domain)()
+        env_kwargs = (
+            {"retrieval_variant": args.retrieval_config}
+            if args.retrieval_config
+            else {}
+        )
+        env = registry.get_env_constructor(args.domain)(**env_kwargs)
     except Exception as e:  # noqa: BLE001 — the point is to report ANY failure clearly
         print(
             f"\nDomain '{args.domain}' could not be loaded: {type(e).__name__}: {e}\n"
@@ -229,6 +269,18 @@ def _preflight(registry, args) -> bool:
     if args.agent == "cinderpaw" and len(policy) > 12_000:
         print(f"           NOTE: policy is {len(policy)} chars and rides in the first user "
               "turn. Check the trajectory for compaction before trusting the score.")
+
+    # Whether an LLM grades this domain belongs on screen next to the score.
+    # A judge is a second model in the measurement, and swapping it moves the
+    # number without anything about the agent having changed.
+    judged = sum(
+        1 for t in tasks
+        if "NL_ASSERTION" in ((getattr(t, "evaluation_criteria", None)
+                               and getattr(t.evaluation_criteria, "reward_basis", None)) or [])
+    )
+    if judged:
+        print(f"           NOTE: {judged}/{len(tasks)} tasks are graded by an LLM judge "
+              f"({args.judge_llm}). Report the judge with the score.")
 
     # A domain where the user holds tools is measuring something else: whether
     # the agent can INSTRUCT, not whether it can act.
@@ -296,11 +348,52 @@ def main() -> int:
         ),
     )
     p.add_argument(
+        "--judge-llm",
+        default="openrouter/openai/gpt-4.1-2025-04-14",
+        help=(
+            "Judge for NL_ASSERTION grading (retail). Model pinned by the "
+            "leaderboard; provider is ours, because tau2's bare 'gpt-4.1' needs "
+            "an OpenAI key and every task fails scoring without one."
+        ),
+    )
+    p.add_argument(
+        "--retrieval-config",
+        default=None,
+        help=(
+            "banking_knowledge only: which retrieval variant the environment "
+            "builds (see RETRIEVAL_VARIANTS). Default is picked below and "
+            "printed, because tau2's own default cannot be constructed without "
+            "an OpenAI key."
+        ),
+    )
+    p.add_argument(
         "--llm-agent",
         default="openrouter/z-ai/glm-5.3-flash",
         help="Only used by --agent llm_agent. Cinderpaw reads CINDERPAW_MODEL.",
     )
     args = p.parse_args()
+
+    # tau2's default banking variant is `alltools`, whose dense half embeds all
+    # 698 knowledge documents with OpenAI's text-embedding-3-large. That needs an
+    # OPENAI_API_KEY, and without one the domain cannot even be CONSTRUCTED — the
+    # run dies before a single task, with a bare OpenAIError. A machine that has
+    # only the OpenRouter key this harness already requires gets `alltools-qwen`
+    # instead: the same three tools (BM25, dense, shell), dense served by
+    # qwen3-embedding-8b over OpenRouter. It is a different retrieval backend, so
+    # it is printed, not silent, and it belongs next to any score from this domain.
+    if args.domain == "banking_knowledge" and args.retrieval_config is None:
+        openai_key = bool(os.environ.get("OPENAI_API_KEY"))
+        posix = sys.platform != "win32"
+        if posix:
+            args.retrieval_config = "alltools" if openai_key else "alltools-qwen"
+        else:
+            args.retrieval_config = (
+                "openai_embeddings_grep" if openai_key else "qwen_embeddings_grep"
+            )
+        args.retrieval_reason = (
+            ("OPENAI_API_KEY set" if openai_key else "no OPENAI_API_KEY, dense via OpenRouter")
+            + ("" if posix else "; no shell tool because sandbox-runtime is Linux/macOS only")
+        )
 
     if not TAU2_ROOT.is_dir():
         print(f"tau2 not found at {TAU2_ROOT}. Clone it there or set TAU2_ROOT.", file=sys.stderr)
@@ -334,6 +427,16 @@ def main() -> int:
     if pinned:
         print(f"provider pin  {pinned} (allow_fallbacks=false) for {args.llm_agent}; user simulator left on its own routing")
 
+    cp_pin = os.environ.get("CINDERPAW_OPENROUTER_PROVIDER")
+    if args.agent == "cinderpaw" and cp_pin:
+        print(f"agent pin  {cp_pin} (allow_fallbacks=false) for Cinderpaw's own model route")
+
+    judge = _route_nl_assertion_judge(args.judge_llm)
+    print(f"judge      {judge} for NL_ASSERTION grading")
+    if args.retrieval_config:
+        why = getattr(args, "retrieval_reason", "set explicitly with --retrieval-config")
+        print(f"retrieval  {args.retrieval_config} — the knowledge tools the agent is given ({why})")
+
     if not _preflight(registry, args):
         return 2
     if args.preflight_only:
@@ -350,6 +453,7 @@ def main() -> int:
             task_ids=args.task_ids,
             max_concurrency=args.max_concurrency,
             max_steps=args.max_steps,
+            retrieval_config=args.retrieval_config,
         )
     )
 

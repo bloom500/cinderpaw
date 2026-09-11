@@ -285,9 +285,9 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
     }
     if purge {
         println!(
-            "\n    {FAIL}{BOLD}--purge{RESET}{FAIL}: settings, memory, API keys and models go with it.{RESET}"
+            "\n    {FAIL}{BOLD}--purge{RESET}{FAIL}: removes the profile directory, including settings, memory and models.{RESET}"
         );
-        println!("    {FAIL}Not recoverable. A reinstall starts from zero.{RESET}");
+        println!("    {WARN}OS key-store credentials are retained; remove those separately if needed.{RESET}");
     } else {
         println!(
             "\n    {OK}kept{RESET}          {TEXT}{}{RESET}  {DIM}{META}{}{RESET}",

@@ -147,13 +147,10 @@ pub async fn start(
 // ── Section helpers ───────────────────────────────────────────────────────
 
 /// Load settings from disk and force `api_server_enabled = true` because
-/// the Cinderpaw Agent sidecar is hardcoded to point at the local API at
-/// `127.0.0.1:{api_port}`; without the API up, every agent inference
-/// fails with "connection refused". The bearer token in the runtime
-/// already gates the only exposure `api_server_enabled` was guarding,
-/// so forcing it on is safe even on hosts where the user wants the
-/// API "off" — they can remove the sidecar's externalBin entry in
-/// tauri.conf.json instead. (R4 fix in the original lib.rs.)
+/// local sidecar inference uses `127.0.0.1:{api_port}`. This boot path ignores
+/// a persisted `false`; removing the sidecar's externalBin entry does not
+/// disable this override or the API listener. The listener is loopback-only
+/// and bearer-authenticated, which is distinct from leaving it disabled.
 fn build_settings() -> Settings {
     let mut s = settings::load();
     s.api_server_enabled = true;

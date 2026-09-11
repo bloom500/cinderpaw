@@ -140,23 +140,14 @@ func TestConnectorCatalogGoldenSnapshot(t *testing.T) {
 		t.Fatal("golden decodes to zero entries — schema drift?")
 	}
 
-	// Cross-check the rich Decision D fields are actually decoded.
-	// Every QR-paired connector must carry a QRSetupEndpoint on the
-	// Go side too; every non-QR must NOT.
+	// The gateway has no QR setup route. QR pairing is delivered through
+	// the sidecar file and must not advertise an HTTP endpoint.
 	for _, e := range entries {
 		if e.PairingMethod == "" {
 			t.Fatalf("connector %s missing pairing_method", e.ID)
 		}
-		switch e.PairingMethod {
-		case "qr":
-			if e.QRSetupEndpoint == nil || *e.QRSetupEndpoint == "" {
-				t.Fatalf("QR connector %s missing qr_setup_endpoint (Go struct tag or JSON wire format broken)", e.ID)
-			}
-		default:
-			if e.QRSetupEndpoint != nil {
-				t.Fatalf("non-QR connector %s carries qr_setup_endpoint %q (should be omitted)",
-					e.ID, *e.QRSetupEndpoint)
-			}
+		if e.QRSetupEndpoint != nil {
+			t.Fatalf("connector %s advertises an unimplemented QR setup endpoint", e.ID)
 		}
 	}
 

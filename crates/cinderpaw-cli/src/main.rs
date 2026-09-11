@@ -75,7 +75,7 @@ enum Command {
     Update,
     /// Remove Cinderpaw. Settings, memory, keys and models are KEPT unless --purge
     Uninstall {
-        /// Also delete ~/.cinderpaw — settings, memory, API keys, models. Permanent.
+        /// Also remove the profile directory. OS key-store credentials are retained.
         #[arg(long)]
         purge: bool,
         /// Skip the confirmation prompt (for scripts)

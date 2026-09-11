@@ -76,9 +76,18 @@ export class PermissionDeniedError extends Error {
  * problem; returns normally when the manifest is safe to register.
  */
 export function validateManifest(manifest: ToolManifest): void {
-  if (!manifest.name || !/^[a-z][a-z0-9_]*$/.test(manifest.name)) {
+  // The contract every provider actually enforces on a function name is
+  // /^[a-zA-Z0-9_-]{1,64}$/. This used to demand snake_case, which is our own
+  // house style and not something we get to impose on tools we did not write:
+  // an MCP server or a host exposing `KB_search`, `getWeather` or `read-file`
+  // is legal everywhere else and made Cinderpaw exit at boot with "failed to
+  // start", leaving the owner of that machine nothing to fix but someone
+  // else's tool names. Tools Cinderpaw forges for itself are still held to
+  // snake_case, in custom-tools.ts, where the name IS ours to choose.
+  if (!manifest.name || !/^[a-zA-Z0-9_-]{1,64}$/.test(manifest.name)) {
     throw new ManifestError(
-      `invalid tool name "${manifest.name}" (use snake_case)`,
+      `invalid tool name "${manifest.name}" — must match ` +
+        `/^[a-zA-Z0-9_-]{1,64}$/, the shape providers accept for a function name`,
     );
   }
   if (!manifest.description.trim()) {

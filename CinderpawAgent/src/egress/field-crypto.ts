@@ -5,7 +5,8 @@
  * this process as `CINDERPAW_DB_KEY` (base64). We encrypt the highest-density PII
  * column — semantic memory values — with AES-256-GCM so a stolen copy of the
  * SQLite file alone does not reveal those facts. Episodic/conversation text is
- * FTS-indexed and stays plaintext; it is covered by full-disk encryption.
+ * FTS-indexed and stays plaintext. Protecting that text at rest requires
+ * separately enabled full-disk encryption; this module does not enable it.
  *
  * Envelope format (string, SQLite-friendly):
  *   enc:v1:<base64(iv)>:<base64(ciphertext || authTag)>

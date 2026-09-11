@@ -232,10 +232,9 @@ class LocalLLMStream extends llm.LLMStream {
     const res = await fetch(`${API_URL}/runtime/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
-      // One session per call, named after the room. Stable for the whole call,
-      // so the sidecar keeps the conversation and compacts it; different for
-      // the next one, so two calls do not bleed into each other. The persona is
-      // the sidecar's too, which is why no `system` is sent from here.
+      // Use the worker PID as the session suffix, stable for this process so
+      // the sidecar can keep and compact its history. The persona is the
+      // sidecar's too, which is why no `system` is sent from here.
       // Spoken, and it has to say so: without it the reply is the desktop's
       // full markdown read out loud.
       body: JSON.stringify({ content, session_id: SESSION_ID, stream: true, surface: 'voice' }),
@@ -439,12 +438,10 @@ const LANGUAGE = (process.env.CINDERPAW_LIVE_LANGUAGE || '').trim().toLowerCase(
  * What the agent says while a tool call is running.
  *
  * Spoken by THIS FILE, not by the model, and that is the whole point. The brief
- * already tells the model at length to keep the line warm, and on Gemini's
- * native-audio model it can: `ask_cinder` is declared NON_BLOCKING and the
- * session stays free to talk. Every other vendor runs the tool call inside the
- * turn, so the model is not choosing to stay quiet, it is unable to speak.
- * Thirty seconds of that is indistinguishable from a dropped call, and no
- * amount of prompt fixes something the model cannot do.
+ * asks the model to keep the line warm, but `ask_cinder` has no non-blocking
+ * declaration here: its execute callback awaits the Rust response. Continued
+ * speech and microphone input during that wait are not guaranteed. This filler
+ * attempts to cover the gap through `session.say()` where synthesis is available.
  *
  * Short, plain, and varied, because the same sentence twice in twenty seconds
  * sounds more broken than silence. Nothing here claims a result: the model says
@@ -456,8 +453,8 @@ const FILLER = {
     start: ['One moment, let me look that up.', "Right, I'm on it.", 'Let me go and find out.'],
     waiting: [
       "Still working on it.",
-      "Give me a few more seconds.",
-      "Nearly there, still looking.",
+      "The result hasn't arrived yet.",
+      "I'm waiting for the result.",
       "I'm still here, this one is taking a while.",
     ],
   },
@@ -465,8 +462,8 @@ const FILLER = {
     start: ['O secundă, mă uit acum.', 'Bun, mă ocup.', 'Stai să văd exact.'],
     waiting: [
       'Încă lucrez la asta.',
-      'Mai durează puțin.',
-      'Aproape gata, încă mă uit.',
+      'Rezultatul nu a sosit încă.',
+      'Aștept rezultatul.',
       'Sunt aici, asta durează mai mult.',
     ],
   },
@@ -526,7 +523,9 @@ async function askRust(name, args) {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
       body: JSON.stringify({ id: String(++nextCallId), name, args }),
-      // A backstop above Rust's own twenty-second budget, not a second policy.
+      // This 30-second client timeout is shorter than Rust's 45-second
+      // VOICE_TOOL_DEADLINE, so it can abort before Rust returns a holding reply.
+      // Aborting this fetch does not cancel the server's in-flight agent work.
       // A realtime session BLOCKS on a tool call, so anything that can hang
       // here — a dead API server, a socket that never answers — is a call that
       // goes silent mid-sentence with no way back.
@@ -564,9 +563,8 @@ function toolsFromDeclarations(session) {
       // The JSON Schema Rust already wrote. Restating it as a zod schema here
       // would be a second definition of the same contract, free to drift.
       parameters: decl.parameters,
-      // The agent's turn takes around twenty-five seconds, which is why the
-      // declaration tells the model to keep talking while it waits. Nothing
-      // here needs a timeout: a call that ends takes the process with it.
+      // Await the tool response; askRust applies the client timeout. The filler
+      // timer below is best effort and stops when this callback settles.
       execute: async (args) => {
         // The call screen has a panel that shows what the agent is doing, and
         // for a LiveKit call it was always blank: `ask_cinder` is answered over
@@ -584,7 +582,7 @@ function toolsFromDeclarations(session) {
           return out;
         } finally {
           // On every path. Left running after a failure, the call would go on
-          // promising it was nearly there for as long as the room was open.
+          // saying it was still waiting for as long as the room was open.
           done();
         }
       },

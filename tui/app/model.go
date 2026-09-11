@@ -196,6 +196,17 @@ type ProvidersTestMsg struct {
 	Success bool
 	Msg     string
 	Err     error
+
+	// Models is the provider's model list, straight from the `/v1/models`
+	// probe the gateway already runs. It feeds the WizCloudModel picker so
+	// the user arrows through real model ids instead of typing one.
+	Models []string
+
+	// ProbeOnly marks the silent "does this provider already have a key?"
+	// probe fired when a provider is picked. A failed probe means "no key
+	// stored yet" — the wizard asks for one. It is NOT a rejected key and
+	// must never render as one.
+	ProbeOnly bool
 }
 
 // DownloadModelMsg is the Sprint 2 / audit C-5 payload. The wizard's

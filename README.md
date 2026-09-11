@@ -234,10 +234,10 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 
 ## Privacy, honestly
 
-- **Local models:** inference, conversations, and memory never leave your machine. No background network requests, no telemetry, no analytics — by design.
-- **Cloud models (BYOK):** your messages go to the provider you configured (OpenAI, Anthropic, …) when — and only when — you hit send. Cinderpaw talks to their API directly with your key; nothing is routed through our servers, because we don't have any. Their privacy policy applies to what you send them.
+- **Local models:** local inference runs on your machine. Selecting a local model does not disable outbound web tools, connectors, downloads, or other configured services.
+- **Cloud models (BYOK):** Cinderpaw calls provider APIs directly with your key. Configured background work, verification, and fallback routes can also make provider requests. The receiving provider's privacy policy applies.
 - **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (DuckDuckGo or your own SearXNG instance, Jina Reader, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
-- **Update check:** once per launch, Cinderpaw asks GitHub Releases whether a newer version exists. Only the version request is sent — no usage data, no identifiers beyond a normal HTTP request. Turn it off in **Settings → General** for a fully offline app.
+- **Update check:** the desktop can check GitHub Releases at launch. **Settings → General** disables that automatic check; it does not disable model/toolchain downloads or other network activity.
 
 The full list of what we promise, what we deliberately do not promise, and how to check each one yourself is in [PROMISES.md](PROMISES.md).
 
@@ -262,7 +262,7 @@ The full list of what we promise, what we deliberately do not promise, and how t
 | **Browse HuggingFace** | Search and download models inside the app. No terminal. No manual file moves. No accidentally running `rm -rf`. |
 | **SkillHub** | Install, discover, and import skills that extend what the AI can do. Community tab ships with curated third-party skills. |
 | **Cloud Keys (BYOK)** | Add your own API keys for OpenAI, Anthropic, Google Gemini, Kimi, GLM, MiniMax, DeepSeek, Groq, Mistral, OpenRouter, or any custom endpoint. The AI equivalent of "I have a guy." |
-| **Privacy Tags** | Wrap anything in `<private>...</private>` and it never touches the memory database. Your secrets stay secret, unlike that one time you committed a `.env` file. |
+| **Privacy Tags** | Complete `<private>...</private>` blocks are removed from the agent loop's episodic text. They are not a guarantee against storage in other memory, transcript, or tool paths. |
 | **Tool Health Monitor** | ECC-style per-tool success rates and latency tracking. The agent can literally diagnose its own failing tools. |
 | **Workspace Scanner** | Detect hardcoded secrets, API keys, and code security anti-patterns before you accidentally push them to GitHub and ruin your week. |
 | **Hardware Monitor** | Live GPU/VRAM/RAM readout and Vulkan detection in the title bar. |
@@ -328,7 +328,7 @@ user message
     └── no tool call?       → final answer, persist to memory, done
 ```
 
-Up to 10 iterations per message (50 for complex multi-step tasks like deep research). Failed web/network tools retry with linear backoff and fall back through the `web_search → deep_research → read_webpage` chain. Token budgets are off by default — re-enable with `CINDERPAW_BUDGET_DAY` / `CINDERPAW_BUDGET_CONVERSATION`.
+The agent loop has a 500-iteration emergency ceiling and a default 20-minute turn budget checked between iterations (`CINDERPAW_TURN_BUDGET_MS`). Tool-specific retry and fallback policies apply. Default token ceilings are 5,000,000 per conversation and 50,000,000 per day, configurable with `CINDERPAW_BUDGET_CONVERSATION` / `CINDERPAW_BUDGET_DAY`; these are token limits, not monetary spending caps.
 
 ### Memory layers
 
@@ -341,7 +341,7 @@ Cinderpaw Agent has 4 memory layers that persist across sessions:
 | **Semantic** | SQLite | Durable user facts extracted after each turn: name, role, language, preferences, constraints. |
 | **Recall Engine** | — | Unified retrieval: injects relevant episodic hits + all semantic facts before every inference call. |
 
-**Privacy tags (from claude-mem):** wrap sensitive content in `<private>...</private>` and it's stripped before any episodic write. The model still sees it during the current turn — only the database never does.
+**Privacy tags (from claude-mem):** the agent loop strips complete `<private>...</private>` blocks from its user/answer episodic text. The model still sees the original input. Other writers, including semantic `remember`, do not share this stripping boundary, so tags do not guarantee that content stays out of storage.
 
 **Observation types (from claude-mem):** after each turn, the extractor runs two async passes:
 1. **Facts pass** → extracts `key: value` user facts into SemanticMemory
@@ -353,18 +353,18 @@ Cinderpaw Agent has 4 memory layers that persist across sessions:
 
 Every tool call passes through a security layer before execution:
 
-The philosophy is **capable by default, restrictable by choice**: the agent can browse the open web and work across your files out of the box, while hard guarantees stay call-time enforced:
+The philosophy is **capable by default, restrictable by choice**: the agent can browse the web and work across your files out of the box. Tool-call checks apply, but they are not an OS sandbox for spawned programs:
 
 - **Manifest validation** — tools declare `permissions: ["fs:read" | "fs:write" | "network:outbound" | "process:spawn"]` at registration; undeclared permissions are blocked
-- **Egress proxy** — all network requests go through `ctx.fetch()` (never raw `fetch()`), which blocks SSRF (loopback / private / link-local ranges, re-checked on every redirect hop), rate-limits (30 req/60s), and audits every call. Open to all public hosts by default; set `CINDERPAW_FETCH_DOMAINS` / `CINDERPAW_HTTP_DOMAINS` to restrict to an allowlist.
-- **Filesystem deny wall** — file tools work across your workspace roots (launch dir + home by default, `CINDERPAW_WORKSPACE` to restrict), but `~/.cinderpaw` (your agent's own config, memory, and keys), `~/.ssh`, and anything in `CINDERPAW_FS_DENY` are refused at call time — always, regardless of roots. Directory traversal (`../`) is resolved before any disk access.
-- **Audit log** — every tool call, network request, and inference call is written to SQLite
+- **Egress proxy** — built-in web tools use `ctx.fetch()` for SSRF checks, rate limits and audit attempts. Inference, connectors and external processes have separate I/O paths. `fetch_url` / `http_request` allow public hosts by default; set `CINDERPAW_FETCH_DOMAINS` / `CINDERPAW_HTTP_DOMAINS` to restrict them.
+- **Filesystem checks** — tool paths are checked against workspace roots and protected profile/SSH paths, with a scratch exception. Default roots are launch dir + home + scratch; `CINDERPAW_WORKSPACE` restricts configured roots. These checks do not confine spawned processes; see [SECURITY.md](SECURITY.md) for known gaps.
+- **Audit log** — instrumented operations attempt SQLite writes; failures can leave gaps even when the retained chain verifies.
 
 ### Built-in tools
 
 | Tool | Permissions | Description |
 |---|---|---|
-| `web_search` | `network:outbound` | Ranked web results, no setup needed: keyless via DuckDuckGo, paced at one query per 5s (`CINDERPAW_DDG_MIN_INTERVAL_MS`) to stay under its rate limit. For search with no rate limit and no pacing delay, run a [SearXNG](https://docs.searxng.org/) instance and point `CINDERPAW_SEARXNG_URL` at it: several engines, and queries that never leave your machine. DuckDuckGo then stays as the fallback if it goes down. |
+| `web_search` | `network:outbound` | Keyless DuckDuckGo search, paced at one query per 5s (`CINDERPAW_DDG_MIN_INTERVAL_MS`); upstream rate limits can still apply. Set `CINDERPAW_SEARXNG_URL` to use [SearXNG](https://docs.searxng.org/) without this client's DDG pacing. SearXNG forwards queries to upstream engines; DuckDuckGo remains the fallback if it fails. |
 | `read_webpage` | `network:outbound` | Extracts clean Markdown from any URL via Jina Reader (`r.jina.ai`). No API key required. |
 | `deep_research` | `network:outbound` | DeepResearch-style iterative loop: plan → search (Jina Search) → select URLs → read pages → extract findings → repeat → synthesize cited Markdown report. 4–8 iterations. |
 | `read_file` | `fs:read` | Read files from the workspace. 64 KB cap. |
@@ -476,8 +476,8 @@ When launched by the desktop app, the sidecar is pointed at Cinderpaw's **own bu
 | `CINDERPAW_JINA_API_KEY` | — | Jina API key for higher rate limits on `read_webpage` + `deep_research` |
 | `CINDERPAW_FETCH_DOMAINS` | — | Domain allowlist for `fetch_url`. Unset = all public hosts (SSRF guard still applies); set to RESTRICT |
 | `CINDERPAW_HTTP_DOMAINS` | — | Same as above, for the `http_request` tool |
-| `CINDERPAW_BUDGET_CONVERSATION` | `5000000` | Per-conversation token ceiling |
-| `CINDERPAW_BUDGET_DAY` | `50000000` | Per-day token ceiling |
+| `CINDERPAW_BUDGET_CONVERSATION` | `5000000` | Per-conversation completion-token ceiling |
+| `CINDERPAW_BUDGET_DAY` | `50000000` | Per-day total-token ceiling (prompt plus completion) |
 
 ---
 
@@ -493,7 +493,7 @@ When launched by the desktop app, the sidecar is pointed at Cinderpaw's **own bu
 - [x] Agent mode — TypeScript sidecar with tool-use, 4-layer memory, agentic loop
 - [x] Deep Research — autonomous multi-step web research with cited reports
 - [x] Model fitness scoring — 4-dimension hardware compatibility score per model
-- [x] Privacy tags — `<private>` blocks never written to memory
+- [x] Privacy tags — complete blocks stripped from agent-loop episodic text (not all storage paths)
 - [x] Tool health monitoring — ECC-style per-tool success rate tracking
 - [x] Workspace security scanner — detect secrets and code anti-patterns
 - [x] Local API server — 47 documented routes, OpenAI- and Ollama-compatible (see [docs/API.md](docs/API.md))

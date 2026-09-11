@@ -5,14 +5,15 @@
 >
 > **Machine-checked:** the canonical list of `CINDERPAW_*` env vars lives
 > in the fenced `cinderpaw-env-vars` block at the bottom of this file.
-> `scripts/check-env-docs.mjs` greps source for `CINDERPAW_*` and fails if
-> anything in code is missing from that block (or vice-versa). Run it
-> after adding a new env var.
+> `scripts/check-env-docs.mjs --strict` fails on source variables missing from
+> that block. Documented variables absent from source produce warnings only.
+> Schema omissions and generated-table drift fail even without `--strict`.
+> Run it after adding a new env var.
 
-Cinderpaw reads ~90 env vars across two runtimes (the Rust host
+Cinderpaw reads environment variables across two runtimes (the Rust host
 `crates/cinderpaw-core` and the TypeScript sidecar `CinderpawAgent/`). This
-document lists every one, the default, the read site, and — for the
-security-relevant ones — an explicit threat note.
+document contains the canonical name list, a generated TypeScript schema table,
+and notes on selected Rust-side settings and security-sensitive controls.
 
 ## 1. Security-critical vars (read this first)
 
@@ -23,18 +24,18 @@ runner, or anything that handles untrusted input.**
 
 | Var | Default | Threat when enabled | Mitigation |
 |---|---|---|---|
-| `CINDERPAW_ENABLE_SHELL_EXEC` | off | Spawns `cmd` / `pwsh` / `sh` from the `shell_exec` tool, with a whitelist of programs (`process-sandbox.ts`). Any listed binary inherits the agent's prompt — prompt-injection = full process creation. | Keep the whitelist tight; deny `pwsh -Command "iex …"` patterns. |
-| `CINDERPAW_ENABLE_CODE_EXEC` | off | Runs Python in a subprocess with a sanitized env. The process can read files the agent has access to and emit subprocesses of its own. | Restricted env, no network by default. |
-| `CINDERPAW_ENABLE_NOTEBOOK` | off | Registers `notebook`, a persistent JS interpreter. Cells run in a `node:vm` context with no ambient `fetch`/`process`/`require`, and every capability still goes through the tool registry — so it grants no permission `shell_exec` did not already reach. The residual risk is that `vm` is a hardened context, not an isolate: it is proof against a careless model, not against hostile source. | Leave off unless you want it. Never enable it on a session that executes source from an untrusted third party. |
+| `CINDERPAW_ENABLE_SHELL_EXEC` | on | Registers `shell_exec`, which starts programs with direct argv execution. The binary allowlist is optional; shells can be requested explicitly. | Set to `false` to disable this tool; other process-capable tools have separate controls. |
+| `CINDERPAW_ENABLE_CODE_EXEC` | off | Runs Python in a subprocess with a minimal environment and 30-second timeout. It runs with the host user's filesystem and network access. | Keep off unless host code execution is intended; environment filtering does not sandbox I/O. |
+| `CINDERPAW_ENABLE_NOTEBOOK` | on | Registers `notebook`, a persistent JS interpreter. Its bound tools go through the tool registry. The VM context omits ambient `fetch`/`process`/`require`, but is not a security boundary against hostile JavaScript. | Set to `false` to disable. Owner-only tool gates also apply. |
 | `CINDERPAW_ENABLE_DESKTOP_CONTROL` | off | `control_app` tool can move the mouse, click, type, and drive any focused OS app. There is no per-window permission — "the desktop" is one privilege. | Keep the per-action confirmation ON (`CINDERPAW_DESKTOP_CONTROL_CONFIRM` not set to `false`). |
 | `CINDERPAW_DESKTOP_CONTROL_CONFIRM=false` | off (i.e. confirmation is on) | Disables the per-action confirmation dialog. Same privilege as above, but silently — the user no longer sees what's about to happen. | Don't set this on shared machines; document who is YOLO. |
 | `CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS` | empty | Comma-separated allowlist of app names the `control_app` tool will target. Empty = no targets accepted (tool fails closed). | Use this even if the tool itself is enabled; deny untrusted app names. |
-| `CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK` | off | Sidecar-internal kill-switch that the desktop host uses to remember "user already approved this exact action"; see `control-app.ts`. | Not a security boundary; remains a UX shortcut only. |
+| `CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK` | off | Allows a required `control_app` confirmation to proceed when the transport has no `askUser` bridge. It does not record or check prior approval of a particular action. | Leave off to fail closed when no confirmation bridge is available. |
 | `CINDERPAW_DB_KEY` | unset (no encryption at rest) | 32-byte key for the agent's SQLite DB. **Anyone who can read this value can read the DB.** Treat it as a root secret. | Generate once per install; persist in OS keychain, not dotfiles. |
-| `CINDERPAW_AGENT_WORKSPACE` | unset (deny all tool access to host FS) | Sidecar-internal Rust tools accept absolute paths under this value. Set to `/` on Unix or `C:\` on Windows to grant full disk access to code-exec and shell. | Always absolute, never `/`, never `C:\`. |
+| `CINDERPAW_AGENT_WORKSPACE` | agent profile's `workspace` directory | Root for native Rust file-tool path checks. An absolute override widens that root. This variable does not confine Python `code_execute` or sidecar shell processes. | Set only the intended file-tool root. |
 | `CINDERPAW_WORKSPACE` | (TS list — see trap below) | Agent FS roots. Anything in this list, plus any child, is exposed to write tools. Unset = launch cwd + the user's home dir. | The call-time deny wall (`tool-permissions.ts`) refuses `~/.cinderpaw` (except scratch), `~/.ssh`, and `CINDERPAW_FS_DENY` targets on every access, whatever the roots. |
-| `CINDERPAW_FETCH_DOMAINS` | empty | Comma-separated URL allowlist for the `fetch_url` tool. Empty = tool fails closed. With this set, the agent can pull arbitrary HTML from each listed origin. | Add only origins you trust to serve benign HTML. |
-| `CINDERPAW_HTTP_DOMAINS` | empty | Same shape, for the lower-level `http_request` tool. | Same advice. |
+| `CINDERPAW_FETCH_DOMAINS` | empty = all public hosts | Comma-separated domain allowlist for `fetch_url`. Empty/unset registers the wildcard; egress checks still apply. | Set a domain list to restrict destinations. |
+| `CINDERPAW_HTTP_DOMAINS` | empty = all public hosts | Comma-separated domain allowlist for `http_request`; empty/unset registers the wildcard. | Set a domain list to restrict destinations. |
 | `CINDERPAW_TRUSTED_BASE_URLS` | empty | Comma-separated base URLs the inference router may call beyond the loopback default. Bypasses the egression posture in `inference-router.ts`. | List one provider base URL per entry; never `*`. |
 | `CINDERPAW_SHELL_WHITELIST` | unset = any binary | RESTRICTS `shell_exec` to a named set. There is no binary allowlist by default, and there never effectively was one: the old default list carried `sh`, `bash`, `cmd` and `powershell`, so `sh -c "<anything>"` always ran anything. It only failed DIRECT calls to unlisted tools. | What actually gates this tool: owner-only exposure (`PUBLIC_ALLOWED_TOOLS` omits it), env scrubbing with a forced PATH, `CINDERPAW_PERMISSION_MODE=read_only`, the blast-radius refusal outside workspace roots, and `CINDERPAW_SHELL_DENYLIST`. Set a named list if you want a locked-down toolchain. |
 | `CINDERPAW_SHELL_PATH_EXTRA` | unset | Extra directories appended to the PATH every spawned child sees. The agent inherits whatever PATH launched the gateway, which can be much shorter than a terminal's — that is what made `bash` fail with a permissions-sounding error while the same command worked in a terminal. | Appended, never prepended, so it cannot hijack which binary a working call resolves to. Missing directories are ignored. |
@@ -62,9 +63,9 @@ interval if you see `rate_limited`; about 3s is the floor.
 The cost of that pacing is latency: a research loop doing eight searches spends
 about 40 seconds waiting. If that bothers you, or you search heavily, run
 [SearXNG](https://docs.searxng.org/) — a self-hosted metasearch aggregator:
-several engines at once, no rate limit, no pacing delay, no API key, no
-per-query cost, and the queries never leave your machine, which is the point of
-a local-first agent.
+several engines at once, without this client's DuckDuckGo pacing. The instance
+forwards queries to upstream search services; self-hosting does not keep searches
+offline or remove upstream rate limits. See the [SearXNG documentation](https://docs.searxng.org/).
 
 ```bash
 docker run -d --name searxng -p 8888:8080 \
@@ -100,17 +101,17 @@ There are **two** env vars with confusingly similar names. They are
 
 | Var | Runtime | Type | Default | Effect |
 |---|---|---|---|---|
-| `CINDERPAW_AGENT_WORKSPACE` | Rust host (`crates/cinderpaw-core`) | single absolute path | unset | Sidecar-internal Rust tools (e.g. raw FS access) accept absolute paths only under this single root. |
+| `CINDERPAW_AGENT_WORKSPACE` | Rust host (`crates/cinderpaw-core`) | single absolute path | agent profile's `workspace` directory | Native file-tool path checks use this root; it does not sandbox spawned code. |
 | `CINDERPAW_WORKSPACE` | TS sidecar (`CinderpawAgent/src/boot.ts` `loadWorkspaceRoots`) | path-list | launch cwd + home + scratch | Write tools and the agent's filesystem exposure are rooted at this list, plus an automatic scratch dir. `~/.cinderpaw`/`~/.ssh`/`CINDERPAW_FS_DENY` are denied at call time regardless. |
 
 If you set one and meant the other, the agent will fail in confusing
 ways (Rust tools will deny paths the TS sidecar allowed, or vice versa).
 Set both deliberately.
 
-The TS loader **refuses to include any path that would expose
-`~/.cinderpaw/`** (and a few other self-protection walls). See
-`CinderpawAgent/src/workspace-roots.ts` for the canonical list of dropped
-roots.
+The TS loader drops roots inside the agent's profile directories, except the
+scratch subtree. Ancestors such as home and drive root are accepted; access
+checks happen separately at tool-call time. See
+`CinderpawAgent/src/boot.ts::loadWorkspaceRoots`.
 
 ## 3. Var reference — by domain (TS sidecar)
 
@@ -143,7 +144,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_DB_KEY` | string | `null` | yes | 32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB. |
 | `CINDERPAW_WORKSPACE` | list | `null` | yes | TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.cinderpaw, ~/.ssh and CINDERPAW_FS_DENY regardless of roots. |
 | `CINDERPAW_FS_DENY` | list | `null` | yes | Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.cinderpaw + ~/.ssh deny wall. |
-| `CINDERPAW_ENABLE_SHELL_EXEC` | bool | `true` | yes | Registers shell_exec (argv-only, whitelisted). On by default; set to "false" to disable. Doc note: an earlier draft of this doc said default off — the code's actual default is ON. |
+| `CINDERPAW_ENABLE_SHELL_EXEC` | bool | `true` | yes | Registers shell_exec (direct argv execution, optional binary allowlist). On by default; set to "false" to disable this tool. Other process-capable tools have separate controls. |
 | `CINDERPAW_ENABLE_NOTEBOOK` | bool | `true` | yes | Registers `notebook`, a persistent JavaScript interpreter with every other tool bound as an async function, so the agent can compose tool calls in code instead of one per turn. ON by default since 2026-08-26: it is the largest measured lever on token cost, because two tool calls in one cell is ONE completion instead of two, and every completion re-sends ~10.7k tokens of schema + system prompt. Set to "false" to disable. Cells run in an isolated vm context with no ambient fetch/process/require, and every capability still goes through the tool registry and its permission checks — but it is a hardened context, not a jail against hostile input, which is why it is OWNER-ONLY: any session running under a profile (connector persona, WhatsApp public mode, a cowork teammate) is refused it at both the advertise and the execute gate. See tools/tiers.ts::OWNER_ONLY_TOOLS. |
 | `CINDERPAW_HOST_TOOLS` | string | `null` | yes | Path to a JSON file of tools the HOST will execute, in MCP's `{tools:[{name,description,inputSchema}]}` shape. When set, the agent calls these by name and the sidecar emits a `tool_request` event, suspending the call until the host answers with `tool_response` — so the host, not the agent, performs the action. Needed wherever the host owns the state being acted on and must record the call itself: tau2-bench grades a fresh environment replayed from ITS transcript, so a tool the harness never saw did not happen. Setting it also flips tool tiering — the host's tools are what get advertised and the built-ins move behind the on-demand drawer (list_tools/load_tool still reach every one of them), because a host that declares a tool set is declaring the job; measured on tau2's airline domain that cut the per-completion prefix from 16.5k to 10.8k tokens. Unset (the default, and every normal install) registers nothing and costs nothing. Not a sandbox escape: the host process spawned this one and already has everything it has. |
 | `CINDERPAW_ENABLE_DESKTOP_CONTROL` | bool | `false` | yes | Registers control_app (OS accessibility-tree control). Off by default; set to "true" to enable. |
@@ -159,7 +160,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_DRY_RUN` | bool | `false` | yes | Log every STATE-CHANGING external request (POST/PUT/PATCH/DELETE) and do NOT send it. The agent is told the call was a dry run rather than handed a fake success, so it cannot build its next step on a write that never happened. The honest first run against a real ad or social account: let it do the whole task, then read exactly what it would have changed. |
 | `CINDERPAW_WRITE_CONFIRM_HOSTS` | list | `null` | yes | Hosts whose STATE-CHANGING requests are REFUSED while running unattended (CINDERPAW_AUTONOMOUS). Reads are unaffected. Declared by the operator, never by the model — this is the guard that does not depend on the agent realising a call is expensive. Deliberately a human-declared list rather than built-in patterns for known money endpoints: a pattern list fails open for every API not on it while reading as though everything is covered. |
 | `CINDERPAW_TRUSTED_LOCAL_ORIGINS` | list | `null` | yes | Comma-separated exact origins (scheme+host+port) on loopback/private addresses that the SSRF guard may reach, for services the OPERATOR runs themselves. Exact-origin match only — trusting http://127.0.0.1:8080 does not trust any other local port — and the tool's own allowedDomains still applies. Extends the single CINDERPAW_SEARXNG_URL exemption to any self-hosted backend. |
-| `CINDERPAW_TOOL_ALLOWED_DOMAINS` | list | `null` | yes | Set BY the sidecar ON a forged tool's child process — not something a user configures. Carries the hostnames that tool declared via tool_forge's `allowed_domains`; the runner turns it into an EgressProxy-backed globalThis.fetch, so a tool that declared nothing has no network. Setting it in the parent environment has no effect: createCustomTool always overwrites it from the tool's own record. |
+| `CINDERPAW_TOOL_ALLOWED_DOMAINS` | list | `null` | yes | Set by the sidecar on a forged tool's child process from the tool's allowed_domains. Restricts the runner's globalThis.fetch wrapper; empty refuses wrapper requests. Other networking APIs in the child are not confined. createCustomTool overwrites this value from the tool record, so setting it in the parent environment does not configure a tool. |
 | `CINDERPAW_TRUSTED_BASE_URLS` | list | `null` | yes | Extra base URLs the inference router may call beyond loopback. |
 | `CINDERPAW_SHELL_WHITELIST` | list | `null` | yes | RESTRICTS shell_exec to a named set of binaries (e.g. "git,node"). Unset means any binary, which is the default: the old default list had the OS shells on it, so `sh -c "…"` ran anything anyway and the list only failed direct calls to unlisted tools like ffmpeg or docker. "*" is accepted as the historical spelling of "no restriction" and additionally selects full_access (see CINDERPAW_PERMISSION_MODE). |
 | `CINDERPAW_SHELL_PATH_EXTRA` | list | `null` | yes | Extra directories appended to the PATH every spawned child sees, on top of the well-known install locations (Git bin, nodejs, npm global on Windows; /usr/local/bin, homebrew, ~/.local/bin, ~/.bun/bin, ~/.cargo/bin elsewhere). Needed because the agent inherits whatever PATH launched the gateway, so a tool a terminal finds can be invisible here — that is what made `bash` fail with a permissions-sounding error. Appended, never prepended, so it cannot change which binary an already-working call resolves to. Directories that do not exist are ignored. |
@@ -192,9 +193,8 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_EMBED_GPU_LAYERS` | int | `null` |  | Embedding-model layers offloaded to GPU. 0 = CPU-only. |
 | `CINDERPAW_EMBED_MODEL` | path | `null` |  | Path to the embed GGUF; auto-discovered when unset. |
 | `CINDERPAW_EMBED_CHUNK` | int | `null` |  | Embedder input chunk size (tree-builder.ts). |
-| `CINDERPAW_BUDGET_CONVERSATION` | int | `5_000_000` |  | Per-conversation token ceiling. |
-| `CINDERPAW_BUDGET_DAY` | int | `50_000_000` |  | Per-day token ceiling. |
-| `CINDERPAW_BUDGET_POLICY` | string | `"compress_and_continue"` |  | "stop" or "compress_and_continue". |
+| `CINDERPAW_BUDGET_CONVERSATION` | int | `5_000_000` |  | Per-conversation completion-token ceiling. |
+| `CINDERPAW_BUDGET_DAY` | int | `50_000_000` |  | Per-day total-token ceiling (prompt plus completion). |
 | `CINDERPAW_RSI_MAX_COST_USD` | string | `null` |  | RSI background USD cap (float). Unset = local-only. |
 | `CINDERPAW_CLOUD_TRANSCRIPT_BUDGET` | int | `200_000` |  | Cloud-specific transcript-size budget (AgentLoop.CLOUD_TRANSCRIPT_BUDGET fallback). |
 | `CINDERPAW_TTFT_DEADLINE_MS` | int | `null` |  | Time-to-first-token cap (perf-policy.ts, positive int only). |

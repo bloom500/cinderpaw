@@ -106,7 +106,7 @@ func TestFetchConnectorCatalog_200(t *testing.T) {
 	payload := `[
 		{"id":"discord","name":"Discord","description":"","icon":"","pairing_fields":[{"key":"DISCORD_TOKEN","label":"Discord bot token","secret":true}],"pairing_method":"bot_token","coming_soon":false,"qr_setup_endpoint":null},
 		{"id":"slack","name":"Slack","description":"","icon":"","pairing_fields":[{"key":"SLACK_APP_TOKEN","label":"App-level token","secret":true},{"key":"SLACK_BOT_TOKEN","label":"Bot token","secret":true}],"pairing_method":"bot_token","coming_soon":false,"qr_setup_endpoint":null},
-		{"id":"whatsapp","name":"WhatsApp","description":"","icon":"","pairing_fields":[],"pairing_method":"qr","coming_soon":false,"qr_setup_endpoint":"/runtime/connectors/whatsapp/pair/start"},
+		{"id":"whatsapp","name":"WhatsApp","description":"","icon":"","pairing_fields":[],"pairing_method":"qr","coming_soon":false},
 		{"id":"telegram","name":"Telegram","description":"","icon":"","pairing_fields":[{"key":"TELEGRAM_BOT_TOKEN","label":"Telegram bot token","secret":true}],"pairing_method":"bot_token","coming_soon":false,"qr_setup_endpoint":null}
 	]`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -254,14 +254,14 @@ fn urlencoding(s: &str) -> String {
 //
 // Unlike the webview-facing readers in lib.rs (which only add `deny_cinderpaw_private`),
 // the LLM-driven file tools are confined to a single workspace root. The root
-// lives OUTSIDE `~/.cinderpaw` proper (`~/.cinderpaw/workspace`), so the agent can never
-// reach the api-token, byok.json or the agent DB — they are simply not under the
-// root, and the `starts_with` check below rejects any path that escapes it
+// defaults to the `workspace` child inside the agent profile, excluding sibling
+// files such as api-token and the agent DB. An explicit root override can widen
+// access. The `starts_with` check below rejects paths outside the selected root
 // (including via `..` or a symlink, because we canonicalize before comparing).
 
 /// Root directory the agent's file tools are confined to. Defaults to
-/// `~/.cinderpaw/workspace`; override with `CINDERPAW_AGENT_WORKSPACE` /
-/// `CINDERPAW_AGENT_WORKSPACE` (absolute path) to widen access deliberately —
+/// `~/.cinderpaw/workspace`; override with `CINDERPAW_AGENT_WORKSPACE`
+/// (absolute path) to widen access deliberately —
 /// opt-in, never default-on.
 ///
 /// Read uncached: this bounds what the agent may touch, and it is consulted on
@@ -376,8 +376,8 @@ fn file_write(args: Value) -> Result<String> {
 }
 
 /// `code_execute` runs arbitrary host code, so it is opt-in: it stays disabled
-/// unless `CINDERPAW_ENABLE_CODE_EXEC` is `true`/`1`. Mirrors the sidecar's
-/// `CINDERPAW_ENABLE_SHELL_EXEC` gate — a generic code runner is never default-on.
+/// unless `CINDERPAW_ENABLE_CODE_EXEC` is `true`/`1`. This is independent of the
+/// sidecar's shell tool, which is enabled by default.
 fn code_exec_enabled() -> bool {
     matches!(
         // Uncached for the same reason as the workspace root: this is a gate on

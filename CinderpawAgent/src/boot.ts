@@ -952,7 +952,7 @@ export async function boot(transportOverride?: Transport) {
 
   // notebook: the RLM design — a persistent JS interpreter with every other
   // tool bound as an async function, so the agent composes tool calls in code
-  // instead of one per turn. Off by default; CINDERPAW_ENABLE_NOTEBOOK=true.
+  // instead of one per turn. On by default; CINDERPAW_ENABLE_NOTEBOOK=false disables it.
   //
   // Registered after delegate_task so `registry.list()` is complete and the
   // notebook's children can reach the same tools a delegated subagent can.
@@ -2475,4 +2475,3 @@ export async function boot(transportOverride?: Transport) {
 
 /** Everything dispatchMessage() needs from the boot sequence — see ctx above. */
 export type BootContext = Awaited<ReturnType<typeof boot>>;
-

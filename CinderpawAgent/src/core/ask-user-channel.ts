@@ -18,7 +18,7 @@
  * One pending ask per session: a second ask while one is pending cancels the
  * first (the tool surfaces the cancel; parallel asks in one chat would be
  * unanswerable anyway). Timeout mirrors the bridge default so the ask_user
- * tool's auto-resolve path behaves identically on every surface.
+ * tool auto-resolves routine questions and refuses forced escalation on every surface.
  */
 
 import type { AskUserAnswer, AskUserQuestion } from "../types.ts";
@@ -58,8 +58,8 @@ export function formatQuestionsForChat(questions: AskUserQuestion[]): string {
  *   - "2" (or "2 3" / "2+3" for multiSelect) → those option labels
  *   - text matching an option label (case-insensitive) → that label
  *   - anything else → free-form `customText`
- * Missing tokens fall back to the recommended (or first) option so a short
- * reply to a multi-question ask still resolves every question.
+ * Missing tokens fall back to the recommended (or first) option for routine
+ * questions. An omitted escalated question rejects the reply: a human must decide.
  */
 export function parseChannelAnswers(
   questions: AskUserQuestion[],
@@ -67,12 +67,16 @@ export function parseChannelAnswers(
 ): AskUserAnswer[] {
   const tokens =
     questions.length > 1
-      ? reply.split(/[,\n]+/).map((t) => t.trim())
+      // Preserve omitted positions; a CRLF is one separator, not two.
+      ? reply.split(/\r\n|[,\r\n]/).map((t) => t.trim())
       : [reply.trim()];
 
   return questions.map((q, i) => {
     const token = tokens[i]?.trim() ?? "";
     if (!token) {
+      if (q.forceEscalate === true) {
+        throw new Error(`Question "${q.question}" needs a human answer; the reply omitted it. No option was selected.`);
+      }
       const fallback = q.options.find((o) => o.recommended) ?? q.options[0];
       return { question: q.question, selected: fallback ? [fallback.label] : [] };
     }
@@ -191,7 +195,7 @@ export class ChannelAskRouter {
   /**
    * Ask in-channel. Sends the formatted questions, then waits for
    * `handleInbound` (or times out with AskUserTimeoutError, matching the
-   * bridge so the tool's auto-resolve kicks in identically).
+   * bridge: the tool auto-resolves routine batches, but rejects forced escalation).
    */
   async ask(questions: AskUserQuestion[], sessionId: string): Promise<AskUserAnswer[]> {
     const prefix = sessionId.split(":", 1)[0] ?? "";
@@ -229,7 +233,9 @@ export class ChannelAskRouter {
       this.#pending.delete(sessionId);
       void sender(
         sessionId,
-        "⏳ No answer — going with the recommended option.",
+        questions.some((q) => q.forceEscalate === true)
+          ? "⏳ No answer — this decision needs a human. No option was selected."
+          : "⏳ No answer — going with the recommended option.",
       ).catch(() => {});
       rejectEntry(new AskUserTimeoutError(sessionId, this.#timeoutMs));
     }, this.#timeoutMs);
@@ -263,7 +269,11 @@ export class ChannelAskRouter {
     if (!p) return false;
     clearTimeout(p.timer);
     this.#pending.delete(sessionId);
-    p.resolve(parseChannelAnswers(p.questions, text));
+    try {
+      p.resolve(parseChannelAnswers(p.questions, text));
+    } catch (err) {
+      p.reject(err instanceof Error ? err : new Error(String(err)));
+    }
     return true;
   }
 
