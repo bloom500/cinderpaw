@@ -417,7 +417,17 @@ export class EgressProxy {
       // Copy caller headers so we can strip credentials on a cross-origin hop
       // without mutating the caller's object.
       let headers: Record<string, string> = { ...(init?.headers ?? {}) };
-      let currentHost = parsed.hostname.toLowerCase();
+      /**
+       * The origin the credentials in `headers` were issued for.
+       *
+       * ORIGIN, not hostname: scheme and port are part of it. Comparing
+       * hostnames alone let `https://host/x` redirect to `http://host/x` with
+       * the Authorization header still attached, which puts the key on the
+       * wire in clear, and let a redirect to another port hand it to a
+       * different service on the same machine. `URL.origin` is the same
+       * notion `trustedLocalOrigins` already matches on above.
+       */
+      let currentOrigin = parsed.origin;
 
       for (let hop = 0; ; hop++) {
         const res = await this.#config.underlyingFetch(parsed.toString(), {
@@ -449,16 +459,23 @@ export class EgressProxy {
             body = undefined;
           }
           // Drop credentials when the origin changes so a redirect can't
-          // leak an Authorization/Cookie header to a different host.
-          const nextHost = next.hostname.toLowerCase();
-          if (nextHost !== currentHost) {
+          // leak an Authorization/Cookie header to a different host, to a
+          // cleartext hop on the same host, or to another port.
+          //
+          // This is the browser rule, and it includes an http → https
+          // "upgrade": that hop is safer, but the header was already sent in
+          // clear on the first request, so the credential is burnt either way
+          // and the destination is still a different origin. A tool that
+          // 401s here was configured with an http:// base URL and should be
+          // pointed at https:// directly.
+          if (next.origin !== currentOrigin) {
             for (const k of Object.keys(headers)) {
               const lk = k.toLowerCase();
               if (lk === "authorization" || lk === "cookie" || lk === "proxy-authorization") {
                 delete headers[k];
               }
             }
-            currentHost = nextHost;
+            currentOrigin = next.origin;
           }
           parsed = await validateHop(next.toString());
           continue;
@@ -484,7 +501,15 @@ export class EgressProxy {
           // one grep, not a scan of every GET the agent made.
           actionType: isWrite ? "network_write" : "network",
           toolName: manifest.name,
-          argsJson: JSON.stringify({ url, method: init?.method ?? "GET" }),
+          // `finalUrl` only when a redirect moved us: the question the log has
+          // to answer after an unattended run is what the agent ACTUALLY
+          // talked to, and the requested URL alone cannot answer it. Omitted
+          // on the common no-redirect path so existing entries are unchanged.
+          argsJson: JSON.stringify({
+            url,
+            method: init?.method ?? "GET",
+            ...(parsed.toString() !== url ? { finalUrl: parsed.toString() } : {}),
+          }),
           result: "success",
           durationMs: Date.now() - start,
         });
