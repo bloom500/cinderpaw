@@ -31,6 +31,25 @@ import { ToolRegistry } from "../src/tools/registry.ts";
 import { HookRegistry } from "../src/core/hook-registry.ts";
 import type { Tool, ToolManifest } from "../src/types.ts";
 import { openDatabase } from "../src/db.ts";
+import { createWebSearchTool } from "../src/tools/builtin/web-search.ts";
+
+test("a failed simple search does not silently start a research workflow", async () => {
+  const { registry, db } = newRegistry();
+  const search = createWebSearchTool();
+  // The registry is the consumer of this manifest. Substitute the network
+  // outcome, not the fallback machinery being exercised.
+  search.execute = async () => ({ ok: false, content: "search throttled", error: "rate_limited" });
+  let researchRuns = 0;
+  const research = okTool("deep_research", "expensive report");
+  research.execute = async () => { researchRuns++; return { ok: true, content: "expensive report" }; };
+  registry.register(search);
+  registry.register(research);
+  try {
+    const result = await registry.call("web_search", { query: "weather" }, "voice-test");
+    expect(result.error).toBe("rate_limited");
+    expect(researchRuns).toBe(0);
+  } finally { db.close(); }
+});
 
 function newRegistry(hooks?: HookRegistry) {
   const db = openDatabase(":memory:");

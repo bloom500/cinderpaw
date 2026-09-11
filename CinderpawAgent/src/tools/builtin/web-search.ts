@@ -52,9 +52,8 @@ export function createWebSearchTool(opts: WebSearchOpts = {}): Tool {
     // Only the configured SearXNG host is whitelisted — plus DDG for the
     // keyless fallback. The egress proxy still validates every hop.
     allowedDomains: searxHost ? [searxHost, DDG_DOMAIN] : [DDG_DOMAIN],
-    // If search yields nothing (or no backend is configured), escalate to
-    // deep_research, which does multi-page synthesis via its own backend.
-    fallback: ["deep_research"],
+    // A failed lookup returns its failure. Research is an explicit model/user
+    // choice, not an automatic multi-step retry against the same search index.
   };
 
   return {

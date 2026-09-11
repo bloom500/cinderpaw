@@ -62,7 +62,7 @@ describe("web_search / SearXNG", () => {
     expect(res.content).toContain("Recap");
   });
 
-  test("an empty result set is a failure, so the fallback chain can fire", async () => {
+  test("an empty result set is reported as a failure", async () => {
     const tool = createWebSearchTool({ searxngOrigin: ORIGIN });
     const res = await tool.execute(
       { query: "nothing matches this" },
@@ -72,8 +72,6 @@ describe("web_search / SearXNG", () => {
     // The whole point: NOT ok. An ok:true here strands the model on stale data.
     expect(res.ok).toBe(false);
     expect(res.error).toBe("no_results");
-    // And the tool declares the escalation path.
-    expect(tool.manifest.fallback).toContain("deep_research");
   });
 
   test("403 on the JSON API names the actual fix (SearXNG ships JSON disabled)", async () => {
