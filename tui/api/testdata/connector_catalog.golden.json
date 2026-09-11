@@ -151,5 +151,282 @@
       "chat:read",
       "chat:edit"
     ]
+  },
+  {
+    "id": "signal",
+    "transport": "signal",
+    "name": "Signal",
+    "description": "Answer from your Signal number. Signal has no bot API, so this links a second device through signal-cli, which you install yourself.",
+    "icon": "🔒",
+    "logo_url": "https://cdn.simpleicons.org/signal",
+    "pairing_fields": [
+      {
+        "key": "SIGNAL_NUMBER",
+        "label": "Your Signal number, with country code (e.g. +40712345678)",
+        "secret": false
+      },
+      {
+        "key": "SIGNAL_BRIDGE_URL",
+        "label": "signal-cli REST bridge URL (e.g. http://127.0.0.1:8080)",
+        "secret": false
+      }
+    ],
+    "pairing_method": "instance_token",
+    "coming_soon": true,
+    "console_url": "https://github.com/AsamK/signal-cli"
+  },
+  {
+    "id": "imessage",
+    "transport": "imessage",
+    "name": "iMessage",
+    "description": "Answer from iMessage on a Mac you own. Reads the local messages database through a bridge — it never leaves the machine.",
+    "icon": "💬",
+    "pairing_fields": [
+      {
+        "key": "IMESSAGE_CLI_PATH",
+        "label": "Path to the imsg bridge binary",
+        "secret": false
+      },
+      {
+        "key": "IMESSAGE_DB_PATH",
+        "label": "Path to chat.db (leave blank for the default)",
+        "secret": false
+      }
+    ],
+    "pairing_method": "instance_token",
+    "coming_soon": true
+  },
+  {
+    "id": "irc",
+    "transport": "irc",
+    "name": "IRC",
+    "description": "Classic IRC. Any network, your own nick, the channels you name.",
+    "icon": "#️⃣",
+    "pairing_fields": [
+      {
+        "key": "IRC_HOST",
+        "label": "Server (e.g. irc.libera.chat)",
+        "secret": false
+      },
+      {
+        "key": "IRC_NICK",
+        "label": "Nickname",
+        "secret": false
+      },
+      {
+        "key": "IRC_PASSWORD",
+        "label": "Server or NickServ password (leave blank if none)",
+        "secret": true
+      }
+    ],
+    "pairing_method": "instance_token",
+    "coming_soon": true
+  },
+  {
+    "id": "line",
+    "transport": "line",
+    "name": "LINE",
+    "description": "A LINE Messaging API bot. Big in Japan, Taiwan and Thailand.",
+    "icon": "💚",
+    "logo_url": "https://cdn.simpleicons.org/line",
+    "pairing_fields": [
+      {
+        "key": "LINE_CHANNEL_ACCESS_TOKEN",
+        "label": "Channel access token",
+        "secret": true
+      },
+      {
+        "key": "LINE_CHANNEL_SECRET",
+        "label": "Channel secret",
+        "secret": true
+      }
+    ],
+    "pairing_method": "bot_token",
+    "coming_soon": true,
+    "console_url": "https://developers.line.biz/console/"
+  },
+  {
+    "id": "feishu",
+    "transport": "feishu",
+    "name": "Feishu / Lark",
+    "description": "Feishu and Lark enterprise messaging, with their doc, wiki and drive tools.",
+    "icon": "🐦",
+    "pairing_fields": [],
+    "pairing_method": "bot_token",
+    "coming_soon": true,
+    "console_url": "https://open.feishu.cn/app"
+  },
+  {
+    "id": "googlechat",
+    "transport": "googlechat",
+    "name": "Google Chat",
+    "description": "A Google Workspace Chat app. Authenticates with a service account.",
+    "icon": "🔷",
+    "pairing_fields": [
+      {
+        "key": "GOOGLE_CHAT_SERVICE_ACCOUNT",
+        "label": "Service account JSON",
+        "secret": true
+      }
+    ],
+    "pairing_method": "bot_token",
+    "coming_soon": true,
+    "console_url": "https://console.cloud.google.com/apis/library/chat.googleapis.com"
+  },
+  {
+    "id": "msteams",
+    "transport": "msteams",
+    "name": "Microsoft Teams",
+    "description": "Microsoft Teams, through the Teams SDK. Enterprise tenants included.",
+    "icon": "🟦",
+    "pairing_fields": [],
+    "pairing_method": "bot_token",
+    "coming_soon": true,
+    "console_url": "https://dev.teams.microsoft.com/apps"
+  },
+  {
+    "id": "nextcloud-talk",
+    "transport": "nextcloud-talk",
+    "name": "Nextcloud Talk",
+    "description": "Self-hosted chat on your own Nextcloud. Nothing goes through anyone else's server.",
+    "icon": "☁️",
+    "logo_url": "https://cdn.simpleicons.org/nextcloud",
+    "pairing_fields": [
+      {
+        "key": "NEXTCLOUD_TALK_URL",
+        "label": "Nextcloud base URL (e.g. https://cloud.example.com)",
+        "secret": false
+      },
+      {
+        "key": "NEXTCLOUD_TALK_BOT_SECRET",
+        "label": "Bot shared secret",
+        "secret": true
+      }
+    ],
+    "pairing_method": "instance_token",
+    "coming_soon": true
+  },
+  {
+    "id": "nostr",
+    "transport": "nostr",
+    "name": "Nostr",
+    "description": "Decentralised messaging over Nostr relays, with encrypted direct messages.",
+    "icon": "🟪",
+    "pairing_fields": [
+      {
+        "key": "NOSTR_PRIVATE_KEY",
+        "label": "Private key (nsec)",
+        "secret": true
+      },
+      {
+        "key": "NOSTR_RELAY_URLS",
+        "label": "Relay URLs, comma separated",
+        "secret": false
+      }
+    ],
+    "pairing_method": "instance_token",
+    "coming_soon": true
+  },
+  {
+    "id": "sms",
+    "transport": "sms",
+    "name": "SMS",
+    "description": "Plain SMS and MMS through Twilio. Works with any phone, no app to install.",
+    "icon": "📱",
+    "pairing_fields": [
+      {
+        "key": "TWILIO_ACCOUNT_SID",
+        "label": "Twilio account SID",
+        "secret": true
+      },
+      {
+        "key": "TWILIO_AUTH_TOKEN",
+        "label": "Twilio auth token",
+        "secret": true
+      },
+      {
+        "key": "TWILIO_FROM_NUMBER",
+        "label": "Sending number (e.g. +15551234567)",
+        "secret": false
+      }
+    ],
+    "pairing_method": "bot_token",
+    "coming_soon": true,
+    "console_url": "https://console.twilio.com/"
+  },
+  {
+    "id": "synology-chat",
+    "transport": "synology-chat",
+    "name": "Synology Chat",
+    "description": "Chat on your own Synology NAS, with the full agent behind it.",
+    "icon": "🗄️",
+    "logo_url": "https://cdn.simpleicons.org/synology",
+    "pairing_fields": [
+      {
+        "key": "SYNOLOGY_CHAT_WEBHOOK_URL",
+        "label": "Incoming webhook URL",
+        "secret": true
+      },
+      {
+        "key": "SYNOLOGY_CHAT_TOKEN",
+        "label": "Outgoing webhook token",
+        "secret": true
+      }
+    ],
+    "pairing_method": "instance_token",
+    "coming_soon": true
+  },
+  {
+    "id": "tlon",
+    "transport": "tlon",
+    "name": "Tlon",
+    "description": "Decentralised messaging on Urbit, through your own ship.",
+    "icon": "🪐",
+    "pairing_fields": [
+      {
+        "key": "TLON_SHIP",
+        "label": "Ship name (e.g. ~sampel-palnet)",
+        "secret": false
+      },
+      {
+        "key": "TLON_URL",
+        "label": "Ship URL",
+        "secret": false
+      },
+      {
+        "key": "TLON_CODE",
+        "label": "Access code",
+        "secret": true
+      }
+    ],
+    "pairing_method": "instance_token",
+    "coming_soon": true
+  },
+  {
+    "id": "zalo",
+    "transport": "zalo",
+    "name": "Zalo",
+    "description": "Zalo Bot API. The default messenger in Vietnam.",
+    "icon": "🔵",
+    "pairing_fields": [
+      {
+        "key": "ZALO_BOT_TOKEN",
+        "label": "Zalo bot token",
+        "secret": true
+      }
+    ],
+    "pairing_method": "bot_token",
+    "coming_soon": true,
+    "console_url": "https://bot.zapps.me/"
+  },
+  {
+    "id": "zalouser",
+    "transport": "zalouser",
+    "name": "Zalo Personal",
+    "description": "Your personal Zalo account, paired by scanning a QR code — like WhatsApp.",
+    "icon": "🔵",
+    "pairing_fields": [],
+    "pairing_method": "qr",
+    "coming_soon": true
   }
 ]

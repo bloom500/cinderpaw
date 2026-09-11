@@ -149,7 +149,11 @@ func TestConnectorCatalogGoldenSnapshot(t *testing.T) {
 		}
 		switch e.PairingMethod {
 		case "qr":
-			if e.QRSetupEndpoint == nil || *e.QRSetupEndpoint == "" {
+			// Mirrors the Rust rule: a connector that is not wireable yet has
+			// no pairing endpoint to name, and inventing one would hand
+			// clients a path the gateway does not serve. The requirement
+			// starts when the transport lands, i.e. when ComingSoon clears.
+			if !e.ComingSoon && (e.QRSetupEndpoint == nil || *e.QRSetupEndpoint == "") {
 				t.Fatalf("QR connector %s missing qr_setup_endpoint (Go struct tag or JSON wire format broken)", e.ID)
 			}
 		default:

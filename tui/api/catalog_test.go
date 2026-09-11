@@ -110,9 +110,9 @@ func TestFetchConnectorCatalog_200(t *testing.T) {
 		{"id":"telegram","name":"Telegram","description":"","icon":"","pairing_fields":[{"key":"TELEGRAM_BOT_TOKEN","label":"Telegram bot token","secret":true}],"pairing_method":"bot_token","coming_soon":false,"qr_setup_endpoint":null}
 	]`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Header version must match ConnectorCatalogVersionExpected (today: 3)
+		// Header version must match ConnectorCatalogVersionExpected (today: 4)
 		// — the same constant the wizard bundle-side path asserts.
-		w.Header().Set("X-Cinderpaw-Catalog-Version", "3")
+		w.Header().Set("X-Cinderpaw-Catalog-Version", "4")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, payload)
 	}))
@@ -188,7 +188,7 @@ func TestCatalogVersionExpectedPin(t *testing.T) {
 	if ProviderCatalogVersionExpected != 1 {
 		t.Fatalf("ProviderCatalogVersionExpected = %d, want 1 (bump in lockstep with byok::CATALOG_VERSION)", ProviderCatalogVersionExpected)
 	}
-	if ConnectorCatalogVersionExpected != 3 {
-		t.Fatalf("ConnectorCatalogVersionExpected = %d, want 3 (bump in lockstep with connectors::CONNECTORS_CATALOG_VERSION)", ConnectorCatalogVersionExpected)
+	if ConnectorCatalogVersionExpected != 4 {
+		t.Fatalf("ConnectorCatalogVersionExpected = %d, want 4 (bump in lockstep with connectors::CONNECTORS_CATALOG_VERSION)", ConnectorCatalogVersionExpected)
 	}
 }

@@ -121,13 +121,19 @@ fn connector_catalog_required_fields_present() {
         // connector must NOT (it's an "always-some" leak that signals
         // a copy-paste bug). Decision D-F spec.
         match entry.pairing_method {
-            cinderpaw_core::connectors::PairingMethod::Qr => {
+            // A connector that is not wireable yet has no pairing endpoint to
+            // name, and inventing one would be the very defect this file
+            // guards against: a catalog that hands clients a path the gateway
+            // does not serve. The requirement applies from the moment the
+            // transport lands, which is exactly when `coming_soon` clears.
+            cinderpaw_core::connectors::PairingMethod::Qr if !entry.coming_soon => {
                 assert!(
                     entry.qr_setup_endpoint.is_some(),
                     "connector {} is qr but has no qr_setup_endpoint",
                     entry.id
                 );
             }
+            cinderpaw_core::connectors::PairingMethod::Qr => {}
             _ => {
                 assert!(
                     entry.qr_setup_endpoint.is_none(),
@@ -175,8 +181,15 @@ fn provider_catalog_required_fields_present() {
 /// become a pre-commit hook).
 #[test]
 fn golden_files_in_sync_with_go_copy() {
-    let provider_rust = include_str!("testdata/provider_catalog.golden.json");
-    let connector_rust = include_str!("testdata/connector_catalog.golden.json");
+    // Read from disk, NOT `include_str!`. The macro embeds the file at COMPILE
+    // time, so on the very run that regenerates the golden
+    // (`UPDATE_CATALOG_GOLDEN=1`) this compared the pre-regeneration Rust copy
+    // against the untouched Go copy, found them equal, and reported the pair
+    // in sync while they had just diverged. The guard fired one run late —
+    // green for the developer who caused the drift, red for whoever ran next.
+    let rust_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("testdata");
 
     // Relative path from `crates/cinderpaw-core/tests/` up to the repo root
     // and into `tui/api/testdata/`. `..` twice gets us to the workspace root.
@@ -187,10 +200,10 @@ fn golden_files_in_sync_with_go_copy() {
         .join("api")
         .join("testdata");
 
-    for (name, rust_payload) in [
-        ("provider_catalog.golden.json", provider_rust),
-        ("connector_catalog.golden.json", connector_rust),
-    ] {
+    for name in ["provider_catalog.golden.json", "connector_catalog.golden.json"] {
+        let rust_path = rust_dir.join(name);
+        let rust_payload = std::fs::read_to_string(&rust_path)
+            .unwrap_or_else(|e| panic!("missing Rust golden at {rust_path:?}: {e}"));
         let go_path = go_dir.join(name);
         let go_payload = std::fs::read_to_string(&go_path).unwrap_or_else(|e| {
             panic!(
