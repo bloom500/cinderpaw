@@ -515,6 +515,21 @@ export class AgentLoop {
    * named profile (restricted prompt + tools); absent = the default owner
    * session. Set by `setSessionProfile`, consumed by `#memoryFor`,
    * `#complete`, and the tool-exec gate in `#run`.
+   *
+   * NOT evicted with the session's WorkingMemory, and that asymmetry is the
+   * point. The transcript is a cache; this map is the answer to "is this
+   * person the owner". The idle sweep in `#evictIdleSessions` used to delete
+   * both, and it runs from `#memoryFor` — i.e. in the middle of the very turn
+   * whose transport had just re-bound the profile. A public lead who went
+   * quiet for longer than `sessionIdleEvictMs` (30 minutes by default) came
+   * back, had their binding swept, and was served as the owner: full toolset,
+   * owner system prompt. Waiting was the whole exploit.
+   *
+   * ponytail: unbounded on purpose. An entry is two short strings, so a
+   * million distinct strangers cost single-digit MB, while the alternative
+   * (expiring authorization to save bytes) is the bug above. Ceiling: if this
+   * ever needs a bound, it must be a bound that FAILS CLOSED — drop the
+   * session's right to be served, never its restrictions.
    */
   readonly #sessionProfile = new Map<string, string>();
 
@@ -2599,7 +2614,6 @@ export class AgentLoop {
         const oldest = this.#sessions.keys().next().value;
         if (oldest === undefined) break; // defensive: empty map
         this.#sessions.delete(oldest);
-        this.#sessionProfile.delete(oldest);
         this.#toolIntentSelection.delete(oldest);
       }
       // A profiled session (connector surface) runs under the profile's own
@@ -2726,8 +2740,9 @@ export class AgentLoop {
     for (const [sessionId, entry] of this.#sessions) {
       if (entry.lastAccess < cutoff) {
         this.#sessions.delete(sessionId);
-        this.#sessionProfile.delete(sessionId);
         this.#toolIntentSelection.delete(sessionId);
+        // #sessionProfile is deliberately NOT dropped here. See its
+        // declaration: it is authorization, not cache.
       }
     }
   }
