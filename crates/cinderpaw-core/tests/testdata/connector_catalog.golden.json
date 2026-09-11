@@ -172,7 +172,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://github.com/AsamK/signal-cli"
   },
   {
@@ -220,7 +220,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false
   },
   {
     "id": "line",

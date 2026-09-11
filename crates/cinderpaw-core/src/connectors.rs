@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 /// v2 (2026-07-07) — added `qr_setup_endpoint`. QR-paired connectors only;
 /// returns the gateway endpoint the wizard POSTs to in order to obtain a
 /// fresh QR payload to render on screen.
-pub const CONNECTORS_CATALOG_VERSION: u32 = 5;
+pub const CONNECTORS_CATALOG_VERSION: u32 = 6;
 
 /// Pairing flow for a connector. Decision D settles three distinct flows:
 ///
@@ -424,7 +424,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             // the card renders disabled, so it cannot promise a connection
             // the sidecar has no code to make. Flipped by the port, and
             // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            coming_soon: false,
             console_url: Some("https://github.com/AsamK/signal-cli".into()),
             free_tier_note: None,
             validate_endpoint: None,
@@ -495,7 +495,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             // the card renders disabled, so it cannot promise a connection
             // the sidecar has no code to make. Flipped by the port, and
             // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            coming_soon: false,
             console_url: None,
             free_tier_note: None,
             validate_endpoint: None,
