@@ -278,8 +278,10 @@ export function useLiveKitCallSession() {
       callMark('room_join_started');
       const r = new Room();
       room.current = r;
+      const isCurrent = () => mine === generation.current && room.current === r;
 
       r.on(RoomEvent.TrackSubscribed, (track) => {
+        if (!isCurrent()) return;
         if (track.kind !== Track.Kind.Audio) return;
         callMark('agent_session_started');
         const el = track.attach();
@@ -287,14 +289,14 @@ export function useLiveKitCallSession() {
         sinks.current.push(el);
         document.body.appendChild(el);
       });
-      r.on(RoomEvent.Disconnected, () => hangUp());
+      r.on(RoomEvent.Disconnected, () => { if (isCurrent()) hangUp(); });
       // The transport retrying is not the same as the call being up, and for
       // as long as it was reported as neither, the screen went on saying it
       // was listening to somebody it could not hear. LiveKit only reports
       // `Disconnected` once it has given up, so without these two the whole
       // retry window is a lie on screen.
-      r.on(RoomEvent.Reconnecting, () => setPhase('reconnecting'));
-      r.on(RoomEvent.Reconnected, () => setPhase('listening'));
+      r.on(RoomEvent.Reconnecting, () => { if (isCurrent()) setPhase('reconnecting'); });
+      r.on(RoomEvent.Reconnected, () => { if (isCurrent()) setPhase('listening'); });
 
       await r.connect(call.url, call.token);
       if (mine !== generation.current) {
@@ -313,6 +315,12 @@ export function useLiveKitCallSession() {
       setStage(null);
       meter.current = startMeter(r, setLevel);
     } catch (e) {
+      // A cancelled attempt may reject after the next call has connected.
+      if (mine !== generation.current) return;
+      const failedRoom = room.current;
+      room.current = null;
+      void failedRoom?.disconnect();
+      cleanup();
       const raw = e instanceof Error ? e.message : String(e);
       setNotice(
         raw === 'livekit-no-node'
@@ -333,7 +341,7 @@ export function useLiveKitCallSession() {
       // not clear the newer one's guard.
       if (starting.current === mine) starting.current = null;
     }
-  }, [hangUp]);
+  }, [hangUp, cleanup]);
 
   /** Both of these go over LiveKit's own data channel — the window is already
    *  in the room, so there is no second connection to keep alive. */

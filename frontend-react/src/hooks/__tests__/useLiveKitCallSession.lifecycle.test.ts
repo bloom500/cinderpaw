@@ -99,6 +99,50 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
+describe('old rooms cannot control a replacement call', () => {
+  it('ignores reconnect and disconnect events after hanging up an old room', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    await connectFully(result);
+    const old = lastRoom();
+    act(() => result.current.hangUp());
+    await connectFully(result);
+    const ends = vi.mocked(tauri.raw.endLivekitCall).mock.calls.length;
+    act(() => old.__fire('reconnecting'));
+    expect(result.current.phase).toBe('listening');
+    act(() => old.__fire('disconnected'));
+    expect(result.current.phase).toBe('listening');
+    expect(tauri.raw.endLivekitCall).toHaveBeenCalledTimes(ends);
+  });
+
+  it('does not let a stale connection failure tear down the next call', async () => {
+    let rejectOld!: (error: Error) => void;
+    setConnect(() => new Promise<void>((_resolve, reject) => { rejectOld = reject; }));
+    const { result } = renderHook(() => useLiveKitCallSession());
+    act(() => { void result.current.begin(); });
+    await act(async () => { releaseStart!(CALL); });
+    act(() => result.current.hangUp());
+    setConnect(() => Promise.resolve());
+    act(() => { void result.current.begin(); });
+    await act(async () => { releaseStart!(CALL); });
+    expect(result.current.phase).toBe('listening');
+    await act(async () => { rejectOld(new Error('old connection failed')); });
+    expect(result.current.phase).toBe('listening');
+    expect(result.current.notice).toBeNull();
+  });
+
+  it('disconnects the room when microphone acquisition fails', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    act(() => { void result.current.begin(); });
+    await act(async () => { releaseStart!(CALL); });
+    const r = lk.__lastRoom();
+    const disconnect = vi.spyOn(r, 'disconnect');
+    r.localParticipant.setMicrophoneEnabled.mockRejectedValueOnce(new Error('Permission denied'));
+    await act(async () => { releaseConnect!(); });
+    expect(result.current.phase).toBe('ready');
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+});
+
 /** Press Call and let the boot and the room join both complete. */
 async function connectFully(result: { current: ReturnType<typeof useLiveKitCallSession> }) {
   act(() => { void result.current.begin(); });
