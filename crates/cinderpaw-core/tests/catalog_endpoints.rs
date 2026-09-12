@@ -793,8 +793,10 @@ async fn connectors_decision_d_rich_fields_present() {
                 // inherit the webhook wording from the connector we did not
                 // write.
                 assert!(!entry.coming_soon, "feishu's transport has landed — the card must not still say soon");
+                // "needs a", not the bare phrase: the card is allowed to say it
+                // needs NO public web address, which is the whole point.
                 assert!(
-                    !entry.description.to_lowercase().contains("public web address"),
+                    !entry.description.to_lowercase().contains("needs a public web address"),
                     "feishu connects out over a WebSocket: saying it needs an inbound address sends the user to buy a domain they do not need"
                 );
                 for key in ["FEISHU_APP_ID", "FEISHU_APP_SECRET"] {
@@ -985,7 +987,9 @@ fn connectors_needing_an_inbound_url_say_so_on_the_card() {
     // talks about needing an address had better be one of these five.
     for entry in &catalog {
         let description = entry.description.to_lowercase();
-        if description.contains("public web address") {
+        // "needs a public web address", so a card that says it needs NO such
+        // address (feishu, which dials out) does not read as a claim.
+        if description.contains("needs a public web address") {
             assert!(
                 needs_inbound.contains(&entry.id.as_str()),
                 "{} claims to need a public address but is not one of the five — if that is true, the decision record needs updating first",

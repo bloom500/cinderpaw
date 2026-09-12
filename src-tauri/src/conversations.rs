@@ -430,6 +430,7 @@ mod tests {
                 peaks: vec![0.1, 0.9],
             }),
             scratch: None,
+            tools: None,
             created_at: None,
         }
     }
