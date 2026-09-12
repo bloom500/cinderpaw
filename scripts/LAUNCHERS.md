@@ -278,6 +278,73 @@ fractal recall@10 = 0.417   p99 = 32ms   SHIP
 fts     recall@10 = 0.083   p99 = 100ms
 ```
 
+#### This is the FMS number to quote, and the only one in this repo
+
+Reconciled 2026-09-12, after an outside review quoted a different figure.
+
+A second SHIP verdict exists, reading **66.7% vs 0.0% at p99 22ms**. It lives in
+`docs/agents-memory/project_fractal_bench_blockers.md`, which is **gitignored**
+(`.gitignore:114`) — it is on one machine and in no clone, so anyone asked to
+check it cannot. Written down here because a number nobody else can open is
+still a number people repeat.
+
+The two do not contradict each other. They measure different corpora:
+
+| corpus | fractal | FTS5 | p99 |
+|---|---|---|---|
+| 200-leaf cap (cloud router refused the full set) | 66.7% | 0.0% | 22ms |
+| **full 2700 leaves, branch=8** | **41.7%** | **8.3%** | **32ms** |
+
+Quote the 2700-leaf row. 200 leaves is not a memory anybody has, and leading
+with it means leading with the easiest run we ever did.
+
+**Recall is lower on the bigger corpus:** 66.7% → 41.7% while FTS5 climbs
+0% → 8.3%, so the gap narrows from 66 points to 33 across a 13x corpus. Before
+reading that as degradation, note the third explanation, which is the most
+likely one and is a property of the measurement rather than of FMS:
+
+**The gold labels are single-document.** `query-gen.ts` samples one memory,
+paraphrases it into a question, and records `relevant: new Set([leaf.id])` —
+that one memory is the only answer that counts. So recall@10 asks "did it
+return the exact leaf this question was written from", not "did it return
+something that answers the question". At 200 leaves few plausible rivals exist.
+At 2700 there are many, and a run that returns ten genuinely relevant memories
+while missing THE one scores zero. A single-gold metric is expected to fall as
+the corpus grows even when retrieval is getting better.
+
+The file says this itself, in as many words, in its own CAVEAT block. It is an
+honest default in the absence of human labels, and it is not a number to reason
+about scale with.
+
+So the corpus comparison above cannot currently distinguish between: the
+advantage not surviving scale, the small index having flattered us, and the
+metric decaying on its own. **Fixing the query set is what separates them**, and
+it has to come before any 2x2 memory-vs-adaptation matrix, because every arm of
+that matrix would be read through the same broken ruler.
+
+Two changes, in this order:
+
+1. **Raise n.** `count` is already a parameter capped at the eligible memory
+   count, and the sampler is seeded (default 1), so runs stay comparable. Twelve
+   → a few hundred costs one local paraphrase call each and nothing else. This
+   alone ends the "five questions versus eight" problem.
+2. **Multi-gold labels**, via a hand-authored JSONL through `parseQuerySet`,
+   which already exists and already supersedes the generator. Until a query can
+   have more than one right answer, the headline number stays a floor of unknown
+   depth rather than a measurement.
+
+Both rows are **n=12**. 41.7% is five questions, 66.7% is eight, and the
+distance between our two "results" is three questions — on a query set whose
+own notes say the paraphrases vary in difficulty run to run. Enough to keep
+working on. Not enough to publish, and not enough to carry a 2x2
+memory-vs-adaptation experiment: on twelve queries no arm of it will separate
+from the others.
+
+**What the millisecond figures exclude:** the bench pre-computes every query
+vector in one batch before the timer starts. The longest query in this set
+takes ~330ms to embed on its own. For a question typed live, add that; 32ms is
+traversal, not answer latency.
+
 A material jump (>0.50) → topology was the limiter; freeze a JSONL and
 publish. Flat (~0.40) → embedding is the ceiling; bge-large is next.
 

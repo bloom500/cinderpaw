@@ -3,7 +3,7 @@ name = "cinderpaw"
 version = "2026.8.11"
 description = "Cinderpaw — local AI desktop runtime"
 authors = ["Cinderpaw Contributors"]
-license = "BUSL-1.1"
+license = "Apache-2.0"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -34,7 +34,8 @@ rfd = { version = "0.16", default-features = false, features = ["common-controls
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-specta = "=2.0.0-rc.25"
+# `serde_json`: so a `serde_json::Value` field can cross to TypeScript as `unknown`.
+specta = { version = "=2.0.0-rc.25", features = ["serde_json"] }
 specta-typescript = "0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 
@@ -108,7 +109,7 @@ url = "2"
 # stale sentence that told the next reader the wrong thing about what we ship.
 #
 # The reason it ships nowhere is a licence, not a toolchain: `piper-rs` compiles
-# espeak-ng (GPLv3) into the binary, and these bundles go out under BUSL-1.1.
+# espeak-ng (GPLv3) into the binary, and these bundles go out under Apache-2.0.
 # Kokoro carried the same dependency until `cinderpaw-core/src/tts/g2p.rs`
 # replaced it with a permissive phonemiser; Piper has no seam to do that
 # through, because `piper-rs` calls espeak from inside its own synthesise.

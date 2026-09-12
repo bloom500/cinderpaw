@@ -38,7 +38,7 @@ export interface ToolHit {
  * getting a component. `generic` is the honest fallback — a row with a name and
  * a state, which is still better than nothing and never pretends to more.
  */
-export type ToolKind = 'agent' | 'browser' | 'files' | 'terminal' | 'memory' | 'generic';
+export type ToolKind = 'agent' | 'browser' | 'files' | 'terminal' | 'memory' | 'desktop' | 'generic';
 
 /**
  * The name the Live call's own request travels under.
@@ -57,6 +57,9 @@ const KINDS: Array<[ToolKind, string[]]> = [
   ['files', ['read_file', 'write_file', 'edit_file', 'list_directory', 'file_search', 'grep', 'scan_workspace', 'notebook']],
   ['terminal', ['shell_exec', 'code_execute', 'git', 'code_quality']],
   ['memory', ['recall', 'remember']],
+  // Both names: the tool was renamed on a branch that has not merged yet, and
+  // a widget that only knows one of them goes blank on the other.
+  ['desktop', ['computer_use', 'control_app']],
 ];
 
 export function kindOf(tool: string): ToolKind {
@@ -95,8 +98,229 @@ export interface ToolActivity {
   cwd: string;
   /** Facts a memory lookup came back with. */
   facts: string[];
+  /** What a desktop-control step did and saw — the app window widget's body. */
+  desktop: DesktopFact | null;
   /** Present when the tool failed, so the panel can say so rather than empty. */
   error: string | null;
+}
+
+/**
+ * One step of the agent driving a native application.
+ *
+ * Every field is what the tool sent or returned, never a guess: the window
+ * widget draws the elements at the rectangles the accessibility tree reported,
+ * so what the user sees is the app's real layout, not a picture of "an app".
+ * The text typed into a field is deliberately NOT here — it may be a password,
+ * and the tool redacts it from its own audit for the same reason.
+ */
+export interface DesktopFact {
+  action: string;
+  /** The application, as best the tool told us: `launch`'s `app`, or the
+   *  `app_name` a `list_windows` result gave for this pid. */
+  app: string;
+  windowTitle: string;
+  /** `list_windows` — every open window, for the taskbar row. */
+  windows: Array<{ pid: number; title: string; app: string }>;
+  /** `get_tree` / `find_elements` — elements with the rectangles they occupy,
+   *  in screen coordinates, so they can be drawn to scale. */
+  elements: DesktopElement[];
+  /** `click`/`type`/`perform_action` — the element acted on, when a tree seen
+   *  earlier knows it. */
+  target: DesktopElement | null;
+  /** `action_name` for `perform_action`, e.g. "press", "toggle". */
+  actionName: string;
+}
+
+export interface DesktopElement {
+  id: string;
+  role: string;
+  name: string;
+  /** The element's value as the tree reported it: an address bar's URL, a
+   *  field's text. Empty for most elements. Never a password: the host
+   *  refuses to read secure fields back. */
+  value: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * pid → window, remembered from `list_windows` results.
+ *
+ * A `click` carries only a pid and an element id, so the widget cannot name the
+ * app being clicked unless something remembered the answer to the question the
+ * agent asked first. Module-level on purpose: the memory has to outlive one
+ * activity and one turn.
+ */
+const windowsByPid = new Map<number, { app: string; title: string }>();
+/** element id → element, from the last tree or search that returned it. */
+const elementsById = new Map<string, DesktopElement>();
+/** The last tree or search, whole: a click's widget redraws it with the
+ *  target lit, since the click itself returns no layout. */
+let lastElements: DesktopElement[] = [];
+
+function elementOf(row: unknown): DesktopElement | null {
+  if (!row || typeof row !== 'object') return null;
+  const r = row as Record<string, unknown>;
+  if (typeof r.id !== 'string') return null;
+  const rect = (r.bounding_rect && typeof r.bounding_rect === 'object' ? r.bounding_rect : {}) as Record<string, unknown>;
+  return {
+    id: r.id,
+    role: typeof r.role === 'string' ? r.role : '',
+    name: typeof r.name === 'string' ? r.name : '',
+    value: typeof r.value === 'string' ? r.value : '',
+    x: typeof rect.x === 'number' ? rect.x : 0,
+    y: typeof rect.y === 'number' ? rect.y : 0,
+    w: typeof rect.width === 'number' ? rect.width : 0,
+    h: typeof rect.height === 'number' ? rect.height : 0,
+  };
+}
+
+/** Flatten an accessibility tree, breadth first, to the elements worth drawing. */
+function flattenTree(node: unknown, out: DesktopElement[], limit = 40): void {
+  const queue: unknown[] = [node];
+  while (queue.length > 0 && out.length < limit) {
+    const n = queue.shift();
+    const el = elementOf(n);
+    if (!el) continue;
+    if (el.w > 0 && el.h > 0) out.push(el);
+    const kids = (n as { children?: unknown }).children;
+    if (Array.isArray(kids)) queue.push(...kids);
+  }
+}
+
+/** The desktop step's arguments, before its result exists. */
+export function desktopOf(args: Record<string, unknown> | undefined): DesktopFact | null {
+  if (!args) return null;
+  const action = typeof args.action === 'string' ? args.action : '';
+  if (!action) return null;
+  const known = typeof args.pid === 'number' ? windowsByPid.get(args.pid) : undefined;
+  const elementId = typeof args.element_id === 'string' ? args.element_id : '';
+  const target = elementsById.get(elementId) ?? null;
+  return {
+    action,
+    app: typeof args.app === 'string' ? args.app : (known?.app ?? ''),
+    windowTitle: typeof args.window_title === 'string' ? args.window_title : (known?.title ?? ''),
+    windows: [],
+    elements: target ? lastElements : [],
+    target,
+    actionName: typeof args.action_name === 'string' ? args.action_name : '',
+  };
+}
+
+/** Fold a desktop step's result into what its arguments already said. */
+export function desktopDone(fact: DesktopFact | null, result: unknown): DesktopFact | null {
+  if (!fact) return null;
+  const data = (result as { data?: unknown } | null)?.data;
+  const next: DesktopFact = { ...fact, windows: [], elements: [] };
+  if (fact.action === 'list_windows' && Array.isArray(data)) {
+    for (const row of data) {
+      const r = (row ?? {}) as Record<string, unknown>;
+      if (typeof r.pid !== 'number') continue;
+      const w = { pid: r.pid, title: String(r.title ?? ''), app: String(r.app_name ?? '') };
+      windowsByPid.set(w.pid, { app: w.app, title: w.title });
+      if (next.windows.length < 8) next.windows.push(w);
+    }
+  } else if (fact.action === 'get_tree') {
+    flattenTree(data, next.elements);
+    // The tree's root is the window itself; its name is the best title we have.
+    const root = elementOf(data);
+    if (root?.name && !next.windowTitle) next.windowTitle = root.name;
+  } else if (fact.action === 'find_elements' && Array.isArray(data)) {
+    for (const row of data) {
+      const el = elementOf(row);
+      if (el) next.elements.push(el);
+      if (next.elements.length >= 40) break;
+    }
+  }
+  if (next.elements.length > 0) {
+    for (const el of next.elements) elementsById.set(el.id, el);
+    lastElements = next.elements;
+  }
+  return next;
+}
+
+/** A fresh, running activity for a tool that just started. */
+export function startActivity(tool: string, args: Record<string, unknown> | undefined): ToolActivity {
+  return {
+    id: `${tool}-${Date.now()}`,
+    tool,
+    kind: kindOf(tool),
+    subject: subjectOf(args),
+    status: 'running',
+    startedAt: Date.now(),
+    endedAt: null,
+    note: null,
+    hits: [],
+    files: [],
+    output: '',
+    cwd: typeof args?.cwd === 'string' ? args.cwd : '',
+    facts: [],
+    desktop: desktopOf(args),
+    error: null,
+  };
+}
+
+/** The same activity, finished: everything the result can tell a widget. */
+export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
+  const res = result as { ok?: boolean; content?: string } | null;
+  const ok = res?.ok !== false;
+  const content = typeof res?.content === 'string' ? res.content : '';
+  return {
+    ...a,
+    status: ok ? 'done' : 'failed',
+    endedAt: Date.now(),
+    note: null,
+    hits: hitsOf(result),
+    files: filesOf(result),
+    facts: factsOf(result),
+    desktop: desktopDone(a.desktop, result),
+    // The terminal widget's body. Trimmed hard: a build log is megabytes and
+    // the panel is twenty lines tall.
+    output: ok ? content.slice(0, 1200) : '',
+    // Shown instead of an empty result list, because a search that failed and
+    // a search that found nothing look identical otherwise — and one of them
+    // is a bug.
+    error: ok ? null : (content || 'failed').slice(0, 120),
+  };
+}
+
+/**
+ * Widgets read back from a saved conversation.
+ *
+ * The file was written by an older or newer build than the one reading it, so
+ * every row is checked rather than trusted: a row missing what a widget needs
+ * is dropped, and a row that still ran when the app was closed is marked so —
+ * nothing on disk can put a spinner on screen that never stops.
+ */
+export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ToolActivity[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Partial<ToolActivity>;
+    if (typeof r.tool !== 'string' || typeof r.subject !== 'string') continue;
+    const running = r.status === 'running';
+    out.push({
+      id: typeof r.id === 'string' ? r.id : `${r.tool}-${out.length}`,
+      tool: r.tool,
+      kind: kindOf(r.tool),
+      subject: r.subject,
+      status: running ? 'failed' : r.status === 'failed' ? 'failed' : 'done',
+      startedAt: typeof r.startedAt === 'number' ? r.startedAt : 0,
+      endedAt: typeof r.endedAt === 'number' ? r.endedAt : null,
+      note: null,
+      hits: Array.isArray(r.hits) ? r.hits : [],
+      files: Array.isArray(r.files) ? r.files : [],
+      output: typeof r.output === 'string' ? r.output : '',
+      cwd: typeof r.cwd === 'string' ? r.cwd : '',
+      facts: Array.isArray(r.facts) ? r.facts : [],
+      desktop: r.desktop && typeof r.desktop === 'object' ? r.desktop : null,
+      error: running ? 'interrupted' : typeof r.error === 'string' ? r.error : null,
+    });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /** Longest an activity stays on screen after finishing. */
@@ -108,7 +332,7 @@ const MAX = 6;
  *  reads to believe the search is real. */
 export function subjectOf(args: Record<string, unknown> | undefined): string {
   if (!args) return '';
-  for (const key of ['query', 'url', 'path', 'request', 'command', 'pattern']) {
+  for (const key of ['query', 'url', 'path', 'request', 'command', 'pattern', 'app', 'window_title']) {
     const v = args[key];
     if (typeof v === 'string' && v.trim()) return v.trim();
   }
@@ -229,36 +453,20 @@ export function useLiveToolActivity(enabled: boolean) {
   const [activity, setActivity] = useState<ToolActivity[]>([]);
 
   useEffect(() => {
+    setActivity([]);
     if (!enabled) {
-      setActivity([]);
       return;
     }
     let unlisten: (() => void) | undefined;
     let cancelled = false;
 
     /** Add or replace a row, newest of that tool wins. */
-    const begin = (tool: string, subject: string, cwd = '') =>
-      setActivity((prev) =>
-        [
-          ...prev.filter((a) => a.tool !== tool),
-          {
-            id: `${tool}-${Date.now()}`,
-            tool,
-            kind: kindOf(tool),
-            subject,
-            status: 'running' as const,
-            startedAt: Date.now(),
-            endedAt: null,
-            note: null,
-            hits: [],
-            files: [],
-            output: '',
-            cwd,
-            facts: [],
-            error: null,
-          },
-        ].slice(-MAX),
-      );
+    const begin = (tool: string, args?: Record<string, unknown>, subject?: string) =>
+      setActivity((prev) => {
+        const a = startActivity(tool, args);
+        if (subject !== undefined) a.subject = subject;
+        return [...prev.filter((r) => r.tool !== tool), a].slice(-MAX);
+      });
 
     /**
      * The Live call's own request, which never travels on the sidecar's stream.
@@ -270,7 +478,8 @@ export function useLiveToolActivity(enabled: boolean) {
      * looked broken because nothing was listening where it now speaks.
      */
     const onTool = (kind: string, text: string) => {
-      if (kind === 'toolCall') begin(AGENT_TOOL, text);
+      if (cancelled) return;
+      if (kind === 'toolCall') begin(AGENT_TOOL, undefined, text);
       else if (kind === 'toolResult') {
         // A slow answer is not a failed one. Past its deadline the runtime
         // returns `ok:false` carrying "Still working on that one" so the model
@@ -316,45 +525,29 @@ export function useLiveToolActivity(enabled: boolean) {
 
     void events.cinderpawAgentOutputEvent
       .listen((event) => {
-        let line: { type?: string; tool?: string; args?: Record<string, unknown>; result?: unknown; message?: string; stage?: string };
+        if (cancelled) return;
+        let line: { type?: string; sessionId?: string; tool?: string; args?: Record<string, unknown>; result?: unknown; message?: string; stage?: string };
         try {
           line = JSON.parse(event.payload.data);
         } catch {
           return; // not JSON, or a partial line — never fatal here
         }
+        if (!line || typeof line !== 'object') return;
         const tool = typeof line.tool === 'string' ? line.tool : '';
         if (!tool) return;
 
         if (line.type === 'tool_start') {
-          const cwd = typeof line.args?.cwd === 'string' ? line.args.cwd : '';
-          begin(tool, subjectOf(line.args), cwd);
+          begin(tool, line.args);
         } else if (line.type === 'tool_progress') {
-          const note = (line.message || line.stage || '').trim() || null;
+          const note = (typeof line.message === 'string' ? line.message : typeof line.stage === 'string' ? line.stage : '').trim() || null;
           setActivity((prev) =>
             prev.map((a) => (a.tool === tool && a.status === 'running' ? { ...a, note } : a)),
           );
         } else if (line.type === 'tool_done') {
-          const res = line.result as { ok?: boolean; content?: string } | null;
-          const ok = res?.ok !== false;
           setActivity((prev) =>
             prev.map((a) => {
               if (!(a.tool === tool && a.status === 'running')) return a;
-              const done: ToolActivity = {
-                    ...a,
-                    status: ok ? ('done' as const) : ('failed' as const),
-                    endedAt: Date.now(),
-                    note: null,
-                    hits: hitsOf(line.result),
-                    files: filesOf(line.result),
-                    facts: factsOf(line.result),
-                    // The terminal widget's body. Trimmed hard: a build log is
-                    // megabytes and the panel is twenty lines tall.
-                    output: ok ? (res?.content ?? '').slice(0, 1200) : '',
-                    // Shown instead of an empty result list, because a search
-                    // that failed and a search that found nothing look identical
-                    // otherwise — and one of them is a bug.
-                    error: ok ? null : (res?.content ?? 'failed').slice(0, 120),
-              };
+              const done = finishActivity(a, line.result);
               // Filed here rather than in the sweep that ages rows out: this is
               // the one moment the full result exists, and the row that leaves
               // the screen six seconds later is a copy with nothing added.

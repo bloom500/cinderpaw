@@ -66,7 +66,7 @@ moonshine-rs = { version = "0.2", optional = true }
 piper-rs = { version = "0.2", optional = true }
 
 # Kokoro rides ONNX Runtime for the model. It used to ride espeak-ng for the
-# G2P as well, which is GPLv3 and was compiled straight into a BUSL-1.1 binary;
+# G2P as well, which is GPLv3 and was compiled straight into an Apache-2.0 binary;
 # `tts::g2p` replaces it with a permissive dictionary plus a letter-to-sound
 # predictor. See that module for what each piece does and why one alone is not
 # enough.

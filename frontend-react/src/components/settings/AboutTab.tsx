@@ -3,6 +3,7 @@ import { useUpdater } from '@/stores/updater';
 import { useAppVersion } from '@/hooks/useAppVersion';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { BugReportForm } from './BugReportForm';
 
 export function AboutTab() {
   const version  = useAppVersion();
@@ -18,18 +19,17 @@ export function AboutTab() {
       <div className="space-y-1">
         <p className="text-sm font-semibold text-text-primary">Cinderpaw {version ?? '…'}</p>
         <p className="text-xs text-text-muted">Local-first AI desktop, built with Tauri + React</p>
-        {/* The licence shown here was wrong: this repo ships under the Business
-            Source License 1.1 (see LICENSE, and `license` in Cargo.toml), not
-            MIT/Apache. A licence line is something people act on — it decides
-            whether they can use Cinderpaw at work — so it states the real terms and
-            the date they change. */}
+        {/* A licence line is something people act on: it decides whether they can
+            use Cinderpaw at work, so it states the real terms rather than a
+            friendly summary. Keep it in step with LICENSE and with `license` in
+            Cargo.toml and package.json. */}
         <p className="text-xs text-text-muted">
-          Built by <span className="font-medium text-text-secondary">Bloom Media</span> · Business Source License 1.1
+          Built by <span className="font-medium text-text-secondary">Bloom Media</span> · Apache License 2.0
         </p>
         <p className="text-xs text-text-muted">
-          Source-available: use, modify and redistribute it, including in production, as long
-          as you do not resell Cinderpaw itself as a hosted service. Each release turns
-          Apache 2.0 four years after it ships.
+          Open source. Use, modify, redistribute and sell it, commercially or not, with
+          no revenue threshold and no separate licence to buy. Keep the notice and the
+          licence with any copy you pass on.
         </p>
       </div>
 
@@ -58,6 +58,8 @@ export function AboutTab() {
         )}
       </div>
 
+      <BugReportForm />
+
       <div className="space-y-2">
         <a
           href="https://github.com/bloom500/cinderpaw"
@@ -73,7 +75,7 @@ export function AboutTab() {
           rel="noreferrer"
           className="block text-sm text-info hover:underline"
         >
-          Report an issue →
+          Open an issue on GitHub →
         </a>
       </div>
     </div>

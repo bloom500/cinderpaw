@@ -341,6 +341,7 @@ export function useSendMessage() {
           // the scratchpad here) — but it re-saves the WHOLE conversation, so
           // omitting the field would wipe the stats off every earlier agent turn.
           scratch: m.scratch,
+          tools: m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined,
           created_at: m.createdAt,
         }));
         try {

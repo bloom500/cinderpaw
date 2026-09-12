@@ -53,7 +53,7 @@
     "id": "whatsapp",
     "transport": "whatsapp",
     "name": "WhatsApp",
-    "description": "Reach your assistant on WhatsApp. Turn it on, then scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.",
+    "description": "Reach your assistant on WhatsApp. Needs a one-time WhatsApp library install you do yourself, because its licence cannot ship inside Cinderpaw — see CinderpawAgent/README.md. After that, turn it on and scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.",
     "icon": "💚",
     "logo_url": "https://cdn.simpleicons.org/whatsapp",
     "pairing_fields": [],
@@ -225,7 +225,7 @@
     "id": "line",
     "transport": "line",
     "name": "LINE",
-    "description": "A LINE Messaging API bot. Big in Japan, Taiwan and Thailand.",
+    "description": "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "💚",
     "logo_url": "https://cdn.simpleicons.org/line",
     "pairing_fields": [
@@ -248,18 +248,29 @@
     "id": "feishu",
     "transport": "feishu",
     "name": "Feishu / Lark",
-    "description": "Feishu and Lark enterprise messaging, with their doc, wiki and drive tools.",
+    "description": "Feishu and Lark enterprise messaging. Connects out over a WebSocket, so it needs no public web address.",
     "icon": "🐦",
-    "pairing_fields": [],
+    "pairing_fields": [
+      {
+        "key": "FEISHU_APP_ID",
+        "label": "App ID (starts with cli_)",
+        "secret": true
+      },
+      {
+        "key": "FEISHU_APP_SECRET",
+        "label": "App secret",
+        "secret": true
+      }
+    ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://open.feishu.cn/app"
   },
   {
     "id": "googlechat",
     "transport": "googlechat",
     "name": "Google Chat",
-    "description": "A Google Workspace Chat app. Authenticates with a service account.",
+    "description": "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🔷",
     "pairing_fields": [
       {
@@ -276,7 +287,7 @@
     "id": "msteams",
     "transport": "msteams",
     "name": "Microsoft Teams",
-    "description": "Microsoft Teams, through the Teams SDK. Enterprise tenants included.",
+    "description": "Microsoft Teams, through the Teams SDK. Needs a public web address you provide, and an administrator who can install the app into your tenant. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🟦",
     "pairing_fields": [],
     "pairing_method": "bot_token",
@@ -297,13 +308,19 @@
         "secret": false
       },
       {
-        "key": "NEXTCLOUD_TALK_BOT_SECRET",
-        "label": "Bot shared secret",
+        "key": "NEXTCLOUD_TALK_USER",
+        "label": "Your Nextcloud username",
+        "secret": false
+      },
+      {
+        "key": "NEXTCLOUD_TALK_APP_PASSWORD",
+        "label": "App password (Settings, Security, Devices & sessions — not your login password)",
         "secret": true
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false,
+    "console_url": "https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html"
   },
   {
     "id": "nostr",
@@ -324,13 +341,14 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false,
+    "console_url": "https://github.com/nostr-protocol/nips/blob/master/04.md"
   },
   {
     "id": "sms",
     "transport": "sms",
     "name": "SMS",
-    "description": "Plain SMS and MMS through Twilio. Works with any phone, no app to install.",
+    "description": "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "📱",
     "pairing_fields": [
       {
@@ -357,7 +375,7 @@
     "id": "synology-chat",
     "transport": "synology-chat",
     "name": "Synology Chat",
-    "description": "Chat on your own Synology NAS, with the full agent behind it.",
+    "description": "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🗄️",
     "logo_url": "https://cdn.simpleicons.org/synology",
     "pairing_fields": [
@@ -405,7 +423,7 @@
     "id": "zalo",
     "transport": "zalo",
     "name": "Zalo",
-    "description": "Zalo Bot API. The default messenger in Vietnam.",
+    "description": "The default messenger in Vietnam. A bot token is all it needs; nothing to install and no address to expose.",
     "icon": "🔵",
     "pairing_fields": [
       {
@@ -415,8 +433,8 @@
       }
     ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
-    "console_url": "https://bot.zapps.me/"
+    "coming_soon": false,
+    "console_url": "https://bot.zaloplatforms.com/"
   },
   {
     "id": "zalouser",

@@ -621,6 +621,23 @@ async fn connectors_decision_d_rich_fields_present() {
                 assert!(entry.console_url.is_none(), "whatsapp has no console_url (QR pairing)");
                 assert!(entry.free_tier_note.is_none(), "whatsapp has no free_tier_note");
                 assert!(entry.validate_endpoint.is_none(), "whatsapp has no validate_endpoint (QR)");
+                // The WhatsApp library is GPL-3.0 and cannot ship inside a
+                // BUSL binary, so the default executable does not carry it and
+                // the user installs it once themselves. Until they do, turning
+                // WhatsApp on produces no QR at all. The card has to say that
+                // BEFORE they turn it on, the same way googlechat says it needs
+                // a public address before anyone pastes a token — otherwise the
+                // only explanation for the silence is an env var nobody has
+                // heard of.
+                let described = entry.description.to_lowercase();
+                assert!(
+                    described.contains("install"),
+                    "whatsapp needs a one-time library install the user does; a card promising only the QR scan is a promise the default build cannot keep"
+                );
+                assert!(
+                    described.contains("readme"),
+                    "saying an install is needed without saying WHERE the steps are just moves the dead end later"
+                );
             }
             "telegram" => {
                 assert!(entry.console_url.is_some(), "telegram must have console_url");
@@ -691,6 +708,115 @@ async fn connectors_decision_d_rich_fields_present() {
                     entry.validate_endpoint.is_none(),
                     "signal has no endpoint we can call to validate: the bridge is local"
                 );
+            }
+            "nostr" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/nostr.ts`.
+                // No account and no operator: the identity IS the key, so the
+                // card asks for a key and for relays, and nothing else.
+                assert!(!entry.coming_soon, "nostr's transport has landed — the card must not still say soon");
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "there is no server to validate a Nostr key against: any relay would accept it"
+                );
+                let key = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "NOSTR_PRIVATE_KEY")
+                    .expect("nostr declares a private key field");
+                assert!(
+                    key.secret,
+                    "a Nostr private key IS the account — anyone holding it can post as the user forever, and it cannot be rotated without becoming a different person"
+                );
+                let relays = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "NOSTR_RELAY_URLS")
+                    .expect("nostr declares a relay list field");
+                assert!(!relays.secret, "a public relay address is configuration, not a credential");
+            }
+            "nextcloud-talk" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/nextcloud-talk.ts`.
+                // Deliberately NOT the webhook bot the upstream manifest
+                // describes: a bot needs an inbound public URL, which the
+                // person self-hosting Nextcloud at home does not have. The
+                // card must therefore ask for a user and an app password,
+                // never a bot secret, or it promises a setup that cannot
+                // complete behind a router.
+                assert!(!entry.coming_soon, "nextcloud talk's transport has landed — the card must not still say soon");
+                assert!(
+                    !entry.pairing_fields.iter().any(|f| f.key.contains("BOT_SECRET")),
+                    "the bot-secret pairing needs an inbound URL; this connector polls as a user instead"
+                );
+                let url = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "NEXTCLOUD_TALK_URL")
+                    .expect("nextcloud talk declares a server URL field");
+                assert!(!url.secret, "a server URL is configuration, not a credential");
+                let password = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "NEXTCLOUD_TALK_APP_PASSWORD")
+                    .expect("nextcloud talk declares an app password field");
+                assert!(password.secret, "an app password opens the whole Nextcloud account");
+                assert!(
+                    password.label.to_lowercase().contains("app password"),
+                    "the label must say APP password: typing the login password here works and is the wrong thing to do"
+                );
+            }
+            "zalo" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/zalo.ts`.
+                // Long polls with `getUpdates`; this repo called it
+                // webhook-only for three commits and was wrong.
+                assert!(!entry.coming_soon, "zalo's transport has landed — the card must not still say soon");
+                assert!(
+                    !entry.description.to_lowercase().contains("public web address"),
+                    "zalo needs no inbound address: saying it does is the error this port corrected"
+                );
+                assert!(entry.console_url.is_some(), "zalo must point at the bot console for the token");
+                let token = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "ZALO_BOT_TOKEN")
+                    .expect("zalo declares a bot token field");
+                assert!(token.secret, "a bot token speaks as the bot to everyone who has messaged it");
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "zalo answers a bad token with HTTP 200 and ok:false, so a generic probe would read it as valid — the transport validates instead"
+                );
+            }
+            "feishu" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/feishu.ts`.
+                // The upstream connector is webhook-shaped, but the platform
+                // also offers a WebSocket long connection that the app dials
+                // OUT on, which is what this port uses. The card must not
+                // inherit the webhook wording from the connector we did not
+                // write.
+                assert!(!entry.coming_soon, "feishu's transport has landed — the card must not still say soon");
+                assert!(
+                    !entry.description.to_lowercase().contains("public web address"),
+                    "feishu connects out over a WebSocket: saying it needs an inbound address sends the user to buy a domain they do not need"
+                );
+                for key in ["FEISHU_APP_ID", "FEISHU_APP_SECRET"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("feishu declares {key}"));
+                    // The app id is not a public identifier here: paired with
+                    // the secret it mints a tenant token, and the card shows
+                    // both in the same form, so both are masked.
+                    assert!(field.secret, "feishu's {key} is half of a credential pair");
+                }
+                assert!(
+                    !entry.pairing_fields.iter().any(|f| f.key == "FEISHU_DOMAIN"),
+                    "Feishu and Lark are two clouds and nobody knows which one their admin used — the transport probes both rather than asking; a field here would be a default nobody sets"
+                );
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "both Feishu clouds answer a bad app with HTTP 200 and a non-zero code, so a generic probe would read it as valid — the transport validates instead"
+                );
+                assert!(entry.console_url.is_some(), "feishu must point at the app console");
             }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
@@ -812,6 +938,59 @@ fn a_device_flow_without_a_client_id_stays_coming_soon() {
                     entry.id
                 );
             }
+        }
+    }
+}
+
+
+/// The five connectors that need an inbound public address must say so on the
+/// card, before anyone pastes a token.
+///
+/// Decision: `docs/decisions/2026-09-12-webhook-inbound.md`. Cinderpaw does not
+/// operate a relay, so for these five the user has to supply the address
+/// themselves with a tunnel, a reverse proxy or a domain. That is a real cost
+/// to them and it is invisible until setup fails, which is the failure this
+/// pins: a requirement nobody can see until they have already given up.
+///
+/// `free_tier_note` is deliberately NOT the place for it. The wizard renders
+/// that field as a green "free tier" badge, so a warning put there would read
+/// as good news.
+#[test]
+fn connectors_needing_an_inbound_url_say_so_on_the_card() {
+    // Zalo and Nextcloud Talk are NOT in this list and must not be added back.
+    // Both were once believed to need a webhook; Zalo long-polls with
+    // `getUpdates` by default, and Nextcloud Talk has a user-facing chat API
+    // next to its bot webhook, which `nextcloud-talk.ts` polls.
+    let needs_inbound = ["googlechat", "line", "msteams", "sms", "synology-chat"];
+    let catalog = connectors::connectors_catalog();
+
+    for id in needs_inbound {
+        let entry = catalog
+            .iter()
+            .find(|e| e.id == id)
+            .unwrap_or_else(|| panic!("{id} is missing from the catalog"));
+        let description = entry.description.to_lowercase();
+        assert!(
+            description.contains("public web address") || description.contains("address your"),
+            "{id} needs an inbound address the user must provide, and the card does not say so: {:?}",
+            entry.description
+        );
+        assert!(
+            entry.free_tier_note.is_none(),
+            "{id} must not carry a free-tier note: the wizard renders it as a green badge"
+        );
+    }
+
+    // The other direction, so the list cannot quietly grow: a connector that
+    // talks about needing an address had better be one of these five.
+    for entry in &catalog {
+        let description = entry.description.to_lowercase();
+        if description.contains("public web address") {
+            assert!(
+                needs_inbound.contains(&entry.id.as_str()),
+                "{} claims to need a public address but is not one of the five — if that is true, the decision record needs updating first",
+                entry.id
+            );
         }
     }
 }

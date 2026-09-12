@@ -1,12 +1,19 @@
 /**
  * Telegram — the one that needs nothing from the machine it runs on.
  *
- * Chosen as the first of the OpenClaw 21 for exactly that reason. Half of the
- * remaining platforms are webhook-inbound (Nextcloud Talk, Twilio SMS, Google
- * Chat, LINE, Teams, Zalo) and cannot work at all until Cinderpaw has a public
+ * Chosen as the first of the OpenClaw 21 for exactly that reason. Five of the
+ * remaining platforms are webhook-inbound (Twilio SMS, Google Chat, LINE,
+ * Teams, Synology Chat) and cannot work at all until Cinderpaw has a public
  * URL, which a person running this at home does not have. Telegram's Bot API
  * offers long polling: WE call THEM and hold the request open. Nothing to
  * expose, nothing to install, no tunnel.
+ *
+ * This list named Zalo and Nextcloud Talk until 2026-09-12 and was wrong about
+ * both. Zalo's Bot API long-polls with `getUpdates` by default and webhooks
+ * are the option; Nextcloud Talk has a user-facing chat API next to its bot
+ * webhook, and `nextcloud-talk.ts` polls that instead. A comment that names
+ * platforms goes stale, so the current answer lives in
+ * `docs/openclaw-import.md`, not here.
  *
  * No dependency either. OpenClaw's Telegram extension is 63,109 lines and
  * pulls `grammy` plus two plugins; what we need from that surface is two

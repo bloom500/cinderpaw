@@ -116,6 +116,18 @@ describe('stripStreamingToolCalls', () => {
     expect(stripStreamingToolCalls('I will search.\n{"name="web_search">')).toBe('I will search.');
   });
 
+  it('prose followed by Anthropic-style or DSML-fenced invoke XML → cuts at the opener', () => {
+    // Seen live 2026-09-12: the sidecar ran the call, the chat showed the markup.
+    expect(stripStreamingToolCalls('Incerc sa vad ce ferestre exista:\n<invoke name="control_app"> <｜DSML｜parameter name="action" string="true">get_tree</｜DSML｜parameter>')).toBe('Incerc sa vad ce ferestre exista:');
+    expect(stripStreamingToolCalls('Looking.\n<｜DSML｜tool_calls><｜DSML｜invoke name="web_search">')).toBe('Looking.');
+    expect(stripStreamingToolCalls('Looking.\n<function_calls>')).toBe('Looking.');
+    // Partial openers while streaming, too.
+    expect(stripStreamingToolCalls('Looking. <inv')).toBe('Looking.');
+    expect(stripStreamingToolCalls('Looking. <｜DS')).toBe('Looking.');
+    // A real HTML-ish answer is not a call.
+    expect(stripStreamingToolCalls('Use <input> and <invoker-thing>')).toBe('Use <input> and <invoker-thing>');
+  });
+
   it('prose followed by a ```tool fence → cuts at the fence', () => {
     expect(stripStreamingToolCalls('On it.\n```tool\n{"name"')).toBe('On it.');
   });

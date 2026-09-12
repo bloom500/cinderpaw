@@ -12,13 +12,17 @@ deliberately short.
 
 ## Read this first: the license
 
-Cinderpaw is **Business Source License 1.1** — source-available, *not* OSI open
-source. Free for individuals, small orgs (<$2M revenue), education, research and
-self-hosting; commercial licence needed above that or to offer Cinderpaw as a hosted
-service. **Each version converts to Apache 2.0 four years after its release.**
+Cinderpaw is **Apache License 2.0** - OSI-approved open source. Free for anyone,
+including companies of any size, with no revenue threshold and no commercial
+licence to buy. Use it, modify it, redistribute it, sell it; keep the `LICENSE`
+and `NOTICE` files with any copy and say what you changed.
 
 By submitting a contribution you agree it ships under those terms. We would
 rather you know that in the first thirty seconds than after writing a patch.
+
+Cinderpaw was BSL 1.1 until September 2026. It moved so that adoption needs no
+legal review and the project can apply for grants that require an OSI-approved
+licence.
 
 ### Sign your commits, and what you are granting
 
@@ -28,18 +32,17 @@ rejects a pull request without one on every commit.
 That line is the [Developer Certificate of Origin](https://developercertificate.org/):
 you are stating the work is yours to give. **On its own it would not let us
 change Cinderpaw's licence later**, because a contribution accepted under
-BUSL-1.1 stays under BUSL-1.1 unless its author says otherwise. So the sign-off
-here carries one more thing, stated plainly rather than buried:
+Apache-2.0 stays under Apache-2.0 unless its author says otherwise. So the
+sign-off here carries one more thing, stated plainly rather than buried:
 
 > By signing off on a contribution you also grant Bloom Media a perpetual,
 > worldwide, irrevocable, royalty-free licence to use, modify and **relicense**
-> that contribution under any licence, including licences other than BUSL-1.1.
+> that contribution under any licence, including licences other than Apache-2.0.
 
-**Why we ask, in the open.** Cinderpaw may move to a different licence — a more
-permissive one (BUSL is not OSI-approved, which closes some grant and packaging
-doors), or a copyleft one. Without this grant that decision would need every
-past contributor to agree individually, which in practice means it can never
-happen. You keep the copyright in your work; this is a licence to us, not an
+**Why we ask, in the open.** Cinderpaw has moved licence once already, from BSL
+1.1 to Apache-2.0, and may move again. Without this grant that decision would
+need every past contributor to agree individually, which in practice means it
+can never happen. You keep the copyright in your work; this is a licence to us, not an
 assignment, and nothing here takes away your right to use your own code however
 you like.
 

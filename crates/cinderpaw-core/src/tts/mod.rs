@@ -291,7 +291,7 @@ pub fn catalog() -> Vec<TtsEngine> {
                 "Piper",
                 // NOT "MIT". piper-rs is MIT and calls espeak-ng, which is
                 // GPLv3 and is compiled into the binary — so a build with this
-                // feature on cannot be distributed under BUSL-1.1 at all. The
+                // feature on cannot be distributed under Apache-2.0 at all. The
                 // row said MIT to the user's face while that was true.
                 "On device. ~60 MB voice, 35+ languages. Needs a GPL-licensed                  phonemiser, so it is not in the installers.",
             )

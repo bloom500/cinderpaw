@@ -7,6 +7,7 @@ import { Markdown } from '@/lib/markdown';
 import { BubbleTail } from './BubbleTail';
 import { ThinkingBlock } from './ThinkingBlock';
 import { AskUserCard } from './AskUserCard';
+import { MessageToolWidgets } from './MessageToolWidgets';
 import { VoiceBubble } from './VoiceBubble';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
@@ -184,6 +185,9 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
           duration={message.thinkingDurationMs ? Math.round(message.thinkingDurationMs / 1000) : 0}
           active={!message.thinkingComplete}
         />
+      )}
+      {message.toolActivity && message.toolActivity.length > 0 && (
+        <MessageToolWidgets activity={message.toolActivity} streaming={streaming} />
       )}
       <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
         <Markdown animateWords={streaming}>{message.content}</Markdown>

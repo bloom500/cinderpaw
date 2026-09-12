@@ -238,7 +238,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "whatsapp".into(),
             device_flow: None,
             name: "WhatsApp".into(),
-            description: "Reach your assistant on WhatsApp. Turn it on, then scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.".into(),
+            description: "Reach your assistant on WhatsApp. Needs a one-time WhatsApp library install you do yourself, because its licence cannot ship inside Cinderpaw — see CinderpawAgent/README.md. After that, turn it on and scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.".into(),
             icon: "💚".into(),
             logo_url: Some("https://cdn.simpleicons.org/whatsapp".into()),
             pairing_fields: Vec::new(),
@@ -493,7 +493,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "line".into(),
             device_flow: None,
             name: "LINE".into(),
-            description: "A LINE Messaging API bot. Big in Japan, Taiwan and Thailand.".into(),
+            description: "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "💚".into(),
             logo_url: Some("https://cdn.simpleicons.org/line".into()),
             pairing_fields: vec![
@@ -526,16 +526,29 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "feishu".into(),
             device_flow: None,
             name: "Feishu / Lark".into(),
-            description: "Feishu and Lark enterprise messaging, with their doc, wiki and drive tools.".into(),
+            description: "Feishu and Lark enterprise messaging. Connects out over a WebSocket, so it needs no public web address.".into(),
             icon: "🐦".into(),
             logo_url: None,
-            pairing_fields: Vec::new(),
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "FEISHU_APP_ID".into(),
+                    label: "App ID (starts with cli_)".into(),
+                    secret: true,
+                },
+                PairingFieldDef {
+                    key: "FEISHU_APP_SECRET".into(),
+                    label: "App secret".into(),
+                    secret: true,
+                },
+            ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Feishu and Lark are two separate clouds and an app exists on
+            // only one of them. There is deliberately no field for it: the
+            // sidecar asks both at startup and keeps the one that answers,
+            // because nobody can be expected to know which cloud their
+            // administrator used. `FEISHU_DOMAIN` in metadata pins it for a
+            // private deployment.
+            coming_soon: false,
             console_url: Some("https://open.feishu.cn/app".into()),
             free_tier_note: None,
             validate_endpoint: None,
@@ -548,7 +561,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "googlechat".into(),
             device_flow: None,
             name: "Google Chat".into(),
-            description: "A Google Workspace Chat app. Authenticates with a service account.".into(),
+            description: "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🔷".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -576,7 +589,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "msteams".into(),
             device_flow: None,
             name: "Microsoft Teams".into(),
-            description: "Microsoft Teams, through the Teams SDK. Enterprise tenants included.".into(),
+            description: "Microsoft Teams, through the Teams SDK. Needs a public web address you provide, and an administrator who can install the app into your tenant. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🟦".into(),
             logo_url: None,
             pairing_fields: Vec::new(),
@@ -608,18 +621,24 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                     secret: false,
                 },
                 PairingFieldDef {
-                    key: "NEXTCLOUD_TALK_BOT_SECRET".into(),
-                    label: "Bot shared secret".into(),
+                    key: "NEXTCLOUD_TALK_USER".into(),
+                    label: "Your Nextcloud username".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "NEXTCLOUD_TALK_APP_PASSWORD".into(),
+                    label: "App password (Settings, Security, Devices & sessions — not your login password)".into(),
                     secret: true,
                 },
             ],
             pairing_method: InstanceToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
-            console_url: None,
+            // Ported 2026-09-12: src/transports/nextcloud-talk.ts. NOT as the
+            // webhook bot OpenClaw uses: a bot needs Nextcloud to POST to a
+            // URL Cinderpaw owns, and someone self-hosting at home has no
+            // public address. This pairs as a user with an app password and
+            // long-polls instead, so it works behind a router.
+            coming_soon: false,
+            console_url: Some("https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html".into()),
             free_tier_note: None,
             validate_endpoint: None,
             oauth_scopes: Vec::new(),
@@ -647,12 +666,11 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: InstanceToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
-            console_url: None,
+            // Ported 2026-09-12: src/transports/nostr.ts. There is no account
+            // and no operator here, so `console_url` points at the protocol's
+            // own docs rather than at a dashboard that does not exist.
+            coming_soon: false,
+            console_url: Some("https://github.com/nostr-protocol/nips/blob/master/04.md".into()),
             free_tier_note: None,
             validate_endpoint: None,
             oauth_scopes: Vec::new(),
@@ -664,7 +682,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "sms".into(),
             device_flow: None,
             name: "SMS".into(),
-            description: "Plain SMS and MMS through Twilio. Works with any phone, no app to install.".into(),
+            description: "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "📱".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -702,7 +720,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "synology-chat".into(),
             device_flow: None,
             name: "Synology Chat".into(),
-            description: "Chat on your own Synology NAS, with the full agent behind it.".into(),
+            description: "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🗄️".into(),
             logo_url: Some("https://cdn.simpleicons.org/synology".into()),
             pairing_fields: vec![
@@ -773,7 +791,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "zalo".into(),
             device_flow: None,
             name: "Zalo".into(),
-            description: "Zalo Bot API. The default messenger in Vietnam.".into(),
+            description: "The default messenger in Vietnam. A bot token is all it needs; nothing to install and no address to expose.".into(),
             icon: "🔵".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -784,12 +802,15 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
-            console_url: Some("https://bot.zapps.me/".into()),
+            // Ported 2026-09-12: src/transports/zalo.ts. Long polls with
+            // `getUpdates`, so no public address is needed — this card was
+            // wrongly grouped with the webhook connectors until then.
+            coming_soon: false,
+            // Upstream documents the bot console as bot.zaloplatforms.com,
+            // which is also the host family of the API. bot.zapps.me resolves
+            // too, but sending people to the one the docs name is what lets
+            // them follow those docs when they get stuck.
+            console_url: Some("https://bot.zaloplatforms.com/".into()),
             free_tier_note: None,
             validate_endpoint: None,
             oauth_scopes: Vec::new(),

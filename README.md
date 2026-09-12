@@ -532,18 +532,18 @@ That's the fastest loop in the repo and where most of the interesting work is. I
 - Open a [Discussion](https://github.com/bloom500/cinderpaw/discussions) for ideas and questions
 - Check [open issues](https://github.com/bloom500/cinderpaw/issues) for something to pick up
 
-Note that Cinderpaw is **source-available under BSL 1.1, not OSI open source** — free for individuals and small orgs, converting to Apache 2.0 four years after each release. Details in [Licence](#license) below; we'd rather you know upfront.
+Cinderpaw is **open source under Apache 2.0** — OSI-approved, free for anyone including companies, with no revenue threshold and nothing to buy. Details in [Licence](#license) below.
 
 ## License
 
-Cinderpaw is source-available under the [Business Source License 1.1](LICENSE) (BSL).
+Cinderpaw is licensed under the [Apache License, Version 2.0](LICENSE).
 
 **What that means in practice:**
-- ✅ **Free forever for you** — personal use, small businesses (under $2M annual revenue), education, research, self-hosting, modifying, redistributing.
-- 🚫 **Not free for big enterprise** — organizations above the revenue threshold, or anyone offering Cinderpaw as a hosted/managed service, need a [commercial license](mailto:bloommediacorporation@gmail.com).
-- 🕓 **Becomes fully open source automatically** — each version converts to Apache 2.0 four years after its release.
+- ✅ **Free for everyone** — personal use, any company of any size, education, research, self-hosting, modifying, redistributing, and selling. No revenue threshold, no commercial licence to buy.
+- ✅ **Patent grant included** — contributors grant a patent licence along with the copyright one, which is the part most permissive licences leave out.
+- 📎 **Keep the notice** — pass on the `LICENSE` and `NOTICE` files with any copy, and say what you changed. That is the whole obligation.
 
-This protects a small independent project from being repackaged by large companies while keeping it free for the people it's built for.
+Cinderpaw was previously source-available under BSL 1.1. It moved to Apache 2.0 so that adoption needs no legal review and the project is eligible for grants and foundations that require an OSI-approved licence.
 
 ---
 

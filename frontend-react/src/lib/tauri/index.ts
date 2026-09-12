@@ -558,7 +558,7 @@ export interface CodePatchResolvedPayload {
 export interface VoiceMeta { audio_path: string; duration_ms: number; transcript: string; peaks: number[] }
 /** Mirrors `conversations::ScratchStats` — churn in the agent's own workspace. */
 export interface ScratchStats        { edits: number; added: number; removed: number }
-export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null; scratch?: ScratchStats | null; created_at?: number | null }
+export interface PersistedMessage    { role: string; content: string; thinking?: string; voice?: VoiceMeta | null; scratch?: ScratchStats | null; tools?: unknown; created_at?: number | null }
 export interface ConversationSummary {
   id: string; title: string; updated_at: string;
   /** Set when this conversation belongs to an agent (Agents tab); null for chat. */
@@ -762,6 +762,9 @@ const raw = {
     invoke<number>('get_model_size_info', { repoId, filename }),
   getSystemInfo:         ()    => invoke<SystemInfo>('get_system_info'),
   diskEncryptionStatus:  ()    => invoke<DiskEncryptionStatus>('disk_encryption_status'),
+  bugReportLogPreview:   ()    => invoke<string>('bug_report_log_preview'),
+  submitBugReport:       (description: string, includeLog: boolean) =>
+    invoke<void>('submit_bug_report', { description, includeLog }),
   saveAgent:             (cfg: AgentConfig) => invoke<AgentConfig>('save_agent', { cfg }),
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
@@ -1151,6 +1154,9 @@ export const tauri = {
   system: {
     info: async () => raw.getSystemInfo(),
     diskEncryption: async () => raw.diskEncryptionStatus(),
+    bugReportLogPreview: async () => raw.bugReportLogPreview(),
+    submitBugReport: async (description: string, includeLog: boolean) =>
+      raw.submitBugReport(description, includeLog),
   },
 
   files: {

@@ -65,16 +65,24 @@ export function looksLikeToolCall(text: string): boolean {
  *   - a LINE starting with `{"name"` / `{"tool"` / `{'name'` — bare JSON call
  *   - a LINE starting with ```tool or ```json — fenced call formats
  */
+/**
+ * Every opener a call can start with, for the partial-tag check. The
+ * Anthropic-style `<invoke>` and DeepSeek's `<｜DSML｜` fence are here because
+ * the sidecar reads both (agent-loop.ts, "DSML framing") and ran the tool —
+ * while the chat showed the person the raw markup the whole time.
+ */
+const OPENERS = ['<tool_call>', '<invoke ', '<function_calls>', '<tool_calls>', '<｜DSML｜'];
+
 export function stripStreamingToolCalls(text: string): string {
   if (looksLikeToolCall(text)) return '';
-  const m = /<tool_call|^\s*\{\s*["']?(?:name|tool)["']?\s*[:=]|^\s*```(?:tool|json)\s*$/im.exec(text);
+  const m = /<tool_call|<(?:[A-Za-z_][\w.-]*:)?(?:invoke|function_calls|tool_calls)\b|<｜DSML｜|^\s*\{\s*["']?(?:name|tool)["']?\s*[:=]|^\s*```(?:tool|json)\s*$/im.exec(text);
   if (m) return text.slice(0, m.index).trimEnd();
   // Trailing partial opener: streaming arrives token-by-token, so the buffer
   // can end mid-tag ("… <tool_c"). Cut it so the tag never flashes; if it
   // wasn't a tool call after all, the next token reveals that and the full
   // text re-renders.
   const tail = /<[^<>]*$/.exec(text);
-  if (tail && '<tool_call>'.startsWith(tail[0])) {
+  if (tail && OPENERS.some((o) => o.startsWith(tail![0]))) {
     return text.slice(0, tail.index).trimEnd();
   }
   return text;

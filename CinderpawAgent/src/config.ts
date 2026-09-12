@@ -33,6 +33,8 @@ export interface ConfigEntry {
 
 export const CONFIG_SCHEMA: ConfigEntry[] = [
   // ---- Security group (read this first) ----------------------------------
+  { name: "CINDERPAW_WHATSAPP_MODULE", type: "path", default: null,
+    description: "Absolute path to a trusted external whatsapp.js bundle built from @whiskeysockets/baileys@7.0.0-rc13. Loaded as executable code only when WhatsApp connects or pairs. Unset = WhatsApp unavailable; the default executable does not embed the WhatsApp library. See CinderpawAgent/README.md for installation.", security: true },
   { name: "CINDERPAW_DB_KEY", type: "string", default: null,
     description: "32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB.", security: true },
   { name: "CINDERPAW_WORKSPACE", type: "list", default: null,

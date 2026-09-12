@@ -1,5 +1,94 @@
-import { describe, it, expect } from 'vitest';
-import { hitsOf, subjectOf, kindOf, filesOf, factsOf } from '../useLiveToolActivity';
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { events } from '@/lib/tauri/events';
+import * as artifacts from '@/lib/callArtifacts';
+import { useLiveToolActivity, hitsOf, subjectOf, kindOf, filesOf, factsOf, startActivity, finishActivity } from '../useLiveToolActivity';
+
+describe('voice tool activity', () => {
+  let emit: (line: unknown) => void;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(events.cinderpawAgentOutputEvent, 'listen').mockImplementation((cb) => {
+      emit = (line) => cb({ payload: { data: JSON.stringify(line) } } as Parameters<typeof cb>[0]);
+      return Promise.resolve(vi.fn());
+    });
+    vi.spyOn(events.liveStatusEvent, 'listen').mockResolvedValue(vi.fn());
+    vi.spyOn(events.liveKitEvent, 'listen').mockResolvedValue(vi.fn());
+    vi.spyOn(artifacts, 'recordArtifact').mockImplementation(() => {});
+  });
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it('subscribes to both call channels, records artifacts and expires rows after six seconds', async () => {
+    const { result } = renderHook(() => useLiveToolActivity(true));
+    await act(async () => {});
+    act(() => emit({ type: 'tool_start', tool: 'read_file', args: { path: 'voice.txt' } }));
+    expect(result.current[0]).toMatchObject({ kind: 'files', subject: 'voice.txt', status: 'running' });
+    act(() => emit({ type: 'tool_done', tool: 'read_file', result: { ok: true, data: { path: 'voice.txt' } } }));
+    expect(artifacts.recordArtifact).toHaveBeenCalled();
+    expect(events.liveStatusEvent.listen).toHaveBeenCalledOnce();
+    expect(events.liveKitEvent.listen).toHaveBeenCalledOnce();
+    act(() => vi.advanceTimersByTime(7000));
+    expect(result.current).toEqual([]);
+  });
+
+  it('caps rows at six and releases a subscription that resolves after unmount', async () => {
+    const { result, unmount } = renderHook(() => useLiveToolActivity(true));
+    act(() => {
+      for (let i = 0; i < 8; i++) emit({ type: 'tool_start', tool: `tool_${i}` });
+    });
+    expect(result.current).toHaveLength(6);
+    expect(result.current[0].tool).toBe('tool_2');
+    unmount();
+    let resolve!: (off: () => void) => void;
+    vi.mocked(events.cinderpawAgentOutputEvent.listen).mockReturnValue(new Promise((r) => { resolve = r; }));
+    const late = renderHook(() => useLiveToolActivity(true));
+    late.unmount();
+    const off = vi.fn();
+    await act(async () => resolve(off));
+    expect(off).toHaveBeenCalledOnce();
+  });
+});
+
+describe('desktop activity', () => {
+  const button = { id: 'el-save', role: 'Button', name: 'Save', bounding_rect: { x: 10, y: 40, width: 80, height: 24 } };
+  const field = { id: 'el-text', role: 'Edit', name: 'Text Editor', bounding_rect: { x: 0, y: 70, width: 400, height: 300 } };
+
+  it('names the app behind a pid from an earlier list_windows, and lights the clicked element on the last tree', () => {
+    const list = finishActivity(startActivity('computer_use', { action: 'list_windows' }), {
+      ok: true, data: [{ pid: 42, title: 'Untitled - Notepad', app_name: 'notepad.exe' }, { pid: 7, title: '', app_name: 'explorer.exe' }],
+    });
+    expect(list.kind).toBe('desktop');
+    expect(list.desktop).toMatchObject({ action: 'list_windows', windows: [{ pid: 42, app: 'notepad.exe' }, { pid: 7 }] });
+
+    const tree = finishActivity(startActivity('computer_use', { action: 'get_tree', pid: 42 }), {
+      ok: true, data: { id: 'root', role: 'Window', name: 'Untitled - Notepad', bounding_rect: { x: 0, y: 0, width: 400, height: 370 }, children: [button, field] },
+    });
+    expect(tree.desktop).toMatchObject({ app: 'notepad.exe', windowTitle: 'Untitled - Notepad' });
+    expect(tree.desktop?.elements.map((e) => e.id)).toEqual(['root', 'el-save', 'el-text']);
+
+    const click = startActivity('control_app', { action: 'click', pid: 42, element_id: 'el-save' });
+    expect(click.desktop).toMatchObject({ app: 'notepad.exe', target: { name: 'Save', x: 10, w: 80 } });
+    expect(click.desktop?.elements).toHaveLength(3);
+  });
+
+  it('never carries the typed text, because it may be a password', () => {
+    const typed = startActivity('computer_use', { action: 'type', pid: 42, element_id: 'el-text', text: 'hunter2' });
+    expect(JSON.stringify(typed)).not.toContain('hunter2');
+    expect(typed.subject).toBe('');
+  });
+
+  it('shows the app being launched, and survives a result with no data', () => {
+    const a = finishActivity(startActivity('computer_use', { action: 'launch', app: 'calc.exe' }), { ok: true });
+    expect(a.desktop).toMatchObject({ action: 'launch', app: 'calc.exe', windows: [], elements: [] });
+    expect(a.subject).toBe('calc.exe');
+    expect(startActivity('computer_use', undefined).desktop).toBeNull();
+  });
+
+  it('ends a failed step with the reason, not an empty layout', () => {
+    const a = finishActivity(startActivity('computer_use', { action: 'click', pid: 1, element_id: 'nope' }), { ok: false, content: 'element not found' });
+    expect(a).toMatchObject({ status: 'failed', error: 'element not found' });
+  });
+});
 
 describe('kindOf', () => {
   it('routes each tool to the widget for its category, not its name', () => {

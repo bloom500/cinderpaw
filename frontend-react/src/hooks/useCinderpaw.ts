@@ -36,6 +36,7 @@ import {
   getLiveToolStrip,
 } from '@/lib/cinderpawLiveSession';
 import { extractMainArg } from '@/components/chat/mascot/extractMainArg';
+import { startActivity, finishActivity, type ToolActivity } from '@/hooks/useLiveToolActivity';
 import { emojiForTool } from '@/components/chat/mascot/emojiForTool';
 import type { MascotState } from '@/components/chat/mascot/frames';
 
@@ -253,6 +254,28 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         // four entries and is wiped five seconds after the turn ends — it
         // answers "what is it doing", and this has to answer "what did it do".
         scratch: { edits: 0, added: 0, removed: 0 },
+        // The widgets drawn inside this reply: one per tool call, in order.
+        // Built here, next to the mascot's bubbles, because this is the one
+        // place that knows which reply a tool event belongs to.
+        tools: [] as ToolActivity[],
+      };
+      /**
+       * A turn that ends with a tool still open never gets that tool's result.
+       * Its widget would spin forever; saying why it stopped is the honest
+       * display, the same conclusion the mascot strip draws as `cancelled`.
+       */
+      const settleTools = (why: string) => {
+        if (!state.tools.some((a) => a.status === 'running')) return;
+        state.tools = state.tools.map((a) =>
+          a.status === 'running' ? { ...a, status: 'failed' as const, endedAt: Date.now(), error: why } : a,
+        );
+        syncTools();
+      };
+      /** Push the widgets to the mirror, and to the screen when this chat is on it. */
+      const syncTools = () => {
+        const toolActivity = [...state.tools];
+        updateLiveSession(sessionId, { toolActivity });
+        if (isActive()) useChat.getState().updateLastAssistantMessage({ toolActivity });
       };
 
       const persistFinal = async () => {
@@ -266,6 +289,9 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           // the first half the line vanished on the very save meant to keep it.
           scratch:
             m.id === asstId && state.scratch.edits > 0 ? { ...state.scratch } : m.scratch,
+          tools: m.id === asstId
+            ? (state.tools.length > 0 ? state.tools : undefined)
+            : (m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined),
           created_at: m.createdAt,
         }));
         try {
@@ -314,6 +340,8 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         },
         onToolStart: (_callId, tool, args) => {
           state.toolCallCount += 1;
+          state.tools.push(startActivity(tool, args));
+          syncTools();
           // Commit the prose emitted before this tool call so it survives the
           // buffer reset; otherwise only the segment after the LAST tool call
           // reached the bubble (the "only the last sentence" bug).
@@ -351,6 +379,16 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           }
         },
         onToolDone: (_callId, tool, result) => {
+          // Last running call of this tool: events carry no per-call id, and
+          // the newest open one is the one a result belongs to.
+          for (let i = state.tools.length - 1; i >= 0; i--) {
+            const a = state.tools[i];
+            if (a.tool === tool && a.status === 'running') {
+              state.tools[i] = finishActivity(a, result);
+              break;
+            }
+          }
+          syncTools();
           // Scratchpad telemetry. `write_file` and `edit_file` report the line
           // delta they already had in hand, so this is a read of an existing
           // field, not a second measurement that could disagree with the first.
@@ -408,6 +446,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           }
         },
         onDone: async (finalContent?: string, stopped = false) => {
+          settleTools(stopped ? 'stopped' : 'no result');
           endLiveSession(sessionId);
           if (joinSegments(state.committed, state.answer).trim().length === 0 && finalContent?.trim()) {
             const cleaned = splitThinking(finalContent).answer.trim();
@@ -438,6 +477,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           useConversations.getState().unmarkStreaming(sessionId);
         },
         onError: (err) => {
+          settleTools('failed');
           endLiveSession(sessionId);
           if (isActive()) useChat.getState().setStreamStatus('error', err);
           if (mascotSink) mascotSink.setMascotState('error');
@@ -446,6 +486,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           });
         },
         onStopped: () => {
+          settleTools('stopped');
           endLiveSession(sessionId);
           if (isActive()) useChat.getState().setStreamStatus('stopped');
           void persistFinal().finally(() => {
@@ -453,6 +494,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           });
         },
         onTruncated: (reason) => {
+          settleTools('truncated');
           endLiveSession(sessionId);
           if (isActive()) {
             useChat.getState().updateLastAssistantMessage({ truncated: true, truncatedReason: reason });

@@ -502,6 +502,8 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             stop_generation,
             get_system_info,
             disk_encryption::disk_encryption_status,
+            bug_report_log_preview,
+            submit_bug_report,
             save_agent,
             get_agents,
             delete_agent,

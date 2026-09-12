@@ -50,6 +50,47 @@ bun run src/index.ts
 
 ## Testing locally
 
+### Optional WhatsApp dependency
+
+The default executable does **not** bundle Baileys or its `libsignal` dependency.
+WhatsApp remains available through an external Baileys installation. Install the
+tested version in a persistent directory of your choice:
+
+```bash
+mkdir cinderpaw-whatsapp
+cd cinderpaw-whatsapp
+bun add @whiskeysockets/baileys@7.0.0-rc13
+bun build node_modules/@whiskeysockets/baileys/lib/index.js --target=bun --outfile whatsapp.js
+```
+
+Set `CINDERPAW_WHATSAPP_MODULE` to the **absolute file path** of
+`cinderpaw-whatsapp/whatsapp.js` in the
+environment of the gateway/desktop app, then restart it and enable/pair WhatsApp
+normally. On PowerShell, for example:
+
+```powershell
+$env:CINDERPAW_WHATSAPP_MODULE = 'D:\cinderpaw-whatsapp\whatsapp.js'
+```
+
+Keep the generated `whatsapp.js`: it contains Baileys and its dependencies,
+including `libsignal`, outside the default executable. Loading the raw package
+entry from a compiled Bun executable fails to resolve some transitive packages;
+the external bundle avoids that failure. The executable loads it at runtime,
+only when WhatsApp connects or pairs. The same setting is required
+when running from source. Without it, a WhatsApp connection request reports the
+installation instructions; other connectors do not require it. Only point this
+setting at a trusted installation, since it loads executable code.
+
+The regression check is included in `bun test` (and therefore `scripts/verify.sh`).
+Run it alone from `CinderpawAgent/`:
+
+```bash
+bun test tests/compiled-no-libsignal.test.ts
+```
+
+It compiles the real entry point into a fresh executable and scans its bytes for
+`libsignal` and implementation markers. Restoring a bundled import makes it fail.
+
 ### 1. Run the test suite (no Ollama needed)
 
 The full suite — sandbox guarantees, inference router, memory, mood, and the

@@ -27,6 +27,7 @@
  */
 import { createHash } from "node:crypto";
 import { buildTree } from "./tree-builder.ts";
+import { appendLeaf } from "./tree-append.ts";
 import { FractalRecallEngine, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
 import { saveTree, loadTree } from "./tree-store.ts";
 import { projectCentroids } from "./project-centroids.ts";
@@ -192,6 +193,19 @@ export class FractalMemory {
 
   #tree: TreeNode | null = null;
   #leavesById: Map<number, Leaf> | null = null;
+  /**
+   * Leaves grafted in by `#graftIntoTree` since the last real build.
+   *
+   * Staleness is measured as corpus vs tree coverage, and grafting raises
+   * coverage on every write — so without this counter the tree would report
+   * itself permanently fresh and `rebuild()` would never run again. Nothing
+   * would look wrong: recall keeps working, while the approximate centroids
+   * drift with no correction, the clusters never re-form around what the
+   * memory has become, and the summaries stay frozen at whatever the corpus
+   * looked like the last time a build happened. A slow rot with no symptom is
+   * the expensive kind.
+   */
+  #graftedSinceRebuild = 0;
   /** Shared promise while a rebuild is in flight; dedupes concurrent callers. */
   #rebuildInFlight: Promise<boolean> | null = null;
 
@@ -351,6 +365,8 @@ export class FractalMemory {
     }
     this.#tree = tree;
     this.#leavesById = new Map(leaves.map((l) => [l.id, l]));
+    // A real build clustered everything; nothing is grafted any more.
+    this.#graftedSinceRebuild = 0;
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     this.#log?.(`fractal: rebuilt tree (${leaves.length} leaves, ${tree.children.length} top-level clusters, ${secs}s)`);
     this.#emit(buildGrowActivity(tree));
@@ -363,7 +379,11 @@ export class FractalMemory {
    * summary cost on every boot when the loaded tree is already fresh.
    */
   async rebuildIfStale(growthRatio = 1.2, shrinkRatio = 0.9): Promise<boolean> {
-    const covered = this.treeLeafCount;
+    // Grafted leaves are IN the tree but were never clustered by a build, so
+    // they do not count as coverage for staleness. Subtracting them keeps this
+    // check meaning exactly what it meant before grafting existed: how much of
+    // the corpus a real build has actually organised.
+    const covered = Math.max(0, this.treeLeafCount - this.#graftedSinceRebuild);
     if (covered > 0) {
       const corpus = this.#cappedLeaves().length;
       // Growth: the tree misses new memories until enough accumulate to be
@@ -904,6 +924,9 @@ export class FractalMemory {
       this.#log?.(`fractal: persistEmbeddings failed (idempotent retry on next call): ${String(e)}`);
     }
 
+    // Findable NOW, not at the next 1.2x rebuild. See #graftIntoTree.
+    this.#graftIntoTree(leaf);
+
     this.#mutationSeq++;
     this.#emit({
       kind: "grow",
@@ -912,6 +935,51 @@ export class FractalMemory {
       clusters: [],
     });
     return { kind: "grow", leafId: newId };
+  }
+
+  /**
+   * Put a just-written leaf into the live tree instead of making it wait.
+   *
+   * Before this, a new memory was invisible to the semantic path until the
+   * corpus grew 20% past the tree's coverage — on 2700 leaves, ~540 more
+   * memories. FTS5 still matched it lexically, so the gap was quiet and looked
+   * like weak retrieval: ask about this morning in your own words rather than
+   * the words you used at the time, and the tree had never heard of it.
+   *
+   * Cheap because `tree-query.ts` routes on centroids alone. The summaries the
+   * appended leaf's clusters carry go stale, and nothing that decides a branch
+   * reads them; see `tree-append.ts`.
+   *
+   * `#leavesById` is MUTATED, never replaced: `FractalRecallEngine` holds the
+   * same map by reference and resolves hit text through it, and the engine
+   * cache keys off map identity — handing it a new map would throw away the
+   * cached engine on every single write, in the path whose latency is the
+   * whole argument for this subsystem.
+   *
+   * ponytail: the tree is not re-persisted per write. Serialising 2700 leaves
+   * on every capture costs more than it saves, and an append lost to a restart
+   * degrades to exactly the old behaviour — the leaf waits for the next
+   * rebuild, which still triggers because the persisted tree's coverage is
+   * unchanged. Persist here only if appends start outliving rebuilds.
+   *
+   * Best-effort, like `noteWrite`: a write must never fail because an index
+   * could not be updated.
+   */
+  #graftIntoTree(leaf: Leaf): void {
+    if (!this.#tree) return;
+    try {
+      const result = appendLeaf(this.#tree, leaf.id, leaf.vec);
+      if (!result.ok) {
+        // Said out loud, not swallowed: the whole failure mode this replaces
+        // was a memory that was silently unreachable.
+        this.#log?.(`fractal: leaf ${leaf.id} not grafted (${result.reason}); waits for rebuild`);
+        return;
+      }
+      this.#leavesById?.set(leaf.id, leaf);
+      this.#graftedSinceRebuild++;
+    } catch (e) {
+      this.#log?.(`fractal: graft failed for leaf ${leaf.id} (${String(e)}); waits for rebuild`);
+    }
   }
 
   /** Scan pending + fresh loadLeaves() for the nearest cosine. */

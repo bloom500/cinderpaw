@@ -98,3 +98,81 @@ them by name.
 
 Step 3 is roughly a month, not a week. Said here so the estimate is on the
 record before the third platform rather than after it.
+
+### Ported so far
+
+Thirteen of the 21, all on `main`. Discord, Slack and WhatsApp predate this import
+and live in `src/transports/connectors.ts`; the rest have a file each. `coming_soon` in
+`crates/cinderpaw-core/src/connectors.rs` is the source of truth and two tests
+hold it there: `connector-catalog-transports.test.ts` fails if a card is live
+with no transport behind it, and `catalog_endpoints.rs` fails until somebody
+writes a review arm for the newly live card by hand.
+
+| platform | what it proved |
+|---|---|
+| discord, slack, whatsapp | predate the import; they are why the registry exists |
+| matrix | HTTP long poll with an instance token |
+| mattermost | the same pairing as Matrix over an entirely different wire |
+| twitch | an OAuth device flow, with nothing for the user to paste |
+| telegram | long polling: no public URL needed, and no dependency at all |
+| irc | a raw socket, and the byte budget that makes a newline an injection |
+| signal | a local daemon the user installs, and saying so on screen |
+| nostr | no operator at all: the identity is a keypair, and several relays at once |
+| nextcloud-talk | that a webhook design can be re-pointed: paired as a user, polled, so it works behind a router |
+| zalo | that the HTTP status can lie: a rejected token comes back 200 with `ok:false` |
+| feishu | that a webhook connector can hide a socket the platform dials out on, and that a two-cloud product can be probed instead of asked about |
+
+Nostr is the first that needed a new dependency: `nostr-tools`, for the BIP-340
+Schnorr signature `node:crypto` does not have. It is Unlicense, so it adds
+nothing to the notice file. Check any candidate the same way before porting it,
+with `python scripts/openclaw/license-inventory.py`.
+
+### What is left, and the one thing blocking most of it
+
+Eight remain. They do not all fail for the same reason, and only one of the
+reasons is a decision:
+
+**Five need an inbound public URL** and cannot work on a home machine:
+`googlechat`, `line`, `msteams`, `sms` (Twilio) and `synology-chat`. Each is a
+webhook platform: the provider POSTs to an address you own. A person running
+Cinderpaw behind a router has no such address, no certificate, and no way to
+get one without a tunnel.
+
+**It was six twice, and both corrections are worth keeping.** Nextcloud Talk
+left the list by being re-pointed rather than re-implemented: Talk has a
+user-facing chat API next to its bot webhook, so pairing as a user and polling
+reaches the same messages with nothing exposed. Zalo was never in it: its Bot
+API long-polls with `getUpdates` by default and webhooks are the option, which
+upstream documents plainly. Our own extracted manifest agrees, it carries no
+`webhookPath` or `webhookUrl` field for zalo while all five above do. The
+lesson is that "needs a webhook" is a claim about a platform's WHOLE API, and
+reading the connector OpenClaw happened to write is not the same as reading
+what the platform offers.
+
+For the five that remain it was one product decision, not five ports, and the
+decision is made: **`docs/decisions/2026-09-12-webhook-inbound.md`**. Cinderpaw
+does not operate a relay. We ship the inbound receiver; the user supplies the
+address with a tunnel, a reverse proxy or a domain. Recurring cost to us stays
+zero and promise 2 in `PROMISES.md` stays literally true. The price is the
+user's and it is real: these five will never be one-click behind a router, so
+each card now says it needs a public address before anyone pastes a token, and
+`catalog_endpoints.rs` fails if that sentence disappears.
+
+`audit-out/webhook-inbound-2026-09-12.md` remains the reference for what a
+hosted service would have to contain. It recommended the hosted option; the
+decision went the other way on cost, and the record says why.
+
+Note that the recommendation does NOT cover Nextcloud Talk, and must not be
+applied to it: its catalog card says "Nothing goes through anyone else's
+server", which the polling port keeps true and a relay would make false.
+
+**Three are blocked on something other than a URL:**
+
+- `imessage` — macOS only, and needs the `imsg` bridge installed locally. Same
+  shape as Signal. Portable, but untestable from a Windows box.
+- `tlon` — an Urbit ship over its own channel API, no public URL needed, but it
+  needs a running ship to test against and pulls the AWS S3 SDK for attachments.
+- `zalouser` — logs into a PERSONAL Zalo account by QR through `zca-js`, an
+  unofficial reimplementation of their private client protocol. That is an
+  account-ban risk for the user and a support burden for us. It should be a
+  deliberate yes, not the next item on a list.

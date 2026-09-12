@@ -5,7 +5,7 @@
 //! Kokoro takes phonemes, not text, and until now those phonemes came from
 //! `espeak_rs::text_to_phonemes`. espeak-ng is **GPLv3**, and it is compiled
 //! into the binary rather than called as a separate program, so every Windows
-//! and macOS installer we shipped carried GPL code inside a BUSL-1.1 product.
+//! and macOS installer we shipped carried GPL code inside an Apache-2.0 product.
 //! The wrapper crates advertise themselves as MIT, which is true of the wrapper
 //! and false of what lands in the executable.
 //!
