@@ -61,6 +61,8 @@ export interface RunWithProgressOptions {
   ftsSearch: (q: string, limit: number) => EpisodicEvent[];
   tree: TreeNode;
   leavesById: Map<number, Leaf>;
+  /** See `RunBenchmarkOptions.equivalents`. */
+  equivalents?: (leafId: number) => number[];
   embed: EmbedInvoker;
   infer: (prompt: string) => Promise<string>;
 
@@ -243,6 +245,7 @@ export async function runFractalBenchmarkWithProgress(
       ftsSearch: opts.ftsSearch,
       tree: opts.tree,
       leavesById: opts.leavesById,
+      equivalents: opts.equivalents,
       embed: opts.embed,
       infer: opts.infer,
       queries, // pre-built: skips the JSONL/generation branch inside

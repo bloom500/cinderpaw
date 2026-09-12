@@ -32,6 +32,8 @@ export interface FractalBenchDeps {
   tree: TreeNode;
   /** Leaf metadata by id, for the recall engine (same map the live app uses). */
   leavesById: Map<number, Leaf>;
+  /** See `RunBenchmarkOptions.equivalents`. */
+  equivalents?: (leafId: number) => number[];
   /** Query embedder (production: the live bridge invoker). */
   embed: EmbedInvoker;
   /** Local-model completion, used only to generate queries. */
@@ -110,5 +112,5 @@ export async function runFractalBenchmark(deps: FractalBenchDeps): Promise<Bench
   const fts = async (query: string) =>
     deps.ftsSearch(query, k).flatMap((e) => (e.id === undefined ? [] : [e.id]));
 
-  return runBenchmark({ queries, fts, fractal, k, budgetMs, now, onQuery: deps.onQuery });
+  return runBenchmark({ queries, fts, fractal, k, budgetMs, now, onQuery: deps.onQuery, equivalents: deps.equivalents });
 }

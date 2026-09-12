@@ -39,6 +39,19 @@ describe("runBenchmark", () => {
     expect(report.k).toBe(10);
   });
 
+  it("credits a hit on any copy of the labelled id when equivalents are known", async () => {
+    const clock = fakeClock();
+    const queries = [Q("q1", [7])];
+    const fts = async () => [9];
+    const fractal = async () => [8];
+    const equivalents = (id: number) => (id === 7 ? [7, 8, 9] : [id]);
+    const without = await runBenchmark({ queries, fts, fractal, k: 10, budgetMs: 80, now: clock.now });
+    expect(without.fractal.meanRecallAtK).toBe(0);
+    const withEq = await runBenchmark({ queries, fts, fractal, k: 10, budgetMs: 80, now: clock.now, equivalents });
+    expect(withEq.fts.meanRecallAtK).toBe(1);
+    expect(withEq.fractal.meanRecallAtK).toBe(1);
+  });
+
   it("times each engine call against the injected clock", async () => {
     const clock = fakeClock();
     const queries = [Q("a", [1]), Q("b", [2]), Q("c", [3])];

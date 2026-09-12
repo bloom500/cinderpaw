@@ -66,6 +66,13 @@ export interface RunBenchmarkOptions {
    * uses this; the test suite omits it.
    */
   onQuery?: (current: number) => void;
+  /**
+   * Every leaf id that says the same thing as `leafId`, itself included. The
+   * corpus folds identical memories into one leaf before the tree is built,
+   * so the labelled id may not be the one the tree can return; a hit on any
+   * copy is the answer. Absent means every id stands alone.
+   */
+  equivalents?: (leafId: number) => number[];
 }
 
 /** One query's outcome for a single engine. */
@@ -99,6 +106,26 @@ export interface BenchReport {
   verdict: Verdict;
 }
 
+/**
+ * recall@k where each labelled id is satisfied by any of its copies. Still
+ * one point per LABELLED id: widening the relevant set instead would turn a
+ * hit on one of fifteen copies into one fifteenth of a hit, which is the
+ * single-gold defect in a new costume.
+ */
+function groupRecallAtK(
+  ranked: number[],
+  relevant: ReadonlySet<number>,
+  k: number,
+  equivalents?: (id: number) => number[],
+): number {
+  if (!equivalents) return recallAtK(ranked, relevant, k);
+  if (relevant.size === 0) return 0;
+  const topK = new Set(ranked.slice(0, k));
+  let found = 0;
+  for (const id of relevant) if (equivalents(id).some((e) => topK.has(e))) found++;
+  return found / relevant.size;
+}
+
 /** Run one engine over the whole query set, timing each call. */
 async function runEngine(
   queries: BenchQuery[],
@@ -106,6 +133,7 @@ async function runEngine(
   k: number,
   now: () => number,
   onQuery?: (current: number) => void,
+  equivalents?: (leafId: number) => number[],
 ): Promise<EngineReport> {
   const perQuery: PerQuery[] = [];
   for (let i = 0; i < queries.length; i++) {
@@ -117,7 +145,7 @@ async function runEngine(
     perQuery.push({
       query: q.query,
       task,
-      recall: task === "historical" ? recallAtK(ranked, q.relevant, k) : null,
+      recall: task === "historical" ? groupRecallAtK(ranked, q.relevant, k, equivalents) : null,
       ms,
     });
     // 1-based, fires once per query in each engine. Orchestrator uses this
@@ -153,8 +181,8 @@ export async function runBenchmark(opts: RunBenchmarkOptions): Promise<BenchRepo
         '"historical". Label at least one query as historical.',
     );
   }
-  const fts = await runEngine(opts.queries, opts.fts, opts.k, opts.now, opts.onQuery);
-  const fractal = await runEngine(opts.queries, opts.fractal, opts.k, opts.now, opts.onQuery);
+  const fts = await runEngine(opts.queries, opts.fts, opts.k, opts.now, opts.onQuery, opts.equivalents);
+  const fractal = await runEngine(opts.queries, opts.fractal, opts.k, opts.now, opts.onQuery, opts.equivalents);
   return {
     k: opts.k,
     n: opts.queries.length,
