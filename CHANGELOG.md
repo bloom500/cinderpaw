@@ -5,6 +5,28 @@
 > `2026.6.17`, since semver forbids leading zeros — the padded date is what's
 > shown everywhere in the app and on releases.)
 
+## Unreleased
+
+### Changed
+
+- **Cinderpaw is now open source under the Apache License 2.0.** It was
+  source-available under BSL 1.1, which is not OSI-approved: that meant a
+  company had to run a legal review before anyone could try it, and it shut
+  the project out of grants and foundations that require an approved open
+  source licence. Both of those cost more than the licence was protecting.
+
+  What changes for you: nothing you have to do, and nothing you lose. Apache
+  2.0 is free for everyone, including companies of any size. There is no
+  revenue threshold, no commercial licence to buy, and no four-year wait for
+  a version to convert. You may use, modify, redistribute and sell it, and
+  you may offer it as a hosted service, which BSL forbade. The obligation is
+  that you pass on the `LICENSE` and `NOTICE` files with any copy and state
+  what you changed.
+
+  Apache 2.0 also carries an explicit patent grant, which BSL did not, so
+  contributors and users are covered against patent claims over the code they
+  contributed or received.
+
 ## 2026.08.21
 
 ### Changed

@@ -1,6 +1,6 @@
 # Third-party notices
 
-Cinderpaw is licensed under BUSL-1.1 (see `LICENSE`). This file records third-party
+Cinderpaw is licensed under Apache-2.0 (see `LICENSE`). This file records third-party
 work Cinderpaw builds on, and the notices that work requires.
 
 It covers three things: designs we derived from, source we copied into this
@@ -96,7 +96,7 @@ covers, what it does not, and why the rest of that package was left behind.
 
 Both are by Brandon Thomas and both are **BSD-4-Clause**. They replace
 espeak-ng, which is GPLv3, as the source of pronunciations for words no
-dictionary contains — the reason Kokoro can be shipped in a BUSL-1.1 binary at
+dictionary contains — the reason Kokoro can be shipped in an Apache-2.0 binary at
 all.
 
 They are listed here, unlike other Cargo dependencies, because BSD-4-Clause's
@@ -182,10 +182,11 @@ and all. Verify it in one command:
     cd CinderpawAgent && bun build src/index.ts --target=bun --outfile /tmp/probe.js
     grep -c "node_modules/libsignal" /tmp/probe.js     # expect: not zero
 
-Cinderpaw is BUSL-1.1. GPL-3.0 code linked into a binary distributed under a
-licence that does not grant the GPL's freedoms is a conflict, not a notice to
-add, and no NOTICE file resolves it. It blocks release while WhatsApp is
-compiled in. The ways out are a product decision, not a packaging one: drop the
+Cinderpaw is Apache-2.0, and the move from BSL 1.1 does not settle this. Apache-2.0
+is one-way compatible with GPL-3.0: our code may be taken INTO a GPL-3.0 work,
+but a GPL-3.0 dependency linked into our binary makes the combined work GPL-3.0,
+which would put every downstream user of Cinderpaw under the GPL whether they
+wanted it or not. It blocks release while WhatsApp is compiled in. The ways out are a product decision, not a packaging one: drop the
 WhatsApp transport, move it behind a separate process the user installs and runs
 themselves, or replace `baileys` with a client that does not carry libsignal.
 

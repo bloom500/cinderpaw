@@ -9,7 +9,7 @@ jobs:
   # Every commit in a PR must carry `Signed-off-by`. That line is the DCO, and
   # in this project it also carries a relicensing grant (docs/CONTRIBUTING.md).
   #
-  # Without it, Cinderpaw's licence is frozen at BUSL-1.1 the moment the first
+  # Without it, Cinderpaw's licence is frozen at Apache-2.0 the moment the first
   # outside contribution lands: changing it would need every past contributor to
   # agree one by one. That is not a thing you can fix later, which is why a
   # check for one text line blocks a merge.

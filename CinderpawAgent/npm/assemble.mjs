@@ -75,7 +75,7 @@ const pkgJson = {
   name,
   version,
   description: `Cinderpaw CLI runtime for ${os}-${arch}. Installed automatically by \`cinderpaw-agent\`.`,
-  license: "BUSL-1.1",
+  license: "Apache-2.0",
   homepage: "https://github.com/bloom500/cinderpaw#readme",
   repository: { type: "git", url: "git+https://github.com/bloom500/cinderpaw.git", directory: "CinderpawAgent" },
   os: [os],

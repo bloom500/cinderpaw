@@ -85,7 +85,7 @@ jobs:
           # `piper` is on NO job in this file, and that is a licence bound
           # rather than a platform one: `piper-rs` compiles espeak-ng (GPLv3)
           # into the binary, and these jobs produce the installers we hand to
-          # strangers under BUSL-1.1. Kokoro used to link it too; `tts::g2p`
+          # strangers under Apache-2.0. Kokoro used to link it too; `tts::g2p`
           # replaced it, and Piper has no seam to do the same through. Anyone
           # who wants Piper can still build it themselves with `--features
           # piper` — that is their distribution, not ours.
@@ -506,8 +506,8 @@ jobs:
         with:
           # kokoro on Windows only — see the Linux note in the matrix above;
           # the same ONNX Runtime glibc floor applies to this job. `piper` is
-          # not here and must not come back: it links espeak-ng (GPLv3) into a
-          # BUSL-1.1 bundle.
+          # not here and must not come back: it links espeak-ng (GPLv3) into
+          # an Apache-2.0 bundle.
           args: --features inference-cuda${{ runner.os == 'Windows' && ',kokoro' || '' }}
 
       # Suffix the bundles so they sit next to the Vulkan ones on the release

@@ -13,7 +13,7 @@
     "brain.example.json",
     "README.md"
   ],
-  "license": "BUSL-1.1",
+  "license": "Apache-2.0",
   "author": "Bloom Media",
   "homepage": "https://github.com/bloom500/cinderpaw#readme",
   "repository": {

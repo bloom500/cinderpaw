@@ -1,11 +1,13 @@
 # Windows Code Signing (Authenticode) — via SignPath Foundation
 
-> Status: **pipeline wired but BLOCKED by license choice (2026-07-12).**
-> SignPath Foundation's free OSS program requires an OSI-approved license;
-> Cinderpaw moved to BSL 1.1, which is source-available, not OSI open source —
-> so the free program no longer applies. The signing steps in the release
-> workflow stay gated on `SIGNPATH_API_TOKEN` and releases ship **unsigned**.
-> Cheapest paid path when budget exists: Azure Trusted Signing ($9.99/mo).
+> Status: **pipeline wired, and UNBLOCKED again as of September 2026.**
+> SignPath Foundation's free OSS program requires an OSI-approved license. That
+> is why this was blocked from 2026-07-12: Cinderpaw was BSL 1.1, which is
+> source-available and not OSI open source. Cinderpaw is now **Apache-2.0**,
+> which is OSI-approved, so the free program applies again and someone has to
+> go and apply for it. Until that application is accepted the signing steps stay
+> gated on `SIGNPATH_API_TOKEN` and releases ship **unsigned**.
+> Paid fallback if the application is refused: Azure Trusted Signing ($9.99/mo).
 > Current mitigation: documented SmartScreen bypass in the README install
 > section + reproducible public CI builds; SmartScreen reputation accrues
 > with clean downloads over time. macOS notarization needs a $99/yr Apple
