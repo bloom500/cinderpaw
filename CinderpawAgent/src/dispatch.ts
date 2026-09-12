@@ -1170,7 +1170,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
 
       case "desktop_control_response": {
         // Result of an OS desktop-control action run by the Rust host. Route
-        // it back to the matching pending request so the control_app tool's
+        // it back to the matching pending request so the computer_use tool's
         // awaited Promise settles. `id` echoes the originating request id.
         if (msg.id) {
           desktopControl.resolve(msg.id, msg.ok === true, msg.data, msg.error);

@@ -129,7 +129,7 @@ export function registerPersistedCustomTools(deps: ToolForgeDeps): string[] {
 }
 
 /**
- * Owner consent for running agent-written code. Mirrors control_app's
+ * Owner consent for running agent-written code. Mirrors computer_use's
  * `confirmWrite`: no askUser bridge → fail CLOSED unless a headless
  * deployment opted in, and a timeout / cancel counts as a denial.
  *

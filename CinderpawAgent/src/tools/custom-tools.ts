@@ -360,7 +360,7 @@ export function createCustomTool(
 
 /**
  * Confirm one call of a still-experimental forged tool. Same fail-closed
- * discipline as the forge's creation gate (`confirmForge`) and control_app's
+ * discipline as the forge's creation gate (`confirmForge`) and computer_use's
  * `confirmWrite`: no bridge to ask through → denied, unless a headless
  * deployment opted in with CINDERPAW_FORGE_NO_PROMPT_OK.
  *

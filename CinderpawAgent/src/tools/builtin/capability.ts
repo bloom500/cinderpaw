@@ -19,7 +19,7 @@
  *   The agent may REQUEST a capability installation. It may never establish
  *   that capability's provenance, and it may never authorize its own install.
  *
- * Security posture mirrors `control_app`: no sandbox permissions are declared
+ * Security posture mirrors `computer_use`: no sandbox permissions are declared
  * and no fs/network work happens here. The tools reach the machine only
  * through the `capabilities` bridge, which round-trips to the Rust host where
  * every real decision is made. Installing is confirmed with the user through

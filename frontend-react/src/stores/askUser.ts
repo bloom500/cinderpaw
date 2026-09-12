@@ -5,7 +5,7 @@
  * routes it here. The store presents ONE question at a time (`pending`, the
  * head), but any further requests that arrive before the user answers are
  * QUEUED in `waiting` rather than overwriting the head. This is essential for
- * tools that ask in quick succession — e.g. `control_app` emits a confirmation
+ * tools that ask in quick succession — e.g. `computer_use` emits a confirmation
  * per click, and the model may fire those clicks as parallel tool calls, so
  * several `ask_user` events land back-to-back. The previous single-slot design
  * silently dropped all but the last, orphaning the earlier Promises so their

@@ -48,6 +48,27 @@ import type {
 import type { ToolObservationLog } from "../telemetry/tool-observations.ts";
 import { CircuitBreaker } from "../egress/circuit-breaker.ts";
 
+/**
+ * Old tool name → the name it is registered under today.
+ *
+ * A rename is invisible to the model (it reads the current schema) but not to
+ * everything else: a resumed session's history, a user's hook or custom tool,
+ * a permission entry someone wrote by hand, and the model's own prior
+ * knowledge of a widely-used name all carry the old spelling. Each entry costs
+ * one map lookup on a miss and no schema tokens, because the alias is never a
+ * second registered tool.
+ *
+ * Keep entries forever unless the old name is re-used for something else —
+ * removing one turns a working call into `unknown tool`, which is the failure
+ * the alias exists to prevent.
+ */
+const TOOL_ALIASES = new Map<string, string>([
+  // Renamed 2026-09-12: `computer_use` is what this capability is called
+  // across the ecosystem, and "control_app" read as "control one app" when the
+  // tool drives the whole desktop.
+  ["control_app", "computer_use"],
+]);
+
 export class ToolRegistry {
   readonly #tools = new Map<string, Tool>();
   readonly #egress: EgressProxy;
@@ -231,7 +252,16 @@ export class ToolRegistry {
   }
 
   has(name: string): boolean {
-    return this.#tools.has(name);
+    return this.#tools.has(name) || this.#tools.has(TOOL_ALIASES.get(name) ?? "");
+  }
+
+  /** The registered name a call should resolve to: the name itself when it is
+   *  registered, otherwise its alias target. Returns `name` unchanged when
+   *  neither resolves, so the caller still reports the name the model used. */
+  #resolve(name: string): string {
+    if (this.#tools.has(name)) return name;
+    const target = TOOL_ALIASES.get(name);
+    return target && this.#tools.has(target) ? target : name;
   }
 
   /** Remove a dynamically-registered tool (MCP servers on teardown).
@@ -279,7 +309,13 @@ export class ToolRegistry {
     // whitespace. Observed doing exactly that four times in a row on one task,
     // never recovering. Unwrapping costs nothing and is done here because
     // `call` is the one door every caller comes through.
-    ({ name, args } = unwrapDoubleEncodedCall(name, args, (n) => this.#tools.has(n)));
+    ({ name, args } = unwrapDoubleEncodedCall(name, args, (n) => this.has(n)));
+    // Renamed tools keep answering to their old name. The alias is resolved
+    // HERE and nowhere else: the registry holds one entry under the canonical
+    // name, so the model is shown one tool and pays for one schema, while a
+    // call carrying the old name from an older session, a user's hook, or the
+    // model's own prior knowledge still lands.
+    name = this.#resolve(name);
     const tool = this.#tools.get(name);
 
     if (!tool) {

@@ -67,7 +67,7 @@ export function AskUserCard({
   // re-render which would otherwise re-fire the effect).
   const submittedRef = useRef(false);
 
-  // CRITICAL for ask_user-in-succession (e.g. control_app's per-click
+  // CRITICAL for ask_user-in-succession (e.g. computer_use's per-click
   // confirmations): when this card instance is REUSED for a new request
   // (same DOM position, different `requestId`), reset the submit guard and
   // the answer slots. Without this, `submittedRef` stayed `true` from the

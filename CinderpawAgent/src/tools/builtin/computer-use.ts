@@ -1,5 +1,5 @@
 /**
- * control_app — drive native desktop applications through the OS accessibility
+ * computer_use — drive native desktop applications through the OS accessibility
  * tree (UIA on Windows, AX on macOS via the Rust host).
  *
  * This is STRUCTURAL control: the agent reads element trees and acts on named
@@ -94,7 +94,7 @@ function structuredError(message: string, recoverable: boolean): ToolResult {
 /**
  * Heuristic: which inbound failures from the host are worth retrying.
  *
- * Inverted default: control_app failures are overwhelmingly transient UI-timing
+ * Inverted default: computer_use failures are overwhelmingly transient UI-timing
  * issues (the tree wasn't ready, the element moved, the window wasn't focused
  * yet), so the safe default is "recoverable — let the agent retry". Only
  * DETERMINISTIC failures — policy refusals, bad args, config errors, things a
@@ -131,10 +131,10 @@ export function isRecoverable(message: string): boolean {
   return true;
 }
 
-export function createControlAppTool(): Tool {
+export function createComputerUseTool(): Tool {
   return {
     manifest: {
-      name: "control_app",
+      name: "computer_use",
       description:
         "Drive a native desktop application through the OS accessibility tree " +
         "(structural control — no screenshots/OCR). Use `list_windows` to find " +
@@ -169,9 +169,14 @@ export function createControlAppTool(): Tool {
     parameters: {
       action: {
         type: "string",
+        // Every member of the Action union, in the same order. The list used to
+        // omit `send_keys` and `launch`, so the two actions the tool
+        // description spends the most words on were the two the schema said
+        // did not exist.
         description:
           "What to do: 'list_windows' | 'get_tree' | 'find_elements' | 'click' | " +
-          "'type' | 'get_value' | 'get_focused' | 'perform_action'.",
+          "'type' | 'send_keys' | 'get_value' | 'get_focused' | 'perform_action' | " +
+          "'launch'.",
         required: true,
       },
       pid: {
@@ -254,13 +259,13 @@ export function createControlAppTool(): Tool {
       const action = String(args.action ?? "") as Action;
       if (!VALID_ACTIONS.has(action)) {
         return structuredError(
-          `control_app: unknown action "${args.action}". Valid: ${[...VALID_ACTIONS].join(", ")}.`,
+          `computer_use: unknown action "${args.action}". Valid: ${[...VALID_ACTIONS].join(", ")}.`,
           false,
         );
       }
       if (!ctx.desktopControl) {
         return structuredError(
-          "control_app: desktop control is not available in this session " +
+          "computer_use: desktop control is not available in this session " +
             "(the host has it disabled, or the transport has no desktopControl bridge).",
           false,
         );
@@ -272,7 +277,7 @@ export function createControlAppTool(): Tool {
         case "get_tree":
         case "find_elements":
           if (typeof args.pid !== "number") {
-            return structuredError(`control_app: action "${action}" requires a numeric "pid".`, false);
+            return structuredError(`computer_use: action "${action}" requires a numeric "pid".`, false);
           }
           params.pid = args.pid;
           if (typeof args.window_title === "string" && args.window_title.trim()) {
@@ -289,43 +294,43 @@ export function createControlAppTool(): Tool {
         case "click":
         case "get_value":
           if (typeof args.element_id !== "string" || !args.element_id) {
-            return structuredError(`control_app: action "${action}" requires "element_id".`, false);
+            return structuredError(`computer_use: action "${action}" requires "element_id".`, false);
           }
           params.element_id = args.element_id;
           break;
         case "type":
           if (typeof args.element_id !== "string" || !args.element_id) {
-            return structuredError(`control_app: "type" requires "element_id".`, false);
+            return structuredError(`computer_use: "type" requires "element_id".`, false);
           }
           if (typeof args.text !== "string") {
-            return structuredError(`control_app: "type" requires "text".`, false);
+            return structuredError(`computer_use: "type" requires "text".`, false);
           }
           params.element_id = args.element_id;
           params.text = args.text;
           break;
         case "send_keys":
           if (typeof args.element_id !== "string" || !args.element_id) {
-            return structuredError(`control_app: "send_keys" requires "element_id".`, false);
+            return structuredError(`computer_use: "send_keys" requires "element_id".`, false);
           }
           if (typeof args.keys !== "string" || !args.keys) {
-            return structuredError(`control_app: "send_keys" requires "keys".`, false);
+            return structuredError(`computer_use: "send_keys" requires "keys".`, false);
           }
           params.element_id = args.element_id;
           params.keys = args.keys;
           break;
         case "perform_action":
           if (typeof args.element_id !== "string" || !args.element_id) {
-            return structuredError(`control_app: "perform_action" requires "element_id".`, false);
+            return structuredError(`computer_use: "perform_action" requires "element_id".`, false);
           }
           if (typeof args.action_name !== "string" || !args.action_name) {
-            return structuredError(`control_app: "perform_action" requires "action_name".`, false);
+            return structuredError(`computer_use: "perform_action" requires "action_name".`, false);
           }
           params.element_id = args.element_id;
           params.action_name = args.action_name;
           break;
         case "launch":
           if (typeof args.app !== "string" || !args.app.trim()) {
-            return structuredError(`control_app: "launch" requires "app" (an executable name).`, false);
+            return structuredError(`computer_use: "launch" requires "app" (an executable name).`, false);
           }
           params.app = args.app.trim();
           break;
@@ -343,7 +348,7 @@ export function createControlAppTool(): Tool {
         const confirmed = await confirmWrite(action, args, ctx);
         if (!confirmed) {
           return structuredError(
-            `control_app: the user declined the "${action}" action.`,
+            `computer_use: the user declined the "${action}" action.`,
             false,
           );
         }
@@ -355,7 +360,7 @@ export function createControlAppTool(): Tool {
         timestamp: Date.now(),
         sessionId: ctx.sessionId,
         actionType: "tool_call",
-        toolName: "control_app",
+        toolName: "computer_use",
         argsJson: JSON.stringify({ action, ...redactArgsForAudit(params) }),
         result: "success",
       });
@@ -369,7 +374,7 @@ export function createControlAppTool(): Tool {
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return structuredError(`control_app: ${message}`, isRecoverable(message));
+        return structuredError(`computer_use: ${message}`, isRecoverable(message));
       }
     },
   };
@@ -389,8 +394,16 @@ async function confirmWrite(
     return cfgBool("CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK");
   }
   const target = typeof args.element_id === "string" ? args.element_id : "(focused element)";
+  // `launch` needs its own branch and used to have none, so it fell through to
+  // the `click` default — and since a launch carries no element_id, the one
+  // action in ALWAYS_CONFIRM asked the user to "click (focused element)" while
+  // actually starting a process. A consent prompt that names the wrong action
+  // is worse than no prompt: the user believes they approved something else.
+  const app = typeof args.app === "string" ? args.app : "(unnamed application)";
   const detail =
-    action === "type"
+    action === "launch"
+      ? `START the application "${app}" (this opens a new process on your computer)`
+      : action === "type"
       ? `REPLACE the entire contents of ${target} with new text`
       : action === "send_keys"
       ? `send keystrokes to ${target} (this can type text and press keys like Enter to submit)`

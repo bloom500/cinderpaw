@@ -380,10 +380,10 @@ function TokenBudgetToggle() {
 }
 
 /**
- * Opt-in switch for OS-level desktop control (the `control_app` tool). OFF by
+ * Opt-in switch for OS-level desktop control (the `computer_use` tool). OFF by
  * default, mirroring the `shell_exec` security posture. Flipping it calls the
  * backend, which persists the choice and restarts the sidecar so the tool
- * (de)registers — the agent will only "find" control_app while this is ON.
+ * (de)registers — the agent will only "find" computer_use while this is ON.
  */
 function DesktopControlToggle() {
   const settings = useSettings((s) => s.settings);
@@ -431,7 +431,7 @@ function DesktopControlToggle() {
           <p className="text-sm font-medium text-text-primary">Desktop control</p>
           <p className="text-xs text-text-muted mt-0.5">
             Let the agent read and operate native apps through the OS
-            accessibility tree (the <span className="font-mono">control_app</span> tool).
+            accessibility tree (the <span className="font-mono">computer_use</span> tool).
             Off by default.
           </p>
         </div>

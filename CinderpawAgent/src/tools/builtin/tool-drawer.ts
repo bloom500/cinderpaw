@@ -26,7 +26,7 @@ import { isExtendedTool } from "../tiers.ts";
 /**
  * Build the two drawer tools over a shared per-session loaded-tools map.
  * `registry` is read at call time (so it reflects whatever extended tools are
- * actually registered — e.g. `control_app` only exists when desktop control is
+ * actually registered — e.g. `computer_use` only exists when desktop control is
  * enabled).
  */
 export function createToolDrawerTools(

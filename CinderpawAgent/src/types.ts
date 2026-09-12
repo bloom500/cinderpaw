@@ -195,7 +195,7 @@ export interface ToolContext {
    * `desktop_control_response` (same request/response shape as `askUser`).
    * Present only when desktop control is enabled (`CINDERPAW_ENABLE_DESKTOP_CONTROL`)
    * and the transport is the Tauri host. Undefined otherwise — the
-   * `control_app` tool refuses to run without it.
+   * `computer_use` tool refuses to run without it.
    */
   desktopControl?: DesktopControlBridge;
 

@@ -77,7 +77,7 @@ export const EXTENDED_TOOLS = new Set<string>([
   // delegate_task is deliberately NOT here: subagents are a headline
   // capability — hiding the tool in the drawer meant the model had to
   // list_tools → load_tool before it could ever delegate, so it never did.
-  "control_app",
+  "computer_use",
   // code-quality family (code-quality.ts CodeQualityKind)
   "run_tests",
   "format_code",

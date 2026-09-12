@@ -287,7 +287,7 @@ fn bootstrap_rsi_substrate(runtime: &Arc<RuntimeState>) {
 fn export_settings_env(settings: &Settings) {
     // Desktop control opt-in (persisted in Settings) → export the env
     // BEFORE the sidecar spawns so `cinderpaw_agent::spawn` forwards it and
-    // the sidecar registers `control_app`. Same flag opens the Rust
+    // the sidecar registers `computer_use`. Same flag opens the Rust
     // command gate (`desktop_control.rs` reads it per request). Off by
     // default; the Settings toggle flips this and restarts the sidecar.
     if settings.desktop_control_enabled {

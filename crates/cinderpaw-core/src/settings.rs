@@ -10,7 +10,7 @@ pub struct Settings {
     pub api_server_enabled: bool,
     pub api_port: u16,
     pub version: String,
-    /// Opt-in for OS-level desktop control (the `control_app` tool). Gated
+    /// Opt-in for OS-level desktop control (the `computer_use` tool). Gated
     /// exactly like `shell_exec`: OFF by default. When true, the host process
     /// exports `CINDERPAW_ENABLE_DESKTOP_CONTROL=true` before spawning the sidecar,
     /// which both registers the tool in the sidecar AND opens the Rust command
