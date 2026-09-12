@@ -98,3 +98,28 @@ them by name.
 
 Step 3 is roughly a month, not a week. Said here so the estimate is on the
 record before the third platform rather than after it.
+
+### Ported so far
+
+Ten of the 21, all on `main`. Discord, Slack and WhatsApp predate this import
+and live in `src/transports/connectors.ts`; the rest have a file each. `coming_soon` in
+`crates/cinderpaw-core/src/connectors.rs` is the source of truth and two tests
+hold it there: `connector-catalog-transports.test.ts` fails if a card is live
+with no transport behind it, and `catalog_endpoints.rs` fails until somebody
+writes a review arm for the newly live card by hand.
+
+| platform | what it proved |
+|---|---|
+| discord, slack, whatsapp | predate the import; they are why the registry exists |
+| matrix | HTTP long poll with an instance token |
+| mattermost | the same pairing as Matrix over an entirely different wire |
+| twitch | an OAuth device flow, with nothing for the user to paste |
+| telegram | long polling: no public URL needed, and no dependency at all |
+| irc | a raw socket, and the byte budget that makes a newline an injection |
+| signal | a local daemon the user installs, and saying so on screen |
+| nostr | no operator at all: the identity is a keypair, and several relays at once |
+
+Nostr is the first that needed a new dependency: `nostr-tools`, for the BIP-340
+Schnorr signature `node:crypto` does not have. It is Unlicense, so it adds
+nothing to the notice file. Check any candidate the same way before porting it,
+with `python scripts/openclaw/license-inventory.py`.

@@ -647,12 +647,11 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: InstanceToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
-            console_url: None,
+            // Ported 2026-09-12: src/transports/nostr.ts. There is no account
+            // and no operator here, so `console_url` points at the protocol's
+            // own docs rather than at a dashboard that does not exist.
+            coming_soon: false,
+            console_url: Some("https://github.com/nostr-protocol/nips/blob/master/04.md".into()),
             free_tier_note: None,
             validate_endpoint: None,
             oauth_scopes: Vec::new(),

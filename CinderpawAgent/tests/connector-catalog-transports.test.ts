@@ -29,6 +29,7 @@ import "../src/transports/twitch.ts";
 import "../src/transports/telegram.ts";
 import "../src/transports/irc.ts";
 import "../src/transports/signal.ts";
+import "../src/transports/nostr.ts";
 
 interface CatalogEntry {
   id: string;

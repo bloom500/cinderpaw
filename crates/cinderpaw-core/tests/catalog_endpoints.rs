@@ -692,6 +692,31 @@ async fn connectors_decision_d_rich_fields_present() {
                     "signal has no endpoint we can call to validate: the bridge is local"
                 );
             }
+            "nostr" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/nostr.ts`.
+                // No account and no operator: the identity IS the key, so the
+                // card asks for a key and for relays, and nothing else.
+                assert!(!entry.coming_soon, "nostr's transport has landed — the card must not still say soon");
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "there is no server to validate a Nostr key against: any relay would accept it"
+                );
+                let key = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "NOSTR_PRIVATE_KEY")
+                    .expect("nostr declares a private key field");
+                assert!(
+                    key.secret,
+                    "a Nostr private key IS the account — anyone holding it can post as the user forever, and it cannot be rotated without becoming a different person"
+                );
+                let relays = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "NOSTR_RELAY_URLS")
+                    .expect("nostr declares a relay list field");
+                assert!(!relays.secret, "a public relay address is configuration, not a credential");
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the
