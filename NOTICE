@@ -1,0 +1,31 @@
+Cinderpaw
+Copyright (c) 2026 Bloom Media
+
+This product includes software and data from third parties. Their copyright
+notices and licences follow, as those licences require.
+
+--------------------------------------------------------------------------
+OpenClaw
+https://github.com/openclaw/openclaw
+Copyright (c) 2026 OpenClaw Foundation
+MIT License
+
+Used in:
+
+  CinderpawAgent/src/vendor/tool-call-repair/
+      `grammar.ts` is a verbatim copy of
+      `packages/tool-call-repair/src/grammar.ts`.
+      `payload.ts` started as a copy of `payload.ts` and has since been
+      adapted (its `contracts.js` types and `safeParseJsonRecord` are
+      inlined so the file carries no OpenClaw package dependency), and
+      upstream has moved ahead of it. The directory keeps its own copy of
+      the MIT licence text.
+
+  scripts/openclaw/openclaw-channels.json
+  scripts/openclaw/openclaw-providers.json
+      The declarative channel and model-provider manifests, extracted from
+      the `openclaw.channel` blocks and `openclaw.plugin.json` files of the
+      `extensions/` tree. Data, not code. Each file records the exact
+      upstream commit it was taken from.
+
+The full MIT licence text is at CinderpawAgent/src/vendor/tool-call-repair/LICENSE.

@@ -22,10 +22,12 @@ use serde::{Deserialize, Serialize};
 /// `ConnectorCatalogEntry`. Currently `3`. Matches `byok::CATALOG_VERSION`
 /// increment policy but each catalog tracks its own.
 ///
-/// v2 (2026-07-07) — added the optional `qr_setup_endpoint` field. No
+/// v2 (2026-07-07) - added the optional `qr_setup_endpoint` field. No
 /// gateway QR setup route is implemented; shipped entries leave it unset.
-/// v3 — added transport, instance-token and device-flow metadata.
-pub const CONNECTORS_CATALOG_VERSION: u32 = 3;
+/// v3 - added transport, instance-token and device-flow metadata.
+/// v4..v6 - the 21 OpenClaw platforms landed in waves, one bump per wave.
+/// No field was added or renamed by those three: entries only.
+pub const CONNECTORS_CATALOG_VERSION: u32 = 6;
 
 /// Pairing flow metadata for a connector:
 ///
@@ -265,10 +267,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 secret: true,
             }],
             pairing_method: BotToken,
-            // Sidecar transport for Telegram isn't wired in this build —
-            // the card renders as a "Coming soon" placeholder; the token
-            // entry is disabled.
-            coming_soon: true,
+            coming_soon: false,
             console_url: Some("https://t.me/BotFather".into()),
             free_tier_note: None,
             // Telegram's `getMe` endpoint is the canonical probe.
@@ -375,6 +374,447 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             free_tier_note: None,
             validate_endpoint: Some("https://id.twitch.tv/oauth2/validate".into()),
             oauth_scopes: vec!["chat:read".into(), "chat:edit".into()],
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        // ── The OpenClaw 21 (2026-09-12) ─────────────────────────────────
+        // Extracted from their channel manifests; see
+        // docs/openclaw-import.md and scripts/openclaw/. Every one is
+        // `coming_soon` until its transport lands. We take their
+        // `sensitive` marking as authoritative (they know their own
+        // platform) but not their whole config surface: what belongs here
+        // is the credential, not each of their nine knobs.
+        ConnectorCatalogEntry {
+            id: "signal".into(),
+            transport: "signal".into(),
+            device_flow: None,
+            name: "Signal".into(),
+            description: "Answer from your Signal number. Signal has no bot API, so this links a second device through signal-cli, which you install yourself.".into(),
+            icon: "🔒".into(),
+            logo_url: Some("https://cdn.simpleicons.org/signal".into()),
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "SIGNAL_NUMBER".into(),
+                    label: "Your Signal number, with country code (e.g. +40712345678)".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "SIGNAL_BRIDGE_URL".into(),
+                    label: "signal-cli REST bridge URL (e.g. http://127.0.0.1:8080)".into(),
+                    secret: false,
+                },
+            ],
+            pairing_method: InstanceToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: false,
+            console_url: Some("https://github.com/AsamK/signal-cli".into()),
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "imessage".into(),
+            transport: "imessage".into(),
+            device_flow: None,
+            name: "iMessage".into(),
+            description: "Answer from iMessage on a Mac you own. Reads the local messages database through a bridge — it never leaves the machine.".into(),
+            icon: "💬".into(),
+            logo_url: None,
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "IMESSAGE_CLI_PATH".into(),
+                    label: "Path to the imsg bridge binary".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "IMESSAGE_DB_PATH".into(),
+                    label: "Path to chat.db (leave blank for the default)".into(),
+                    secret: false,
+                },
+            ],
+            pairing_method: InstanceToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: None,
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "irc".into(),
+            transport: "irc".into(),
+            device_flow: None,
+            name: "IRC".into(),
+            description: "Classic IRC. Any network, your own nick, the channels you name.".into(),
+            icon: "#️⃣".into(),
+            logo_url: None,
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "IRC_HOST".into(),
+                    label: "Server (e.g. irc.libera.chat)".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "IRC_NICK".into(),
+                    label: "Nickname".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "IRC_PASSWORD".into(),
+                    label: "Server or NickServ password (leave blank if none)".into(),
+                    secret: true,
+                },
+            ],
+            pairing_method: InstanceToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: false,
+            console_url: None,
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "line".into(),
+            transport: "line".into(),
+            device_flow: None,
+            name: "LINE".into(),
+            description: "A LINE Messaging API bot. Big in Japan, Taiwan and Thailand.".into(),
+            icon: "💚".into(),
+            logo_url: Some("https://cdn.simpleicons.org/line".into()),
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "LINE_CHANNEL_ACCESS_TOKEN".into(),
+                    label: "Channel access token".into(),
+                    secret: true,
+                },
+                PairingFieldDef {
+                    key: "LINE_CHANNEL_SECRET".into(),
+                    label: "Channel secret".into(),
+                    secret: true,
+                },
+            ],
+            pairing_method: BotToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: Some("https://developers.line.biz/console/".into()),
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "feishu".into(),
+            transport: "feishu".into(),
+            device_flow: None,
+            name: "Feishu / Lark".into(),
+            description: "Feishu and Lark enterprise messaging, with their doc, wiki and drive tools.".into(),
+            icon: "🐦".into(),
+            logo_url: None,
+            pairing_fields: Vec::new(),
+            pairing_method: BotToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: Some("https://open.feishu.cn/app".into()),
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "googlechat".into(),
+            transport: "googlechat".into(),
+            device_flow: None,
+            name: "Google Chat".into(),
+            description: "A Google Workspace Chat app. Authenticates with a service account.".into(),
+            icon: "🔷".into(),
+            logo_url: None,
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "GOOGLE_CHAT_SERVICE_ACCOUNT".into(),
+                    label: "Service account JSON".into(),
+                    secret: true,
+                },
+            ],
+            pairing_method: BotToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: Some("https://console.cloud.google.com/apis/library/chat.googleapis.com".into()),
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "msteams".into(),
+            transport: "msteams".into(),
+            device_flow: None,
+            name: "Microsoft Teams".into(),
+            description: "Microsoft Teams, through the Teams SDK. Enterprise tenants included.".into(),
+            icon: "🟦".into(),
+            logo_url: None,
+            pairing_fields: Vec::new(),
+            pairing_method: BotToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: Some("https://dev.teams.microsoft.com/apps".into()),
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "nextcloud-talk".into(),
+            transport: "nextcloud-talk".into(),
+            device_flow: None,
+            name: "Nextcloud Talk".into(),
+            description: "Self-hosted chat on your own Nextcloud. Nothing goes through anyone else's server.".into(),
+            icon: "☁️".into(),
+            logo_url: Some("https://cdn.simpleicons.org/nextcloud".into()),
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "NEXTCLOUD_TALK_URL".into(),
+                    label: "Nextcloud base URL (e.g. https://cloud.example.com)".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "NEXTCLOUD_TALK_BOT_SECRET".into(),
+                    label: "Bot shared secret".into(),
+                    secret: true,
+                },
+            ],
+            pairing_method: InstanceToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: None,
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "nostr".into(),
+            transport: "nostr".into(),
+            device_flow: None,
+            name: "Nostr".into(),
+            description: "Decentralised messaging over Nostr relays, with encrypted direct messages.".into(),
+            icon: "🟪".into(),
+            logo_url: None,
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "NOSTR_PRIVATE_KEY".into(),
+                    label: "Private key (nsec)".into(),
+                    secret: true,
+                },
+                PairingFieldDef {
+                    key: "NOSTR_RELAY_URLS".into(),
+                    label: "Relay URLs, comma separated".into(),
+                    secret: false,
+                },
+            ],
+            pairing_method: InstanceToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: None,
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "sms".into(),
+            transport: "sms".into(),
+            device_flow: None,
+            name: "SMS".into(),
+            description: "Plain SMS and MMS through Twilio. Works with any phone, no app to install.".into(),
+            icon: "📱".into(),
+            logo_url: None,
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "TWILIO_ACCOUNT_SID".into(),
+                    label: "Twilio account SID".into(),
+                    secret: true,
+                },
+                PairingFieldDef {
+                    key: "TWILIO_AUTH_TOKEN".into(),
+                    label: "Twilio auth token".into(),
+                    secret: true,
+                },
+                PairingFieldDef {
+                    key: "TWILIO_FROM_NUMBER".into(),
+                    label: "Sending number (e.g. +15551234567)".into(),
+                    secret: false,
+                },
+            ],
+            pairing_method: BotToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: Some("https://console.twilio.com/".into()),
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "synology-chat".into(),
+            transport: "synology-chat".into(),
+            device_flow: None,
+            name: "Synology Chat".into(),
+            description: "Chat on your own Synology NAS, with the full agent behind it.".into(),
+            icon: "🗄️".into(),
+            logo_url: Some("https://cdn.simpleicons.org/synology".into()),
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "SYNOLOGY_CHAT_WEBHOOK_URL".into(),
+                    label: "Incoming webhook URL".into(),
+                    secret: true,
+                },
+                PairingFieldDef {
+                    key: "SYNOLOGY_CHAT_TOKEN".into(),
+                    label: "Outgoing webhook token".into(),
+                    secret: true,
+                },
+            ],
+            pairing_method: InstanceToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: None,
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "tlon".into(),
+            transport: "tlon".into(),
+            device_flow: None,
+            name: "Tlon".into(),
+            description: "Decentralised messaging on Urbit, through your own ship.".into(),
+            icon: "🪐".into(),
+            logo_url: None,
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "TLON_SHIP".into(),
+                    label: "Ship name (e.g. ~sampel-palnet)".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "TLON_URL".into(),
+                    label: "Ship URL".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "TLON_CODE".into(),
+                    label: "Access code".into(),
+                    secret: true,
+                },
+            ],
+            pairing_method: InstanceToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: None,
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "zalo".into(),
+            transport: "zalo".into(),
+            device_flow: None,
+            name: "Zalo".into(),
+            description: "Zalo Bot API. The default messenger in Vietnam.".into(),
+            icon: "🔵".into(),
+            logo_url: None,
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "ZALO_BOT_TOKEN".into(),
+                    label: "Zalo bot token".into(),
+                    secret: true,
+                },
+            ],
+            pairing_method: BotToken,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: Some("https://bot.zapps.me/".into()),
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
+            oauth_client_id_source: None,
+            qr_setup_endpoint: None,
+        },
+        ConnectorCatalogEntry {
+            id: "zalouser".into(),
+            transport: "zalouser".into(),
+            device_flow: None,
+            name: "Zalo Personal".into(),
+            description: "Your personal Zalo account, paired by scanning a QR code — like WhatsApp.".into(),
+            icon: "🔵".into(),
+            logo_url: None,
+            pairing_fields: Vec::new(),
+            pairing_method: Qr,
+            // No sidecar transport yet. `coming_soon` is not decoration:
+            // the card renders disabled, so it cannot promise a connection
+            // the sidecar has no code to make. Flipped by the port, and
+            // pinned by tests/connector-catalog-transports.test.ts.
+            coming_soon: true,
+            console_url: None,
+            free_tier_note: None,
+            validate_endpoint: None,
+            oauth_scopes: Vec::new(),
             oauth_client_id_source: None,
             qr_setup_endpoint: None,
         },

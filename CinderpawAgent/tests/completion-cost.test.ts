@@ -29,14 +29,20 @@ import type { InferenceConfig } from "../src/types.ts";
 
 const BUDGET = { perConversation: 500_000, perDay: 5_000_000, onExhausted: "stop" } as const;
 
+// The real fetch, captured ONCE at import. The mock installers used to each
+// capture whatever was installed when they ran, so a test that mocked twice
+// (the openai-vs-anthropic comparison below does) restored the FIRST MOCK
+// instead of the real thing, and every later test file in the process then
+// talked to a stub that answers 200 OK to any URL.
+const REAL_FETCH = globalThis.fetch;
+
 function installFetchMock(body: unknown) {
-  const original = globalThis.fetch;
   globalThis.fetch = (async (): Promise<Response> =>
     new Response(JSON.stringify(body), {
       status: 200,
       headers: { "content-type": "application/json" },
     })) as typeof fetch;
-  return { restore: () => (globalThis.fetch = original) };
+  return { restore: () => (globalThis.fetch = REAL_FETCH) };
 }
 
 let restoreFetch: (() => void) | null = null;
@@ -203,7 +209,6 @@ describe("unknown is not zero", () => {
 
 /** Serve an SSE stream and capture the request body that asked for it. */
 function installStreamMock(lines: string[]) {
-  const original = globalThis.fetch;
   const bodies: unknown[] = [];
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     bodies.push(JSON.parse(String(init?.body ?? "{}")));
@@ -212,7 +217,7 @@ function installStreamMock(lines: string[]) {
       headers: { "content-type": "text/event-stream" },
     });
   }) as typeof fetch;
-  return { restore: () => (globalThis.fetch = original), bodies };
+  return { restore: () => (globalThis.fetch = REAL_FETCH), bodies };
 }
 
 async function streamOnce(lines: string[]) {

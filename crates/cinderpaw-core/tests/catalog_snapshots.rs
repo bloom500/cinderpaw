@@ -119,6 +119,12 @@ fn connector_catalog_required_fields_present() {
         }
         // No gateway QR setup route exists. Do not advertise one even for
         // WhatsApp, whose pairing code is delivered through the sidecar file.
+        //
+        // The OpenClaw import carried a softer rule: a `qr` connector that is
+        // live MUST name an endpoint, `coming_soon` ones need not. That rule
+        // cannot be satisfied honestly today, because WhatsApp is live and the
+        // gateway still serves no such route, so the only way to pass it was to
+        // invent a path. Restore it the day a real route ships, not before.
         assert!(
             entry.qr_setup_endpoint.is_none(),
             "connector {} advertises an unimplemented QR setup endpoint",
@@ -164,8 +170,15 @@ fn provider_catalog_required_fields_present() {
 /// become a pre-commit hook).
 #[test]
 fn golden_files_in_sync_with_go_copy() {
-    let provider_rust = include_str!("testdata/provider_catalog.golden.json");
-    let connector_rust = include_str!("testdata/connector_catalog.golden.json");
+    // Read from disk, NOT `include_str!`. The macro embeds the file at COMPILE
+    // time, so on the very run that regenerates the golden
+    // (`UPDATE_CATALOG_GOLDEN=1`) this compared the pre-regeneration Rust copy
+    // against the untouched Go copy, found them equal, and reported the pair
+    // in sync while they had just diverged. The guard fired one run late —
+    // green for the developer who caused the drift, red for whoever ran next.
+    let rust_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("testdata");
 
     // Relative path from `crates/cinderpaw-core/tests/` up to the repo root
     // and into `tui/api/testdata/`. `..` twice gets us to the workspace root.
@@ -176,10 +189,10 @@ fn golden_files_in_sync_with_go_copy() {
         .join("api")
         .join("testdata");
 
-    for (name, rust_payload) in [
-        ("provider_catalog.golden.json", provider_rust),
-        ("connector_catalog.golden.json", connector_rust),
-    ] {
+    for name in ["provider_catalog.golden.json", "connector_catalog.golden.json"] {
+        let rust_path = rust_dir.join(name);
+        let rust_payload = std::fs::read_to_string(&rust_path)
+            .unwrap_or_else(|e| panic!("missing Rust golden at {rust_path:?}: {e}"));
         let go_path = go_dir.join(name);
         let go_payload = std::fs::read_to_string(&go_path).unwrap_or_else(|e| {
             panic!(

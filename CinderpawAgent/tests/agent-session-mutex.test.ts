@@ -62,6 +62,14 @@ function installTurnMock(turnCount: number) {
       headers: { "content-type": "application/json" },
     });
   }) as typeof fetch;
+  // Register the undo. Without it the stub outlives this file: bun runs every
+  // test file in ONE process, so a leaked `globalThis.fetch` answers 200 OK to
+  // every later file too. That is how `signal-transport.test.ts` came to see a
+  // bridge answering on a port nothing listens to.
+  const original = globalThis.fetch;
+  restoreFetch = () => {
+    globalThis.fetch = original;
+  };
   globalThis.fetch = mockFetch;
   return { remaining: () => turnCount * 2 - idx };
 }

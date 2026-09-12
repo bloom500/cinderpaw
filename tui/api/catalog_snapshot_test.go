@@ -146,6 +146,9 @@ func TestConnectorCatalogGoldenSnapshot(t *testing.T) {
 		if e.PairingMethod == "" {
 			t.Fatalf("connector %s missing pairing_method", e.ID)
 		}
+		// Mirrors the Rust rule, and the import's softer version was dropped
+		// with it: no entry may name a QR setup endpoint while the gateway
+		// serves no such route. See catalog_snapshots.rs for when to restore it.
 		if e.QRSetupEndpoint != nil {
 			t.Fatalf("connector %s advertises an unimplemented QR setup endpoint", e.ID)
 		}
