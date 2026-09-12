@@ -101,7 +101,8 @@ export function GeneralTab() {
           <p className="text-sm font-medium text-text-primary">Check for updates at startup</p>
           <p className="text-xs text-text-muted mt-0.5">
             Compares your version against GitHub Releases once per launch. Only the version request
-            is sent, no usage data. Turn off for a fully offline app.
+            is sent, no usage data. Turning this off disables automatic update checks;
+            model downloads, web tools, and configured online services can still use the network.
           </p>
         </div>
         <input

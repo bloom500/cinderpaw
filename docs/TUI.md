@@ -13,8 +13,9 @@ cinderpaw setup    # guided setup: detects AI you already have, verifies, saves
 cinderpaw tui      # alias for `cinderpaw chat`
 ```
 
-`cinderpaw chat` and `cinderpaw setup` shell out to the `cinderpaw-tui` binary that ships
-next to the CLI. You can also run it directly:
+`cinderpaw chat` and `cinderpaw setup --classic` shell out to the `cinderpaw-tui`
+binary that ships next to the CLI. Default `cinderpaw setup` runs the Rust CLI's
+guided flow. You can also run the TUI binary directly:
 
 | Flag | Effect |
 |---|---|
@@ -48,8 +49,8 @@ same registry that dispatches, so it can't drift).
 | `/doctor` | run gateway health checks |
 | `/providers` | list providers with health status |
 | `/connectors add\|qr\|reload` | manage chat-platform connectors; `add whatsapp` starts QR pairing, `qr` reprints a fresh code |
-| `/memory [search <q>]` | memory stats / search |
-| `/dream [now]` | dream summary; `/dream now` triggers one |
+| `/memory` | reports that memory stats and search are unavailable in the TUI |
+| `/dream` | last dream event observed in this TUI session; `/dream now` is unavailable |
 | `/lora` | LoRA training status |
 | `/model [<id>\|status]` | model picker / switch / details |
 | `/stop` | abort the current streaming run |

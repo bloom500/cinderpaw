@@ -6,13 +6,12 @@
 > knowing even if you skip the rest:
 >
 > 1. The agent **can run commands on your computer** as soon as you install it.
->    That is how it does real work. Turn it off by setting
->    `CINDERPAW_ENABLE_SHELL_EXEC=false`.
-> 2. Its **file tools** can read and write your files, but never inside
->    `~/.cinderpaw` or `~/.ssh`, where its own keys and your login keys live.
->    That deny wall does not extend to a program `shell_exec` starts: a spawned
->    process runs with your permissions and can read what you can read. Only
->    destructive commands aimed outside the workspace roots are refused.
+>    `CINDERPAW_ENABLE_SHELL_EXEC=false` disables that tool; other process-capable
+>    tools have separate controls.
+> 2. Its **file tools** apply root and protected-path checks, with an agent
+>    scratch-directory exception. Those checks do not sandbox spawned programs,
+>    which run with your permissions. Path checks and command classification
+>    are not a complete isolation boundary; see the limits below.
 > 3. If you find a hole, **do not post it publicly**. Email us instead. The
 >    address is right below.
 >
@@ -39,19 +38,21 @@ engine behind a loopback HTTP API, and a Bun/TypeScript agent sidecar.
 ### Local inference API (port 11435)
 
 - Binds to **127.0.0.1 only** — never exposed to the LAN.
-- Every route requires a **per-launch random bearer token**, shared only with
-  the sidecar (injected env) and, for external consumers, `~/.cinderpaw/api-token`.
-  This closes the same-host surface: other local processes and browser-based
-  DNS-rebinding/CORS probes can reach the port but cannot authenticate.
+- Every route requires a **per-launch random bearer token**, available to the
+  sidecar, the desktop token command and external consumers via
+  `~/.cinderpaw/api-token`. Requests without it cannot authenticate; processes
+  able to read that file can authenticate. This does not isolate same-user processes.
 - Token comparison is constant-time; CORS is restricted to loopback origins.
 - Model-deletion routes validate bare filenames and canonicalize against the
-  models directory (symlink/`..`/TOCTOU defenses).
+  models directory. The later path-based operation is not atomic with these
+  checks, so they do not eliminate check/use races.
 
 ### API keys (BYOK)
 
-- Cloud provider keys are stored by the Rust shell and injected server-side;
-  **keys never enter the React renderer**. The UI only ever sees a
-  display-safe model config view.
+- Cloud provider keys use host-side storage and injection on supported paths.
+  Key-entry UI necessarily handles keys; other renderer-facing paths and
+  migration/redaction gaps were identified in the September 6 audit. Complete
+  renderer isolation is intended but not implemented across all paths.
 - Requests go directly from your machine to the provider you configured —
   there is no Cinderpaw relay server.
 
@@ -61,15 +62,16 @@ Every tool call passes a security layer before execution:
 
 - **Manifest permissions** — tools declare `fs:read` / `fs:write` /
   `network:outbound` / `process:spawn`; undeclared permissions are blocked.
-- **Egress proxy** — all network I/O goes through `ctx.fetch()` with per-tool
+- **Egress proxy** — built-in web tools using `ctx.fetch()` receive per-tool
   domain allowlists, SSRF blocking (loopback / private / link-local ranges),
-  rate limits, and an audit log.
+  rate limits, and audit attempts. Inference, connectors, and external processes
+  have separate network paths; MCP manifest hints do not sandbox server I/O.
 - **Path containment** — filesystem tools resolve against declared roots with
   `realpath` symlink-following; traversal is rejected before any disk access.
 - **Process sandbox** — `shell_exec` is **on by default**; set
   `CINDERPAW_ENABLE_SHELL_EXEC=false` to unregister it. It is argv-only: the
-  command is spawned directly, never through `sh -c`, so shell metacharacters
-  are literal arguments rather than a second command. There is deliberately
+  command is spawned directly. A caller can explicitly request `sh -c` or another
+  interpreter, which then interprets its arguments. There is deliberately
   **no binary allowlist** (the old one listed the shells themselves, so
   `sh -c "<anything>"` walked straight past it); `CINDERPAW_SHELL_WHITELIST`
   restricts to a named set when that is genuinely wanted. What holds the line
@@ -80,8 +82,9 @@ Every tool call passes a security layer before execution:
   classification, output caps and a hard timeout ceiling. The catastrophic-
   command denylist (`rm -rf /`, `mkfs`, fork bombs) is a footgun guard, not a
   boundary: `python -c` walks past it.
-- **Audit log** — every tool call, network request, and inference call is
-  written to SQLite.
+- **Audit log** — instrumented tool, network, and inference paths attempt SQLite
+  writes. Failures increment a dropped-entry counter and report to stderr;
+  verifying the retained hash chain does not prove every action was recorded.
 
 ### Updates
 
@@ -93,9 +96,17 @@ Every tool call passes a security layer before execution:
 
 ### Privacy
 
-- Local models: prompts, conversations, and memory never leave the machine.
-- `<private>…</private>` blocks are stripped before any memory write.
-- No telemetry, no analytics, no crash reporting.
+- Local inference runs locally; web tools, connectors, downloads and configured
+  background/provider routes can still transmit data.
+- Complete `<private>…</private>` blocks are stripped from the agent loop's
+  episodic text, not every memory or transcript writer. The model sees the input.
+- No automatic analytics or crash-report uploads in the audited runtime.
+
+### Known limits
+
+The September 6 promise audit found credential migration/redaction, fallback/
+redirect, recursive file access, and execution-control gaps. These stronger
+boundaries remain security goals; this document does not certify them as enforced.
 
 ## Out of scope
 

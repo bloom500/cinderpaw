@@ -1532,6 +1532,8 @@ func wizardStepBody(w *WizardState, width int) (body string, fullFrame bool) {
 		return renderWizCloudProvider(w, width), false
 	case WizCloudKey:
 		return renderWizCloudKey(w, width), false
+	case WizCloudModel:
+		return renderWizCloudModel(w, width), false
 	case WizTestIt:
 		return renderWizTestIt(w, width), false
 	case WizFinish:
@@ -1783,6 +1785,86 @@ func renderWizCloudProvider(w *WizardState, width int) string {
 	} else {
 		b.WriteString(wizLine("  type to filter  ·  " + ui.AccentStyle.Render("Enter") + "  select  ·  esc back"))
 	}
+	return b.String()
+}
+
+// renderWizCloudModel renders the model picker. The list is the provider's
+// own `/v1/models` answer, so a user who already has a key sees this screen
+// directly after choosing the provider — no second key prompt.
+//
+// A provider that serves no listing still gets a screen: it shows the model
+// id in effect and Enter confirms it. Rendering nothing would look like a
+// hang on exactly the providers with the least discoverable model names.
+func renderWizCloudModel(w *WizardState, width int) string {
+	var b strings.Builder
+	b.WriteString(wizSep(width))
+	b.WriteByte('\n')
+	b.WriteByte('\n')
+
+	providerName := w.Provider
+	for _, p := range CloudProviders {
+		if p.ID == w.Provider {
+			providerName = p.Name
+			break
+		}
+	}
+	b.WriteString(wizLine("  provider: " + ui.AccentStyle.Render(providerName)))
+	b.WriteByte('\n')
+	if w.ProviderHasKey {
+		// The whole point of the screen, said out loud. Without this the
+		// user cannot tell a skipped step from a forgotten one.
+		b.WriteString(wizLine("  " + ui.MetaStyle.Render("key already saved on this machine — not asking again")))
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+
+	if len(w.ModelList) == 0 {
+		current := w.ModelID
+		if current == "" {
+			current = "provider default"
+		}
+		b.WriteString(wizLine("  this provider does not publish a model list"))
+		b.WriteByte('\n')
+		b.WriteString(wizLine("  using: " + ui.AccentStyle.Render(current)))
+		b.WriteByte('\n')
+		b.WriteByte('\n')
+		b.WriteString(wizLine("  " + ui.AccentStyle.Render("Enter") + "  keep it  ·  esc back"))
+		return b.String()
+	}
+
+	// Window the list so a provider with 300 models does not push the
+	// footer off screen. The highlight stays centred once it moves past
+	// the window edge.
+	const visible = 10
+	start := w.ModelIdx - visible/2
+	if start < 0 {
+		start = 0
+	}
+	if start+visible > len(w.ModelList) {
+		start = len(w.ModelList) - visible
+		if start < 0 {
+			start = 0
+		}
+	}
+	end := start + visible
+	if end > len(w.ModelList) {
+		end = len(w.ModelList)
+	}
+
+	for i := start; i < end; i++ {
+		sel := "  "
+		nameStyle := ui.MetaStyle
+		if w.ModelIdx == i {
+			sel = ui.G.ThinkClosed + " "
+			nameStyle = ui.AccentStyle
+		}
+		b.WriteString(fmt.Sprintf("  %s %s", sel, nameStyle.Render(w.ModelList[i])))
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+	b.WriteString(wizLine(fmt.Sprintf("  %d of %d  ·  %s  select  ·  esc back",
+		w.ModelIdx+1, len(w.ModelList),
+		ui.AccentStyle.Render(ui.G.Up+ui.G.Down+" Enter"))))
 	return b.String()
 }
 

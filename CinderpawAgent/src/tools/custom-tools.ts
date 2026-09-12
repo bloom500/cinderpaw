@@ -17,17 +17,15 @@
  * full ambient authority: it can read any file the user can read.
  * `allowedPaths` below constrains the cwd, not the child's syscalls.
  *
- * NETWORK is the exception, and it is ENFORCED rather than decorative: the
- * runner installs an EgressProxy-backed `fetch` in the child before it
+ * The runner installs an EgressProxy-backed global `fetch` in the child before it
  * imports the agent's module (see `installEgressFetch`), driven by the
  * `allowedDomains` on the record. A tool that declared no domains has
- * `networkAccess: false` and every request it makes is refused — the
- * manifest field now describes the child, not just the ctx it wasn't
- * handed. The remaining hole is raw sockets (`node:http`, `node:net`),
- * which no amount of JS closes.
+ * `networkAccess: false` and requests through that wrapper are refused.
+ * Other networking APIs (`node:http`, `node:net`) bypass it; the child has
+ * no OS-level network confinement.
  *
  * ponytail: OS-level confinement (job objects / seccomp / a WASI runtime)
- * is the real fix for the filesystem half and is deliberately not attempted
+ * is needed for filesystem and network confinement and is not implemented
  * here. Until then the containment story is the forge's CONSENT gate — the
  * owner approves the code before it runs — the smoke gate, and the deny
  * wall on the fs tools. Upgrade path: run the module under a WASI runtime

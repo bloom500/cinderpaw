@@ -34,7 +34,7 @@ cycles (background reflection), and eval-gated on-device LoRA personalization.
 - A one-time security acknowledgement is shown: Cinderpaw runs with the user's
   permissions, so shared/multi-user machines should be locked down.
 
-## Connectors (Discord, WhatsApp, Slack)
+## Connectors
 
 Connectors let the agent talk on chat platforms. Configuration lives in
 `~/.cinderpaw/connectors.json`; secrets are stored per-connector.
@@ -60,6 +60,11 @@ The user can also do it manually — in the terminal chat:
 From the CLI: `cinderpaw connectors` (list), `cinderpaw connectors set <id> …`,
 `cinderpaw connectors reload`. In the desktop app: the Connectors page.
 Telegram is not live yet (coming soon).
+
+Matrix, Mattermost, and Twitch transports are also implemented. Matrix and
+Mattermost need an instance URL and token; Twitch uses device authorization
+in the desktop account-pairing UI. `connectors_manage` currently supports
+only Discord, Slack, and WhatsApp.
 
 WhatsApp supports an optional "public" mode (restricted persona for
 business/sales use); default is "owner" mode (only the owner's numbers).
@@ -97,8 +102,8 @@ Two limits, both deliberate:
   from its own allowlist, and applies the trust label itself. The agent can
   ask for a capability; it cannot vouch for one.
 - **The agent cannot approve its own install.** The confirmation is required
-  even in unattended walk-away runs, where every other question can be
-  self-answered. With nobody to ask, nothing is installed.
+  even in unattended walk-away runs. Routine questions can be self-answered;
+  questions marked for human escalation cannot. With nobody to ask, nothing is installed.
 
 Anything that needs a credential — an API key, an account login — still needs
 the person: Cinderpaw can take you to the point where you enter it, and no
@@ -138,9 +143,10 @@ they are asked for:
 ## Memory & adaptation
 
 - Persistent memory across sessions, models, and providers (episodic store +
-  retrieval). `/memory` shows stats; `/memory search <q>` searches.
+  retrieval). The agent can use `recall` and `self_memory`; the TUI's `/memory`
+  command does not implement statistics or search.
 - Dream cycles: background reflection that consolidates memory when idle.
-  `/dream` shows the last cycle; `/dream now` triggers one.
+  The TUI's `/dream` shows its last observed dream event; `/dream now` is unavailable.
 - LoRA personalization: on-device fine-tuning proposals gated by eval
   (never auto-applied blind). `/lora` shows training status.
 - RSI (recursive self-improvement): config/code proposals with watchdog

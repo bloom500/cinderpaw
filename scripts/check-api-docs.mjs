@@ -9,26 +9,27 @@
  *
  * Strategy:
  *   1. Parse `api.rs`. Every route is registered as
- *      `.route("/path", get(handler))` / `post(...)` / `delete(...)`.
- *      We extract METHOD (from the verb token) and PATH (from the
- *      leading string literal). Axum's `merge` chains are resolved
- *      manually by walking forward.
+ *      `.route("/path", get(handler).post(other_handler))`, with a literal
+ *      path and simple handler names. Whitespace and trailing commas are
+ *      supported. Every explicitly registered chained verb is extracted.
+ *      Other route shapes and router merge/nest composition fail clearly;
+ *      this is a bounded source check, not a general Rust/Axum parser.
  *   2. Parse `docs/API.md` and extract the canonical list from a
  *      fenced ```cinderpaw-api-routes ... ``` block near the bottom of the
  *      doc. Entries are `METHOD path`, one per line.
  *   3. Diff source-set vs doc-set. Report:
- *        MISSING (source has it, doc does not) — failure
+ *        MISSING (source has it, doc does not) — failure with --strict
  *        UNLISTED (doc has it, no source) — informational
  *
  * Usage:
- *   node scripts/check-api-docs.mjs            # exit 0 if clean
+ *   node scripts/check-api-docs.mjs            # report drift; missing/unlisted do not fail
  *   node scripts/check-api-docs.mjs --strict   # exit 1 on MISSING
  *
  * Wired into the bun suite via CinderpawAgent/tests/api-docs.test.ts.
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,25 +37,27 @@ const ROOT = join(__dirname, "..");
 const API_RS = join(ROOT, "crates", "cinderpaw-core", "src", "api.rs");
 const DOC = join(ROOT, "docs", "API.md");
 
-function harvestRoutes() {
-  if (!existsSync(API_RS)) {
-    throw new Error(`api.rs not found at ${API_RS}`);
+export function harvestRoutes(source) {
+  // Ignore full-line comments, including commented-out registrations.
+  const text = source.replace(/^\s*\/\/[^\r\n]*/gm, "");
+  if (/\.(?:merge|nest|nest_service|route_service)\s*\(/.test(text)) {
+    throw new Error("Unsupported API router composition; extend check-api-docs before using merge/nest/service routes.");
   }
-  const text = readFileSync(API_RS, "utf8");
-  // Match `.route("/path", get(handler))` (any verb). Multiline-safe;
-  // captures: VERB and PATH.
-  const re = /\.route\(\s*"([^"]+)"\s*,\s*(get|post|put|delete|patch)\s*\(/g;
-  const out = new Map(); // path -> Set(method)
-  for (const m of text.matchAll(re)) {
-    const path = m[1];
-    const method = m[2].toUpperCase();
-    if (!out.has(path)) out.set(path, new Set());
-    out.get(path).add(method);
-  }
-  // Flatten to one entry per (METHOD, path).
+  const verb = "(?:get|post|put|delete|patch|head|options|trace|connect)";
+  const call = `${verb}\\s*\\(\\s*[A-Za-z_][A-Za-z0-9_:]*\\s*\\)`;
+  // Sticky matching requires the complete route shape at each registration;
+  // unfamiliar shapes must not silently disappear from the inventory.
+  const route = new RegExp(`\\.route\\s*\\(\\s*"(/[^"\\\\]*)"\\s*,\\s*(${call}(?:\\s*\\.\\s*${call})*)\\s*,?\\s*\\)`, "y");
   const set = new Set();
-  for (const [p, methods] of out) {
-    for (const m of methods) set.add(`${m} ${p}`);
+  for (const start of text.matchAll(/\.route\s*\(/g)) {
+    route.lastIndex = start.index;
+    const matched = route.exec(text);
+    if (!matched) {
+      throw new Error(`Unsupported API route registration: ${text.slice(start.index, start.index + 140).trim()}`);
+    }
+    for (const method of matched[2].matchAll(new RegExp(`(${verb})\\s*\\(`, "g"))) {
+      set.add(`${method[1].toUpperCase()} ${matched[1]}`);
+    }
   }
   return set;
 }
@@ -80,7 +83,7 @@ function documentedRoutes() {
 
 function main() {
   const strict = process.argv.includes("--strict");
-  const src = harvestRoutes();
+  const src = harvestRoutes(readFileSync(API_RS, "utf8"));
   const doc = documentedRoutes();
   const missing = [...src].filter((r) => !doc.has(r)).sort();
   const unlisted = [...doc].filter((r) => !src.has(r)).sort();
@@ -99,4 +102,6 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}

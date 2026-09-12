@@ -27,10 +27,9 @@ export const CUSTOM_TOOL_RUNNER_FLAG = "--custom-tool-runner";
 
 /**
  * Comma-separated domain whitelist the PARENT hands the child (see
- * `createCustomTool`). Empty / absent = this tool declared no network, and
- * every request it makes is refused — which is what finally makes the
- * manifest's `networkAccess: false` a statement about the child rather than
- * about the ctx it wasn't given.
+ * `createCustomTool`). Empty / absent refuses requests through the installed
+ * global fetch wrapper. It does not restrict other networking APIs available
+ * to the child, such as node:http or node:net.
  */
 export const TOOL_DOMAINS_ENV = "CINDERPAW_TOOL_ALLOWED_DOMAINS";
 

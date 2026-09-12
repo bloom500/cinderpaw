@@ -221,13 +221,13 @@ export interface ConnectorCatalogEntry {
   pairing_method?: 'bot_token' | 'oauth' | 'qr';
   console_url?: string | null;
   free_tier_note?: string | null;
-  /** Gateway endpoint the wizard POSTs to for an OAuth/bot-token probe. */
+  /** Provider probe URL metadata; no generic gateway validator is implemented. */
   validate_endpoint?: string | null;
-  /** OAuth scopes shown on the card so the user knows what they'll grant. */
+  /** OAuth scope metadata; current wizard cards do not render this list. */
   oauth_scopes?: string[];
   /** OAuth client-id source, when `pairing_method === 'oauth'`. */
   oauth_client_id_source?: { kind: 'env' | 'keychain'; ref: string } | null;
-  /** QR pairing only — endpoint that returns a fresh QR payload. */
+  /** Reserved QR setup endpoint; unset until a gateway route is implemented. */
   qr_setup_endpoint?: string | null;
 }
 export interface ConnectorView {

@@ -595,9 +595,31 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Sprint 2 / audit C-2. On success we move to the next step; on
 		// failure the renderer shows the real provider message verbatim.
 		a.State = StateReady
+		if msg.ProbeOnly {
+			// Silent "is this provider already configured?" probe. Success
+			// means the gateway holds a working key: drop the key screen
+			// and go straight to the model list it just handed us.
+			// Failure means no usable stored key — say nothing and let the
+			// key screen render exactly as it always did.
+			w := &a.Wizard
+			if msg.Success {
+				w.ProviderHasKey = true
+				w.KeyValid = true
+				w.KeyValidMsg = msg.Msg
+				w.ModelList = msg.Models
+				w.ModelIdx = indexOfModel(msg.Models, w.ModelID)
+				w.Path = dropStep(w.Path, WizCloudKey)
+				w.Step = WizCloudModel
+				w.PathIndex = pathIndexOf(w, WizCloudModel)
+			}
+			a.rebuildViewport()
+			return a, nil
+		}
 		if msg.Success {
 			a.Wizard.KeyValid = true
 			a.Wizard.KeyValidMsg = msg.Msg
+			a.Wizard.ModelList = msg.Models
+			a.Wizard.ModelIdx = indexOfModel(msg.Models, a.Wizard.ModelID)
 			a.Wizard.lastCompleted = WizCloudKey
 			saveWizardProgress(WizCloudKey, a.Wizard.SetupMode, a.Wizard.Choice)
 			// ONB-004: persist the validated key to ~/.cinderpaw/byok.json
@@ -609,16 +631,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err := a.saveCloudProvider(); err != nil {
 				a.Wizard.KeyValidMsg = "saved config failed: " + err.Error()
 			}
-			// P1 screen 3b: auto-run the 4 health checks on the same screen
-			// (WizTestIt maps to visible screen 3), no Enter in between.
+			// The key is good; the model screen is next. The health checks
+			// used to auto-run from here, which is why the model step was
+			// never reachable even though the enum carried it.
 			a.Wizard.pushStepHistory()
 			a.Wizard.Step = nextPathStep(&a.Wizard)
-			a.Wizard.TestItRunning = true
-			for i := range a.Wizard.HealthChecks {
-				a.Wizard.HealthChecks[i] = HealthCheck{Kind: HealthCheckKind(i), Status: CheckPending}
-			}
 			a.rebuildViewport()
-			return a, a.startWizardHealthCheck()
+			return a, nil
 		} else {
 			a.Wizard.KeyValid = false
 			a.Wizard.KeyValidMsg = msg.Msg
@@ -1811,14 +1830,27 @@ func (a *App) startWizardHardwareProbe() tea.Cmd {
 // audit C-2: the previous implementation set `w.KeyValid = true` on any
 // non-empty string; this calls `/providers/test` and surfaces the real
 // provider response. Returns a tea.Cmd that emits a ProvidersTestMsg.
+//
+// `apiKey` empty means "probe with the key already stored for this provider".
+// `probeOnly` marks that probe: its failure is not a user error (the provider
+// simply has no key yet) and must not render as a rejected key.
 func (a *App) startWizardProviderTest(providerID, apiKey string) tea.Cmd {
+	return a.startWizardProviderProbe(providerID, apiKey, false)
+}
+
+func (a *App) startWizardProviderProbe(providerID, apiKey string, probeOnly bool) tea.Cmd {
 	url, token := a.BaseURL, a.Token
 	return func() tea.Msg {
-		msg, err := api.TestProviderKey(url, token, providerID, apiKey, "")
+		res, err := api.TestProviderKey(url, token, providerID, apiKey, "")
 		if err != nil {
-			return ProvidersTestMsg{Success: false, Err: err, Msg: err.Error()}
+			return ProvidersTestMsg{Success: false, Err: err, Msg: err.Error(), ProbeOnly: probeOnly}
 		}
-		return ProvidersTestMsg{Success: true, Msg: msg}
+		return ProvidersTestMsg{
+			Success:   res.Success,
+			Msg:       res.Message,
+			Models:    res.Models,
+			ProbeOnly: probeOnly,
+		}
 	}
 }
 
@@ -1840,22 +1872,27 @@ func (a *App) saveCloudProvider() error {
 	if w.Provider == "" {
 		return fmt.Errorf("no provider selected")
 	}
-	// Find the provider's default model from the curated list.
-	var defaultModel string
-	for _, p := range CloudProviders {
-		if p.ID == w.Provider {
-			defaultModel = p.DefaultModel
-			break
+	// The model the user actually picked wins. The curated list is only a
+	// fallback for a provider whose model screen never ran. Before this,
+	// `p.DefaultModel` overwrote the pick unconditionally, so choosing a
+	// model on the picker changed nothing on disk.
+	defaultModel := w.ModelID
+	if defaultModel == "" {
+		for _, p := range CloudProviders {
+			if p.ID == w.Provider {
+				defaultModel = p.DefaultModel
+				break
+			}
 		}
 	}
-	if defaultModel == "" {
-		defaultModel = w.ModelID
-	}
-	if w.APIKey == "" {
+	if w.APIKey == "" && !w.ProviderHasKey {
 		// Defensive: a successful Validate pass already guarantees a
 		// non-empty key, but a corrupt state in a resumed wizard could
 		// land us here. The gateway would reject an empty key server-side
 		// anyway; rejecting here keeps the failure local.
+		//
+		// `ProviderHasKey` is the legitimate empty case: the gateway holds
+		// the key and `SaveByokKey` omits the field so it is kept.
 		return fmt.Errorf("API key is empty — re-enter it before saving")
 	}
 
@@ -2030,12 +2067,16 @@ func (a *App) startWizardHealthCheck() tea.Cmd {
 				resultCh <- phase1Result{1, true, "local mode", nil}
 				return
 			}
-			msg, err := api.TestProviderKey(url, token, provider, apiKey, "")
+			res, err := api.TestProviderKey(url, token, provider, apiKey, "")
 			if err != nil {
 				resultCh <- phase1Result{1, false, err.Error(), err}
 				return
 			}
-			resultCh <- phase1Result{1, true, msg, nil}
+			if !res.Success {
+				resultCh <- phase1Result{1, false, res.Message, fmt.Errorf("%s", res.Message)}
+				return
+			}
+			resultCh <- phase1Result{1, true, res.Message, nil}
 		}()
 
 		// Check 3: Model accessible
@@ -2460,6 +2501,16 @@ func (a *App) wizardHandleKey(key tea.KeyMsg) tea.Cmd {
 				w.Step = nextPathStep(w)
 				w.lastCompleted = WizCloudProvider
 				saveWizardProgress(WizCloudProvider, w.SetupMode, w.Choice)
+				// Ask the gateway whether this provider already has a
+				// working key before showing the key field. An empty
+				// api_key means "use the stored one"; a success both
+				// skips the key screen and hands us the model list.
+				// The probe is silent: on failure the user just sees the
+				// key field they would have seen anyway.
+				w.ProviderHasKey = false
+				w.ModelList = nil
+				w.ModelIdx = 0
+				return a.startWizardProviderProbe(w.Provider, "", true)
 			}
 		case tea.KeyUp:
 			if w.ProviderIdx > 0 {
@@ -2491,6 +2542,59 @@ func (a *App) wizardHandleKey(key tea.KeyMsg) tea.Cmd {
 				w.SearchQuery += r
 				w.ProviderIdx = 0
 			}
+		}
+		return nil
+	case WizCloudModel:
+		// The model picker. `ModelList` is what the provider answered on
+		// the `/v1/models` probe, so these are real ids, not a curated
+		// guess. Up/Down (or j/k) moves; Enter confirms and runs the
+		// health checks. An empty list (provider serves no listing) still
+		// confirms — `ModelID` keeps whatever the provider's default was.
+		switch key.Type {
+		case tea.KeyUp:
+			if w.ModelIdx > 0 {
+				w.ModelIdx--
+			}
+		case tea.KeyDown:
+			if w.ModelIdx < len(w.ModelList)-1 {
+				w.ModelIdx++
+			}
+		case tea.KeyRunes:
+			switch string(key.Runes) {
+			case "j", "J":
+				if w.ModelIdx < len(w.ModelList)-1 {
+					w.ModelIdx++
+				}
+			case "k", "K":
+				if w.ModelIdx > 0 {
+					w.ModelIdx--
+				}
+			}
+		case tea.KeyEnter:
+			if w.ModelIdx >= 0 && w.ModelIdx < len(w.ModelList) {
+				w.ModelID = w.ModelList[w.ModelIdx]
+			}
+			// Persist the pick. On the stored-key path `APIKey` is empty
+			// and the gateway keeps the key it holds.
+			//
+			// A failed save surfaces its message but still advances — the
+			// same call on the key screen behaves this way, and the health
+			// checks that follow are what actually catch a provider that
+			// cannot be reached. Trapping the user on this screen would
+			// give them no way forward and no more information.
+			if err := a.saveCloudProvider(); err != nil {
+				w.KeyValidMsg = "saved config failed: " + err.Error()
+			}
+			w.lastCompleted = WizCloudModel
+			saveWizardProgress(WizCloudModel, w.SetupMode, w.Choice)
+			w.pushStepHistory()
+			w.Step = nextPathStep(w)
+			w.TestItRunning = true
+			for i := range w.HealthChecks {
+				w.HealthChecks[i] = HealthCheck{Kind: HealthCheckKind(i), Status: CheckPending}
+			}
+			a.rebuildViewport()
+			return a.startWizardHealthCheck()
 		}
 		return nil
 	case WizCloudKey:
@@ -2812,14 +2916,8 @@ func (a *App) handleConnectors(args []string) tea.Cmd {
 
 func (a *App) handleDream(args []string) tea.Cmd {
 	if len(args) > 0 && args[0] == "now" {
-		// Trigger a dream cycle via the gateway (stub).
-		return func() tea.Msg {
-			err := api.TriggerDream(a.BaseURL, a.Token)
-			if err != nil {
-				return FlashMsg{Text: fmt.Sprintf("dream trigger failed: %v", err)}
-			}
-			return FlashMsg{Text: "dream cycle triggered — watch /events for progress"}
-		}
+		a.setFlash("manual dream triggering is unavailable in this TUI")
+		return nil
 	}
 	// Show last dream event from the runtime events log.
 	for i := len(a.RuntimeEvents) - 1; i >= 0; i-- {
@@ -2828,7 +2926,7 @@ func (a *App) handleDream(args []string) tea.Cmd {
 			return nil
 		}
 	}
-	a.setFlash("no dream events recorded yet — try /dream now")
+	a.setFlash("no dream events observed in this TUI session")
 	return nil
 }
 
@@ -2844,17 +2942,7 @@ func (a *App) handleLora() tea.Cmd {
 }
 
 func (a *App) handleMemory(args []string) tea.Cmd {
-	if len(args) > 0 && args[0] == "search" && len(args) >= 2 {
-		query := strings.Join(args[1:], " ")
-		msg := fmt.Sprintf("memory search for %q — use the web dashboard for full results", query)
-		a.setFlash(msg)
-		return nil
-	}
-	// Show memory stats from cached status.
-	model := orStr(a.Status.Model, "—")
-	backend := a.Status.Backend
-	nTurns := len(a.Turns)
-	a.setFlash(fmt.Sprintf("memory: model %s · backend: %s · session: %d turns", model, backend, nTurns))
+	a.setFlash("memory stats and search are unavailable in this TUI")
 	return nil
 }
 

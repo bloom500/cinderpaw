@@ -399,12 +399,45 @@ func wizardBasePath() []WizardStep {
 // (3) differs — a local download+verify or the cloud provider/key form.
 // QuickStart vs Custom no longer changes the path shape (P1.1) — Custom only
 // unlocks inline edits and extra failure options on the same screens.
+//
+// The cloud path is the WIDEST one: it carries every screen a first-time
+// user needs. A machine that already holds a key for the chosen provider
+// drops WizCloudKey from its copy (see `dropStep`), which is why the path
+// is a value on WizardState and not a constant.
 func wizardPathFor(choice WizardChoice) []WizardStep {
 	base := wizardBasePath()
 	if choice == WizChoiceCloud {
-		return append(base, WizCloudProvider, WizCloudKey, WizTestIt, WizFinish)
+		return append(base, WizCloudProvider, WizCloudKey, WizCloudModel, WizTestIt, WizFinish)
 	}
 	return append(base, WizLocalDownload, WizTestIt, WizFinish)
+}
+
+// dropStep returns `path` without `s`. Used to remove WizCloudKey once the
+// gateway confirms the provider already has a stored key: asking a second
+// time for a credential the machine is holding is the thing this fixes.
+//
+// Returns a fresh slice — `wizardPathFor` builds on a shared base slice, so
+// mutating in place could scribble on another wizard's path.
+// indexOfModel returns the position of `want` in `models`, or 0 when it is
+// absent or empty. Keeps the picker's highlight on the model already in use
+// so Enter without arrowing is a no-op rather than a silent switch.
+func indexOfModel(models []string, want string) int {
+	for i, m := range models {
+		if m == want {
+			return i
+		}
+	}
+	return 0
+}
+
+func dropStep(path []WizardStep, s WizardStep) []WizardStep {
+	out := make([]WizardStep, 0, len(path))
+	for _, step := range path {
+		if step != s {
+			out = append(out, step)
+		}
+	}
+	return out
 }
 
 // resumeStepFor rebuilds the branched path from the persisted (mode, choice)
@@ -677,6 +710,16 @@ type WizardState struct {
 	Hardware   WizardHardware // probed hardware (W1)
 	ModelID    string         // selected model id
 	ModelSize  string         // human size, e.g. "4.1 GB"
+
+	// WizCloudModel: the provider's real model list (from the `/v1/models`
+	// probe) and the arrow-key highlight into it. Empty when the provider
+	// serves no list — the screen then falls back to the typed model id.
+	ModelList []string
+	ModelIdx  int
+
+	// ProviderHasKey is true once the gateway confirms a stored key works
+	// for the chosen provider. It is what removes WizCloudKey from the path.
+	ProviderHasKey bool
 	Progress   float64        // download progress 0..1 (W3a)
 	ProgressMsg string        // live progress text
 

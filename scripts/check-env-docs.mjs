@@ -81,6 +81,7 @@ function harvestVars() {
     const out = execFileSync(
       "rg",
       [
+        "--text", // Source can contain literal NULs; do not stop harvesting at them.
         "--no-filename",
         "--type-add",
         "ts:*.ts",

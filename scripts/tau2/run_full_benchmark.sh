@@ -21,6 +21,11 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TAU2="${TAU2_ROOT:-$ROOT/vendor/tau2-bench}"
 RUNNER="$ROOT/scripts/tau2/run_tau2.py"
+# Domain as $1 so the same paired protocol runs on retail/telecom, not just airline.
+DOMAIN="${1:-airline}"
+# Concurrency as $2. Above 1 the per-task timings stop being comparable, so the
+# default stays 1 and raising it is a deliberate choice about wall clock.
+CONC="${2:-1}"
 USER_LLM="${TAU2_USER_LLM:-openrouter/google/gemini-2.5-flash}"
 EVENTS="${CINDERPAW_TAU2_EVENT_DIR:-$ROOT/bench-results/tau2-events}"
 LOG_DIR="$ROOT/bench-results"
@@ -34,13 +39,13 @@ cd "$TAU2" || { echo "tau2 not found at $TAU2"; exit 2; }
 # Each arm's exit status is kept rather than `set -e`: if Cinderpaw's arm dies
 # halfway, the baseline is still worth having — and a paired run with one arm
 # missing must SAY so, not look like a finished comparison.
-echo "=== arm 1/2: cinderpaw, 50 tasks ==="
-uv run python "$RUNNER" --user-llm "$USER_LLM" 2>&1 | tee "$LOG_DIR/tau2-cinderpaw-$STAMP.log"
+echo "=== arm 1/2: cinderpaw, $DOMAIN ==="
+uv run python "$RUNNER" --domain "$DOMAIN" --max-concurrency "$CONC" --user-llm "$USER_LLM" 2>&1 | tee "$LOG_DIR/tau2-$DOMAIN-cinderpaw-$STAMP.log"
 ARM1=${PIPESTATUS[0]}
 
 echo
-echo "=== arm 2/2: llm_agent (reference), same 50 tasks ==="
-uv run python "$RUNNER" --agent llm_agent --user-llm "$USER_LLM" 2>&1 | tee "$LOG_DIR/tau2-llm_agent-$STAMP.log"
+echo "=== arm 2/2: llm_agent (reference), same $DOMAIN tasks ==="
+uv run python "$RUNNER" --domain "$DOMAIN" --max-concurrency "$CONC" --agent llm_agent --user-llm "$USER_LLM" 2>&1 | tee "$LOG_DIR/tau2-$DOMAIN-llm_agent-$STAMP.log"
 ARM2=${PIPESTATUS[0]}
 
 echo

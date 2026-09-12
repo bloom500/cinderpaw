@@ -538,6 +538,13 @@ export class AgentLoop {
    * Evicted together with the session (LRU/TTL and /new).
    */
   readonly #toolIntentSelection = new Map<string, Set<string> | null>();
+  /**
+   * Whether the LAST completion for this session advertised native tool
+   * schemas. The malformed-call nudge needs it: telling a model on native
+   * tools to re-emit the call as text JSON is the same protocol mixing that
+   * made it drop its arguments in the first place.
+   */
+  readonly #sentNativeTools = new Map<string, boolean>();
 
   /**
    * Called with the cleaned text of each owner user turn. Set by boot to
@@ -1702,6 +1709,7 @@ export class AgentLoop {
         this.#registry.list().map((t) => t.manifest.name),
       );
 
+
       // Settle the stream holdback against the parser's own account of the
       // turn's free text: anything it calls prose and the stream has not
       // shown yet goes out now, and the tool-call tags never do.
@@ -1719,9 +1727,18 @@ export class AgentLoop {
       memory.addAssistant(stripThinking(completion));
           memory.addUser(
             "(system: your previous message contained a tool call with invalid " +
-              "JSON, so it was NOT executed. Re-emit the call as a single valid " +
-              'JSON object — {"name": "tool_name", "args": {…}} inside ' +
-              "<tool_call></tool_call> tags — or answer in plain text if you no " +
+              "JSON, so it was NOT executed. " +
+              (this.#sentNativeTools.get(sessionId)
+                ? // Native schemas were sent this turn. Naming a text format here
+                  // is what teaches the model to split a call across two channels
+                  // — the name arrives natively and the arguments as prose, so the
+                  // tool runs with no arguments at all.
+                  "Re-emit it using the tool-calling mechanism, with EVERY " +
+                  "required argument filled in. "
+                : "Re-emit the call as a single valid JSON object — " +
+                  '{"name": "tool_name", "args": {…}} inside ' +
+                  "<tool_call></tool_call> tags. ") +
+              "Or answer in plain text if you no " +
               "longer need the tool. Do NOT repeat any prose you already wrote; " +
               "the user has seen it.)",
           );
@@ -2070,9 +2087,15 @@ export class AgentLoop {
         memory.addUser(
           `(system: ${parsed.droppedToolCalls} tool call(s) in your previous message were malformed ` +
             "and did NOT run — you only have results for the ones that did. Work out which are " +
-            "missing and re-emit ONLY those, one valid JSON object per <tool_call> block. Verify " +
-            "the current state first if the missing calls had side effects: re-sending a write " +
-            "that actually succeeded creates a duplicate.)",
+            "missing and re-emit ONLY those" +
+            // Same rule as the malformed-call nudge above: naming a text format
+            // to a model that was handed native schemas teaches it to answer in
+            // two protocols at once.
+            (this.#sentNativeTools.get(sessionId)
+              ? ", with every required argument filled in. "
+              : ", one valid JSON object per <tool_call> block. ") +
+            "Verify the current state first if the missing calls had side effects: re-sending a " +
+            "write that actually succeeded creates a duplicate.)",
         );
       }
 
@@ -2314,6 +2337,7 @@ export class AgentLoop {
     // being sent, so the prose copy of the tool list is removed from the system
     // prompt on its way out.
     const sendsNativeTools = openAITools.length > 0 || nativeTools.length > 0;
+    this.#sentNativeTools.set(sessionId, sendsNativeTools);
     const breakdown = memory.breakdown(
       sendsNativeTools ? stripToolsFromSystemPrompt : undefined,
     );
@@ -2372,20 +2396,15 @@ export class AgentLoop {
       );
       return projectCompletion(res);
     } catch (err) {
-      if (
-        err instanceof BudgetExhaustedError &&
-        this.#config.onBudgetExhausted === "compress_and_continue"
-      ) {
-        const compressed = await compact(this.#transcriptBudget());
-        if (compressed) {
-          const overrides = this.#sessionInferParams.get(sessionId);
-          const res = await dispatch(
-            overrides?.maxTokens ?? (this.#router.isPrimaryLocal ? this.#config.maxTokensPerCall : undefined),
-            overrides?.temperature,
-          );
-          return projectCompletion(res);
-        }
-      }
+      // `compress_and_continue` used to compact the transcript here and retry.
+      // It could never work: both budgets are CUMULATIVE counters of tokens
+      // already spent, and compaction only shrinks the NEXT prompt. The retry
+      // re-read the same counter, threw the same error, and the compaction
+      // itself had spent tokens to get there. On the default policy that meant
+      // every exhausted session paid extra to fail identically.
+      //
+      // The cap is a spend limit, so the only honest behaviours are stop and
+      // raise-the-cap, and the error now says which knob does which.
       throw err;
     }
   }
@@ -2601,6 +2620,7 @@ export class AgentLoop {
         this.#sessions.delete(oldest);
         this.#sessionProfile.delete(oldest);
         this.#toolIntentSelection.delete(oldest);
+        this.#sentNativeTools.delete(oldest);
       }
       // A profiled session (connector surface) runs under the profile's own
       // system prompt; the owner default uses the full prompt. Resolved at
@@ -2930,8 +2950,17 @@ export function buildCapabilityIndex(registry: ToolRegistry): string {
     "## Your full capability index (load before use)",
     "These tools are installed and available to you RIGHT NOW, but their schemas",
     "are not loaded this turn to keep the context lean. To use one, call",
-    '`load_tool` with its name (e.g. {"name": "load_tool", "args": {"names": ["run_tests"]}}),',
-    "then call the tool normally on the next turn. NEVER tell the user you lack a",
+    // Deliberately NOT a wire-format example. `stripToolsFromSystemPrompt`
+    // removes "## How to call a tool" when native tool schemas are sent, but it
+    // does not touch THIS section - so a JSON call example here was the one
+    // place still teaching the text protocol to a model being handed native
+    // tools. Measured on z-ai/glm-5.3-flash: with the example present the model
+    // splits the difference and emits a native call whose name is right and
+    // whose arguments are `{}`; three identical requests differing only in this
+    // line went 0 args, 0 args, correct args. Every tool call after the first
+    // then failed with "missing 1 required positional argument".
+    "`load_tool` with the names you need, then call the tool normally on the",
+    "next turn. NEVER tell the user you lack a",
     "capability that appears in this list — load it and do the work.",
     "",
     ...builtin.map(line),

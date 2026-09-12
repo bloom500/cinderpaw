@@ -80,6 +80,24 @@ describe("normalizeAllowedPaths", () => {
   });
 });
 
+describe("validateManifest — tool names we did not choose", () => {
+  // A host or MCP server naming its tool KB_search is legal to every provider.
+  // Rejecting it exited the whole agent at boot with "failed to start".
+  for (const name of ["KB_search", "getWeather", "read-file", "KB_search_bm25"]) {
+    test(`"${name}" is accepted`, () => {
+      const m = makeManifest({ name, permissions: [] });
+      expect(() => validateManifest(m)).not.toThrow();
+    });
+  }
+
+  for (const name of ["", "has space", "dots.are.not.allowed", "a".repeat(65)]) {
+    test(`${JSON.stringify(name)} is still rejected`, () => {
+      const m = makeManifest({ name, permissions: [] });
+      expect(() => validateManifest(m)).toThrow(/tool name/);
+    });
+  }
+});
+
 describe("validateManifest — path modes", () => {
   test("bare-string allowedPaths still passes (backward compat)", () => {
     const dir = tempDir();

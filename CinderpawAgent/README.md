@@ -1,8 +1,8 @@
 # Cinderpaw Agent
 
-A proactive, portable AI agent with a **native security sandbox**, built in
+A portable AI agent with **tool permission checks**, built in
 TypeScript on [Bun](https://bun.sh). Agent layer for the Cinderpaw desktop app
-(Rust + Tauri v2 + Leptos) — runs the same core on any transport via an
+(Rust + Tauri v2 + React) — runs the same core on supported transports via an
 adapter pattern.
 
 ---
@@ -15,8 +15,8 @@ adapter pattern.
 | [Ollama](https://ollama.com) | any | [ollama.com/download](https://ollama.com/download) |
 | [Git](https://git-scm.com) | any | pre-installed on most systems |
 
-Ollama is required only for the live agent loop. All tests and the sandbox run
-without it.
+The standalone defaults use Ollama. The live agent can instead use the bundled
+host engine or a configured cloud provider; Ollama is not universally required.
 
 ---
 
@@ -144,16 +144,16 @@ Set via environment variables (or a `.env` file — Bun reads it automatically):
 | Variable | Default | Purpose |
 |---|---|---|
 | `CINDERPAW_DB` | `data/cinderpaw.db` | SQLite path (`:memory:` for ephemeral) |
-| `CINDERPAW_WORKSPACE` | cwd | root directory `read_file` may access |
+| `CINDERPAW_WORKSPACE` | cwd + home + scratch | filesystem tool roots; separate configured paths with `;` on Windows or `:` elsewhere; scratch is always added |
 | `CINDERPAW_MODEL` | `qwen2.5:7b` | primary model name |
 | `CINDERPAW_BASE_URL` | `http://localhost:11434` | primary inference endpoint |
 | `CINDERPAW_PROVIDER` | `ollama` | `ollama` or any OpenAI-compatible API |
 | `CINDERPAW_FALLBACK_MODEL` | — | enables a fallback target when set |
 | `CINDERPAW_FALLBACK_BASE_URL` | `http://localhost:11434` | fallback endpoint |
 | `CINDERPAW_TRUSTED_BASE_URLS` | configured targets | comma-separated inference allowlist |
-| `CINDERPAW_BUDGET_CONVERSATION` | `50000` | per-conversation token cap |
-| `CINDERPAW_BUDGET_DAY` | `500000` | per-day token cap |
-| `CINDERPAW_BUDGET_POLICY` | `compress_and_continue` | or `stop` |
+| `CINDERPAW_BUDGET_CONVERSATION` | `5000000` | per-conversation completion-token ceiling |
+| `CINDERPAW_BUDGET_DAY` | `50000000` | per-day total-token ceiling (prompt plus completion) |
+| `CINDERPAW_BUDGET_POLICY` | `compress_and_continue` | legacy setting; currently both values stop at the budget gate |
 | `CINDERPAW_FETCH_DOMAINS` | — | comma-separated domain allowlist for `fetch_url` (e.g. `example.com,api.github.com`) |
 | `CINDERPAW_INNER_THOUGHTS_ENABLED` | `false` | `true` to enable proactive loop (V2) |
 | `CINDERPAW_THOUGHTS_INTERVAL_MS` | `300000` | inner-thoughts tick interval |
@@ -183,16 +183,15 @@ src/
 │   ├── episodic.ts         Layer 2 — FTS5 searchable event history
 │   ├── semantic.ts         Layer 2 — persistent key-value user model
 │   └── recall.ts           Layer 2 — unified retrieval injected before inference
-├── sandbox/                Layer 3 — SECURITY (constructed before everything else)
-│   ├── audit-log.ts        every action → SQLite audit_log row
+├── egress/                 Layer 3 — tool and inference controls
+│   ├── audit-log.ts        instrumented actions → best-effort SQLite records
 │   ├── tool-permissions.ts manifest validation + path containment
 │   ├── egress-proxy.ts     cinderpawFetch(): domain whitelist, SSRF guard, rate limit
 │   └── inference-router.ts single LLM choke point: budgets, allowlist, fallback
 ├── transports/             Layer 4 — transport-agnostic core
 │   ├── interface.ts        Transport contract
 │   ├── tauri.ts            stdin/stdout newline-delimited JSON (V1, active)
-│   ├── telegram.ts         V2 stub
-│   └── whatsapp.ts         V2 stub
+│   └── connectors.ts       Discord, Slack and WhatsApp transports
 ├── tools/
 │   ├── registry.ts         single gate for every tool call
 │   └── builtin/
@@ -203,19 +202,17 @@ src/
 └── index.ts                wires all layers, starts transport
 ```
 
-### Security guarantees (enforced, not optional)
+### Security controls and limits
 
-- Every tool must declare a manifest before registration; undeclared permissions
-  are blocked at call time and written to the audit log.
-- No network request reaches the wire without passing through `cinderpawFetch()` —
-  loopback, private, and link-local ranges are blocked (SSRF guard), domains are
-  whitelisted per-tool, and a rolling-window rate limit applies.
-- Every LLM call goes through the inference router — per-conversation and per-day
-  token budgets enforced, inference endpoints validated against a trusted allowlist
-  (port-normalized, checked at construction and at call time).
-- Every action — tool call, inference, network request, memory write, or blocked
-  attempt — produces an `audit_log` row. The logger never throws to callers;
-  an audit failure is reported to stderr but does not crash the agent.
+- Registered tools declare manifests that the registry checks at call time.
+  These checks do not provide an OS sandbox for external processes.
+- Built-in web tools use the egress proxy for SSRF checks, domain policy and
+  rate limiting. Inference, connectors and MCP subprocesses have separate I/O paths.
+- The inference router checks token budgets and trusted endpoints on its calls;
+  see the known fallback/redirect limits in [SECURITY.md](../SECURITY.md).
+- Instrumented operations attempt audit writes. Failed inserts are counted and
+  reported to stderr while execution continues; retained rows are not proof of
+  complete action coverage.
 
 ---
 
@@ -244,7 +241,10 @@ traffic only — all diagnostics go to stderr.
 
 ---
 
-## Roadmap
+## Historical V1/V2 roadmap
+
+This records early milestones and proposals, not the current feature inventory.
+Use the root README and runtime tool catalog for current capabilities.
 
 ### V1 — done ✓
 
@@ -264,8 +264,8 @@ traffic only — all diagnostics go to stderr.
       `CINDERPAW_INNER_THOUGHTS_ENABLED=true`)
 - [ ] **Vector search** — `sqlite-vec` for semantic similarity in recall
       (schema-compatible slot already in `semantic.ts`)
-- [ ] **Additional transports** — Telegram, WhatsApp (stubs exist in
-      `src/transports/`)
+- [ ] **Additional transports** — Telegram remains unavailable; WhatsApp is now
+      implemented in `src/transports/connectors.ts`.
 - [ ] **Iteration engine** — `src/core/iteration.ts`, auto-iterate complex
       multi-step tasks with token budget management
 - [ ] **Cloud inference + credential broker** — host holds API keys, sandbox

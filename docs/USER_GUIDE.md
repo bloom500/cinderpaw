@@ -10,7 +10,7 @@ The switch at the right of the typing bar changes who answers you.
 | | **Chat** | **Agent** |
 |---|---|---|
 | What it is | A direct line to the model | An autonomous assistant wrapped around the model |
-| Can read/write files | No | Yes (across your home folder; `~/.cinderpaw` and `~/.ssh` are always off-limits) |
+| Can read/write files | No | Yes (workspace roots default to launch dir + home + scratch; protected-path checks apply) |
 | Can search the web | No | Yes (`web_search`, `deep_research`, `read_webpage`, `fetch_url`) |
 | Can run commands | No | Yes (`shell_exec`; disable with `CINDERPAW_ENABLE_SHELL_EXEC=false`) |
 | Remembers across sessions | No (per-conversation history only) | Yes — 4-layer persistent memory |
@@ -32,7 +32,7 @@ Agent mode.
 | `web_search` | DuckDuckGo search | no API key needed |
 | `read_webpage` | Fetches a URL as clean Markdown | via Jina Reader |
 | `deep_research` | Multi-step research → cited Markdown report | takes minutes; shows progress |
-| `read_file` / `write_file` / `list_directory` | File access across your workspace roots (launch dir + home by default) | `~/.cinderpaw`, `~/.ssh`, and anything in `CINDERPAW_FS_DENY` are always refused |
+| `read_file` / `write_file` / `list_directory` | File access across workspace roots (launch dir + home + scratch by default) | Root and protected-path checks apply, with a scratch exception; see [security limits](../SECURITY.md) |
 | `fetch_url` / `http_request` | Fetch any public URL / call any API | SSRF-guarded, rate-limited, audited |
 | `read_skill` | Loads an installed skill's instructions | see Skills below |
 | `connectors_manage` | The agent sets up its own WhatsApp/Discord/Slack connectors when you ask | it can write tokens but never read them back |
@@ -44,8 +44,9 @@ While the agent works, tool calls appear as small bubbles next to the mascot —
 click a finished bubble to see exactly what the tool returned.
 
 Sometimes the agent asks *you* something mid-task (a question card appears in
-the chat). Answer it and the agent continues; ignore it for 5 minutes and it
-proceeds with the recommended option.
+the chat). Answer it and the agent continues. After the default 5-minute timeout,
+routine questions use the recommended option; questions marked for human
+escalation remain unapproved.
 
 ## Scheduled tasks (cron)
 
@@ -84,9 +85,9 @@ still running on your machine.
 
 - The agent remembers durable facts about you (name, preferences, projects)
   and can recall past conversations. Everything is stored locally in SQLite.
-- Wrap anything in `<private>…</private>` and it will be used for the current
-  reply but **never written to memory**.
-- Settings → Privacy shows exactly what is and isn't stored.
+- Complete `<private>…</private>` blocks are stripped from the agent loop's
+  episodic text. The model still sees them; other storage paths are not covered.
+- Settings → Privacy summarizes storage and online features.
 
 ## Troubleshooting
 

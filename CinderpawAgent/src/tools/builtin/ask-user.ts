@@ -281,9 +281,19 @@ export function createAskUserTool(): Tool {
       try {
         answers = await ctx.askUser.ask(questions as AskUserQuestion[], ctx.sessionId);
       } catch (err) {
-        // Cinderpaw-WIP #5: on AskUserTimeoutError, auto-resolve with the first
-        // recommended option (or first option) so the agent keeps moving.
+        // Cinderpaw-WIP #5: on AskUserTimeoutError, routine batches use the
+        // recommended option (or first option). Forced escalation requires a human.
         if (err instanceof AskUserTimeoutError) {
+          if (mustEscalate) {
+            return {
+              ok: false,
+              content:
+                "ask_user: this question needs a human, but no answer arrived before " +
+                "the timeout. No option was selected. Do the parts of the task that " +
+                "do NOT need this decision, then stop and report what is waiting on the user.",
+              error: "escalation_required",
+            };
+          }
           answers = questions.map((q) => {
             const rec = q.options.find(
               (o: { label: string; recommended?: boolean }) => o.recommended,

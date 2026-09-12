@@ -16,8 +16,9 @@
 
 The list below mirrors `crates/cinderpaw-core/src/api.rs::router()`.
 That file is the source of truth — `scripts/check-api-docs.mjs`
-parses its `.route(` lines and fails if any drift from the fenced
-`cinderpaw-api-routes` block at the bottom of this file. Wired into
+parses route registrations. Run it with `--strict` to fail on routes missing
+from the fenced `cinderpaw-api-routes` block. Documented routes absent from code
+produce warnings, not failures; prose descriptions are not checked. Wired into
 `bun test` via `CinderpawAgent/tests/api-docs.test.ts`.
 
 Operation class tags (`read`, `evolve`, `govern`) come straight from
@@ -56,7 +57,7 @@ the comment tags next to each `.route(` line.
 | GET  | `/runtime/connectors` | unstable | read | Redacted state (enabled, filled secret keys, allowlist, channels, mode) per persisted connector. |
 | POST | `/runtime/connectors` | unstable | govern | Upsert one connector's config, then pokes the sidecar to reload. Never echoes secret values back. |
 | POST | `/runtime/connectors/reload` | unstable | govern | Sidecar reloads the connector catalog from disk. |
-| POST | `/runtime/voice/tool` | unstable | govern | One tool call from a voice session (`{id, name, args}`), answered by the local agent. Bounded at 20s: past that it returns a holding answer and the work keeps running, so a realtime model — which blocks on a tool call — is never left silent. Grants nothing `/runtime/chat` does not. |
+| POST | `/runtime/voice/tool` | unstable | govern | One tool call from a voice session (`{id, name, args}`), answered by the local agent. The gateway waits up to 45s, then returns a holding response while work may continue. The LiveKit worker has a separate 30s HTTP timeout; neither deadline guarantees continued speech while the tool is pending. |
 | POST | `/runtime/voice/speak` | unstable | govern | Synthesise one utterance (`{provider, voice?, text}`) and return raw PCM, with the engine's rate in `x-sample-rate` — Piper voices are 22.05 kHz, not the module constant. Exists so the LiveKit voice worker, a separate process, can speak in the same engines and voices as the rest of the app. |
 | POST | `/runtime/voice/transcribe` | unstable | govern | Transcribe one utterance (`{pcm, model_size?, provider?, language?}`). `provider` selects local Whisper or a hosted recogniser; the cloud branch wraps the caller's PCM in a WAV, because the worker has frames and the vendor wants a file. Returns `model-missing`, `stt-no-key` or `voice-unavailable` by name so the caller can say which. |
 | POST | `/runtime/shutdown` | unstable | govern | Fires the runtime's graceful-shutdown signal. |
@@ -201,6 +202,7 @@ GET /runtime/sessions/:id/transcript
 GET /runtime/status
 POST /runtime/byok/save
 POST /runtime/chat
+POST /runtime/connectors
 POST /runtime/connectors/reload
 POST /runtime/voice/tool
 POST /runtime/voice/speak

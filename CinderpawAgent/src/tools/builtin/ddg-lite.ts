@@ -16,8 +16,8 @@
  * automated use after roughly 7 rapid queries and then serves an anti-bot page
  * for a long while (see ddgLiteSearch). That makes it a decent default for a
  * user who searches occasionally, and inadequate for sustained research.
- * SearXNG stays the real answer — several engines, no throttle, and the query
- * never leaves the user's machine.
+ * A configured SearXNG instance avoids this client's DDG pacing, but forwards
+ * queries to its upstream search engines, which may impose their own limits.
  *
  * ponytail: regex over the HTML, no parser dependency. The markup is a 2000-era
  * table and has been stable for years; if DDG restyles it, `results.length === 0`

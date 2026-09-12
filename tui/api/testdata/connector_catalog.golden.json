@@ -58,8 +58,7 @@
     "logo_url": "https://cdn.simpleicons.org/whatsapp",
     "pairing_fields": [],
     "pairing_method": "qr",
-    "coming_soon": false,
-    "qr_setup_endpoint": "/runtime/connectors/whatsapp/pair/start"
+    "coming_soon": false
   },
   {
     "id": "telegram",

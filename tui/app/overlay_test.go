@@ -494,8 +494,8 @@ func TestWizardCloudKeyValidation(t *testing.T) {
 	if !a.Wizard.KeyValid {
 		t.Fatal("enter should validate key (after ProvidersTestMsg)")
 	}
-	if a.Wizard.Step != WizTestIt {
-		t.Fatalf("expected WizTestIt (health checks) after key val, got %v", a.Wizard.Step)
+	if a.Wizard.Step != WizCloudModel {
+		t.Fatalf("expected WizCloudModel (model picker) after key val, got %v", a.Wizard.Step)
 	}
 }
 
@@ -648,14 +648,19 @@ func TestWizardE2ECloudPath(t *testing.T) {
 	}
 	assertStep(t, a, WizCloudKey, "still on CloudKey during validation")
 
-	// Validation success → auto health checks (WizTestIt, same visible screen).
-	a.Update(ProvidersTestMsg{Success: true, Msg: "ok"})
-	assertStep(t, a, WizTestIt, "ProviderTest→TestIt")
+	// Validation success → model picker, then Enter → health checks.
+	a.Update(ProvidersTestMsg{Success: true, Msg: "ok", Models: []string{"gpt-4o"}})
+	assertStep(t, a, WizCloudModel, "ProviderTest→CloudModel")
 	if !a.Wizard.KeyValid {
 		t.Fatal("successful provider test should set KeyValid")
 	}
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	assertStep(t, a, WizTestIt, "CloudModel→TestIt")
+	if a.Wizard.ModelID != "gpt-4o" {
+		t.Fatalf("model pick should be kept, got %q", a.Wizard.ModelID)
+	}
 	if !a.Wizard.TestItRunning {
-		t.Fatal("checks should auto-run after key save")
+		t.Fatal("checks should run after the model is confirmed")
 	}
 
 	// Health check success → auto-advance to Ready.

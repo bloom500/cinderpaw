@@ -7,37 +7,34 @@
 //!
 //! Decision D (terminal-onboarding plan): connectors carry **richer**
 //! metadata than providers because pairing differs qualitatively:
-//! bot-token paste (Discord), multi-field OAuth (Slack), QR scan
+//! bot-token paste (Discord), two-token Socket Mode (Slack), QR scan
 //! (WhatsApp), bot-token paste (Telegram). Forcing them into the same
 //! shape as providers loses expressivity on a 2-sprint horizon. The
 //! extra fields below capture that.
 //!
 //! This module is the **read-only catalog** half of the Connector
-//! Surface. The persistence half (loading/saving `~/.cinderpaw/connectors.json`,
-//! the live reload handshake, the secret-value handling policy) remains
-//! in `src-tauri/src/connectors.rs` and re-uses the catalog from here.
+//! Surface. Shared persistence helpers also live here; the gateway and
+//! `src-tauri/src/connectors.rs` provide their respective save/reload surfaces.
 
 use serde::{Deserialize, Serialize};
 
 /// Catalog version. Bumped when fields are added/removed/renamed in
-/// `ConnectorCatalogEntry`. Currently `2`. Matches `byok::CATALOG_VERSION`
+/// `ConnectorCatalogEntry`. Currently `3`. Matches `byok::CATALOG_VERSION`
 /// increment policy but each catalog tracks its own.
 ///
-/// v2 (2026-07-07) — added `qr_setup_endpoint`. QR-paired connectors only;
-/// returns the gateway endpoint the wizard POSTs to in order to obtain a
-/// fresh QR payload to render on screen.
+/// v2 (2026-07-07) — added the optional `qr_setup_endpoint` field. No
+/// gateway QR setup route is implemented; shipped entries leave it unset.
+/// v3 — added transport, instance-token and device-flow metadata.
 pub const CONNECTORS_CATALOG_VERSION: u32 = 3;
 
-/// Pairing flow for a connector. Decision D settles three distinct flows:
+/// Pairing flow metadata for a connector:
 ///
 ///   * `"bot_token"` — user pastes a token (one or more `PairingFields`).
-///   * `"oauth"` — user pastes one field (the OAuth access token) which
-///     the gateway validates against the provider's
-///     `validate_endpoint`. No browser redirect — pasted-token UX.
-///   * `"qr"` — no secret fields. The gateway generates a QR payload
-///     on demand (`GET /runtime/connectors/:id/pair/start` returns
-///     `qr_payload`) which the user scans to complete pairing on their
-///     phone.
+///   * `"oauth"` — reserved pasted OAuth-token shape. The gateway has no
+///     generic connector token-validation route.
+///   * `"qr"` — no secret fields. WhatsApp pairing starts in the sidecar
+///     when enabled; it publishes `whatsapp-qr.json` for the TUI and
+///     desktop to render. There is no gateway QR setup route.
 ///   * `"instance_token"` — the user names WHICH server they mean (a Matrix
 ///     homeserver, a Mattermost install) and supplies a credential for it.
 ///     The instance URL is a required field that is NOT a secret, which is
@@ -78,8 +75,8 @@ pub struct DeviceFlowDef {
     pub scopes: Vec<String>,
 }
 
-/// Secret fields a connector requires when `PairingMethod::BotToken` or
-/// `PairingMethod::Oauth`. Empty for `PairingMethod::Qr`.
+/// Input fields for token and instance-token pairing. Empty for QR and
+/// device flows; instance addresses are required but not secret.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct PairingFieldDef {
     /// Stable key — the JSON-key the secret gets stored under in
@@ -88,17 +85,13 @@ pub struct PairingFieldDef {
     pub key: String,
     /// Human label for the input, e.g. `"Discord bot token"`.
     pub label: String,
-    /// Whether this field is a secret. Always true for the connectors
-    /// we ship today, but the field is retained for future
-    /// non-secret-but-still-required fields (e.g. workspace URL).
+    /// Whether this field is a secret. Matrix homeserver and Mattermost
+    /// server URLs are required non-secret fields.
     pub secret: bool,
 }
 
-/// A connector field that the sidecar reads from an external secret
-/// store (env var or keychain entry) rather than the user entering
-/// inline. Decision F (terminal-onboarding plan) prevents inline
-/// plaintext in non-interactive YAML configurations — same constraint
-/// applies to OAuth client ids.
+/// Reserved metadata for an external OAuth client-id source. No shipped
+/// catalog entry sets this, and the sidecar has no resolver for it.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct OAuthClientIDSource {
     /// `"env"` or `"keychain"`.
@@ -135,11 +128,11 @@ pub struct ConnectorCatalogEntry {
     pub icon: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logo_url: Option<String>,
-    /// Secret fields the user must provide. Empty for QR-paired
-    /// connectors.
+    /// Input fields the user must provide, including non-secret instance
+    /// URLs. Empty for QR and device-flow connectors.
     pub pairing_fields: Vec<PairingFieldDef>,
     pub pairing_method: PairingMethod,
-    /// Whether the connector is wireable from this build. False when
+    /// Whether the connector is unavailable in this build. True when
     /// the sidecar doesn't yet have a live transport; renders disabled
     /// on the wizard card.
     pub coming_soon: bool,
@@ -152,17 +145,13 @@ pub struct ConnectorCatalogEntry {
     /// wizard UI.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub free_tier_note: Option<String>,
-    /// URL the gateway probes to validate an OAuth or bot token.
-    /// `/runtime/connectors/:id/validate` POSTs to this URL with the
-    /// supplied credentials. The response code maps to a typed
-    /// `ConnTestStatus` (Phase 2): 200 → ok, 401 → invalid_token,
-    /// 402 → no_credit, 4xx → permission_denied, network failure →
-    /// network_error.
+    /// Provider token-probe URL metadata. The gateway does not implement
+    /// a generic connector validation route or consume this field to
+    /// validate credentials. Authentication occurs in each transport.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validate_endpoint: Option<String>,
-    /// OAuth scopes required for the connector. Displayed on the card
-    /// so the user knows what they'll be granting before pasting a
-    /// token. Empty for `bot_token` and `qr`.
+    /// OAuth scope metadata. Current wizard cards do not render this list.
+    /// Slack also declares scopes despite using `bot_token` pairing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub oauth_scopes: Vec<String>,
     /// For OAuth connectors, where the OAuth client id comes from.
@@ -170,19 +159,16 @@ pub struct ConnectorCatalogEntry {
     /// OAuth flow input).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth_client_id_source: Option<OAuthClientIDSource>,
-    /// For `qr` pairing only. The gateway endpoint the wizard calls
-    /// (`POST /runtime/connectors/:id/pair/start`) to obtain a fresh QR
-    /// payload to render on screen. The pairing refresh cycle (default 60s)
-    /// re-hits the same endpoint until the user scans and `linked` flips
-    /// to true. `None` for `bot_token` and `oauth` connectors (their
-    /// pairing step is "user pastes a secret", no endpoint involvement).
+    /// Reserved optional gateway QR setup endpoint. No such route is
+    /// implemented, so every shipped entry leaves this unset. WhatsApp
+    /// uses the sidecar QR file consumed by the TUI and desktop instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub qr_setup_endpoint: Option<String>,
 }
 
-/// Canonical, deduplicated connector catalog. Adding a connector =
-/// one new entry here + rebuild gateway; TUI + desktop pick it up
-/// automatically.
+/// Canonical connector metadata consumed by the TUI and desktop. Adding
+/// an operational connector also requires a registered sidecar transport
+/// and client support for its pairing flow.
 pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
     use PairingMethod::*;
     vec![
@@ -232,9 +218,8 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             coming_soon: false,
             console_url: Some("https://api.slack.com/apps".into()),
             free_tier_note: None,
-            // Slack's `auth.test` endpoint accepts the user-level token;
-            // we resolve against a known channel-scoped probe so a
-            // token without `chat:write` doesn't show as "ok".
+            // Provider probe metadata only; no channel-scope validation
+            // is performed from this catalog entry.
             validate_endpoint: Some("https://slack.com/api/auth.test".into()),
             oauth_scopes: vec![
                 "app_mentions:read".into(),
@@ -263,10 +248,8 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             validate_endpoint: None,
             oauth_scopes: Vec::new(),
             oauth_client_id_source: None,
-            // Wizard hits this to obtain a fresh QR payload + refresh
-            // window. Pairing completes when the user scans it with
-            // WhatsApp → Linked devices.
-            qr_setup_endpoint: Some("/runtime/connectors/whatsapp/pair/start".into()),
+            // Pairing is delivered through the sidecar QR file, not HTTP.
+            qr_setup_endpoint: None,
         },
         ConnectorCatalogEntry {
             id: "telegram".into(),

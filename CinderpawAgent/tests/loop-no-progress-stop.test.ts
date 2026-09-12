@@ -234,5 +234,9 @@ describe("C-02 — a productive repeat is NOT stopped", () => {
     // contract — the point is only that THIS tier did not cut it short.
     expect(calls.n).toBeGreaterThan(NO_PROGRESS_STOP);
     db.close();
-  });
+    // 20s, not the 5s default: since the per-conversation budget counts
+    // COMPLETION tokens only, this turn is no longer cut short by the cap at
+    // ~179 iterations and runs the full ABSOLUTE_CEILING of 500. Same
+    // contract, twice the wall clock.
+  }, 20_000);
 });

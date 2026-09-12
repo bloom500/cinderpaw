@@ -8,14 +8,14 @@
  * Architecture:
  *   MCPClient owns the server process. MCP tool calls go through the client's
  *   callTool() method — no direct process:spawn permission is needed per tool.
- *   The client is itself sandboxed: it is created by index.ts with explicit
- *   configuration (command, args, allowed domains), not by agent-accessible code.
+ *   The configured server runs as a regular subprocess with a filtered
+ *   environment. This client does not impose an OS filesystem/network sandbox.
  *
  * Dynamic sandbox mapping:
- *   Discovered tools are wrapped with a ToolManifest that reflects their actual
- *   capabilities. Network-capable MCP servers get network:outbound; file-system
- *   servers get fs:read + fs:write with the declared roots. Unknown servers get
- *   the conservative default (no permissions declared, no network, no fs access).
+ *   Discovered tools receive manifests from caller-supplied permission hints.
+ *   Missing hints produce an empty permission declaration, not a restriction
+ *   on the server process. Server I/O does not pass through ToolContext.fetch
+ *   or the built-in file tools; trust the server before configuring it.
  *   All tool calls are audited via the registry's normal pipeline (circuit breaker,
  *   retry, hooks) because the wrappers implement the Tool interface.
  */
@@ -77,18 +77,18 @@ interface MCPCallToolResult {
 
 /**
  * Caller-supplied hints about what permissions a particular MCP server needs.
- * The sandbox respects these at tool-registration time; tools only ever receive
- * what is declared here. When omitted, the conservative no-permission default
- * is used (suitable for pure compute / in-process MCP servers).
+ * These populate the wrapper's manifest for registry checks. They do not
+ * constrain filesystem or network access inside the external server process.
+ * When omitted, the wrapper declares no permissions.
  */
 export interface MCPServerPermissions {
-  /** Server can make outbound HTTP requests. */
+  /** Declare outbound HTTP permission on the wrapper. */
   networkOutbound?: boolean;
-  /** Allowed domains for network access (only effective when networkOutbound). */
+  /** Wrapper domain declaration; does not filter the server's own requests. */
   allowedDomains?: string[];
-  /** Server reads from these filesystem roots. */
+  /** Read roots declared on the wrapper; not an OS restriction on the server. */
   fsReadRoots?: string[];
-  /** Server writes to these filesystem roots. */
+  /** Write roots declared on the wrapper; not an OS restriction on the server. */
   fsWriteRoots?: string[];
 }
 
@@ -123,7 +123,7 @@ export interface MCPClientConfig {
   initTimeoutMs?: number;
   /** How long to wait for each tool call (default 30 s). */
   callTimeoutMs?: number;
-  /** Sandbox permissions to grant wrapped tools. Conservative by default. */
+  /** Manifest permission hints for wrapped tools; empty by default. */
   permissions?: MCPServerPermissions;
 }
 

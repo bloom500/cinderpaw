@@ -307,14 +307,14 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "Cross-session anchors (named memories).",
     ],
     safety: [
-      "Working-memory compression is bounded, never lossier than summary tokens reserved.",
-      "Recall is opt-in (no wholesale recall each turn).",
-      "Knowledge graph writes go through the agent's own tool lifecycle, not autonomous background appenders.",
+      "Working-memory compression reserves summary tokens and can lose detail; a token bound is not a fidelity guarantee.",
+      "Relevant recall is injected by default; CINDERPAW_RECALL_INJECTION=false disables that per-turn lookup. The recall tool remains available.",
+      "The sidecar's asynchronous extractor and reconciler can update the knowledge graph after turns and memory events.",
     ],
     promotion:
-      "Memories themselves do not promote — the route by which they come back into context does. Auto-injection is opt-in per memory kind; on-demand query goes through `recall`.",
+      "Memories themselves do not promote. Relevant recall is injected by default; on-demand queries go through `recall`.",
     rollback:
-      "Memory is append-only by default; destructive edits (deleting a fact, scrubbing a leaf) require explicit user action. The extractor is idempotent so a misbehaving run cannot corrupt the transcript.",
+      "Memory is mutable: semantic facts can be overwritten or forgotten, and boot hygiene can remove junk facts. These writes do not require a separate user confirmation for each fact.",
     inspect: ["self_describe", "self_memory", "recall"],
   },
   brain_stack: {
@@ -343,7 +343,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
   },
   notebook: {
     purpose:
-      "The RLM notebook — a long-lived JavaScript interpreter (`node:vm`) per session, with every other tool bound as an async function, so tool calls are composed as program logic instead of one per turn. Opt-in via CINDERPAW_ENABLE_NOTEBOOK; absent entirely when off.",
+      "The RLM notebook — a long-lived JavaScript interpreter (`node:vm`) per session, with other tools bound as async functions, so tool calls are composed as program logic instead of one per turn. Enabled by default; CINDERPAW_ENABLE_NOTEBOOK=false disables registration.",
     inputs: [
       "A cell of JavaScript from the model (`notebook` tool, `code` argument).",
       "The session's live tool registry — one injected function per registered tool, itself excluded.",
@@ -362,9 +362,9 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "A hardened vm, NOT a jail against an adversary who controls the source — the threat model is careless model-written code.",
     ],
     promotion:
-      "Human decision, not evolution: the notebook is off unless CINDERPAW_ENABLE_NOTEBOOK is set. Nothing promotes it automatically.",
+      "Configuration controls registration, not evolution. The notebook is enabled by default.",
     rollback:
-      "Unset CINDERPAW_ENABLE_NOTEBOOK and the tool is never registered; the agent loop, BRSI and FMS are untouched by its absence. Per-session state is a plain JSON file that can be deleted.",
+      "Set CINDERPAW_ENABLE_NOTEBOOK=false before startup to disable the tool. Existing session snapshots remain on disk.",
     inspect: ["self_describe", "self_subsystem"],
   },
   rsi: {
@@ -969,16 +969,13 @@ function healthDreams(paths: ShapePaths = {}): SubsystemHealth {
 }
 
 /**
- * The notebook is opt-in and off by default, so "no state on disk" is the
- * normal, correct condition rather than a fault. `available` therefore means
- * "nothing is wrong here" and the detail line carries the truth — reporting a
- * `·` for a subsystem the user deliberately left off would flip the whole
- * diagnostic's banner to "some subsystems not yet persisted" on every install
- * that never wanted a notebook, which is how a health check stops being read.
+ * The notebook is enabled by default, but has no snapshots before first use.
+ * An explicitly disabled notebook is also healthy: `available` means no fault,
+ * while the detail distinguishes disabled from enabled with zero snapshots.
  */
 function healthNotebook(): SubsystemHealth {
   if (!cfgBool("CINDERPAW_ENABLE_NOTEBOOK")) {
-    return { available: true, detail: "disabled (CINDERPAW_ENABLE_NOTEBOOK unset)" };
+    return { available: true, detail: "disabled by CINDERPAW_ENABLE_NOTEBOOK" };
   }
   let snapshots = 0;
   try {

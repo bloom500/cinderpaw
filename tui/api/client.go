@@ -698,18 +698,6 @@ func ShutdownGateway(baseURL, token string) error {
 	return nil
 }
 
-// TriggerDream sends a dream-cycle trigger to the gateway.
-func TriggerDream(baseURL, token string) error {
-	req, _ := http.NewRequest("POST", baseURL+"/runtime/dream", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := doRequest(httpClient, req)
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	return nil
-}
-
 // FetchSessions returns the most-recent conversations (default 5) so the
 // welcome screen can render a "recent" list. The host endpoint reads the
 // `~/.cinderpaw/conversations/index.json` written by the desktop app.
@@ -816,15 +804,32 @@ func FetchSystemInfo(baseURL, token string) (*SystemInfo, error) {
 	return &raw, nil
 }
 
+// ProviderTestResult is the parsed `/providers/test` body. Mirrors the Rust
+// `byok::TestProviderResponse`.
+type ProviderTestResult struct {
+	Success bool     `json:"success"`
+	Message string   `json:"message"`
+	Models  []string `json:"models"`
+}
+
 // TestProviderKey posts a key to `/providers/test` (audit C-2). Mirrors the
-// Tauri command `test_byok_provider`. Returns a friendly error string on
-// non-2xx (the body is the real provider message — "401 Unauthorized",
-// "Invalid API key", etc. — surfaced verbatim in the wizard so the user
-// can act on it).
-func TestProviderKey(baseURL, token, providerID, apiKey, baseURLOpt string) (string, error) {
-	payload := map[string]string{
-		"provider_id": providerID,
-		"api_key":     apiKey,
+// Tauri command `test_byok_provider`.
+//
+// `apiKey` may be empty: the gateway then probes with the key already stored
+// for that provider, and the result doubles as "is this provider already
+// configured, and what models does it serve". That is the whole mechanism
+// behind not re-asking for a key the machine already has.
+//
+// The endpoint answers 200 even for a rejected key — `success` in the BODY
+// carries the verdict. An earlier version of this function only checked the
+// HTTP status, so a wrong key rendered as "✓ Connection successful" and was
+// saved; the verdict is now read from the parsed body.
+func TestProviderKey(baseURL, token, providerID, apiKey, baseURLOpt string) (ProviderTestResult, error) {
+	payload := map[string]string{"provider_id": providerID}
+	// Omit the field entirely when empty so the gateway's `Option<String>`
+	// falls back to the stored key instead of probing with "".
+	if apiKey != "" {
+		payload["api_key"] = apiKey
 	}
 	if baseURLOpt != "" {
 		payload["base_url"] = baseURLOpt
@@ -836,7 +841,7 @@ func TestProviderKey(baseURL, token, providerID, apiKey, baseURLOpt string) (str
 	client := &http.Client{Timeout: 12 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return ProviderTestResult{}, err
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
@@ -844,9 +849,18 @@ func TestProviderKey(baseURL, token, providerID, apiKey, baseURLOpt string) (str
 		// Trim and surface the real provider message. Better than a generic
 		// "key invalid" so the user knows whether it's a typo, an expired
 		// key, or a billing issue.
-		return "", fmt.Errorf("%s", strings.TrimSpace(string(respBody)))
+		return ProviderTestResult{}, fmt.Errorf("%s", strings.TrimSpace(string(respBody)))
 	}
-	return strings.TrimSpace(string(respBody)), nil
+	var out ProviderTestResult
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		// An unparseable 200 is a gateway we do not understand. Treat it as
+		// a failure with the raw text rather than guessing success.
+		return ProviderTestResult{}, fmt.Errorf("%s", strings.TrimSpace(string(respBody)))
+	}
+	if !out.Success && out.Message == "" {
+		out.Message = "provider rejected the key"
+	}
+	return out, nil
 }
 
 // SaveByokKeyResult is the parsed response from POST /runtime/byok/save.
@@ -884,7 +898,11 @@ func SaveByokKey(baseURL, token, providerID, apiKey string, baseURLOpt, defaultM
 	payload := map[string]interface{}{
 		"provider_id": providerID,
 		"enabled":     true,
-		"api_key":     apiKey, // sent over loopback HTTPS-equivalent (bearer + 127.0.0.1)
+	}
+	// Omitted when empty so the gateway keeps the key it already stores.
+	// That is what lets "change only the model" save without the secret.
+	if apiKey != "" {
+		payload["api_key"] = apiKey // loopback + bearer, same posture as the rest
 	}
 	if baseURLOpt != nil {
 		payload["base_url"] = *baseURLOpt
@@ -965,11 +983,9 @@ type ConnectorPairingFieldDef struct {
 // ConnectorCatalogEntry is one row of the canonical connector catalog.
 // Mirrors `crates/cinderpaw-core/src/connectors.rs::ConnectorCatalogEntry`.
 //
-// v2 (2026-07-07) — added QRSetupEndpoint. QR-paired connectors (only
-// WhatsApp today) carry the gateway endpoint the wizard POSTs to in
-// order to obtain a fresh QR payload to render on screen. The refresh
-// cycle (default 60s) re-hits the same endpoint until `linked` flips
-// to true on the user's phone scan.
+// v2 added the optional QRSetupEndpoint field. No gateway QR setup route
+// is implemented; shipped entries omit it. WhatsApp pairing is read from
+// the sidecar QR file by the TUI and desktop.
 type ConnectorCatalogEntry struct {
 	ID                  string                    `json:"id"`
 	Name                string                    `json:"name"`
@@ -1083,13 +1099,9 @@ type ConnectorFileEntry struct {
 }
 
 // SaveConnectorConfig persists a connector's secrets and enabled flag to
-// `~/.cinderpaw/connectors.json`, then pokes the gateway to reload. F4
-// chat-platform connector counterpart to the cloud-provider keychain path
-// (SaveByokKey + /runtime/byok/save). Phase 2 of the terminal-onboarding
-// slice replaces this file-only writer with a keychain-backed endpoint
-// (`/runtime/connectors/:id/save`) per the locked plan, so this function
-// will be deleted then; the file-shape type and the reload call survive
-// in a narrower form.
+// `~/.cinderpaw/connectors.json`. Callers must request a gateway reload
+// separately. This file writer does not use the OS keychain or the existing
+// POST /runtime/connectors endpoint.
 func SaveConnectorConfig(id string, secrets map[string]string, enable bool) error {
 	dir, err := Home()
 	if err != nil {

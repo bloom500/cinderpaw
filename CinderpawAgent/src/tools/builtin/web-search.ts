@@ -8,8 +8,8 @@
  *
  * Two backends, in preference order:
  *   1. a SearXNG instance the user runs (`CINDERPAW_SEARXNG_URL`) — a metasearch
- *      aggregator over Google/Bing/DDG/etc., and the queries never leave the
- *      user's machine, which is the whole point of a local-first agent;
+ *      aggregator that forwards queries to upstream search engines; hosting
+ *      it locally does not make web searches offline;
  *   2. DuckDuckGo Lite (see ddg-lite.ts) — keyless, zero setup, so search works
  *      on a default install. Also the fallback when a configured SearXNG is
  *      down, in which case the result says so rather than hiding it.

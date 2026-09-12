@@ -2,13 +2,13 @@ import { readEnv } from "../config.ts";
 /**
  * Privacy tag stripping — adapted from claude-mem (thedotmack/claude-mem).
  *
- * Any content wrapped in <private>...</private> is stripped before being
- * written to episodic memory, so sensitive information is never persisted.
+ * Removes complete <private>...</private> blocks when called. The agent loop
+ * uses this for its user/answer episodic text; other writers must opt in.
  * Multiple tag names are supported for forward-compatibility.
  *
  * Stripping happens at the episodic record boundary (agent-loop.ts), not
- * at the LLM level — the model still sees private content during the turn,
- * but it is never stored to the database.
+ * at the LLM level — the model still sees private content during the turn.
+ * This helper does not enforce a database-wide or transcript privacy policy.
  *
  * Usage:
  *   user:  "My SSN is <private>123-45-6789</private>, don't store that."

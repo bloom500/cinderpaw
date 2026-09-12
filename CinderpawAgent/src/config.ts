@@ -40,7 +40,7 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   { name: "CINDERPAW_FS_DENY", type: "list", default: null,
     description: "Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.cinderpaw + ~/.ssh deny wall.", security: true },
   { name: "CINDERPAW_ENABLE_SHELL_EXEC", type: "bool", default: true,
-    description: "Registers shell_exec (argv-only, whitelisted). On by default; set to \"false\" to disable. Doc note: an earlier draft of this doc said default off — the code's actual default is ON.", security: true },
+    description: "Registers shell_exec (direct argv execution, optional binary allowlist). On by default; set to \"false\" to disable this tool. Other process-capable tools have separate controls.", security: true },
   { name: "CINDERPAW_ENABLE_NOTEBOOK", type: "bool", default: true,
     description: "Registers `notebook`, a persistent JavaScript interpreter with every other tool bound as an async function, so the agent can compose tool calls in code instead of one per turn. ON by default since 2026-08-26: it is the largest measured lever on token cost, because two tool calls in one cell is ONE completion instead of two, and every completion re-sends ~10.7k tokens of schema + system prompt. Set to \"false\" to disable. Cells run in an isolated vm context with no ambient fetch/process/require, and every capability still goes through the tool registry and its permission checks — but it is a hardened context, not a jail against hostile input, which is why it is OWNER-ONLY: any session running under a profile (connector persona, WhatsApp public mode, a cowork teammate) is refused it at both the advertise and the execute gate. See tools/tiers.ts::OWNER_ONLY_TOOLS.", security: true },
   { name: "CINDERPAW_HOST_TOOLS", type: "string", default: null,
@@ -72,7 +72,7 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
   { name: "CINDERPAW_TRUSTED_LOCAL_ORIGINS", type: "list", default: null,
     description: "Comma-separated exact origins (scheme+host+port) on loopback/private addresses that the SSRF guard may reach, for services the OPERATOR runs themselves. Exact-origin match only — trusting http://127.0.0.1:8080 does not trust any other local port — and the tool's own allowedDomains still applies. Extends the single CINDERPAW_SEARXNG_URL exemption to any self-hosted backend.", security: true },
   { name: "CINDERPAW_TOOL_ALLOWED_DOMAINS", type: "list", default: null,
-    description: "Set BY the sidecar ON a forged tool's child process — not something a user configures. Carries the hostnames that tool declared via tool_forge's `allowed_domains`; the runner turns it into an EgressProxy-backed globalThis.fetch, so a tool that declared nothing has no network. Setting it in the parent environment has no effect: createCustomTool always overwrites it from the tool's own record.", security: true },
+    description: "Set by the sidecar on a forged tool's child process from the tool's allowed_domains. Restricts the runner's globalThis.fetch wrapper; empty refuses wrapper requests. Other networking APIs in the child are not confined. createCustomTool overwrites this value from the tool record, so setting it in the parent environment does not configure a tool.", security: true },
   { name: "CINDERPAW_TRUSTED_BASE_URLS", type: "list", default: null,
     description: "Extra base URLs the inference router may call beyond loopback.", security: true },
   { name: "CINDERPAW_SHELL_WHITELIST", type: "list", default: null,
@@ -144,11 +144,13 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
 
   // ---- Budgets ---------------------------------------------------------------
   { name: "CINDERPAW_BUDGET_CONVERSATION", type: "int", default: 5_000_000,
-    description: "Per-conversation token ceiling.", security: false },
+    description: "Per-conversation completion-token ceiling.", security: false },
   { name: "CINDERPAW_BUDGET_DAY", type: "int", default: 50_000_000,
-    description: "Per-day token ceiling.", security: false },
+    description: "Per-day total-token ceiling (prompt plus completion).", security: false },
   { name: "CINDERPAW_BUDGET_POLICY", type: "string", default: "compress_and_continue",
-    description: "\"stop\" or \"compress_and_continue\".", security: false },
+    description: "Currently has no effect: both values stop. Compaction cannot "
+      + "undo a cumulative spend counter, so the cap is always a hard stop; "
+      + "raise CINDERPAW_BUDGET_CONVERSATION instead.", security: false },
   { name: "CINDERPAW_RSI_MAX_COST_USD", type: "string", default: null,
     description: "RSI background USD cap (float). Unset = local-only.", security: false },
   { name: "CINDERPAW_CLOUD_TRANSCRIPT_BUDGET", type: "int", default: 200_000,
