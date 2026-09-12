@@ -38,6 +38,59 @@ OUT = os.path.join(ROOT, "audit-out", "openclaw-dependency-licences.md")
 STRONG = re.compile(r"(?<![a-z])a?gpl|sspl|\bosl\b")
 WEAK = ("lgpl", "mpl", "epl", "cddl", "cc-by-sa")
 
+# Packages that are installed but deliberately NOT linked into the shipped
+# executable, with the reason, because "installed" stopped meaning "shipped".
+#
+# This list exists because the report used to say GPL-3.0 `libsignal` blocked
+# the release, kept saying it after the block was removed, and had no way to
+# know the difference. An inventory that cries wolf forever gets read once and
+# ignored afterwards, which is worse than one that never ran.
+#
+# The exclusion is NOT proof, and nothing in this file looks at the binary.
+# `CinderpawAgent/tests/compiled-no-libsignal.test.ts` compiles the real entry
+# point and scans its bytes; that test is the gate. This list only explains why
+# the report is quiet.
+NOT_BUNDLED = {
+    "@whiskeysockets/baileys":
+        "WhatsApp is loaded at runtime from a bundle the user builds and points "
+        "CINDERPAW_WHATSAPP_MODULE at, so neither it nor its GPL-3.0 libsignal "
+        "dependency is linked into our executable.",
+    "vitest":
+        "The test runner. It is never imported by src/index.ts, so nothing it "
+        "drags in — vite, and vite's MPL-2.0 lightningcss — reaches the binary. "
+        "The direct-dependency table above already skipped it for the same "
+        "reason; this is that decision applied to its tree.",
+}
+
+
+def not_bundled_closure(installed, pulled_by):
+    """Everything that left the binary when the packages in NOT_BUNDLED did.
+
+    A dependency reached ONLY through an excluded package leaves with it, and
+    that is the point: `libsignal` and `sharp` are not named in the list, they
+    fall out because `baileys` was their only way in. Anything a second package
+    also pulls in stays, because it is still linked.
+
+    Computed to a fixpoint rather than in one pass, since the chain can be
+    several deep. Returns a set of package names.
+    """
+    excluded = {n for n in NOT_BUNDLED if n in installed}
+    changed = True
+    while changed:
+        changed = False
+        for name in installed:
+            if name in excluded:
+                continue
+            parents = pulled_by.get(name)
+            # No parents means a top-level install: reached directly, so it
+            # never leaves with somebody else.
+            if not parents:
+                continue
+            if all(p in excluded for p in parents):
+                excluded.add(name)
+                changed = True
+    return excluded
+
 
 def fetch_licence(name, version):
     """Declared licence of one package version, or a reason we could not tell."""
@@ -161,11 +214,22 @@ def main():
     flagged = [r for r in rows if r[3] in ("strong", "weak", "unknown")]
 
     installed, pulled_by = scan_installed()
+    excluded = not_bundled_closure(installed, pulled_by)
+    # A name in NOT_BUNDLED that is no longer installed is a stale entry, and a
+    # stale exclusion is how a real blocker walks back in unnoticed.
+    stale_exclusions = sorted(n for n in NOT_BUNDLED if n not in installed)
     by_licence = {}
     installed_flagged = []
+    left_the_binary = []
     for name, (ver, lic) in sorted(installed.items()):
-        by_licence.setdefault(lic, []).append(name)
         kind = classify(lic)
+        if name in excluded:
+            # Not counted in the licence table either: that table is headed
+            # "what the compiled binary actually contains".
+            if kind in ("strong", "weak", "unknown"):
+                left_the_binary.append((name, ver, lic, kind))
+            continue
+        by_licence.setdefault(lic, []).append(name)
         if kind in ("strong", "weak", "unknown"):
             installed_flagged.append((name, ver, lic, kind))
 
@@ -196,7 +260,8 @@ def main():
         w("- of those, needing a decision (copyleft or unknown): %d\n" % len(flagged))
         w("- declared by our own `package.json` today: %d\n" % len(shipped))
         w("- packages actually installed (transitive): %d\n" % len(installed))
-        w("- of those, copyleft or undeclared: %d\n\n" % len(installed_flagged))
+        w("- of those, kept out of the executable on purpose: %d\n" % len(excluded))
+        w("- of the rest, copyleft or undeclared: %d\n\n" % len(installed_flagged))
 
         w("## Needs a decision\n\n")
         if flagged:
@@ -245,6 +310,38 @@ def main():
                         name, ver, lic, MARK[kind], ", ".join("`%s`" % p for p in parents)))
                 w("\n")
 
+        w("## Kept out of the executable on purpose\n\n")
+        if not excluded:
+            w("Nothing. Every installed package is linked into the binary.\n\n")
+        else:
+            w("These are installed — for tests, and for anyone who opts in — but they\n")
+            w("are NOT linked into the executable a stranger downloads, so their\n")
+            w("licences are not a question about our binary. Each root is listed with\n")
+            w("the reason; everything under it left because that root was its only way\n")
+            w("in.\n\n")
+            for root in sorted(NOT_BUNDLED):
+                w("- `%s` — %s\n" % (root, NOT_BUNDLED[root]))
+            w("\n")
+            if left_the_binary:
+                w("| package | version | licence | left with |\n|---|---|---|---|\n")
+                for name, ver, lic, kind in left_the_binary:
+                    parents = pulled_by.get(name) or ["(top level)"]
+                    w("| `%s` | %s | %s %s | %s |\n" % (
+                        name, ver, lic, MARK[kind], ", ".join("`%s`" % p for p in parents)))
+                w("\n")
+            w("**This section is an explanation, not a proof.** Nothing in this script\n")
+            w("opens the binary. `CinderpawAgent/tests/compiled-no-libsignal.test.ts`\n")
+            w("compiles the real entry point and scans its bytes, and that test is what\n")
+            w("actually holds this true. If it is deleted, this section becomes a claim\n")
+            w("nobody is checking.\n\n")
+        if stale_exclusions:
+            w("### Stale exclusions\n\n")
+            w("Named as not-bundled but not installed at all. Remove them from\n")
+            w("`NOT_BUNDLED`, or the next package to take that name inherits a pass:\n\n")
+            for name in stale_exclusions:
+                w("- `%s`\n" % name)
+            w("\n")
+
         w("## Every package\n\n")
         w("| package | version | licence | wanted by | bundled today |\n|---|---|---|---|---|\n")
         for name, ver, lic, kind, where, ship in rows:
@@ -255,11 +352,18 @@ def main():
     print("direct: %d packages, %d need a decision" % (len(rows), len(flagged)))
     for name, ver, lic, kind, where, ship in flagged:
         print("  %-42s %-12s %-20s %s" % (name, ver, lic, where))
-    print("installed: %d packages, %d copyleft or undeclared" % (len(installed), len(installed_flagged)))
+    print("installed: %d packages, %d kept out of the binary, %d copyleft or undeclared in it" % (
+        len(installed), len(excluded), len(installed_flagged)))
     for name, ver, lic, kind in installed_flagged:
         print("  %-42s %-12s %-28s via %s" % (
             name, ver, lic, ", ".join(pulled_by.get(name) or ["(top level)"])))
-    return 1 if installed_flagged or flagged else 0
+    for name, ver, lic, kind in left_the_binary:
+        print("  (not bundled) %-28s %-12s %s" % (name, ver, lic))
+    for name in stale_exclusions:
+        print("  STALE EXCLUSION: %s is in NOT_BUNDLED but is not installed" % name)
+    # A stale exclusion still needs a human: it is the one way this file can
+    # start lying on its own.
+    return 1 if installed_flagged or flagged or stale_exclusions else 0
 
 
 def self_check():
@@ -290,7 +394,31 @@ def self_check():
     for lic, want in cases.items():
         got = classify(lic)
         assert got == want, "classify(%r) = %r, expected %r" % (lic, got, want)
-    print("self-check ok: %d licence strings classified" % len(cases))
+
+    # The second thing worth testing: what leaves the binary when a root does.
+    # Shaped like the real tree — baileys pulls libsignal and sharp, sharp
+    # pulls a platform binary, and `ws` is also pulled by something we DO ship.
+    installed = dict.fromkeys(
+        ["@whiskeysockets/baileys", "libsignal", "sharp", "@img/sharp-win32-x64",
+         "ws", "discord.js", "typescript"], ("0.0.0", "MIT"))
+    pulled_by = {
+        "libsignal": ["@whiskeysockets/baileys"],
+        "sharp": ["@whiskeysockets/baileys"],
+        "@img/sharp-win32-x64": ["sharp"],
+        "ws": ["@whiskeysockets/baileys", "discord.js"],
+    }
+    gone = not_bundled_closure(installed, pulled_by)
+    # Two deep: the platform binary leaves because sharp left because baileys did.
+    for name in ("@whiskeysockets/baileys", "libsignal", "sharp", "@img/sharp-win32-x64"):
+        assert name in gone, "%s should have left the binary with baileys" % name
+    # Still linked: discord.js pulls it too, so it is in the executable and its
+    # licence is still our problem.
+    assert "ws" not in gone, "ws has a second parent we ship and must stay counted"
+    # A top-level install is reached directly and never leaves with anyone.
+    assert "discord.js" not in gone and "typescript" not in gone
+
+    print("self-check ok: %d licence strings classified, %d packages leave with baileys"
+          % (len(cases), len(gone)))
 
 
 if __name__ == "__main__":

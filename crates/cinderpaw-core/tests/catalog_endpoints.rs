@@ -621,6 +621,23 @@ async fn connectors_decision_d_rich_fields_present() {
                 assert!(entry.console_url.is_none(), "whatsapp has no console_url (QR pairing)");
                 assert!(entry.free_tier_note.is_none(), "whatsapp has no free_tier_note");
                 assert!(entry.validate_endpoint.is_none(), "whatsapp has no validate_endpoint (QR)");
+                // The WhatsApp library is GPL-3.0 and cannot ship inside a
+                // BUSL binary, so the default executable does not carry it and
+                // the user installs it once themselves. Until they do, turning
+                // WhatsApp on produces no QR at all. The card has to say that
+                // BEFORE they turn it on, the same way googlechat says it needs
+                // a public address before anyone pastes a token — otherwise the
+                // only explanation for the silence is an env var nobody has
+                // heard of.
+                let described = entry.description.to_lowercase();
+                assert!(
+                    described.contains("install"),
+                    "whatsapp needs a one-time library install the user does; a card promising only the QR scan is a promise the default build cannot keep"
+                );
+                assert!(
+                    described.contains("readme"),
+                    "saying an install is needed without saying WHERE the steps are just moves the dead end later"
+                );
             }
             "telegram" => {
                 assert!(entry.console_url.is_some(), "telegram must have console_url");

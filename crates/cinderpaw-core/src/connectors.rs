@@ -238,7 +238,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "whatsapp".into(),
             device_flow: None,
             name: "WhatsApp".into(),
-            description: "Reach your assistant on WhatsApp. Turn it on, then scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.".into(),
+            description: "Reach your assistant on WhatsApp. Needs a one-time WhatsApp library install you do yourself, because its licence cannot ship inside Cinderpaw — see CinderpawAgent/README.md. After that, turn it on and scan the QR code with WhatsApp → Linked devices. Use a SECONDARY number — automation can get a number banned.".into(),
             icon: "💚".into(),
             logo_url: Some("https://cdn.simpleicons.org/whatsapp".into()),
             pairing_fields: Vec::new(),
