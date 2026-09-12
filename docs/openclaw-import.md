@@ -147,13 +147,18 @@ lesson is that "needs a webhook" is a claim about a platform's WHOLE API, and
 reading the connector OpenClaw happened to write is not the same as reading
 what the platform offers.
 
-For the five that remain it is one product decision, not five ports.
-`audit-out/webhook-inbound-2026-09-12.md` is the design: five options judged on
-the same criteria, with a recommendation (a Cinderpaw-hosted inbound service
-with a durable 24 h inbox and an outbound connection from the app), a costed
-budget marked as assumption rather than quote, and the exact wording change
-PROMISES.md would need, because promise 2 says the runtime needs no Cinderpaw
-conversation relay and that would stop being true for those connectors.
+For the five that remain it was one product decision, not five ports, and the
+decision is made: **`docs/decisions/2026-09-12-webhook-inbound.md`**. Cinderpaw
+does not operate a relay. We ship the inbound receiver; the user supplies the
+address with a tunnel, a reverse proxy or a domain. Recurring cost to us stays
+zero and promise 2 in `PROMISES.md` stays literally true. The price is the
+user's and it is real: these five will never be one-click behind a router, so
+each card now says it needs a public address before anyone pastes a token, and
+`catalog_endpoints.rs` fails if that sentence disappears.
+
+`audit-out/webhook-inbound-2026-09-12.md` remains the reference for what a
+hosted service would have to contain. It recommended the hosted option; the
+decision went the other way on cost, and the record says why.
 
 Note that the recommendation does NOT cover Nextcloud Talk, and must not be
 applied to it: its catalog card says "Nothing goes through anyone else's

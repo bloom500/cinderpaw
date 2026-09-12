@@ -225,7 +225,7 @@
     "id": "line",
     "transport": "line",
     "name": "LINE",
-    "description": "A LINE Messaging API bot. Big in Japan, Taiwan and Thailand.",
+    "description": "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "💚",
     "logo_url": "https://cdn.simpleicons.org/line",
     "pairing_fields": [
@@ -259,7 +259,7 @@
     "id": "googlechat",
     "transport": "googlechat",
     "name": "Google Chat",
-    "description": "A Google Workspace Chat app. Authenticates with a service account.",
+    "description": "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🔷",
     "pairing_fields": [
       {
@@ -276,7 +276,7 @@
     "id": "msteams",
     "transport": "msteams",
     "name": "Microsoft Teams",
-    "description": "Microsoft Teams, through the Teams SDK. Enterprise tenants included.",
+    "description": "Microsoft Teams, through the Teams SDK. Needs a public web address you provide, and an administrator who can install the app into your tenant. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🟦",
     "pairing_fields": [],
     "pairing_method": "bot_token",
@@ -337,7 +337,7 @@
     "id": "sms",
     "transport": "sms",
     "name": "SMS",
-    "description": "Plain SMS and MMS through Twilio. Works with any phone, no app to install.",
+    "description": "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "📱",
     "pairing_fields": [
       {
@@ -364,7 +364,7 @@
     "id": "synology-chat",
     "transport": "synology-chat",
     "name": "Synology Chat",
-    "description": "Chat on your own Synology NAS, with the full agent behind it.",
+    "description": "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🗄️",
     "logo_url": "https://cdn.simpleicons.org/synology",
     "pairing_fields": [

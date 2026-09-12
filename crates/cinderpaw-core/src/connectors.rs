@@ -493,7 +493,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "line".into(),
             device_flow: None,
             name: "LINE".into(),
-            description: "A LINE Messaging API bot. Big in Japan, Taiwan and Thailand.".into(),
+            description: "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "💚".into(),
             logo_url: Some("https://cdn.simpleicons.org/line".into()),
             pairing_fields: vec![
@@ -548,7 +548,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "googlechat".into(),
             device_flow: None,
             name: "Google Chat".into(),
-            description: "A Google Workspace Chat app. Authenticates with a service account.".into(),
+            description: "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🔷".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -576,7 +576,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "msteams".into(),
             device_flow: None,
             name: "Microsoft Teams".into(),
-            description: "Microsoft Teams, through the Teams SDK. Enterprise tenants included.".into(),
+            description: "Microsoft Teams, through the Teams SDK. Needs a public web address you provide, and an administrator who can install the app into your tenant. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🟦".into(),
             logo_url: None,
             pairing_fields: Vec::new(),
@@ -669,7 +669,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "sms".into(),
             device_flow: None,
             name: "SMS".into(),
-            description: "Plain SMS and MMS through Twilio. Works with any phone, no app to install.".into(),
+            description: "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "📱".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -707,7 +707,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "synology-chat".into(),
             device_flow: None,
             name: "Synology Chat".into(),
-            description: "Chat on your own Synology NAS, with the full agent behind it.".into(),
+            description: "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🗄️".into(),
             logo_url: Some("https://cdn.simpleicons.org/synology".into()),
             pairing_fields: vec![

@@ -870,3 +870,56 @@ fn a_device_flow_without_a_client_id_stays_coming_soon() {
         }
     }
 }
+
+
+/// The five connectors that need an inbound public address must say so on the
+/// card, before anyone pastes a token.
+///
+/// Decision: `docs/decisions/2026-09-12-webhook-inbound.md`. Cinderpaw does not
+/// operate a relay, so for these five the user has to supply the address
+/// themselves with a tunnel, a reverse proxy or a domain. That is a real cost
+/// to them and it is invisible until setup fails, which is the failure this
+/// pins: a requirement nobody can see until they have already given up.
+///
+/// `free_tier_note` is deliberately NOT the place for it. The wizard renders
+/// that field as a green "free tier" badge, so a warning put there would read
+/// as good news.
+#[test]
+fn connectors_needing_an_inbound_url_say_so_on_the_card() {
+    // Zalo and Nextcloud Talk are NOT in this list and must not be added back.
+    // Both were once believed to need a webhook; Zalo long-polls with
+    // `getUpdates` by default, and Nextcloud Talk has a user-facing chat API
+    // next to its bot webhook, which `nextcloud-talk.ts` polls.
+    let needs_inbound = ["googlechat", "line", "msteams", "sms", "synology-chat"];
+    let catalog = connectors::connectors_catalog();
+
+    for id in needs_inbound {
+        let entry = catalog
+            .iter()
+            .find(|e| e.id == id)
+            .unwrap_or_else(|| panic!("{id} is missing from the catalog"));
+        let description = entry.description.to_lowercase();
+        assert!(
+            description.contains("public web address") || description.contains("address your"),
+            "{id} needs an inbound address the user must provide, and the card does not say so: {:?}",
+            entry.description
+        );
+        assert!(
+            entry.free_tier_note.is_none(),
+            "{id} must not carry a free-tier note: the wizard renders it as a green badge"
+        );
+    }
+
+    // The other direction, so the list cannot quietly grow: a connector that
+    // talks about needing an address had better be one of these five.
+    for entry in &catalog {
+        let description = entry.description.to_lowercase();
+        if description.contains("public web address") {
+            assert!(
+                needs_inbound.contains(&entry.id.as_str()),
+                "{} claims to need a public address but is not one of the five — if that is true, the decision record needs updating first",
+                entry.id
+            );
+        }
+    }
+}
