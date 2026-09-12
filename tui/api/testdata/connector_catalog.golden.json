@@ -412,7 +412,7 @@
     "id": "zalo",
     "transport": "zalo",
     "name": "Zalo",
-    "description": "Zalo Bot API. The default messenger in Vietnam.",
+    "description": "The default messenger in Vietnam. A bot token is all it needs; nothing to install and no address to expose.",
     "icon": "🔵",
     "pairing_fields": [
       {
@@ -422,8 +422,8 @@
       }
     ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
-    "console_url": "https://bot.zapps.me/"
+    "coming_soon": false,
+    "console_url": "https://bot.zaloplatforms.com/"
   },
   {
     "id": "zalouser",

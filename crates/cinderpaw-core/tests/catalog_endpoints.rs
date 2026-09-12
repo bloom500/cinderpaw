@@ -747,6 +747,27 @@ async fn connectors_decision_d_rich_fields_present() {
                     "the label must say APP password: typing the login password here works and is the wrong thing to do"
                 );
             }
+            "zalo" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/zalo.ts`.
+                // Long polls with `getUpdates`; this repo called it
+                // webhook-only for three commits and was wrong.
+                assert!(!entry.coming_soon, "zalo's transport has landed — the card must not still say soon");
+                assert!(
+                    !entry.description.to_lowercase().contains("public web address"),
+                    "zalo needs no inbound address: saying it does is the error this port corrected"
+                );
+                assert!(entry.console_url.is_some(), "zalo must point at the bot console for the token");
+                let token = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "ZALO_BOT_TOKEN")
+                    .expect("zalo declares a bot token field");
+                assert!(token.secret, "a bot token speaks as the bot to everyone who has messaged it");
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "zalo answers a bad token with HTTP 200 and ok:false, so a generic probe would read it as valid — the transport validates instead"
+                );
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the

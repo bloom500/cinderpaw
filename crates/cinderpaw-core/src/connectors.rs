@@ -778,7 +778,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "zalo".into(),
             device_flow: None,
             name: "Zalo".into(),
-            description: "Zalo Bot API. The default messenger in Vietnam.".into(),
+            description: "The default messenger in Vietnam. A bot token is all it needs; nothing to install and no address to expose.".into(),
             icon: "🔵".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -789,12 +789,15 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
-            console_url: Some("https://bot.zapps.me/".into()),
+            // Ported 2026-09-12: src/transports/zalo.ts. Long polls with
+            // `getUpdates`, so no public address is needed — this card was
+            // wrongly grouped with the webhook connectors until then.
+            coming_soon: false,
+            // Upstream documents the bot console as bot.zaloplatforms.com,
+            // which is also the host family of the API. bot.zapps.me resolves
+            // too, but sending people to the one the docs name is what lets
+            // them follow those docs when they get stuck.
+            console_url: Some("https://bot.zaloplatforms.com/".into()),
             free_tier_note: None,
             validate_endpoint: None,
             oauth_scopes: Vec::new(),
