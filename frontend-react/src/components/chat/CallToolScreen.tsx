@@ -2,11 +2,11 @@ import { memo, useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-shell';
 import {
   Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles, Search,
-  ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus,
+  ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus, AppWindow,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import type { ToolActivity, ToolKind } from '@/hooks/useLiveToolActivity';
+import type { ToolActivity, ToolKind, DesktopFact, DesktopElement } from '@/hooks/useLiveToolActivity';
 
 /**
  * A screen in the corner of a call, showing what Cinderpaw is actually doing.
@@ -29,27 +29,13 @@ import type { ToolActivity, ToolKind } from '@/hooks/useLiveToolActivity';
  * The keyframes live in `globals.css` under "Call telemetry widgets" and all of
  * them are disabled under `prefers-reduced-motion`.
  */
-export const CallToolScreen = memo(function CallToolScreen({ activity, inline = false }: { activity: ToolActivity[]; inline?: boolean }) {
+export const CallToolScreen = memo(function CallToolScreen({ activity }: { activity: ToolActivity[] }) {
   const t = useT();
   if (activity.length === 0) return null;
 
   // Newest first: during a long turn, the running tool is what the eye wants.
   const rows = [...activity].reverse();
   const running = rows.filter((a) => a.status === 'running').length;
-
-  if (inline) {
-    return (
-      <details open className="rounded-xl border border-border-subtle bg-bg-surface/50">
-        <summary className="cursor-pointer rounded-xl px-3 py-2 text-xs text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
-          <span>{t('call.tools')}</span> · {rows.length}
-          {running > 0 && <span aria-live="polite"> · {running} {t('call.toolsRunning')}</span>}
-        </summary>
-        <div className="grid max-h-[28rem] gap-2 overflow-y-auto p-2 thin-scrollbar">
-          {rows.map((a) => <Widget key={a.id} activity={a} />)}
-        </div>
-      </details>
-    );
-  }
 
   return (
     <div
@@ -82,23 +68,35 @@ const CHROME: Record<ToolKind, { icon: typeof Globe; tint: string }> = {
   files: { icon: FileText, tint: 'text-warning' },
   terminal: { icon: TerminalSquare, tint: 'text-success' },
   memory: { icon: Brain, tint: 'text-info' },
+  desktop: { icon: AppWindow, tint: 'text-brand' },
   generic: { icon: Wrench, tint: 'text-text-muted' },
 };
+
+/** One line for a widget that is folded away: what ran, on what, how it ended. */
+export function summaryOf(a: ToolActivity): string {
+  if (a.kind === 'desktop' && a.desktop) return desktopLine(a.desktop);
+  return a.subject;
+}
 
 /**
  * The shared shell. Rounded, bordered, floating — one card shape for every kind,
  * so a call with four widgets open reads as one system rather than four apps.
  */
-function Widget({ activity: a }: { activity: ToolActivity }) {
+export function Widget({ activity: a, flat = false }: { activity: ToolActivity; flat?: boolean }) {
   const t = useT();
   const { icon: Icon, tint } = CHROME[a.kind];
   const running = a.status === 'running';
+  const app = a.kind === 'desktop' ? a.desktop : null;
 
   return (
     // `pointer-events-auto` against the container's `none`: the panel must not
     // swallow clicks meant for the call behind it, but a result title has to be
-    // clickable or it is a screenshot of a link.
-    <div className="tw-rise pointer-events-auto overflow-hidden rounded-xl border border-border-default bg-bg-surface/95 shadow-2xl backdrop-blur">
+    // clickable or it is a screenshot of a link. `flat` is the chat: a widget
+    // sitting inside a reply is part of the page, not a window floating over it.
+    <div className={cn(
+      'tw-rise pointer-events-auto overflow-hidden rounded-xl border border-border-default',
+      flat ? 'bg-bg-surface/60' : 'bg-bg-surface/95 shadow-2xl backdrop-blur',
+    )}>
       {/* The browser gets a real window's head — traffic lights and a tab —
           because that is the part a viewer recognises before reading anything.
           Every other kind keeps the plain strip: a terminal draws its own tab
@@ -117,6 +115,21 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
           </span>
           <Plus size={10} className="shrink-0 text-text-muted/50" />
           <State a={a} className="ml-auto" />
+        </header>
+      ) : app ? (
+        // An application window's head: the app's name is the title, because
+        // that is the one thing the user asked to see — which app it is in.
+        <header className="relative flex items-center gap-2 border-b border-border-subtle bg-bg-elevated/40 px-2.5 py-1.5">
+          <span className="z-10 flex shrink-0 gap-1.5">
+            <i className="h-2 w-2 rounded-full bg-[#ff5f57]" />
+            <i className="h-2 w-2 rounded-full bg-[#febc2e]" />
+            <i className="h-2 w-2 rounded-full bg-[#28c840]" />
+          </span>
+          <span className="pointer-events-none absolute inset-x-0 flex items-center justify-center gap-1.5 text-micro font-medium text-text-secondary">
+            <AppWindow size={10} className="shrink-0 text-brand" />
+            <span className="max-w-[70%] truncate">{appTitle(app) || a.tool}</span>
+          </span>
+          <State a={a} className="z-10 ml-auto" />
         </header>
       ) : a.kind === 'terminal' && !a.error ? (
         // No header at all. The terminal draws a complete window — traffic
@@ -149,6 +162,8 @@ function Widget({ activity: a }: { activity: ToolActivity }) {
           <TerminalBody a={a} running={running} />
         ) : a.kind === 'memory' ? (
           <MemoryBody a={a} />
+        ) : app ? (
+          <DesktopBody d={app} running={running} />
         ) : (
           <GenericBody a={a} running={running} t={t} />
         )}
@@ -464,6 +479,188 @@ function MemoryBody({ a }: { a: ToolActivity }) {
         </ul>
       )}
     </>
+  );
+}
+
+/** "Notepad — Untitled": the app, then the window, whichever of the two we have. */
+function appTitle(d: DesktopFact): string {
+  const app = d.app.replace(/\.exe$/i, '');
+  return [app, d.windowTitle].filter(Boolean).join(' — ');
+}
+
+/**
+ * Is the application a web browser? Then the window is drawn with a
+ * browser's own furniture (tab, address bar) around the page, because a
+ * browser drawn as bare rectangles does not read as a browser to anyone,
+ * and the one thing the user asked of this widget is to recognise the app.
+ */
+function isBrowser(d: DesktopFact): boolean {
+  return /brave|chrome|chromium|msedge|edge|firefox|opera|vivaldi|arc/i.test(d.app) ||
+    /\b(brave|chrome|edge|firefox|opera|vivaldi)\b/i.test(d.windowTitle);
+}
+
+/** The address the browser shows, from the one element that carries it. */
+function addressOf(d: DesktopFact): string {
+  const bar = d.elements.find(
+    (e) => /^https?:\/\//i.test(e.value) || (/address|url|omnibox|location/i.test(e.name) && e.value),
+  );
+  return bar?.value ?? '';
+}
+
+/** The page's own elements: everything below the browser's toolbar strip. */
+function pageElements(d: DesktopFact): DesktopElement[] {
+  if (d.elements.length === 0) return [];
+  const y0 = Math.min(...d.elements.map((e) => e.y));
+  const y1 = Math.max(...d.elements.map((e) => e.y + e.h));
+  // The toolbar is the top ~12% of a browser window. Below it is the page.
+  const cut = y0 + (y1 - y0) * 0.12;
+  return d.elements.filter((e) => e.y >= cut);
+}
+
+/** The step as a sentence. Never the typed text: it may be a password. */
+function desktopLine(d: DesktopFact): string {
+  const on = d.target?.name ? ` «${d.target.name}»` : '';
+  switch (d.action) {
+    case 'launch': return `Opening ${d.app || 'an application'}`;
+    case 'list_windows': return d.windows.length > 0 ? `${d.windows.length} windows open` : 'Looking at open windows';
+    case 'get_tree': return `Reading the window's layout`;
+    case 'find_elements': return d.elements.length > 0 ? `Found ${d.elements.length} elements` : 'Looking for elements';
+    case 'click': return `Clicking${on}`;
+    case 'type': return `Typing into${on || ' a field'}`;
+    case 'send_keys': return `Sending keys to${on || ' the window'}`;
+    case 'perform_action': return `${d.actionName || 'Acting on'}${on}`;
+    case 'get_value': return `Reading${on || ' a value'}`;
+    case 'get_focused': return 'Reading what has focus';
+    default: return d.action;
+  }
+}
+
+/**
+ * The application, drawn from its own accessibility tree.
+ *
+ * Every rectangle is one the OS reported for a real element, scaled into the
+ * card — so a Notepad here has a menu strip and a text area where Notepad has
+ * them, and the button being clicked lights up where the button is. Nothing is
+ * drawn that the tool did not see; a step with no layout gets a sentence.
+ */
+function DesktopBody({ d, running }: { d: DesktopFact; running: boolean }) {
+  const browser = isBrowser(d);
+  const page = browser ? pageElements(d) : d.elements;
+  return (
+    <>
+      <p className={cn('text-2xs text-text-secondary', running && 'tw-type')}>{desktopLine(d)}</p>
+      {browser && (
+        // A browser's chrome, from the window widget's own vocabulary: the
+        // tab is the real window title, the address is the real URL out of
+        // the accessibility tree. When the tree has not been read yet the
+        // bar says so rather than showing an address nobody reported.
+        <div className="mt-2 rounded-t-md border border-b-0 border-border-subtle bg-bg-elevated/40 px-2 pt-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="flex min-w-0 max-w-[70%] items-center gap-1.5 rounded-t-md bg-bg-elevated px-2 py-1">
+              <Globe size={9} className="shrink-0 text-text-muted" />
+              <span className="truncate text-micro text-text-secondary">{d.windowTitle || d.app.replace(/\.exe$/i, '')}</span>
+              <X size={9} className="shrink-0 text-text-muted/50" />
+            </span>
+            <Plus size={10} className="shrink-0 text-text-muted/50" />
+          </div>
+          <div className="flex items-center gap-2 py-1.5">
+            <span className="flex shrink-0 items-center gap-1.5 text-text-muted/40">
+              <ArrowLeft size={11} />
+              <ArrowRight size={11} />
+              <RotateCw size={10} />
+            </span>
+            <span className="min-w-0 flex-1 truncate rounded-full bg-bg-elevated px-2 py-0.5 text-2xs text-text-primary ring-1 ring-inset ring-border-subtle">
+              {addressOf(d) || <span className="italic text-text-muted">{d.elements.length > 0 ? 'no address in the window yet' : 'layout not read yet'}</span>}
+            </span>
+          </div>
+        </div>
+      )}
+      {d.windows.length > 0 && (
+        // A taskbar: one chip per application, as the OS names it.
+        <ul className="mt-2 flex flex-wrap gap-1">
+          {[...new Set(d.windows.map((w) => w.app.replace(/\.exe$/i, '') || w.title))].map((name, i) => (
+            <li
+              key={name}
+              className="tw-row flex items-center gap-1 rounded-md bg-bg-elevated px-1.5 py-0.5 text-micro text-text-secondary"
+              style={{ animationDelay: `${Math.min(i, 4) * 45}ms` }}
+            >
+              <AppWindow size={9} className="text-text-muted" />
+              <span className="max-w-[8rem] truncate">{name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {page.length > 0 ? (
+        <Wireframe elements={page} target={d.target} flush={browser} />
+      ) : d.elements.length === 0 && d.action !== 'list_windows' ? (
+        // No layout yet: launch and click return no elements, only get_tree
+        // and find_elements do. Say what the widget is waiting for rather
+        // than leaving a window-shaped hole.
+        <p className={cn('text-micro italic text-text-muted', browser ? 'rounded-b-md border border-t-0 border-border-subtle px-2 py-3' : 'mt-1')}>
+          The window's layout appears once the agent reads it (get_tree).
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/** Element rectangles, scaled to fit the card, the target lit. */
+function Wireframe({ elements, target, flush = false }: { elements: DesktopElement[]; target: DesktopElement | null; flush?: boolean }) {
+  // The window is the box around everything the tree reported.
+  const x0 = Math.min(...elements.map((e) => e.x));
+  const y0 = Math.min(...elements.map((e) => e.y));
+  const x1 = Math.max(...elements.map((e) => e.x + e.w));
+  const y1 = Math.max(...elements.map((e) => e.y + e.h));
+  const W = Math.max(1, x1 - x0);
+  const H = Math.max(1, y1 - y0);
+  const pct = (n: number, of: number) => `${(n / of) * 100}%`;
+  // Tall enough to read, never taller than a few lines of chat.
+  const ratio = Math.min(Math.max(H / W, 0.35), 0.8);
+
+  return (
+    <div
+      className={cn(
+        'relative w-full overflow-hidden border border-border-subtle bg-bg-elevated/60',
+        // Under a browser's chrome the page joins it; on its own it is a card.
+        flush ? 'rounded-b-md border-t-0' : 'mt-2 rounded-md',
+      )}
+      style={{ aspectRatio: `1 / ${ratio}` }}
+      aria-hidden
+    >
+      {elements.map((e) => {
+        const hit = target?.id === e.id;
+        const role = e.role.toLowerCase();
+        return (
+          <span
+            key={e.id}
+            title={`${e.role} ${e.name}`.trim()}
+            className={cn(
+              'absolute overflow-hidden rounded-[2px] border text-[7px] leading-none',
+              hit
+                ? 'z-10 border-brand bg-brand/30 text-text-primary tw-focus'
+                : role.includes('button')
+                  ? 'border-border-default bg-bg-surface text-text-muted'
+                  : role.includes('edit') || role.includes('text') || role.includes('document')
+                    ? 'border-border-subtle bg-bg-surface/70 text-text-muted'
+                    : 'border-border-subtle/60 text-text-muted',
+            )}
+            style={{
+              left: pct(e.x - x0, W),
+              top: pct(e.y - y0, H),
+              width: pct(e.w, W),
+              height: pct(e.h, H),
+            }}
+          >
+            {/* A name where there is room; a big element with no name shows
+                its role, so an empty browser page reads "Pane" and not as a
+                grey square the widget forgot to draw. */}
+            {(hit || e.w / W > 0.12) && (e.name || (e.w * e.h) / (W * H) > 0.2) && (
+              <span className={cn('block truncate px-0.5 pt-px', !e.name && 'text-text-muted/70 italic')}>{e.name || e.role}</span>
+            )}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 

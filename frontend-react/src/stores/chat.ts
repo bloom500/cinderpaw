@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
+import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'stopped';
 export type AgentPhase = 'thinking' | 'calling' | 'processing'
@@ -44,6 +45,12 @@ export interface ChatMessage {
    * watching.
    */
   scratch?: { edits: number; added: number; removed: number };
+  /**
+   * The tools this reply ran, in order, with what each one saw — the widgets
+   * drawn inside the bubble. Saved with the conversation as `tools`, so a chat
+   * reopened tomorrow still shows what was looked at, not only what was said.
+   */
+  toolActivity?: ToolActivity[];
   /**
    * Ask-user prompt attached to this message. Set when the Cinderpaw Agent
    * called the `ask_user` tool on this turn. `answers` is undefined while

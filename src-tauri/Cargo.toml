@@ -34,7 +34,8 @@ rfd = { version = "0.16", default-features = false, features = ["common-controls
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-specta = "=2.0.0-rc.25"
+# `serde_json`: so a `serde_json::Value` field can cross to TypeScript as `unknown`.
+specta = { version = "=2.0.0-rc.25", features = ["serde_json"] }
 specta-typescript = "0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 

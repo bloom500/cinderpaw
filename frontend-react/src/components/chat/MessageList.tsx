@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { useChat } from '@/stores/chat';
-import { useUI } from '@/stores/ui';
-import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
-import { CallToolScreen } from './CallToolScreen';
 import { MessageItem } from './MessageItem';
 import { StreamingIndicator } from './StreamingIndicator';
 
@@ -11,9 +8,6 @@ export function MessageList() {
   const status = useChat((s) => s.streamStatus);
   const agentPhase = useChat((s) => s.agentPhase);
   const agentTool = useChat((s) => s.agentTool);
-  const sessionId = useChat((s) => s.sessionId);
-  const isAgentMode = useUI((s) => s.inputMode === 'agent');
-  const toolActivity = useLiveToolActivity(isAgentMode, sessionId);
   const containerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -42,7 +36,7 @@ export function MessageList() {
     }
     if (el && isAtBottomRef.current) el.scrollTop = el.scrollHeight;
     prevLenRef.current = messages.length;
-  }, [messages, status, toolActivity]);
+  }, [messages, status]);
 
   const jumpToBottom = () => {
     const el = containerRef.current;
@@ -86,7 +80,6 @@ export function MessageList() {
               />
             </div>
           ))}
-          <CallToolScreen key={sessionId} activity={toolActivity} inline />
           {(() => {
             const last = messages[messages.length - 1];
             const hasActiveThinking = Boolean(last?.thinking && !last.thinkingComplete);

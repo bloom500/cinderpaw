@@ -1,54 +1,60 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { open } from '@tauri-apps/plugin-shell';
-import { events } from '@/lib/tauri/events';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { MessageList } from '../MessageList';
 import { CallToolScreen } from '../CallToolScreen';
+import { MessageToolWidgets } from '../MessageToolWidgets';
+import { startActivity, finishActivity } from '@/hooks/useLiveToolActivity';
 
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../MessageItem', () => ({ MessageItem: ({ message }: { message: { content: string } }) => <p>{message.content}</p> }));
 vi.mock('../StreamingIndicator', () => ({ StreamingIndicator: () => <span>Thinking…</span> }));
 
-let emit: (line: unknown) => void;
 beforeEach(() => {
   vi.useFakeTimers();
   useUI.setState({ inputMode: 'agent', language: 'en' });
   useChat.setState({ sessionId: 'chat', streamStatus: 'streaming', agentPhase: 'calling', agentTool: 'web_search', messages: [
     { id: 'reply', role: 'assistant', content: 'Let me check.', thinking: 'Checking sources', thinkingComplete: false, createdAt: Date.now() },
   ] });
-  vi.spyOn(events.cinderpawAgentOutputEvent, 'listen').mockImplementation((cb) => {
-    emit = (line) => cb({ payload: { data: JSON.stringify(line) } } as Parameters<typeof cb>[0]);
-    return Promise.resolve(vi.fn());
-  });
-  vi.spyOn(events.liveStatusEvent, 'listen').mockResolvedValue(vi.fn());
-  vi.spyOn(events.liveKitEvent, 'listen').mockResolvedValue(vi.fn());
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('chat tool widgets', () => {
-  it('renders the real call widget after prose/reasoning, with progress and clickable results', () => {
-    render(<MessageList />);
-    expect(screen.queryByText('Tools')).not.toBeInTheDocument();
-    act(() => emit({ type: 'tool_start', sessionId: 'chat', tool: 'web_search', args: { query: 'Cinderpaw guide' } }));
-    expect(screen.getByText('Let me check.')).toBeInTheDocument();
+  it('draws the call widget open while the reply streams, folds it after, and reopens on click', () => {
+    const running = startActivity('web_search', { query: 'Cinderpaw guide' });
+    const { rerender } = render(<MessageToolWidgets activity={[running]} streaming />);
     expect(screen.getByText('Cinderpaw guide')).toBeInTheDocument();
-    const details = screen.getByText('Tools').closest('details');
-    expect(details).toHaveAttribute('open');
-    fireEvent.click(screen.getByText('Tools'));
-    expect(details).not.toHaveAttribute('open');
-    act(() => emit({ type: 'tool_progress', sessionId: 'chat', tool: 'web_search', message: 'Reading sources' }));
-    expect(details).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText('Tools'));
-    expect(screen.getByText('Reading sources')).toBeInTheDocument();
-    act(() => emit({ type: 'tool_done', sessionId: 'chat', tool: 'web_search', result: {
-      ok: true, data: [{ text: 'Guide — setup instructions', url: 'https://example.com/guide' }],
-    } }));
-    act(() => { useChat.setState({ streamStatus: 'done' }); vi.advanceTimersByTime(10000); });
+    expect(screen.queryByText('Tools')).not.toBeInTheDocument();
+
+    const done = finishActivity(running, { ok: true, data: [{ text: 'Guide — setup instructions', url: 'https://example.com/guide' }] });
+    rerender(<MessageToolWidgets activity={[done]} streaming />);
     fireEvent.click(screen.getByRole('button', { name: 'Guide' }));
     expect(open).toHaveBeenCalledWith('https://example.com/guide');
-    expect(screen.getByText('Guide')).toBeInTheDocument();
+
+    // The reply is finished: one line, the widget behind a click.
+    rerender(<MessageToolWidgets activity={[done]} streaming={false} />);
+    expect(screen.queryByRole('button', { name: 'Guide' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /web_search/ }));
+    expect(screen.getByRole('button', { name: 'Guide' })).toBeInTheDocument();
+  });
+
+  it('draws the application the agent is driving, from its own accessibility tree', () => {
+    finishActivity(startActivity('computer_use', { action: 'list_windows' }), {
+      ok: true, data: [{ pid: 9, title: 'Untitled - Notepad', app_name: 'notepad.exe' }],
+    });
+    const tree = finishActivity(startActivity('computer_use', { action: 'get_tree', pid: 9 }), {
+      ok: true, data: { id: 'w', role: 'Window', name: 'Untitled - Notepad', bounding_rect: { x: 0, y: 0, width: 400, height: 300 },
+        children: [{ id: 'b', role: 'Button', name: 'Save', bounding_rect: { x: 10, y: 10, width: 80, height: 20 } }] },
+    });
+    const click = startActivity('computer_use', { action: 'click', pid: 9, element_id: 'b' });
+    render(<MessageToolWidgets activity={[tree, click]} streaming />);
+    expect(screen.getAllByText('notepad — Untitled - Notepad')).toHaveLength(2);
+    expect(screen.getByText('Clicking «Save»')).toBeInTheDocument();
+    const lit = document.querySelector('.border-brand');
+    expect(lit).toHaveAttribute('title', 'Button Save');
+    expect(lit?.parentElement?.style.aspectRatio).toContain('/');
   });
 
   /** The element that actually scrolls, which is NOT the outer wrapper: the
@@ -68,10 +74,10 @@ describe('chat tool widgets', () => {
     return scroller;
   }
 
-  it('keeps the viewport position when tool events arrive while reading older messages', () => {
+  it('keeps the viewport position when a reply changes while reading older messages', () => {
     const { container } = render(<MessageList />);
     const scroller = scrollUp(container);
-    act(() => emit({ type: 'tool_start', sessionId: 'chat', tool: 'read_file', args: { path: 'guide.txt' } }));
+    act(() => useChat.getState().updateLastAssistantMessage({ toolActivity: [startActivity('read_file', { path: 'guide.txt' })] }));
     expect(scroller.scrollTop).toBe(100);
   });
 
@@ -104,36 +110,45 @@ describe('chat tool widgets', () => {
     });
   });
 
-  it('shows command output, file facts and failures without mixing sessions', () => {
-    render(<MessageList />);
-    act(() => {
-      emit({ type: 'tool_start', sessionId: 'other', tool: 'shell_exec', args: { command: 'secret command' } });
-      emit({ type: 'tool_start', sessionId: 'chat', tool: 'shell_exec', args: { command: 'bun test', cwd: 'D:/project' } });
-      emit({ type: 'tool_done', sessionId: 'chat', tool: 'shell_exec', result: { ok: true, content: '42 tests passed' } });
-      emit({ type: 'tool_start', sessionId: 'chat', tool: 'read_file', args: { path: 'notes.txt' } });
-      emit({ type: 'tool_done', sessionId: 'chat', tool: 'read_file', result: { ok: true, data: { path: 'notes.txt', lines: 5, bytes: 100 } } });
-      emit({ type: 'tool_start', sessionId: 'chat', tool: 'recall', args: { query: 'project notes' } });
-      emit({ type: 'tool_done', sessionId: 'chat', tool: 'recall', result: { ok: false, content: 'Memory unavailable' } });
+  it('draws a browser as a browser: real tab title, real address, and says when the layout is unread', () => {
+    finishActivity(startActivity('computer_use', { action: 'list_windows' }), {
+      ok: true, data: [{ pid: 4, title: 'New chat - Claude - Brave', app_name: 'brave.exe' }],
     });
-    expect(screen.queryByText('secret command')).not.toBeInTheDocument();
+    const launched = finishActivity(startActivity('computer_use', { action: 'launch', app: 'brave.exe' }), { ok: true, data: { launched: true, pid: 4 } });
+    const { unmount } = render(<MessageToolWidgets activity={[launched]} streaming />);
+    expect(screen.getByText('layout not read yet')).toBeInTheDocument();
+    expect(screen.getByText(/appears once the agent reads it/)).toBeInTheDocument();
+    unmount();
+
+    const tree = finishActivity(startActivity('computer_use', { action: 'get_tree', pid: 4 }), {
+      ok: true, data: { id: 'w', role: 'Window', name: 'New chat - Claude - Brave', bounding_rect: { x: 0, y: 0, width: 1000, height: 800 }, children: [
+        { id: 'a', role: 'Edit', name: 'Address and search bar', value: 'https://claude.ai/new', bounding_rect: { x: 100, y: 40, width: 700, height: 24 } },
+        { id: 'p', role: 'Pane', name: '', bounding_rect: { x: 0, y: 120, width: 1000, height: 680 } },
+      ] },
+    });
+    render(<MessageToolWidgets activity={[tree]} streaming />);
+    expect(screen.getByText('https://claude.ai/new')).toBeInTheDocument();
+    expect(screen.getByText('New chat - Claude - Brave')).toBeInTheDocument();
+    // The address bar is toolbar, not page: the wireframe holds only the Pane.
+    expect(document.querySelector('[title="Pane"]')).not.toBeNull();
+    expect(document.querySelector('[title="Edit Address and search bar"]')).toBeNull();
+  });
+
+  it('shows command output, file facts and failures, each in its own widget', () => {
+    const shell = finishActivity(startActivity('shell_exec', { command: 'bun test', cwd: 'D:/project' }), { ok: true, content: '42 tests passed' });
+    const file = finishActivity(startActivity('read_file', { path: 'notes.txt' }), { ok: true, data: { path: 'notes.txt', lines: 5, bytes: 100 } });
+    const memory = finishActivity(startActivity('recall', { query: 'project notes' }), { ok: false, content: 'Memory unavailable' });
+    render(<MessageToolWidgets activity={[shell, file, memory]} streaming />);
     expect(screen.getByText('bun test')).toBeInTheDocument();
     expect(screen.getByText('42 tests passed')).toBeInTheDocument();
     expect(screen.getByText('notes.txt')).toBeInTheDocument();
     expect(screen.getByText('Memory unavailable')).toBeInTheDocument();
-    act(() => useChat.setState({ sessionId: 'other' }));
-    expect(screen.queryByText('bun test')).not.toBeInTheDocument();
-  });
-
-  it('does not subscribe to agent widgets in plain chat mode', () => {
-    useUI.setState({ inputMode: 'chat' });
-    render(<MessageList />);
-    expect(events.cinderpawAgentOutputEvent.listen).not.toHaveBeenCalled();
   });
 
   it('keeps the voice layout as the default', () => {
     const { container } = render(<CallToolScreen activity={[{
       id: 'voice', tool: 'recall', kind: 'memory', subject: 'notes', status: 'done', startedAt: 0, endedAt: 1000,
-      note: null, hits: [], files: [], output: '', cwd: '', facts: ['Remembered fact'], error: null,
+      note: null, hits: [], files: [], output: '', cwd: '', facts: ['Remembered fact'], desktop: null, error: null,
     }]} />);
     expect(container.firstChild).toHaveClass('absolute');
     expect(container.querySelector('details')).toBeNull();

@@ -21,6 +21,7 @@ import {
   TOOL_CALL_STREAM_MAX,
   TOOL_CALL_LINGER_MS,
 } from '@/stores/chat';
+import type { ToolActivity } from '@/hooks/useLiveToolActivity';
 
 /** Drop finished bubbles past their on-screen linger window. */
 function pruneExpired(stream: ToolCallEvent[]): ToolCallEvent[] {
@@ -33,6 +34,8 @@ export interface CinderpawLiveSnapshot {
   thinking: string | null;
   thinkingComplete: boolean;
   toolCallStream: ToolCallEvent[];
+  /** The widgets inside the reply being streamed. */
+  toolActivity: ToolActivity[];
   agentPhase: AgentPhase;
   agentTool: string | null;
   /** Real token counts from the latest completion (for the context ring). */
@@ -48,6 +51,7 @@ export function beginLiveSession(sessionId: string): void {
     thinking: null,
     thinkingComplete: true,
     toolCallStream: [],
+    toolActivity: [],
     agentPhase: null,
     agentTool: null,
     promptTokens: null,
@@ -138,6 +142,7 @@ export function rehydrateLiveSession(sessionId: string): void {
 
   chat.updateLastAssistantMessage({
     content: snap.content,
+    toolActivity: snap.toolActivity,
     ...(snap.thinking !== null
       ? { thinking: snap.thinking, thinkingComplete: snap.thinkingComplete }
       : {}),
