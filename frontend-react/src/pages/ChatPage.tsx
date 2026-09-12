@@ -75,6 +75,37 @@ export function ChatPage() {
     }
   }, [isEmpty, showAgentOnboarding]);
 
+  // Publish the composer's real height as `--chat-dock-h` on the positioning
+  // container, so anything floating above the composer can clear it in plain
+  // CSS instead of guessing.
+  //
+  // The guess is the bug this removes. "Jump to bottom" cleared a hard-coded
+  // 80px, the cowork panel used to clear a hard-coded 88px, and the dock is
+  // neither: it grows with a multi-line draft, attachments, the error notice
+  // and the greeting. Every future floating element would have picked its own
+  // wrong number, so the number is published once, by the element that knows
+  // it.
+  //
+  // `offsetHeight`, not `getBoundingClientRect()`: the dock is translated
+  // upward while centring an empty chat, and the layout height is what a
+  // sibling needs to clear. Nothing floats over an empty chat anyway — the
+  // transcript is not rendered until there is a message.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const wrapper   = inputWrapperRef.current;
+    if (!container || !wrapper) return;
+    const publish = () => {
+      container.style.setProperty('--chat-dock-h', `${wrapper.offsetHeight}px`);
+    };
+    publish();
+    // Guarded: jsdom and older WebViews have no ResizeObserver, and a missing
+    // one must leave the initial measurement standing rather than throw.
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(publish);
+    ro.observe(wrapper);
+    return () => ro.disconnect();
+  }, []);
+
   // Initial data hydration
   useEffect(() => {
     void useConversations.getState().refresh();

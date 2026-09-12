@@ -51,14 +51,57 @@ describe('chat tool widgets', () => {
     expect(screen.getByText('Guide')).toBeInTheDocument();
   });
 
-  it('keeps the viewport position when tool events arrive while reading older messages', () => {
-    const { container } = render(<MessageList />);
-    const scroller = container.firstElementChild as HTMLElement;
+  /** The element that actually scrolls, which is NOT the outer wrapper: the
+   *  wrapper is the positioning context that keeps "Jump to bottom" still. */
+  function scrollerOf(container: HTMLElement): HTMLElement {
+    const el = container.querySelector('.overflow-y-auto');
+    if (!el) throw new Error('MessageList rendered no scroll container');
+    return el as HTMLElement;
+  }
+
+  /** Scroll away from the bottom, which is what reveals the button. */
+  function scrollUp(container: HTMLElement): HTMLElement {
+    const scroller = scrollerOf(container);
     Object.defineProperties(scroller, { scrollHeight: { value: 2000 }, clientHeight: { value: 600 } });
     scroller.scrollTop = 100;
     fireEvent.scroll(scroller);
+    return scroller;
+  }
+
+  it('keeps the viewport position when tool events arrive while reading older messages', () => {
+    const { container } = render(<MessageList />);
+    const scroller = scrollUp(container);
     act(() => emit({ type: 'tool_start', sessionId: 'chat', tool: 'read_file', args: { path: 'guide.txt' } }));
     expect(scroller.scrollTop).toBe(100);
+  });
+
+  describe('jump to bottom stays above the composer', () => {
+    it('is not a child of the scroller, so it cannot scroll out of view', () => {
+      // The original bug: an absolute child of a scroll container is laid out
+      // against the scrolled CONTENT, so the button rode up with the
+      // transcript and was only on screen when already at the bottom.
+      const { container } = render(<MessageList />);
+      const scroller = scrollUp(container);
+      const button = screen.getByRole('button', { name: /Jump to bottom|new/ });
+      expect(scroller.contains(button)).toBe(false);
+      expect(button.parentElement).toBe(container.firstElementChild);
+      expect(container.firstElementChild).toHaveClass('relative');
+    });
+
+    it('clears the composer by its measured height, never a fixed number', () => {
+      // `bottom-20` was a flat 80px: right for a one-line draft, wrong the
+      // moment the composer grew. The height is published by ChatPage.
+      const { container } = render(<MessageList />);
+      scrollUp(container);
+      const button = screen.getByRole('button', { name: /Jump to bottom|new/ });
+      expect(button.style.bottom).toContain('var(--chat-dock-h');
+      expect(button.className).not.toMatch(/bottom-\d/);
+    });
+
+    it('is not rendered at all while the transcript is already at the bottom', () => {
+      render(<MessageList />);
+      expect(screen.queryByRole('button', { name: /Jump to bottom/ })).not.toBeInTheDocument();
+    });
   });
 
   it('shows command output, file facts and failures without mixing sessions', () => {
