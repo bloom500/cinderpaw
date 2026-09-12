@@ -1,0 +1,4 @@
+name = "cinderpaw-bug-report"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+# Secret, set once with: npx wrangler secret put DISCORD_WEBHOOK

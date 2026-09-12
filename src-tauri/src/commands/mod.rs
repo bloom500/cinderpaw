@@ -98,7 +98,9 @@ mod command_count_test {
     // + stt_models + stt_model_present + download_stt_model. The local
     // transcription surface stopped being whisper-shaped: the build says which
     // models it has and what they cost, instead of the frontend guessing.
-    const EXPECTED_COMMAND_COUNT: usize = 166;
+    // 168 = + bug_report_log_preview + submit_bug_report (Settings > About
+    // report button: the log preview a person approves, and the send).
+    const EXPECTED_COMMAND_COUNT: usize = 168;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

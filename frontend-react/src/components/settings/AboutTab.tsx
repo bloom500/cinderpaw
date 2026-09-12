@@ -3,6 +3,7 @@ import { useUpdater } from '@/stores/updater';
 import { useAppVersion } from '@/hooks/useAppVersion';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { BugReportForm } from './BugReportForm';
 
 export function AboutTab() {
   const version  = useAppVersion();
@@ -57,6 +58,8 @@ export function AboutTab() {
         )}
       </div>
 
+      <BugReportForm />
+
       <div className="space-y-2">
         <a
           href="https://github.com/bloom500/cinderpaw"
@@ -72,7 +75,7 @@ export function AboutTab() {
           rel="noreferrer"
           className="block text-sm text-info hover:underline"
         >
-          Report an issue →
+          Open an issue on GitHub →
         </a>
       </div>
     </div>

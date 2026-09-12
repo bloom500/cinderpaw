@@ -95,3 +95,80 @@ pub(crate) fn set_onboarding_record(record: OnboardingRecord) -> Result<(), Stri
         .map_err(|e| format!("write failed: {}", e))?;
     Ok(())
 }
+
+// ---------- Bug report (Settings > About) ----------
+
+/// Where reports go. The URL is public by design; the Discord webhook it
+/// forwards to lives in the worker's secrets. See `workers/bug-report/`.
+const BUG_REPORT_URL: &str = "https://cinderpaw-bug-report.bloommediacorporation.workers.dev/";
+
+/// How much of the log travels with a report. Enough to see the last turn
+/// fail, small enough that the person can read what leaves their machine.
+const LOG_TAIL_LINES: usize = 200;
+
+/// Last `n` lines of the file, or an empty string when it does not exist.
+/// A missing log is not an error: a fresh install that crashed before the
+/// first line was written still has a description worth sending.
+fn tail_lines(path: &std::path::Path, n: usize) -> String {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].join("\n")
+}
+
+fn log_path() -> std::path::PathBuf {
+    cinderpaw_core::paths::cinderpaw_dir().join("logs").join("cinderpaw.log")
+}
+
+/// The log lines a report would carry, so the UI can show them before
+/// anything is sent. Paths in here contain the user's name; they decide.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn bug_report_log_preview() -> String {
+    tail_lines(&log_path(), LOG_TAIL_LINES)
+}
+
+/// Sends a report. Errors are short codes the UI turns into sentences:
+/// `rate_limited` (too many from this address) or `network` (anything else).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn submit_bug_report(description: String, include_log: bool) -> Result<(), String> {
+    let log = if include_log { tail_lines(&log_path(), LOG_TAIL_LINES) } else { String::new() };
+    let body = serde_json::json!({
+        "description": description,
+        "version": env!("CARGO_PKG_VERSION"),
+        "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+        "log": log,
+    });
+    let resp = reqwest::Client::new()
+        .post(BUG_REPORT_URL)
+        .timeout(std::time::Duration::from_secs(15))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|_| "network".to_string())?;
+    match resp.status().as_u16() {
+        204 => Ok(()),
+        429 => Err("rate_limited".into()),
+        _ => Err("network".into()),
+    }
+}
+
+#[cfg(test)]
+mod bug_report_tests {
+    use super::tail_lines;
+
+    #[test]
+    fn tail_lines_handles_missing_short_and_long_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("cinderpaw.log");
+
+        assert_eq!(tail_lines(&p, 3), "", "missing file is empty, not an error");
+
+        std::fs::write(&p, "a\nb\n").unwrap();
+        assert_eq!(tail_lines(&p, 3), "a\nb", "shorter than n returns everything");
+
+        std::fs::write(&p, "1\n2\n3\n4\n5\n").unwrap();
+        assert_eq!(tail_lines(&p, 3), "3\n4\n5", "longer than n keeps the last n");
+    }
+}
