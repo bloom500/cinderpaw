@@ -121,6 +121,7 @@ import "./transports/telegram.ts";
 import "./transports/irc.ts";
 import "./transports/signal.ts";
 import "./transports/nostr.ts";
+import "./transports/nextcloud-talk.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";

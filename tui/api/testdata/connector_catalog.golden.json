@@ -297,13 +297,19 @@
         "secret": false
       },
       {
-        "key": "NEXTCLOUD_TALK_BOT_SECRET",
-        "label": "Bot shared secret",
+        "key": "NEXTCLOUD_TALK_USER",
+        "label": "Your Nextcloud username",
+        "secret": false
+      },
+      {
+        "key": "NEXTCLOUD_TALK_APP_PASSWORD",
+        "label": "App password (Settings, Security, Devices & sessions — not your login password)",
         "secret": true
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false,
+    "console_url": "https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html"
   },
   {
     "id": "nostr",

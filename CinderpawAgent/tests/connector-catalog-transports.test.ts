@@ -30,6 +30,7 @@ import "../src/transports/telegram.ts";
 import "../src/transports/irc.ts";
 import "../src/transports/signal.ts";
 import "../src/transports/nostr.ts";
+import "../src/transports/nextcloud-talk.ts";
 
 interface CatalogEntry {
   id: string;

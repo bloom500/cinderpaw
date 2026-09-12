@@ -717,6 +717,36 @@ async fn connectors_decision_d_rich_fields_present() {
                     .expect("nostr declares a relay list field");
                 assert!(!relays.secret, "a public relay address is configuration, not a credential");
             }
+            "nextcloud-talk" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/nextcloud-talk.ts`.
+                // Deliberately NOT the webhook bot the upstream manifest
+                // describes: a bot needs an inbound public URL, which the
+                // person self-hosting Nextcloud at home does not have. The
+                // card must therefore ask for a user and an app password,
+                // never a bot secret, or it promises a setup that cannot
+                // complete behind a router.
+                assert!(!entry.coming_soon, "nextcloud talk's transport has landed — the card must not still say soon");
+                assert!(
+                    !entry.pairing_fields.iter().any(|f| f.key.contains("BOT_SECRET")),
+                    "the bot-secret pairing needs an inbound URL; this connector polls as a user instead"
+                );
+                let url = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "NEXTCLOUD_TALK_URL")
+                    .expect("nextcloud talk declares a server URL field");
+                assert!(!url.secret, "a server URL is configuration, not a credential");
+                let password = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "NEXTCLOUD_TALK_APP_PASSWORD")
+                    .expect("nextcloud talk declares an app password field");
+                assert!(password.secret, "an app password opens the whole Nextcloud account");
+                assert!(
+                    password.label.to_lowercase().contains("app password"),
+                    "the label must say APP password: typing the login password here works and is the wrong thing to do"
+                );
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the

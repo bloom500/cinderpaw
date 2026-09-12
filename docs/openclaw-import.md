@@ -101,7 +101,7 @@ record before the third platform rather than after it.
 
 ### Ported so far
 
-Ten of the 21, all on `main`. Discord, Slack and WhatsApp predate this import
+Eleven of the 21, all on `main`. Discord, Slack and WhatsApp predate this import
 and live in `src/transports/connectors.ts`; the rest have a file each. `coming_soon` in
 `crates/cinderpaw-core/src/connectors.rs` is the source of truth and two tests
 hold it there: `connector-catalog-transports.test.ts` fails if a card is live
@@ -118,8 +118,42 @@ writes a review arm for the newly live card by hand.
 | irc | a raw socket, and the byte budget that makes a newline an injection |
 | signal | a local daemon the user installs, and saying so on screen |
 | nostr | no operator at all: the identity is a keypair, and several relays at once |
+| nextcloud-talk | that a webhook design can be re-pointed: paired as a user, polled, so it works behind a router |
 
 Nostr is the first that needed a new dependency: `nostr-tools`, for the BIP-340
 Schnorr signature `node:crypto` does not have. It is Unlicense, so it adds
 nothing to the notice file. Check any candidate the same way before porting it,
 with `python scripts/openclaw/license-inventory.py`.
+
+### What is left, and the one thing blocking most of it
+
+Ten remain. They do not all fail for the same reason, and only one of the
+reasons is a decision:
+
+**Six need an inbound public URL** and cannot work on a home machine as
+designed: `googlechat`, `line`, `msteams`, `sms` (Twilio), `synology-chat`, and
+`zalo`. Each of these is a webhook platform: the provider POSTs to an address
+you own. A person running Cinderpaw behind a router has no such address, no
+certificate, and no way to get one without a tunnel.
+
+Nextcloud Talk was in this list until this commit, and it got out by being
+re-pointed rather than re-implemented: Talk has a user-facing chat API as well
+as a bot webhook, so pairing as a user and polling reaches the same messages
+with nothing exposed. That escape does not exist for the six above. Their APIs
+have no polling equivalent, so the product question is whether Cinderpaw ships
+an inbound endpoint plus a tunnel, or asks the user for a domain, or leaves
+these six as server-only connectors. One decision unblocks all six; there is no
+point porting any of them before it is made.
+
+**Four are blocked on something other than a URL:**
+
+- `imessage` — macOS only, and needs the `imsg` bridge installed locally. Same
+  shape as Signal. Portable, but untestable from a Windows box.
+- `feishu` — has a WebSocket long-connection mode, so no public URL needed.
+  Needs `@larksuiteoapi/node-sdk` (MIT). Genuinely portable next.
+- `tlon` — an Urbit ship over its own channel API, no public URL needed, but it
+  needs a running ship to test against and pulls the AWS S3 SDK for attachments.
+- `zalouser` — logs into a PERSONAL Zalo account by QR through `zca-js`, an
+  unofficial reimplementation of their private client protocol. That is an
+  account-ban risk for the user and a support burden for us. It should be a
+  deliberate yes, not the next item on a list.

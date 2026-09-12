@@ -608,18 +608,24 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                     secret: false,
                 },
                 PairingFieldDef {
-                    key: "NEXTCLOUD_TALK_BOT_SECRET".into(),
-                    label: "Bot shared secret".into(),
+                    key: "NEXTCLOUD_TALK_USER".into(),
+                    label: "Your Nextcloud username".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "NEXTCLOUD_TALK_APP_PASSWORD".into(),
+                    label: "App password (Settings, Security, Devices & sessions — not your login password)".into(),
                     secret: true,
                 },
             ],
             pairing_method: InstanceToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
-            console_url: None,
+            // Ported 2026-09-12: src/transports/nextcloud-talk.ts. NOT as the
+            // webhook bot OpenClaw uses: a bot needs Nextcloud to POST to a
+            // URL Cinderpaw owns, and someone self-hosting at home has no
+            // public address. This pairs as a user with an app password and
+            // long-polls instead, so it works behind a router.
+            coming_soon: false,
+            console_url: Some("https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html".into()),
             free_tier_note: None,
             validate_endpoint: None,
             oauth_scopes: Vec::new(),
