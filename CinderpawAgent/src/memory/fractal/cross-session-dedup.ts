@@ -121,3 +121,87 @@ export function dedupAcrossSessions(
 
   return groups;
 }
+
+// ── Identical leaves, whenever they were written ─────────────────────────────
+
+/**
+ * Cosine at which two leaves are the same memory in different words. Stricter
+ * than the cross-session 0.92 above on purpose: this pass has no time guard, so
+ * the text has to carry the whole argument.
+ */
+export const COLLAPSE_COSINE = 0.98;
+
+/**
+ * The text as it is compared: case, whitespace, ISO timestamps and long bare
+ * numbers (ids, ports, epoch millis) folded away. "saved at 10:00, id 1234567"
+ * and "Saved at 11:30, id 7654321" are one event that happened twice; the
+ * words are what make two lines different memories.
+ */
+export function normaliseForCollapse(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\d{4}-\d{2}-\d{2}[t ]\d{2}:\d{2}(:\d{2})?(\.\d+)?z?/g, "<ts>")
+    .replace(/\d{6,}/g, "<n>")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export interface CollapseResult<T> {
+  /** One leaf per group: the earliest by `ts`, then by id. */
+  survivors: T[];
+  /** Survivor id → every id in its group, the survivor first. */
+  groups: Map<number, number[]>;
+  /** Survivor id → group size. */
+  hitCount: Map<number, number>;
+}
+
+function dotAny(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i]! * b[i]!;
+  return s;
+}
+
+/**
+ * Fold leaves that say the same thing into one, with no condition on when
+ * they were written. The audit's Q9 was fifteen identical tool-log lines from
+ * one day competing as fifteen leaves: none of them was the "right" one, and
+ * the cross-session pass above never touched them because it waits thirty
+ * days. Pure: the caller decides what to do with the groups (the tree builds
+ * from `survivors`; the benchmark counts a hit on any member of a group).
+ *
+ * Text first, vectors second: exact duplicates leave by the text bucket
+ * before any dot product is spent, and only survivors are compared.
+ */
+// ponytail: the vector pass is O(n · survivors). Fine to ~50k leaves; bucket
+// by a coarse hash of the vector if a corpus ever grows past that.
+export function collapseIdentical<T extends { id: number; text: string; ts?: number; vec?: ArrayLike<number> }>(
+  leaves: T[],
+  opts: { cosineThreshold?: number } = {},
+): CollapseResult<T> {
+  const thr = opts.cosineThreshold ?? COLLAPSE_COSINE;
+  const sorted = [...leaves].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0) || a.id - b.id);
+  const byText = new Map<string, T>();
+  const survivors: T[] = [];
+  const groups = new Map<number, number[]>();
+  for (const leaf of sorted) {
+    const norm = normaliseForCollapse(leaf.text);
+    let into = byText.get(norm);
+    if (!into && leaf.vec && leaf.vec.length > 0) {
+      for (const s of survivors) {
+        if (s.vec && s.vec.length === leaf.vec.length && dotAny(s.vec, leaf.vec) >= thr) {
+          into = s;
+          break;
+        }
+      }
+    }
+    if (into) {
+      groups.get(into.id)!.push(leaf.id);
+      continue;
+    }
+    byText.set(norm, leaf);
+    survivors.push(leaf);
+    groups.set(leaf.id, [leaf.id]);
+  }
+  const hitCount = new Map([...groups].map(([id, g]) => [id, g.length]));
+  return { survivors, groups, hitCount };
+}
