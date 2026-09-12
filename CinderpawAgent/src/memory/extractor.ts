@@ -25,7 +25,7 @@
  */
 
 import type { InferenceRouter } from "../egress/inference-router.ts";
-import { memoryScope, type SemanticMemory } from "./semantic.ts";
+import { memoryScope, asCategory, type FactCategory, type SemanticMemory } from "./semantic.ts";
 import type { EpisodicMemory } from "./episodic.ts";
 import type { ChatMessage, AfterMemoryWritePayload } from "../types.ts";
 import type { MemoryGraph } from "./graph.ts";
@@ -204,8 +204,10 @@ export class MemoryExtractor {
               "You are a memory extractor. Analyze the conversation turn and extract two sections:",
               "",
               "=== FACTS ===",
-              "Extract durable facts about the USER (e.g. name, role, language, preferences, goal).",
-              "Output ONE fact per line as: key: value",
+              "Extract durable facts about the USER (identity, role, preferences, decisions, goals, commitments).",
+              "Output ONE fact per line as: category | key: value",
+              "category is one of: fact, preference, decision, commitment, goal, event, instruction, relationship, context, learning, observation, error, artifact",
+              "Example: preference | units: metric",
               "If nothing worth extracting, output: NONE",
               "",
               "=== OBSERVATION ===",
@@ -234,17 +236,14 @@ export class MemoryExtractor {
       if (factsText && factsText.toUpperCase() !== "NONE") {
         const graphFacts: Array<{ key: string; value: string }> = [];
         for (const line of factsText.split("\n")) {
-          const colon = line.indexOf(":");
-          if (colon < 1) continue;
-          const fact = sanitizeFact(
-            line.slice(0, colon),
-            line.slice(colon + 1),
-          );
+          const split = splitFactLine(line);
+          if (!split) continue;
+          const fact = sanitizeFact(split.rawKey, split.rawValue);
           if (fact) {
             // Scoped to the speaker on a multi-party session, global
             // everywhere else — mined facts leak the same way explicit ones
             // do. See `memoryScope`.
-            this.#semantic.upsert(fact.key, fact.value, memoryScope(sessionId));
+            this.#semantic.upsert(fact.key, fact.value, memoryScope(sessionId), fact.category);
             graphFacts.push(fact);
             // Fire after_memory_write ONCE per fact write — the
             // Reconciler (Pathway 3 step 2) subscribes to upsert into
@@ -408,10 +407,30 @@ export function isJunkFactKey(key: string): boolean {
  *
  * Returns the cleaned fact, or null when the line is not a usable fact.
  */
+/**
+ * One FACTS line → its raw key and value. The colon we split on is the first
+ * one, exactly as before; the category, when present, sits before a pipe
+ * that is itself before that colon, so a pipe inside the value is left alone.
+ */
+export function splitFactLine(line: string): { rawKey: string; rawValue: string } | null {
+  const colon = line.indexOf(":");
+  if (colon < 1) return null;
+  return { rawKey: line.slice(0, colon), rawValue: line.slice(colon + 1) };
+}
+
 export function sanitizeFact(
   rawKey: string,
   rawValue: string,
-): { key: string; value: string } | null {
+): { key: string; value: string; category: FactCategory } | null {
+  // `category | key`: the category is whatever stands before the pipe, if it
+  // is one of ours. An unknown word there is not promoted to a category, and
+  // the old bare `key` form is a `fact`, which is what it always was.
+  let category: FactCategory = "fact";
+  const pipe = rawKey.indexOf("|");
+  if (pipe !== -1) {
+    category = asCategory(rawKey.slice(0, pipe));
+    rawKey = rawKey.slice(pipe + 1);
+  }
   // Strip markdown list markers and numbering from the key.
   const key = rawKey
     .trim()
@@ -430,7 +449,7 @@ export function sanitizeFact(
   // Thinking markup in the value is model leakage.
   if (/<\/?think/i.test(value)) return null;
 
-  return { key: canonicalKey, value };
+  return { key: canonicalKey, value, category };
 }
 
 /**
