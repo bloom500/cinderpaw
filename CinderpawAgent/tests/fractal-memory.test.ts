@@ -314,3 +314,37 @@ describe("FractalMemory — tiny corpus", () => {
     expect(fm.hasTree).toBe(false);
   });
 });
+
+describe("FractalMemory — identical memories fold into one leaf", () => {
+  /** Twelve leaves where four in s-a say exactly the same thing. */
+  function repeated(): Leaf[] {
+    return leaves().map((l) => (l.id <= 4 ? { ...l, text: "tool shell_exec ok: bun test in s-a" } : l));
+  }
+
+  it("builds from survivors, still covers the whole corpus, and counts the copies in recall", async () => {
+    const fm = new FractalMemory({
+      loadLeaves: repeated, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+    });
+    expect(await fm.rebuild()).toBe(true);
+    // Four copies became one leaf; the tree answers for all twelve memories.
+    expect(fm.treeLeafCount).toBe(12);
+    expect(fm.equivalents(3).sort()).toEqual([1, 2, 3, 4]);
+    expect(fm.equivalents(7)).toEqual([7]);
+    // Not stale: covered equals corpus.
+    expect(await fm.rebuildIfStale()).toBe(false);
+    const r = await fm.recall("anything s-a", "other");
+    expect(r.context).toMatch(/bun test in s-a.*\(×4\)/);
+    expect(r.context.split("bun test in s-a").length).toBe(2);
+  });
+
+  it("recomputes the groups when a persisted tree is adopted", async () => {
+    const path = treePath();
+    const a = new FractalMemory({ loadLeaves: repeated, embed: fakeEmbed(), summarize: fakeSummarize, ftsSearch: noFts, fallback, treePath: path });
+    expect(await a.rebuild()).toBe(true);
+    const b = new FractalMemory({ loadLeaves: repeated, embed: fakeEmbed(), summarize: fakeSummarize, ftsSearch: noFts, fallback, treePath: path });
+    expect(b.init()).toBe(true);
+    expect(b.equivalents(2).sort()).toEqual([1, 2, 3, 4]);
+    expect(b.treeLeafCount).toBe(12);
+  });
+});

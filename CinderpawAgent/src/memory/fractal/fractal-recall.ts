@@ -124,6 +124,8 @@ export interface FractalRecallDeps {
    * current, which is what a bare line does. Absent in benchmarks and tests.
    */
   supersededAt?: (key: string, writtenAt: number) => number | null;
+  /** How many identical memories this leaf stands for (1 when unknown). */
+  hitCountOf?: (leafId: number) => number;
 }
 
 /** RecallResult mirrors `src/memory/recall.ts` so this is a drop-in. */
@@ -166,6 +168,7 @@ export class FractalRecallEngine {
   readonly #leavesById: Map<number, Leaf>;
   readonly #factKeyOf: FractalRecallDeps["factKeyOf"];
   readonly #supersededAt: FractalRecallDeps["supersededAt"];
+  readonly #hitCountOf: FractalRecallDeps["hitCountOf"];
 
   constructor(deps: FractalRecallDeps) {
     this.#tree = deps.tree;
@@ -174,6 +177,7 @@ export class FractalRecallEngine {
     this.#leavesById = deps.leavesById;
     this.#factKeyOf = deps.factKeyOf;
     this.#supersededAt = deps.supersededAt;
+    this.#hitCountOf = deps.hitCountOf;
   }
 
   /**
@@ -331,7 +335,11 @@ export class FractalRecallEngine {
       const key = this.#factKeyOf?.(h.id);
       const supersededAt = key ? this.#supersededAt?.(key, h.ts) : null;
       const superseded = supersededAt ? ` (superseded ${dateStamp(supersededAt)})` : "";
-      return `  ${via}[${stamp}] ${rolePart}${snippet(h.text)}${superseded}`;
+      // A memory that happened fifteen times is one line with a count, not
+      // fifteen lines that spend fourteen rows of the model's budget on nothing.
+      const n = this.#hitCountOf?.(h.id) ?? 1;
+      const times = n > 1 ? ` (×${n})` : "";
+      return `  ${via}[${stamp}] ${rolePart}${snippet(h.text)}${superseded}${times}`;
     });
 
     const context = [
