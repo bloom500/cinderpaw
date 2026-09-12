@@ -278,6 +278,44 @@ fractal recall@10 = 0.417   p99 = 32ms   SHIP
 fts     recall@10 = 0.083   p99 = 100ms
 ```
 
+#### This is the FMS number to quote, and the only one in this repo
+
+Reconciled 2026-09-12, after an outside review quoted a different figure.
+
+A second SHIP verdict exists, reading **66.7% vs 0.0% at p99 22ms**. It lives in
+`docs/agents-memory/project_fractal_bench_blockers.md`, which is **gitignored**
+(`.gitignore:114`) — it is on one machine and in no clone, so anyone asked to
+check it cannot. Written down here because a number nobody else can open is
+still a number people repeat.
+
+The two do not contradict each other. They measure different corpora:
+
+| corpus | fractal | FTS5 | p99 |
+|---|---|---|---|
+| 200-leaf cap (cloud router refused the full set) | 66.7% | 0.0% | 22ms |
+| **full 2700 leaves, branch=8** | **41.7%** | **8.3%** | **32ms** |
+
+Quote the 2700-leaf row. 200 leaves is not a memory anybody has, and leading
+with it means leading with the easiest run we ever did.
+
+**Reconciling them is what produces the actual finding: recall falls as the
+corpus grows.** 66.7% → 41.7% while FTS5 climbs 0% → 8.3%, so the gap narrows
+from 66 points to 33 across a 13x corpus. That is the direction nobody wants,
+and it is the question the next benchmark exists to answer: does the advantage
+survive scale, or were we measuring a small index?
+
+Both rows are **n=12**. 41.7% is five questions, 66.7% is eight, and the
+distance between our two "results" is three questions — on a query set whose
+own notes say the paraphrases vary in difficulty run to run. Enough to keep
+working on. Not enough to publish, and not enough to carry a 2x2
+memory-vs-adaptation experiment: on twelve queries no arm of it will separate
+from the others.
+
+**What the millisecond figures exclude:** the bench pre-computes every query
+vector in one batch before the timer starts. The longest query in this set
+takes ~330ms to embed on its own. For a question typed live, add that; 32ms is
+traversal, not answer latency.
+
 A material jump (>0.50) → topology was the limiter; freeze a JSONL and
 publish. Flat (~0.40) → embedding is the ceiling; bge-large is next.
 
