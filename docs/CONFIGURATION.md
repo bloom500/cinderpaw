@@ -210,6 +210,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_FMS_QUERY_TOPK` | int | `20` |  | Semantic candidates the tree descent returns before re-rank. Raising it widens what recall can consider, at more cosine work per query. |
 | `CINDERPAW_FMS_QUERY_BEAM` | int | `20` |  | How many tree nodes survive at each level of the descent, and so the primary control on recall versus tail latency. At 2700 memories and branch 8 the first level holds ~338 clusters, so the default of 20 discards roughly 94% of the corpus before any single memory is scored: that is what makes the search cheap, and it is also its recall ceiling. Never applied below CINDERPAW_FMS_QUERY_TOPK, since a narrower beam would silently truncate the result rather than shrink the search. |
 | `CINDERPAW_TREE_BRANCH` | int | `null` |  | Branching factor for fractal tree build. |
+| `CINDERPAW_TREE_PARTITION` | string | `"fixed"` |  | How each tree level is split into clusters. fixed uses k = n / branch, the split the tree has always used. xmemory tries a short ladder of k around that and keeps the one the partition score (sparsity + semantic cohesion) rates highest. Measured on LongMemEval 50 (2026-09-12): identical recall, 13x the build time; stays fixed until a corpus shows otherwise. |
 | `CINDERPAW_TREE_CLUSTER_MAX_CHARS` | int | `null` |  | Max cluster size in chars. |
 | `CINDERPAW_TREE_ITEM_MAX_CHARS` | int | `null` |  | Max item size in chars. |
 | `CINDERPAW_PII_REDACTION` | string | `"on"` |  | Master switch for PII redaction in memory writes; "off" disables (inverse-toggle var). |
@@ -483,6 +484,7 @@ CINDERPAW_TOOL_GRAMMAR
 CINDERPAW_TOTAL_DEADLINE_MS
 CINDERPAW_TREE_BRANCH
 CINDERPAW_TREE_CLUSTER_MAX_CHARS
+CINDERPAW_TREE_PARTITION
 CINDERPAW_TREE_ITEM_MAX_CHARS
 CINDERPAW_TRUSTED_BASE_URLS
 CINDERPAW_TRUSTED_LOCAL_ORIGINS

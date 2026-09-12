@@ -185,6 +185,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "How many tree nodes survive at each level of the descent, and so the primary control on recall versus tail latency. At 2700 memories and branch 8 the first level holds ~338 clusters, so the default of 20 discards roughly 94% of the corpus before any single memory is scored: that is what makes the search cheap, and it is also its recall ceiling. Never applied below CINDERPAW_FMS_QUERY_TOPK, since a narrower beam would silently truncate the result rather than shrink the search.", security: false },
   { name: "CINDERPAW_TREE_BRANCH", type: "int", default: null,
     description: "Branching factor for fractal tree build.", security: false },
+  { name: "CINDERPAW_TREE_PARTITION", type: "string", default: "fixed",
+    description: "How each tree level is split into clusters. fixed uses k = n / branch, the split the tree has always used. xmemory tries a short ladder of k around that and keeps the one the partition score (sparsity + semantic cohesion) rates highest. Measured on LongMemEval 50 (2026-09-12): identical recall, 13x the build time; stays fixed until a corpus shows otherwise.", security: false },
   { name: "CINDERPAW_TREE_CLUSTER_MAX_CHARS", type: "int", default: null,
     description: "Max cluster size in chars.", security: false },
   { name: "CINDERPAW_TREE_ITEM_MAX_CHARS", type: "int", default: null,
