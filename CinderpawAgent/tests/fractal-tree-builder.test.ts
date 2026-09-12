@@ -334,3 +334,37 @@ describe("buildTree — error handling", () => {
     return expect(buildTree(bad, noEmbed)).rejects.toThrow(/embedding/i);
   });
 });
+
+describe("buildTree — partition mode", () => {
+  /** Real kmeans, deterministic seed; the trivial kmeans ignores geometry. */
+  const realDeps = () => ({ summarize: async (items: string[]) => `s(${items.length})` });
+
+  const serialise = (n: TreeNode): string =>
+    JSON.stringify(n, (k, v) => (v instanceof Float32Array ? Array.from(v) : v));
+
+  it("fixed and omitted produce the same tree", async () => {
+    const a = await buildTree(THREE_GROUPS_OF_FOUR, { ...realDeps(), branch: 4 });
+    const b = await buildTree(THREE_GROUPS_OF_FOUR, { ...realDeps(), branch: 4, partition: "fixed" });
+    expect(serialise(a)).toBe(serialise(b));
+  });
+
+  it("xmemory lets the score pick the cluster count instead of n/branch", async () => {
+    // Three real groups of four, branch 8: fixed makes k = ceil(12/8) = 2 and
+    // has to glue two groups together; the score is free to pick three.
+    const fixed = await buildTree(THREE_GROUPS_OF_FOUR, { ...realDeps(), branch: 8 });
+    const scored = await buildTree(THREE_GROUPS_OF_FOUR, { ...realDeps(), branch: 8, partition: "xmemory" });
+    expect(fixed.children).toHaveLength(2);
+    expect(scored.children).toHaveLength(3);
+    for (const child of scored.children) expect(child.leafIds).toHaveLength(4);
+  });
+
+  it("candidateKs is a short ladder around n/branch, clamped to [2, n-1]", async () => {
+    const { candidateKs } = await import("../src/memory/fractal/tree-builder.ts");
+    expect(candidateKs(12, 8)).toEqual([2, 3, 4]);
+    const ks = candidateKs(2700, 8);
+    expect(ks[0]).toBe(169);
+    expect(ks[ks.length - 1]).toBe(676);
+    expect(ks.length).toBeLessThanOrEqual(7);
+    expect(candidateKs(3, 8)).toEqual([2]);
+  });
+});

@@ -16,7 +16,8 @@
  *   median) lose, and one that is far from everything (far below) loses too.
  *
  * The tree builder tries a few cluster counts and keeps the one this scores
- * highest. Pure arithmetic; the knobs are `SIGMA` and `REDUNDANT_ABOVE`.
+ * highest. Pure arithmetic; the knobs are `SIGMA`, `REDUNDANT_ABOVE` and
+ * `MIN_K_FOR_MEDIAN`.
  */
 
 /** Width of the band around the median neighbour similarity that counts as
@@ -33,6 +34,16 @@ export const SIGMA = 0.1;
  * sentence embeddings we use (0.3 to 0.7 between unrelated centroids).
  */
 export const REDUNDANT_ABOVE = 0.9;
+
+/**
+ * Below this many clusters the median neighbour similarity is not a median:
+ * at k = 2 both neighbours are it (penalty always 0), at k = 3 the odd one
+ * out is always a full outlier (a legitimate third theme scored as isolated
+ * and lost to a two-way split that glued two themes together). The
+ * redundancy term still applies; only the "erratic spacing" term waits for
+ * enough neighbours to say what normal spacing is.
+ */
+export const MIN_K_FOR_MEDIAN = 4;
 
 function dot(a: Float32Array, b: Float32Array): number {
   let s = 0;
@@ -90,7 +101,7 @@ export function semScore(points: Float32Array[], assignments: number[], k: numbe
   const med = [...nn].sort((x, y) => x - y)[Math.floor(nn.length / 2)]!;
   let penalty = 0;
   for (const x of nn) {
-    penalty += 1 - Math.exp(-((x - med) ** 2) / (2 * SIGMA * SIGMA));
+    if (k >= MIN_K_FOR_MEDIAN) penalty += 1 - Math.exp(-((x - med) ** 2) / (2 * SIGMA * SIGMA));
     if (x > REDUNDANT_ABOVE) penalty += Math.min(1, (x - REDUNDANT_ABOVE) / (1 - REDUNDANT_ABOVE));
   }
   return coh - penalty / k;

@@ -21,6 +21,7 @@
  */
 import type { Leaf, TreeNode } from "./types.ts";
 import { kmeans as defaultKmeans } from "./kmeans.ts";
+import { partitionScore } from "./partition-score.ts";
 import { readEnv } from "../../config.ts";
 
 /**
@@ -33,6 +34,57 @@ import { readEnv } from "../../config.ts";
  * `CINDERPAW_TREE_BRANCH=16` without code changes. Default 8; clamped to >=2 (a
  * branch of 1 never reduces the level and would loop forever).
  */
+/**
+ * How a level is split. `fixed` is k = n / branch, the number the tree has
+ * always used and nobody measured. `xmemory` tries a short ladder of k around
+ * it and keeps the one `partitionScore` rates highest. Off by default: a
+ * fresh install builds exactly the tree it built yesterday until the
+ * benchmark says the other one is better.
+ */
+export type PartitionMode = "fixed" | "xmemory";
+
+function defaultPartition(): PartitionMode {
+  return readEnv("CINDERPAW_TREE_PARTITION") === "xmemory" ? "xmemory" : "fixed";
+}
+
+/**
+ * Candidate cluster counts around the fixed choice n / branch: a geometric
+ * ladder from half as many clusters to twice as many, at most seven values,
+ * clamped to [2, n - 1]. The objective chooses between coarser and finer,
+ * rather than searching every k, which would multiply build time by n.
+ */
+export function candidateKs(n: number, branch: number): number[] {
+  const mid = Math.max(2, Math.ceil(n / branch));
+  const lo = Math.max(2, Math.ceil(mid / 2));
+  const hi = Math.min(n - 1, mid * 2);
+  const out = new Set<number>();
+  for (let i = 0; i <= 6; i++) out.add(Math.round(lo * Math.pow(hi / lo, i / 6)));
+  return [...out].filter((k) => k >= 2 && k <= n - 1).sort((a, b) => a - b);
+}
+
+/** The split for one level, under the chosen mode. Exported for tests. */
+export function chooseK(
+  points: Float32Array[],
+  branch: number,
+  kmeans: NonNullable<BuildTreeDeps["kmeans"]>,
+  seed: number,
+  mode: PartitionMode,
+): { k: number; assignments: number[] } {
+  if (mode === "fixed") {
+    const k = Math.ceil(points.length / branch);
+    return { k, assignments: kmeans(points, k, seed) };
+  }
+  let best: { k: number; assignments: number[]; score: number } | null = null;
+  for (const k of candidateKs(points.length, branch)) {
+    const assignments = kmeans(points, k, seed);
+    const score = partitionScore(points, assignments, k);
+    if (!best || score > best.score) best = { k, assignments, score };
+  }
+  // Fewer than two candidates only happens for n <= 2, which the level loop
+  // never reaches (it stops once a level fits in `branch`).
+  return best ?? { k: 1, assignments: points.map(() => 0) };
+}
+
 function defaultBranch(): number {
   const n = Number(readEnv("CINDERPAW_TREE_BRANCH"));
   return Number.isFinite(n) && n >= 2 ? Math.floor(n) : 8;
@@ -164,6 +216,8 @@ export interface BuildTreeDeps {
    * fewer leaves; production never sets this.
    */
   branch?: number;
+  /** See `PartitionMode`. Defaults to `CINDERPAW_TREE_PARTITION`, else `fixed`. */
+  partition?: PartitionMode;
   /**
    * Called after each chunk of leaves is embedded so callers can persist
    * the vectors back to their store (typically SQLite, via
@@ -212,6 +266,7 @@ export async function buildTree(
   const kmeans = deps.kmeans ?? defaultKmeans;
   const summarize = deps.summarize;
   const branch = deps.branch ?? defaultBranch();
+  const partition = deps.partition ?? defaultPartition();
 
   if (leaves.length === 0) {
     throw new Error("buildTree: leaves array is empty");
@@ -299,8 +354,7 @@ export async function buildTree(
   while (current.length > branch) {
     level++;
     const centroids = current.map((n) => n.centroid);
-    const k = Math.ceil(current.length / branch);
-    const assignments = kmeans(centroids, k, KMEANS_SEED);
+    const { assignments } = chooseK(centroids, branch, kmeans, KMEANS_SEED, partition);
 
     // Group current-level nodes by cluster id.
     const groups = new Map<number, TreeNode[]>();
