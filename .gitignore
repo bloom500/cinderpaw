@@ -28,11 +28,12 @@ src-tauri/binaries/cinderpaw-agent
 # from `bun build --compile scripts/fake-lora-trainer.ts`).
 scripts/*.exe
 
-# Go TUI binary (go build output)
-tui/cinderpaw-tui.exe
-tui/cinderpaw-tui
-tui/cinderpaw-tui.exe
-tui/cinderpaw-tui
+# Go TUI binary (go build output). Globbed rather than named: the binary was
+# `feral-tui` before the rename, and a 21 MB copy of it stayed tracked in git
+# because the ignore rule only knew the new name. The next rename would have
+# done the same thing again.
+tui/*-tui
+tui/*-tui.exe
 
 # Git worktrees (paseo / git worktree add)
 .worktrees/
