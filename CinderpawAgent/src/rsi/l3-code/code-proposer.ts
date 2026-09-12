@@ -25,6 +25,7 @@
 
 import type { CodeGenome } from "./code-genome.ts";
 import { DEFAULT_CODE_PATCH_POLICY } from "./code-genome.ts";
+import { selectExperiment, type Attempt } from "./experiment-selector.ts";
 
 export interface ProposerDeps {
   /** LOCAL-ONLY completion (see module docblock). Returns raw model text. */
@@ -36,6 +37,10 @@ export interface ProposerDeps {
   readRsiFile: (basename: string) => Promise<string>;
   /** Commit the patch applies on top of (the repo's current HEAD). */
   baseCommit: () => Promise<string>;
+  /** The ledger of past L3 rounds (see `experiment-selector.ts`). The
+   *  selector picks the target from it and tells the model what was already
+   *  refused there. Default: empty, which behaves like the old random pick. */
+  attempts?: Attempt[];
   /** Injectable for deterministic tests. Default Math.random. */
   rng?: () => number;
   /** Completion budget. Default 4096 (a ≤200-line diff fits easily). */
@@ -213,10 +218,17 @@ export async function proposeCodePatch(deps: ProposerDeps): Promise<CodeGenome |
   const rng = deps.rng ?? Math.random;
   const candidates = proposableFiles(await deps.listRsiFiles());
   if (candidates.length === 0) return null;
-  const target = candidates[Math.floor(rng() * candidates.length)]!;
+  // M0 chooses the experiment. Every file struck out means nothing is worth
+  // trying this round, which is a verdict too, not an error.
+  const experiment = selectExperiment(candidates, deps.attempts ?? [], rng);
+  if (!experiment) return null;
+  const target = experiment.target;
   const source = await deps.readRsiFile(target);
 
-  const user = `File: src/rsi/${target}\n\n\`\`\`ts\n${source}\n\`\`\`\n\nPropose one improvement to src/rsi/${target} as SEARCH/REPLACE blocks.`;
+  const user =
+    `File: src/rsi/${target}\n\n\`\`\`ts\n${source}\n\`\`\`\n\n` +
+    `Evidence from earlier rounds:\n${experiment.brief}\n\n` +
+    `Propose one improvement to src/rsi/${target} as SEARCH/REPLACE blocks.`;
   const text = await deps.completeLocal({
     system: SYSTEM_PROMPT,
     user,

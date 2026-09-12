@@ -1890,10 +1890,15 @@ export async function boot(transportOverride?: Transport) {
       const { proposeCodePatch } = await import("./rsi/l3-code/code-proposer.ts");
       const { makeCodeStageAdapters, runCodeCandidate } = await import("./rsi/l3-code/code-rsi.ts");
       const { bunExec } = await import("./rsi/l3-code/code-sandbox.ts");
+      const { appendAttempt, defaultAttemptLedgerPath, readAttempts } = await import(
+        "./rsi/l3-code/experiment-selector.ts"
+      );
       const { readdir, readFile } = await import("node:fs/promises");
       const rsiDir = require("node:path").join(repoRoot, "CinderpawAgent", "src", "rsi");
+      const ledgerPath = defaultAttemptLedgerPath();
 
       const genome = await proposeCodePatch({
+        attempts: readAttempts(ledgerPath),
         completeLocal: async ({ system, user, maxTokens }) => {
           const res = await router.complete({
             sessionId: "code-rsi-proposer",
@@ -1940,6 +1945,29 @@ export async function boot(transportOverride?: Transport) {
           (result.advanced ? ` — PROMOTED score=${result.score?.toFixed(1)}, queued for approval` : ""),
       );
       if (result.advanced) sendCodePatches();
+
+      // The round becomes evidence, twice. The ledger is what M0 selects
+      // from next time (`experiment-selector.ts`); the FMS episode is the
+      // first edge from BRSI into memory: the agent can now be asked what
+      // its own improvement loop tried and why it was refused, and the
+      // dream cycle sees those rows like any other experience.
+      const action = result.decided?.action ?? "halt";
+      const attempt = {
+        // Patch headers say "src/rsi/l1-config/x.ts"; the ledger and the
+        // selector speak rsi/-relative, the way `listRsiFiles` does.
+        file: (genome.affectedFiles[0] ?? "").replace(/^src\/rsi\//, ""),
+        rationale: genome.proposal.rationale,
+        verdict: action,
+        reason: result.decided?.reason ?? "no reason",
+        ts: Date.now(),
+      };
+      appendAttempt(ledgerPath, attempt);
+      const leaf = episodic.record(
+        "rsi-l3",
+        "system",
+        `[rsi-l3] ${action} on ${attempt.file}: "${attempt.rationale}" (${attempt.reason})`,
+      );
+      if (leaf !== null) fractalMemory.noteWrite({ id: leaf, sessionId: "rsi-l3", ts: attempt.ts });
     } catch (e) {
       log(`code-rsi: round failed: ${String(e)}`);
     } finally {
