@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-shell';
 import {
   Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles, Search,
@@ -29,13 +29,27 @@ import type { ToolActivity, ToolKind } from '@/hooks/useLiveToolActivity';
  * The keyframes live in `globals.css` under "Call telemetry widgets" and all of
  * them are disabled under `prefers-reduced-motion`.
  */
-export function CallToolScreen({ activity }: { activity: ToolActivity[] }) {
+export const CallToolScreen = memo(function CallToolScreen({ activity, inline = false }: { activity: ToolActivity[]; inline?: boolean }) {
   const t = useT();
   if (activity.length === 0) return null;
 
   // Newest first: during a long turn, the running tool is what the eye wants.
   const rows = [...activity].reverse();
   const running = rows.filter((a) => a.status === 'running').length;
+
+  if (inline) {
+    return (
+      <details open className="rounded-xl border border-border-subtle bg-bg-surface/50">
+        <summary className="cursor-pointer rounded-xl px-3 py-2 text-xs text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+          <span>{t('call.tools')}</span> · {rows.length}
+          {running > 0 && <span aria-live="polite"> · {running} {t('call.toolsRunning')}</span>}
+        </summary>
+        <div className="grid max-h-[28rem] gap-2 overflow-y-auto p-2 thin-scrollbar">
+          {rows.map((a) => <Widget key={a.id} activity={a} />)}
+        </div>
+      </details>
+    );
+  }
 
   return (
     <div
@@ -59,7 +73,7 @@ export function CallToolScreen({ activity }: { activity: ToolActivity[] }) {
       ))}
     </div>
   );
-}
+});
 
 /** Chrome per kind: the icon and the label above the body. */
 const CHROME: Record<ToolKind, { icon: typeof Globe; tint: string }> = {

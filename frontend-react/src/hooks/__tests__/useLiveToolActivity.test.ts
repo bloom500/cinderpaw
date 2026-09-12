@@ -1,5 +1,87 @@
-import { describe, it, expect } from 'vitest';
-import { hitsOf, subjectOf, kindOf, filesOf, factsOf } from '../useLiveToolActivity';
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { events } from '@/lib/tauri/events';
+import * as artifacts from '@/lib/callArtifacts';
+import { useLiveToolActivity, hitsOf, subjectOf, kindOf, filesOf, factsOf } from '../useLiveToolActivity';
+
+describe('chat tool activity', () => {
+  let emit: (line: unknown) => void;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(events.cinderpawAgentOutputEvent, 'listen').mockImplementation((cb) => {
+      emit = (line) => cb({ payload: { data: JSON.stringify(line) } } as Parameters<typeof cb>[0]);
+      return Promise.resolve(vi.fn());
+    });
+    vi.spyOn(events.liveStatusEvent, 'listen').mockResolvedValue(vi.fn());
+    vi.spyOn(events.liveKitEvent, 'listen').mockResolvedValue(vi.fn());
+    vi.spyOn(artifacts, 'recordArtifact').mockImplementation(() => {});
+  });
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+  it('shows only scoped tool events, keeps completed results, and leaves call artifacts alone', () => {
+    const { result } = renderHook(() => useLiveToolActivity(true, 'chat-a'));
+    act(() => {
+      emit({ type: 'tool_start', tool: 'web_search', sessionId: 'chat-b', args: { query: 'other chat' } });
+      emit({ type: 'tool_start', tool: 'web_search', args: { query: 'unattributed' } });
+      emit(null);
+    });
+    expect(result.current).toEqual([]);
+    act(() => emit({ type: 'tool_start', tool: 'web_search', sessionId: 'chat-a', args: { query: 'Bucharest' } }));
+    expect(result.current[0]).toMatchObject({ kind: 'browser', subject: 'Bucharest', status: 'running' });
+    act(() => emit({ type: 'tool_progress', tool: 'web_search', sessionId: 'chat-a', message: 'Fetching results' }));
+    expect(result.current[0].note).toBe('Fetching results');
+    act(() => emit({ type: 'tool_done', tool: 'web_search', sessionId: 'chat-b', result: { ok: false } }));
+    expect(result.current[0].status).toBe('running');
+    act(() => emit({ type: 'tool_done', tool: 'web_search', sessionId: 'chat-a', result: {
+      ok: true, data: [{ text: 'Bucharest — city guide', url: 'https://example.com/guide' }],
+    } }));
+    expect(result.current[0]).toMatchObject({ status: 'done', hits: [{ title: 'Bucharest', url: 'https://example.com/guide' }] });
+    act(() => vi.advanceTimersByTime(10000));
+    expect(result.current).toHaveLength(1);
+    expect(artifacts.recordArtifact).not.toHaveBeenCalled();
+    expect(events.liveStatusEvent.listen).not.toHaveBeenCalled();
+    expect(events.liveKitEvent.listen).not.toHaveBeenCalled();
+  });
+
+  it('clears activity on session switches and ignores callbacks from the old subscription', () => {
+    const { result, rerender } = renderHook(({ session }) => useLiveToolActivity(true, session), { initialProps: { session: 'a' } });
+    act(() => emit({ type: 'tool_start', sessionId: 'a', tool: 'read_file', args: { path: 'a.txt' } }));
+    const stale = emit;
+    rerender({ session: 'b' });
+    expect(result.current).toEqual([]);
+    act(() => stale({ type: 'tool_start', sessionId: 'a', tool: 'read_file', args: { path: 'old.txt' } }));
+    expect(result.current).toEqual([]);
+  });
+
+  it('retains the voice subscriptions, artifact recording and six-second expiry', async () => {
+    const { result } = renderHook(() => useLiveToolActivity(true));
+    await act(async () => {});
+    act(() => emit({ type: 'tool_start', tool: 'read_file', args: { path: 'voice.txt' } }));
+    act(() => emit({ type: 'tool_done', tool: 'read_file', result: { ok: true, data: { path: 'voice.txt' } } }));
+    expect(artifacts.recordArtifact).toHaveBeenCalled();
+    expect(events.liveStatusEvent.listen).toHaveBeenCalledOnce();
+    expect(events.liveKitEvent.listen).toHaveBeenCalledOnce();
+    act(() => vi.advanceTimersByTime(7000));
+    expect(result.current).toEqual([]);
+  });
+
+  it('caps retained chat cards at six and releases late subscriptions', async () => {
+    const { result, unmount } = renderHook(() => useLiveToolActivity(true, 'chat'));
+    act(() => {
+      for (let i = 0; i < 8; i++) emit({ type: 'tool_start', sessionId: 'chat', tool: `tool_${i}` });
+    });
+    expect(result.current).toHaveLength(6);
+    expect(result.current[0].tool).toBe('tool_2');
+    unmount();
+    let resolve!: (off: () => void) => void;
+    vi.mocked(events.cinderpawAgentOutputEvent.listen).mockReturnValue(new Promise((r) => { resolve = r; }));
+    const late = renderHook(() => useLiveToolActivity(true, 'next'));
+    late.unmount();
+    const off = vi.fn();
+    await act(async () => resolve(off));
+    expect(off).toHaveBeenCalledOnce();
+  });
+});
 
 describe('kindOf', () => {
   it('routes each tool to the widget for its category, not its name', () => {

@@ -221,7 +221,8 @@ export function hitsOf(result: unknown): ToolHit[] {
   return out;
 }
 
-export function useLiveToolActivity(enabled: boolean) {
+/** A session selects chat mode: scoped events, retained rows, no call artifacts. */
+export function useLiveToolActivity(enabled: boolean, sessionId?: string) {
   /** Rows are keyed by tool name: the sidecar's tool events carry the message
    *  id, not a per-call id, so two calls to the same tool in one turn would
    *  otherwise be indistinguishable. Last one wins, which is what a live
@@ -229,8 +230,8 @@ export function useLiveToolActivity(enabled: boolean) {
   const [activity, setActivity] = useState<ToolActivity[]>([]);
 
   useEffect(() => {
+    setActivity([]);
     if (!enabled) {
-      setActivity([]);
       return;
     }
     let unlisten: (() => void) | undefined;
@@ -270,6 +271,7 @@ export function useLiveToolActivity(enabled: boolean) {
      * looked broken because nothing was listening where it now speaks.
      */
     const onTool = (kind: string, text: string) => {
+      if (cancelled) return;
       if (kind === 'toolCall') begin(AGENT_TOOL, text);
       else if (kind === 'toolResult') {
         // A slow answer is not a failed one. Past its deadline the runtime
@@ -310,18 +312,23 @@ export function useLiveToolActivity(enabled: boolean) {
         else liveOff.push(fn);
       });
 
-    attach(events.liveStatusEvent.listen((e) => onTool(e.payload.kind, e.payload.text ?? '')));
-    // The LiveKit channel hands the payload over directly, not wrapped.
-    attach(events.liveKitEvent.listen((e) => onTool(e.kind, e.text ?? '')));
+    if (sessionId === undefined) {
+      attach(events.liveStatusEvent.listen((e) => onTool(e.payload.kind, e.payload.text ?? '')));
+      // The LiveKit channel hands the payload over directly, not wrapped.
+      attach(events.liveKitEvent.listen((e) => onTool(e.kind, e.text ?? '')));
+    }
 
     void events.cinderpawAgentOutputEvent
       .listen((event) => {
-        let line: { type?: string; tool?: string; args?: Record<string, unknown>; result?: unknown; message?: string; stage?: string };
+        if (cancelled) return;
+        let line: { type?: string; sessionId?: string; tool?: string; args?: Record<string, unknown>; result?: unknown; message?: string; stage?: string };
         try {
           line = JSON.parse(event.payload.data);
         } catch {
           return; // not JSON, or a partial line — never fatal here
         }
+        if (!line || typeof line !== 'object') return;
+        if (sessionId !== undefined && line.sessionId !== sessionId) return;
         const tool = typeof line.tool === 'string' ? line.tool : '';
         if (!tool) return;
 
@@ -329,13 +336,14 @@ export function useLiveToolActivity(enabled: boolean) {
           const cwd = typeof line.args?.cwd === 'string' ? line.args.cwd : '';
           begin(tool, subjectOf(line.args), cwd);
         } else if (line.type === 'tool_progress') {
-          const note = (line.message || line.stage || '').trim() || null;
+          const note = (typeof line.message === 'string' ? line.message : typeof line.stage === 'string' ? line.stage : '').trim() || null;
           setActivity((prev) =>
             prev.map((a) => (a.tool === tool && a.status === 'running' ? { ...a, note } : a)),
           );
         } else if (line.type === 'tool_done') {
           const res = line.result as { ok?: boolean; content?: string } | null;
           const ok = res?.ok !== false;
+          const content = typeof res?.content === 'string' ? res.content : '';
           setActivity((prev) =>
             prev.map((a) => {
               if (!(a.tool === tool && a.status === 'running')) return a;
@@ -349,16 +357,16 @@ export function useLiveToolActivity(enabled: boolean) {
                     facts: factsOf(line.result),
                     // The terminal widget's body. Trimmed hard: a build log is
                     // megabytes and the panel is twenty lines tall.
-                    output: ok ? (res?.content ?? '').slice(0, 1200) : '',
+                    output: ok ? content.slice(0, 1200) : '',
                     // Shown instead of an empty result list, because a search
                     // that failed and a search that found nothing look identical
                     // otherwise — and one of them is a bug.
-                    error: ok ? null : (res?.content ?? 'failed').slice(0, 120),
+                    error: ok ? null : (content || 'failed').slice(0, 120),
               };
               // Filed here rather than in the sweep that ages rows out: this is
               // the one moment the full result exists, and the row that leaves
               // the screen six seconds later is a copy with nothing added.
-              recordArtifact(done);
+              if (sessionId === undefined) recordArtifact(done);
               return done;
             }),
           );
@@ -371,13 +379,13 @@ export function useLiveToolActivity(enabled: boolean) {
 
     // Finished rows age out on a timer rather than on the next event: the last
     // tool of a turn would otherwise sit on screen until the next call.
-    const sweep = window.setInterval(() => {
+    const sweep = sessionId === undefined ? window.setInterval(() => {
       const cutoff = Date.now() - LINGER_MS;
       setActivity((prev) => {
         const kept = prev.filter((a) => a.endedAt === null || a.endedAt > cutoff);
         return kept.length === prev.length ? prev : kept;
       });
-    }, 1_000);
+    }, 1_000) : undefined;
 
     return () => {
       cancelled = true;
@@ -385,7 +393,7 @@ export function useLiveToolActivity(enabled: boolean) {
       for (const off of liveOff) off();
       clearInterval(sweep);
     };
-  }, [enabled]);
+  }, [enabled, sessionId]);
 
   return activity;
 }
