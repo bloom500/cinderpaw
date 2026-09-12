@@ -130,23 +130,41 @@ with `python scripts/openclaw/license-inventory.py`.
 Ten remain. They do not all fail for the same reason, and only one of the
 reasons is a decision:
 
-**Six need an inbound public URL** and cannot work on a home machine as
-designed: `googlechat`, `line`, `msteams`, `sms` (Twilio), `synology-chat`, and
-`zalo`. Each of these is a webhook platform: the provider POSTs to an address
-you own. A person running Cinderpaw behind a router has no such address, no
-certificate, and no way to get one without a tunnel.
+**Five need an inbound public URL** and cannot work on a home machine:
+`googlechat`, `line`, `msteams`, `sms` (Twilio) and `synology-chat`. Each is a
+webhook platform: the provider POSTs to an address you own. A person running
+Cinderpaw behind a router has no such address, no certificate, and no way to
+get one without a tunnel.
 
-Nextcloud Talk was in this list until this commit, and it got out by being
-re-pointed rather than re-implemented: Talk has a user-facing chat API as well
-as a bot webhook, so pairing as a user and polling reaches the same messages
-with nothing exposed. That escape does not exist for the six above. Their APIs
-have no polling equivalent, so the product question is whether Cinderpaw ships
-an inbound endpoint plus a tunnel, or asks the user for a domain, or leaves
-these six as server-only connectors. One decision unblocks all six; there is no
-point porting any of them before it is made.
+**It was six twice, and both corrections are worth keeping.** Nextcloud Talk
+left the list by being re-pointed rather than re-implemented: Talk has a
+user-facing chat API next to its bot webhook, so pairing as a user and polling
+reaches the same messages with nothing exposed. Zalo was never in it: its Bot
+API long-polls with `getUpdates` by default and webhooks are the option, which
+upstream documents plainly. Our own extracted manifest agrees, it carries no
+`webhookPath` or `webhookUrl` field for zalo while all five above do. The
+lesson is that "needs a webhook" is a claim about a platform's WHOLE API, and
+reading the connector OpenClaw happened to write is not the same as reading
+what the platform offers.
 
-**Four are blocked on something other than a URL:**
+For the five that remain it is one product decision, not five ports.
+`audit-out/webhook-inbound-2026-09-12.md` is the design: five options judged on
+the same criteria, with a recommendation (a Cinderpaw-hosted inbound service
+with a durable 24 h inbox and an outbound connection from the app), a costed
+budget marked as assumption rather than quote, and the exact wording change
+PROMISES.md would need, because promise 2 says the runtime needs no Cinderpaw
+conversation relay and that would stop being true for those connectors.
 
+Note that the recommendation does NOT cover Nextcloud Talk, and must not be
+applied to it: its catalog card says "Nothing goes through anyone else's
+server", which the polling port keeps true and a relay would make false.
+
+**Five are blocked on something other than a URL:**
+
+- `zalo` — the cheapest one left, and close to a copy of `telegram.ts`: token in,
+  `getUpdates` long poll, no dependency. Blocked only on confirming the API
+  host: `bot-api.zalo.me` does not resolve, so the base URL has to be read out
+  of upstream's extension before writing a line of it.
 - `imessage` — macOS only, and needs the `imsg` bridge installed locally. Same
   shape as Signal. Portable, but untestable from a Windows box.
 - `feishu` — has a WebSocket long-connection mode, so no public URL needed.
