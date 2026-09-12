@@ -13,12 +13,13 @@
  * exposes this machine's agent (and its full tools) — empty = nobody.
  */
 
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 // Sync twins, deliberately: `isLinked` is called from `start()` before anything
 // is awaited, and from a static context that has no async seam to hide a read in.
 import { existsSync, readFileSync } from "node:fs";
-import { cinderpawHome } from "../config.ts";
+import { cfgPath, cinderpawHome } from "../config.ts";
 import {
   Client,
   GatewayIntentBits,
@@ -29,12 +30,7 @@ import {
 } from "discord.js";
 import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
-import makeWASocket, {
-  useMultiFileAuthState,
-  DisconnectReason,
-  type WASocket,
-  type WAMessage,
-} from "@whiskeysockets/baileys";
+import type { WASocket, WAMessage } from "@whiskeysockets/baileys";
 import qrcode from "qrcode-terminal";
 import type { OutboundEvent, SkillMeta } from "../types.ts";
 import type { LeadDesk } from "../core/lead-desk.ts";
@@ -1129,6 +1125,19 @@ export class SlackConnector {
 // WhatsApp connector (Baileys — direct WebSocket, no browser, QR linked)
 // ---------------------------------------------------------------------------
 
+/** External opt-in dependency. A literal import would embed it in Bun's executable. */
+export async function loadWhatsAppModule(): Promise<typeof import("@whiskeysockets/baileys")> {
+  const entry = cfgPath("CINDERPAW_WHATSAPP_MODULE");
+  if (!entry || !isAbsolute(entry)) {
+    throw new Error(
+      "WhatsApp is an optional external dependency. Install @whiskeysockets/baileys@7.0.0-rc13 " +
+      "and set CINDERPAW_WHATSAPP_MODULE to the absolute bundled whatsapp.js path (see CinderpawAgent/README.md).",
+    );
+  }
+  const url = pathToFileURL(entry).href;
+  return import(url);
+}
+
 export class WhatsAppConnector {
   readonly #allow: Set<string>;
   readonly #channels: Set<string>;
@@ -1267,6 +1276,7 @@ export class WhatsAppConnector {
   }
 
   async #connect(): Promise<void> {
+    const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await loadWhatsAppModule();
     const authDir = join(cinderpawHome(), "whatsapp-auth");
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     const sock = makeWASocket({ auth: state });

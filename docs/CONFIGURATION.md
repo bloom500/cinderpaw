@@ -141,6 +141,7 @@ they remain hand-maintained here and are still covered by
 
 | Var | Type | Default | Security | Description |
 |---|---|---|---|---|
+| `CINDERPAW_WHATSAPP_MODULE` | path | `null` | yes | Absolute path to a trusted external whatsapp.js bundle built from @whiskeysockets/baileys@7.0.0-rc13. Loaded as executable code only when WhatsApp connects or pairs. Unset = WhatsApp unavailable; the default executable does not embed the WhatsApp library. See CinderpawAgent/README.md for installation. |
 | `CINDERPAW_DB_KEY` | string | `null` | yes | 32-byte base64 key for at-rest encryption of sensitive DB columns. Anyone who can read this can read the DB. |
 | `CINDERPAW_WORKSPACE` | list | `null` | yes | TS sidecar path-list of FS roots. Unset = launch cwd + the user's home dir (broad by default; set to RESTRICT). The call-time deny wall (tool-permissions.ts) protects ~/.cinderpaw, ~/.ssh and CINDERPAW_FS_DENY regardless of roots. |
 | `CINDERPAW_FS_DENY` | list | `null` | yes | Extra comma/semicolon-separated paths the fs tools may never touch, on top of the built-in ~/.cinderpaw + ~/.ssh deny wall. |
@@ -489,6 +490,7 @@ CINDERPAW_TTFT_DEADLINE_MS
 CINDERPAW_TURN_BUDGET_MS
 CINDERPAW_UNATTENDED_CONTINUATIONS
 CINDERPAW_VERSION
+CINDERPAW_WHATSAPP_MODULE
 CINDERPAW_WORKER_PORT
 CINDERPAW_WORKSPACE
 CINDERPAW_WRITE_CONFIRM_HOSTS
