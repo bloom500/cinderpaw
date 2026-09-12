@@ -26,14 +26,20 @@
  *   - Only the fixed metaparameter keys exist; the loader clamps every
  *     field to the hardcoded META_BOUNDS, so a hand-edited or corrupt
  *     state file cannot escape the box.
- *   - `confidence_gate` is tighten-only: its lower bound equals the
- *     locked strict gate (BRSI §9 #4). L6 can make the gate stricter,
- *     never weaker. The consumers in sidecar.ts apply max()/min() again.
+ *   - `confidence_gate` has a hard floor: its lower bound equals the
+ *     locked strict gate (BRSI §9 #4), and the consumers in sidecar.ts
+ *     apply max()/min() again. It is NOT tighten-only between generations:
+ *     a mutation may loosen it back toward that floor (0.99 -> 0.95).
  *   - History is an append-only JSONL (one MetaGeneration row per deploy
  *     / accept / rollback, with parent, diff, seed, evaluator) — full
  *     replay, same discipline as the Evolution Journal.
- *   - Rollback is always possible: the baseline genome travels in the
- *     state file, and the history keeps every prior generation.
+ *   - Rollback is narrow: `rollback()` returns only to the pending
+ *     candidate's baseline, refuses while governance has frozen L6, and
+ *     refuses when nothing is pending. The history records every prior
+ *     generation but nothing replays it; a corrupt state file recovers to
+ *     neutral defaults and its baseline is lost.
+ *   - A state write that fails cancels the epoch: memory is put back to
+ *     what the disk still says, and the caller gets the reason.
  *
  * Pure-ish: fs writes go under an injectable dir; time + rng injectable.
  * ponytail: one genetic strategy inline — a MetaStrategy plugin interface
@@ -64,7 +70,7 @@ export interface MetaGenome {
   /** Scales the wild-explorer fraction (as a ratio to the default). */
   exploration: number;
   /** Confidence-gate strictness. LOWER BOUND = the locked strict gate
-   *  (0.95) — tighten-only, per the L6 safety rules. */
+   *  (0.95), a hard floor per the L6 safety rules. */
   confidence_gate: number;
   /** Dream-episode iteration budget (L1 candidates per episode). */
   dream_batch: number;
@@ -481,6 +487,7 @@ export class MetaEvolution {
       };
     }
 
+    const before = this.state;
     let settled: "accepted" | "rejected" | "bootstrap" = "bootstrap";
     let championScore = fitness.score;
 
@@ -527,7 +534,8 @@ export class MetaEvolution {
       baseline: { generation: championGen, genome: champion, score: championScore },
     };
     this.append("proposed", null, `candidate over generation ${championGen} (${settled})`, seed, child, diff);
-    this.save();
+    const unsaved = this.saveOrRestore(before);
+    if (unsaved) return unsaved;
     // G-INV-5: one chained governance-audit row per evolve() epoch.
     appendGovernanceAudit(this.governanceDir, {
       timestamp: this.now(),
@@ -556,6 +564,7 @@ export class MetaEvolution {
     if (!this.state.baseline) {
       return { ok: false, reason: "no pending candidate — nothing to roll back" };
     }
+    const before = this.state;
     const { genome, generation, score } = this.state.baseline;
     this.state = {
       version: 1,
@@ -565,7 +574,8 @@ export class MetaEvolution {
       baseline: null,
     };
     this.append("rollback", score, `manual rollback to generation ${generation}`, null, genome);
-    this.save();
+    const unsaved = this.saveOrRestore(before);
+    if (unsaved) return unsaved;
     // G-INV-5: one chained governance-audit row per rollback.
     appendGovernanceAudit(this.governanceDir, {
       timestamp: this.now(),
@@ -653,11 +663,23 @@ export class MetaEvolution {
     }
   }
 
-  private save(): void {
-    this.persist(this.state);
+  /** Write this.state, or put `before` back. A genome that lives in memory
+   *  but not on disk is lost on the next restart without a word, so the
+   *  running engine and its state file must never disagree. The history
+   *  already holds this epoch's rows; one more row says it was cancelled. */
+  private saveOrRestore(before: MetaState): MetaResultPayload | null {
+    const error = this.persist(this.state);
+    if (error === null) return null;
+    this.state = before;
+    this.append("rollback", before.baseline?.score ?? null, `cancelled: state file not written (${error})`, null, before.genome);
+    return {
+      ok: false,
+      reason: `could not save the meta-genome to ${this.statePath} (${error}); nothing changed, still on generation ${before.generation}`,
+    };
   }
 
-  private persist(state: MetaState): void {
+  /** null on success, else the error text. */
+  private persist(state: MetaState): string | null {
     try {
       mkdirSync(dirname(this.statePath), { recursive: true });
       // Atomic: write a sibling temp file, fsync, then rename over the target.
@@ -665,8 +687,10 @@ export class MetaEvolution {
       // JSON that would trigger the corrupt-recovery path. The temp name now
       // carries the pid, so two writers cannot land on the same one.
       atomicWriteFileSync(this.statePath, JSON.stringify(state, null, 2));
+      return null;
     } catch (e) {
       this.log(`meta-evolution: failed to persist state: ${String(e)}`);
+      return String(e);
     }
   }
 

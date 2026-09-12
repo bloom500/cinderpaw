@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -201,6 +201,22 @@ describe("MetaEvolution epoch ratchet", () => {
     expect(r.ok).toBe(true);
     expect(me.current()).toEqual(DEFAULT_META_GENOME);
     expect(me.status().pendingCandidate).toBe(false);
+  });
+
+  test("a failed state write cancels the epoch: memory stays what the disk says", () => {
+    const { me, dir } = make([win("accept", 0.9)]);
+    // A directory where the state file should be: the atomic rename fails.
+    const statePath = join(dir, "meta_genome.json");
+    rmSync(statePath, { force: true });
+    mkdirSync(statePath);
+
+    const r = me.evolve();
+    expect(r.ok).toBe(false);
+    expect(String(r.reason)).toContain("could not save the meta-genome");
+    expect(me.current()).toEqual(DEFAULT_META_GENOME);
+    expect(me.status().generation).toBe(0);
+    expect(me.status().pendingCandidate).toBe(false);
+    expect(me.history().at(-1)?.reason).toContain("cancelled: state file not written");
   });
 
   test("state persists across instances and history is append-only", () => {
