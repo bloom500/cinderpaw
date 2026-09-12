@@ -684,6 +684,11 @@ export async function boot(transportOverride?: Transport) {
     persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
     clearEmbeddings: () => episodic.clearEmbeddings(),
     onActivity: (a) => fractalActivitySink.current(a),
+    // A fact leaf that has since been replaced is labelled so in recall. The
+    // version open when the leaf was written is the one that was replaced;
+    // its close date is the label.
+    supersededAt: (key, writtenAt) =>
+      semantic.history(key).find((v) => v.validFrom <= writtenAt && v.validTo !== null)?.validTo ?? null,
   });
 
   // (The old [bench-cap] WARN lived here. It told the operator to set an env

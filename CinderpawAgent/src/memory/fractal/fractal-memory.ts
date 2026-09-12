@@ -127,6 +127,11 @@ export interface FractalMemoryDeps {
   /** Optional diagnostics sink (production passes the sidecar logger). */
   log?: (msg: string) => void;
   /**
+   * When a fact leaf's value was replaced by a newer one (null while current).
+   * Production wires `SemanticMemory.history`; see `FractalRecallDeps`.
+   */
+  supersededAt?: (key: string, writtenAt: number) => number | null;
+  /**
    * Optional write-back hook. `buildTree` calls it after each chunk of
    * leaves is freshly embedded so vectors land on disk and the next
    * rebuild can skip the embed roundtrip entirely. Production wires this
@@ -186,6 +191,7 @@ export class FractalMemory {
   readonly #clearEmbeddings?: () => number;
   readonly #onActivity?: (activity: FractalActivity) => void;
   /** Durable provenance-bearing store for reactive leaves (PR-C C.0). */
+  readonly #supersededAt: FractalMemoryDeps["supersededAt"];
   readonly #leafStore: LeafStore;
   /** Raw store path — used to derive the sibling evicted-leaf audit log (C.2). */
   readonly #leafStorePath: string;
@@ -209,6 +215,7 @@ export class FractalMemory {
     this.#clearEmbeddings = deps.clearEmbeddings;
     this.#onActivity = deps.onActivity;
     this.#leafStorePath = deps.leafStorePath ?? ":memory:";
+    this.#supersededAt = deps.supersededAt;
     this.#leafStore = new LeafStore(this.#leafStorePath);
   }
 
@@ -408,6 +415,8 @@ export class FractalMemory {
             embed: this.#embed,
             ftsSearch: this.#ftsSearch,
             leavesById: this.#leavesById,
+            factKeyOf: (id) => this.#leafStore.get(id)?.provenance.key,
+            supersededAt: this.#supersededAt,
           });
           this.#recallEngineFor = this.#tree;
           this.#recallEngineLeaves = this.#leavesById;

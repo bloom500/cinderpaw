@@ -160,6 +160,11 @@ export class LeafStore {
   }
 
   /** All records (insertion order). */
+  /** One record by id, or undefined when it was never stored or was evicted. */
+  get(id: number): LeafRecord | undefined {
+    return this.#records.get(id);
+  }
+
   all(): LeafRecord[] {
     return [...this.#records.values()];
   }
