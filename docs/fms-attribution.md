@@ -100,15 +100,15 @@ five categories did not include them. All seven source texts are in the
 2700-row snapshot; missing source information is not their explanation under
 the historical-memory interpretation.
 
-| # / original query | Source and inspected evidence | Category and controlled evidence |
+| # / declared task | Source and inspected evidence | Category and controlled evidence |
 |---|---|---|
-| **1.** Cât de departe sunt de fapt cu feral-agent și care e planul concret pe care ar trebui să-l urmez? | **1729** contains the revised project assessment and staged plan. Returned **1650** is earlier advice in the same session, before the repository assessment; **218** is generic capabilities. Most other hits are user questions. | **Retrieval miss / partial, superseded evidence**, plus missing temporal scope. Some returned text is related, but it does not replace the revised plan. Source rank **55** under exhaustive scoring; replacing traversal leaves zero. Source injection passes the scorer. Do not label the earlier advice fully correct just to remove this zero. This assesses recall of advice, not whether that advice's factual claims were true. |
-| **2.** Cine ești și cu ce mă poți ajuta? | **21** identifies Feral as a local AI and lists capabilities, although the stored message is truncated. The top ten are mainly greetings such as **224** (“Salut! … Cu ce te pot ajuta azi?”), not identity/capability evidence. **218**, elsewhere in the corpus, is a substantially clearer alternative. | **Genuine retrieval miss**, with a query that does not identify a historical identity/version. Source rank **262**; exhaustive search still fails. Source injection passes. Alternative answers exist, but **they were not returned**: this is not evidence that the old label rejected a genuinely sufficient returned answer. |
-| **3.** What windows do I currently have open? | **1470** records seven windows from a particular June session. Returned **1460, 1283, 1218, …** are launch acknowledgements telling the caller to use `list_windows`; they do not enumerate open windows. | **Invalid temporal target + retrieval miss under a historical interpretation.** No query timestamp/session binds “currently” to 1470. Historical lists exist, but cannot certify the desktop state at query time. Source rank **39**; exhaustive search still fails. Injecting 1470 passes the scorer without making its snapshot current. |
-| **6.** Hei, ești acolo? | **806** is a past greeting: “Salut, Darius! Sunt aici, totul e ok.” Returned **491, 819, 804, …** are mostly other user questions, including “Esti bine?” and “Esti ok Gemma?”. | **Invalid memory demand**, plus question-to-question retrieval instead of answer evidence. A liveness greeting needs no unique archived message; a past assistant greeting does not prove present liveness. Source rank **204**; exhaustive search still fails. Source injection passes an arbitrary occurrence test. Keep this as a no-memory-needed control, not as a demand to retrieve 806. |
-| **8.** Why couldn't you load the Product Hunt monthly leaderboard for 2025? | **1976** records the exact URL and its 404/500 failure. Returned **1965** says web search found no instant answer for a ProductHunt query; the remaining hits are unrelated failed searches. | **Genuine evidence-ranking miss.** 1976 already reaches the semantic top 20 but ranks **13** under exhaustive scoring and misses final top 10. Exhaustive traversal gives the same top ten. Replacing one retrieved item with verified 1976 changes score 0→1. The source supports the observed HTTP/page failure, not a deeper server root cause. |
-| **9.** What did the app element check return? | **1206** says “Found 1 element(s).” Returned **1156, 1158, 1159, 1167, 1177, 1186, 1193, 1194, 1195, 1203** contain the **identical full text**. Fifteen occurrences exist in the corpus. | **Confirmed useful-evidence/single-gold false negative in replay.** Source is first omitted at exhaustive position **11** among equivalent evidence. Swapping only 1156→1206 preserves text and flips score 0→1. If a particular event identity matters, the query must identify it; the current wording does not. Exhaustive search cannot fix an arbitrary occurrence label. |
-| **11.** What apps do I have open right now? | **1284** records eight windows from an earlier session. The top ten are again launch acknowledgements, e.g. **1336, 1460, 1283**, not window inventories. | **Invalid temporal target + retrieval miss under a historical interpretation.** Same distinction as Q3. Source rank **107**; exhaustive search still fails. Source injection rewards an old snapshot without establishing “right now.” This query cannot be judged against one historical list without an explicit anchor. |
+| **1.** Q1 — historical recall: the project state and the plan that followed it | **1729** contains the revised project assessment and staged plan. Returned **1650** is earlier advice in the same session, before the repository assessment; **218** is generic capabilities. Most other hits are user questions. | **Retrieval miss / partial, superseded evidence**, plus missing temporal scope. Some returned text is related, but it does not replace the revised plan. Source rank **55** under exhaustive scoring; replacing traversal leaves zero. Source injection passes the scorer. Do not label the earlier advice fully correct just to remove this zero. This assesses recall of advice, not whether that advice's factual claims were true. |
+| **2.** Q2 — identity/capability question about the assistant itself | **21** identifies Feral as a local AI and lists capabilities, although the stored message is truncated. The top ten are mainly greetings such as **224**, not identity/capability evidence. **218**, elsewhere in the corpus, is a substantially clearer alternative. | **Genuine retrieval miss**, with a query that does not identify a historical identity/version. Source rank **262**; exhaustive search still fails. Source injection passes. Alternative answers exist, but **they were not returned**: this is not evidence that the old label rejected a genuinely sufficient returned answer. |
+| **3.** Q3 — current-state desktop question ("currently") | **1470** records seven windows from a particular June session. Returned **1460, 1283, 1218, …** are launch acknowledgements telling the caller to use `list_windows`; they do not enumerate open windows. | **Invalid temporal target + retrieval miss under a historical interpretation.** No query timestamp/session binds “currently” to 1470. Historical lists exist, but cannot certify the desktop state at query time. Source rank **39**; exhaustive search still fails. Injecting 1470 passes the scorer without making its snapshot current. |
+| **6.** Q6 — liveness greeting, no memory needed | **806** is a past assistant greeting confirming it was present. Returned **491, 819, 804, …** are mostly other user questions of the same liveness-greeting shape. | **Invalid memory demand**, plus question-to-question retrieval instead of answer evidence. A liveness greeting needs no unique archived message; a past assistant greeting does not prove present liveness. Source rank **204**; exhaustive search still fails. Source injection passes an arbitrary occurrence test. Keep this as a no-memory-needed control, not as a demand to retrieve 806. |
+| **8.** Q8 — historical recall: why one named public web page failed to load | **1976** records the exact URL and its 404/500 failure. Returned **1965** says web search found no instant answer for a ProductHunt query; the remaining hits are unrelated failed searches. | **Genuine evidence-ranking miss.** 1976 already reaches the semantic top 20 but ranks **13** under exhaustive scoring and misses final top 10. Exhaustive traversal gives the same top ten. Replacing one retrieved item with verified 1976 changes score 0→1. The source supports the observed HTTP/page failure, not a deeper server root cause. |
+| **9.** Q9 — historical recall: what a tool call returned | **1206** is one occurrence of a tool-result line. Returned **1156, 1158, 1159, 1167, 1177, 1186, 1193, 1194, 1195, 1203** contain the **identical full text** as 1206. Fifteen occurrences exist in the corpus. | **Confirmed useful-evidence/single-gold false negative in replay.** Source is first omitted at exhaustive position **11** among equivalent evidence. Swapping only 1156→1206 preserves text and flips score 0→1. If a particular event identity matters, the query must identify it; the current wording does not. Exhaustive search cannot fix an arbitrary occurrence label. |
+| **11.** Q11 — current-state desktop question ("right now") | **1284** records eight windows from an earlier session. The top ten are again launch acknowledgements, e.g. **1336, 1460, 1283**, not window inventories. | **Invalid temporal target + retrieval miss under a historical interpretation.** Same distinction as Q3. Source rank **107**; exhaustive search still fails. Source injection rewards an old snapshot without establishing “right now.” This query cannot be judged against one historical list without an explicit anchor. |
 
 The original categories concerning **model misuse** and **fallback execution**
 do not explain these results. There is no answering model in the measured
@@ -134,19 +134,19 @@ Each source lacks one or more tokens required by the historical AND query.
 This is lexical matching behavior, not absence of source content. Example
 missing prefix terms (quotes/asterisks omitted for readability):
 
-| Query # | Missing terms in its source | FMS evidence when FTS alone failed |
+| Query # | Query terms absent from its source | FMS evidence when FTS alone failed |
 |---|---|---|
-| 1 | `fapt`, `urmez` | See main table. |
-| 2 | `cine`, `ești`, `poți` | See main table. |
-| 3 | `what`, `currently`, `have` | See main table. |
-| 4 — finding/installing skills | `go`, `finding`, `installing`, `new` | Source **2647**, the find-skills instructions, is returned by FMS. |
-| 5 — “Ce testezi de data asta?” | `ce`, `testezi`, `data` | Source **2613**, a voice-message test, is returned. The query still needs event context. |
-| 6 | `hei`, `ești`, `acolo` | See main table. |
-| 8 | `why`, `couldn`, `load` | See main table. |
-| 9 | `what`, `did`, `check`, `return` | See main table. |
-| 10 — GML part-time job | `părere`, `jobul`, `merită` | Source **2685** is returned. It records the user's opinion, not independently verified pay or job quality. |
-| 11 | `apps`, `have`, `right`, `now` | See main table. |
-| 12 — control_app/get_tree error | `why`, `getting`, `when`, `run` | Source **1373** is returned and exposes the malformed `get_tree</action>` action string. |
+| 1 | 2 of its terms | See main table. |
+| 2 | 3 of its terms | See main table. |
+| 3 | 3 of its terms | See main table. |
+| 4 | 4 of its terms | Source **2647**, the find-skills instructions, is returned by FMS. |
+| 5 | 3 of its terms | Source **2613**, a voice-message test, is returned. The query still needs event context. |
+| 6 | 3 of its terms | See main table. |
+| 8 | 3 of its terms | See main table. |
+| 9 | 4 of its terms | See main table. |
+| 10 | 3 of its terms | Source **2685** is returned. It records an opinion the user stated, not an independently verified fact. |
+| 11 | 4 of its terms | See main table. |
+| 12 | 4 of its terms | Source **1373** is returned and exposes the malformed `get_tree</action>` action string. |
 
 Q7 is the original non-failing FTS control. None of these records is a new
 headline comparison with today's improved lexical baseline.
@@ -188,6 +188,20 @@ present. Changing corpus or model now would discard the controlled comparison.
 **A different metric and better-scoped labels are required**, alongside durable
 run evidence. Increasing n comes after those corrections, not before them.
 
+## Privacy
+
+The twelve queries are real turns from a private conversation history and this
+repository is public, so no query text, no memory text and no verbatim tool
+output appears above. Each query is named `Q1`…`Q12` with its declared task,
+which is all the analysis needs; source ids are stable across the redaction, so
+every number here still lines up with the local artifacts.
+
+The query→text mapping, the corpus and the ordered results live only in the
+gitignored `data/fms-attribution/` on the machine that ran this. Nothing in
+this directory is written by the benchmark: a live run writes its report to
+`%USERPROFILE%/.cinderpaw/agent/fractal-bench-report.json`, outside the
+repository, and that file does carry raw query text. Do not copy it in.
+
 ## Reproduction and local evidence
 
 Run `bun scripts/fms-attribution.ts` from this worktree. The script snapshots
@@ -205,7 +219,7 @@ llama-server.exe -m data/fms-attribution/bge-small-en-v1.5-q8_0.gguf
 ```
 
 Runtime executable:
-`C:/Users/Darius/.lmstudio/extensions/backends/llama.cpp-win-x86_64-avx2-2.16.0/llama-server.exe`.
+`%USERPROFILE%/.lmstudio/extensions/backends/llama.cpp-win-x86_64-avx2-2.16.0/llama-server.exe`.
 Private corpus text and full ordered results stay in the worktree's gitignored
 `data/fms-attribution/`: `corpus.json`, `tree.json`, `historical-report.json`,
 `reconstructed-queries.json`, `vectors.json`, `evidence.json`, `replay.log`.
