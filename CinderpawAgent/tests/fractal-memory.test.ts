@@ -146,6 +146,79 @@ describe("FractalMemory — rebuild + semantic serve", () => {
     expect(await fm.rebuildIfStale()).toBe(true); // grown → rebuild
   });
 
+  it("grafted leaves are findable at once, without a rebuild", async () => {
+    const fm = new FractalMemory({
+      loadLeaves: leaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+    });
+    expect(await fm.rebuild()).toBe(true);
+    const covered = fm.treeLeafCount;
+    await fm.upsertLeaf({
+      text: "grafted memory s-a",
+      embedding: [1, 0],
+      provenance: { source: "test", first_seen_at: 1, sessionId: "s-b", ts: 2 },
+    });
+    // In the tree NOW. Before grafting this waited for the 1.2x threshold,
+    // which on a real corpus is hundreds of memories away.
+    expect(fm.treeLeafCount).toBe(covered + 1);
+  });
+
+  it("grafting does not switch the rebuild off forever", async () => {
+    // The trap this pins: staleness is corpus vs tree coverage, and a graft
+    // raises coverage. Counted naively, the tree reports itself permanently
+    // fresh, rebuild() never runs again, and nothing looks wrong while the
+    // approximate centroids drift and the clusters stop re-forming.
+    let extra = 0;
+    const dynLeaves = (): Leaf[] => {
+      const base = leaves();
+      for (let i = 0; i < extra; i++) {
+        base.push({ id: 100 + i, text: `new-${i} s-a`, vec: new Float32Array(0), ts: 1700000001000 + i, sessionId: "s-a" });
+      }
+      return base;
+    };
+    const fm = new FractalMemory({
+      loadLeaves: dynLeaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+    });
+    expect(await fm.rebuild()).toBe(true); // clusters 12
+
+    // Eight grafts on distinct bearings. They must be more than ~23 degrees
+    // apart, and from the corpus's own [1,0] / [-1,0], or the near-duplicate
+    // merge at 0.92 cosine swallows them and nothing is grafted at all — which
+    // is how the first version of this test quietly proved nothing.
+    for (let i = 0; i < 8; i++) {
+      const deg = 36 * (i < 4 ? i + 1 : i + 2); // 36..144, 216..324; skips 0 and 180
+      const rad = (deg * Math.PI) / 180;
+      await fm.upsertLeaf({
+        text: `grafted-${i} s-a`,
+        embedding: [Math.cos(rad), Math.sin(rad)],
+        provenance: { source: "test", first_seen_at: i + 1, sessionId: "s-b", ts: i + 1 },
+      });
+    }
+    expect(fm.treeLeafCount).toBe(20); // 12 clustered + 8 grafted
+
+    // Corpus 22. Naive: covered 20, and 22 < 20 * 1.2, so it reads as fresh and
+    // never rebuilds again. Honest: only 12 were clustered, and 22 >= 12 * 1.2.
+    extra = 10;
+    expect(await fm.rebuildIfStale()).toBe(true);
+  });
+
+  it("a rebuild clears the graft debt, so the next check starts clean", async () => {
+    const fm = new FractalMemory({
+      loadLeaves: leaves, embed: fakeEmbed(), summarize: fakeSummarize,
+      ftsSearch: noFts, fallback, treePath: treePath(),
+    });
+    expect(await fm.rebuild()).toBe(true);
+    await fm.upsertLeaf({
+      text: "grafted memory s-a",
+      embedding: [1, 0],
+      provenance: { source: "test", first_seen_at: 1, sessionId: "s-b", ts: 2 },
+    });
+    expect(await fm.rebuild()).toBe(true);
+    // Everything is clustered again; an unchanged corpus must read as fresh.
+    expect(await fm.rebuildIfStale()).toBe(false);
+  });
+
   it("a persisted tree is adopted by a fresh instance via init()", async () => {
     const path = treePath();
     const a = new FractalMemory({
