@@ -768,6 +768,39 @@ async fn connectors_decision_d_rich_fields_present() {
                     "zalo answers a bad token with HTTP 200 and ok:false, so a generic probe would read it as valid — the transport validates instead"
                 );
             }
+            "feishu" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/feishu.ts`.
+                // The upstream connector is webhook-shaped, but the platform
+                // also offers a WebSocket long connection that the app dials
+                // OUT on, which is what this port uses. The card must not
+                // inherit the webhook wording from the connector we did not
+                // write.
+                assert!(!entry.coming_soon, "feishu's transport has landed — the card must not still say soon");
+                assert!(
+                    !entry.description.to_lowercase().contains("public web address"),
+                    "feishu connects out over a WebSocket: saying it needs an inbound address sends the user to buy a domain they do not need"
+                );
+                for key in ["FEISHU_APP_ID", "FEISHU_APP_SECRET"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("feishu declares {key}"));
+                    // The app id is not a public identifier here: paired with
+                    // the secret it mints a tenant token, and the card shows
+                    // both in the same form, so both are masked.
+                    assert!(field.secret, "feishu's {key} is half of a credential pair");
+                }
+                assert!(
+                    !entry.pairing_fields.iter().any(|f| f.key == "FEISHU_DOMAIN"),
+                    "Feishu and Lark are two clouds and nobody knows which one their admin used — the transport probes both rather than asking; a field here would be a default nobody sets"
+                );
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "both Feishu clouds answer a bad app with HTTP 200 and a non-zero code, so a generic probe would read it as valid — the transport validates instead"
+                );
+                assert!(entry.console_url.is_some(), "feishu must point at the app console");
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the

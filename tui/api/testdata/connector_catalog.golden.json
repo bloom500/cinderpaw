@@ -248,11 +248,22 @@
     "id": "feishu",
     "transport": "feishu",
     "name": "Feishu / Lark",
-    "description": "Feishu and Lark enterprise messaging, with their doc, wiki and drive tools.",
+    "description": "Feishu and Lark enterprise messaging. Connects out over a WebSocket, so it needs no public web address.",
     "icon": "🐦",
-    "pairing_fields": [],
+    "pairing_fields": [
+      {
+        "key": "FEISHU_APP_ID",
+        "label": "App ID (starts with cli_)",
+        "secret": true
+      },
+      {
+        "key": "FEISHU_APP_SECRET",
+        "label": "App secret",
+        "secret": true
+      }
+    ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://open.feishu.cn/app"
   },
   {

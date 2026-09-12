@@ -123,6 +123,7 @@ import "./transports/signal.ts";
 import "./transports/nostr.ts";
 import "./transports/nextcloud-talk.ts";
 import "./transports/zalo.ts";
+import "./transports/feishu.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";

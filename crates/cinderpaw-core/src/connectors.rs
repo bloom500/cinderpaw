@@ -526,16 +526,29 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "feishu".into(),
             device_flow: None,
             name: "Feishu / Lark".into(),
-            description: "Feishu and Lark enterprise messaging, with their doc, wiki and drive tools.".into(),
+            description: "Feishu and Lark enterprise messaging. Connects out over a WebSocket, so it needs no public web address.".into(),
             icon: "🐦".into(),
             logo_url: None,
-            pairing_fields: Vec::new(),
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "FEISHU_APP_ID".into(),
+                    label: "App ID (starts with cli_)".into(),
+                    secret: true,
+                },
+                PairingFieldDef {
+                    key: "FEISHU_APP_SECRET".into(),
+                    label: "App secret".into(),
+                    secret: true,
+                },
+            ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Feishu and Lark are two separate clouds and an app exists on
+            // only one of them. There is deliberately no field for it: the
+            // sidecar asks both at startup and keeps the one that answers,
+            // because nobody can be expected to know which cloud their
+            // administrator used. `FEISHU_DOMAIN` in metadata pins it for a
+            // private deployment.
+            coming_soon: false,
             console_url: Some("https://open.feishu.cn/app".into()),
             free_tier_note: None,
             validate_endpoint: None,

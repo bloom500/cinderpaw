@@ -101,7 +101,7 @@ record before the third platform rather than after it.
 
 ### Ported so far
 
-Twelve of the 21, all on `main`. Discord, Slack and WhatsApp predate this import
+Thirteen of the 21, all on `main`. Discord, Slack and WhatsApp predate this import
 and live in `src/transports/connectors.ts`; the rest have a file each. `coming_soon` in
 `crates/cinderpaw-core/src/connectors.rs` is the source of truth and two tests
 hold it there: `connector-catalog-transports.test.ts` fails if a card is live
@@ -120,6 +120,7 @@ writes a review arm for the newly live card by hand.
 | nostr | no operator at all: the identity is a keypair, and several relays at once |
 | nextcloud-talk | that a webhook design can be re-pointed: paired as a user, polled, so it works behind a router |
 | zalo | that the HTTP status can lie: a rejected token comes back 200 with `ok:false` |
+| feishu | that a webhook connector can hide a socket the platform dials out on, and that a two-cloud product can be probed instead of asked about |
 
 Nostr is the first that needed a new dependency: `nostr-tools`, for the BIP-340
 Schnorr signature `node:crypto` does not have. It is Unlicense, so it adds
@@ -128,7 +129,7 @@ with `python scripts/openclaw/license-inventory.py`.
 
 ### What is left, and the one thing blocking most of it
 
-Nine remain. They do not all fail for the same reason, and only one of the
+Eight remain. They do not all fail for the same reason, and only one of the
 reasons is a decision:
 
 **Five need an inbound public URL** and cannot work on a home machine:
@@ -165,12 +166,10 @@ Note that the recommendation does NOT cover Nextcloud Talk, and must not be
 applied to it: its catalog card says "Nothing goes through anyone else's
 server", which the polling port keeps true and a relay would make false.
 
-**Four are blocked on something other than a URL:**
+**Three are blocked on something other than a URL:**
 
 - `imessage` — macOS only, and needs the `imsg` bridge installed locally. Same
   shape as Signal. Portable, but untestable from a Windows box.
-- `feishu` — has a WebSocket long-connection mode, so no public URL needed.
-  Needs `@larksuiteoapi/node-sdk` (MIT). Genuinely portable next.
 - `tlon` — an Urbit ship over its own channel API, no public URL needed, but it
   needs a running ship to test against and pulls the AWS S3 SDK for attachments.
 - `zalouser` — logs into a PERSONAL Zalo account by QR through `zca-js`, an
