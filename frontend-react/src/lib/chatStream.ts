@@ -74,7 +74,7 @@ function armStallWatchdog(): void {
     for (const [id, entry] of [...inflight]) {
       if (now - entry.lastActivity < STALL_TIMEOUT_MS) continue;
       inflight.delete(id);
-      entry.onError('The response stopped arriving — the local engine may have crashed. Try sending again.');
+      entry.onError('The response stopped arriving. The local engine may have crashed, so try sending again.');
     }
     if (inflight.size === 0) disarmStallWatchdog();
   }, STALL_CHECK_MS);

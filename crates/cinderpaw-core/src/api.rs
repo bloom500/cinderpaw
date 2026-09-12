@@ -804,7 +804,12 @@ const CHAT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12
 /// model is handed "still working" and has to ask AGAIN, and the re-ask is
 /// keyed on the exact request string: rephrase one word while asking twice and
 /// the entire search starts from nothing. Waiting once beats restarting.
-const VOICE_TOOL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(45);
+/// `pub(crate)` so the worker's own abort can be checked against it rather
+/// than against a number somebody typed twice. That is not hypothetical
+/// tidiness: this budget moved from 20s to 45s and the worker's abort stayed
+/// at 30s, which meant the client hung up before the answer below was ever
+/// due, on every slow tool, for as long as both numbers existed apart.
+pub(crate) const VOICE_TOOL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(45);
 
 /// Work that outlived its deadline, keyed by the request that started it.
 ///

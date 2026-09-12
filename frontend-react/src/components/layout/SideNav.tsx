@@ -287,7 +287,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
                   <div className="ml-5 pl-2 border-l border-border-subtle space-y-3 my-1">
                     {convs.length === 0 ? (
                       <span className="block px-2 py-1 text-2xs text-text-disabled">
-                        No chats yet — drag one onto the project.
+                        No chats yet. Drag one onto the project.
                       </span>
                     ) : (
                       renderGroupedChats(pGroups)

@@ -14,7 +14,7 @@ import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
-import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
+import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, defaultDbPath, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
 import { AuditLog } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
@@ -291,15 +291,6 @@ function isLoopbackUrl(url: string): boolean {
   } catch {
     return false;
   }
-}
-
-/** `data/cinderpaw.db`, unless a pre-rename `data/feral.db` is the one that
-  * actually holds this install's history. Nothing is copied or moved: the file
-  * that exists is the file that gets opened. */
-function defaultDbPath(): string {
-  const current = "data/cinderpaw.db";
-  const legacy = "data/feral.db";
-  return !existsSync(resolve(current)) && existsSync(resolve(legacy)) ? legacy : current;
 }
 
 function loadConfig(): AppConfig {
@@ -612,7 +603,14 @@ export async function boot(transportOverride?: Transport) {
   recall.setGraph(memoryGraph);
 
   // --- ECC tool observation telemetry ---
-  const dataDir = config.dbPath === ":memory:" ? "data" : require("node:path").dirname(config.dbPath);
+  // The fractal tree, the leaf store, the observation log and the migration
+  // marker all live beside the database, so this follows `dbPath` home. The
+  // in-memory case had a relative `"data"` literal, which put an in-memory
+  // run's tree in whatever directory it happened to start from.
+  const dataDir =
+    config.dbPath === ":memory:"
+      ? join(CINDERPAW_HOME, "data")
+      : require("node:path").dirname(config.dbPath);
   const observations = new ToolObservationLog(dataDir);
 
   // --- Fractal Memory Search (semantic recall over the RAPTOR tree) ---
@@ -878,6 +876,17 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createCodeQualityTool("lint_code", config.workspaceRoots));
   registry.register(createCodeQualityTool("install_deps", config.workspaceRoots));
   registry.register(createCodeQualityTool("build_project", config.workspaceRoots));
+
+  // Say what the switch took away. Somebody who sets
+  // CINDERPAW_ENABLE_SHELL_EXEC=false and then finds git_status missing has no
+  // way to tell a working security control from a broken install, and the
+  // difference decides whether they trust the switch or work around it.
+  if (registry.withheldForShellExec.length > 0) {
+    log(
+      `CINDERPAW_ENABLE_SHELL_EXEC=false: ${registry.withheldForShellExec.length} tool(s) that run ` +
+        `programs were not registered: ${registry.withheldForShellExec.join(", ")}`,
+    );
+  }
 
   // ask_user — interactive questions (Claude.ai-style). No permissions;
   // pure event emission through the AskUserBridge in the tool context.

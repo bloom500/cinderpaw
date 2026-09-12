@@ -177,7 +177,7 @@ export function useSendMessage() {
       if (!cloudModel && !loaded) {
         chat.setStreamStatus(
           'error',
-          'No model selected yet — pick a model from the picker above, then retry.',
+          'No model selected yet. Pick a model from the picker above, then retry.',
         );
         return;
       }

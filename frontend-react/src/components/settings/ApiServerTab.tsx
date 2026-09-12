@@ -57,7 +57,7 @@ export function ApiServerTab() {
           onClick={() => update({ api_server_enabled: !enabled })}
           className={cn(
             'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden',
-            enabled ? 'bg-blue-500' : 'bg-neutral-600',
+            enabled ? 'bg-brand' : 'bg-border-default',
           )}
         >
           <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />
@@ -126,7 +126,7 @@ export function ApiServerTab() {
           type="button"
           onClick={() => void save()}
           disabled={saving || !settings}
-          className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+          className="px-4 py-2 rounded-md bg-brand hover:bg-brand-hover text-primary-foreground text-sm font-medium disabled:opacity-50 transition-colors"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>

@@ -108,6 +108,24 @@ export type TurnStage = 'heard' | 'transcribed' | 'answering' | 'answered';
 
 let turnNo = 0;
 let turnStarted = false;
+/**
+ * When the last partial of this turn arrived.
+ *
+ * The three spans above all start at the FIRST partial, which means they all
+ * contain however long the person spoke. Two real turns measured 4476ms and
+ * 8860ms to transcribe, and the difference was almost entirely that the second
+ * question was longer — the instrument put here to catch a call getting slower
+ * cannot see it, because its baseline moves with the sentence.
+ *
+ * The last partial is the closest observable moment to "they stopped talking":
+ * the vendor's endpointer decides that, on the other side of a microphone we
+ * do not see, but it stops sending new words at roughly the same time. What
+ * follows it is the machine's alone, and it is the wait a caller actually
+ * feels: silence, then an answer.
+ */
+let lastPartialAt: number | null = null;
+/** When the answer started coming back, for the span above. */
+let answeringAt: number | null = null;
 
 /**
  * Record a stage of the current turn, and start a new turn on the first
@@ -121,11 +139,23 @@ export function turnMark(stage: TurnStage): { turn: number; spans: Record<string
   if (!p?.mark) return null;
   try {
     if (stage === 'heard') {
+      // Every partial moves this, so it ends up on the last one before the
+      // answer — which is what the reply span is measured from.
+      lastPartialAt = p.now();
       if (turnStarted) return null; // still the same utterance, several times a second
       turnNo += 1;
       turnStarted = true;
       p.mark(`${TURN}${turnNo}/start`);
       return null;
+    }
+    // The far end does not always announce that it started speaking: three of
+    // thirteen turns in a real call went partial → final → `said`, with no
+    // `state=speaking` between them, and those three printed "reply ?ms" —
+    // the one number worth having, missing on exactly the turns nobody can
+    // reconstruct afterwards. The answer arriving is itself proof the answer
+    // started, so it stands in when the announcement never came.
+    if (stage === 'answering' || (stage === 'answered' && answeringAt === null)) {
+      answeringAt = p.now();
     }
     if (!turnStarted) return null; // a stage with no turn behind it
     const from = `${TURN}${turnNo}/start`;
@@ -139,6 +169,12 @@ export function turnMark(stage: TurnStage): { turn: number; spans: Record<string
       const [m] = p.getEntriesByName(`${TURN}${turnNo}/${s}`, 'measure');
       if (m) spans[s] = Math.round(m.duration);
     }
+    // The one span that is not contaminated by how long the person spoke.
+    if (lastPartialAt !== null && answeringAt !== null) {
+      spans.reply = Math.max(0, Math.round(answeringAt - lastPartialAt));
+    }
+    lastPartialAt = null;
+    answeringAt = null;
     // Only the turn just finished is kept. A hundred turns of marks is a
     // hundred turns of entries in a buffer the browser caps anyway, and the
     // number that matters is printed before they go.
@@ -157,4 +193,6 @@ export function turnMark(stage: TurnStage): { turn: number; spans: Record<string
 export function resetTurns(): void {
   turnNo = 0;
   turnStarted = false;
+  lastPartialAt = null;
+  answeringAt = null;
 }

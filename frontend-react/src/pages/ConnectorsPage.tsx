@@ -332,7 +332,7 @@ function ConnectorCard({
               <span
                 className={cn(
                   'h-1.5 w-1.5 rounded-full shrink-0',
-                  enabled ? 'bg-emerald-400' : 'bg-text-muted/40',
+                  enabled ? 'bg-success' : 'bg-text-muted/40',
                 )}
                 title={enabled ? 'On' : 'Off'}
               />
@@ -523,7 +523,7 @@ function ConnectorCard({
               disabled={busy}
               className={cn(
                 'inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50 transition-colors',
-                justSaved ? 'bg-emerald-500' : 'bg-brand hover:bg-brand/90',
+                justSaved ? 'bg-success' : 'bg-brand hover:bg-brand/90',
               )}
             >
               {busy ? (

@@ -106,6 +106,27 @@ export function ChatPage() {
     return () => ro.disconnect();
   }, []);
 
+  // The offset above is measured once per state change, so resizing the
+  // window left the composer parked at the offset of a window size that
+  // no longer exists — visibly off centre until something else in the
+  // page happened to re-render. An observer on the container is what
+  // makes the centring survive a resize, a sidebar collapse, or a
+  // composer that grows as you type.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const wrapper   = inputWrapperRef.current;
+    if (!container || !wrapper) return;
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (!isEmpty || showAgentOnboarding) return;
+      const offset = container.offsetHeight / 2 - wrapper.offsetHeight / 2;
+      setTranslateY(offset > 0 ? -offset : 0);
+    });
+    ro.observe(container);
+    ro.observe(wrapper);
+    return () => ro.disconnect();
+  }, [isEmpty, showAgentOnboarding]);
+
   // Initial data hydration
   useEffect(() => {
     void useConversations.getState().refresh();

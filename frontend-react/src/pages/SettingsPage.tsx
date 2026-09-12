@@ -1,5 +1,9 @@
 import { useEffect, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import {
+  ArrowLeftRight, Bot, Brain, Cpu, Info, KeyRound, Link2, Palette, Settings,
+  ShieldCheck, Sparkles, type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 import { GeneralTab }    from '@/components/settings/GeneralTab';
@@ -28,22 +32,27 @@ const FULL_BLEED: Category[] = ['capabilities', 'accounts', 'memory'];
 /** Exported so the router's redirects can be checked against it: a redirect to
  *  a category that does not exist is a dead end, and nothing else would catch
  *  it — the tab list would simply fall back to General with no error. */
-export const CATS: { id: Category; label: string; icon: string }[] = [
-  { id: 'general',    label: 'General',     icon: '⚙' },
-  { id: 'appearance', label: 'Appearance',  icon: '◐' },
-  { id: 'hardware',   label: 'Hardware',    icon: '⌬' },
-  { id: 'api',        label: 'API Server',  icon: '⇄' },
-  { id: 'byok',       label: 'Cloud Keys',  icon: '⚷' },
-  { id: 'agent',      label: 'Agent',       icon: '◈' },
-  { id: 'privacy',    label: 'Privacy',     icon: '⚿' },
+// Icons are drawn, not typed. The rail used rare symbol glyphs (U+26B7,
+// U+26BF, U+274A and friends) which exist in almost no shipped font: on a
+// Linux box, and on Windows installs without the full symbol set, half of
+// this list rendered as empty boxes. lucide is already a dependency and
+// draws the same meaning as SVG on every machine.
+export const CATS: { id: Category; label: string; icon: LucideIcon }[] = [
+  { id: 'general',    label: 'General',     icon: Settings },
+  { id: 'appearance', label: 'Appearance',  icon: Palette },
+  { id: 'hardware',   label: 'Hardware',    icon: Cpu },
+  { id: 'api',        label: 'API Server',  icon: ArrowLeftRight },
+  { id: 'byok',       label: 'Cloud Keys',  icon: KeyRound },
+  { id: 'agent',      label: 'Agent',       icon: Bot },
+  { id: 'privacy',    label: 'Privacy',     icon: ShieldCheck },
   // Named for what the user is looking for, not for the subsystem underneath:
   // 'skill', 'extension' and 'connector' are banned from the primary interface
   // by the UX contract. They stay legal inside these screens, which is what
   // progressive disclosure means.
-  { id: 'capabilities', label: 'Capabilities', icon: '✦' },
-  { id: 'accounts',     label: 'Accounts',     icon: '⚯' },
-  { id: 'memory',       label: 'Memory',       icon: '❊' },
-  { id: 'about',      label: 'About',       icon: 'ⓘ' },
+  { id: 'capabilities', label: 'Capabilities', icon: Sparkles },
+  { id: 'accounts',     label: 'Accounts',     icon: Link2 },
+  { id: 'memory',       label: 'Memory',       icon: Brain },
+  { id: 'about',      label: 'About',       icon: Info },
 ];
 
 function isCategory(s: string | null): s is Category {
@@ -104,7 +113,7 @@ export function SettingsPage() {
                 : 'text-text-secondary hover:bg-bg-hover',
             )}
           >
-            <span className="shrink-0">{c.icon}</span>
+            <c.icon className="size-4 shrink-0" aria-hidden />
             <span>{c.label}</span>
           </button>
         ))}

@@ -269,7 +269,7 @@ function InstalledCard({
             <span
               className={cn(
                 'h-1.5 w-1.5 rounded-full shrink-0',
-                server.running ? 'bg-emerald-400' : server.enabled ? 'bg-amber-400' : 'bg-text-muted/40',
+                server.running ? 'bg-success' : server.enabled ? 'bg-warning' : 'bg-text-muted/40',
               )}
               title={server.running ? 'Running' : server.enabled ? 'Starting…' : 'Off'}
             />
@@ -496,8 +496,8 @@ function CatalogCard({
             {entry.browser_login && (
               <p className="rounded-lg bg-bg-hover px-3 py-2 text-text-secondary">
                 A browser window will open for you to sign in to {entry.name} and
-                approve access. Finish that, and this will connect on its own —
-                it waits for you, so take the time you need.
+                approve access. Finish that, and this will connect on its own. It waits
+                for you, so take the time you need.
               </p>
             )}
             <p className="text-text-muted">

@@ -52,7 +52,7 @@ export function HardwareTab() {
           onClick={() => update({ default_gpu_layers: gpuOn ? 0 : -1 })}
           className={cn(
             'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden',
-            gpuOn ? 'bg-blue-500' : 'bg-neutral-600',
+            gpuOn ? 'bg-brand' : 'bg-border-default',
           )}
         >
           <span
@@ -113,7 +113,7 @@ export function HardwareTab() {
           type="button"
           onClick={() => void save()}
           disabled={saving || !settings}
-          className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+          className="px-4 py-2 rounded-md bg-brand hover:bg-brand-hover text-primary-foreground text-sm font-medium disabled:opacity-50 transition-colors"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>

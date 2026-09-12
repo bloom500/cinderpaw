@@ -180,8 +180,35 @@ export function ModelPickerPopover() {
         </button>
       </DropdownMenuTrigger>
       {/* Upward: the composer sits at the bottom of the screen, and a menu
-          that opens downward from it opens off-screen. */}
-      <DropdownMenuContent side="top" align="start" className="w-72">
+          that opens downward from it opens off-screen.
+
+          `sideOffset` and the height cap are not spacing taste. Radix opens
+          this menu on POINTER DOWN, and an item whose pointer-down it never
+          saw selects itself on pointer UP:
+
+            onPointerUp: (event) => {
+              if (!isPointerDownRef.current) event.currentTarget?.click();
+            }                        (@radix-ui/react-menu, MenuItem)
+
+          That exists so a press-drag-release picks an item, and it turns into
+          a bug the moment the menu is drawn underneath the cursor: the press
+          opens it, the release lands on whatever row is now there, and a model
+          the user never chose is loaded. A list that outgrows the room above
+          the composer is exactly when that happens, which is why it comes back
+          as soon as somebody installs another model.
+
+          The cap keeps the menu inside the space above the trigger so it is
+          not flipped or shifted under the cursor, and the offset keeps a gap
+          between the cursor and the nearest row either way. The scroll is the
+          other half of the same problem: a picker taller than the window is
+          not a picker. */}
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
+        className="w-72 max-h-[min(55vh,26rem)] overflow-y-auto thin-scrollbar"
+      >
         {hasLocal && (
           <>
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">

@@ -196,7 +196,7 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
     // cannot have a syntax error — and an empty info log then looks like a
     // GLSL problem when it is a graphics-stack problem.
     report(
-      `shader failed to compile (${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'}) — ` +
+      `shader failed to compile (${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'}): ` +
         `lost=${gl.isContextLost()} err=${gl.getError()} ` +
         `ver=${gl.getParameter(gl.VERSION)} glsl=${gl.getParameter(gl.SHADING_LANGUAGE_VERSION)} ` +
         `log=${JSON.stringify(gl.getShaderInfoLog(sh))}`,
@@ -255,7 +255,7 @@ export function MoltenOrb({
       powerPreference: 'low-power',
     });
     if (!gl) {
-      report('no WebGL2 on this machine — using the CSS sphere');
+      report('no WebGL2 on this machine, using the CSS sphere');
       if (!failedRef.current) { failedRef.current = true; onUnavailable(); }
       return;
     }
@@ -271,7 +271,7 @@ export function MoltenOrb({
     gl.attachShader(prog, fs);
     gl.linkProgram(prog);
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      report(`shader failed to link — falling back to CSS: ${gl.getProgramInfoLog(prog)}`);
+      report(`shader failed to link, falling back to CSS: ${gl.getProgramInfoLog(prog)}`);
       if (!failedRef.current) { failedRef.current = true; onUnavailable(); }
       return;
     }
@@ -359,7 +359,7 @@ export function MoltenOrb({
       cancelAnimationFrame(raf);
     };
     const onRestored = () => {
-      report('graphics context was lost mid-call — using the CSS sphere');
+      report('graphics context was lost mid-call, using the CSS sphere');
       if (!failedRef.current) { failedRef.current = true; onUnavailable(); }
     };
     canvas.addEventListener('webglcontextlost', onLost);

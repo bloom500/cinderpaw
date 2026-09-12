@@ -72,13 +72,53 @@ describe('per-turn timing', () => {
     expect(turnMark('answered')?.turn).toBe(2);
   });
 
-  it('reports all three spans, measured from the first partial', () => {
+  it('reports the three first-partial spans plus the reply wait', () => {
     turnMark('heard');
     turnMark('transcribed');
     turnMark('answering');
     const done = turnMark('answered');
-    expect(Object.keys(done!.spans).sort()).toEqual(['answered', 'answering', 'transcribed']);
+    expect(Object.keys(done!.spans).sort()).toEqual([
+      'answered',
+      'answering',
+      'reply',
+      'transcribed',
+    ]);
     expect(done!.spans.answered).toBeGreaterThanOrEqual(done!.spans.transcribed!);
+  });
+
+  it('still reports a reply wait when nothing announced the answer', () => {
+    // Gemini went partial → final → said on three turns of a real call, with
+    // no `state=speaking` in between. Those were the turns that printed
+    // "reply ?ms", which is the number the line exists for.
+    turnMark('heard');
+    turnMark('transcribed');
+    const done = turnMark('answered');
+    expect(done!.spans.reply).toBeTypeOf('number');
+  });
+
+  it('the reply wait does not grow with how long the person spoke', async () => {
+    // The three spans above all start at the FIRST partial, so a longer
+    // question makes every one of them bigger — which is why two real turns
+    // measured 4476ms and 8860ms and neither number said anything about the
+    // machine. `reply` starts at the LAST partial instead: the same answer
+    // delay has to measure the same whether the sentence took one partial or
+    // twenty.
+    const wait = () => new Promise((r) => setTimeout(r, 12));
+
+    turnMark('heard');
+    turnMark('answering');
+    const short = turnMark('answered')!.spans.reply!;
+
+    turnMark('heard');
+    for (let i = 0; i < 6; i++) {
+      await wait();
+      turnMark('heard'); // still talking: partial after partial
+    }
+    turnMark('answering');
+    const long = turnMark('answered')!.spans.reply!;
+
+    // The long turn took ~70ms more of talking and no more of waiting.
+    expect(long).toBeLessThan(short + 40);
   });
 
   it('ignores a stage that arrives with no turn behind it', () => {

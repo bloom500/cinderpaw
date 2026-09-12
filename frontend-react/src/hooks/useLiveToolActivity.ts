@@ -325,6 +325,22 @@ export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
 
 /** Longest an activity stays on screen after finishing. */
 const LINGER_MS = 6_000;
+/**
+ * Longest a row may claim to be running.
+ *
+ * Past its deadline the runtime answers a slow tool with "still working on
+ * that one", and this panel deliberately keeps the row running on that,
+ * because the work really is still going. What nothing ever sends is the
+ * second result: the request that would have carried it was already answered,
+ * so the row spun for as long as the call lasted. Measured at 465 seconds on
+ * one, which is not "taking longer than usual", it is a spinner nobody can
+ * end — the caller even asked the agent to stop it, and there is nothing on
+ * either side that could.
+ *
+ * Four minutes is past any honest search and well short of that. A row that
+ * reaches it says so and stops pretending.
+ */
+const RUNNING_CEILING_MS = 240_000;
 /** Most rows kept — a call can run many tools and the panel is small. */
 const MAX = 6;
 
@@ -479,6 +495,19 @@ export function useLiveToolActivity(enabled: boolean) {
      */
     const onTool = (kind: string, text: string) => {
       if (cancelled) return;
+      // The call is over. Whatever was running is not running any more, and a
+      // row still spinning after the room closed is the panel describing a
+      // process that no longer exists.
+      if (kind === 'closed') {
+        setActivity((prev) =>
+          prev.map((a) =>
+            a.status === 'running'
+              ? { ...a, status: 'done' as const, endedAt: Date.now(), note: 'call ended' }
+              : a,
+          ),
+        );
+        return;
+      }
       if (kind === 'toolCall') begin(AGENT_TOOL, undefined, text);
       else if (kind === 'toolResult') {
         // A slow answer is not a failed one. Past its deadline the runtime
@@ -565,10 +594,26 @@ export function useLiveToolActivity(enabled: boolean) {
     // Finished rows age out on a timer rather than on the next event: the last
     // tool of a turn would otherwise sit on screen until the next call.
     const sweep = window.setInterval(() => {
-      const cutoff = Date.now() - LINGER_MS;
+      const now = Date.now();
+      const cutoff = now - LINGER_MS;
       setActivity((prev) => {
-        const kept = prev.filter((a) => a.endedAt === null || a.endedAt > cutoff);
-        return kept.length === prev.length ? prev : kept;
+        // A row that has run past the ceiling is closed where it stands. It is
+        // not marked failed: the work may well have finished somewhere we
+        // cannot see, and calling that a failure would be its own lie.
+        const capped = prev.map((a) =>
+          a.status === 'running' && now - a.startedAt > RUNNING_CEILING_MS
+            ? {
+                ...a,
+                status: 'done' as const,
+                endedAt: now,
+                note: 'no answer came back',
+              }
+            : a,
+        );
+        const kept = capped.filter((a) => a.endedAt === null || a.endedAt > cutoff);
+        const unchanged =
+          kept.length === prev.length && kept.every((a, i) => a === prev[i]);
+        return unchanged ? prev : kept;
       });
     }, 1_000);
 

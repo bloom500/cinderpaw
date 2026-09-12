@@ -145,7 +145,7 @@ export function ProjectsPage() {
                 <ProjectSkeletons />
               ) : projects.length === 0 ? (
                 <p className="text-sm text-text-muted">
-                  No projects yet. A project keeps related chats and files together — and
+                  No projects yet. A project keeps related chats and files together, and
                   Cinderpaw is perfectly usable without ever making one.
                 </p>
               ) : (

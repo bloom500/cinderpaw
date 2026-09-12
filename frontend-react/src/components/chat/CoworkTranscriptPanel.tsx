@@ -1099,7 +1099,7 @@ export function CoworkTranscriptPanel() {
             )}
           </>
         ) : (
-          <span className="flex size-full items-center justify-center rounded-full bg-brand text-base font-semibold text-white">
+          <span className="flex size-full items-center justify-center rounded-full bg-brand text-base font-semibold text-primary-foreground">
             ◈
           </span>
         )}
@@ -1113,7 +1113,7 @@ export function CoworkTranscriptPanel() {
             data-testid="cowork-unread-badge"
             aria-label={`${unread} unread message${unread === 1 ? '' : 's'}`}
             className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1.5 rounded-full
-                       bg-error text-white text-2xs font-bold leading-none
+                       bg-error text-primary-foreground text-2xs font-bold leading-none
                        flex items-center justify-center ring-2 ring-bg-elevated"
           >
             {unread > 99 ? '99+' : unread}
@@ -1242,7 +1242,7 @@ export function CoworkTranscriptPanel() {
                   className={cn(
                     'rounded-full px-2 py-0.5 text-2xs border cursor-pointer',
                     filterAgent === id
-                      ? 'bg-brand text-white border-brand'
+                      ? 'bg-brand text-primary-foreground border-brand'
                       : 'bg-bg-elevated text-text-muted border-border-subtle hover:border-brand/30',
                   )}
                   title={name ?? id}

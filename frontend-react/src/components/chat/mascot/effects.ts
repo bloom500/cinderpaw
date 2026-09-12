@@ -115,12 +115,21 @@ function zs(tick: number): EffectPixel[] {
     const t = (tick + i * 4) % PERIOD;
     const x = 27 + Math.floor(t / 3);
     const y = 10 - t;
-    if (y < 0 || x > 33) continue;
-    // 3×3 pixel Z
+    if (y < 0 || x + 3 > 35) continue;
+    // 4×4, because a 3×3 "Z" is not one. With three pixels of width the
+    // diagonal has nowhere to go: the middle row lands dead centre and the
+    // glyph draws an I. On screen that is three grey I's floating off a
+    // sleeping animal, which reads as debris rather than as sleep. A fourth
+    // column gives the diagonal its two steps.
+    //  ####
+    //  ..#.
+    //  .#..
+    //  ####
     out.push(
-      { x, y, color: SLATE }, { x: x + 1, y, color: SLATE }, { x: x + 2, y, color: SLATE },
-      { x: x + 1, y: y + 1, color: SLATE },
-      { x, y: y + 2, color: SLATE }, { x: x + 1, y: y + 2, color: SLATE }, { x: x + 2, y: y + 2, color: SLATE },
+      { x, y, color: SLATE }, { x: x + 1, y, color: SLATE }, { x: x + 2, y, color: SLATE }, { x: x + 3, y, color: SLATE },
+      { x: x + 2, y: y + 1, color: SLATE },
+      { x: x + 1, y: y + 2, color: SLATE },
+      { x, y: y + 3, color: SLATE }, { x: x + 1, y: y + 3, color: SLATE }, { x: x + 2, y: y + 3, color: SLATE }, { x: x + 3, y: y + 3, color: SLATE },
     );
   }
   return out;

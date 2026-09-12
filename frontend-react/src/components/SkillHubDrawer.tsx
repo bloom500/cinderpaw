@@ -364,7 +364,7 @@ export function SkillHubDrawer() {
                           <p className="text-xs text-text-muted">Remove this skill from Cinderpaw? This cannot be undone in v1.</p>
                           <div className="flex gap-2">
                             <button type="button" onClick={() => void doRemove()}
-                              className="px-3 py-1.5 text-xs rounded bg-error text-white hover:bg-error/90">
+                              className="px-3 py-1.5 text-xs rounded bg-error text-primary-foreground hover:bg-error/90">
                               Confirm Remove
                             </button>
                             <button type="button" onClick={() => setRemovePending(false)}

@@ -212,7 +212,7 @@ export function AgentSettingsTab() {
               type="button"
               onClick={() => void handleConfirmDelete()}
               disabled={deleting}
-              className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm rounded bg-error text-primary-foreground hover:bg-error/90 disabled:opacity-50"
             >
               {deleting ? 'Deleting…' : 'Delete'}
             </button>
@@ -342,7 +342,7 @@ function TokenBudgetToggle() {
           onClick={() => void toggle()}
           className={cn(
             'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden disabled:opacity-50',
-            limited ? 'bg-brand' : 'bg-neutral-600',
+            limited ? 'bg-brand' : 'bg-border-default',
           )}
         >
           <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', limited ? 'translate-x-5' : 'translate-x-1')} />
@@ -444,7 +444,7 @@ function DesktopControlToggle() {
           onClick={() => void toggle()}
           className={cn(
             'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden disabled:opacity-50',
-            enabled ? 'bg-brand' : 'bg-neutral-600',
+            enabled ? 'bg-brand' : 'bg-border-default',
           )}
         >
           <span className={cn('absolute top-1 left-0 w-4 h-4 rounded-full bg-white transition-transform', enabled ? 'translate-x-5' : 'translate-x-1')} />

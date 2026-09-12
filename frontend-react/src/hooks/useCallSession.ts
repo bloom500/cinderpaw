@@ -756,7 +756,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               // already heard, so stop streaming rather than risk repeating a
               // sentence — the final flush below is skipped too, for the same reason.
               desynced = true;
-              log('turn', 'reply text was rewritten mid-stream — stopped streaming speech');
+              log('turn', 'reply text was rewritten mid-stream, stopped streaming speech');
               return;
             }
             let carry = full.slice(spoken.length);
@@ -856,7 +856,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
               if (quietFor < allowed) return;
               lastOut = Date.now();
               const line = fillerLine(saidFillers++);
-              log('turn', `quiet for ${quietFor}ms — saying "${line}"`);
+              log('turn', `quiet for ${quietFor}ms, saying "${line}"`);
               speakPiece(line);
             }, FILLER_TICK_MS);
             // Anything the pump sends counts as the line being warm, so a reply
@@ -896,7 +896,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // gets cancelled by the NEXT turn's send, and that `stopped` status
             // lands on the new turn — so walking away from an interrupted reply
             // would poison the reply the user actually wanted.
-            log('turn', 'user interrupted — stopping the stream');
+            log('turn', 'user interrupted, stopping the stream');
             await stopActiveStream(useChat.getState().sessionId).catch(() => {});
             if (callRef.current !== call) return;
             // The outer `finally` awaits the capture, so the interrupting words
@@ -916,7 +916,7 @@ export function useCallSession(send: (text: string) => Promise<void>) {
             // landed on the new turn — so a hung reply silently poisoned the
             // reply after it, which is how one stuck turn broke every following
             // one until the call was restarted.
-            log('turn', `no progress for ${REPLY_IDLE_TIMEOUT_MS}ms — stopping the stream`);
+            log('turn', `no progress for ${REPLY_IDLE_TIMEOUT_MS}ms, stopping the stream`);
             await stopActiveStream(useChat.getState().sessionId).catch(() => {});
             if (callRef.current !== call) return;
             setNotice(t('call.replyTimeout'));

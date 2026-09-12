@@ -46,7 +46,7 @@ function WinControls() {
         onClick={() => void getCurrentWindow().close()}
         className={cn(
           'h-8 w-10 flex items-center justify-center text-text-muted/70 transition-colors',
-          'hover:text-white hover:bg-error/80',
+          'hover:text-primary-foreground hover:bg-error/80',
         )}
         aria-label="Close"
       >

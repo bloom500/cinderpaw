@@ -22,7 +22,7 @@ const en = {
   // Spoken by the product, not the model — there is no model to speak. See
   // ChatInput.noModelReply.
   'chat.noModel.reply':
-    "I need a model before I can do that. I can run a small one locally on this machine — it works offline — or use an API key if you already have one.",
+    "I need a model before I can do that. I can run a small one locally on this machine, which works offline, or use an API key if you already have one.",
   'chat.noModel.download': 'Download a model',
   // Model picker trigger when nothing is pinned. Choosing by hand is an
   // override now, not a prerequisite — Brain routes per turn.
@@ -31,7 +31,7 @@ const en = {
   'chat.noModel.addKey': 'Add a key',
   // Shown when automatic model selection failed and the default was used.
   // A fallback is allowed; a hidden one is not.
-  'chat.routed.fallback': 'I used your default model — automatic model choice was unavailable.',
+  'chat.routed.fallback': 'I used your default model. Automatic model choice was unavailable.',
   'chat.routed.why': 'Why?',
   'chat.stop': 'Stop',
   'chat.send': 'Send',
@@ -98,6 +98,12 @@ const en = {
   'call.onDevice': 'on device',
   'call.leavesDevice': 'leaves device',
   'call.answer': 'Call',
+  'call.setUpVoice': 'Choose a voice',
+  // Said BEFORE the button is pressed. The old path booted Node, a LiveKit
+  // server and an npm install first, then failed with advice about checking
+  // the network — on a machine whose network was fine.
+  'call.noEngine':
+    'Cinderpaw has no voice to speak with yet. This version needs one you choose: a voice that runs on your machine, or a cloud voice with a key. Pick one and the call will work.',
   'call.listening': 'Listening…',
   'call.thinking': 'Thinking…',
   'call.speaking': 'Speaking…',
@@ -108,7 +114,12 @@ const en = {
   'call.voice': 'Voice',
   'call.voiceDefault': "Vendor's default voice",
   'call.voicesLoading': 'Loading voices…',
-  'call.voicesFailed': "Couldn't list voices. Paste a voice id",
+  // Not "paste a voice id". A person who came to make a phone call has no
+  // idea what a voice id is, and no way to find one: the list that would have
+  // told them is the thing that just failed. Say what will be used instead,
+  // and say it as a fact rather than as a problem they have to solve.
+  'call.voicesUsingDefault': 'Voice list unavailable, using',
+  'call.voicesNeedKey': 'Add this engine’s key in Settings to choose a voice.',
   'call.voiceIdPlaceholder': 'Voice id',
   'call.voicesAvailable': 'available',
   'call.voiceMore': 'Showing the most relevant. Paste any voice id to use another:',
@@ -159,7 +170,7 @@ const en = {
   'call.stage.starting': 'Starting the voice engine…',
   'call.stage.joining': 'Joining the call…',
   'call.stage.mic': 'Opening the microphone…',
-  'call.reconnecting': 'Connection lost — reconnecting…',
+  'call.reconnecting': 'Connection lost. Reconnecting…',
   // The work panel — what Cinderpaw is doing while the call waits.
   'call.toolSearching': 'searching…',
   'call.toolDone': 'done',
@@ -209,12 +220,12 @@ const ro: Strings = {
   'chat.placeholder.noModel': 'Încarcă un model sau adaugă o cheie cloud ca să începi',
   'chat.noModelHint': 'Niciun model încărcat. Deschide Models ca să descarci unul, sau adaugă o cheie cloud în Settings.',
   'chat.noModel.reply':
-    'Îmi trebuie un model ca să pot face asta. Pot rula unul mic direct pe calculatorul tău — merge și fără internet — sau pot folosi o cheie API, dacă ai deja una.',
+    'Îmi trebuie un model ca să pot face asta. Pot rula unul mic direct pe calculatorul tău, merge și fără internet, sau pot folosi o cheie API, dacă ai deja una.',
   'chat.noModel.download': 'Descarcă un model',
   'model.automatic': 'Automat',
   'model.add': 'Adaugă un model',
   'chat.noModel.addKey': 'Adaugă o cheie',
-  'chat.routed.fallback': 'Am folosit modelul tău implicit — alegerea automată n-a fost disponibilă.',
+  'chat.routed.fallback': 'Am folosit modelul tău implicit. Alegerea automată n-a fost disponibilă.',
   'chat.routed.why': 'De ce?',
   'chat.stop': 'Oprește',
   'chat.send': 'Trimite',
@@ -269,6 +280,9 @@ const ro: Strings = {
   'call.onDevice': 'pe dispozitiv',
   'call.leavesDevice': 'pleacă de pe dispozitiv',
   'call.answer': 'Sună',
+  'call.setUpVoice': 'Alege o voce',
+  'call.noEngine':
+    'Cinderpaw nu are încă o voce cu care să vorbească. Versiunea aceasta are nevoie de una aleasă de tine: o voce care rulează pe calculatorul tău, sau o voce din cloud cu o cheie. Alege una și apelul va funcționa.',
   'call.listening': 'Ascult…',
   'call.thinking': 'Mă gândesc…',
   'call.speaking': 'Vorbesc…',
@@ -279,8 +293,9 @@ const ro: Strings = {
   'call.voice': 'Voce',
   'call.voiceDefault': 'Vocea implicită a furnizorului',
   'call.voicesLoading': 'Se încarcă vocile…',
-  'call.voicesFailed': 'Nu am putut lista vocile. Lipește un id de voce',
   'call.voiceIdPlaceholder': 'Id de voce',
+  'call.voicesUsingDefault': 'Lista de voci nu e disponibilă, folosesc',
+  'call.voicesNeedKey': 'Adaugă cheia motorului în Setări ca să poți alege vocea.',
   'call.voicesAvailable': 'disponibile',
   'call.voiceMore': 'Arăt cele mai relevante. Lipește orice id de voce pentru altele:',
   'call.tooShort': 'A fost prea scurt ca să pot transcrie. Mai zi un pic.',

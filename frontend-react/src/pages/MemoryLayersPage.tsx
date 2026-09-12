@@ -52,11 +52,16 @@ function formatTimeAgo(now: number, ts: number): string {
   return `${Math.floor(dt / DAY_MS)}d ago`;
 }
 
+/**
+ * A clock the reader recognises.
+ *
+ * Hand-built `HH:mm` is a 24-hour clock for everybody, including the half of
+ * the world that reads 1:20 PM. No locale is passed on purpose: the machine's
+ * own is the right answer, and it is the one every other clock this person
+ * sees today is using.
+ */
 function formatClock(ts: number): string {
-  const d = new Date(ts);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${hh}:${mm}`;
+  return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 function describeStop(stopReason: string | undefined): string {

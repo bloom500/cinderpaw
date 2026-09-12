@@ -441,7 +441,7 @@ export function CinderpawDreamsPanel() {
         <div className="min-w-0">
           <p className="text-xs font-medium text-text-primary">Dreaming enabled</p>
           <p className="text-2xs text-text-muted">
-            Master opt-in. While off, nothing runs in the background — no exceptions.
+            Master opt-in. While off, nothing runs in the background. No exceptions.
           </p>
         </div>
         <button
@@ -638,7 +638,7 @@ function GovernanceCard({
             }
           >
             <span
-              className={`inline-block h-1.5 w-1.5 rounded-full ${verify.ok ? 'bg-emerald-500' : 'bg-amber-500'}`}
+              className={`inline-block h-1.5 w-1.5 rounded-full ${verify.ok ? 'bg-success' : 'bg-warning'}`}
             />
             <span className={verify.ok ? 'text-text-muted' : 'text-warning'}>
               {verify.ok ? 'records intact' : 'records check failed'}

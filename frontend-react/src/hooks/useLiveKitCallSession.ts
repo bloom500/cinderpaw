@@ -23,6 +23,18 @@ import { callMark, turnMark, resetTurns } from '@/lib/callTiming';
 export const LIVEKIT_ENGINE_ID = 'livekit';
 
 /**
+ * Keep a raw engine error short enough to sit inside a sentence.
+ *
+ * These strings arrive from LiveKit and from Rust, and some of them carry a
+ * whole stack or a URL with a token in it. One line, no newlines, capped.
+ */
+export function trimNotice(raw: string, max = 120): string {
+  const flat = raw.replace(/\s+/g, ' ').trim();
+  if (flat.length <= max) return flat;
+  return flat.slice(0, max - 1).trimEnd() + '…';
+}
+
+/**
  * What a call will be made with, read from the one place that holds it.
  *
  * Extracted so the warmup and the call cannot drift. Rust binds a warmed chain
@@ -157,6 +169,16 @@ export function useLiveKitCallSession() {
   // already missed it.
   useEffect(() => {
     const pending = events.liveKitEvent.listen((e) => {
+      // Every event, one line, no content. A call that goes quiet leaves no
+      // trace anywhere else: Rust forwards these straight to the window and
+      // logs none of them, so "it stopped hearing me after two turns" came
+      // with nothing to look at. Kind, state and a character COUNT — never a
+      // word of what was said, which is the same rule the timing marks keep.
+      console.info(
+        `[call] ${e.kind}${e.text !== undefined && e.text !== null && e.kind === 'state' ? `=${e.text}` : ''}` +
+          `${e.partial === true ? ' partial' : ''}` +
+          `${typeof e.text === 'string' && e.kind !== 'state' ? ` ${e.text.length}ch` : ''}`,
+      );
       if (e.kind === 'heard' && e.text) {
         callMark('first_transcript');
         turnMark(e.partial ? 'heard' : 'transcribed');
@@ -177,7 +199,11 @@ export function useLiveKitCallSession() {
         // never a word of what was said.
         if (done) {
           console.info(
-            `[call] turn ${done.turn}: transcript ${done.spans.transcribed ?? '?'}ms, ` +
+            // `reply` first, because it is the only one of these that is not
+            // partly a measure of how long the caller spoke — and so the only
+            // one that answers "is this call getting slower".
+            `[call] turn ${done.turn}: reply ${done.spans.reply ?? '?'}ms ` +
+              `(from your last word), transcript ${done.spans.transcribed ?? '?'}ms, ` +
               `answer started ${done.spans.answering ?? '?'}ms, complete ${done.spans.answered ?? '?'}ms`,
           );
         }
@@ -327,7 +353,13 @@ export function useLiveKitCallSession() {
           ? 'Voice needs Node.js installed. Install it from nodejs.org and try again.'
           : raw.includes('Permission')
             ? 'The microphone was refused. Allow it for Cinderpaw in your system settings.'
-            : raw,
+            // Anything else was a raw LiveKit or Rust string thrown at the
+            // caller: "signal connection failed" and the like, which reads as
+            // the app breaking rather than as something they can act on. A
+            // sentence they can act on first, the original kept after it, in
+            // brackets, because it is the only thing worth quoting in a bug
+            // report and dropping it would cost more than it saves.
+            : `The call could not start. Check that you are online, then try again. (${trimNotice(raw)})`,
       );
       // Back to the screen with the button on it, which is the only state a
       // failed call can be retried from.

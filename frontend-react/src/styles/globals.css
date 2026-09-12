@@ -426,7 +426,7 @@
   --brand-hover:     #8B5820;
   --brand-muted:     #E8D4B8;
   --error:           #A03820;
-  --success:         #5A8A4A;
+  --success:         #487538;
   --warning:         #B8862A;
   --info:            #1A5FD0;
 
@@ -1038,25 +1038,10 @@ body::after {
 [data-theme="light"] .hljs-addition { color: #22863a; background-color: #f0fff4; }
 [data-theme="light"] .hljs-deletion { color: #b31d28; background-color: #ffeef0; }
 
-/* Streaming cursor — appended inline after the last rendered element */
+/* Blinking caret, used by the terminal caret below. */
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0; }
-}
-
-/* The cursor hangs off the last child. `::after` does not render on a
-   replaced/void element, so a stream whose last block is an image or an `<hr>`
-   showed no cursor at all — the answer looked finished while it was still
-   arriving. Excluding those elements moves the cursor to the block before,
-   which is visible, instead of nowhere. */
-.streaming-content > *:last-child:not(img):not(hr):not(br):not(input)::after {
-  content: '▍';
-  display: inline-block;
-  margin-left: 1px;
-  color: var(--text-muted);
-  animation: cursor-blink 0.8s ease-in-out infinite;
-  vertical-align: baseline;
-  font-style: normal;
 }
 
 /* Base resets */
@@ -1113,52 +1098,49 @@ body { overflow: hidden; }
  * everywhere else. Nothing downstream had to change.
  */
 .call-stage {
-  /* Dark ink, not light. The field started deep and the text was near-white;
-     the field then got much brighter to match the reference, and white on a
-     bright orange is about 3.5:1 — under the 4.5:1 body-text floor, and it
-     showed. A deep warm brown rather than pure black: black on orange is
-     correct and reads as a placeholder, while the brown belongs to the same
-     family as the ground it sits on and clears 7:1. */
-  --text-primary:    #3A1206;
-  --text-secondary:  rgba(58, 18, 6, 0.82);
-  --text-muted:      rgba(58, 18, 6, 0.66);
-  --border-default:  rgba(58, 18, 6, 0.34);
-  --border-subtle:   rgba(58, 18, 6, 0.18);
-  /* Panels are a DARK scrim, not white glass. White at 13% over orange is
-     orange — the first version made the hang-up and interrupt buttons
-     effectively invisible, which on a call screen is the one control that has
-     to be findable without looking for it. Darkening instead of lightening
-     also gives the light icons something to sit on. */
-  /* Light glass now that the ink is dark — a dark scrim under dark text is the
-     same mistake in reverse. These lift off the orange without going white,
-     which would strand the panels as bright patches on a bright field. */
-  --bg-elevated:     rgba(255, 238, 224, 0.30);
-  --bg-surface:      rgba(255, 238, 224, 0.22);
-  --bg-hover:        rgba(255, 238, 224, 0.46);
-  /* Red on red is nothing. The danger of the hang-up button is carried by its
-     icon and its position; its colour has to be readable first, so it goes
-     to the darkest tone available here and keeps its meaning from the shape. */
-  --error:           #5C1400;
-  /* Links and badges have to clear 4.5:1 on orange, where the theme's blues do
-     not: #8AB4F8 on #E8451F is about 2.4:1. Cream carries the same "this is a
-     link" weight at 7:1+. */
-  /* Dark for the same reason the body text is: these sit on the same bright
-     field, and the cream values that cleared 7:1 on the old deep orange now
-     clear about 2:1. */
-  --result-link:     #4A1400;
-  --badge-warn-fg:   #5C2A00;
-  --badge-warn-bg:   rgba(92, 42, 0, 0.14);
-  --badge-warn-br:   rgba(92, 42, 0, 0.34);
-  --badge-ok-fg:     #234A10;
-  --badge-ok-bg:     rgba(35, 74, 16, 0.14);
-  --badge-ok-br:     rgba(35, 74, 16, 0.34);
+  /* This surface has TWO grounds, and that is the whole difficulty of it.
+     The room is a near-black warm field. The controls sit on small panels
+     drawn over it. A token tuned for one is wrong on the other, and the file
+     used to tune everything for a third thing entirely: a bright orange field
+     the screen had back when the sphere was not the only light in the room.
+
+     Text: the overlay re-states the three text tokens inline for the dark
+     room, so these are the fallback, kept warm-light rather than the old dark
+     ink that assumed a bright field.
+
+     Panels: a DARK scrim, so a light icon has something to sit on. The light
+     glass here measured (104, 90, 79) over the room — a mid tone on which no
+     red clears AA at all: the cancel control on the pre-call screen measured
+     2.03:1 with the dark red it was given, and 1.63:1 with a bright one. The
+     ground was the problem, not the ink. */
+  --text-primary:    #FFF3E4;
+  --text-secondary:  rgba(255, 243, 228, 0.82);
+  --text-muted:      rgba(255, 243, 228, 0.68);
+  --border-default:  rgba(255, 238, 224, 0.24);
+  --border-subtle:   rgba(255, 238, 224, 0.12);
+  --bg-elevated:     rgba(0, 0, 0, 0.32);
+  --bg-surface:      rgba(0, 0, 0, 0.24);
+  --bg-hover:        rgba(255, 238, 224, 0.14);
+  /* Everything below is for a DARK room.
+     These were calibrated when the call field was bright brand orange, and
+     every one of them is a dark ink chosen to survive on it. The field is a
+     near-black room now — the sphere is the only light in it — and the overlay
+     re-states three text tokens inline for that. It does not re-state these,
+     so they went on being dark ink on a dark ground: "leaves device", the one
+     line on the pre-call screen whose job is to say the caller's voice goes to
+     a company, measured 1.43:1. Unreadable, on the disclosure.
+     Dark-field values, all of them 4:1 or better on the room. */
+  --error:           #D4553A;
+  --result-link:     #8AB4F8;
+  --badge-warn-fg:   #E0A94A;
+  --badge-warn-bg:   rgba(212, 160, 58, 0.16);
+  --badge-warn-br:   rgba(212, 160, 58, 0.35);
+  --badge-ok-fg:     #7FBF6A;
+  --badge-ok-bg:     rgba(106, 158, 90, 0.16);
+  --badge-ok-br:     rgba(106, 158, 90, 0.35);
   /* The text roles, restated for the one surface that does not follow the
-     theme. Everywhere else `text-success` is a light green because it lands on
-     a dark pane; here it lands on a bright orange field, so it has to be dark
-     for exactly the same reason. Without these five the accents inside a call
-     would inherit the theme's — light green on bright orange, which is the
-     original bug wearing a different colour. */
-  --brand-text:      #4A1400;
+     theme: inside a call they land on the room, not on a pane. */
+  --brand-text:      #E8A44C;
   --error-text:      var(--error);
   --success-text:    var(--badge-ok-fg);
   --warning-text:    var(--badge-warn-fg);

@@ -113,7 +113,7 @@ export function ToolCallStack({ events, active }: ToolCallStackProps) {
                           .resolveCoworkApproval(e.approval!.requestId, false)
                           .catch(() => {})
                       }
-                      className="text-micro px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/40 hover:bg-red-500/20 text-text-primary"
+                      className="text-micro px-1.5 py-0.5 rounded bg-error/10 border border-error/40 hover:bg-error/20 text-text-primary"
                     >
                       Deny
                     </button>
