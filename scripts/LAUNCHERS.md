@@ -298,11 +298,40 @@ The two do not contradict each other. They measure different corpora:
 Quote the 2700-leaf row. 200 leaves is not a memory anybody has, and leading
 with it means leading with the easiest run we ever did.
 
-**Reconciling them is what produces the actual finding: recall falls as the
-corpus grows.** 66.7% → 41.7% while FTS5 climbs 0% → 8.3%, so the gap narrows
-from 66 points to 33 across a 13x corpus. That is the direction nobody wants,
-and it is the question the next benchmark exists to answer: does the advantage
-survive scale, or were we measuring a small index?
+**Recall is lower on the bigger corpus:** 66.7% → 41.7% while FTS5 climbs
+0% → 8.3%, so the gap narrows from 66 points to 33 across a 13x corpus. Before
+reading that as degradation, note the third explanation, which is the most
+likely one and is a property of the measurement rather than of FMS:
+
+**The gold labels are single-document.** `query-gen.ts` samples one memory,
+paraphrases it into a question, and records `relevant: new Set([leaf.id])` —
+that one memory is the only answer that counts. So recall@10 asks "did it
+return the exact leaf this question was written from", not "did it return
+something that answers the question". At 200 leaves few plausible rivals exist.
+At 2700 there are many, and a run that returns ten genuinely relevant memories
+while missing THE one scores zero. A single-gold metric is expected to fall as
+the corpus grows even when retrieval is getting better.
+
+The file says this itself, in as many words, in its own CAVEAT block. It is an
+honest default in the absence of human labels, and it is not a number to reason
+about scale with.
+
+So the corpus comparison above cannot currently distinguish between: the
+advantage not surviving scale, the small index having flattered us, and the
+metric decaying on its own. **Fixing the query set is what separates them**, and
+it has to come before any 2x2 memory-vs-adaptation matrix, because every arm of
+that matrix would be read through the same broken ruler.
+
+Two changes, in this order:
+
+1. **Raise n.** `count` is already a parameter capped at the eligible memory
+   count, and the sampler is seeded (default 1), so runs stay comparable. Twelve
+   → a few hundred costs one local paraphrase call each and nothing else. This
+   alone ends the "five questions versus eight" problem.
+2. **Multi-gold labels**, via a hand-authored JSONL through `parseQuerySet`,
+   which already exists and already supersedes the generator. Until a query can
+   have more than one right answer, the headline number stays a floor of unknown
+   depth rather than a measurement.
 
 Both rows are **n=12**. 41.7% is five questions, 66.7% is eight, and the
 distance between our two "results" is three questions — on a query set whose
