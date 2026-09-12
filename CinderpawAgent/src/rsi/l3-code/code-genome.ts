@@ -388,6 +388,21 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
     "hash-chain.ts", // I4 tamper-evidence
     "event-bus.ts", // I15 runtime assert
     "provenance.ts", // I12 acyclic lineage
+    // The layers that GOVERN L3. Astra's 12 Sep audit proved governance.ts,
+    // governance-lifecycle.ts and meta-evolution.ts were legal targets: the
+    // layer being governed could patch its governor and the layer above it.
+    "governance.ts", // L5: the invariants and the freeze
+    "governance-lifecycle.ts", // L5: how a governance change is approved
+    "governance-audit.ts", // L5: the record of who changed what
+    "meta-evolution.ts", // L6: the layer that sets L1's search knobs
+    "module-wall.ts", // L4: the authority wall over generated modules
+    // The recursion hook, closed on purpose. The proposer and the experiment
+    // selector decide WHAT L3 tries next; letting L3 patch them is spec §7 H2
+    // (a successor controlling its own search) and it opens only at S5, behind
+    // paired evaluation and VM isolation. Before that it is a loop rewriting
+    // its own dice with nothing measuring the throw.
+    "code-proposer.ts",
+    "experiment-selector.ts",
   ],
 };
 

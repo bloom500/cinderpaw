@@ -20,6 +20,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { proposableFiles } from "../src/rsi/l3-code/code-proposer.ts";
 import { DEFAULT_CODE_PATCH_POLICY } from "../src/rsi/l3-code/code-genome.ts";
 
 const RUST_SOURCE = fileURLToPath(
@@ -84,6 +85,27 @@ describe("code-patch denylist — TS and Rust parity", () => {
       "pending-patches.ts",
     ]) {
       expect(DEFAULT_CODE_PATCH_POLICY.denylistBasenames).toContain(file);
+    }
+  });
+
+  test("L3 cannot patch the layers that govern it, nor its own search", () => {
+    // Astra, 12 Sep 2026: governance.ts, governance-lifecycle.ts and
+    // meta-evolution.ts were legal targets. The proposer and selector are the
+    // recursion hook, closed until S5 of the recursive-learning spec.
+    for (const file of [
+      "governance.ts",
+      "governance-lifecycle.ts",
+      "governance-audit.ts",
+      "meta-evolution.ts",
+      "module-wall.ts",
+      "code-proposer.ts",
+      "experiment-selector.ts",
+    ]) {
+      expect(DEFAULT_CODE_PATCH_POLICY.denylistBasenames).toContain(file);
+      expect(
+        proposableFiles([`l5-gov/${file}`, "l1-config/mutation.ts"]),
+        `${file} must not be offered to the proposer`,
+      ).toEqual(["l1-config/mutation.ts"]);
     }
   });
 });

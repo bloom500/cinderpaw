@@ -63,6 +63,15 @@ const DENYLIST_BASENAMES: &[&str] = &[
     "hash-chain.ts",
     "event-bus.ts",
     "provenance.ts",
+    // The layers that govern L3, and the recursion hook (proposer +
+    // selector). Mirror of the TS list; see its comment for the why.
+    "governance.ts",
+    "governance-lifecycle.ts",
+    "governance-audit.ts",
+    "meta-evolution.ts",
+    "module-wall.ts",
+    "code-proposer.ts",
+    "experiment-selector.ts",
 ];
 
 /// Raw measurements the sandbox eval runner (TS, `code-sandbox.ts`)
