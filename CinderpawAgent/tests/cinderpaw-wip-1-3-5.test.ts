@@ -446,10 +446,13 @@ describe("Cinderpaw-WIP #2: fallback chains", () => {
     }
   });
 
-  it("web_search manifest declares deep_research as fallback", async () => {
+  it("web_search manifest declares no automatic fallback", async () => {
+    // A failed lookup returns its failure. Escalating to deep_research on
+    // its own was removed on 2026-09-11 (voice: a simple search miss turned
+    // into a multi-page research run nobody asked for).
     const { createWebSearchTool } = await import("../src/tools/builtin/web-search.ts");
     const tool = createWebSearchTool();
-    expect(tool.manifest.fallback).toEqual(["deep_research"]);
+    expect(tool.manifest.fallback).toBeUndefined();
   });
 
   it("deep_research manifest declares read_webpage as fallback", async () => {

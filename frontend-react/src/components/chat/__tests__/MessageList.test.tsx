@@ -50,7 +50,7 @@ describe('chat tool widgets', () => {
     });
     const click = startActivity('computer_use', { action: 'click', pid: 9, element_id: 'b' });
     render(<MessageToolWidgets activity={[tree, click]} streaming />);
-    expect(screen.getAllByText('notepad — Untitled - Notepad')).toHaveLength(2);
+    expect(screen.getAllByText('notepad · Untitled - Notepad')).toHaveLength(2);
     expect(screen.getByText('Clicking «Save»')).toBeInTheDocument();
     const lit = document.querySelector('.border-brand');
     expect(lit).toHaveAttribute('title', 'Button Save');

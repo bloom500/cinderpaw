@@ -485,7 +485,7 @@ function MemoryBody({ a }: { a: ToolActivity }) {
 /** "Notepad — Untitled": the app, then the window, whichever of the two we have. */
 function appTitle(d: DesktopFact): string {
   const app = d.app.replace(/\.exe$/i, '');
-  return [app, d.windowTitle].filter(Boolean).join(' — ');
+  return [app, d.windowTitle].filter(Boolean).join(' · ');
 }
 
 /**
