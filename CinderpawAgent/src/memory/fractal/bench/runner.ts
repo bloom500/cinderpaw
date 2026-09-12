@@ -12,10 +12,36 @@
  */
 import { recallAtK, percentile, verdict, type Verdict } from "./metrics.ts";
 
+/**
+ * What a query actually asks of memory. Declared per query, because recall@k
+ * is only a meaningful score for one of these three:
+ *
+ *   - `historical`: "what did I say/do about X" — a past record answers it, so
+ *     recall over the labelled evidence is the right measure. The default.
+ *   - `live-state`: "what windows do I have open right now" — the correct
+ *     behaviour is a live tool call. Any archived snapshot that scores a hit
+ *     here is being rewarded for returning stale state.
+ *   - `no-memory`: "hey, are you there?" — nothing needs retrieving, and the
+ *     correct behaviour is to not reach for memory at all.
+ *
+ * The last two still run (they cost latency like any real turn) but they are
+ * excluded from recall, because averaging them in scores the engine on
+ * questions document retrieval cannot answer.
+ */
+export type BenchTask = "historical" | "live-state" | "no-memory";
+
+/** Every task kind, for validation and for reporting the excluded counts. */
+export const BENCH_TASKS: readonly BenchTask[] = ["historical", "live-state", "no-memory"];
+
 /** A labelled query: the text plus the set of leaf ids considered relevant. */
 export interface BenchQuery {
   query: string;
   relevant: Set<number>;
+  /**
+   * What this query asks of memory. Omitted means `historical`, so every
+   * query set written before this field existed scores exactly as it did.
+   */
+  task?: BenchTask;
 }
 
 /** Maps a query to a ranked list of leaf ids (best first). */
@@ -45,12 +71,15 @@ export interface RunBenchmarkOptions {
 /** One query's outcome for a single engine. */
 export interface PerQuery {
   query: string;
-  recall: number;
+  task: BenchTask;
+  /** recall@k, or `null` when the task is not scored by document recall. */
+  recall: number | null;
   ms: number;
 }
 
 /** Aggregated results for a single engine across the whole query set. */
 export interface EngineReport {
+  /** Mean recall@k over the `historical` queries only. */
   meanRecallAtK: number;
   p50Ms: number;
   p99Ms: number;
@@ -59,7 +88,12 @@ export interface EngineReport {
 
 export interface BenchReport {
   k: number;
+  /** Queries that ran. Latency percentiles cover all of them. */
   n: number;
+  /** Queries behind `meanRecallAtK` — the `historical` ones. */
+  scoredN: number;
+  /** How many queries each non-scored task kind excluded, for display. */
+  unscoredByTask: Record<Exclude<BenchTask, "historical">, number>;
   fts: EngineReport;
   fractal: EngineReport;
   verdict: Verdict;
@@ -79,12 +113,20 @@ async function runEngine(
     const t0 = now();
     const ranked = await retrieve(q.query);
     const ms = now() - t0;
-    perQuery.push({ query: q.query, recall: recallAtK(ranked, q.relevant, k), ms });
+    const task = q.task ?? "historical";
+    perQuery.push({
+      query: q.query,
+      task,
+      recall: task === "historical" ? recallAtK(ranked, q.relevant, k) : null,
+      ms,
+    });
     // 1-based, fires once per query in each engine. Orchestrator uses this
     // to drive a single "running queries i/N" line; tests omit the hook.
     onQuery?.(i + 1);
   }
-  const recalls = perQuery.map((p) => p.recall);
+  // Only scored tasks feed the mean; latency covers every query, since an
+  // unscored turn costs the user the same wait as a scored one.
+  const recalls = perQuery.flatMap((p) => (p.recall === null ? [] : [p.recall]));
   const latencies = perQuery.map((p) => p.ms);
   return {
     meanRecallAtK: recalls.reduce((a, b) => a + b, 0) / recalls.length,
@@ -103,11 +145,24 @@ export async function runBenchmark(opts: RunBenchmarkOptions): Promise<BenchRepo
   if (opts.queries.length === 0) {
     throw new Error("runBenchmark: empty query set");
   }
+  const scoredN = opts.queries.filter((q) => (q.task ?? "historical") === "historical").length;
+  if (scoredN === 0) {
+    throw new Error(
+      "runBenchmark: no scorable queries — every query declares task " +
+        '"live-state" or "no-memory", and recall@k is only defined for ' +
+        '"historical". Label at least one query as historical.',
+    );
+  }
   const fts = await runEngine(opts.queries, opts.fts, opts.k, opts.now, opts.onQuery);
   const fractal = await runEngine(opts.queries, opts.fractal, opts.k, opts.now, opts.onQuery);
   return {
     k: opts.k,
     n: opts.queries.length,
+    scoredN,
+    unscoredByTask: {
+      "live-state": opts.queries.filter((q) => q.task === "live-state").length,
+      "no-memory": opts.queries.filter((q) => q.task === "no-memory").length,
+    },
     fts,
     fractal,
     verdict: verdict({
@@ -117,4 +172,20 @@ export async function runBenchmark(opts: RunBenchmarkOptions): Promise<BenchRepo
       budgetMs: opts.budgetMs,
     }),
   };
+}
+
+/**
+ * One human-readable phrase saying what the recall figure covers, for the
+ * places a person actually reads: the boot log line and the bench panel.
+ * Without it the excluded queries exist only inside the JSON report, and
+ * "n=12, recall 0.58" silently means "7 queries, recall 0.58".
+ *
+ * Returns "" when nothing was excluded, so the common case adds no noise.
+ */
+export function describeScope(report: BenchReport): string {
+  const parts = (Object.keys(report.unscoredByTask) as (keyof typeof report.unscoredByTask)[])
+    .filter((task) => report.unscoredByTask[task] > 0)
+    .map((task) => `${report.unscoredByTask[task]} ${task}`);
+  if (parts.length === 0) return "";
+  return `recall covers ${report.scoredN} of ${report.n} queries (${parts.join(", ")} not scored by document recall)`;
 }

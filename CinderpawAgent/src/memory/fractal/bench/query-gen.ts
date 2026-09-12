@@ -19,7 +19,7 @@
  * relevance. It is the honest free default; a hand-labelled JSONL via
  * `parseQuerySet` supersedes it whenever one exists.
  */
-import type { BenchQuery } from "./runner.ts";
+import { BENCH_TASKS, type BenchQuery, type BenchTask } from "./runner.ts";
 import { sample } from "../prng.ts";
 
 /** A memory eligible to seed a query — just id + text. */
@@ -41,24 +41,38 @@ export interface GenerateOptions {
 }
 
 /**
- * Parse a JSONL query set: one `{query: string, relevant: number[]}` object
- * per non-blank line. Throws on a missing/empty query or a missing relevant
- * array — a malformed benchmark file should fail loudly, not silently skew the
- * gate.
+ * Parse a JSONL query set: one `{query, relevant, task?}` object per non-blank
+ * line. Throws on a missing/empty query or a missing relevant array — a
+ * malformed benchmark file should fail loudly, not silently skew the gate.
+ *
+ * `task` is optional and defaults to `historical`, so a file written before
+ * the field existed parses unchanged. An unrecognised value throws rather than
+ * falling back: a typo like `"live_state"` would otherwise be scored as a
+ * historical query, which is the exact mislabelling this field exists to stop.
  */
 export function parseQuerySet(jsonl: string): BenchQuery[] {
   const out: BenchQuery[] = [];
   for (const raw of jsonl.split("\n")) {
     const line = raw.trim();
     if (line === "") continue;
-    const obj = JSON.parse(line) as { query?: unknown; relevant?: unknown };
+    const obj = JSON.parse(line) as { query?: unknown; relevant?: unknown; task?: unknown };
     if (typeof obj.query !== "string" || obj.query.trim() === "") {
       throw new Error(`parseQuerySet: missing/empty "query" in line: ${line}`);
     }
     if (!Array.isArray(obj.relevant)) {
       throw new Error(`parseQuerySet: missing "relevant" array in line: ${line}`);
     }
-    out.push({ query: obj.query.trim(), relevant: new Set(obj.relevant as number[]) });
+    if (obj.task !== undefined && !BENCH_TASKS.includes(obj.task as BenchTask)) {
+      throw new Error(
+        `parseQuerySet: unknown "task" ${JSON.stringify(obj.task)} — expected one of ` +
+          `${BENCH_TASKS.join(", ")}. Line: ${line}`,
+      );
+    }
+    out.push({
+      query: obj.query.trim(),
+      relevant: new Set(obj.relevant as number[]),
+      task: (obj.task as BenchTask | undefined) ?? "historical",
+    });
   }
   return out;
 }
@@ -89,7 +103,9 @@ export async function generateQuerySet(opts: GenerateOptions): Promise<BenchQuer
   for (const leaf of picked) {
     const query = (await opts.infer(queryPrompt(leaf.text))).trim();
     if (query === "") continue;
-    out.push({ query, relevant: new Set([leaf.id]) });
+    // Generated queries are paraphrases of a stored memory, so the memory
+    // always answers them: historical by construction.
+    out.push({ query, relevant: new Set([leaf.id]), task: "historical" });
   }
   return out;
 }

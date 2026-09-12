@@ -26,6 +26,7 @@ import { getActiveWorkspaceId, getWorkspace } from "./memory/workspaces.ts";
 import { governanceCheck } from "./rsi/l5-gov/governance.ts";
 import { readChampion, defaultChampionPath } from "./rsi/l1-config/champion.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
+import { describeScope } from "./memory/fractal/bench/runner.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
 import { parseResponse } from "./core/agent-loop.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
@@ -1041,6 +1042,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               ship: report.verdict.ship,
               reasons: report.verdict.reasons,
               n: report.n,
+              scoredN: report.scoredN,
+              unscoredByTask: report.unscoredByTask,
+              scope: describeScope(report),
               k: report.k,
               fractalRecall: report.fractal.meanRecallAtK,
               ftsRecall: report.fts.meanRecallAtK,

@@ -130,6 +130,7 @@ import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.t
 import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
 import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
 import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
+import { describeScope as benchDescribeScope } from "./memory/fractal/bench/runner.ts";
 import { DEFAULT_SYSTEM_PROMPT, RsiSidecar } from "./rsi/sidecar.ts";
 import { PROMPT_STYLE_POOL } from "./rsi/l1-config/prompt-pool.ts";
 import { hitsToItems, itemsToHits, liveModuleRegistry, liveSeamAdapter, onModuleQuarantine } from "./rsi/l4-modules/seam-runtime.ts";
@@ -1776,8 +1777,9 @@ export async function boot(transportOverride?: Transport) {
         const outPath = require("node:path").join(dataDir, "fractal-bench-report.json");
         fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
         const v = report.verdict;
+        const scope = benchDescribeScope(report);
         log(
-          `fractal-bench: n=${report.n} k=${report.k} | ` +
+          `fractal-bench: n=${report.n} k=${report.k}${scope ? ` | ${scope}` : ""} | ` +
             `recall@${report.k} fractal=${report.fractal.meanRecallAtK.toFixed(3)} ` +
             `fts=${report.fts.meanRecallAtK.toFixed(3)} | ` +
             `p99 fractal=${report.fractal.p99Ms.toFixed(1)}ms fts=${report.fts.p99Ms.toFixed(1)}ms | ` +

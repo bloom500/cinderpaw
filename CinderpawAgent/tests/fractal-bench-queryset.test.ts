@@ -115,3 +115,21 @@ describe("generateQuerySet", () => {
     expect(set).toHaveLength(3);
   });
 });
+
+describe("parseQuerySet task field", () => {
+  it("defaults to historical when the line omits it", () => {
+    const [q] = parseQuerySet(`{"query":"a","relevant":[1]}`);
+    expect(q!.task).toBe("historical");
+  });
+
+  it("carries a declared task through", () => {
+    const [q] = parseQuerySet(`{"query":"a","relevant":[1],"task":"live-state"}`);
+    expect(q!.task).toBe("live-state");
+  });
+
+  it("throws on a misspelled task rather than silently scoring it", () => {
+    expect(() => parseQuerySet(`{"query":"a","relevant":[1],"task":"live_state"}`)).toThrow(
+      /unknown "task"/,
+    );
+  });
+});
