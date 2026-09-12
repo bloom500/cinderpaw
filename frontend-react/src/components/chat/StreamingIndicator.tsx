@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AgentPhase } from '@/stores/chat';
+import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
 import { events, type StreamProgressEvent } from '@/lib/tauri';
 
@@ -15,6 +15,10 @@ function phaseLabel(phase: AgentPhase, tool?: string | null): string {
   if (phase === 'calling' && tool) return `Calling ${tool.replace(/_/g, ' ')}…`;
   if (phase === 'calling') return 'Calling tool…';
   if (phase === 'processing') return 'Processing results…';
+  if (phase === 'reading') return 'Reading…';
+  if (phase === 'searching') return 'Searching…';
+  if (phase === 'building') return 'Building…';
+  if (phase === 'writing') return 'Writing…';
   return 'Thinking…';
 }
 
@@ -24,12 +28,14 @@ function formatElapsed(ms: number): string {
 }
 
 function progressLabel(p: StreamProgressEvent): string {
-  if (p.phase === 'prefill') return `Prefill · ${formatElapsed(p.elapsedMs)}`;
-  if (p.tokensPerSec > 0.5) return `Generating · ${p.tokensPerSec.toFixed(1)} tok/s`;
+  if (p.phase === 'prefill') return Number.isFinite(p.elapsedMs) && p.elapsedMs >= 0
+    ? `Prefill · ${formatElapsed(p.elapsedMs)}` : 'Prefill…';
+  if (Number.isFinite(p.tokensPerSec) && p.tokensPerSec > 0.5) return `Generating · ${p.tokensPerSec.toFixed(1)} tok/s`;
   return 'Generating…';
 }
 
 export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndicatorProps) {
+  const sessionId = useChat((s) => s.sessionId);
   const [visible, setVisible] = useState(true);
   // `baseLabel` comes from phase transitions (model load, calling, processing) — faded.
   // `progress` overrides it during 'thinking' phase with live heartbeat data — no fade.
@@ -44,24 +50,29 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
   const loadProgress = useModel((s) => s.loadProgress);
 
   useEffect(() => {
+    setSlowStart(false);
+    if (phase !== 'thinking') return;
     const t = setTimeout(() => setSlowStart(true), SLOW_START_MS);
     return () => clearTimeout(t);
-  }, []);
+  }, [sessionId, phase]);
 
   // Subscribe to progress heartbeats from both paths:
   // - streamProgressEvent: Rust local inference (chat tab, cinderpaw://stream-progress)
   // - onStreamProgress: sidecar agent inference (agent tab, filtered cinderpaw://agent-output)
   useEffect(() => {
+    setProgress(null);
     // See App.tsx: a listener whose `listen()` resolves after unmount must be
     // released on arrival, or it stays attached to a dead component forever.
     let cancelled = false;
     const unlistens: Array<() => void> = [];
     const keep = (fn: () => void) => { if (cancelled) fn(); else unlistens.push(fn); };
-    const set = (e: StreamProgressEvent) => setProgress(e);
+    const set = (e: StreamProgressEvent) => {
+      if (!cancelled && phase === 'thinking' && e.sessionId === sessionId) setProgress(e);
+    };
     events.streamProgressEvent.listen((e) => set(e.payload)).then(keep);
     events.onStreamProgress.listen(set).then(keep);
-    return () => { cancelled = true; unlistens.forEach((u) => u()); setProgress(null); };
-  }, []);
+    return () => { cancelled = true; unlistens.forEach((u) => u()); };
+  }, [sessionId, phase]);
 
   // Phase transitions → fade the base label. Progress ticks don't touch this.
   useEffect(() => {
@@ -81,15 +92,15 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
   }, [phase, tool, isModelLoading, loadProgress, slowStart]);
 
   // Live label: progress wins during thinking; otherwise base label.
-  const label = progress && phase === 'thinking' && !isModelLoading
+  const label = progress && progress.sessionId === sessionId && phase === 'thinking' && !isModelLoading
     ? progressLabel(progress)
     : baseLabel;
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 text-text-muted text-xs">
-      <span className="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" />
-      <span className="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse [animation-delay:150ms]" />
-      <span className="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse [animation-delay:300ms]" />
+    <div role="status" className="flex items-center gap-2 px-4 py-2 text-text-muted text-xs">
+      <span aria-hidden className="shrink-0 w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" />
+      <span aria-hidden className="shrink-0 w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse [animation-delay:150ms]" />
+      <span aria-hidden className="shrink-0 w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse [animation-delay:300ms]" />
       <span
         style={{ transition: 'opacity 120ms ease' }}
         className={visible ? 'opacity-100' : 'opacity-0'}
