@@ -1839,6 +1839,11 @@ export type OutboundEvent =
        *  needs an explicit human approval. */
       manualWindowOpen: boolean;
       appliedCount: number;
+      /** The most recent L3 round, whatever it decided. A refused round
+       *  (no isolation, no model, walls) is otherwise invisible: the queue
+       *  stays empty and the person cannot tell "nothing proposed" from
+       *  "cannot run". */
+      lastRound?: { at: number; target: string; verdict: string; reason: string };
     }
   | {
       type: "code_patch_resolved";

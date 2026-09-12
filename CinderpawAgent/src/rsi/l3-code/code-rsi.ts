@@ -28,6 +28,8 @@ import type { CodeGenome } from "./code-genome.ts";
 import { isDiffParseError, parseUnifiedDiff, validateCodePatch } from "./code-genome.ts";
 import type { CodeEvalMeasurements } from "./code-sandbox.ts";
 import { evaluateCodePatch, type CodeSandboxOptions } from "./code-sandbox.ts";
+import { bunExec } from "./code-sandbox.ts";
+import { DockerIsolation } from "./isolation.ts";
 import {
   codeGateBypass,
   contractLeavesForCodePatch,
@@ -56,6 +58,7 @@ export function makeCodeStageAdapters(args: {
    *  Code-RSI only runs where the agent's own sources exist. */
   repoRoot: string;
   sandbox?: Omit<CodeSandboxOptions, "repoRoot">;
+  log?: (line: string) => void;
 }): CodeStageDeps {
   const { bridge, repoRoot } = args;
   return {
@@ -80,6 +83,9 @@ export function makeCodeStageAdapters(args: {
       evaluateCodePatch(genome, {
         repoRoot,
         scratchDir: join(tmpdir(), "cinderpaw-code-rsi"),
+        // The cell the candidate runs in. Docker is the only backend today;
+        // without it the candidate is refused with the reason on the card.
+        isolation: new DockerIsolation({ exec: bunExec, log: args.log ?? (() => {}) }),
         ...args.sandbox,
       }),
 

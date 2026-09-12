@@ -1925,18 +1925,19 @@ export async function boot(transportOverride?: Transport) {
           (await bunExec(["git", "rev-parse", "HEAD"], { cwd: repoRoot, timeoutMs: 30_000 }))
             .stdout.trim(),
       });
+      const { store, sendCodePatches } = await codePatchGate();
       if (!genome) {
         log("code-rsi: proposer declined (SKIP / nothing diff-shaped) — no candidate this round");
+        sendCodePatches({ at: Date.now(), target: "", verdict: "no candidate", reason: "The proposer had nothing to suggest this round." });
         return;
       }
 
-      const { store, sendCodePatches } = await codePatchGate();
       const genomeId = crypto.randomUUID();
       log(`code-rsi: candidate ${genomeId.slice(0, 8)} targets ${genome.affectedFiles.join(", ")}`);
       const result = await runCodeCandidate({
         genomeId,
         genome,
-        deps: makeCodeStageAdapters({ bridge: rsiBridge, repoRoot }),
+        deps: makeCodeStageAdapters({ bridge: rsiBridge, repoRoot, log }),
         cycleId: `c-code-${new Date().toISOString()}`,
         pendingStore: store,
       });
@@ -1944,7 +1945,15 @@ export async function boot(transportOverride?: Transport) {
         `code-rsi: ${result.decided?.action ?? "?"} (${result.decided?.reason ?? "no reason"})` +
           (result.advanced ? ` — PROMOTED score=${result.score?.toFixed(1)}, queued for approval` : ""),
       );
-      if (result.advanced) sendCodePatches();
+      // Every round reaches the card, promoted or refused: the reason is
+      // the only thing that tells a person "no isolation on this machine"
+      // from "nothing worth proposing".
+      sendCodePatches({
+        at: Date.now(),
+        target: (genome.affectedFiles[0] ?? "").replace(/^src\/rsi\//, ""),
+        verdict: result.decided?.action ?? "halt",
+        reason: result.decided?.reason ?? "no reason",
+      });
 
       // The round becomes evidence, twice. The ledger is what M0 selects
       // from next time (`experiment-selector.ts`); the FMS episode is the
@@ -2190,7 +2199,7 @@ export async function boot(transportOverride?: Transport) {
   // process, persisted next to the journal.
   let codePatchGatePromise: Promise<{
     store: import("./rsi/l3-code/pending-patches.ts").PendingPatchStore;
-    sendCodePatches: () => void;
+    sendCodePatches: (round?: { at: number; target: string; verdict: string; reason: string }) => void;
   }> | null = null;
   const codePatchGate = () => {
     codePatchGatePromise ??= (async () => {
@@ -2198,9 +2207,12 @@ export async function boot(transportOverride?: Transport) {
         "./rsi/l3-code/pending-patches.ts"
       );
       const store = new PendingPatchStore(defaultPendingPatchesPath());
-      const sendCodePatches = (): void => {
+      let lastRound: { at: number; target: string; verdict: string; reason: string } | undefined;
+      const sendCodePatches = (round?: typeof lastRound): void => {
+        if (round) lastRound = round;
         transport.send({
           type: "code_patches",
+          ...(lastRound ? { lastRound } : {}),
           patches: store.list().map((p) => ({
             id: p.id,
             status: p.status,

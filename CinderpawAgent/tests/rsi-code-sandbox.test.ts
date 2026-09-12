@@ -2,11 +2,15 @@
  * Faza 2 Slice 2 — the sandbox eval runner lifecycle, pinned over a fake
  * ExecFn: sequencing, fail-fast stages, measurements-not-gates, and
  * teardown on EVERY path. Plus one real-git integration test (worktree
- * create → apply → destroy against a throwaway repo; bun steps faked).
+ * create → apply → destroy against a throwaway repo; the cell faked).
+ *
+ * S0 (2026-09-13): every step that RUNS the candidate's code goes through an
+ * `IsolationBackend`. These tests pin that nothing the candidate wrote ever
+ * reaches `exec` on the host, and that no backend means refused, not run.
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -17,6 +21,7 @@ import {
   type ExecFn,
   type ExecResult,
 } from "../src/rsi/l3-code/code-sandbox.ts";
+import type { IsolatedStep, IsolationBackend } from "../src/rsi/l3-code/isolation.ts";
 
 const ok = (stdout = ""): ExecResult => ({ exitCode: 0, stdout, stderr: "", timedOut: false });
 const fail = (stderr = "boom", exitCode = 1): ExecResult => ({
@@ -45,17 +50,44 @@ function keyOf(cmd: string[]): string {
   return cmd.join(" ");
 }
 
+/** A cell that records what it was asked to run and answers per step name.
+ *  The real one is Docker (`rsi-isolation.test.ts`); here the pipeline is
+ *  the thing under test. */
+function fakeIsolation(
+  answers: Partial<Record<string, ExecResult>> = {},
+  opts: { available?: boolean; reason?: string; calls?: string[] } = {},
+): IsolationBackend {
+  const calls = opts.calls ?? [];
+  return {
+    name: "fake",
+    available: async () =>
+      opts.available === false ? { ok: false, reason: opts.reason ?? "no cell" } : { ok: true, note: "fake" },
+    run: async (_pkgDir: string, steps: IsolatedStep[]) => {
+      calls.push(`isolation:${steps.map((s) => s.name).join(",")}`);
+      return steps.map((s) => answers[s.name] ?? ok());
+    },
+  };
+}
+
 const genome = { patch: "diff --git a/x b/x\n", baseCommit: "abc123" };
-const opts = (exec: ExecFn) => ({ repoRoot: "C:/fake/repo", exec });
+const opts = (exec: ExecFn, calls: string[], answers: Partial<Record<string, ExecResult>> = {}) => ({
+  repoRoot: "C:/fake/repo",
+  exec,
+  isolation: fakeIsolation(answers, { calls }),
+});
 
 describe("evaluateCodePatch — lifecycle over a fake exec", () => {
   test("happy path: full sequence, raw measurements, teardown last", async () => {
     const { exec, calls } = fakeExec({
       numstat: ok("5\t3\tsrc/rsi/x.ts\n2\t0\tsrc/rsi/y.ts\n"),
-      "bun test": { exitCode: 1, stdout: "", stderr: " 42 pass\n 2 fail\n", timedOut: false },
-      "bunx tsc --noEmit": fail("", 2),
     });
-    const r = await evaluateCodePatch(genome, opts(exec));
+    const r = await evaluateCodePatch(
+      genome,
+      opts(exec, calls, {
+        tests: { exitCode: 1, stdout: "", stderr: " 42 pass\n 2 fail\n", timedOut: false },
+        tsc: fail("", 2),
+      }),
+    );
     expect(r.ok).toBe(true);
     if (r.ok) {
       // Failing tests / dirty tsc are MEASUREMENTS, not aborts.
@@ -70,44 +102,63 @@ describe("evaluateCodePatch — lifecycle over a fake exec", () => {
       "worktree_add",
       "numstat",
       "apply",
-      "bun install --ignore-scripts",
-      "bun test",
-      "bunx tsc --noEmit",
-      "bun run build",
+      // One cell, three steps, in order. Nothing the candidate wrote ran
+      // through `exec` on the host.
+      "isolation:tests,tsc,build",
       "worktree_remove",
     ]);
   });
 
+  test("no isolation backend → refused before any worktree exists", async () => {
+    const { exec, calls } = fakeExec({});
+    const r = await evaluateCodePatch(genome, { repoRoot: "C:/fake/repo", exec });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.stage).toBe("isolation");
+    expect(calls).toEqual([]);
+  });
+
+  test("backend unavailable → refused with ITS reason, nothing created", async () => {
+    const { exec, calls } = fakeExec({});
+    const reason = "Docker is installed but not running. Start Docker Desktop.";
+    const r = await evaluateCodePatch(genome, {
+      repoRoot: "C:/fake/repo",
+      exec,
+      isolation: fakeIsolation({}, { available: false, reason }),
+    });
+    expect(r).toEqual({ ok: false, stage: "isolation", reason });
+    expect(calls).toEqual([]);
+  });
+
   test("worktree create fails → hard failure, nothing else runs", async () => {
     const { exec, calls } = fakeExec({ worktree_add: fail("fatal: invalid reference") });
-    const r = await evaluateCodePatch(genome, opts(exec));
+    const r = await evaluateCodePatch(genome, opts(exec, calls));
     expect(r).toEqual({ ok: false, stage: "worktree_create", reason: "fatal: invalid reference" });
     expect(calls).toEqual(["worktree_add"]);
   });
 
-  test("patch apply fails → hard failure, bun never runs, teardown still runs", async () => {
+  test("patch apply fails → hard failure, the cell never runs, teardown still runs", async () => {
     const { exec, calls } = fakeExec({ apply: fail("error: patch does not apply") });
-    const r = await evaluateCodePatch(genome, opts(exec));
+    const r = await evaluateCodePatch(genome, opts(exec, calls));
     expect(r).toEqual({ ok: false, stage: "patch_apply", reason: "error: patch does not apply" });
     expect(calls).toEqual(["worktree_add", "numstat", "apply", "worktree_remove"]);
   });
 
-  test("install timeout → hard failure naming the timeout, teardown still runs", async () => {
-    const { exec, calls } = fakeExec({
-      "bun install --ignore-scripts": { exitCode: -2, stdout: "", stderr: "", timedOut: true },
-    });
-    const r = await evaluateCodePatch(genome, { ...opts(exec), timeouts: { installMs: 5 } });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.stage).toBe("install");
-      expect(r.reason).toContain("timed out");
+  test("a step killed by the wall clock is a MEASUREMENT, not an abort", async () => {
+    const { exec, calls } = fakeExec({});
+    const dead: ExecResult = { exitCode: -1, stdout: "", stderr: "killed: sandbox wall clock", timedOut: true };
+    const r = await evaluateCodePatch(genome, opts(exec, calls, { tests: dead, tsc: dead, build: dead }));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.measurements.testsExitCode).toBe(-1);
+      expect(r.measurements.testsPassed).toBe(0);
+      expect(r.measurements.buildExitCode).toBe(-1);
     }
     expect(calls[calls.length - 1]).toBe("worktree_remove");
   });
 
   test("git refuses teardown → fs sweep + prune, result unaffected", async () => {
     const { exec, calls } = fakeExec({ worktree_remove: fail("in use") });
-    const r = await evaluateCodePatch(genome, opts(exec));
+    const r = await evaluateCodePatch(genome, opts(exec, calls));
     expect(r.ok).toBe(true);
     expect(calls[calls.length - 1]).toBe("worktree_prune");
   });
@@ -155,13 +206,10 @@ describe("integration — real git worktree lifecycle", () => {
         "",
       ].join("\n");
 
-      // Real exec for git; bun steps faked so the test stays fast.
-      const exec: ExecFn = (cmd, o) =>
-        cmd[0] === "git" ? bunExec(cmd, o) : Promise.resolve(ok(" 1 pass\n"));
-
+      // Real exec for git; the cell faked so the test stays fast.
       const r = await evaluateCodePatch(
         { patch, baseCommit: head },
-        { repoRoot: repo, scratchDir: scratch, exec },
+        { repoRoot: repo, scratchDir: scratch, exec: bunExec, isolation: fakeIsolation({ tests: ok(" 1 pass\n") }) },
       );
       expect(r.ok).toBe(true);
       if (r.ok) expect(r.measurements.changedLines).toBe(2);

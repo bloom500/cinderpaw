@@ -549,6 +549,8 @@ export interface CodePatchesPayload {
    *  needs an explicit human approval. */
   manualWindowOpen: boolean;
   appliedCount: number;
+  /** The most recent L3 round. Present once one has run this session. */
+  lastRound?: { at: number; target: string; verdict: string; reason: string };
 }
 
 /** Payload of the `code_patch_resolved` ack event. */

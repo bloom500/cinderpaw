@@ -183,6 +183,7 @@ export interface CodePatchesLine {
   /** True while the first-10 window is open (spec §2.5). */
   manualWindowOpen: boolean;
   appliedCount: number;
+  lastRound?: { at: number; target: string; verdict: string; reason: string };
 }
 
 /**

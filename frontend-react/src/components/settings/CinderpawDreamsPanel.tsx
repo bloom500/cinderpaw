@@ -297,6 +297,7 @@ export function CinderpawDreamsPanel() {
         patches: e.patches as unknown as CodePatch[],
         manualWindowOpen: e.manualWindowOpen,
         appliedCount: e.appliedCount,
+        ...(e.lastRound ? { lastRound: e.lastRound } : {}),
       });
       // Any ack of a row we were tracking is no longer in flight.
       setResolving((s) => {
@@ -1190,6 +1191,15 @@ function PendingPatches({
           </span>
         )}
       </div>
+      {/* Why the queue is empty matters as much as that it is. A round the
+          walls refused, or one that could not run because there is no
+          isolation on this machine, says so here in the words the backend
+          chose for a person, not in a log file nobody has open. */}
+      {payload.lastRound && (
+        <p className="text-2xs text-text-muted">
+          Last round{payload.lastRound.target ? ` on ${payload.lastRound.target}` : ''}: {payload.lastRound.verdict}. {payload.lastRound.reason}
+        </p>
+      )}
       {patches.length === 0 ? (
         <p className="text-2xs text-text-muted">No pending code patches.</p>
       ) : (

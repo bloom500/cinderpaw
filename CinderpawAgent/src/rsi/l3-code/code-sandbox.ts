@@ -6,8 +6,16 @@
  *
  *   git worktree add --detach <scratch>/<id> <baseCommit>   (from repoRoot)
  *   git apply <patch>                                        (cwd = pkg dir)
- *   bun install / bun test / bunx tsc --noEmit / bun run build
+ *   bun test / bunx tsc --noEmit / bun run build   INSIDE the isolation
+ *                                                  backend (`isolation.ts`)
  *   git worktree remove --force                              (ALWAYS, finally)
+ *
+ * The git steps touch source, not run it, so they stay on the host. Every
+ * step that RUNS the candidate's code goes through an `IsolationBackend`:
+ * no host filesystem, no network, bounded CPU / memory / pids / disk / wall
+ * clock. Without a backend the candidate is refused (`stage: "isolation"`),
+ * never run a little less safely. `bun install` is gone from the per-run
+ * path: dependencies are pinned into the sandbox image from the lockfile.
  *
  * Trust boundary (spec §2): this module reports RAW measurements only —
  * test pass/fail counts, tsc exit, build exit, changed lines. The scalar
@@ -26,6 +34,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdir, rm } from "node:fs/promises";
 import type { CodeGenome } from "./code-genome.ts";
+import type { IsolationBackend } from "./isolation.ts";
 
 /** One child process run, as the runner sees it. */
 export interface ExecResult {
@@ -38,13 +47,12 @@ export interface ExecResult {
 /** Injectable process spawner. Default: `bunExec` (Bun.spawn + kill timer). */
 export type ExecFn = (
   cmd: string[],
-  opts: { cwd: string; timeoutMs: number; stdin?: string },
+  opts: { cwd: string; timeoutMs: number; stdin?: string | Uint8Array },
 ) => Promise<ExecResult>;
 
 /** Wall-clock caps per step (spec §3 Slice 2 "wall-clock caps"). */
 export interface CodeSandboxTimeouts {
   gitMs: number;
-  installMs: number;
   testsMs: number;
   tscMs: number;
   buildMs: number;
@@ -52,7 +60,6 @@ export interface CodeSandboxTimeouts {
 
 export const DEFAULT_CODE_SANDBOX_TIMEOUTS: CodeSandboxTimeouts = {
   gitMs: 60_000,
-  installMs: 300_000,
   testsMs: 600_000,
   tscMs: 180_000,
   buildMs: 600_000,
@@ -69,6 +76,8 @@ export interface CodeSandboxOptions {
   timeouts?: Partial<CodeSandboxTimeouts>;
   /** Inject a fake in tests; production uses the Bun.spawn default. */
   exec?: ExecFn;
+  /** Where the candidate's code runs. Required: absent means refused. */
+  isolation?: IsolationBackend;
 }
 
 /** Raw, unscored measurements — the Rust scorer's inputs (spec §2.1). A
@@ -87,7 +96,7 @@ export interface CodeEvalMeasurements {
 
 export type CodeEvalResult =
   | { ok: true; measurements: CodeEvalMeasurements }
-  | { ok: false; stage: "worktree_create" | "patch_apply" | "install"; reason: string };
+  | { ok: false; stage: "worktree_create" | "patch_apply" | "isolation"; reason: string };
 
 /** Run one code candidate through the disposable-worktree pipeline.
  *  Never throws for candidate-caused failures; the worktree is destroyed
@@ -103,6 +112,14 @@ export async function evaluateCodePatch(
   const worktree = join(scratch, `wt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const pkgSubdir = options.packageSubdir ?? "CinderpawAgent";
   const pkgDir = join(worktree, pkgSubdir);
+
+  // Fail closed BEFORE a worktree exists. The reason is what the person
+  // reads, so the backend words it as an instruction, not a stack trace.
+  if (!options.isolation) {
+    return { ok: false, stage: "isolation", reason: "no isolation backend configured; generated code does not run on the host" };
+  }
+  const avail = await options.isolation.available();
+  if (!avail.ok) return { ok: false, stage: "isolation", reason: avail.reason };
 
   await mkdir(scratch, { recursive: true });
 
@@ -146,26 +163,15 @@ export async function evaluateCodePatch(
       };
     }
 
-    // `--ignore-scripts`: re-installing the existing dependency tree runs every
-    // dependency's lifecycle scripts, in a worktree holding code the agent just
-    // wrote. Nothing about evaluating a patch needs them to run.
-    const installed = await exec(["bun", "install", "--ignore-scripts"], { cwd: pkgDir, timeoutMs: t.installMs });
-    if (installed.exitCode !== 0) {
-      return {
-        ok: false,
-        stage: "install",
-        reason: installed.timedOut
-          ? `bun install timed out after ${t.installMs}ms`
-          : firstLine(installed.stderr) || `bun install exited ${installed.exitCode}`,
-      };
-    }
-
     // From here down everything is a measurement — failures are DATA for
-    // the Rust scorer, not aborts.
-    const tests = await exec(["bun", "test"], { cwd: pkgDir, timeoutMs: t.testsMs });
+    // the Rust scorer, not aborts. And everything here runs the candidate's
+    // code, so it runs inside the cell, in one container, in order.
+    const [tests, tsc, build] = await options.isolation.run(pkgDir, [
+      { name: "tests", argv: ["bun", "test"], timeoutMs: t.testsMs },
+      { name: "tsc", argv: ["bunx", "tsc", "--noEmit"], timeoutMs: t.tscMs },
+      { name: "build", argv: ["bun", "run", "build"], timeoutMs: t.buildMs },
+    ]) as [ExecResult, ExecResult, ExecResult];
     const summary = parseBunTestSummary(tests.stdout + "\n" + tests.stderr);
-    const tsc = await exec(["bunx", "tsc", "--noEmit"], { cwd: pkgDir, timeoutMs: t.tscMs });
-    const build = await exec(["bun", "run", "build"], { cwd: pkgDir, timeoutMs: t.buildMs });
 
     return {
       ok: true,
@@ -304,7 +310,7 @@ function minimalEnv(): Record<string, string> {
  *  (same convention as process-sandbox.ts). */
 export async function bunExec(
   cmd: string[],
-  opts: { cwd: string; timeoutMs: number; stdin?: string },
+  opts: { cwd: string; timeoutMs: number; stdin?: string | Uint8Array },
 ): Promise<ExecResult> {
   const proc = Bun.spawn({
     cmd: resolveCmd(cmd),
