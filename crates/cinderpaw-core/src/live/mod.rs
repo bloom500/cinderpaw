@@ -381,6 +381,15 @@ pub struct FunctionCall {
     pub name: String,
     #[serde(default)]
     pub args: serde_json::Value,
+    /// Which CALL this tool belongs to, stable for the life of that call.
+    ///
+    /// `id` cannot answer this: it is a counter the worker resets on every
+    /// process, so tool #1 of two different calls both claim "1", and tool #2
+    /// of one call claims a different sidecar session than tool #1 of the same
+    /// call. Empty when an older worker is talking to a newer server, and the
+    /// server falls back to the old `voice-{id}` shape rather than refusing.
+    #[serde(default)]
+    pub session: String,
 }
 
 /// Anything the server may send.

@@ -1082,6 +1082,32 @@ async fn runtime_voice_transcribe(
     }
 }
 
+/// Which sidecar session a voice tool call belongs to.
+///
+/// The worker sends one id for the whole call. An older worker sends none, and
+/// then the old per-tool-call shape is used: wrong, but no worse than before,
+/// and a mismatched pair still talks instead of failing.
+fn voice_session_id(call: &crate::live::FunctionCall) -> String {
+    let session = call.session.trim();
+    if session.is_empty() {
+        format!("voice-{}", call.id)
+    } else {
+        session.to_string()
+    }
+}
+
+/// The key that decides "this is the same work, wait for it" rather than
+/// starting it twice.
+///
+/// It used to be the request text alone, lowercased. Two different people on
+/// two different calls asking the same thing shared one answer, and a second
+/// tool that happened to carry the same `request` string got the first tool's
+/// result. Session and tool name are part of the identity of the work. The
+/// separator is a unit separator, which cannot appear in a spoken request.
+fn voice_dedupe_key(session: &str, name: &str, request: &str) -> String {
+    format!("{session}\u{1f}{name}\u{1f}{request}")
+}
+
 /// One tool call from a voice session, answered by the local agent.
 ///
 /// This grants no capability the token did not already grant — `/runtime/chat`
@@ -1095,6 +1121,8 @@ async fn runtime_voice_tool(
 ) -> Response {
     let request =
         call.args.get("request").and_then(|v| v.as_str()).unwrap_or_default().trim().to_lowercase();
+    let session = voice_session_id(&call);
+    let dedupe_key = voice_dedupe_key(&session, &call.name, &request);
     let started = std::time::Instant::now();
     // Logged on the way in as well as out. A tool call used to leave no trace
     // at all, so "did it even try to search?" had no answer anywhere — and that
@@ -1102,17 +1130,28 @@ async fn runtime_voice_tool(
     tracing::info!(tool = %call.name, request = %request, "voice tool: asked");
 
     // Already running? Wait on that one rather than starting another.
-    let existing = voice_in_flight().lock().get(&request).cloned();
-    let mut rx = match existing {
-        Some(rx) => rx,
-        None => {
-            let (tx, rx) = tokio::sync::watch::channel(None);
-            voice_in_flight().lock().insert(request.clone(), rx.clone());
+    //
+    // Look up and claim under ONE guard. Two lock trips left a window where two
+    // identical requests both found nothing and both started the work, which on
+    // a tool with side effects means doing it twice.
+    let (mut rx, start_it) = {
+        let mut in_flight = voice_in_flight().lock();
+        match in_flight.get(&dedupe_key).cloned() {
+            Some(rx) => (rx, None),
+            None => {
+                let (tx, rx) = tokio::sync::watch::channel(None);
+                in_flight.insert(dedupe_key.clone(), rx.clone());
+                (rx, Some(tx))
+            }
+        }
+    };
+    if let Some(tx) = start_it {
+        {
             let runtime = state.runtime.clone();
             let call = call.clone();
-            let key = request.clone();
+            let key = dedupe_key.clone();
+            let session = session.clone();
             tokio::spawn(async move {
-                let session = format!("voice-{}", call.id);
                 let answered =
                     crate::live::bridge::answer(&call, Some(&runtime), &session).await;
                 let _ = tx.send(Some(answered.response.to_string()));
@@ -1121,9 +1160,8 @@ async fn runtime_voice_tool(
                 tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 voice_in_flight().lock().remove(&key);
             });
-            rx
         }
-    };
+    }
 
     let waited = tokio::time::timeout(VOICE_TOOL_DEADLINE, async {
         loop {
@@ -3249,6 +3287,42 @@ mod tests {
     /// contract that lets the SIDECAR own the history, which is what compacts
     /// it. Sending the transcript instead meant an unbounded prompt that grew
     /// with every turn, which is the long-horizon slowdown in the same bug.
+    /// Two calls asking the same thing are not the same work.
+    ///
+    /// The old key was the spoken text alone, so the second caller was handed
+    /// the first caller's answer, and a tool that wrote something ran once for
+    /// two people who each asked for it.
+    #[test]
+    fn voice_dedupe_is_scoped_to_the_call_and_the_tool() {
+        let a = voice_dedupe_key("voice-11", "ask_cinder", "what is on my calendar");
+        let b = voice_dedupe_key("voice-22", "ask_cinder", "what is on my calendar");
+        assert_ne!(a, b, "two different calls must not share one in-flight result");
+
+        let other_tool = voice_dedupe_key("voice-11", "search_web", "what is on my calendar");
+        assert_ne!(a, other_tool, "two different tools must not share one result");
+
+        let same = voice_dedupe_key("voice-11", "ask_cinder", "what is on my calendar");
+        assert_eq!(a, same, "the same call asking twice must still wait on the first");
+    }
+
+    /// The session is the CALL, not the tool call inside it.
+    ///
+    /// A worker that sends none is an older worker: it gets the previous shape
+    /// rather than an error, because a half-updated install must still talk.
+    #[test]
+    fn the_voice_session_is_the_call_not_the_counter() {
+        let mut call = crate::live::FunctionCall {
+            id: "voice-900-2".into(),
+            name: "ask_cinder".into(),
+            args: serde_json::json!({}),
+            session: "voice-900".into(),
+        };
+        assert_eq!(voice_session_id(&call), "voice-900");
+
+        call.session = "   ".into();
+        assert_eq!(voice_session_id(&call), "voice-voice-900-2");
+    }
+
     #[test]
     fn the_voice_agent_posts_a_body_this_endpoint_can_read() {
         let src = include_str!("livekit_agent.mjs");

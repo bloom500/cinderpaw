@@ -522,14 +522,26 @@ async function askRust(name, args) {
     const res = await fetch(`${API_URL}/runtime/voice/tool`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
-      body: JSON.stringify({ id: String(++nextCallId), name, args }),
-      // This 30-second client timeout is shorter than Rust's 45-second
-      // VOICE_TOOL_DEADLINE, so it can abort before Rust returns a holding reply.
-      // Aborting this fetch does not cancel the server's in-flight agent work.
+      // `session` is this call, stable from first tool to hang-up. `id` is this
+      // TOOL CALL, and carries the session so two calls cannot both be "1".
+      // Without them the server keyed work by the spoken text alone, so one
+      // person's answer could be handed to another call asking the same thing.
+      body: JSON.stringify({
+        id: `${SESSION_ID}-${++nextCallId}`,
+        session: SESSION_ID,
+        name,
+        args,
+      }),
+      // Longer than Rust's 45-second VOICE_TOOL_DEADLINE on purpose. At 30s
+      // this aborted BEFORE the server's holding reply existed, so a tool that
+      // took 35 seconds produced a transport error instead of the sentence the
+      // model is supposed to say out loud. Aborting still does not cancel the
+      // server's work, and a result that lands after 45s is still not delivered
+      // on its own: the model is told to ask again. That part is not fixed here.
       // A realtime session BLOCKS on a tool call, so anything that can hang
       // here — a dead API server, a socket that never answers — is a call that
       // goes silent mid-sentence with no way back.
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(50000),
     });
     if (!res.ok) return { ok: false, output: `Cinderpaw refused the request (${res.status})` };
     const { response } = await res.json();

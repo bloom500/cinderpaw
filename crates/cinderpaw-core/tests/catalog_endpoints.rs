@@ -625,7 +625,14 @@ async fn connectors_decision_d_rich_fields_present() {
             "telegram" => {
                 assert!(entry.console_url.is_some(), "telegram must have console_url");
                 assert!(entry.validate_endpoint.is_some(), "telegram must have validate_endpoint");
-                assert!(entry.coming_soon, "telegram is coming_soon (sidecar transport not wired)");
+                // Landed 2026-09-12 with the OpenClaw import:
+                // `CinderpawAgent/src/transports/telegram.ts`, long polling, no
+                // public address needed. Same rule as matrix below: a card that
+                // says "soon" for something that works is its own kind of lie.
+                assert!(
+                    !entry.coming_soon,
+                    "telegram's transport has landed — the card must not still say soon"
+                );
             }
             "matrix" => {
                 // Landed 2026-08-20: `CinderpawAgent/src/transports/matrix.ts`,
@@ -664,7 +671,45 @@ async fn connectors_decision_d_rich_fields_present() {
                 );
                 assert!(!entry.oauth_scopes.is_empty(), "twitch must declare its scopes");
             }
-            other => panic!("unexpected connector id: {other}"),
+            "irc" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/irc.ts`.
+                // No account, no console, no token: a nick and a server.
+                assert!(!entry.coming_soon, "irc's transport has landed — the card must not still say soon");
+                assert!(
+                    entry.pairing_fields.iter().any(|f| !f.secret),
+                    "irc names a server, and a server address is configuration, not a credential"
+                );
+            }
+            "signal" => {
+                // Landed 2026-09-12: `CinderpawAgent/src/transports/signal.ts`.
+                // Signal has no bot API, so this one talks to a signal-cli
+                // bridge the user installs. That is a real first-run obstacle
+                // and it has to be on screen, which is what the field text is
+                // for — see `signalBridgeMissingMessage`.
+                assert!(!entry.coming_soon, "signal's transport has landed — the card must not still say soon");
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "signal has no endpoint we can call to validate: the bridge is local"
+                );
+            }
+            other => {
+                // Everything else arrived with the OpenClaw import as a CARD
+                // with no transport behind it. It is allowed to sit in the
+                // catalog only while it admits that.
+                //
+                // The moment one clears `coming_soon` it needs its own arm
+                // above, written by hand. That is the point of this test: a
+                // connector must not become reachable without somebody reading
+                // what its card promises.
+                assert!(
+                    entry.coming_soon,
+                    "connector {other} is live but has no reviewed card in this test"
+                );
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "connector {other} is not wired yet, so there is nothing to validate against"
+                );
+            }
         }
     }
 }

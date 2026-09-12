@@ -236,6 +236,7 @@ mod tests {
             id: "call-9".into(),
             name: "definitely_not_a_tool".into(),
             args: serde_json::json!({}),
+            session: "voice-1".into(),
         };
         let response = answer(&call, None, "s1").await;
         assert_eq!(response.id, "call-9");
@@ -251,6 +252,7 @@ mod tests {
             id: "call-1".into(),
             name: "file_read".into(),
             args: serde_json::json!({ "path": "../../etc/nope-not-here" }),
+            session: "voice-1".into(),
         };
         let response = answer(&call, None, "s1").await;
         assert_eq!(response.id, "call-1");
