@@ -1946,7 +1946,7 @@ export async function boot(transportOverride?: Transport) {
       const { readdir, readFile } = await import("node:fs/promises");
       const rsiDir = require("node:path").join(repoRoot, "CinderpawAgent", "src", "rsi");
       const ledgerPath = defaultAttemptLedgerPath();
-      const { store, questions, sendCodePatches, recordReceipt } = await codePatchGate();
+      const { store, questions, sendCodePatches, recordReceipt, conditionOf } = await codePatchGate();
 
       // Tokens the proposer spent this round: the observed cost the
       // self-model scores its `expectedCost` against.
@@ -2089,7 +2089,11 @@ export async function boot(transportOverride?: Transport) {
         ...(genome.proposal.methodVersion ? { methodVersion: genome.proposal.methodVersion } : {}),
         genomeId,
       };
-      recordReceipt(attempt);
+      // The condition (plan §3.1): what failure this round faced, in the
+      // runner's words with the specifics blanked, so rounds become
+      // comparable and a procedure can be induced from a family of them.
+      const condition = conditionOf(attempt.file, action, reason);
+      recordReceipt(condition ? { ...attempt, condition } : attempt);
     } catch (e) {
       log(`code-rsi: round failed: ${String(e)}`);
     } finally {
@@ -2318,6 +2322,7 @@ export async function boot(transportOverride?: Transport) {
     recordReceipt: (a: import("./rsi/l3-code/experiment-selector.ts").Attempt) => void;
     /** The receipt a candidate produced, from either side, or undefined. */
     receiptForGenome: (genomeId: string) => import("./rsi/l3-code/experiment-selector.ts").Attempt | undefined;
+    conditionOf: (file: string, verdict: string, reason: string) => string | undefined;
   }> | null = null;
   const codePatchGate = () => {
     codePatchGatePromise ??= (async () => {
@@ -2329,7 +2334,7 @@ export async function boot(transportOverride?: Transport) {
       // patches it asks approval for: one inbox, one snapshot, one event.
       const { QuestionStore, defaultQuestionsPath } = await import("./rsi/l3-code/questions.ts");
       const questions = new QuestionStore(defaultQuestionsPath());
-      const { appendAttempt, attemptsFromEpisodes, defaultAttemptLedgerPath, mergeAttempts, readAttempts, receiptLine } =
+      const { appendAttempt, attemptsFromEpisodes, conditionFor, defaultAttemptLedgerPath, mergeAttempts, readAttempts, receiptLine } =
         await import("./rsi/l3-code/experiment-selector.ts");
       const ledgerPath = defaultAttemptLedgerPath();
       const allReceipts = () =>
@@ -2340,6 +2345,8 @@ export async function boot(transportOverride?: Transport) {
         if (leaf !== null) fractalMemory.noteWrite({ id: leaf, sessionId: "rsi-l3", ts: a.ts });
       };
       const receiptForGenome = (genomeId: string) => allReceipts().find((a) => a.genomeId === genomeId);
+      const conditionOf = (file: string, verdict: string, reason: string) =>
+        conditionFor(verdict, reason, allReceipts().filter((a) => a.file === file));
       let lastRound: { at: number; target: string; verdict: string; reason: string } | undefined;
       const sendCodePatches = (round?: typeof lastRound): void => {
         if (round) lastRound = round;
@@ -2362,7 +2369,7 @@ export async function boot(transportOverride?: Transport) {
           appliedCount: store.appliedCount(),
         });
       };
-      return { store, questions, sendCodePatches, recordReceipt, receiptForGenome };
+      return { store, questions, sendCodePatches, recordReceipt, receiptForGenome, conditionOf };
     })();
     return codePatchGatePromise;
   };

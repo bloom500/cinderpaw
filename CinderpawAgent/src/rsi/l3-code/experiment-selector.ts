@@ -120,6 +120,44 @@ export interface Attempt {
   condition?: string;
 }
 
+/**
+ * The live `condition`: a refusal reason with its specifics blanked out,
+ * so two rounds that failed the same WAY share one signature and two that
+ * failed on different files or counts do not look different.
+ *   "worktree tests failed: 3 fail (exit 1)"  -> "worktree tests failed: _ fail (exit _)"
+ *   "SEARCH block not found in src/rsi/a.ts" -> "SEARCH block not found in _"
+ * Same idea as `signatureOf` in the campaign fixtures, on the runner's own
+ * words. Only the verifier's text goes in; the model's rationale never does.
+ * ponytail: regex blanking; a parser per verifier if signatures ever
+ * collide on things that matter.
+ */
+export function failureSignature(reason: string): string {
+  return reason
+    .split("\n")[0]!
+    .replace(/"[^"]*"/g, '"_"')
+    .replace(/`[^`]*`/g, "`_`")
+    .replace(/\b[0-9a-f]{7,40}\b/g, "_")
+    .replace(/\S*[\/\\]\S+/g, "_")
+    .replace(/\b\d+(\.\d+)?\b/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
+/** The condition a live receipt was written under (competence plan §3.1):
+ *  a refusal is its own failure signature; an accept inherits the signature
+ *  of the last refusal on the same file, the failure it overcame. Nothing to
+ *  inherit means an unconditioned accept, which `induceProcedure` ignores. */
+export function conditionFor(
+  verdict: string,
+  reason: string,
+  priorOnFile: readonly Pick<Attempt, "verdict" | "reason" | "ts">[],
+): string | undefined {
+  if (verdict !== "accept") return failureSignature(reason);
+  const last = [...priorOnFile].sort((a, b) => b.ts - a.ts).find((a) => a.verdict !== "accept");
+  return last ? failureSignature(last.reason) : undefined;
+}
+
 /** A receipt's identity: file and time. Deterministic, so rows written
  *  before ids existed have one too. */
 export function receiptId(a: Pick<Attempt, "file" | "ts">): string {
