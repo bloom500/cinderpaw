@@ -18,6 +18,9 @@ import type { Tool, ToolManifest } from "../../types.ts";
 export type EpisodicSemanticSearch = (
   query: string,
   limit: number,
+  /** The calling session, so the host can record which leaves were shown
+   *  to which task (utility ledger, competence plan §3.3). */
+  sessionId?: string,
 ) => Promise<{ leafId: number; text: string }[]>;
 
 const DEFAULT_LIMIT = 5;
@@ -120,7 +123,7 @@ export function createRecallTool(
 
       let hits: { leafId: number; text: string }[] = [];
       try {
-        hits = await fractalSearch(query, limit);
+        hits = await fractalSearch(query, limit, ctx.sessionId);
       } catch {
         hits = [];
       }

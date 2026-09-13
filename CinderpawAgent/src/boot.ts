@@ -27,6 +27,7 @@ import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
+import { UtilityLedger } from "./memory/fractal/utility.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getActiveWorkspaceId } from "./memory/workspaces.ts";
@@ -923,13 +924,21 @@ export async function boot(transportOverride?: Transport) {
     },
     log,
   );
+  // Utility ledger (competence plan §3.3): which leaves were shown to which
+  // session, closed with the run's verdict in `concludeRun`. The ranking
+  // knob is 0, so this changes nothing a user sees; it collects the
+  // evidence the campaign will need to set the knob. In memory for now.
+  const utility = new UtilityLedger();
   registry.register(
     createRecallTool(
-      async (q, limit) =>
-        itemsToHits(
+      async (q, limit, sessionId) => {
+        const hits = itemsToHits(
           await retrievalSeam.invoke("retrieve", { query: q, k: limit, sessionId: "recall-tool" }),
           limit,
-        ),
+        );
+        if (sessionId) utility.shown(sessionId, hits.map((h) => h.leafId));
+        return hits;
+      },
       semantic,
     ),
   );
@@ -1397,7 +1406,14 @@ export async function boot(transportOverride?: Transport) {
     status: RunStatus,
     reason: RunStopReason,
     text: string,
+    /** The verifier's word, when one ran: `done_when` passed or failed.
+     *  null = nothing was checked, which is not evidence either way. */
+    verified: boolean | null = null,
   ): Promise<void> {
+    // The task closed: the memories shown during its session helped, or did
+    // not. Only a verifier's verdict counts (plan §3.3); "finished" without
+    // a done_when is the model's own word and teaches the ledger nothing.
+    if (verified !== null) utility.closed([row.sessionId], verified);
     runStore.finish(row.id, status, reason, text);
     await deliverAndMark(runStore, row, text, deliverRunReport);
   }
@@ -1448,6 +1464,7 @@ export async function boot(transportOverride?: Transport) {
           finished ? "finished" : "unfinished",
           run.stoppedBecause,
           renderDigest(run, changed, check, safety, `it was interrupted and picked back up at startup${runError ? `, and hit an error: ${runError}` : ""}`, intentSummary(row.sessionId)),
+          check.checked ? check.passed : null,
         );
       },
       async (row, decision) => {
@@ -1481,6 +1498,7 @@ export async function boot(transportOverride?: Transport) {
             safety,
             decision.why,
           ),
+          check.checked ? check.passed : null,
         );
       },
       { log },
@@ -1556,6 +1574,7 @@ export async function boot(transportOverride?: Transport) {
             run.finished && check.passed ? "finished" : "unfinished",
             run.stoppedBecause,
             digest,
+            check.checked ? check.passed : null,
           );
         }
         return {
