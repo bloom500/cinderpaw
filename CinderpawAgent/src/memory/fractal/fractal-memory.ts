@@ -26,6 +26,7 @@
  * episodic rows each time we (re)load a tree.
  */
 import { createHash } from "node:crypto";
+import { collapseIdentical, type CollapseResult } from "./cross-session-dedup.ts";
 import { buildTree } from "./tree-builder.ts";
 import { appendLeaf } from "./tree-append.ts";
 import { FractalRecallEngine, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
@@ -128,6 +129,11 @@ export interface FractalMemoryDeps {
   /** Optional diagnostics sink (production passes the sidecar logger). */
   log?: (msg: string) => void;
   /**
+   * When a fact leaf's value was replaced by a newer one (null while current).
+   * Production wires `SemanticMemory.history`; see `FractalRecallDeps`.
+   */
+  supersededAt?: (key: string, writtenAt: number) => number | null;
+  /**
    * Optional write-back hook. `buildTree` calls it after each chunk of
    * leaves is freshly embedded so vectors land on disk and the next
    * rebuild can skip the embed roundtrip entirely. Production wires this
@@ -187,6 +193,16 @@ export class FractalMemory {
   readonly #clearEmbeddings?: () => number;
   readonly #onActivity?: (activity: FractalActivity) => void;
   /** Durable provenance-bearing store for reactive leaves (PR-C C.0). */
+  readonly #supersededAt: FractalMemoryDeps["supersededAt"];
+  /**
+   * How the corpus folded into the tree's leaves: survivor → members. The
+   * tree is built from survivors; recall counts a repeated memory once with
+   * its multiplicity, and the benchmark scores a hit on any member. Recomputed
+   * on adopt (text-only, cheap) because it is not persisted with the tree.
+   */
+  #collapse: CollapseResult<Leaf> | null = null;
+  /** Member id → its survivor's id. */
+  #survivorOf = new Map<number, number>();
   readonly #leafStore: LeafStore;
   /** Raw store path — used to derive the sibling evicted-leaf audit log (C.2). */
   readonly #leafStorePath: string;
@@ -223,6 +239,7 @@ export class FractalMemory {
     this.#clearEmbeddings = deps.clearEmbeddings;
     this.#onActivity = deps.onActivity;
     this.#leafStorePath = deps.leafStorePath ?? ":memory:";
+    this.#supersededAt = deps.supersededAt;
     this.#leafStore = new LeafStore(this.#leafStorePath);
   }
 
@@ -258,7 +275,28 @@ export class FractalMemory {
 
   /** Leaves covered by the currently loaded/built tree (0 when none). */
   get treeLeafCount(): number {
-    return this.#tree?.leafIds.length ?? 0;
+    if (!this.#tree) return 0;
+    // Covered memories, not tree leaves: a collapsed group of fifteen is
+    // fifteen memories the tree answers for. Counting survivors here made a
+    // corpus with 20% duplicates look 20% stale on every boot.
+    if (this.#collapse) {
+      let n = 0;
+      for (const c of this.#collapse.hitCount.values()) n += c;
+      return n;
+    }
+    return this.#tree.leafIds.length;
+  }
+
+  /** Every leaf id that says the same thing as `leafId`, itself included. */
+  equivalents(leafId: number): number[] {
+    const s = this.#survivorOf.get(leafId);
+    return s === undefined ? [leafId] : (this.#collapse?.groups.get(s) ?? [leafId]);
+  }
+
+  #adoptCollapse(c: CollapseResult<Leaf>): void {
+    this.#collapse = c;
+    this.#survivorOf = new Map();
+    for (const [survivor, members] of c.groups) for (const m of members) this.#survivorOf.set(m, survivor);
   }
 
   /**
@@ -278,6 +316,7 @@ export class FractalMemory {
     try {
       this.#tree = persisted.tree;
       this.#leavesById = this.#mapLeaves();
+      this.#adoptCollapse(collapseIdentical([...this.#leavesById.values()]));
       this.#log?.(`fractal: loaded tree (${persisted.leafCount} leaves) from disk`);
       return true;
     } catch (e) {
@@ -345,9 +384,12 @@ export class FractalMemory {
     }
     let tree: TreeNode;
     const t0 = Date.now();
-    this.#log?.(`fractal: rebuild started (${leaves.length} leaves)`);
+    // Identical memories go in once. The groups are kept so recall can say
+    // "(×15)" and the benchmark can credit a hit on any copy.
+    const collapse = collapseIdentical(leaves);
+    this.#log?.(`fractal: rebuild started (${leaves.length} leaves, ${collapse.survivors.length} distinct)`);
     try {
-      tree = await buildTree(leaves, {
+      tree = await buildTree(collapse.survivors, {
         embed: this.#embed,
         summarize: this.#summarize,
         persistEmbeddings: (rows) => this.#persistEmbeddings?.(rows),
@@ -367,6 +409,7 @@ export class FractalMemory {
     this.#leavesById = new Map(leaves.map((l) => [l.id, l]));
     // A real build clustered everything; nothing is grafted any more.
     this.#graftedSinceRebuild = 0;
+    this.#adoptCollapse(collapse);
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     this.#log?.(`fractal: rebuilt tree (${leaves.length} leaves, ${tree.children.length} top-level clusters, ${secs}s)`);
     this.#emit(buildGrowActivity(tree));
@@ -428,6 +471,9 @@ export class FractalMemory {
             embed: this.#embed,
             ftsSearch: this.#ftsSearch,
             leavesById: this.#leavesById,
+            factKeyOf: (id) => this.#leafStore.get(id)?.provenance.key,
+            supersededAt: this.#supersededAt,
+            hitCountOf: (id) => this.#collapse?.hitCount.get(id) ?? 1,
           });
           this.#recallEngineFor = this.#tree;
           this.#recallEngineLeaves = this.#leavesById;
@@ -466,6 +512,7 @@ export class FractalMemory {
       ftsSearch: this.#ftsSearch,
       tree: this.#tree,
       leavesById: this.#leavesById,
+      equivalents: (id) => this.equivalents(id),
       embed: this.#embed,
       infer: opts.infer,
       querySetJsonl: opts.querySetJsonl,
@@ -506,6 +553,7 @@ export class FractalMemory {
       ftsSearch: this.#ftsSearch,
       tree: this.#tree,
       leavesById: this.#leavesById,
+      equivalents: (id) => this.equivalents(id),
       embed: this.#embed,
       infer: opts.infer,
       querySetJsonl: opts.querySetJsonl,
@@ -977,6 +1025,16 @@ export class FractalMemory {
       }
       this.#leavesById?.set(leaf.id, leaf);
       this.#graftedSinceRebuild++;
+      // The tree answers for one more memory. The collapse groups are what
+      // `treeLeafCount` counts once they exist, so a grafted leaf joins them
+      // as its own survivor, or the staleness check never sees it and the
+      // count sits at the last rebuild's number forever.
+      if (this.#collapse) {
+        this.#collapse.survivors.push(leaf);
+        this.#collapse.groups.set(leaf.id, [leaf.id]);
+        this.#collapse.hitCount.set(leaf.id, 1);
+        this.#survivorOf.set(leaf.id, leaf.id);
+      }
     } catch (e) {
       this.#log?.(`fractal: graft failed for leaf ${leaf.id} (${String(e)}); waits for rebuild`);
     }

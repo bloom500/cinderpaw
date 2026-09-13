@@ -130,6 +130,7 @@ import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.t
 import { summarizeFromRouter, routerInfer } from "./memory/fractal/summarize.ts";
 import { FractalMemory, type FractalActivity } from "./memory/fractal/fractal-memory.ts";
 import { LEAF_STORE_FILENAME } from "./memory/fractal/leaf-store.ts";
+import { describeScope as benchDescribeScope } from "./memory/fractal/bench/runner.ts";
 import { DEFAULT_SYSTEM_PROMPT, RsiSidecar } from "./rsi/sidecar.ts";
 import { PROMPT_STYLE_POOL } from "./rsi/l1-config/prompt-pool.ts";
 import { hitsToItems, itemsToHits, liveModuleRegistry, liveSeamAdapter, onModuleQuarantine } from "./rsi/l4-modules/seam-runtime.ts";
@@ -155,7 +156,7 @@ import { setHostToolNames } from "./tools/tiers.ts";
 import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
-import { createControlAppTool } from "./tools/builtin/control-app.ts";
+import { createComputerUseTool } from "./tools/builtin/computer-use.ts";
 import { LeadDesk } from "./core/lead-desk.ts";
 import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
 import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
@@ -681,6 +682,11 @@ export async function boot(transportOverride?: Transport) {
     persistEmbeddings: (rows) => episodic.setEmbeddings(rows),
     clearEmbeddings: () => episodic.clearEmbeddings(),
     onActivity: (a) => fractalActivitySink.current(a),
+    // A fact leaf that has since been replaced is labelled so in recall. The
+    // version open when the leaf was written is the one that was replaced;
+    // its close date is the label.
+    supersededAt: (key, writtenAt) =>
+      semantic.history(key).find((v) => v.validFrom <= writtenAt && v.validTo !== null)?.validTo ?? null,
   });
 
   // (The old [bench-cap] WARN lived here. It told the operator to set an env
@@ -713,7 +719,7 @@ export async function boot(transportOverride?: Transport) {
   // host. Same sendHolder plumbing as askUser: the request flows out over the
   // transport, the Rust host runs the OS action behind its security gate, and
   // the `desktop_control_response` is routed back to the bridge below. The
-  // `control_app` tool is only registered when the user has opted in (see
+  // `computer_use` tool is only registered when the user has opted in (see
   // CINDERPAW_ENABLE_DESKTOP_CONTROL); the bridge itself is always created so the
   // response-routing wiring is unconditional.
   const desktopControl = new DesktopControlBridgeImpl((e) => sendHolder.current(e));
@@ -892,15 +898,15 @@ export async function boot(transportOverride?: Transport) {
   // pure event emission through the AskUserBridge in the tool context.
   registry.register(createAskUserTool());
 
-  // control_app — OS-level desktop control via the accessibility tree. This
+  // computer_use — OS-level desktop control via the accessibility tree. This
   // is powerful (it can click/type into any non-denylisted app), so it is
   // OPT-IN, exactly like shell_exec: enable with CINDERPAW_ENABLE_DESKTOP_CONTROL=true.
   // The Rust host ALSO independently gates every call on the same flag plus an
   // app allow/deny policy, so even if this registration is reached the host is
   // the final authority. Default OFF.
   if (cfgBool("CINDERPAW_ENABLE_DESKTOP_CONTROL")) {
-    registry.register(createControlAppTool());
-    log("control_app enabled (CINDERPAW_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
+    registry.register(createComputerUseTool());
+    log("computer_use enabled (CINDERPAW_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");
   }
 
   // recall — read-only on-demand semantic search over past conversations,
@@ -1785,8 +1791,9 @@ export async function boot(transportOverride?: Transport) {
         const outPath = require("node:path").join(dataDir, "fractal-bench-report.json");
         fs.writeFileSync(outPath, JSON.stringify(report, null, 2));
         const v = report.verdict;
+        const scope = benchDescribeScope(report);
         log(
-          `fractal-bench: n=${report.n} k=${report.k} | ` +
+          `fractal-bench: n=${report.n} k=${report.k}${scope ? ` | ${scope}` : ""} | ` +
             `recall@${report.k} fractal=${report.fractal.meanRecallAtK.toFixed(3)} ` +
             `fts=${report.fts.meanRecallAtK.toFixed(3)} | ` +
             `p99 fractal=${report.fractal.p99Ms.toFixed(1)}ms fts=${report.fts.p99Ms.toFixed(1)}ms | ` +

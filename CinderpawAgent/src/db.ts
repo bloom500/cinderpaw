@@ -307,6 +307,11 @@ function addColumnIfMissing(
  */
 export const CURRENT_MEMORY_SCHEMA_VERSION = 2;
 
+/** The migration, for tests that build a raw `bun:sqlite` database. */
+export function migrateForTests(db: Database): void {
+  migrate(db);
+}
+
 function migrate(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS audit_log (
@@ -465,8 +470,26 @@ function migrate(db: Database): void {
     CREATE TABLE IF NOT EXISTS semantic (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      category TEXT NOT NULL DEFAULT 'fact'
     );
+
+    -- Every value a fact has held, in order. semantic is the current row;
+    -- this is how it got there. A closed row keeps superseded_by so a
+    -- reader can follow a fact forward, and valid_to so it can ask "as of
+    -- when". Without this a changed fact simply overwrote the old one, and
+    -- recall could hand the model advice that had been withdrawn, as if it
+    -- were current.
+    CREATE TABLE IF NOT EXISTS semantic_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'fact',
+      valid_from INTEGER NOT NULL,
+      valid_to INTEGER,
+      superseded_by INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS semantic_history_key ON semantic_history(key, valid_from);
 
     -- The agent's durable task list (todo_write / TodoStore). Survives
     -- compaction and session boundaries, which is the point: the transcript
@@ -578,6 +601,18 @@ function migrate(db: Database): void {
   // global (`workspace_id IS NULL`) — user identity, language, communication
   // style — to survive workspace switches.
   addColumnIfMissing(db, "semantic", "workspace_id", "TEXT");
+
+  // A fact's kind (Memanto's 13 categories; see `FACT_CATEGORIES`). Every row
+  // written before the column existed is a plain `fact`, which is what it was.
+  addColumnIfMissing(db, "semantic", "category", "TEXT NOT NULL DEFAULT 'fact'");
+  // One open version per row that predates the history table, so `asOf` and
+  // `changedSince` see the facts a user already had. Guarded on the table
+  // being empty so it runs once, and it never rewrites a `semantic` row.
+  const seeded = db.query("SELECT COUNT(*) AS n FROM semantic_history").get() as { n: number };
+  if (seeded.n === 0) {
+    db.exec(`INSERT INTO semantic_history (key, value, category, valid_from)
+             SELECT key, value, category, updated_at FROM semantic`);
+  }
 
   // Non-owner rows: a turn written by a session under a RESTRICTED profile
   // (the public WhatsApp lead mode — a stranger, not the user). Excluded from

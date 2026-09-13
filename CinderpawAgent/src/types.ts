@@ -195,7 +195,7 @@ export interface ToolContext {
    * `desktop_control_response` (same request/response shape as `askUser`).
    * Present only when desktop control is enabled (`CINDERPAW_ENABLE_DESKTOP_CONTROL`)
    * and the transport is the Tauri host. Undefined otherwise — the
-   * `control_app` tool refuses to run without it.
+   * `computer_use` tool refuses to run without it.
    */
   desktopControl?: DesktopControlBridge;
 
@@ -1813,7 +1813,18 @@ export type OutboundEvent =
       // ok:true path — the full report payload.
       ship?: boolean;
       reasons?: string[];
+      /** Queries that ran; latency percentiles cover all of them. */
       n?: number;
+      /** Queries behind the recall figures — the `historical` ones. */
+      scoredN?: number;
+      /** Per non-scored task kind, how many queries it excluded. */
+      unscoredByTask?: Record<"live-state" | "no-memory", number>;
+      /**
+       * Ready-made sentence saying what the recall figure covers. Empty when
+       * every query was scored. Show it next to the recall numbers: without
+       * it the panel's `n` reads as the recall sample size, and it is not.
+       */
+      scope?: string;
       k?: number;
       fractalRecall?: number;
       ftsRecall?: number;

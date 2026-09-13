@@ -54,7 +54,7 @@ describe("buildCapabilityIndex — the agent must know what it can do", () => {
       "## Available tools",
       "- read_file(path): reads",
       "",
-      buildCapabilityIndex(fakeRegistry(["run_tests", "control_app"])),
+      buildCapabilityIndex(fakeRegistry(["run_tests", "computer_use"])),
       "",
       "## Rules",
       "- Be concise.",
@@ -64,7 +64,7 @@ describe("buildCapabilityIndex — the agent must know what it can do", () => {
     expect(stripped).not.toContain("- read_file(path): reads");
     // …but the agent still knows these exist.
     expect(stripped).toContain("run_tests");
-    expect(stripped).toContain("control_app");
+    expect(stripped).toContain("computer_use");
   });
 });
 

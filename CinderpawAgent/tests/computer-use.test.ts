@@ -1,5 +1,5 @@
 /**
- * Tests for the desktop-control bridge and the `control_app` tool.
+ * Tests for the desktop-control bridge and the `computer_use` tool.
  *
  * The OS accessibility work lives in the Rust host; here we exercise the
  * sidecar-side contract with a mocked bridge:
@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { createControlAppTool, redactArgsForAudit, isRecoverable } from "../src/tools/builtin/control-app.ts";
+import { createComputerUseTool, redactArgsForAudit, isRecoverable } from "../src/tools/builtin/computer-use.ts";
 import { DesktopControlBridgeImpl } from "../src/core/desktop-control-bridge.ts";
 import type {
   AuditEntry,
@@ -25,6 +25,8 @@ function makeCtx(opts: {
   onRequest: (action: string, params: Record<string, unknown>) => unknown | Promise<unknown>;
   audit?: (e: AuditEntry) => void;
   askUserAnswer?: string; // "Allow" | "Deny"; omit → no askUser bridge
+  /** Receives the confirmation text the user is actually shown. */
+  onAsk?: (question: string) => void;
 }): { ctx: ToolContext; requests: Array<{ action: string; params: Record<string, unknown> }> } {
   const requests: Array<{ action: string; params: Record<string, unknown> }> = [];
   const desktopControl: DesktopControlBridge = {
@@ -39,12 +41,13 @@ function makeCtx(opts: {
       throw new Error("no network in test");
     }) as unknown as ToolContext["fetch"],
     audit: opts.audit ?? (() => {}),
-    manifest: { name: "control_app", description: "x", permissions: [], networkAccess: false },
+    manifest: { name: "computer_use", description: "x", permissions: [], networkAccess: false },
     desktopControl,
     ...(opts.askUserAnswer
       ? {
           askUser: {
-            async ask() {
+            async ask(questions: { question: string }[]) {
+              opts.onAsk?.(questions[0]?.question ?? "");
               return [{ question: "q", selected: [opts.askUserAnswer!] }];
             },
             cancel() {},
@@ -55,9 +58,9 @@ function makeCtx(opts: {
   return { ctx, requests };
 }
 
-describe("control_app tool", () => {
+describe("computer_use tool", () => {
   it("list_windows returns a typed, shaped result", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     const windows = [
       { pid: 1234, title: "Untitled - Notepad", app_name: "notepad.exe" },
       { pid: 5678, title: "Calculator", app_name: "calc.exe" },
@@ -74,7 +77,7 @@ describe("control_app tool", () => {
   });
 
   it("redacts typed text in the audit entry (password safety)", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     const audited: AuditEntry[] = [];
     const { ctx } = makeCtx({
       onRequest: () => ({ ok: true }),
@@ -97,7 +100,7 @@ describe("control_app tool", () => {
   });
 
   it("send_keys forwards element_id + keys and confirms first", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     const { ctx, requests } = makeCtx({ onRequest: () => ({ ok: true }), askUserAnswer: "Allow" });
     const res = await tool.execute(
       { action: "send_keys", element_id: "1234:1.2", keys: "hello Bloom{Enter}" },
@@ -111,7 +114,7 @@ describe("control_app tool", () => {
   });
 
   it("send_keys requires keys and is a confirmed write action", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     // Missing keys → rejected before any host call.
     const missing = makeCtx({ onRequest: () => ({ ok: true }), askUserAnswer: "Allow" });
     const r1 = await tool.execute({ action: "send_keys", element_id: "1:2" }, missing.ctx);
@@ -128,7 +131,7 @@ describe("control_app tool", () => {
   });
 
   it("redacts send_keys keystrokes in the audit entry", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     const audited: AuditEntry[] = [];
     const { ctx } = makeCtx({
       onRequest: () => ({ ok: true }),
@@ -147,7 +150,7 @@ describe("control_app tool", () => {
   });
 
   it("clamps get_tree depth to the 1..=30 range before calling the host", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
 
     const big = makeCtx({ onRequest: () => ({}) });
     await tool.execute({ action: "get_tree", pid: 1, depth: 999 }, big.ctx);
@@ -163,7 +166,7 @@ describe("control_app tool", () => {
   });
 
   it("forwards window_title to the host for get_tree and find_elements", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
 
     const tree = makeCtx({ onRequest: () => ({}) });
     await tool.execute(
@@ -187,7 +190,7 @@ describe("control_app tool", () => {
   });
 
   it("requires a confirmation for write actions and aborts on denial", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     const denied = makeCtx({ onRequest: () => ({ ok: true }), askUserAnswer: "Deny" });
     const res = await tool.execute(
       { action: "click", element_id: "1:2.3" },
@@ -199,7 +202,7 @@ describe("control_app tool", () => {
   });
 
   it("fails CLOSED on a required confirmation when there is no askUser bridge", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     // makeCtx without askUserAnswer → no askUser bridge.
     const { ctx, requests } = makeCtx({ onRequest: () => ({ ok: true }) });
     const res = await tool.execute({ action: "click", element_id: "1:2.3" }, ctx);
@@ -208,7 +211,7 @@ describe("control_app tool", () => {
   });
 
   it("allows prompt-less execution only with the explicit env opt-out", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     const prev = process.env.CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK;
     process.env.CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK = "true";
     try {
@@ -223,7 +226,7 @@ describe("control_app tool", () => {
   });
 
   it("rejects unknown actions and missing required params", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     const { ctx } = makeCtx({ onRequest: () => ({}) });
     expect((await tool.execute({ action: "nope" }, ctx)).ok).toBe(false);
     expect((await tool.execute({ action: "get_tree" }, ctx)).ok).toBe(false); // no pid
@@ -231,7 +234,7 @@ describe("control_app tool", () => {
   });
 
   it("surfaces host errors as recoverable/unrecoverable structured results", async () => {
-    const tool = createControlAppTool();
+    const tool = createComputerUseTool();
     const notFound = makeCtx({
       onRequest: () => {
         throw new Error("desktop control: element_not_found (it may have changed)");
@@ -284,9 +287,9 @@ describe("isRecoverable", () => {
       'desktop control: "cmd.exe" is on the security denylist',
       "desktop control: \"foo\" is not in CINDERPAW_DESKTOP_CONTROL_ALLOWED_APPS",
       "desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true",
-      'control_app: action "get_tree" requires a numeric "pid".',
+      'computer_use: action "get_tree" requires a numeric "pid".',
       "desktop control: element does not support setting a value",
-      "control_app: the user declined the \"click\" action.",
+      "computer_use: the user declined the \"click\" action.",
     ]) {
       expect(isRecoverable(msg)).toBe(false);
     }
@@ -327,5 +330,47 @@ describe("DesktopControlBridgeImpl", () => {
   it("times out when no response arrives", async () => {
     const bridge = new DesktopControlBridgeImpl(() => {}, { timeoutMs: 20 });
     await expect(bridge.request("list_windows", {})).rejects.toThrow(/timed out/);
+  });
+});
+
+describe("computer_use rename", () => {
+  it("is registered under the ecosystem name", () => {
+    expect(createComputerUseTool().manifest.name).toBe("computer_use");
+  });
+
+  it("lists every action it accepts in the action parameter's own description", () => {
+    // The description used to omit send_keys and launch, so the schema denied
+    // the existence of the two actions the tool description explains at length.
+    const desc = String(
+      (createComputerUseTool().parameters as Record<string, { description: string }>).action.description,
+    );
+    for (const action of [
+      "list_windows", "get_tree", "find_elements", "click", "type",
+      "send_keys", "get_value", "get_focused", "perform_action", "launch",
+    ]) {
+      expect(desc).toContain(action);
+    }
+  });
+});
+
+describe("launch confirmation names the launch", () => {
+  it("says which application is being started, not 'click'", async () => {
+    // `launch` had no branch in the detail chain, so it fell through to the
+    // click default with no element_id — the one action in ALWAYS_CONFIRM
+    // asked "Allow the agent to click (focused element)?" while starting a
+    // process. The user cannot consent to what they are not told.
+    let asked = "";
+    const tool = createComputerUseTool();
+    const { ctx } = makeCtx({
+      onRequest: () => ({ ok: true }),
+      askUserAnswer: "Allow",
+      onAsk: (q) => { asked = q; },
+    });
+
+    await tool.execute({ action: "launch", app: "notepad.exe" }, ctx);
+
+    expect(asked).toContain("notepad.exe");
+    expect(asked.toLowerCase()).toContain("start");
+    expect(asked.toLowerCase()).not.toContain("click");
   });
 });

@@ -9,7 +9,7 @@ const fakeRegistry = {
   list: () => [
     { manifest: { name: "read_file", description: "Read a file (core)." } },
     { manifest: { name: "deep_research", description: "Run a deep research pass." } },
-    { manifest: { name: "control_app", description: "Control desktop applications." } },
+    { manifest: { name: "computer_use", description: "Control desktop applications." } },
   ],
 } as unknown as ToolRegistry;
 
@@ -38,7 +38,7 @@ test("list_tools lists extended-only, minus already-loaded; load_tool mutates th
 
   const l1 = await listTools.execute({}, ctx("s1"));
   expect(l1.content).toContain("deep_research");
-  expect(l1.content).toContain("control_app");
+  expect(l1.content).toContain("computer_use");
   expect(l1.content).not.toContain("read_file"); // core never appears
 
   const r = await loadTool.execute({ names: ["deep_research"] }, ctx("s1"));
@@ -48,7 +48,7 @@ test("list_tools lists extended-only, minus already-loaded; load_tool mutates th
 
   const l2 = await listTools.execute({}, ctx("s1"));
   expect(l2.content).not.toContain("deep_research"); // now hidden for s1
-  expect(l2.content).toContain("control_app");
+  expect(l2.content).toContain("computer_use");
 });
 
 test("load_tool tells a core name apart from an unknown one, and records the request either way it can honour", async () => {
@@ -84,7 +84,7 @@ test("list_tools honours the query filter", async () => {
   const [listTools] = createToolDrawerTools(fakeRegistry, loaded);
 
   const r = await listTools.execute({ query: "desktop" }, ctx("s1"));
-  expect(r.content).toContain("control_app");
+  expect(r.content).toContain("computer_use");
   expect(r.content).not.toContain("deep_research");
 });
 

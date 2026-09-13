@@ -15,7 +15,7 @@
 //! large amount of power. The guard rails here are deliberately conservative —
 //! see [`security`]:
 //!
-//!   * **Opt-in.** The agent-facing `control_app` tool is only registered when
+//!   * **Opt-in.** The agent-facing `computer_use` tool is only registered when
 //!     `CINDERPAW_ENABLE_DESKTOP_CONTROL=true` (mirrors `shell_exec`). The Tauri
 //!     commands themselves additionally refuse to run unless the same flag is
 //!     set, so the React UI can't reach them by accident either.
@@ -34,7 +34,7 @@
 //!     or a tool result.
 //!
 //! Confirmation-before-write is enforced one layer up, in the sidecar's
-//! `control_app` tool, which routes state-changing actions through the
+//! `computer_use` tool, which routes state-changing actions through the
 //! `ask_user` bridge so the human approves them (unless explicitly disabled).
 //!
 //! ## Element handles
@@ -415,7 +415,7 @@ pub async fn send_keys(element_id: String, keys: String) -> Result<(), String> {
 ///   * the resolved app name is run through the same allow/deny policy as
 ///     control, so password managers, credential UIs, and — importantly —
 ///     shells/terminals can neither be controlled NOR launched;
-///   * the `control_app` tool additionally requires explicit user confirmation
+///   * the `computer_use` tool additionally requires explicit user confirmation
 ///     before every launch.
 ///
 /// The launched process is detached (it keeps running after this returns).
@@ -543,7 +543,7 @@ where
 // ---------------------------------------------------------------------------
 
 /// Dispatch a `desktop_control_request` coming from the Cinderpaw Agent sidecar.
-/// `action` + `params` mirror the `control_app` tool's input. Returns a JSON
+/// `action` + `params` mirror the `computer_use` tool's input. Returns a JSON
 /// value on success or an error string. This is the single entry point the
 /// `cinderpaw_agent` stdout reader calls, so all gating lives in the command
 /// wrappers above which this re-uses.

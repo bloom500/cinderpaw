@@ -115,6 +115,17 @@ export interface FractalRecallDeps {
    * inline.
    */
   leavesById: Map<number, Leaf>;
+  /** Leaf id → the fact key it was written from, when it was a fact write. */
+  factKeyOf?: (leafId: number) => string | undefined;
+  /**
+   * For a leaf that was a fact write: when a newer value replaced it, or null
+   * while it is still current. A replaced fact is still real history and
+   * stays in the tree; what must not happen is the model reading it as
+   * current, which is what a bare line does. Absent in benchmarks and tests.
+   */
+  supersededAt?: (key: string, writtenAt: number) => number | null;
+  /** How many identical memories this leaf stands for (1 when unknown). */
+  hitCountOf?: (leafId: number) => number;
 }
 
 /** RecallResult mirrors `src/memory/recall.ts` so this is a drop-in. */
@@ -155,12 +166,18 @@ export class FractalRecallEngine {
   readonly #embed: EmbedInvoker;
   readonly #ftsSearch: FtsSearch;
   readonly #leavesById: Map<number, Leaf>;
+  readonly #factKeyOf: FractalRecallDeps["factKeyOf"];
+  readonly #supersededAt: FractalRecallDeps["supersededAt"];
+  readonly #hitCountOf: FractalRecallDeps["hitCountOf"];
 
   constructor(deps: FractalRecallDeps) {
     this.#tree = deps.tree;
     this.#embed = deps.embed;
     this.#ftsSearch = deps.ftsSearch;
     this.#leavesById = deps.leavesById;
+    this.#factKeyOf = deps.factKeyOf;
+    this.#supersededAt = deps.supersededAt;
+    this.#hitCountOf = deps.hitCountOf;
   }
 
   /**
@@ -315,7 +332,14 @@ export class FractalRecallEngine {
       // Mirror RecallEngine.formatEpisodic ("[date] role: snippet"); the role
       // prefix is dropped for semantic-only hits (leaves carry no role).
       const rolePart = h.role ? `${h.role}: ` : "";
-      return `  ${via}[${stamp}] ${rolePart}${snippet(h.text)}`;
+      const key = this.#factKeyOf?.(h.id);
+      const supersededAt = key ? this.#supersededAt?.(key, h.ts) : null;
+      const superseded = supersededAt ? ` (superseded ${dateStamp(supersededAt)})` : "";
+      // A memory that happened fifteen times is one line with a count, not
+      // fifteen lines that spend fourteen rows of the model's budget on nothing.
+      const n = this.#hitCountOf?.(h.id) ?? 1;
+      const times = n > 1 ? ` (×${n})` : "";
+      return `  ${via}[${stamp}] ${rolePart}${snippet(h.text)}${superseded}${times}`;
     });
 
     const context = [

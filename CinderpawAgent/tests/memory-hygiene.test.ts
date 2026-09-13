@@ -12,10 +12,11 @@ import { sanitizeFact } from "../src/memory/extractor.ts";
 
 describe("sanitizeFact", () => {
   it("accepts a clean key: value line", () => {
-    expect(sanitizeFact("name", "Darius")).toEqual({ key: "name", value: "Darius" });
+    expect(sanitizeFact("name", "Darius")).toEqual({ key: "name", value: "Darius", category: "fact" });
     expect(sanitizeFact("preferred_language", "Romanian")).toEqual({
       key: "preferred_language",
       value: "Romanian",
+      category: "fact",
     });
   });
 
@@ -23,11 +24,13 @@ describe("sanitizeFact", () => {
     expect(sanitizeFact("- language", "Romanian")).toEqual({
       key: "language",
       value: "Romanian",
+      category: "fact",
     });
-    expect(sanitizeFact("* os", "Windows")).toEqual({ key: "os", value: "Windows" });
+    expect(sanitizeFact("* os", "Windows")).toEqual({ key: "os", value: "Windows", category: "fact" });
     expect(sanitizeFact("1. location", "Romania")).toEqual({
       key: "location",
       value: "Romania",
+      category: "fact",
     });
   });
 

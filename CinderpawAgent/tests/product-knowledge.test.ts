@@ -50,7 +50,7 @@ const NOT_IN_PRODUCT_DOC: Record<string, string> = {
   fetch_url: "generic primitive", http_request: "generic primitive",
   read_webpage: "generic primitive", web_search: "generic primitive",
   deep_research: "generic primitive", scan_workspace: "generic primitive",
-  shell_exec: "generic primitive", control_app: "generic primitive",
+  shell_exec: "generic primitive", computer_use: "generic primitive",
   read_skill: "skills mechanics", list_skills: "skills mechanics",
   git_status: "git primitive", git_diff: "git primitive", git_log: "git primitive",
   git_commit: "git primitive", git_branch: "git primitive",

@@ -13,12 +13,12 @@ pub(crate) fn save_settings(settings: Settings) -> Result<(), String> {
     settings::save(&settings).map_err(|e| e.to_string())
 }
 
-/// Toggle OS-level desktop control (the `control_app` tool) at runtime.
+/// Toggle OS-level desktop control (the `computer_use` tool) at runtime.
 ///
 /// Persists the choice, updates the host-process env (so the Rust command
 /// gate and the next sidecar spawn agree — both read
 /// `CINDERPAW_ENABLE_DESKTOP_CONTROL`), then restarts the sidecar so its tool
-/// registry re-registers or drops `control_app`. The restart is what makes the
+/// registry re-registers or drops `computer_use`. The restart is what makes the
 /// tool actually appear/disappear: tool registration happens once, at sidecar
 /// startup, from `process.env`.
 ///

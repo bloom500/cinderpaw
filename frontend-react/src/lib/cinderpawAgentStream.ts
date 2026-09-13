@@ -337,7 +337,7 @@ function routeAskUser(
       // entirely when the queue has drained. We deliberately do not leave an
       // "answered" summary card lingering in the chat — once the user has
       // picked, the card disappears (the agent's own message reflects the
-      // decision). This matters most for control_app, which can leave a
+      // decision). This matters most for computer_use, which can leave a
       // trail of identical "Allow" confirmations otherwise.
       advanceAskUserCard(targetMessageId);
     })

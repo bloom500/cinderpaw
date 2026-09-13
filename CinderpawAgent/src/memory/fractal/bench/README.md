@@ -43,8 +43,30 @@ verdict, and writes `data/fractal-bench-report.json`.
    ```jsonl
    {"query": "how do I roll back a release", "relevant": [4213]}
    {"query": "what's my OpenAI key var", "relevant": [991, 992]}
+   {"query": "what windows do I have open right now", "relevant": [], "task": "live-state"}
+   {"query": "hey, are you there?", "relevant": [], "task": "no-memory"}
    ```
    `relevant` are episodic row ids that *should* be retrieved.
+
+   `task` declares **what the query asks of memory**, and defaults to
+   `historical` so a file written without it scores exactly as before:
+
+   | `task` | What answers it | Scored by recall@k? |
+   |---|---|---|
+   | `historical` | a past record | yes — this is the gate's number |
+   | `live-state` | a live tool call, not an archive | no |
+   | `no-memory` | nothing; the turn needs no retrieval | no |
+
+   Why it exists: a question like *"what apps do I have open right now"* has no
+   correct historical answer, so averaging its zero into recall@10 marks the
+   engine down for a question document retrieval cannot answer — and rewarding
+   a hit there would be rewarding a stale snapshot. Unscored queries still run
+   and still count toward the latency percentiles, because they cost the user
+   the same wait. The report says what the recall figure covers: `n` is what
+   ran, `scoredN` is what the recall is over, and `describeScope(report)`
+   turns the difference into the sentence the boot log prints. A `task` value
+   that is not one of the three throws at parse time rather than quietly
+   falling back to `historical`.
 
 2. **Self-supervised generation** (default, free) — BEIR-style: sample real
    memories, ask the local model to paraphrase each into a query, label the

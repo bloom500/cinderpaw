@@ -39,6 +39,19 @@ describe("runBenchmark", () => {
     expect(report.k).toBe(10);
   });
 
+  it("credits a hit on any copy of the labelled id when equivalents are known", async () => {
+    const clock = fakeClock();
+    const queries = [Q("q1", [7])];
+    const fts = async () => [9];
+    const fractal = async () => [8];
+    const equivalents = (id: number) => (id === 7 ? [7, 8, 9] : [id]);
+    const without = await runBenchmark({ queries, fts, fractal, k: 10, budgetMs: 80, now: clock.now });
+    expect(without.fractal.meanRecallAtK).toBe(0);
+    const withEq = await runBenchmark({ queries, fts, fractal, k: 10, budgetMs: 80, now: clock.now, equivalents });
+    expect(withEq.fts.meanRecallAtK).toBe(1);
+    expect(withEq.fractal.meanRecallAtK).toBe(1);
+  });
+
   it("times each engine call against the injected clock", async () => {
     const clock = fakeClock();
     const queries = [Q("a", [1]), Q("b", [2]), Q("c", [3])];
@@ -96,5 +109,51 @@ describe("runBenchmark", () => {
     await expect(
       runBenchmark({ queries: [], fts: async () => [], fractal: async () => [], k: 10, budgetMs: 80, now: clock.now }),
     ).rejects.toThrow();
+  });
+});
+
+describe("declared task contract", () => {
+  const run = (queries: BenchQuery[]) => {
+    const clock = fakeClock();
+    // Every engine returns the gold doc, so any recall below 1.0 can only come
+    // from an unscorable query being averaged in.
+    const hit = async (_q: string) => { clock.advance(1); return [10]; };
+    return runBenchmark({ queries, fts: hit, fractal: hit, k: 10, budgetMs: 80, now: clock.now });
+  };
+
+  it("keeps live-state and no-memory queries out of the recall mean", async () => {
+    const report = await run([
+      Q("what did the check return", [10]),
+      { query: "what is open right now", relevant: new Set([10]), task: "live-state" },
+      { query: "are you there", relevant: new Set([10]), task: "no-memory" },
+    ]);
+
+    // All three ran, one was scored, and the mean is over that one.
+    expect(report.n).toBe(3);
+    expect(report.scoredN).toBe(1);
+    expect(report.fractal.meanRecallAtK).toBeCloseTo(1.0, 6);
+    expect(report.unscoredByTask).toEqual({ "live-state": 1, "no-memory": 1 });
+    expect(report.fractal.perQuery.map((p) => p.recall)).toEqual([1, null, null]);
+  });
+
+  it("still times the unscored queries — they cost a real wait", async () => {
+    const report = await run([
+      Q("historical", [10]),
+      { query: "live", relevant: new Set([10]), task: "live-state" },
+    ]);
+    expect(report.fractal.perQuery.map((p) => p.ms)).toHaveLength(2);
+  });
+
+  it("treats a query with no declared task as historical", async () => {
+    const report = await run([Q("a", [10]), Q("b", [10])]);
+    expect(report.scoredN).toBe(2);
+    expect(report.unscoredByTask).toEqual({ "live-state": 0, "no-memory": 0 });
+    expect(report.fractal.perQuery.every((p) => p.task === "historical")).toBe(true);
+  });
+
+  it("refuses a set where nothing is scorable, instead of dividing by zero", async () => {
+    await expect(
+      run([{ query: "are you there", relevant: new Set([10]), task: "no-memory" }]),
+    ).rejects.toThrow(/no scorable queries/);
   });
 });

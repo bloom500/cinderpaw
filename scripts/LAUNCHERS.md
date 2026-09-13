@@ -299,18 +299,19 @@ Quote the 2700-leaf row. 200 leaves is not a memory anybody has, and leading
 with it means leading with the easiest run we ever did.
 
 **Recall is lower on the bigger corpus:** 66.7% → 41.7% while FTS5 climbs
-0% → 8.3%, so the gap narrows from 66 points to 33 across a 13x corpus. Before
-reading that as degradation, note the third explanation, which is the most
-likely one and is a property of the measurement rather than of FMS:
+0% → 8.3%, so the gap narrows from 66 points to 33 across a 13x corpus. This
+does not isolate degradation: the runs did not preserve matched query sets
+and returned evidence. Single-gold labels are another possible explanation,
+but the attribution pass below does not establish that they caused this gap.
 
 **The gold labels are single-document.** `query-gen.ts` samples one memory,
 paraphrases it into a question, and records `relevant: new Set([leaf.id])` —
 that one memory is the only answer that counts. So recall@10 asks "did it
 return the exact leaf this question was written from", not "did it return
-something that answers the question". At 200 leaves few plausible rivals exist.
-At 2700 there are many, and a run that returns ten genuinely relevant memories
-while missing THE one scores zero. A single-gold metric is expected to fall as
-the corpus grows even when retrieval is getting better.
+something that answers the question". A run that returns genuinely relevant
+memories while missing THE one scores zero. The attribution pass demonstrates
+this for one full-corpus case with byte-identical evidence, but also finds
+genuine retrieval misses and invalid or underspecified memory questions.
 
 The file says this itself, in as many words, in its own CAVEAT block. It is an
 honest default in the absence of human labels, and it is not a number to reason
@@ -322,16 +323,25 @@ metric decaying on its own. **Fixing the query set is what separates them**, and
 it has to come before any 2x2 memory-vs-adaptation matrix, because every arm of
 that matrix would be read through the same broken ruler.
 
-Two changes, in this order:
+**Attribution first — 2026-09-12:** [the per-failure report](../docs/fms-attribution.md)
+reconstructs the existing twelve queries on the archived 2700-leaf tree,
+reproduces each historical hit/miss, substitutes manually verified evidence,
+and replaces beam traversal with exhaustive vector scoring while holding the
+other inputs fixed. It produces no new aggregate figure or SHIP verdict.
 
-1. **Raise n.** `count` is already a parameter capped at the eligible memory
-   count, and the sampler is seeded (default 1), so runs stay comparable. Twelve
-   → a few hundred costs one local paraphrase call each and nothing else. This
-   alone ends the "five questions versus eight" problem.
-2. **Multi-gold labels**, via a hand-authored JSONL through `parseQuerySet`,
-   which already exists and already supersedes the generator. Until a query can
-   have more than one right answer, the headline number stays a floor of unknown
-   depth rather than a measurement.
+The next benchmark repair is, in order:
+
+1. **Freeze replay evidence and specify answerability/time/session scope.**
+   “Open apps right now” has no unique historical gold; a greeting needs no
+   source memory. A seed alone does not freeze corpus contents or paraphrases.
+2. **Label answer-equivalent evidence groups and choose the corresponding
+   metric.** Multi-gold document recall alone still penalises duplicate answers:
+   one case has fifteen identical source texts and a cutoff of ten. Distinguish
+   sufficient answer evidence from exact-event provenance. `parseQuerySet`
+   already accepts multiple IDs, but that does not settle the metric contract.
+3. **Only then consider raising n.** The attribution pass keeps all twelve
+   query texts and the original corpus fixed. Genuine retrieval misses remain
+   visible; they must not be relabelled correct merely because hits are related.
 
 Both rows are **n=12**. 41.7% is five questions, 66.7% is eight, and the
 distance between our two "results" is three questions — on a query set whose
@@ -345,8 +355,10 @@ vector in one batch before the timer starts. The longest query in this set
 takes ~330ms to embed on its own. For a question typed live, add that; 32ms is
 traversal, not answer latency.
 
-A material jump (>0.50) → topology was the limiter; freeze a JSONL and
-publish. Flat (~0.40) → embedding is the ceiling; bge-large is next.
+The old branch-sweep rule (“a jump proves topology; flat proves an embedding
+ceiling”) is withdrawn. Exhaustive traversal alone recovered none of the seven
+FMS zeros in the controlled replay. That does not isolate an embedding ceiling:
+ranking, duplicate occurrences, and query semantics also affect the result.
 
 Branch=8 tree + report backup locations:
 

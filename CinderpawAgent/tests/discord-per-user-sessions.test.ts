@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";
+import { migrateForTests } from "../src/db.ts";
 import { Database } from "bun:sqlite";
 import {
   discordSessionId,
@@ -143,6 +144,9 @@ describe("semantic facts do not leak between Discord users", () => {
     db.exec(
       "CREATE TABLE semantic (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)",
     );
+    // The table as it exists on disk always passes through migrate(): it is
+    // what adds the columns the store reads.
+    migrateForTests(db);
     semantic = new SemanticMemory(db, () => {});
   });
 
