@@ -12,6 +12,11 @@
  *          signature (m0.3c). Measured worse than brsi on unseen templates:
  *          it discards what other failures taught, and ties become a shuffle.
  *   both   retrieval first, then M0's order for the rest.
+ *   skilled `both`, plus the skill library (§3.1): after learning, every
+ *          condition with a verified step and a held-out check becomes a
+ *          procedure; on a task whose condition has one, the procedure is
+ *          tried first and the search is skipped. This is the arm that
+ *          measures Astra's metric, cost per verified task, with a library.
  *
  * What "learning" means here, precisely: an arm sees the development
  * partition during its learning phase and may keep receipts of what it tried
@@ -31,6 +36,7 @@
 import type { ArmFn, ArmRun, FixtureTask } from "./campaign.ts";
 import { REPAIRS, checkRepo, rngOf, type Fixture, type Repair, type Repo } from "./fixtures.ts";
 import { selectExperiment, type Attempt } from "../l3-code/experiment-selector.ts";
+import { SkillLibrary, induceProcedure } from "../../memory/fractal/skill-library.ts";
 
 /** What the arm remembers about one attempt. Kept in the same shape as an
  *  L3 receipt so M0 can read it unchanged. */
@@ -138,7 +144,31 @@ export interface ArmOptions {
   maxAttempts?: number;
 }
 
-export type ArmKind = "fixed" | "fms" | "brsi" | "brsi-c" | "both";
+export type ArmKind = "fixed" | "fms" | "brsi" | "brsi-c" | "both" | "skilled";
+
+/**
+ * Induce one procedure per condition from the learning-phase receipts. The
+ * receipts of each condition are split by time: the last third is held
+ * out, so a step that only worked on the tasks it was fitted to is refused
+ * the way `skill-library.ts` refuses it.
+ */
+export function induceFromReceipts(receipts: Receipt[], library: SkillLibrary): number {
+  const byCondition = new Map<string, Receipt[]>();
+  for (const r of receipts) if (r.condition) byCondition.set(r.condition, [...(byCondition.get(r.condition) ?? []), r]);
+  let induced = 0;
+  for (const rows of byCondition.values()) {
+    const sorted = [...rows].sort((x, y) => x.ts - y.ts);
+    const cut = Math.max(1, Math.floor((sorted.length * 2) / 3));
+    const out = induceProcedure({
+      train: sorted.slice(0, cut),
+      heldOut: sorted.slice(cut),
+      verifiedBy: "checkRepo",
+      methodVersion: "m0.2",
+    });
+    if (out.skill && library.add(out.skill).added) induced++;
+  }
+  return induced;
+}
 
 function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
   const maxAttempts = opts.maxAttempts ?? REPAIRS.length;
@@ -156,7 +186,8 @@ function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
           return m0Order(task, rs, rng);
         case "brsi-c":
           return m0Order(task, rs, rng, true);
-        case "both": {
+        case "both":
+        case "skilled": {
           // Retrieval first only when it has something; otherwise this IS
           // the brsi arm. The pilot caught the version that put a random
           // repair first on a miss and wasted one of the two attempts.
@@ -170,6 +201,11 @@ function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
     // its training tasks, so every arm's ledger covers the same work.
     const learnCost = attemptAll(train, order, receipts, maxAttempts, clock);
     const trainReceipts = kind === "fixed" ? [] : receipts;
+    // The skilled arm consolidates what it learned into procedures, once,
+    // after the learning phase. Induction is free here (no model); its cost
+    // in the live loop would be one proposer call per condition.
+    const library = kind === "skilled" ? new SkillLibrary() : null;
+    if (library) induceFromReceipts(receipts, library);
 
     // Scoring phase: the runner calls solve() one task at a time. Cost is
     // counted here too and reported through the closure.
@@ -179,7 +215,11 @@ function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
       solve: (task) => {
         const t = task as Fixture;
         let tries = 0;
-        for (const repair of order(t, trainReceipts)) {
+        // A known condition with a procedure: try it first, one attempt.
+        const proc = library?.lookup(signatureOf(t.repo));
+        const first = proc ? REPAIRS.find((r) => r.id === proc.steps[0]?.tool) : undefined;
+        const plan = first ? [first, ...order(t, trainReceipts).filter((r) => r !== first)] : order(t, trainReceipts);
+        for (const repair of plan) {
           if (tries++ >= maxAttempts) break;
           solveCost++;
           if (t.verify(repair.apply(t.repo))) return true;
@@ -187,10 +227,7 @@ function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
         return false;
       },
     };
-    // The runner reads cost once, after learning; solve-phase cost is the
-    // same for every arm at equal maxAttempts on unsolved tasks and lower
-    // for a smarter arm, so it is exposed for the pilot report.
-    Object.defineProperty(run, "solveCost", { get: () => solveCost, enumerable: true });
+    run.solveCost = () => solveCost;
     return run;
   };
 }
@@ -201,6 +238,7 @@ export const ARMS: Readonly<Record<ArmKind, ArmFn>> = {
   brsi: makeArm("brsi"),
   "brsi-c": makeArm("brsi-c"),
   both: makeArm("both"),
+  skilled: makeArm("skilled"),
 };
 
 export const armWith = makeArm;

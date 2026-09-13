@@ -62,6 +62,9 @@ export interface RunCost {
 export interface ArmRun {
   cost: { tokens: number; usd: number; wallMs?: number };
   solve(task: FixtureTask): boolean;
+  /** Tokens spent INSIDE `solve`, read by the runner after scoring. Astra's
+   *  metric counts the cost of finishing the task, not only of learning. */
+  solveCost?: () => number;
 }
 
 export type ArmFn = (ctx: {
@@ -189,6 +192,7 @@ export async function runPairedCampaign(
         break seeds;
       }
       scores[name] = scoreOn(run, scoreTasks);
+      addCost(ledger[name]!, { tokens: run.solveCost?.() ?? 0, usd: 0, wallMs: 0 });
     }
     samples.push({ baseline: scores[baselineName]!, candidate: scores[candidateName]! });
   }

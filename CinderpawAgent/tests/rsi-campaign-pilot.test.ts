@@ -99,3 +99,29 @@ describe("the first campaign: four arms on free fixtures", () => {
     expect(r.ledger.both!.tokens).toBeLessThan(r.ledger.fixed!.tokens);
   });
 });
+
+describe("H5: cost per verified task on repeated families (the skill library)", () => {
+  // Promotion holds NEW instances of the SAME families the arm trained on:
+  // repeated work, which is what a library is for. Measured 13 Sep, 12 seeds,
+  // whole catalog allowed (success is 1.0 everywhere; only cost differs):
+  //   cost / verified task: fixed 5.79 | fms 2.90 | brsi 4.86 | both 2.64 | skilled 2.64
+  // skilled equals both on this family: retrieval by signature already puts
+  // the right repair first, and a procedure lookup costs the same one
+  // attempt. The library's saving is in units this toy does not have (the
+  // model tokens a live retrieval-and-read costs; a skill is one tool call
+  // with no model). That is the number to measure when a model is in the loop.
+  const families = ["missing-dep", "bad-env-name", "broken-import", "stale-engine"] as const;
+  const dev = partitionedFixtures({ development: [...families], promotion: [], final: [], transfer: [] }, 4);
+  const promo = partitionedFixtures({ development: [], promotion: [...families], final: [], transfer: [] }, 3, 5000);
+  const partitions = { ...dev, promotion: promo.promotion };
+
+  test("the skilled arm solves everything the baseline does at less than half the cost", async () => {
+    const r = await runPairedCampaign(
+      { id: "h5", seeds: [1, 2, 3, 4, 5, 6], arms: ["fixed", "skilled"], partitions, usdCap: 0, wallMsCap: 60_000 },
+      { fixed: ARMS.fixed, skilled: ARMS.skilled },
+    );
+    expect(r.matched).toBe(true);
+    for (const s of r.samples) expect(s.candidate).toBe(s.baseline);
+    expect(r.ledger.skilled!.tokens * 2).toBeLessThan(r.ledger.fixed!.tokens);
+  });
+});
