@@ -32,6 +32,15 @@ not marked MEASURED is a hypothesis.
   **BRSI never reads FMS.** M0 reads its own jsonl. This is the one broken link in
   Astra's loop and the first thing below.
 - `nothingLeftToLearn` is computed and not wired: the round does not stop on it.
+- **Typed facts with history (Memanto lift, `semantic_history`, `current/asOf/
+  changedSince/history`, "superseded" labels in recall) are on
+  `audit/astra-fms-bench` (13 commits, `d58d775..4a58b94`) and NOT on
+  `feat/brsi-learner`.** §2.2 and §2.5 build on them. Merge that branch first
+  (step 0 in §6). Unmerged work is the default state in this repo; check before
+  every slice that its dependency is on the branch you are on.
+- `memory/fractal/skill-induction.ts` exists from the ARC harness: a verified
+  program becomes a reusable tool, append-only JSONL scoped by runId. §3.1 starts
+  from it, not from nothing.
 - No live round has produced a prediction yet: L3 needs a local primary model and this
   machine cannot host one (`this-machine-cannot-host-local-models`).
 
@@ -140,6 +149,27 @@ do not claim it before §2.6 runs on a second task family.
 **Size:** one to two weeks. Needs `need_tool` / `need_method` receipts from §2.4 as
 its input signal.
 
+**Sketch, files.**
+- `CinderpawAgent/src/memory/fractal/skill-induction.ts`: the seed. Today a
+  skill is `{code, description}` deduplicated by hash. Grows a `conditions`
+  block (app/version, rights, input schema, result schema, `verify` command) and
+  a `receipts: string[]` link. Stays append-only JSONL.
+- `CinderpawAgent/src/rsi/l3-code/skill-proposer.ts` (new, ~150 lines): given a
+  family of receipts with the same objective, asks the model for a parametrised
+  procedure; goes through the SAME contract runner as a code patch
+  (`contract-runner.ts`), with the family's held-out receipts as the test.
+- `CinderpawAgent/src/tools/builtin/list-skills.ts` and the `read_skill` menu:
+  induced skills appear next to hand-written ones, marked "learned, N receipts,
+  verified <date>", so the agent can pick them and the user can see where they
+  came from.
+- `src-tauri/src/skills.rs`: untouched. The manifest fetch is for installed
+  skills; learned ones never leave the machine.
+- Deleted: nothing. `ARC`'s runId scoping stays; interactive use passes
+  "interactive".
+- Test: a family of three receipts for one planted build failure yields a skill
+  that solves the fourth member cheaper than exploration (cost from the S1
+  ledger).
+
 ### 3.2 Competence scales in FMS (Astra text 3 §3)
 **New:** four explicit scales in the fractal tree: action/result, procedure,
 strategy, principle; each abstraction keeps links to the receipts and
@@ -150,6 +180,22 @@ summary is supported by these receipts and contradicted by those".
 **Measure:** LongMemEval does not test this. Needs a probe of its own: plant a
 counterexample and check the generalisation above it is narrowed, not deleted.
 
+**Sketch, files.**
+- `memory/fractal/types.ts`: a tree node gets `scale: "action" | "procedure" |
+  "strategy" | "principle"` and `support: { for: string[]; against: string[] }`
+  (receipt ids). Leaves are `action`; today's RAPTOR summaries become
+  `procedure`; two new summariser passes produce `strategy` and `principle`.
+- `memory/fractal/summarize.ts`: the prompt for the two upper scales asks for
+  conditions, and the code refuses to write a node whose `support.for` is empty.
+- `memory/fractal/tree-query.ts`: a counterexample (a receipt with
+  `invalidates`) walks UP and marks every ancestor whose `support.for` shrank to
+  zero as `narrowed`, never deleted.
+- `memory/fractal/tree-builder.ts`: the build reads receipts from §2.2's store.
+- Deleted: the unconditioned summary. A summary with no receipts under it is not
+  built.
+- Test: plant a counterexample under a strategy; assert the strategy is
+  narrowed and the principle above it is untouched.
+
 ### 3.3 Utility-scored retrieval (Astra text 1 §4)
 **New:** a retrieval score that includes "did this memory help when it was
 retrieved before", learned from receipts, next to semantic similarity. Requires a
@@ -157,6 +203,20 @@ feedback edge from task outcome to the memories that were in context, which does
 not exist.
 **Depends on:** §2.2 and enough receipts to learn from, i.e. after §2.6.
 **Measure:** the `fms` arm of §2.6 with and without utility scoring.
+
+**Sketch, files.**
+- `memory/recall.ts` (or the seam behind the recall tool in `boot.ts:912`):
+  every recall records which leaf ids were returned, keyed by turn id, into a
+  small table `recall_log(turn, leaf, rank)`.
+- `core/agent-loop.ts`, end of turn: when a receipt closes with a verification
+  (or a `done_when` passes, or the user gives feedback), the leaves in
+  `recall_log` for the turns of that task get `+1 helped` or `+1 present`.
+- `memory/fractal/fractal-recall.ts`: score = similarity times
+  `(1 + helped) / (1 + present)`, with a floor so a never-tried leaf is not
+  buried. One knob, default 1.0 (= today's behaviour) until §2.6 measures it.
+- Deleted: nothing.
+- Test: two leaves with equal similarity; the one that helped twice ranks first;
+  with the knob at 0 the order is today's.
 
 ### 3.4 Durable mandate: autonomy as continuous responsibility (Astra text 3 §5)
 **New:** a mandate object (result, budget, access, limits, expiry) that survives the
@@ -168,6 +228,24 @@ budgets and the egress wall.
 **Depends on:** nothing above, but it is where §3.1's skills get used unattended.
 **Size:** its own spec; do not start it from this document.
 
+**Sketch, files.** Own spec first; this is the outline the spec starts from.
+- `cowork/types.ts`: `Mandate { objective, doneWhen, budgetUsd, wallMs,
+  access: string[], limits: string[], expiresAt, receipts: string[] }`.
+- `cowork/runtime.ts`: the tick loop today runs only for agents that exist;
+  a mandate is an agent whose job is to keep its objective true. Adds resume
+  after restart (state on disk, same pattern as `pending-patches.ts`) and a
+  "method invalid" check (the skill's `verify` failed twice) that opens a
+  question in Dreams instead of retrying blind.
+- `cowork/approval.ts`: approvals inside the mandate's declared access are
+  pre-granted; anything outside asks, once, and the answer is stored on the
+  mandate.
+- `egress/*`: the mandate's `access` becomes an allowlist the egress wall reads;
+  nothing new in the wall, a new caller of it.
+- `frontend-react/.../CoworkPanel*`: one card per mandate: objective, spend so
+  far against budget, last receipt, "Stop".
+- Deleted: nothing; v1 reactive cowork stays as the degenerate mandate with no
+  objective.
+
 ### 3.5 Learner evolution and the recursive experiment (parent spec S4, S5)
 **New:** L3 may propose a successor to M0 and to `self-model.ts`, which are on the
 denylist today on purpose. Opens only when §2.6 has produced an H1 result with the
@@ -175,6 +253,20 @@ matched control, and under the parent spec's paired evaluation and VM isolation.
 **Measure:** H2, recursive versus non-recursive learner search, and Astra's closing
 test: after many failures, does it formulate an experiment it could not conceive
 before. That is a receipt whose `methodVersion` names a promoted successor.
+
+**Sketch, files.**
+- `l3-code/code-genome.ts` and `crates/cinderpaw-core/src/rsi/code_patch.rs`:
+  `experiment-selector.ts` and `self-model.ts` leave the denylist ONLY inside a
+  campaign (`infra/campaign.ts` passes an explicit `learnerSearch: true`), never
+  in the live loop. The live denylist does not change.
+- `infra/campaign.ts`: an arm may carry a `selectorVersion`; the manifest
+  freezes which versions are compared.
+- `l3-code/experiment-selector.ts`: `SELECTOR_VERSION` from §2.1 is what a
+  successor bumps; a successor is a code patch on this file evaluated by the
+  paired runner, in the Docker cell from S0.
+- Deleted: nothing.
+- Test: the recursive arm and the non-recursive arm on the same fixtures,
+  matched budget; H2 is the gate's verdict, reported with the pilot's calibration.
 
 ### 3.6 Transfer across unknown applications (Astra text 3 §6)
 Not a build. It is the H3 measurement of §2.6 on a second task family and a second
@@ -198,6 +290,7 @@ has a measured result with its control.
 
 ## 6. Order
 
-§2.1 -> §2.2 -> §2.3 -> §2.4 in the current and next session. Then §2.6 (the first
+Step 0: merge `audit/astra-fms-bench` into `feat/brsi-learner` (typed facts with
+history). Then §2.1 -> §2.2 -> §2.3 -> §2.4 in the current and next session. Then §2.6 (the first
 number). §2.5 after. §3.1 when the cost of the product matters more than the next
 measurement. §3.4 and §3.5 each get their own spec first.
