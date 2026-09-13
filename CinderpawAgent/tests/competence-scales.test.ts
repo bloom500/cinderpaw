@@ -4,7 +4,7 @@
  * new counterexample narrows it to exactly the condition it came from.
  */
 import { describe, expect, test } from "bun:test";
-import { buildScales, narrow } from "../src/memory/fractal/competence-scales.ts";
+import { buildPrinciples, buildScales, narrow, narrowPrinciple } from "../src/memory/fractal/competence-scales.ts";
 import { induceProcedure, type LearnedProcedure } from "../src/memory/fractal/skill-library.ts";
 import type { Attempt } from "../src/rsi/l3-code/experiment-selector.ts";
 
@@ -79,5 +79,56 @@ describe("narrow", () => {
     expect(narrow(s, r("fix-import-paths", "sig-a", true)).changed).toBe(false);
     expect(narrow(s, r("bump-engine", "sig-a", false)).changed).toBe(false);
     expect(narrow(s, r("fix-import-paths", "sig-z", false)).changed).toBe(false);
+  });
+});
+
+describe("the principle scale (structural): prefer A over B on the conditions it was observed", () => {
+  test("A verified and B refused on a condition is a preference; both verified, or only one tried, is not", () => {
+    const receipts = [
+      r("fix-import-paths", "sig-a", true), r("bump-engine", "sig-a", false),   // preference on sig-a
+      r("fix-import-paths", "sig-b", true), r("bump-engine", "sig-b", true),    // both work: no preference
+      r("fix-import-paths", "sig-c", true),                                     // B untried: no claim
+    ];
+    const ps = buildPrinciples(receipts);
+    expect(ps).toHaveLength(1);
+    expect(ps[0]).toMatchObject({ prefer: "fix-import-paths", over: "bump-engine", on: ["sig-a"] });
+    expect(ps[0]!.support.for).toHaveLength(2);
+  });
+
+  test("a mixed condition (A both verified and refused there) is not a preference", () => {
+    const receipts = [r("a", "sig", true), r("a", "sig", false), r("b", "sig", false)];
+    expect(buildPrinciples(receipts)).toHaveLength(0);
+  });
+
+  test("a counterexample narrows the principle on its condition only; the strategy below is narrowed independently", () => {
+    const receipts = [
+      r("fix-import-paths", "sig-a", true), r("bump-engine", "sig-a", false),
+      r("fix-import-paths", "sig-b", true), r("bump-engine", "sig-b", false),
+    ];
+    const p = buildPrinciples(receipts)[0]!;
+    expect(p.on).toEqual(["sig-a", "sig-b"]);
+    const strategy = buildScales(receipts, [proc("fix-import-paths", "sig-a"), proc("fix-import-paths", "sig-b")]).strategies[0]!;
+
+    // A refusal of the preferred step on a condition the principle never
+    // claimed: the strategy does not cover it either; nothing moves.
+    const elsewhere = r("fix-import-paths", "sig-z", false);
+    expect(narrowPrinciple(p, elsewhere).changed).toBe(false);
+    expect(narrow(strategy, elsewhere).changed).toBe(false);
+
+    // The other step verifying on sig-b contradicts the preference there,
+    // and says nothing about whether fix-import-paths still works on sig-b.
+    const bWorks = r("bump-engine", "sig-b", true);
+    const np = narrowPrinciple(p, bWorks);
+    expect(np.changed).toBe(true);
+    expect(np.principle.on).toEqual(["sig-a"]);
+    expect(np.principle.support.against).toEqual([`bump-engine@${bWorks.ts}`]);
+    expect(narrow(strategy, bWorks).changed).toBe(false);
+
+    // The preferred step refused on sig-a contradicts both scales there.
+    const aFails = r("fix-import-paths", "sig-a", false);
+    const np2 = narrowPrinciple(np.principle, aFails);
+    expect(np2.principle.retired).toBeDefined();
+    expect(np2.principle.narrowed.map((n) => n.condition)).toEqual(["sig-b", "sig-a"]);
+    expect(narrow(strategy, aFails).strategy.covers).toEqual(["sig-b"]);
   });
 });

@@ -132,3 +132,84 @@ export function narrow(
   };
   return { strategy: next, changed: true, retireProcedureFor: cond };
 }
+
+/**
+ * The principle scale, structural: a claim about CHOOSING between two
+ * steps. "Prefer A over B on these conditions" holds on a condition when
+ * some receipt verified A there and some receipt refused B there. It is
+ * built from receipts alone, so it never says more than was observed: a
+ * condition where only A was tried is not on the list, and a condition
+ * where both verified is not a preference. Wording, and any principle that
+ * is not a pairwise preference, wait for the summariser (file header).
+ */
+export interface Principle {
+  id: string;
+  prefer: string;
+  over: string;
+  /** The conditions the preference was observed on, exactly. */
+  on: string[];
+  support: Support;
+  narrowed: Array<{ condition: string; byReceipt: string; at: number }>;
+  retired?: { at: number; reason: string };
+}
+
+export function buildPrinciples(receipts: Attempt[]): Principle[] {
+  // condition -> step -> {accepted ids, refused ids}
+  const table = new Map<string, Map<string, { ok: string[]; no: string[] }>>();
+  for (const a of receipts) {
+    if (a.condition === undefined) continue;
+    const row = table.get(a.condition) ?? new Map();
+    const cell = row.get(a.file) ?? { ok: [], no: [] };
+    (a.verdict === "accept" ? cell.ok : cell.no).push(receiptIdOf(a));
+    row.set(a.file, cell);
+    table.set(a.condition, row);
+  }
+  const out = new Map<string, Principle>();
+  for (const [condition, row] of [...table].sort()) {
+    for (const [a, ca] of row) {
+      for (const [b, cb] of row) {
+        // A verified here, B refused here, and never the reverse on this
+        // condition: a preference, not a coin flip.
+        if (a === b || ca.ok.length === 0 || cb.no.length === 0 || ca.no.length > 0 || cb.ok.length > 0) continue;
+        const id = `prin-${a}-over-${b}`;
+        const p = out.get(id) ?? { id, prefer: a, over: b, on: [], support: { for: [], against: [] }, narrowed: [] };
+        p.on.push(condition);
+        p.support.for.push(...ca.ok, ...cb.no);
+        out.set(id, p);
+      }
+    }
+  }
+  return [...out.values()];
+}
+
+/**
+ * A counterexample to a principle: on a condition it ranges over, the
+ * preferred step was refused, or the other step verified. That condition
+ * leaves the list; the receipt is recorded against; a principle left with
+ * nothing is retired with its history. A strategy narrowed on a condition
+ * the principle never claimed leaves the principle untouched.
+ */
+export function narrowPrinciple(
+  principle: Principle,
+  counterexample: Attempt,
+  now = Date.now(),
+): { principle: Principle; changed: boolean } {
+  const cond = counterexample.condition;
+  if (cond === undefined || !principle.on.includes(cond)) return { principle, changed: false };
+  const contradicts =
+    (counterexample.file === principle.prefer && counterexample.verdict !== "accept") ||
+    (counterexample.file === principle.over && counterexample.verdict === "accept");
+  if (!contradicts) return { principle, changed: false };
+  const id = receiptIdOf(counterexample);
+  const on = principle.on.filter((c) => c !== cond);
+  return {
+    changed: true,
+    principle: {
+      ...principle,
+      on,
+      support: { for: principle.support.for, against: [...principle.support.against, id] },
+      narrowed: [...principle.narrowed, { condition: cond, byReceipt: id, at: now }],
+      ...(on.length === 0 ? { retired: { at: now, reason: `every condition was contradicted; last by ${id}` } } : {}),
+    },
+  };
+}
