@@ -13,10 +13,15 @@
  *   learning cost: fixed 169, fms 137, brsi 126, both 112 attempts.
  * Why brsi alone does not clear the gate: M0 keeps an accept rate per repair,
  * not per (repair, failure signature). Over-exploring in training teaches it
- * "fix-import-paths never works", true on dev and false on promotion. The
- * receipt carries the signature in `rationale`; M0 does not read it yet. A
- * receipt without conditions is an anecdote (plan §1). That is the next
- * change to the learner, and it is NOT made here, mid-pilot.
+ * "fix-import-paths never works", true on dev and false on promotion.
+ *
+ * So the obvious fix was tried as its own arm, `brsi-c` (m0.3c: score only
+ * the receipts under this failure's signature), and measured on the same
+ * manifest: brsi-c 0.479, WORSE than fixed. Strict conditioning discards
+ * what other failures taught, every repair ties, and a tie is a shuffle.
+ * m0.2 stays the live policy. The receipt keeps its `condition` field: the
+ * next variant to try is the prior, not the wall (other conditions as weak
+ * evidence, this condition as strong), and it will be arm m0.4 here first.
  */
 import { describe, expect, test } from "bun:test";
 import { ARMS, armWith } from "../src/rsi/infra/arms.ts";
@@ -47,7 +52,7 @@ const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 describe("the first campaign: four arms on free fixtures", () => {
   test("every arm pairs with the baseline on all five pilot seeds, and the pilot cannot clear the gate", async () => {
     const rows: string[] = [];
-    for (const cand of ["fms", "brsi", "both"] as const) {
+    for (const cand of ["fms", "brsi", "brsi-c", "both"] as const) {
       const r = await runPairedCampaign(manifest(cand, 5), {
         fixed: armWith("fixed", { maxAttempts: 2 }),
         [cand]: armWith(cand, { maxAttempts: 2 }),

@@ -8,6 +8,9 @@
  *          tries what worked on the most similar past failure.
  *   brsi   M0 choosing what to try next from its own receipts (the
  *          experiment-selector policy, uncertainty x gain), no retrieval.
+ *   brsi-c the same selector scored only over receipts from THIS failure's
+ *          signature (m0.3c). Measured worse than brsi on unseen templates:
+ *          it discards what other failures taught, and ties become a shuffle.
  *   both   retrieval first, then M0's order for the rest.
  *
  * What "learning" means here, precisely: an arm sees the development
@@ -38,6 +41,7 @@ type Receipt = Attempt;
 const asReceipt = (repair: Repair, task: Fixture, ok: boolean, ts: number): Receipt => ({
   file: repair.id,
   rationale: signatureOf(task.repo),
+  condition: signatureOf(task.repo),
   verdict: ok ? "accept" : "reject",
   reason: ok ? "verified" : "verifier failed",
   ts,
@@ -114,11 +118,14 @@ function retrieveFirst(task: Fixture, receipts: Receipt[], rng: () => number): R
 /** M0's order: repeatedly ask the selector for the next repair it is least
  *  sure about with the best gain, over the receipts so far, until every
  *  repair has been offered once. */
-function m0Order(_task: Fixture, receipts: Receipt[], rng: () => number): Repair[] {
+function m0Order(task: Fixture, receipts: Receipt[], rng: () => number, conditioned = false): Repair[] {
   const remaining = new Map(REPAIRS.map((r) => [r.id, r]));
   const out: Repair[] = [];
+  // Conditioned: the selector is scored only over receipts from THIS
+  // failure's signature. Unconditioned (the live m0.2): every receipt counts.
+  const condition = conditioned ? signatureOf(task.repo) : undefined;
   while (remaining.size > 0) {
-    const pick = selectExperiment([...remaining.keys()], receipts, rng);
+    const pick = selectExperiment([...remaining.keys()], receipts, rng, condition);
     const id = pick?.target ?? [...remaining.keys()][0]!;
     out.push(remaining.get(id)!);
     remaining.delete(id);
@@ -131,10 +138,9 @@ export interface ArmOptions {
   maxAttempts?: number;
 }
 
-function makeArm(
-  kind: "fixed" | "fms" | "brsi" | "both",
-  opts: ArmOptions = {},
-): ArmFn {
+export type ArmKind = "fixed" | "fms" | "brsi" | "brsi-c" | "both";
+
+function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
   const maxAttempts = opts.maxAttempts ?? REPAIRS.length;
   return ({ seed, train }) => {
     const rng = rngOf(seed);
@@ -148,6 +154,8 @@ function makeArm(
           return retrieveFirst(task, rs, rng);
         case "brsi":
           return m0Order(task, rs, rng);
+        case "brsi-c":
+          return m0Order(task, rs, rng, true);
         case "both": {
           // Retrieval first only when it has something; otherwise this IS
           // the brsi arm. The pilot caught the version that put a random
@@ -187,10 +195,11 @@ function makeArm(
   };
 }
 
-export const ARMS: Readonly<Record<"fixed" | "fms" | "brsi" | "both", ArmFn>> = {
+export const ARMS: Readonly<Record<ArmKind, ArmFn>> = {
   fixed: makeArm("fixed"),
   fms: makeArm("fms"),
   brsi: makeArm("brsi"),
+  "brsi-c": makeArm("brsi-c"),
   both: makeArm("both"),
 };
 

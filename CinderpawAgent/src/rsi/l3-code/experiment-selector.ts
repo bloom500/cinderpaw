@@ -111,6 +111,13 @@ export interface Attempt {
    *  invalidated rows stay in history and out of the self-model: "X was
    *  believed until R showed otherwise" (competence plan §2.5). */
   invalidates?: string[];
+  /** The condition this receipt held under: the failure's signature, the
+   *  task family, whatever makes two rounds comparable. A receipt without
+   *  a condition is an anecdote (plan §1): the pilot measured M0 learning
+   *  "repair X never works" from one failure family and then avoiding X on
+   *  the family where it was the fix. Optional; absent means "unconditioned",
+   *  which is how every row before m0.3 was written. */
+  condition?: string;
 }
 
 /** A receipt's identity: file and time. Deterministic, so rows written
@@ -145,8 +152,18 @@ export interface Experiment {
  *  `self-model.ts` changes what gets picked: two receipts with different
  *  selector versions were produced by different learners, and the campaign
  *  runner (S1) compares learners, not rounds. History: m0.1 = round-robin
- *  with strikes (13 Sep); m0.2 = uncertainty x gain from the self-model. */
+ *  with strikes (13 Sep); m0.2 = uncertainty x gain from the self-model.
+ *  m0.3c (`CONDITIONED_SELECTOR_VERSION`) is the same scored only over
+ *  receipts under the caller's `condition`; measured worse, see below. */
 export const SELECTOR_VERSION = "m0.2";
+
+/** The conditioned variant, selectable by passing `condition` to
+ *  `selectExperiment`. Measured on the S3 pilot (13 Sep): strict
+ *  conditioning throws away every receipt from other conditions, so on a
+ *  never-seen failure all repairs tie and the order is random, i.e. the
+ *  no-learning baseline (brsi 0.479 vs fixed 0.542 at 12 seeds). It is kept
+ *  as a campaign arm, not as the live policy. */
+export const CONDITIONED_SELECTOR_VERSION = "m0.3c";
 
 /** Consecutive rejects/halts that take a file out of the pool until an
  *  accept lands on it. Three, not one: a single rejection is usually the
@@ -234,9 +251,17 @@ function groupByFile(attempts: Attempt[]): Map<string, Attempt[]> {
 /** The files still worth offering: everything not struck out. Exported so
  *  the round can ask "is there anything left to learn here" before it pays
  *  for a proposal. */
-export function poolOf(files: string[], attempts: Attempt[]): string[] {
-  const byFile = groupByFile(attempts);
+export function poolOf(files: string[], attempts: Attempt[], condition?: string): string[] {
+  const byFile = groupByFile(underCondition(attempts, condition));
   return files.filter((f) => strikesOf(byFile.get(f) ?? []) < MAX_STRIKES);
+}
+
+/** The receipts that speak to `condition`. With no condition asked for,
+ *  every receipt does (the pre-m0.3 behaviour). With one, only receipts
+ *  written under that same condition: rows from other conditions are not
+ *  evidence here, for or against. */
+export function underCondition(attempts: Attempt[], condition?: string): Attempt[] {
+  return condition === undefined ? attempts : attempts.filter((a) => a.condition === condition);
 }
 
 /** Strikes = rejects/halts since the last accept on that file. */
@@ -264,8 +289,13 @@ export function selectExperiment(
   files: string[],
   attempts: Attempt[],
   rng: () => number = Math.random,
+  condition?: string,
 ): Experiment | null {
-  const { live, invalidated } = effectiveAttempts(attempts);
+  const { live: liveAll, invalidated } = effectiveAttempts(attempts);
+  // Under a condition, only receipts from that condition shape the choice.
+  // The brief below still reads every row on the file, so the proposer is
+  // told what was refused elsewhere; it is just not scored by it.
+  const live = underCondition(liveAll, condition);
   const byFile = groupByFile(live);
   const pool = poolOf(files, live);
   if (pool.length === 0) return null;
@@ -295,7 +325,7 @@ export function selectExperiment(
       const by = invalidated.get(receiptId(a))!;
       return `- "${a.rationale}" was accepted, then overturned (${by.reason})`;
     });
-  const refused = (byFile.get(target) ?? [])
+  const refused = (groupByFile(liveAll).get(target) ?? [])
     .filter((a) => a.verdict !== "accept")
     .sort((x, y) => y.ts - x.ts)
     // A row with no observation is a claim: the contract's verdict is there,
