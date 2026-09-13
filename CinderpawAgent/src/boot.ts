@@ -1897,9 +1897,8 @@ export async function boot(transportOverride?: Transport) {
       const { proposeCodePatch } = await import("./rsi/l3-code/code-proposer.ts");
       const { makeCodeStageAdapters, runCodeCandidate } = await import("./rsi/l3-code/code-rsi.ts");
       const { bunExec } = await import("./rsi/l3-code/code-sandbox.ts");
-      const { appendAttempt, defaultAttemptLedgerPath, readAttempts } = await import(
-        "./rsi/l3-code/experiment-selector.ts"
-      );
+      const { appendAttempt, attemptsFromEpisodes, defaultAttemptLedgerPath, mergeAttempts, readAttempts, receiptLine } =
+        await import("./rsi/l3-code/experiment-selector.ts");
       const { readdir, readFile } = await import("node:fs/promises");
       const rsiDir = require("node:path").join(repoRoot, "CinderpawAgent", "src", "rsi");
       const ledgerPath = defaultAttemptLedgerPath();
@@ -1910,7 +1909,13 @@ export async function boot(transportOverride?: Transport) {
       let proposerTokens = 0;
       let asked: { file: string; question: string } | null = null;
       const genome = await proposeCodePatch({
-        attempts: readAttempts(ledgerPath),
+        // FMS is the read side (competence plan §2.2): the receipts come back
+        // out of the rsi-l3 episodes, and the jsonl fills in anything FMS
+        // does not have. Delete either and M0 still knows what it tried.
+        attempts: mergeAttempts(
+          attemptsFromEpisodes(episodic.recent("rsi-l3", 2000)),
+          readAttempts(ledgerPath),
+        ),
         blockedFiles: questions.blockedFiles(),
         answersFor: (file) =>
           questions.answersFor(file).map((q) => ({ question: q.question, answer: q.answer ?? "" })),
@@ -2027,11 +2032,7 @@ export async function boot(transportOverride?: Transport) {
         ...(genome.proposal.methodVersion ? { methodVersion: genome.proposal.methodVersion } : {}),
       };
       appendAttempt(ledgerPath, attempt);
-      const leaf = episodic.record(
-        "rsi-l3",
-        "system",
-        `[rsi-l3] ${action} on ${attempt.file}: "${attempt.rationale}" (${attempt.reason})`,
-      );
+      const leaf = episodic.record("rsi-l3", "system", receiptLine(attempt));
       if (leaf !== null) fractalMemory.noteWrite({ id: leaf, sessionId: "rsi-l3", ts: attempt.ts });
     } catch (e) {
       log(`code-rsi: round failed: ${String(e)}`);

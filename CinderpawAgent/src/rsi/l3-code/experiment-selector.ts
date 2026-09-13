@@ -145,6 +145,50 @@ export function appendAttempt(path: string, attempt: Attempt): void {
   appendFileSync(path, JSON.stringify(attempt) + "\n");
 }
 
+/** Marks the receipt JSON inside an FMS episode line. */
+export const RECEIPT_TAG = "[rsi-receipt]";
+
+/**
+ * The receipt as one FMS episode: a human line first, so the dream cycle
+ * and recall read it like any other experience, then the machine-readable
+ * receipt on its own line. One row, both readers. This is how BRSI writes
+ * into FMS (competence plan §2.2).
+ */
+export function receiptLine(a: Attempt): string {
+  const human = `[rsi-l3] ${a.verdict} on ${a.file}: "${a.rationale}" (${a.reason})`;
+  return `${human}\n${RECEIPT_TAG} ${JSON.stringify(a)}`;
+}
+
+/**
+ * The receipts back out of FMS episodes. This is how BRSI READS FMS: M0 is
+ * handed these, not the jsonl, so a ledger file that was deleted or never
+ * synced does not make the loop forget what it tried. Lines without the tag
+ * (rows from before receipts existed) are skipped; a torn JSON tail is
+ * skipped too, never thrown.
+ */
+export function attemptsFromEpisodes(events: readonly { content: string }[]): Attempt[] {
+  const out: Attempt[] = [];
+  for (const ev of events) {
+    const i = ev.content.indexOf(RECEIPT_TAG);
+    if (i < 0) continue;
+    try {
+      const a = JSON.parse(ev.content.slice(i + RECEIPT_TAG.length).trim()) as Attempt;
+      if (typeof a.file === "string" && typeof a.verdict === "string") out.push(a);
+    } catch {
+      // torn tail: skipped on purpose
+    }
+  }
+  return out;
+}
+
+/** Union of two receipt sources, one row per (file, ts). FMS and the jsonl
+ *  hold the same rounds; whichever survived a crash or a wipe wins. */
+export function mergeAttempts(...sources: Attempt[][]): Attempt[] {
+  const seen = new Map<string, Attempt>();
+  for (const src of sources) for (const a of src) seen.set(`${a.file}@${a.ts}`, a);
+  return [...seen.values()].sort((x, y) => x.ts - y.ts);
+}
+
 /** Strikes = rejects/halts since the last accept on that file. */
 function strikesOf(history: Attempt[]): number {
   let n = 0;
@@ -195,7 +239,14 @@ export function selectExperiment(
   const refused = (byFile.get(target) ?? [])
     .filter((a) => a.verdict !== "accept")
     .sort((x, y) => y.ts - x.ts)
-    .map((a) => `- "${a.rationale}" (${a.verdict}: ${a.reason})`);
+    // A row with no observation is a claim: the contract's verdict is there,
+    // but nothing recorded what was measured (rows from before receipts, or a
+    // round whose observation write was lost). The proposer is told so.
+    .map(
+      (a) =>
+        `- "${a.rationale}" (${a.verdict}: ${a.reason})` +
+        (a.observed ? "" : " [claimed, not verified]"),
+    );
   const brief =
     refused.length === 0
       ? "No previous attempt on this file."

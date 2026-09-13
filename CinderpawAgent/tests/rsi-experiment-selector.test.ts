@@ -9,8 +9,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MAX_STRIKES,
+  RECEIPT_TAG,
   appendAttempt,
+  attemptsFromEpisodes,
+  mergeAttempts,
   readAttempts,
+  receiptLine,
   selectExperiment,
   type Attempt,
 } from "../src/rsi/l3-code/experiment-selector.ts";
@@ -94,5 +98,54 @@ describe("attempt ledger", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("receipts in FMS (BRSI reads FMS)", () => {
+  const full = (file: string, verdict: Attempt["verdict"], ts: number): Attempt => ({
+    ...at(file, verdict, ts, "idea"),
+    predicted: { pAccept: 0.4, expectedEffect: 1, expectedCost: 10, failureClass: null, missing: null },
+    observed: { accepted: verdict === "accept", effect: null, cost: 12, failureClass: null },
+  });
+
+  test("a receipt round-trips through an episode line, human half intact", () => {
+    const a = full("l1-config/mutation.ts", "reject", 5);
+    const line = receiptLine(a);
+    expect(line.split("\n")[0]).toBe('[rsi-l3] reject on l1-config/mutation.ts: "idea" (suite failed)');
+    expect(attemptsFromEpisodes([{ content: line }])).toEqual([a]);
+  });
+
+  test("lines from before receipts, and a torn tail, are skipped without throwing", () => {
+    const rows = [
+      { content: '[rsi-l3] reject on x.ts: "old" (suite failed)' },
+      { content: `${RECEIPT_TAG} {"file":"x.ts","verdict":"rej` },
+      { content: receiptLine(full("y.ts", "accept", 9)) },
+    ];
+    expect(attemptsFromEpisodes(rows).map((a) => a.file)).toEqual(["y.ts"]);
+  });
+
+  test("with the jsonl gone, M0 still knows what was refused, from FMS alone", () => {
+    const fromFms = attemptsFromEpisodes([
+      { content: receiptLine(full("l1-config/mutation.ts", "reject", 1)) },
+      { content: receiptLine(full("l1-config/mutation.ts", "reject", 2)) },
+      { content: receiptLine(full("l1-config/mutation.ts", "reject", 3)) },
+    ]);
+    const merged = mergeAttempts(fromFms, readAttempts(join(tmpdir(), "does-not-exist.jsonl")));
+    // Three strikes from FMS alone take the file out of the pool.
+    expect(selectExperiment(["l1-config/mutation.ts"], merged, () => 0)).toBeNull();
+  });
+
+  test("the same round in both sources is one row", () => {
+    const a = full("a.ts", "reject", 7);
+    expect(mergeAttempts([a], [structuredClone(a)])).toHaveLength(1);
+  });
+
+  test("a verdict with no observation is shown to the proposer as a claim", () => {
+    const claim = at("l1-config/mutation.ts", "reject", 1, "unverified idea");
+    const verified = full("l1-config/mutation.ts", "reject", 2);
+    const pick = selectExperiment(["l1-config/mutation.ts"], [claim, verified], () => 0);
+    expect(pick?.brief).toContain('"unverified idea" (reject: suite failed) [claimed, not verified]');
+    expect(pick?.brief).toContain('"idea" (reject: suite failed)\n');
+    expect(pick?.brief).not.toContain('"idea" (reject: suite failed) [claimed');
   });
 });
