@@ -25,7 +25,13 @@
 
 import type { CodeGenome } from "./code-genome.ts";
 import { DEFAULT_CODE_PATCH_POLICY } from "./code-genome.ts";
-import { selectExperiment, type Attempt } from "./experiment-selector.ts";
+import {
+  FAILURE_CLASSES,
+  selectExperiment,
+  type Attempt,
+  type FailureClass,
+  type Prediction,
+} from "./experiment-selector.ts";
 
 export interface ProposerDeps {
   /** LOCAL-ONLY completion (see module docblock). Returns raw model text. */
@@ -41,6 +47,15 @@ export interface ProposerDeps {
    *  selector picks the target from it and tells the model what was already
    *  refused there. Default: empty, which behaves like the old random pick. */
   attempts?: Attempt[];
+  /** Files with an open question on them (see `questions.ts`): not offered
+   *  until the user answers, because trying again without the answer is the
+   *  same waste. Default: none. */
+  blockedFiles?: string[];
+  /** Answers the user gave about a file, read by the proposer verbatim. */
+  answersFor?: (file: string) => { question: string; answer: string }[];
+  /** Called instead of returning a candidate when the proposer says it
+   *  lacks information (`Prediction.missing`). The round does not run. */
+  onQuestion?: (q: { file: string; question: string; rationale: string }) => void;
   /** Injectable for deterministic tests. Default Math.random. */
   rng?: () => number;
   /** Completion budget. Default 4096 (a ≤200-line diff fits easily). */
@@ -99,9 +114,10 @@ export function affectedFilesOf(patch: string): string[] {
 const SYSTEM_PROMPT = `You are the code-evolution operator of a bounded self-improving agent.
 You propose ONE small improvement to ONE TypeScript source file.
 
-Output format — one RATIONALE line, then 1 to 3 edit blocks:
+Output format — one RATIONALE line, one PREDICTION line, then 1 to 3 edit blocks:
 
 RATIONALE: <what and why, one sentence>
+PREDICTION: {"pAccept":<0..1>,"expectedEffect":<score points, 0 if none>,"expectedCost":<tokens>,"failureClass":<"wrong_proposal"|"wrong_file"|"unmeasured"|"missing_info"|null>,"missing":<"what you need to know from the user"|null>}
 <<<<<<< SEARCH
 <exact lines copied verbatim from the file, enough to be unique>
 =======
@@ -116,7 +132,14 @@ Hard rules (violations are auto-rejected by a compiled policy wall):
 - The FULL existing test suite must still pass and \`tsc --noEmit\` must stay clean.
 
 Aim for: a real bug, a missed edge case, clearer control flow, or a measurable
-efficiency win. If you see nothing worth changing, output the single word SKIP.`;
+efficiency win. If you see nothing worth changing, output the single word SKIP.
+
+The PREDICTION is a bet about yourself and it is checked: after the change is
+judged, your pAccept is scored against the verdict, so an honest 0.3 beats a
+flattering 0.9. "failureClass" is the failure you expect IF you fail. Set
+"missing" only when you genuinely cannot decide without something the user
+knows (what a value is for, whether a behaviour is intended); then emit NO edit
+blocks: the question is sent to the user and you get the answer next time.`;
 
 /** One parsed SEARCH/REPLACE edit block. */
 export interface EditBlock {
@@ -214,9 +237,39 @@ export function buildUnifiedDiff(oldText: string, newText: string, path: string)
  * (SKIP), emits nothing diff-shaped, or no proposable target exists —
  * a null is a normal "no candidate this round", never an error.
  */
+/** Parse the PREDICTION line. Anything malformed is `undefined`: a round
+ *  without a prediction still runs, it just teaches the self-model nothing.
+ *  Values are clamped and the failure class is checked against the fixed
+ *  vocabulary, because the model writes this and the ledger is counted. */
+export function parsePrediction(text: string): Prediction | undefined {
+  const m = /PREDICTION:\s*(\{.*\})/.exec(text);
+  if (!m) return undefined;
+  try {
+    const raw = JSON.parse(m[1]!) as Record<string, unknown>;
+    const num = (v: unknown, lo: number, hi: number, dflt: number) =>
+      typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt;
+    const fc = raw.failureClass;
+    const missing = typeof raw.missing === "string" && raw.missing.trim() ? raw.missing.trim() : null;
+    return {
+      pAccept: num(raw.pAccept, 0, 1, 0.5),
+      expectedEffect: num(raw.expectedEffect, 0, 1e6, 0),
+      expectedCost: num(raw.expectedCost, 0, 1e9, 0),
+      failureClass: (FAILURE_CLASSES as readonly string[]).includes(fc as string)
+        ? (fc as FailureClass)
+        : missing
+          ? "missing_info"
+          : null,
+      missing,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function proposeCodePatch(deps: ProposerDeps): Promise<CodeGenome | null> {
   const rng = deps.rng ?? Math.random;
-  const candidates = proposableFiles(await deps.listRsiFiles());
+  const blocked = new Set(deps.blockedFiles ?? []);
+  const candidates = proposableFiles(await deps.listRsiFiles()).filter((f) => !blocked.has(f));
   if (candidates.length === 0) return null;
   // M0 chooses the experiment. Every file struck out means nothing is worth
   // trying this round, which is a verdict too, not an error.
@@ -225,9 +278,13 @@ export async function proposeCodePatch(deps: ProposerDeps): Promise<CodeGenome |
   const target = experiment.target;
   const source = await deps.readRsiFile(target);
 
+  const answers = (deps.answersFor?.(target) ?? [])
+    .map((a) => `- You asked: "${a.question}"\n  The user answered: "${a.answer}"`)
+    .join("\n");
   const user =
     `File: src/rsi/${target}\n\n\`\`\`ts\n${source}\n\`\`\`\n\n` +
     `Evidence from earlier rounds:\n${experiment.brief}\n\n` +
+    (answers ? `Answers from the user about this file:\n${answers}\n\n` : "") +
     `Propose one improvement to src/rsi/${target} as SEARCH/REPLACE blocks.`;
   const text = await deps.completeLocal({
     system: SYSTEM_PROMPT,
@@ -236,6 +293,14 @@ export async function proposeCodePatch(deps: ProposerDeps): Promise<CodeGenome |
   });
 
   if (text.trim() === "SKIP") return null;
+  const prediction = parsePrediction(text);
+  const rationale = /RATIONALE:\s*(.+)/.exec(text)?.[1]?.trim() ?? "unspecified";
+  // "I lack X" is a question, not a candidate: nothing runs until it is
+  // answered, and the ledger does not record a refusal that was never tried.
+  if (prediction?.missing) {
+    deps.onQuestion?.({ file: target, question: prediction.missing, rationale });
+    return null;
+  }
   // Primary path: SEARCH/REPLACE blocks → apply → serialize a clean diff
   // ourselves. Fallback: a model that emitted a unified diff anyway is
   // accepted as before (the walls still judge it).
@@ -251,13 +316,13 @@ export async function proposeCodePatch(deps: ProposerDeps): Promise<CodeGenome |
   }
   if (!patch) return null;
 
-  const rationale = /RATIONALE:\s*(.+)/.exec(text)?.[1]?.trim() ?? "unspecified";
   return {
     patch,
     affectedFiles: affectedFilesOf(patch),
     baseCommit: await deps.baseCommit(),
     proposal: {
       rationale,
+      ...(prediction ? { prediction } : {}),
       riskAssessment: "auto: judged by wall + worktree suite + tsc + build",
       testPlan: "full existing suite + tsc --noEmit + build in the disposable worktree",
     },

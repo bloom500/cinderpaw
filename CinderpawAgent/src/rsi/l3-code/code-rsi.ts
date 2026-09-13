@@ -175,6 +175,9 @@ export interface CodeCandidateResult {
   commitHash?: string;
   /** The Rust composite score, when the benchmark stage was reached. */
   score?: number;
+  /** What main scored before this candidate, when the ratchet was tried:
+   *  `score - previousBest` is the observed effect the self-model records. */
+  previousBest?: number;
   measurements?: CodeEvalMeasurements;
 }
 
@@ -230,6 +233,7 @@ export async function runCodeCandidate(args: CodeCandidateArgs): Promise<CodeCan
     advanced: run.advanced === true,
     ...(run.commitHash ? { commitHash: run.commitHash } : {}),
     ...(run.score !== undefined ? { score: run.score } : {}),
+    ...(run.previousBest !== undefined ? { previousBest: run.previousBest } : {}),
     ...(run.measurements ? { measurements: run.measurements } : {}),
   };
 }

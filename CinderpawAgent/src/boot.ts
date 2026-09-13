@@ -1896,9 +1896,21 @@ export async function boot(transportOverride?: Transport) {
       const { readdir, readFile } = await import("node:fs/promises");
       const rsiDir = require("node:path").join(repoRoot, "CinderpawAgent", "src", "rsi");
       const ledgerPath = defaultAttemptLedgerPath();
+      const { store, questions, sendCodePatches } = await codePatchGate();
 
+      // Tokens the proposer spent this round: the observed cost the
+      // self-model scores its `expectedCost` against.
+      let proposerTokens = 0;
+      let asked: { file: string; question: string } | null = null;
       const genome = await proposeCodePatch({
         attempts: readAttempts(ledgerPath),
+        blockedFiles: questions.blockedFiles(),
+        answersFor: (file) =>
+          questions.answersFor(file).map((q) => ({ question: q.question, answer: q.answer ?? "" })),
+        onQuestion: (q) => {
+          questions.ask(q);
+          asked = q;
+        },
         completeLocal: async ({ system, user, maxTokens }) => {
           const res = await router.complete({
             sessionId: "code-rsi-proposer",
@@ -1911,6 +1923,7 @@ export async function boot(transportOverride?: Transport) {
             cachePrompt: false,
             skipBudgetCheck: false,
           });
+          proposerTokens += res.totalTokens ?? 0;
           return res.content;
         },
         // R2: rsi/ is now layered into subdirs (l1-config/, l3-code/, …), so
@@ -1925,7 +1938,15 @@ export async function boot(transportOverride?: Transport) {
           (await bunExec(["git", "rev-parse", "HEAD"], { cwd: repoRoot, timeoutMs: 30_000 }))
             .stdout.trim(),
       });
-      const { store, sendCodePatches } = await codePatchGate();
+      if (asked) {
+        // Not a refusal and not a candidate: the loop stopped to ask. The
+        // card shows the question until the user answers, refuses, or
+        // dismisses it, and the file stays out of the pool meanwhile.
+        const q = asked as { file: string; question: string };
+        log(`code-rsi: proposer asked about ${q.file}: "${q.question}" — waiting for the user`);
+        sendCodePatches({ at: Date.now(), target: q.file, verdict: "question", reason: q.question });
+        return;
+      }
       if (!genome) {
         log("code-rsi: proposer declined (SKIP / nothing diff-shaped) — no candidate this round");
         sendCodePatches({ at: Date.now(), target: "", verdict: "no candidate", reason: "The proposer had nothing to suggest this round." });
@@ -1961,14 +1982,38 @@ export async function boot(transportOverride?: Transport) {
       // its own improvement loop tried and why it was refused, and the
       // dream cycle sees those rows like any other experience.
       const action = result.decided?.action ?? "halt";
+      const prediction = genome.proposal.prediction;
+      // The observation is the runner's, never the model's: accepted is the
+      // contract's verdict, effect is the ratchet's two numbers, cost is what
+      // the proposer call actually billed. The failure class is only filled
+      // when the reason says so plainly; a guess here would poison the count.
+      const reason = result.decided?.reason ?? "no reason";
+      const observed = {
+        accepted: action === "accept",
+        effect:
+          result.score !== undefined && result.previousBest !== undefined
+            ? result.score - result.previousBest
+            : null,
+        cost: proposerTokens,
+        failureClass:
+          action === "accept"
+            ? null
+            : /ratchet declined|scored/.test(reason)
+              ? ("unmeasured" as const)
+              : /suite|tsc|build|SEARCH|policy|wall/.test(reason)
+                ? ("wrong_proposal" as const)
+                : null,
+      };
       const attempt = {
         // Patch headers say "src/rsi/l1-config/x.ts"; the ledger and the
         // selector speak rsi/-relative, the way `listRsiFiles` does.
         file: (genome.affectedFiles[0] ?? "").replace(/^src\/rsi\//, ""),
         rationale: genome.proposal.rationale,
         verdict: action,
-        reason: result.decided?.reason ?? "no reason",
+        reason,
         ts: Date.now(),
+        ...(prediction ? { predicted: prediction } : {}),
+        observed,
       };
       appendAttempt(ledgerPath, attempt);
       const leaf = episodic.record(
@@ -2199,6 +2244,7 @@ export async function boot(transportOverride?: Transport) {
   // process, persisted next to the journal.
   let codePatchGatePromise: Promise<{
     store: import("./rsi/l3-code/pending-patches.ts").PendingPatchStore;
+    questions: import("./rsi/l3-code/questions.ts").QuestionStore;
     sendCodePatches: (round?: { at: number; target: string; verdict: string; reason: string }) => void;
   }> | null = null;
   const codePatchGate = () => {
@@ -2207,12 +2253,17 @@ export async function boot(transportOverride?: Transport) {
         "./rsi/l3-code/pending-patches.ts"
       );
       const store = new PendingPatchStore(defaultPendingPatchesPath());
+      // The questions the loop asks the user ride on the same card as the
+      // patches it asks approval for: one inbox, one snapshot, one event.
+      const { QuestionStore, defaultQuestionsPath } = await import("./rsi/l3-code/questions.ts");
+      const questions = new QuestionStore(defaultQuestionsPath());
       let lastRound: { at: number; target: string; verdict: string; reason: string } | undefined;
       const sendCodePatches = (round?: typeof lastRound): void => {
         if (round) lastRound = round;
         transport.send({
           type: "code_patches",
           ...(lastRound ? { lastRound } : {}),
+          questions: questions.list(),
           patches: store.list().map((p) => ({
             id: p.id,
             status: p.status,
@@ -2228,7 +2279,7 @@ export async function boot(transportOverride?: Transport) {
           appliedCount: store.appliedCount(),
         });
       };
-      return { store, sendCodePatches };
+      return { store, questions, sendCodePatches };
     })();
     return codePatchGatePromise;
   };

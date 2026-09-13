@@ -1235,6 +1235,10 @@ export interface InboundMessage {
     // approval also live-applies when CINDERPAW_CODE_RSI_REPO is set. The
     // sidecar replies with `code_patch_resolved` + a refreshed `code_patches`.
     | "rsi_code_patches_list" | "rsi_code_patch_resolve"
+    // Metacognition: answer / refuse / dismiss a question the loop asked
+    // (payload `questionAction` + `answer`; the question id rides `id`).
+    // The sidecar replies with a refreshed `code_patches`.
+    | "rsi_question_resolve"
     // Faza 4 (L2 LoRA) — the personal-adaptation gate. `train` runs one
     // full candidate cycle (dataset → trainer → paired eval → review card;
     // replies with `lora_train_result` + `lora_reviews`); `list` asks for
@@ -1336,6 +1340,10 @@ export interface InboundMessage {
   /** Approval-gate payload (type === "rsi_code_patch_resolve"); the patch
    *  id rides the plain `id` field. */
   patchAction?: "approve" | "reject";
+  /** Question payload (type === "rsi_question_resolve"); the question id
+   *  rides the plain `id` field. `answer` is required for "answer". */
+  questionAction?: "answer" | "refuse" | "dismiss";
+  answer?: string;
   /** Cowork direct-message payload (type === "cowork_user_message"). */
   toAgentId?: string;
   body?: string;
@@ -1844,6 +1852,18 @@ export type OutboundEvent =
        *  stays empty and the person cannot tell "nothing proposed" from
        *  "cannot run". */
       lastRound?: { at: number; target: string; verdict: string; reason: string };
+      /** Questions the loop asked the user (`questions.ts`), every status:
+       *  the card shows the open ones and keeps them until resolved. */
+      questions: Array<{
+        id: string;
+        file: string;
+        question: string;
+        rationale: string;
+        status: "open" | "answered" | "refused" | "dismissed";
+        askedAt: number;
+        resolvedAt?: number;
+        answer?: string;
+      }>;
     }
   | {
       type: "code_patch_resolved";

@@ -20,6 +20,8 @@
  * rollback) holds the other half of the trust boundary — see spec §2.
  */
 
+import type { Prediction } from "./experiment-selector.ts";
+
 /** A code-RSI candidate: a unified diff over the agent's own rsi/ sources
  *  (rsi-evolution-spec §Faza 2). Carried on `GenomeSpec.code` (optional,
  *  sibling of `config`) once the engine threading lands (Slice 4). */
@@ -37,6 +39,9 @@ export interface CodeGenome {
     rationale: string;
     riskAssessment: string;
     testPlan: string;
+    /** What the proposer bet about this candidate before it was judged
+     *  (see `experiment-selector.ts`). Absent when it gave none. */
+    prediction?: Prediction;
   };
 }
 

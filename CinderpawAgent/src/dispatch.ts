@@ -667,6 +667,23 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         sendCodePatches();
         break;
       }
+      // Metacognition: the loop asked the user something; this is the reply.
+      // Every outcome re-sends the card so the question leaves the inbox
+      // the moment it is resolved, and stays if the resolve was refused.
+      case "rsi_question_resolve": {
+        const { questions, sendCodePatches } = await codePatchGate();
+        const action = msg.questionAction;
+        try {
+          if (action !== "answer" && action !== "refuse" && action !== "dismiss") {
+            throw new Error(`invalid questionAction '${String(action)}'`);
+          }
+          questions.resolve(msg.id ?? "", action, msg.answer);
+        } catch (e) {
+          transport.send({ type: "error", message: `question: ${String(e)}` });
+        }
+        sendCodePatches();
+        break;
+      }
       case "rsi_code_patch_resolve": {
         void (async () => {
           const { store, sendCodePatches } = await codePatchGate();
