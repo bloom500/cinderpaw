@@ -17,6 +17,12 @@
  *          procedure; on a task whose condition has one, the procedure is
  *          tried first and the search is skipped. This is the arm that
  *          measures Astra's metric, cost per verified task, with a library.
+ *   fms-u  `fms` with utility-scored retrieval (§3.3): among receipts that
+ *          look alike, prefer the one that HELPED when it was retrieved
+ *          before. On clean memory it is `fms` exactly; it earns its keep
+ *          when memory holds receipts that look right and are not, which
+ *          `claimedAcceptRate` plants (an accept recorded without the
+ *          verifier: the "[claimed, not verified]" row of §2.2).
  *
  * What "learning" means here, precisely: an arm sees the development
  * partition during its learning phase and may keep receipts of what it tried
@@ -37,6 +43,7 @@ import type { ArmFn, ArmRun, FixtureTask } from "./campaign.ts";
 import { REPAIRS, checkRepo, rngOf, type Fixture, type Repair, type Repo } from "./fixtures.ts";
 import { selectExperiment, type Attempt } from "../l3-code/experiment-selector.ts";
 import { SkillLibrary, induceProcedure } from "../../memory/fractal/skill-library.ts";
+import { UtilityLedger, utilityScore } from "../../memory/fractal/utility.ts";
 
 /** What the arm remembers about one attempt. Kept in the same shape as an
  *  L3 receipt so M0 can read it unchanged. */
@@ -44,12 +51,12 @@ type Receipt = Attempt;
 
 /** Every receipt's `file` is the repair id: M0 selects among repairs the
  *  way it selects among source files, and its strikes/uncertainty apply. */
-const asReceipt = (repair: Repair, task: Fixture, ok: boolean, ts: number): Receipt => ({
+const asReceipt = (repair: Repair, task: Fixture, ok: boolean, ts: number, claimed = false): Receipt => ({
   file: repair.id,
   rationale: signatureOf(task.repo),
   condition: signatureOf(task.repo),
-  verdict: ok ? "accept" : "reject",
-  reason: ok ? "verified" : "verifier failed",
+  verdict: ok || claimed ? "accept" : "reject",
+  reason: ok ? "verified" : claimed ? "claimed, not verified" : "verifier failed",
   ts,
   predicted: { pAccept: 0.5, expectedEffect: 1, expectedCost: 1, failureClass: null, missing: null },
   observed: { accepted: ok, effect: ok ? 1 : null, cost: 1, failureClass: ok ? null : "wrong_proposal" },
@@ -69,21 +76,29 @@ export function signatureOf(repo: Repo): string {
  *  happened, up to `maxAttempts` per task. */
 function attemptAll(
   tasks: readonly FixtureTask[],
-  order: (task: Fixture, receipts: Receipt[]) => Repair[],
+  order: (task: Fixture, receipts: Receipt[], turnId: string) => Repair[],
   receipts: Receipt[],
   maxAttempts: number,
   clock: { t: number },
+  closed: (turnId: string, solved: boolean) => void = () => {},
+  claim: () => boolean = () => false,
 ): number {
   let cost = 0;
   for (const t of tasks as Fixture[]) {
     let tries = 0;
-    for (const repair of order(t, receipts)) {
+    let solved = false;
+    const turnId = `task:${t.id}`;
+    for (const repair of order(t, receipts, turnId)) {
       if (tries++ >= maxAttempts) break;
       cost++;
       const ok = t.verify(repair.apply(t.repo));
-      receipts.push(asReceipt(repair, t, ok, clock.t++));
-      if (ok) break;
+      // A claimed accept is a false memory: the agent keeps searching (the
+      // verifier said no) but the receipt says yes, and retrieval will
+      // later find it as readily as a true one.
+      receipts.push(asReceipt(repair, t, ok, clock.t++, !ok && claim()));
+      if (ok) { solved = true; break; }
     }
+    closed(turnId, solved);
   }
   return cost;
 }
@@ -103,22 +118,43 @@ function shuffled(rng: () => number): Repair[] {
 
 /** Retrieval: the repair that worked on the most similar past signature,
  *  first; then the rest in the no-learning order. Similarity is shared
- *  problem lines. */
-function retrieved(task: Fixture, receipts: Receipt[]): Repair | null {
+ *  problem lines. With a ledger and a weight, the score is similarity
+ *  times utility^weight (§3.3): a receipt's leaf id is its index in the
+ *  append-only list, and a leaf that was retrieved before and did not help
+ *  loses to one that did. Ties keep the earliest, as before. */
+function retrieved(
+  task: Fixture,
+  receipts: Receipt[],
+  ledger?: UtilityLedger,
+  weight = 0,
+): { repair: Repair; leafId: number } | null {
   const sig = new Set(signatureOf(task.repo).split(" | "));
-  let best: { score: number; id: string } | null = null;
-  for (const r of receipts) {
-    if (r.verdict !== "accept") continue;
+  let best: { score: number; id: string; leafId: number } | null = null;
+  receipts.forEach((r, leafId) => {
+    if (r.verdict !== "accept") return;
     const shared = r.rationale.split(" | ").filter((p) => sig.has(p)).length;
-    if (shared > 0 && (!best || shared > best.score)) best = { score: shared, id: r.file };
-  }
-  return best ? (REPAIRS.find((r) => r.id === best!.id) ?? null) : null;
+    if (shared === 0) return;
+    const score = ledger ? utilityScore(shared, ledger.utility(leafId), weight) : shared;
+    if (!best || score > best.score) best = { score, id: r.file, leafId };
+  });
+  if (!best) return null;
+  const chosen = best as { score: number; id: string; leafId: number };
+  const repair = REPAIRS.find((r) => r.id === chosen.id);
+  return repair ? { repair, leafId: chosen.leafId } : null;
 }
 
-function retrieveFirst(task: Fixture, receipts: Receipt[], rng: () => number): Repair[] {
-  const hit = retrieved(task, receipts);
+function retrieveFirst(
+  task: Fixture,
+  receipts: Receipt[],
+  rng: () => number,
+  turnId?: string,
+  ledger?: UtilityLedger,
+  weight = 0,
+): Repair[] {
+  const hit = retrieved(task, receipts, ledger, weight);
+  if (hit && turnId) ledger?.shown(turnId, [hit.leafId]);
   const rest = shuffled(rng);
-  return hit ? [hit, ...rest.filter((r) => r !== hit)] : rest;
+  return hit ? [hit.repair, ...rest.filter((r) => r !== hit.repair)] : rest;
 }
 
 /** M0's order: repeatedly ask the selector for the next repair it is least
@@ -142,9 +178,15 @@ function m0Order(task: Fixture, receipts: Receipt[], rng: () => number, conditio
 export interface ArmOptions {
   /** Repair attempts allowed per task before it counts as unsolved. */
   maxAttempts?: number;
+  /** Probability that a FAILED learning-phase attempt is still recorded as
+   *  an accept (a claim the verifier never backed). 0 = clean memory. Uses
+   *  its own seeded stream so the shuffles of a paired arm do not move. */
+  claimedAcceptRate?: number;
+  /** The §3.3 knob for the `fms-u` arm. 0 makes it `fms` byte for byte. */
+  utilityWeight?: number;
 }
 
-export type ArmKind = "fixed" | "fms" | "brsi" | "brsi-c" | "both" | "skilled";
+export type ArmKind = "fixed" | "fms" | "fms-u" | "brsi" | "brsi-c" | "both" | "skilled";
 
 /**
  * Induce one procedure per condition from the learning-phase receipts. The
@@ -172,16 +214,22 @@ export function induceFromReceipts(receipts: Receipt[], library: SkillLibrary): 
 
 function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
   const maxAttempts = opts.maxAttempts ?? REPAIRS.length;
+  const claimRate = opts.claimedAcceptRate ?? 0;
+  const weight = opts.utilityWeight ?? 1;
   return ({ seed, train }) => {
     const rng = rngOf(seed);
+    const claimRng = rngOf(seed ^ 0x5eed);
     const receipts: Receipt[] = [];
     const clock = { t: 1 };
-    const order = (task: Fixture, rs: Receipt[]): Repair[] => {
+    const ledger = kind === "fms-u" ? new UtilityLedger() : undefined;
+    const order = (task: Fixture, rs: Receipt[], turnId?: string): Repair[] => {
       switch (kind) {
         case "fixed":
           return shuffled(rng);
         case "fms":
           return retrieveFirst(task, rs, rng);
+        case "fms-u":
+          return retrieveFirst(task, rs, rng, turnId, ledger, weight);
         case "brsi":
           return m0Order(task, rs, rng);
         case "brsi-c":
@@ -191,7 +239,7 @@ function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
           // Retrieval first only when it has something; otherwise this IS
           // the brsi arm. The pilot caught the version that put a random
           // repair first on a miss and wasted one of the two attempts.
-          const hit = retrieved(task, rs);
+          const hit = retrieved(task, rs)?.repair;
           const m0 = m0Order(task, rs, rng);
           return hit ? [hit, ...m0.filter((r) => r !== hit)] : m0;
         }
@@ -199,7 +247,14 @@ function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
     };
     // Learning phase: the fixed arm learns nothing but still pays to solve
     // its training tasks, so every arm's ledger covers the same work.
-    const learnCost = attemptAll(train, order, receipts, maxAttempts, clock);
+    // The ledger learns only in this phase, like the receipts: on a task
+    // that closes, every leaf shown for it was present, and helped iff the
+    // verifier passed within the budget.
+    const learnCost = attemptAll(
+      train, order, receipts, maxAttempts, clock,
+      (turnId, solved) => { ledger?.closed([turnId], solved); },
+      claimRate > 0 ? () => claimRng() < claimRate : undefined,
+    );
     const trainReceipts = kind === "fixed" ? [] : receipts;
     // The skilled arm consolidates what it learned into procedures, once,
     // after the learning phase. Induction is free here (no model); its cost
@@ -235,6 +290,7 @@ function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
 export const ARMS: Readonly<Record<ArmKind, ArmFn>> = {
   fixed: makeArm("fixed"),
   fms: makeArm("fms"),
+  "fms-u": makeArm("fms-u"),
   brsi: makeArm("brsi"),
   "brsi-c": makeArm("brsi-c"),
   both: makeArm("both"),

@@ -329,6 +329,19 @@ re-run the same pilot so the two selectors are compared under one manifest.
   rerankByUtility with the knob at 0. Left: wire shown() into the recall
   seam (boot.ts:912) and closed() into turn end, behind the knob; then
   measure on the `fms` arm.
+- `435f2f5` §3.3 slice 2: recall tool passes sessionId; boot.ts records
+  shown() and closes via concludeRun with the verifier's word. Knob at 0.
+- 14 Sep, §3.3 slice 3, MEASURED: arm `fms-u` (fms + ledger, weight 1) and
+  `claimedAcceptRate` (a failed attempt recorded as accept, no verifier: the
+  "[claimed, not verified]" row). 12 seeds, 2 attempts, repeated families:
+  clean memory fms .993 = fms-u .993 (identical, cost 503 = 503);
+  25% claimed: fms .771 -> fms-u .972 (cost 613 -> 558);
+  50% claimed: fms .681 -> fms-u .861 (cost 662 -> 611).
+  Reading: similarity cannot tell a claimed receipt from a verified one,
+  they carry the same signature; the ledger can, because it remembers
+  whether the task closed verified after the leaf was shown. On clean
+  memory the knob is inert, by construction. Live knob stays 0 until the
+  live ledger persists and a session has closed enough tasks to count.
 - §3.4 and §3.5 untouched: each needs its own spec first.
 
 ## 6. Order
