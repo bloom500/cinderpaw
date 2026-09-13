@@ -316,6 +316,8 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Override the benchmark query set.", security: false },
   { name: "CINDERPAW_FRACTAL_BENCH_MAX_LEAVES", type: "int", default: 0,
     description: "Cap the benchmark/dev fractal-memory leaf-store size (0 = unlimited / full corpus).", security: false },
+  { name: "CINDERPAW_RECALL_UTILITY_WEIGHT", type: "int", default: 0,
+    description: "Utility-scored recall (0 = off, today's ranking; 1 = a memory that never helped when shown ranks below one that did). Measured on fixtures only; leave 0 unless you are measuring it.", security: false },
   { name: "CINDERPAW_NO_COLOR", type: "bool", default: false,
     description: "Disable ANSI colour output in the TUI.", security: false },
 ];

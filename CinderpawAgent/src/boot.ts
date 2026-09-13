@@ -28,7 +28,7 @@ import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
-import { UtilityLedger } from "./memory/fractal/utility.ts";
+import { UtilityLedger, rerankByUtility } from "./memory/fractal/utility.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getActiveWorkspaceId } from "./memory/workspaces.ts";
@@ -931,6 +931,7 @@ export async function boot(transportOverride?: Transport) {
   // evidence the campaign will need to set the knob. Leaf ids are episodic
   // row ids, stable across tree rebuilds, so the counts survive a restart.
   // Open turns (shown, never closed) are not written: a crash is not evidence.
+  const utilityWeight = cfgInt("CINDERPAW_RECALL_UTILITY_WEIGHT");
   const utilityPath = join(dataDir, "utility-ledger.json");
   const utility = (() => {
     try {
@@ -953,8 +954,15 @@ export async function boot(transportOverride?: Transport) {
           await retrievalSeam.invoke("retrieve", { query: q, k: limit, sessionId: "recall-tool" }),
           limit,
         );
-        if (sessionId) utility.shown(sessionId, hits.map((h) => h.leafId));
-        return hits;
+        // The seam returns hits in rank order with no score; rank stands in
+        // for similarity. At weight 0 (the default) the order is untouched.
+        const ranked = rerankByUtility(
+          hits.map((h, i) => ({ ...h, score: hits.length - i })),
+          utility,
+          utilityWeight,
+        ).map(({ score: _s, ...h }) => h);
+        if (sessionId) utility.shown(sessionId, ranked.map((h) => h.leafId));
+        return ranked;
       },
       semantic,
     ),

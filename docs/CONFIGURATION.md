@@ -266,6 +266,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_FRACTAL_BENCH_SEED` | int | `1` |  | Benchmark RNG seed. |
 | `CINDERPAW_FRACTAL_BENCH_QUERIES` | path | `null` |  | Override the benchmark query set. |
 | `CINDERPAW_FRACTAL_BENCH_MAX_LEAVES` | int | `0` |  | Cap the benchmark/dev fractal-memory leaf-store size (0 = unlimited / full corpus). |
+| `CINDERPAW_RECALL_UTILITY_WEIGHT` | int | `0` |  | Utility-scored recall (0 = off, today's ranking; 1 = a memory that never helped when shown ranks below one that did). Measured on fixtures only; leave 0 unless you are measuring it. |
 | `CINDERPAW_NO_COLOR` | bool | `false` |  | Disable ANSI colour output in the TUI. |
 <!-- /TS-SCHEMA-TABLE -->
 
@@ -429,6 +430,7 @@ CINDERPAW_MODULE_SEED
 CINDERPAW_NO_COLOR
 CINDERPAW_OLLAMA_NUM_CTX
 CINDERPAW_OPENROUTER_PROVIDER
+CINDERPAW_RECALL_UTILITY_WEIGHT
 CINDERPAW_PERMISSION_MODE
 CINDERPAW_PII_REDACTION
 CINDERPAW_PROACTIVE_ENABLED
