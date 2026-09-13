@@ -15,6 +15,15 @@
  * L3 can rewrite is the recursion hook (spec §7 H2), and that opens at S5,
  * not here.
  *
+ * Metacognition (13 Sep): every attempt now carries what the proposer
+ * PREDICTED about itself before running (chance of acceptance, effect, cost,
+ * the failure it expects, the information it lacks) and what was OBSERVED
+ * after. `self-model.ts` turns that ledger into a model of the agent's own
+ * competence, and the policy below spends experiments where that model is
+ * least sure and the expected gain is largest, instead of round-robin. The
+ * predictions are the agent's; the verdicts are the contract's. It never
+ * grades itself.
+ *
  * Every function here is pure or a thin file append; nothing touches the
  * evaluator, the budget or the ratchet.
  */
@@ -22,6 +31,48 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { paths } from "../infra/instance-paths.ts";
+import { buildSelfModel, experimentValue } from "./self-model.ts";
+
+/** Why the proposer thinks an attempt would fail, if it fails. A fixed
+ *  vocabulary on purpose: a free-text reason cannot be counted, and counting
+ *  is how a pattern of error becomes a fact about the agent. */
+export const FAILURE_CLASSES = [
+  /** The idea is wrong for this file. */
+  "wrong_proposal",
+  /** The file is the wrong place to look. */
+  "wrong_file",
+  /** The evaluator does not measure what the change improves. */
+  "unmeasured",
+  /** Something the proposer needed to know and did not. */
+  "missing_info",
+] as const;
+export type FailureClass = (typeof FAILURE_CLASSES)[number];
+
+/** What the proposer said about itself BEFORE the contract ran. */
+export interface Prediction {
+  /** Chance the contract accepts, in [0, 1]. */
+  pAccept: number;
+  /** Expected score gain if accepted, in score points (0 = none). */
+  expectedEffect: number;
+  /** Expected tokens for the round. */
+  expectedCost: number;
+  /** The failure it expects if it fails; null = "I expect to pass". */
+  failureClass: FailureClass | null;
+  /** Information it says it lacks; null = none. A non-null value is a
+   *  question for the user and the round does not run. */
+  missing: string | null;
+}
+
+/** What the contract actually did. Written by the runner, never the model. */
+export interface Observation {
+  accepted: boolean;
+  /** Score delta when accepted; null when there was no score. */
+  effect: number | null;
+  /** Tokens actually spent. */
+  cost: number;
+  /** The runner's classification of the failure, when it can tell. */
+  failureClass: FailureClass | null;
+}
 
 /** One L3 round, as the ledger remembers it. */
 export interface Attempt {
@@ -34,6 +85,9 @@ export interface Attempt {
   reason: string;
   /** Epoch ms. */
   ts: number;
+  /** Absent on rows written before 13 Sep 2026. */
+  predicted?: Prediction;
+  observed?: Observation;
 }
 
 /** What the selector hands the proposer. */
@@ -89,8 +143,10 @@ function strikesOf(history: Attempt[]): number {
 /**
  * The policy. In order:
  *   1. files struck out (MAX_STRIKES in a row) are not offered;
- *   2. a file never tried beats every file that was;
- *   3. among the tried, the least recently tried goes first;
+ *   2. among the rest, the file where the self-model is least sure and the
+ *      expected gain is largest goes first (`experimentValue`);
+ *   3. equal value: fewer rounds first (a file never tried is still the
+ *      first thing to learn about), then the least recently tried;
  *   4. ties fall to `rng`, so two fresh files are not always taken in
  *      directory order.
  * Returns null when nothing is left to try.
@@ -106,9 +162,19 @@ export function selectExperiment(
   const pool = files.filter((f) => strikesOf(byFile.get(f) ?? []) < MAX_STRIKES);
   if (pool.length === 0) return null;
 
+  const model = buildSelfModel(attempts);
+  const value = (f: string) => experimentValue(model, f);
+  const rounds = (f: string) => (byFile.get(f) ?? []).length;
   const lastTried = (f: string) => Math.max(0, ...(byFile.get(f) ?? []).map((a) => a.ts));
-  const best = Math.min(...pool.map(lastTried));
-  const candidates = pool.filter((f) => lastTried(f) === best);
+  let candidates = pool;
+  for (const [key, pick] of [
+    [value, Math.max],
+    [rounds, Math.min],
+    [lastTried, Math.min],
+  ] as const) {
+    const best = pick(...candidates.map(key));
+    candidates = candidates.filter((f) => key(f) === best);
+  }
   const target = candidates[Math.floor(rng() * candidates.length)]!;
 
   const refused = (byFile.get(target) ?? [])

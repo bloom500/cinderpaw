@@ -403,6 +403,7 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
     // its own dice with nothing measuring the throw.
     "code-proposer.ts",
     "experiment-selector.ts",
+    "self-model.ts", // the selector's opinion of the agent; same hook
   ],
 };
 

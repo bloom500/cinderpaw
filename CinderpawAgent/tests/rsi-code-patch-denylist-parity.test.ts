@@ -100,6 +100,7 @@ describe("code-patch denylist — TS and Rust parity", () => {
       "module-wall.ts",
       "code-proposer.ts",
       "experiment-selector.ts",
+      "self-model.ts",
     ]) {
       expect(DEFAULT_CODE_PATCH_POLICY.denylistBasenames).toContain(file);
       expect(

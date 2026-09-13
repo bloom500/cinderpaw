@@ -72,6 +72,7 @@ const DENYLIST_BASENAMES: &[&str] = &[
     "module-wall.ts",
     "code-proposer.ts",
     "experiment-selector.ts",
+    "self-model.ts",
 ];
 
 /// Raw measurements the sandbox eval runner (TS, `code-sandbox.ts`)

@@ -48,8 +48,12 @@ describe("selectExperiment (M0)", () => {
     const others = [at("l1-config/fitness-shim.ts", "reject", 50), at("l4-modules/seam-adapter.ts", "reject", 60)];
     // mutation.ts is the least recently tried, but it is struck out.
     expect(selectExperiment(FILES, [...struck, ...others], () => 0)?.target).toBe("l1-config/fitness-shim.ts");
-    // An accept after the strikes clears them.
-    const reset = [...struck, at("l1-config/mutation.ts", "accept", 4), ...others];
+    // An accept after the strikes clears them: with the other two struck
+    // out too, mutation.ts is offered again instead of null.
+    const othersStruck = FILES.slice(1).flatMap((f) =>
+      Array.from({ length: MAX_STRIKES }, (_, i) => at(f, "reject", 50 + i)),
+    );
+    const reset = [...struck, at("l1-config/mutation.ts", "accept", 4), ...othersStruck];
     expect(selectExperiment(FILES, reset, () => 0)?.target).toBe("l1-config/mutation.ts");
   });
 
@@ -63,8 +67,11 @@ describe("selectExperiment (M0)", () => {
       at("l1-config/mutation.ts", "reject", 1, "inline the helper"),
       at("l1-config/mutation.ts", "reject", 2, "drop the clamp"),
       at("l1-config/fitness-shim.ts", "reject", 3, "unrelated"),
+      at("l1-config/fitness-shim.ts", "reject", 5, "unrelated"),
       at("l4-modules/seam-adapter.ts", "reject", 4, "unrelated"),
+      at("l4-modules/seam-adapter.ts", "reject", 6, "unrelated"),
     ];
+    // Same rounds everywhere, mutation.ts least recently tried.
     const pick = selectExperiment(FILES, attempts, () => 0);
     expect(pick?.target).toBe("l1-config/mutation.ts");
     expect(pick?.brief).toContain("drop the clamp");
