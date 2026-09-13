@@ -342,7 +342,24 @@ re-run the same pilot so the two selectors are compared under one manifest.
   whether the task closed verified after the leaf was shown. On clean
   memory the knob is inert, by construction. Live knob stays 0 until the
   live ledger persists and a session has closed enough tasks to count.
-- §3.4 and §3.5 untouched: each needs its own spec first.
+- 14 Sep, §3 closed as far as it can be without a model in the loop:
+  - §3.1 `c4d5ee6` live receipts carry `condition` (the runner's refusal
+    text with specifics blanked; an accept inherits the last refusal on its
+    file). `e6bcde2` the skills menu lists learned procedures with their
+    evidence. **Open, with the reason:** induction from LIVE receipts. An
+    L3 receipt's `file` is the patched target, not a reusable step, so a
+    procedure induced from it is a history, not a skill. Real procedures
+    will come from user runs (they have `done_when`), which write no
+    receipts yet; that is the next slice, and it needs a real run first.
+  - §3.2 `c25bbed` the principle scale, structural (pairwise preference
+    with support, narrowed by counterexample). Wording, non-pairwise
+    principles and the tree's `support` field wait for the summariser.
+  - §3.3 complete (`52fef13`, `3f1e01d`, `3239e8b`), knob at 0.
+  - §3.4 spec: `2026-09-14-durable-mandate-design.md` (a run with declared
+    access, not a new runtime; RunRow is already most of it).
+  - §3.5 spec: `2026-09-14-learner-evolution-design.md` (the live denylist
+    never changes; successors only inside a campaign; preconditions unmet).
+  - §3.6 is a measurement, not a build, unchanged.
 
 ## 6. Order
 
