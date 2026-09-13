@@ -13,6 +13,8 @@ import {
   nothingLeftToLearn,
 } from "../src/rsi/l3-code/self-model.ts";
 import {
+  effectiveAttempts,
+  receiptId,
   selectExperiment,
   type Attempt,
   type FailureClass,
@@ -118,5 +120,52 @@ describe("knowing when to stop", () => {
       ...Array.from({ length: 4 }, () => round("done.ts", 0.9, true, { effect: 0 })),
     ];
     expect(nothingLeftToLearn(buildSelfModel(rows), ["dead.ts", "done.ts"])).toBe(true);
+  });
+});
+
+describe("invalidation without loss", () => {
+  const F = "l1-config/mutation.ts";
+  test("an overturned accept leaves the self-model, stays in history, and reopens the file", () => {
+    // Four accepts at effect 1: a settled win. Uncertainty 4·1·0 = 0, so the
+    // value is 0 however good the effect: nothing left to learn there.
+    const accepts = [1, 2, 3, 4].map(() => round(F, 0.9, true, { effect: 1 }));
+    const settled = effectiveAttempts(accepts);
+    expect(settled.live).toHaveLength(4);
+    expect(experimentValue(buildSelfModel(settled.live), F)).toBe(0);
+
+    // The user rejects the last one after the contract accepted it.
+    const last = accepts[3]!;
+    const overturn: Attempt = {
+      file: F,
+      rationale: last.rationale,
+      verdict: "reject",
+      reason: "rejected by the user",
+      ts: ++clock,
+      observed: { accepted: false, effect: null, cost: 0, failureClass: null },
+      invalidates: [receiptId(last)],
+    };
+    const after = effectiveAttempts([...accepts, overturn]);
+    // The accept is gone from what the loop believes, not from the record.
+    expect(after.live.map((a) => a.ts)).toEqual([accepts[0]!.ts, accepts[1]!.ts, accepts[2]!.ts, overturn.ts]);
+    expect(after.invalidated.get(receiptId(last))).toBe(overturn);
+    // 3 of 4 live rows accepted: uncertainty is back above zero.
+    const m = buildSelfModel(after.live);
+    expect(m.files.get(F)?.uncertainty).toBeCloseTo(4 * 0.75 * 0.25);
+    expect(nothingLeftToLearn(m, [F])).toBe(false);
+  });
+
+  test("the brief tells the proposer what was believed and what ended it", () => {
+    const a = round(F, 0.8, true, { effect: 1 });
+    const overturn: Attempt = {
+      file: F,
+      rationale: a.rationale,
+      verdict: "reject",
+      reason: "apply failed: hunk did not apply",
+      ts: ++clock,
+      observed: { accepted: false, effect: null, cost: 0, failureClass: null },
+      invalidates: [receiptId(a)],
+    };
+    const pick = selectExperiment([F], [a, overturn], () => 0);
+    expect(pick?.brief).toContain(`"${a.rationale}" was accepted, then overturned (apply failed: hunk did not apply)`);
   });
 });

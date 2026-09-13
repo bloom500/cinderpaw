@@ -687,7 +687,22 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       }
       case "rsi_code_patch_resolve": {
         void (async () => {
-          const { store, sendCodePatches } = await codePatchGate();
+          const { store, sendCodePatches, recordReceipt, receiptForGenome } = await codePatchGate();
+          const { receiptId } = await import("./rsi/l3-code/experiment-selector.ts");
+          const overturn = (genomeId: string, reason: string): void => {
+            const orig = receiptForGenome(genomeId);
+            if (!orig) return; // a patch from before receipts carried genome ids
+            recordReceipt({
+              file: orig.file,
+              rationale: orig.rationale,
+              verdict: "reject",
+              reason,
+              ts: Date.now(),
+              observed: { accepted: false, effect: null, cost: 0, failureClass: null },
+              genomeId,
+              invalidates: [receiptId(orig)],
+            });
+          };
           const patchId = msg.id ?? "";
           const action = msg.patchAction;
           const ack = (status: string, error?: string): void => {
@@ -710,6 +725,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             }
             const resolved = store.resolve(patchId, action);
             if (action === "reject") {
+              // The contract said accept; the person said no. The accept
+              // receipt is not deleted, it is overturned by this one, and
+              // the loop stops believing it (competence plan §2.5).
+              overturn(patchId, "rejected by the user");
               ack(resolved.status);
               return;
             }
@@ -720,6 +739,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             }
             const { applyPatchLive } = await import("./rsi/l3-code/pending-patches.ts");
             const r = await applyPatchLive({ store, id: patchId, repoRoot });
+            // Same overturn for an apply that failed: the candidate passed in
+            // the cell and did not survive contact with the real tree.
+            if (!r.ok) overturn(patchId, `apply failed: ${r.reason}`);
             ack(store.get(patchId)?.status ?? "error", r.ok ? undefined : r.reason);
           } catch (err) {
             ack("error", err instanceof Error ? err.message : String(err));

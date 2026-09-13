@@ -104,6 +104,33 @@ export interface Attempt {
   /** Which learner produced this round: the selector policy and the exact
    *  prompt. A receipt is only comparable to another under the same method. */
   methodVersion?: { selector: string; promptHash: string };
+  /** The candidate this receipt is about, so a later event on the same
+   *  candidate (the user rejecting it, the apply failing) can find it. */
+  genomeId?: string;
+  /** Receipts this one shows to be no longer valid (`receiptId`). The
+   *  invalidated rows stay in history and out of the self-model: "X was
+   *  believed until R showed otherwise" (competence plan §2.5). */
+  invalidates?: string[];
+}
+
+/** A receipt's identity: file and time. Deterministic, so rows written
+ *  before ids existed have one too. */
+export function receiptId(a: Pick<Attempt, "file" | "ts">): string {
+  return `${a.file}@${a.ts}`;
+}
+
+/**
+ * The receipts the loop should still believe: everything not invalidated
+ * by a later one. The invalidated rows are not deleted, they are handed
+ * back separately so the brief can say what was believed and what ended it.
+ */
+export function effectiveAttempts(attempts: Attempt[]): {
+  live: Attempt[];
+  invalidated: Map<string, Attempt>;
+} {
+  const invalidated = new Map<string, Attempt>();
+  for (const a of attempts) for (const id of a.invalidates ?? []) invalidated.set(id, a);
+  return { live: attempts.filter((a) => !invalidated.has(receiptId(a))), invalidated };
 }
 
 /** What the selector hands the proposer. */
@@ -238,11 +265,12 @@ export function selectExperiment(
   attempts: Attempt[],
   rng: () => number = Math.random,
 ): Experiment | null {
-  const byFile = groupByFile(attempts);
-  const pool = poolOf(files, attempts);
+  const { live, invalidated } = effectiveAttempts(attempts);
+  const byFile = groupByFile(live);
+  const pool = poolOf(files, live);
   if (pool.length === 0) return null;
 
-  const model = buildSelfModel(attempts);
+  const model = buildSelfModel(live);
   const value = (f: string) => experimentValue(model, f);
   const rounds = (f: string) => (byFile.get(f) ?? []).length;
   const lastTried = (f: string) => Math.max(0, ...(byFile.get(f) ?? []).map((a) => a.ts));
@@ -257,6 +285,16 @@ export function selectExperiment(
   }
   const target = candidates[Math.floor(rng() * candidates.length)]!;
 
+  // What was believed and then overturned on this file, so the proposer
+  // does not re-propose an idea that passed the contract and failed the
+  // person or the apply.
+  const overturned = attempts
+    .filter((a) => a.file === target && invalidated.has(receiptId(a)))
+    .sort((x, y) => y.ts - x.ts)
+    .map((a) => {
+      const by = invalidated.get(receiptId(a))!;
+      return `- "${a.rationale}" was accepted, then overturned (${by.reason})`;
+    });
   const refused = (byFile.get(target) ?? [])
     .filter((a) => a.verdict !== "accept")
     .sort((x, y) => y.ts - x.ts)
@@ -268,9 +306,10 @@ export function selectExperiment(
         `- "${a.rationale}" (${a.verdict}: ${a.reason})` +
         (a.observed ? "" : " [claimed, not verified]"),
     );
+  const lines = [...overturned, ...refused];
   const brief =
-    refused.length === 0
+    lines.length === 0
       ? "No previous attempt on this file."
-      : `Already proposed on this file and refused, newest first. Do not repeat these:\n${refused.join("\n")}`;
+      : `Already proposed on this file and refused, newest first. Do not repeat these:\n${lines.join("\n")}`;
   return { target, brief };
 }

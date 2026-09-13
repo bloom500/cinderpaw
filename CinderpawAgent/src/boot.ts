@@ -1897,12 +1897,12 @@ export async function boot(transportOverride?: Transport) {
       const { proposeCodePatch } = await import("./rsi/l3-code/code-proposer.ts");
       const { makeCodeStageAdapters, runCodeCandidate } = await import("./rsi/l3-code/code-rsi.ts");
       const { bunExec } = await import("./rsi/l3-code/code-sandbox.ts");
-      const { appendAttempt, attemptsFromEpisodes, defaultAttemptLedgerPath, mergeAttempts, readAttempts, receiptLine } =
+      const { attemptsFromEpisodes, defaultAttemptLedgerPath, mergeAttempts, readAttempts } =
         await import("./rsi/l3-code/experiment-selector.ts");
       const { readdir, readFile } = await import("node:fs/promises");
       const rsiDir = require("node:path").join(repoRoot, "CinderpawAgent", "src", "rsi");
       const ledgerPath = defaultAttemptLedgerPath();
-      const { store, questions, sendCodePatches } = await codePatchGate();
+      const { store, questions, sendCodePatches, recordReceipt } = await codePatchGate();
 
       // Tokens the proposer spent this round: the observed cost the
       // self-model scores its `expectedCost` against.
@@ -2043,10 +2043,9 @@ export async function boot(transportOverride?: Transport) {
         // there before, and which learner did it.
         ...(genome.fileHash ? { initialState: { baseCommit: genome.baseCommit, fileHash: genome.fileHash } } : {}),
         ...(genome.proposal.methodVersion ? { methodVersion: genome.proposal.methodVersion } : {}),
+        genomeId,
       };
-      appendAttempt(ledgerPath, attempt);
-      const leaf = episodic.record("rsi-l3", "system", receiptLine(attempt));
-      if (leaf !== null) fractalMemory.noteWrite({ id: leaf, sessionId: "rsi-l3", ts: attempt.ts });
+      recordReceipt(attempt);
     } catch (e) {
       log(`code-rsi: round failed: ${String(e)}`);
     } finally {
@@ -2271,6 +2270,10 @@ export async function boot(transportOverride?: Transport) {
     store: import("./rsi/l3-code/pending-patches.ts").PendingPatchStore;
     questions: import("./rsi/l3-code/questions.ts").QuestionStore;
     sendCodePatches: (round?: { at: number; target: string; verdict: string; reason: string }) => void;
+    /** Write one receipt to both sides (jsonl + FMS). The single writer. */
+    recordReceipt: (a: import("./rsi/l3-code/experiment-selector.ts").Attempt) => void;
+    /** The receipt a candidate produced, from either side, or undefined. */
+    receiptForGenome: (genomeId: string) => import("./rsi/l3-code/experiment-selector.ts").Attempt | undefined;
   }> | null = null;
   const codePatchGate = () => {
     codePatchGatePromise ??= (async () => {
@@ -2282,6 +2285,17 @@ export async function boot(transportOverride?: Transport) {
       // patches it asks approval for: one inbox, one snapshot, one event.
       const { QuestionStore, defaultQuestionsPath } = await import("./rsi/l3-code/questions.ts");
       const questions = new QuestionStore(defaultQuestionsPath());
+      const { appendAttempt, attemptsFromEpisodes, defaultAttemptLedgerPath, mergeAttempts, readAttempts, receiptLine } =
+        await import("./rsi/l3-code/experiment-selector.ts");
+      const ledgerPath = defaultAttemptLedgerPath();
+      const allReceipts = () =>
+        mergeAttempts(attemptsFromEpisodes(episodic.recent("rsi-l3", 2000)), readAttempts(ledgerPath));
+      const recordReceipt = (a: import("./rsi/l3-code/experiment-selector.ts").Attempt): void => {
+        appendAttempt(ledgerPath, a);
+        const leaf = episodic.record("rsi-l3", "system", receiptLine(a));
+        if (leaf !== null) fractalMemory.noteWrite({ id: leaf, sessionId: "rsi-l3", ts: a.ts });
+      };
+      const receiptForGenome = (genomeId: string) => allReceipts().find((a) => a.genomeId === genomeId);
       let lastRound: { at: number; target: string; verdict: string; reason: string } | undefined;
       const sendCodePatches = (round?: typeof lastRound): void => {
         if (round) lastRound = round;
@@ -2304,7 +2318,7 @@ export async function boot(transportOverride?: Transport) {
           appliedCount: store.appliedCount(),
         });
       };
-      return { store, questions, sendCodePatches };
+      return { store, questions, sendCodePatches, recordReceipt, receiptForGenome };
     })();
     return codePatchGatePromise;
   };
