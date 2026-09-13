@@ -288,6 +288,29 @@ No merge into main by the agent. No change to the L3 denylist. No claim of recur
 improvement, transfer, or "learning to learn" before the numbered hypothesis above
 has a measured result with its control.
 
+## 7. Status, 13 Sep 2026 evening
+
+All of §2 shipped on `feat/brsi-learner`, pushed at `911e5d0`:
+step 0 `d3ee722`, §2.1 `c6244ff`, §2.2 `a6087a5`, §2.3 `ebd0f3f`, §2.4 `1717215`,
+§2.5 `0f1a59e`, §2.6 `911e5d0`. Agent suite green throughout (1017 RSI tests at
+the end).
+
+**First measured number (§2.6, pilot, free fixtures, 12 paired seeds, 2 attempts
+per task, promotion = two templates never seen in training):**
+fixed 0.542 | fms 0.542 | brsi 0.625 (p=0.094, not significant) |
+both 0.917 (delta 0.375, p<0.001, d=1.38); learning cost fixed 169, fms 137,
+brsi 126, both 112 attempts. A pilot, not a claim: the manifest was not frozen
+before the runs and the effect is on a toy family. It does say the harness
+works end to end and that the gate behaves.
+
+**What the pilot found about the learner, not acted on:** M0's accept rate is
+per repair, not per (repair, failure signature). Over-exploration in training
+poisons it against repairs that only work on failures it has not met. The
+receipt already carries the signature (`rationale`); M0 does not condition on
+it. This is §1's "a receipt without conditions is an anecdote", measured. Next
+change to M0 = condition on the signature; bump SELECTOR_VERSION to m0.3 and
+re-run the same pilot so the two selectors are compared under one manifest.
+
 ## 6. Order
 
 Step 0: merge `audit/astra-fms-bench` into `feat/brsi-learner` (typed facts with
