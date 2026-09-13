@@ -17,6 +17,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
+import type { LearnedProcedure } from "../../memory/fractal/skill-library.ts";
 
 /** Cap on skills listed, so a huge skills dir can't flood the context. */
 const MAX_SKILLS = 200;
@@ -33,10 +34,33 @@ function parseFrontmatter(head: string): { name: string; description: string } {
 }
 
 /**
- * Build a list_skills tool restricted to the given skills directory. The
- * directory is the only path the tool reads.
+ * One row per learned procedure (competence plan §3.1): what it does, and
+ * where it came from, so the model can pick it and a person can see the
+ * evidence. Retired ones are not offered.
  */
-export function createListSkillsTool(skillsDir: string): Tool {
+export function learnedSkillRows(skills: readonly LearnedProcedure[], query = ""): string[] {
+  const rows: string[] = [];
+  for (const s of skills) {
+    if (s.retired) continue;
+    const steps = s.steps.map((st) => st.tool + (st.args ? " " + JSON.stringify(st.args) : "")).join(", then ");
+    const line = `when "${s.conditions.condition}": ${steps}`;
+    if (query && !`${s.name} ${line}`.toLowerCase().includes(query)) continue;
+    const n = s.evidence.supporting.length;
+    rows.push(
+      `- \`learned:${s.id}\` — ${s.name}: ${line} ` +
+        `[learned, ${n} receipt${n === 1 ? "" : "s"}, verified by ${s.conditions.verifiedBy} ${new Date(s.inducedAt).toISOString().slice(0, 10)}]`,
+    );
+  }
+  return rows;
+}
+
+/**
+ * Build a list_skills tool restricted to the given skills directory. The
+ * directory is the only path the tool reads. `learned` supplies the
+ * procedures the agent induced itself; they are listed next to the
+ * hand-written ones, marked so nobody mistakes one for the other.
+ */
+export function createListSkillsTool(skillsDir: string, learned: () => readonly LearnedProcedure[] = () => []): Tool {
   const manifest: ToolManifest = {
     name: "list_skills",
     description:
@@ -164,7 +188,8 @@ export function createListSkillsTool(skillsDir: string): Tool {
         rows.push(`- \`${id}\` — ${name || id}: ${description || "(no description)"}`);
       }
 
-      if (rows.length === 0) {
+      const learnedRows = learnedSkillRows(learned(), query);
+      if (rows.length === 0 && learnedRows.length === 0) {
         return {
           ok: true,
           content: query
@@ -172,12 +197,20 @@ export function createListSkillsTool(skillsDir: string): Tool {
             : "No skills are installed.",
         };
       }
+      const blocks: string[] = [];
+      if (rows.length > 0) {
+        blocks.push(`Installed skills (${rows.length}). Call read_skill with an id to load one:\n` + rows.join("\n"));
+      }
+      if (learnedRows.length > 0) {
+        blocks.push(
+          `Learned procedures (${learnedRows.length}), induced from verified receipts; the steps are the whole skill, nothing to read:\n` +
+            learnedRows.join("\n"),
+        );
+      }
       return {
         ok: true,
-        content:
-          `Installed skills (${rows.length}). Call read_skill with an id to load one:\n` +
-          rows.join("\n"),
-        data: { count: rows.length },
+        content: blocks.join("\n\n"),
+        data: { count: rows.length, learned: learnedRows.length },
       };
     },
   };

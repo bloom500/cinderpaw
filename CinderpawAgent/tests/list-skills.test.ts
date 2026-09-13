@@ -59,3 +59,38 @@ describe("list_skills", () => {
     expect(res.content).toMatch(/No skills are installed/);
   });
 });
+
+describe("list_skills, learned procedures (competence plan §3.1)", () => {
+  const learned = {
+    id: "abc12345",
+    name: "fix-broken-import",
+    steps: [{ tool: "fix-import-paths" }],
+    conditions: { condition: 'import "_" not found', requiresTools: [], verifiedBy: "checkRepo" },
+    evidence: { supporting: ["a@1", "b@2"], heldOut: ["c@3"], heldOutPassed: true },
+    costBefore: 2,
+    inducedAt: Date.UTC(2026, 8, 14),
+    methodVersion: "m0.2",
+  };
+
+  it("lists a learned procedure next to installed skills, marked with its evidence", async () => {
+    const tool = createListSkillsTool(dir, () => [learned]);
+    const res = await tool.execute({}, ctx);
+    expect(res.content).toMatch(/Installed skills \(2\)/);
+    expect(res.content).toMatch(/Learned procedures \(1\)/);
+    expect(res.content).toContain('`learned:abc12345` — fix-broken-import: when "import "_" not found": fix-import-paths [learned, 2 receipts, verified by checkRepo 2026-09-14]');
+  });
+
+  it("a retired procedure is not offered, and an empty library changes nothing", async () => {
+    const retired = { ...learned, retired: { at: 1, reason: "counterexample" } };
+    const res = await createListSkillsTool(dir, () => [retired]).execute({}, ctx);
+    expect(res.content).not.toMatch(/Learned/);
+    const none = await createListSkillsTool(join(dir, "does-not-exist"), () => []).execute({}, ctx);
+    expect(none.content).toMatch(/No skills are installed/);
+  });
+
+  it("the query filters learned rows too", async () => {
+    const res = await createListSkillsTool(dir, () => [learned]).execute({ query: "import" }, ctx);
+    expect(res.content).toMatch(/Learned procedures \(1\)/);
+    expect(res.content).not.toMatch(/Installed skills/);
+  });
+});

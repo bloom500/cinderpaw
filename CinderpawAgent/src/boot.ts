@@ -29,6 +29,7 @@ import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { UtilityLedger, rerankByUtility } from "./memory/fractal/utility.ts";
+import { SkillLibrary, defaultSkillLibraryPath } from "./memory/fractal/skill-library.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getActiveWorkspaceId } from "./memory/workspaces.ts";
@@ -855,7 +856,12 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createReadSkillTool(join(CINDERPAW_HOME, "skills")));
   // list_skills: the drawer index. Skills are no longer dumped into every
   // prompt; the model calls this to discover ids, then read_skill to load one.
-  registry.register(createListSkillsTool(join(CINDERPAW_HOME, "skills")));
+  // Learned procedures (competence plan §3.1) sit next to installed skills.
+  // Loaded once per boot; the file is append-only and empty on a fresh
+  // install, so a new machine lists nothing here until it has verified
+  // something.
+  const learnedSkills = new SkillLibrary(defaultSkillLibraryPath());
+  registry.register(createListSkillsTool(join(CINDERPAW_HOME, "skills"), () => learnedSkills.list()));
   // Capability acquisition. Registered unconditionally: the tools check for
   // the host bridge themselves and report "not available on this transport"
   // rather than vanishing, so a model that reasonably expects to be able to
