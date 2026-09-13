@@ -54,9 +54,10 @@ describe("RSI selection/mutation handler", () => {
     new SelectionMutationHandler(bus, pop, {
       capacity: 4,
       bounds: BOUNDS,
-      // selection rng (0.0 → first candidate), then mutateConfig:
-      // field idx 0.72→toolPreferenceWeights, transfer donor 0.0 recipient 0.3.
-      rng: seqRng([0.0, 0.72, 0.0, 0.3]),
+      // selection rng (0.0 → first candidate), then mutateConfig over the two
+      // LIVE_REACH fields: idx floor(0.72*2)=1 → systemPromptId, then the
+      // pool resample 0.9 → last prompt in the pool.
+      rng: seqRng([0.0, 0.72, 0.9]),
       gaussian: () => 0,
       newId: () => `child-${++n}`,
     });
@@ -75,9 +76,9 @@ describe("RSI selection/mutation handler", () => {
     expect(e.parentId).toBe("g1");
     expect(e.generation).toBe(1);
     expect(e.mutationType).toBe("parametric");
-    // Child carries a valid, mutated config.
-    expect(e.config.toolPreferenceWeights.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
-    expect(e.config.toolPreferenceWeights).not.toEqual(CFG.toolPreferenceWeights);
+    // Child carries a valid, mutated config, on a field the live agent feels.
+    expect(e.config.systemPromptId).not.toBe(CFG.systemPromptId);
+    expect(e.config.toolPreferenceWeights).toEqual(CFG.toolPreferenceWeights);
 
     // The child is now part of the live population, AND the
     // mutationType captured at birth is on the Genome record too —

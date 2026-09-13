@@ -26,3 +26,40 @@ export interface GenomeConfig {
   /** How many sub-tasks to spawn; {0,1,2,3}. */
   decompositionDepth: number;
 }
+
+/**
+ * Which dimensions reach the live agent (`champion.ts` projects only these).
+ * Exhaustive over `GenomeConfig` on purpose: adding a dimension without
+ * classifying it is a typecheck error, not a silent drop.
+ *
+ * Measured 13 Sep 2026: the eval harness applied all seven, the live agent
+ * two. `retrievalStrategy` had no consumer on EITHER side (the L1 eval never
+ * passes `recall`), and `contextWindowUsage` means "fraction of a short
+ * task's budget" in eval and would mean "cap on the user's long answers"
+ * live: same number, different semantics. So the dropped five are frozen
+ * out of mutation (`mutation.ts` derives `MUTABLE_FIELDS` from this table)
+ * rather than wired through: eval stops paying tokens to score knobs the
+ * user never feels. To un-freeze one, give it a live consumer first, then
+ * flip it here.
+ */
+export const LIVE_REACH: Readonly<Record<keyof GenomeConfig, "applied" | "dropped">> = {
+  temperature: "applied",
+  systemPromptId: "applied",
+  promptTemplateId: "dropped",
+  retrievalStrategy: "dropped",
+  contextWindowUsage: "dropped",
+  toolPreferenceWeights: "dropped",
+  decompositionDepth: "dropped",
+};
+
+/** Dimensions eval varies and scores, that the live agent then ignores. */
+export function droppedDimensions(): (keyof GenomeConfig)[] {
+  return (Object.keys(LIVE_REACH) as (keyof GenomeConfig)[])
+    .filter((k) => LIVE_REACH[k] === "dropped")
+    .sort();
+}
+
+/** Dimensions that reach the live agent, in declaration order. */
+export function appliedDimensions(): (keyof GenomeConfig)[] {
+  return (Object.keys(LIVE_REACH) as (keyof GenomeConfig)[]).filter((k) => LIVE_REACH[k] === "applied");
+}

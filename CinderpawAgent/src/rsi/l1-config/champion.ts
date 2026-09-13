@@ -34,9 +34,8 @@
  * that says which is which, `parityOf` hashes only what actually reaches the
  * agent, and `writeChampion` stamps that on every champion record — including
  * `sameAppliedAsPrevious`, which is true exactly when the new champion will
- * behave identically to the old one live. The table is exhaustive over
- * `GenomeConfig`, so a new dimension fails typecheck until someone says
- * whether it reaches the agent.
+ * behave identically to the old one live. The table itself lives in
+ * `genome.ts` next to the schema, because `mutation.ts` reads it too.
  */
 
 import { mkdirSync, readFileSync, existsSync } from "node:fs";
@@ -44,7 +43,8 @@ import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { dirname, join } from "node:path";
 import { cinderpawHome } from "../../config.ts";
 import { sha256Canonical } from "../infra/hash-chain.ts";
-import type { GenomeConfig } from "./genome.ts";
+import { appliedDimensions, droppedDimensions, type GenomeConfig } from "./genome.ts";
+export { LIVE_REACH, droppedDimensions } from "./genome.ts";
 import type { GenomeSpec } from "./population-manager.ts";
 import { promptStyleFor } from "./prompt-pool.ts";
 
@@ -71,26 +71,6 @@ export function mapGenomeToAgentConfig(config: GenomeConfig): AgentChampionParam
   return params;
 }
 
-/** Which genome dimensions reach the live agent. Exhaustive over
- *  `GenomeConfig` on purpose: adding a dimension without classifying it is a
- *  typecheck error, not a silent drop. */
-export const LIVE_REACH: Readonly<Record<keyof GenomeConfig, "applied" | "dropped">> = {
-  temperature: "applied",
-  systemPromptId: "applied",
-  promptTemplateId: "dropped",
-  retrievalStrategy: "dropped",
-  contextWindowUsage: "dropped",
-  toolPreferenceWeights: "dropped",
-  decompositionDepth: "dropped",
-};
-
-/** Dimensions eval varies and scores, that the live agent then ignores. */
-export function droppedDimensions(): (keyof GenomeConfig)[] {
-  return (Object.keys(LIVE_REACH) as (keyof GenomeConfig)[])
-    .filter((k) => LIVE_REACH[k] === "dropped")
-    .sort();
-}
-
 /** What the live agent will actually do, and its hash. Two genomes with the
  *  same `hash` are the same agent in production however differently eval
  *  scored them. */
@@ -109,9 +89,7 @@ export interface ChampionParity {
 export function parityOf(config: GenomeConfig): ChampionParity {
   return {
     hash: sha256Canonical(mapGenomeToAgentConfig(config)),
-    applied: (Object.keys(LIVE_REACH) as (keyof GenomeConfig)[])
-      .filter((k) => LIVE_REACH[k] === "applied")
-      .sort(),
+    applied: [...appliedDimensions()].sort(),
     dropped: droppedDimensions(),
   };
 }

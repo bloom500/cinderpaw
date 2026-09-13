@@ -8,8 +8,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { RETRIEVAL_STRATEGIES, type GenomeConfig } from "../src/rsi/l1-config/genome.ts";
-import { mutateConfig, type MutationGrammar } from "../src/rsi/l1-config/mutation.ts";
+import { LIVE_REACH, type GenomeConfig } from "../src/rsi/l1-config/genome.ts";
+import { MUTABLE_FIELDS, mutateConfig, type MutationGrammar } from "../src/rsi/l1-config/mutation.ts";
 
 const PARENT: GenomeConfig = {
   promptTemplateId: 0,
@@ -42,41 +42,48 @@ function grammar(over: Partial<MutationGrammar> = {}): MutationGrammar {
 
 describe("RSI mutateConfig", () => {
   test("mutates exactly one field, leaves the rest identical", () => {
-    // Field index 5 of 7 = toolPreferenceWeights: floor(0.72*7) = 5.
-    // Then transferMutation consumes two rng values (donor 0, recipient 1).
-    const g = grammar({ rng: seqRng([0.72, 0.0, 0.3]) });
+    // MUTABLE_FIELDS is derived from LIVE_REACH: [temperature, systemPromptId].
+    // Index 1 of 2 = systemPromptId: floor(0.72*2) = 1. Then resampleIndex
+    // over the pool of 5 consumes one more value: floor(0.6*5) = 3.
+    const g = grammar({ rng: seqRng([0.72, 0.6]) });
     const { child, field, mutationType } = mutateConfig(PARENT, g);
 
-    expect(field).toBe("toolPreferenceWeights");
+    expect(field).toBe("systemPromptId");
     expect(mutationType).toBe("parametric");
-    expect(child.toolPreferenceWeights).toEqual([0.15, 0.35, 0.25, 0.25]);
-    expect(child.toolPreferenceWeights.reduce((a, b) => a + b, 0)).toBeCloseTo(1);
+    expect(child.systemPromptId).toBe(3);
 
     // Every other field is untouched.
     expect(child.promptTemplateId).toBe(PARENT.promptTemplateId);
     expect(child.temperature).toBe(PARENT.temperature);
-    expect(child.systemPromptId).toBe(PARENT.systemPromptId);
     expect(child.retrievalStrategy).toBe(PARENT.retrievalStrategy);
     expect(child.contextWindowUsage).toBe(PARENT.contextWindowUsage);
+    expect(child.toolPreferenceWeights).toEqual(PARENT.toolPreferenceWeights);
     expect(child.decompositionDepth).toBe(PARENT.decompositionDepth);
     // Parent is not mutated in place.
-    expect(PARENT.toolPreferenceWeights).toEqual([0.25, 0.25, 0.25, 0.25]);
+    expect(PARENT.systemPromptId).toBe(0);
   });
 
   test("temperature mutation respects the provider ceiling", () => {
-    // Field index 1 = temperature: floor(0.2*7) = 1. Huge gaussian step.
+    // Index 0 of 2 = temperature: floor(0.2*2) = 0. Huge gaussian step.
     const g = grammar({ rng: seqRng([0.2]), gaussian: () => 100, maxTemperature: 1.0 });
     const { child, field } = mutateConfig(PARENT, g);
     expect(field).toBe("temperature");
     expect(child.temperature).toBe(1.0); // clamped to Anthropic ceiling
   });
 
-  test("retrieval strategy mutation yields a valid enum member", () => {
-    // Field index 3 = retrievalStrategy: floor(0.45*7) = 3. Resample idx 2 = "graph".
-    const g = grammar({ rng: seqRng([0.45, 0.5]) });
-    const { child, field } = mutateConfig(PARENT, g);
-    expect(field).toBe("retrievalStrategy");
-    expect(RETRIEVAL_STRATEGIES).toContain(child.retrievalStrategy);
-    expect(child.retrievalStrategy).toBe("graph");
+  test("only the dimensions that reach the live agent are ever mutated", () => {
+    // 13 Sep 2026: five of seven dimensions never reached the user, so eval
+    // paid tokens to score noise. Whatever the rng draws, the child differs
+    // from the parent only on a LIVE_REACH "applied" field.
+    expect(MUTABLE_FIELDS).toEqual(["temperature", "systemPromptId"]);
+    let x = 0.017;
+    const rng = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+    for (let i = 0; i < 200; i++) {
+      const { child, field } = mutateConfig(PARENT, grammar({ rng, gaussian: () => 0.5 }));
+      expect(LIVE_REACH[field]).toBe("applied");
+      for (const k of Object.keys(PARENT) as (keyof GenomeConfig)[]) {
+        if (k !== field) expect(child[k]).toEqual(PARENT[k]);
+      }
+    }
   });
 });

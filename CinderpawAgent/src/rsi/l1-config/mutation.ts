@@ -7,7 +7,7 @@
  * every operator is deterministic and unit-testable.
  */
 
-import { RETRIEVAL_STRATEGIES, type GenomeConfig } from "./genome.ts";
+import { RETRIEVAL_STRATEGIES, appliedDimensions, type GenomeConfig } from "./genome.ts";
 
 /** Uniform RNG over [0, 1). */
 export type Rng = () => number;
@@ -108,18 +108,14 @@ export function standardGaussian(rng: Rng): number {
   return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
-/** Genome fields eligible for single-field mutation, in selection order. */
-export const MUTABLE_FIELDS = [
-  "promptTemplateId",
-  "temperature",
-  "systemPromptId",
-  "retrievalStrategy",
-  "contextWindowUsage",
-  "toolPreferenceWeights",
-  "decompositionDepth",
-] as const;
+/** Genome fields eligible for single-field mutation, in selection order.
+ *  Derived from `LIVE_REACH`: a dimension the live agent ignores is not
+ *  searched, because a win on it is a number in a journal and nothing in
+ *  the user's chat. The operators for the frozen fields stay below so
+ *  un-freezing one is a one-line change in `genome.ts`. */
+export const MUTABLE_FIELDS: readonly (keyof GenomeConfig)[] = appliedDimensions();
 
-export type MutableField = (typeof MUTABLE_FIELDS)[number];
+export type MutableField = keyof GenomeConfig;
 
 /** Bounds + noise sources that constrain a parametric mutation. */
 export interface MutationGrammar {
