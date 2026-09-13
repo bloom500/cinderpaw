@@ -123,7 +123,7 @@ export function createRecallTool(
 
       let hits: { leafId: number; text: string }[] = [];
       try {
-        hits = await fractalSearch(query, limit, ctx.sessionId);
+        hits = await fractalSearch(query, limit, ctx?.sessionId);
       } catch {
         hits = [];
       }
