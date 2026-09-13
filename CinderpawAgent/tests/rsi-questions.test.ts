@@ -186,3 +186,64 @@ describe("QuestionStore", () => {
     });
   });
 });
+
+describe("the round stops when there is nothing left to learn", () => {
+  const settledRow = (file: string, accepted: boolean, ts: number): Attempt => ({
+    file,
+    rationale: "r",
+    verdict: accepted ? "accept" : "reject",
+    reason: accepted ? "ok" : "suite failed",
+    ts,
+    predicted: { pAccept: 0.5, expectedEffect: 0, expectedCost: 1, failureClass: null, missing: null },
+    observed: { accepted, effect: accepted ? 0 : null, cost: 1, failureClass: null },
+  });
+
+  test("a settled pool means the model is not asked and the card is told", async () => {
+    // Two files, both tried enough to trust, both with nothing to gain: one
+    // always accepted at effect 0 (a settled win), one accepted once in
+    // three at effect 0 (not struck out, but worth nothing).
+    const rows = [
+      ...[1, 2, 3, 4].map((t) => settledRow("l1-config/mutation.ts", true, t)),
+      settledRow("l1-config/crossover.ts", false, 10),
+      settledRow("l1-config/crossover.ts", true, 11),
+      settledRow("l1-config/crossover.ts", false, 12),
+    ];
+    let called = 0;
+    let settled: number | null = null;
+    const g = await proposeCodePatch(
+      deps("RATIONALE: x\n" + EDIT, {
+        listRsiFiles: async () => ["l1-config/mutation.ts", "l1-config/crossover.ts"],
+        attempts: rows,
+        onNothingLeft: (n) => {
+          settled = n;
+        },
+        completeLocal: async () => {
+          called++;
+          return "RATIONALE: x\n" + EDIT;
+        },
+      }),
+    );
+    expect(g).toBeNull();
+    expect(called).toBe(0);
+    expect(settled).toBe(2);
+  });
+
+  test("one under-sampled file keeps the round alive", async () => {
+    const rows = [1, 2, 3, 4].map((t) => settledRow("l1-config/mutation.ts", true, t));
+    let called = 0;
+    await proposeCodePatch(
+      deps("SKIP", {
+        listRsiFiles: async () => ["l1-config/mutation.ts", "l1-config/crossover.ts"],
+        attempts: rows,
+        onNothingLeft: () => {
+          throw new Error("must not fire: crossover.ts was never tried");
+        },
+        completeLocal: async () => {
+          called++;
+          return "SKIP";
+        },
+      }),
+    );
+    expect(called).toBe(1);
+  });
+});

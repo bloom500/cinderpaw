@@ -189,6 +189,20 @@ export function mergeAttempts(...sources: Attempt[][]): Attempt[] {
   return [...seen.values()].sort((x, y) => x.ts - y.ts);
 }
 
+function groupByFile(attempts: Attempt[]): Map<string, Attempt[]> {
+  const byFile = new Map<string, Attempt[]>();
+  for (const a of attempts) byFile.set(a.file, [...(byFile.get(a.file) ?? []), a]);
+  return byFile;
+}
+
+/** The files still worth offering: everything not struck out. Exported so
+ *  the round can ask "is there anything left to learn here" before it pays
+ *  for a proposal. */
+export function poolOf(files: string[], attempts: Attempt[]): string[] {
+  const byFile = groupByFile(attempts);
+  return files.filter((f) => strikesOf(byFile.get(f) ?? []) < MAX_STRIKES);
+}
+
 /** Strikes = rejects/halts since the last accept on that file. */
 function strikesOf(history: Attempt[]): number {
   let n = 0;
@@ -215,10 +229,8 @@ export function selectExperiment(
   attempts: Attempt[],
   rng: () => number = Math.random,
 ): Experiment | null {
-  const byFile = new Map<string, Attempt[]>();
-  for (const a of attempts) byFile.set(a.file, [...(byFile.get(a.file) ?? []), a]);
-
-  const pool = files.filter((f) => strikesOf(byFile.get(f) ?? []) < MAX_STRIKES);
+  const byFile = groupByFile(attempts);
+  const pool = poolOf(files, attempts);
   if (pool.length === 0) return null;
 
   const model = buildSelfModel(attempts);

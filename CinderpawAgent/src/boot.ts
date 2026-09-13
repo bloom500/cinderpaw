@@ -1908,6 +1908,7 @@ export async function boot(transportOverride?: Transport) {
       // self-model scores its `expectedCost` against.
       let proposerTokens = 0;
       let asked: { file: string; question: string } | null = null;
+      let settled: number | null = null;
       const genome = await proposeCodePatch({
         // FMS is the read side (competence plan §2.2): the receipts come back
         // out of the rsi-l3 episodes, and the jsonl fills in anything FMS
@@ -1922,6 +1923,9 @@ export async function boot(transportOverride?: Transport) {
         onQuestion: (q) => {
           questions.ask(q);
           asked = q;
+        },
+        onNothingLeft: (poolSize) => {
+          settled = poolSize;
         },
         completeLocal: async ({ system, user, maxTokens }) => {
           const res = await router.complete({
@@ -1950,6 +1954,15 @@ export async function boot(transportOverride?: Transport) {
           (await bunExec(["git", "rev-parse", "HEAD"], { cwd: repoRoot, timeoutMs: 30_000 }))
             .stdout.trim(),
       });
+      if (settled !== null) {
+        // The self-model says the pool is a settled result, so the round did
+        // not ask the model. Said on the card, in words: a silent skip reads
+        // as "dreaming is broken", and this is the opposite of broken.
+        const reason = `Nothing left to learn on the ${settled} file${settled === 1 ? "" : "s"} in the pool; the next round waits for new code, a new answer, or an accept.`;
+        log(`code-rsi: ${reason}`);
+        sendCodePatches({ at: Date.now(), target: "", verdict: "settled", reason });
+        return;
+      }
       if (asked) {
         // Not a refusal and not a candidate: the loop stopped to ask. The
         // card shows the question until the user answers, refuses, or

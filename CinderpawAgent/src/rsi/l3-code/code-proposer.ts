@@ -26,9 +26,11 @@
 import type { CodeGenome } from "./code-genome.ts";
 import { DEFAULT_CODE_PATCH_POLICY } from "./code-genome.ts";
 import { createHash } from "node:crypto";
+import { buildSelfModel, nothingLeftToLearn } from "./self-model.ts";
 import {
   FAILURE_CLASSES,
   SELECTOR_VERSION,
+  poolOf,
   selectExperiment,
   type Attempt,
   type FailureClass,
@@ -58,6 +60,10 @@ export interface ProposerDeps {
   /** Called instead of returning a candidate when the proposer says it
    *  lacks information (`Prediction.missing`). The round does not run. */
   onQuestion?: (q: { file: string; question: string; rationale: string }) => void;
+  /** Called instead of asking the model when the self-model says every file
+   *  in the pool is a settled result (`nothingLeftToLearn`). The round costs
+   *  nothing; `poolSize` is how many files were considered. */
+  onNothingLeft?: (poolSize: number) => void;
   /** Injectable for deterministic tests. Default Math.random. */
   rng?: () => number;
   /** Completion budget. Default 4096 (a ≤200-line diff fits easily). */
@@ -279,9 +285,19 @@ export async function proposeCodePatch(deps: ProposerDeps): Promise<CodeGenome |
   const blocked = new Set(deps.blockedFiles ?? []);
   const candidates = proposableFiles(await deps.listRsiFiles()).filter((f) => !blocked.has(f));
   if (candidates.length === 0) return null;
+  // A plateau is a result (spec §9.4), and it is cheaper to notice before
+  // the proposal than after: when every file left in the pool is a settled
+  // dead end or a settled win, the model is not asked. New code, a new
+  // answer, or an accept re-opens the pool by construction.
+  const attempts = deps.attempts ?? [];
+  const pool = poolOf(candidates, attempts);
+  if (pool.length > 0 && nothingLeftToLearn(buildSelfModel(attempts), pool)) {
+    deps.onNothingLeft?.(pool.length);
+    return null;
+  }
   // M0 chooses the experiment. Every file struck out means nothing is worth
   // trying this round, which is a verdict too, not an error.
-  const experiment = selectExperiment(candidates, deps.attempts ?? [], rng);
+  const experiment = selectExperiment(candidates, attempts, rng);
   if (!experiment) return null;
   const target = experiment.target;
   const source = await deps.readRsiFile(target);
