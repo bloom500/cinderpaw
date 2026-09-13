@@ -542,6 +542,18 @@ export interface CodePatch {
   error?: string;
 }
 
+/** One question the improvement loop asked the user (`questions.ts`). */
+export interface LoopQuestion {
+  id: string;
+  file: string;
+  question: string;
+  rationale: string;
+  status: 'open' | 'answered' | 'refused' | 'dismissed';
+  askedAt: number;
+  resolvedAt?: number;
+  answer?: string;
+}
+
 /** Payload of the `code_patches` outbound event (full queue snapshot). */
 export interface CodePatchesPayload {
   patches: CodePatch[];
@@ -551,6 +563,8 @@ export interface CodePatchesPayload {
   appliedCount: number;
   /** The most recent L3 round. Present once one has run this session. */
   lastRound?: { at: number; target: string; verdict: string; reason: string };
+  /** Questions the loop asked the user; the card shows the open ones. */
+  questions: LoopQuestion[];
 }
 
 /** Payload of the `code_patch_resolved` ack event. */
@@ -934,6 +948,10 @@ const raw = {
   cinderpawCodePatchesList:   () => invoke<void>('cinderpaw_code_patches_list'),
   cinderpawCodePatchResolve:  (patchId: string, action: 'approve' | 'reject') =>
     invoke<void>('cinderpaw_code_patch_resolve', { patchId, action }),
+  // Metacognition — reply to a question the loop asked. Fire-and-forget; the
+  // sidecar re-emits `code_patches` with the question resolved.
+  cinderpawQuestionResolve:   (questionId: string, action: 'answer' | 'refuse' | 'dismiss', answer?: string) =>
+    invoke<void>('cinderpaw_question_resolve', { questionId, action, answer: answer ?? null }),
   // Faza 4 (L2 LoRA) — personal-adaptation gate. All fire-and-forget; the
   // sidecar replies via `lora_reviews` / `lora_review_resolved` /
   // `lora_train_result` events (see events.ts).
@@ -1261,6 +1279,10 @@ export const tauri = {
      *  acks via `code_patch_resolved` and re-emits `code_patches`. */
     codePatchResolve: async (patchId: string, action: 'approve' | 'reject') =>
       raw.cinderpawCodePatchResolve(patchId, action),
+    /** Metacognition — answer, refuse or dismiss one question the loop asked.
+     *  The refreshed card arrives via `events.onCodePatches`. */
+    questionResolve: async (questionId: string, action: 'answer' | 'refuse' | 'dismiss', answer?: string) =>
+      raw.cinderpawQuestionResolve(questionId, action, answer),
     /** Faza 4 (L2 LoRA) — ask for the review inbox; snapshot arrives via
      *  `events.onLoraReviews`. */
     loraReviewsList: async () => raw.cinderpawLoraReviewsList(),

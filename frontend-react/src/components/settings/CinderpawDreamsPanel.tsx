@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Undo2, Brain, Shield } from 'lucide-react';
-import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow, type CodePatch, type CodePatchStatus, type CodePatchesPayload } from '@/lib/tauri';
+import { Moon, Sparkles, Check, X, AlertTriangle, Code2, FileText, GitMerge, Undo2, Brain, Shield, MessageCircleQuestion } from 'lucide-react';
+import { tauri, type DreamTelemetrySummary, type JournalRow, type ChampionTreeRow, type CodePatch, type CodePatchStatus, type CodePatchesPayload, type LoopQuestion } from '@/lib/tauri';
 import { events, type LoraReviewsLine, type MetaResultLine, type GovernanceResultLine, type ModulesResultLine } from '@/lib/tauri/events';
 import { useDream, type DreamStage } from '@/stores/dream';
 import { useSettings } from '@/stores/settings';
@@ -203,6 +203,23 @@ export function CinderpawDreamsPanel() {
     }
   };
 
+  // Metacognition — reply to a question the improvement loop asked. Same
+  // in-flight discipline as the patches: the buttons lock until the refreshed
+  // `code_patches` snapshot lands (it carries the resolved question).
+  const resolveQuestion = async (id: string, action: 'answer' | 'refuse' | 'dismiss', answer?: string) => {
+    if (resolving.has(id)) return;
+    setResolving((s) => new Set(s).add(id));
+    try {
+      await tauri.rsi.questionResolve(id, action, answer);
+    } catch {
+      setResolving((s) => {
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
   // Faza 4 — approve/reject one LoRA review card. Approve promotes the
   // adapter to domain champion and applies it to the loaded model live.
   const resolveLoraCard = async (cardId: string, action: 'approve' | 'reject') => {
@@ -298,6 +315,8 @@ export function CinderpawDreamsPanel() {
         manualWindowOpen: e.manualWindowOpen,
         appliedCount: e.appliedCount,
         ...(e.lastRound ? { lastRound: e.lastRound } : {}),
+        // Same cast, same reason: the sidecar is the only writer of `status`.
+        questions: (e.questions ?? []) as LoopQuestion[],
       });
       // Any ack of a row we were tracking is no longer in flight.
       setResolving((s) => {
@@ -544,6 +563,11 @@ export function CinderpawDreamsPanel() {
 
           <Receipts rows={receipts} />
           <ChampionsByNiche rows={champions} />
+          <LoopQuestions
+            questions={pendingPatches?.questions ?? null}
+            resolving={resolving}
+            onResolve={resolveQuestion}
+          />
           <PendingPatches
             payload={pendingPatches}
             resolving={resolving}
@@ -1155,6 +1179,111 @@ function DecisionBadge({ action }: { action: string }) {
       <Icon size={11} />
       {label}
     </span>
+  );
+}
+
+/** Metacognition — the questions the improvement loop asked the user. A
+ *  proposer that says "I cannot decide this without knowing X" no longer runs
+ *  a round it expects to lose; the question lands here and stays, across
+ *  restarts, until the person answers it, refuses it, or dismisses it with
+ *  the X. The file it is about is out of the search pool meanwhile. An answer
+ *  goes into the next proposal on that file, verbatim. */
+function LoopQuestions({
+  questions,
+  resolving,
+  onResolve,
+}: {
+  questions: LoopQuestion[] | null;
+  resolving: Set<string>;
+  onResolve: (id: string, action: 'answer' | 'refuse' | 'dismiss', answer?: string) => void;
+}) {
+  // Cold start: nothing until the sidecar has answered once. Then only the
+  // open ones: a resolved question is the next round's evidence, not inbox.
+  if (questions === null) return null;
+  const open = questions.filter((q) => q.status === 'open');
+  if (open.length === 0) return null;
+  return (
+    <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
+      <div className="flex items-center gap-2">
+        <MessageCircleQuestion size={11} className="text-brand" />
+        <span className="text-2xs font-medium text-text-secondary">
+          Cinderpaw is asking
+        </span>
+        <span className="text-text-muted text-2xs">({open.length})</span>
+      </div>
+      <p className="text-2xs text-text-muted">
+        The improvement loop stopped on these until you answer. Refuse leaves the file alone; the X just hides the question.
+      </p>
+      <ul className="space-y-2">
+        {open.map((q) => (
+          <QuestionRow key={q.id} q={q} busy={resolving.has(q.id)} onResolve={onResolve} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function QuestionRow({
+  q,
+  busy,
+  onResolve,
+}: {
+  q: LoopQuestion;
+  busy: boolean;
+  onResolve: (id: string, action: 'answer' | 'refuse' | 'dismiss', answer?: string) => void;
+}) {
+  const [answer, setAnswer] = useState('');
+  const canSend = answer.trim().length > 0 && !busy;
+  return (
+    <li className="text-2xs space-y-1 rounded border border-border-subtle p-2">
+      <div className="flex items-center gap-1.5">
+        <span className="font-mono text-micro rounded border border-border-subtle px-1 py-px text-text-muted">{q.file}</span>
+        <span className="ml-auto text-text-muted tabular-nums">{formatRelativeTime(q.askedAt)}</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onResolve(q.id, 'dismiss')}
+          aria-label="Dismiss this question"
+          title="Dismiss"
+          className="rounded p-0.5 text-text-muted hover:text-text-primary disabled:opacity-50"
+        >
+          <X size={11} />
+        </button>
+      </div>
+      <p className="text-text-primary">{q.question}</p>
+      <p className="text-text-muted">Because: {q.rationale}</p>
+      <div className="flex items-center gap-1.5 pt-0.5">
+        <input
+          id={`loop-question-${q.id}`}
+          type="text"
+          value={answer}
+          disabled={busy}
+          onChange={(e) => setAnswer(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && canSend) onResolve(q.id, 'answer', answer.trim());
+          }}
+          placeholder="Your answer"
+          className="min-w-0 flex-1 rounded border border-border-subtle bg-bg-base/40 px-2 py-0.5 text-text-primary placeholder:text-text-muted disabled:opacity-50"
+        />
+        <button
+          type="button"
+          disabled={!canSend}
+          onClick={() => onResolve(q.id, 'answer', answer.trim())}
+          className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-brand hover:border-brand disabled:opacity-50"
+        >
+          <Check size={10} className="inline -mt-px mr-0.5" />
+          Answer
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onResolve(q.id, 'refuse')}
+          className="rounded border border-border-subtle px-2 py-0.5 text-text-secondary hover:text-text-primary disabled:opacity-50"
+        >
+          Refuse
+        </button>
+      </div>
+    </li>
   );
 }
 

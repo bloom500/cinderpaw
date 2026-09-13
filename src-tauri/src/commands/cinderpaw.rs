@@ -327,6 +327,42 @@ pub(crate) async fn cinderpaw_code_patches_list(state: State<'_, AppState>) -> R
     Ok(())
 }
 
+/// Metacognition — answer, refuse or dismiss a question the improvement loop
+/// asked the user. `action` is validated HERE, same as the patch gate; the
+/// answer text is required for "answer" and ignored otherwise. The sidecar
+/// re-emits `code_patches` (the questions ride on that card).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_question_resolve(
+    state: State<'_, AppState>,
+    question_id: String,
+    action: String,
+    answer: Option<String>,
+) -> Result<(), String> {
+    if action != "answer" && action != "refuse" && action != "dismiss" {
+        return Err(format!("invalid action '{action}' — answer|refuse|dismiss"));
+    }
+    if action == "answer" && answer.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        return Err("an answer needs text".to_string());
+    }
+    let msg = serde_json::json!({
+        "type": "rsi_question_resolve",
+        "id": question_id,
+        "questionAction": action,
+        "answer": answer,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Faza 2 Slice 5 — approval gate: approve or reject one pending code patch.
 /// `action` is validated HERE so a compromised webview cannot smuggle another
 /// verb; an approval also live-applies in the sidecar when the source repo is

@@ -597,6 +597,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             cinderpaw_modules,
             cinderpaw_code_patches_list,
             cinderpaw_code_patch_resolve,
+            cinderpaw_question_resolve,
             cinderpaw_cowork_approval_resolve,
             cinderpaw_cowork_send_message,
             cinderpaw_cowork_history,

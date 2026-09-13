@@ -454,6 +454,74 @@ const LORA_PAYLOAD = (over: Partial<LoraReviewsLine> = {}): LoraReviewsLine => (
   ...over,
 });
 
+describe('CinderpawDreamsPanel — Cinderpaw is asking (metacognition)', () => {
+  const QUESTION = {
+    id: 'q-1',
+    file: 'l1-config/mutation.ts',
+    question: 'Is the 0.1 floor on contextWindowUsage intended?',
+    rationale: 'the clamp looks like a leftover',
+    status: 'open',
+    askedAt: Date.now() - 30_000,
+  };
+  const mount = async () => {
+    stubListener();
+    const fire = capturePatchesListener();
+    vi.spyOn(tauri.rsi, 'dreamTelemetry').mockResolvedValue(SUMMARY);
+    vi.spyOn(tauri.rsi, 'journalRecent').mockResolvedValue([]);
+    vi.spyOn(tauri.rsi, 'codePatchesList').mockResolvedValue();
+    render(<CinderpawDreamsPanel />);
+    return fire;
+  };
+
+  it('shows an open question with its file and reason, and hides resolved ones', async () => {
+    const fire = await mount();
+    fire(PATCHES_PAYLOAD({
+      patches: [],
+      questions: [QUESTION, { ...QUESTION, id: 'q-2', question: 'old one', status: 'answered', answer: 'yes' }],
+    }));
+    expect(await screen.findByText('Cinderpaw is asking')).toBeInTheDocument();
+    expect(screen.getByText(QUESTION.question)).toBeInTheDocument();
+    expect(screen.getByText(/the clamp looks like a leftover/)).toBeInTheDocument();
+    expect(screen.queryByText('old one')).not.toBeInTheDocument();
+  });
+
+  it('renders nothing when there is no open question, so the card does not nag', async () => {
+    const fire = await mount();
+    fire(PATCHES_PAYLOAD({ patches: [], questions: [] }));
+    expect(await screen.findByText('No pending code patches.')).toBeInTheDocument();
+    expect(screen.queryByText('Cinderpaw is asking')).not.toBeInTheDocument();
+  });
+
+  it('Answer sends the typed text and is disabled while empty; Refuse and X send their verbs', async () => {
+    const fire = await mount();
+    const resolve = vi.spyOn(tauri.rsi, 'questionResolve').mockResolvedValue();
+    fire(PATCHES_PAYLOAD({ patches: [], questions: [QUESTION] }));
+    await screen.findByText('Cinderpaw is asking');
+
+    const answerBtn = screen.getByRole('button', { name: /Answer/ });
+    expect(answerBtn).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText('Your answer'), { target: { value: '  yes, keep it  ' } });
+    expect(answerBtn).not.toBeDisabled();
+    fireEvent.click(answerBtn);
+    expect(resolve).toHaveBeenCalledWith('q-1', 'answer', 'yes, keep it');
+    // In flight until the refreshed snapshot: a second click must not fire.
+    fireEvent.click(answerBtn);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    // A fresh snapshot with the question still open (say the sidecar refused
+    // the resolve) unlocks the row again.
+    fire(PATCHES_PAYLOAD({ patches: [], questions: [{ ...QUESTION, id: 'q-3', question: 'third?' }] }));
+    await screen.findByText('third?');
+    fireEvent.click(screen.getByText('Refuse'));
+    expect(resolve).toHaveBeenLastCalledWith('q-3', 'refuse', undefined);
+
+    fire(PATCHES_PAYLOAD({ patches: [], questions: [{ ...QUESTION, id: 'q-4', question: 'fourth?' }] }));
+    await screen.findByText('fourth?');
+    fireEvent.click(screen.getByRole('button', { name: /Dismiss this question/ }));
+    expect(resolve).toHaveBeenLastCalledWith('q-4', 'dismiss', undefined);
+  });
+});
+
 describe('CinderpawDreamsPanel — Personal adaptation (Faza 4)', () => {
   it('fires cinderpaw_lora_reviews_list on mount and renders the empty state', async () => {
     stubListener();

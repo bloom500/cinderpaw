@@ -184,6 +184,18 @@ export interface CodePatchesLine {
   manualWindowOpen: boolean;
   appliedCount: number;
   lastRound?: { at: number; target: string; verdict: string; reason: string };
+  /** Questions the loop asked the user, every status (metacognition). Older
+   *  sidecars do not send it. */
+  questions?: Array<{
+    id: string;
+    file: string;
+    question: string;
+    rationale: string;
+    status: string;
+    askedAt: number;
+    resolvedAt?: number;
+    answer?: string;
+  }>;
 }
 
 /**
