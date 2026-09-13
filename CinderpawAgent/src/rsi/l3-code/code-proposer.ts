@@ -25,8 +25,10 @@
 
 import type { CodeGenome } from "./code-genome.ts";
 import { DEFAULT_CODE_PATCH_POLICY } from "./code-genome.ts";
+import { createHash } from "node:crypto";
 import {
   FAILURE_CLASSES,
+  SELECTOR_VERSION,
   selectExperiment,
   type Attempt,
   type FailureClass,
@@ -140,6 +142,12 @@ flattering 0.9. "failureClass" is the failure you expect IF you fail. Set
 "missing" only when you genuinely cannot decide without something the user
 knows (what a value is for, whether a behaviour is intended); then emit NO edit
 blocks: the question is sent to the user and you get the answer next time.`;
+
+/** The prompt's identity, written on every receipt. Two rounds under
+ *  different prompt hashes were asked different questions. */
+export const PROMPT_HASH = createHash("sha256").update(SYSTEM_PROMPT).digest("hex").slice(0, 16);
+
+const sha256 = (s: string): string => createHash("sha256").update(s).digest("hex");
 
 /** One parsed SEARCH/REPLACE edit block. */
 export interface EditBlock {
@@ -320,9 +328,11 @@ export async function proposeCodePatch(deps: ProposerDeps): Promise<CodeGenome |
     patch,
     affectedFiles: affectedFilesOf(patch),
     baseCommit: await deps.baseCommit(),
+    fileHash: sha256(source),
     proposal: {
       rationale,
       ...(prediction ? { prediction } : {}),
+      methodVersion: { selector: SELECTOR_VERSION, promptHash: PROMPT_HASH },
       riskAssessment: "auto: judged by wall + worktree suite + tsc + build",
       testPlan: "full existing suite + tsc --noEmit + build in the disposable worktree",
     },

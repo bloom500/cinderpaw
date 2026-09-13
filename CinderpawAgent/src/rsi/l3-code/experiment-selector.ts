@@ -88,6 +88,13 @@ export interface Attempt {
   /** Absent on rows written before 13 Sep 2026. */
   predicted?: Prediction;
   observed?: Observation;
+  /** What the world looked like before the intervention: the commit the
+   *  patch applied on, and the hash of the file as the proposer read it.
+   *  Together with `file` this is the reproduction. Absent on old rows. */
+  initialState?: { baseCommit: string; fileHash: string };
+  /** Which learner produced this round: the selector policy and the exact
+   *  prompt. A receipt is only comparable to another under the same method. */
+  methodVersion?: { selector: string; promptHash: string };
 }
 
 /** What the selector hands the proposer. */
@@ -96,6 +103,14 @@ export interface Experiment {
   /** Evidence for the prompt: what was already tried here and refused. */
   brief: string;
 }
+
+/** The selection policy's version, written on every receipt as
+ *  `methodVersion.selector`. Bump BY HAND when `selectExperiment` or
+ *  `self-model.ts` changes what gets picked: two receipts with different
+ *  selector versions were produced by different learners, and the campaign
+ *  runner (S1) compares learners, not rounds. History: m0.1 = round-robin
+ *  with strikes (13 Sep); m0.2 = uncertainty x gain from the self-model. */
+export const SELECTOR_VERSION = "m0.2";
 
 /** Consecutive rejects/halts that take a file out of the pool until an
  *  accept lands on it. Three, not one: a single rejection is usually the

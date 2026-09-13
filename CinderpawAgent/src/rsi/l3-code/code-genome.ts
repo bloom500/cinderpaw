@@ -33,6 +33,9 @@ export interface CodeGenome {
   affectedFiles: string[];
   /** Commit hash the patch applies on top of. */
   baseCommit: string;
+  /** sha256 of the target file as the proposer read it, so a receipt can say
+   *  what it was looking at even after the file changes. */
+  fileHash?: string;
   /** The proposer's self-report — journaled for transparency, never
    *  trusted by the wall. */
   proposal: {
@@ -42,6 +45,8 @@ export interface CodeGenome {
     /** What the proposer bet about this candidate before it was judged
      *  (see `experiment-selector.ts`). Absent when it gave none. */
     prediction?: Prediction;
+    /** The learner that produced this: selector policy + prompt hash. */
+    methodVersion?: { selector: string; promptHash: string };
   };
 }
 

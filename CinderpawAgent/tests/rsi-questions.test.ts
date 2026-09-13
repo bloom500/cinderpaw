@@ -6,7 +6,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parsePrediction, proposeCodePatch, type ProposerDeps } from "../src/rsi/l3-code/code-proposer.ts";
+import { PROMPT_HASH, parsePrediction, proposeCodePatch, type ProposerDeps } from "../src/rsi/l3-code/code-proposer.ts";
+import { SELECTOR_VERSION, type Attempt } from "../src/rsi/l3-code/experiment-selector.ts";
+import { buildSelfModel } from "../src/rsi/l3-code/self-model.ts";
 import { QuestionStore } from "../src/rsi/l3-code/questions.ts";
 
 const SOURCE = "line1\nline2\nline3\n";
@@ -55,6 +57,34 @@ describe("proposeCodePatch with predictions", () => {
     );
     expect(g?.proposal.prediction?.pAccept).toBe(0.3);
     expect(g?.proposal.rationale).toBe("tighten");
+  });
+
+  test("the receipt's initial state and method version ride on the candidate", async () => {
+    const g = await proposeCodePatch(deps("RATIONALE: tighten\n" + EDIT));
+    // sha256 of SOURCE as the proposer read it, not of the patched file.
+    expect(g?.fileHash).toBe(
+      require("node:crypto").createHash("sha256").update(SOURCE).digest("hex"),
+    );
+    expect(g?.baseCommit).toBe("abc");
+    expect(g?.proposal.methodVersion).toEqual({ selector: SELECTOR_VERSION, promptHash: PROMPT_HASH });
+    expect(PROMPT_HASH).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  test("a row from before receipts and a full receipt both feed the self-model", () => {
+    const legacy: Attempt = { file: "a.ts", rationale: "r", verdict: "reject", reason: "suite", ts: 1 };
+    const full: Attempt = {
+      ...legacy,
+      ts: 2,
+      verdict: "accept",
+      reason: "ok",
+      predicted: { pAccept: 0.6, expectedEffect: 1, expectedCost: 10, failureClass: null, missing: null },
+      observed: { accepted: true, effect: 1, cost: 12, failureClass: null },
+      initialState: { baseCommit: "abc", fileHash: "f".repeat(64) },
+      methodVersion: { selector: SELECTOR_VERSION, promptHash: PROMPT_HASH },
+    };
+    const m = buildSelfModel([legacy, full]);
+    expect(m.files.get("a.ts")?.observedAccept).toBe(0.5);
+    expect(m.files.get("a.ts")?.n).toBe(1);
   });
 
   test("a candidate without a prediction still runs", async () => {

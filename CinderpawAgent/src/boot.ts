@@ -2021,6 +2021,10 @@ export async function boot(transportOverride?: Transport) {
         ts: Date.now(),
         ...(prediction ? { predicted: prediction } : {}),
         observed,
+        // The receipt's other two fields (competence plan §1): what was
+        // there before, and which learner did it.
+        ...(genome.fileHash ? { initialState: { baseCommit: genome.baseCommit, fileHash: genome.fileHash } } : {}),
+        ...(genome.proposal.methodVersion ? { methodVersion: genome.proposal.methodVersion } : {}),
       };
       appendAttempt(ledgerPath, attempt);
       const leaf = episodic.record(
