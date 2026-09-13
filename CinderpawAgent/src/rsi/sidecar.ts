@@ -757,8 +757,12 @@ export class RsiSidecar {
           config,
           updatedAt: Date.now(),
         };
+        // The stamped copy carries the S2 parity block (which dimensions
+        // actually reach the live agent, and whether this ratchet changed
+        // anything the user will feel). Pass THAT on, not the bare record.
+        let stamped = record;
         try {
-          writeChampion(championPath, record);
+          stamped = writeChampion(championPath, record);
         } catch {
           // disk error — soft layer
         }
@@ -766,6 +770,8 @@ export class RsiSidecar {
         // so diversity survives a higher global best in another niche. Persist
         // only when the niche actually changed. Soft layer — never abort.
         try {
+          // The bare record: `sameAppliedAsPrevious` compares against the
+          // GLOBAL champion, which is not the one this niche entry replaced.
           if (championTree.record(nicheOf(config), record)) {
             writeChampionTree(championTreePath, championTree);
           }
@@ -773,7 +779,7 @@ export class RsiSidecar {
           // disk error — soft layer
         }
         try {
-          onChampion?.(record);
+          onChampion?.(stamped);
         } catch {
           // host callback error — never abort the engine
         }
