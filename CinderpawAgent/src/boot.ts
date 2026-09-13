@@ -9,7 +9,8 @@
  */
 
 import { resolve, join, delimiter } from "node:path";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import { atomicWriteFileSync } from "./atomic-write.ts";
 import { homedir } from "node:os";
 import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
@@ -927,8 +928,24 @@ export async function boot(transportOverride?: Transport) {
   // Utility ledger (competence plan §3.3): which leaves were shown to which
   // session, closed with the run's verdict in `concludeRun`. The ranking
   // knob is 0, so this changes nothing a user sees; it collects the
-  // evidence the campaign will need to set the knob. In memory for now.
-  const utility = new UtilityLedger();
+  // evidence the campaign will need to set the knob. Leaf ids are episodic
+  // row ids, stable across tree rebuilds, so the counts survive a restart.
+  // Open turns (shown, never closed) are not written: a crash is not evidence.
+  const utilityPath = join(dataDir, "utility-ledger.json");
+  const utility = (() => {
+    try {
+      return UtilityLedger.from(JSON.parse(readFileSync(utilityPath, "utf8")));
+    } catch {
+      return new UtilityLedger(); // first run, or an unreadable file: start empty
+    }
+  })();
+  const saveUtility = () => {
+    try {
+      atomicWriteFileSync(utilityPath, JSON.stringify(utility.entries()));
+    } catch (e) {
+      log(`[utility] ledger not saved: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   registry.register(
     createRecallTool(
       async (q, limit, sessionId) => {
@@ -1413,7 +1430,7 @@ export async function boot(transportOverride?: Transport) {
     // The task closed: the memories shown during its session helped, or did
     // not. Only a verifier's verdict counts (plan §3.3); "finished" without
     // a done_when is the model's own word and teaches the ledger nothing.
-    if (verified !== null) utility.closed([row.sessionId], verified);
+    if (verified !== null && utility.closed([row.sessionId], verified) > 0) saveUtility();
     runStore.finish(row.id, status, reason, text);
     await deliverAndMark(runStore, row, text, deliverRunReport);
   }
