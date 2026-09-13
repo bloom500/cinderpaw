@@ -945,8 +945,14 @@ export function unwrapDoubleEncodedCall(
   known: (name: string) => boolean,
 ): { name: string; args: Record<string, unknown> } {
   if (typeof name !== "string" || known(name)) return { name, args };
-  const trimmed = name.trim();
+  let trimmed = name.trim();
   if (!trimmed.startsWith("{")) return { name, args };
+  // Gemini via the voice path (observed 13 Sep 2026, 21 times in one call)
+  // serialises the call into the name slot AND drags its XML wrapper's
+  // closing tag along: name = '{"name":"shell_exec",...}</arg_value>'. The
+  // JSON is intact up to its last brace; everything after it is markup.
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (lastBrace >= 0) trimmed = trimmed.slice(0, lastBrace + 1);
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed);
@@ -956,11 +962,17 @@ export function unwrapDoubleEncodedCall(
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { name, args };
   const obj = parsed as Record<string, unknown>;
   const inner = obj.name ?? obj.tool ?? obj.function;
-  if (typeof inner !== "string" || !known(inner)) return { name, args };
+  if (typeof inner !== "string") return { name, args };
   const payload = obj.args ?? obj.arguments ?? obj.parameters ?? obj.input;
   const innerArgs =
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? (payload as Record<string, unknown>)
       : args;
+  // The retry prompt echoes a bad name back and the model wraps it once
+  // more (observed: three layers). Peel until a known name or a non-JSON
+  // string; the recursion ends because each layer is strictly shorter.
+  if (!known(inner)) {
+    return inner.trim().startsWith("{") ? unwrapDoubleEncodedCall(inner, innerArgs, known) : { name, args };
+  }
   return { name: inner, args: innerArgs };
 }

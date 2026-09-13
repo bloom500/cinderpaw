@@ -42,4 +42,21 @@ describe("everything else is left exactly alone", () => {
       expect(unwrapDoubleEncodedCall(bad, {}, known).name).toBe(bad);
     }
   });
+
+  test("Gemini's XML tail after the JSON is dropped, and the real call comes out", () => {
+    // Observed on a voice call, 13 Sep 2026: the model wrapped the call in
+    // <arg_value> markup and the closing tag rode along in the name slot.
+    const wire = '{"name":"shell_exec","args":{"argv":["cmd","/c","tasklist"],"timeout_ms":15000}}</arg_value>';
+    const out = unwrapDoubleEncodedCall(wire, {}, (n) => n === "shell_exec");
+    expect(out.name).toBe("shell_exec");
+    expect(out.args).toEqual({ argv: ["cmd", "/c", "tasklist"], timeout_ms: 15000 });
+  });
+
+  test("a twice-wrapped call (the retry echo) is peeled to the real one", () => {
+    const innerWire = '{"name":"control_app","args":{"action":"list_windows"}}</arg_value>';
+    const wire = JSON.stringify({ name: innerWire, args: {} });
+    const out = unwrapDoubleEncodedCall(wire, {}, (n) => n === "control_app");
+    expect(out.name).toBe("control_app");
+    expect(out.args).toEqual({ action: "list_windows" });
+  });
 });
