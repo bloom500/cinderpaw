@@ -311,6 +311,26 @@ it. This is §1's "a receipt without conditions is an anecdote", measured. Next
 change to M0 = condition on the signature; bump SELECTOR_VERSION to m0.3 and
 re-run the same pilot so the two selectors are compared under one manifest.
 
+**§3, started the same evening, all pushed (latest `a983802`):**
+- `0a684cc` m0.3c, the conditioned selector, measured as arm `brsi-c`:
+  0.479, worse than fixed 0.542. Not adopted; m0.2 stays live; `condition`
+  stays on the receipt. Next variant: other conditions as a weak prior.
+- `87ceab8` §3.1 slices 1-2: `memory/fractal/skill-library.ts`
+  (LearnedProcedure with conditions + receipt evidence, induceProcedure
+  refuses without held-out, append-only, retire-not-delete) and arm
+  `skilled`. H5 pilot, repeated families, cost per verified task:
+  fixed 5.79 | fms 2.90 | brsi 4.86 | both 2.64 | skilled 2.64. On the toy
+  the library equals retrieval; its saving is model tokens, which the toy
+  has none of. Left in §3.1: live L3 inducing procedures; skills in the menu.
+- `171e3d2` §3.2 slice 1: `memory/fractal/competence-scales.ts`, strategy
+  scale with support for/against and `narrow`. No principle scale, no
+  wording, tree untouched (needs the summariser to take receipts).
+- `a983802` §3.3 slice 1: `memory/fractal/utility.ts`, UtilityLedger +
+  rerankByUtility with the knob at 0. Left: wire shown() into the recall
+  seam (boot.ts:912) and closed() into turn end, behind the knob; then
+  measure on the `fms` arm.
+- §3.4 and §3.5 untouched: each needs its own spec first.
+
 ## 6. Order
 
 Step 0: merge `audit/astra-fms-bench` into `feat/brsi-learner` (typed facts with
