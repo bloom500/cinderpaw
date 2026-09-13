@@ -247,3 +247,44 @@ describe("the round stops when there is nothing left to learn", () => {
     expect(called).toBe(1);
   });
 });
+
+describe("Astra's five decisions as the prediction vocabulary", () => {
+  test("the three new classes parse", () => {
+    for (const c of ["need_tool", "need_method", "over_mandate"]) {
+      expect(parsePrediction(`PREDICTION: {"pAccept":0.5,"failureClass":"${c}"}`)?.failureClass).toBe(c);
+    }
+  });
+
+  test("over_mandate is a budget question for the user, not a round", async () => {
+    const asked: { file: string; question: string }[] = [];
+    const g = await proposeCodePatch(
+      deps(
+        'RATIONALE: split the module\nPREDICTION: {"pAccept":0.6,"expectedEffect":3,"expectedCost":250000,"failureClass":"over_mandate","missing":null}\n' + EDIT,
+        { onQuestion: (q) => asked.push(q), roundBudgetTokens: 100_000 },
+      ),
+    );
+    expect(g).toBeNull();
+    expect(asked).toHaveLength(1);
+    expect(asked[0]!.question).toContain("~250000 tokens");
+    expect(asked[0]!.question).toContain("100000-token round budget");
+  });
+
+  test("an expectedCost above the budget asks even without the class", async () => {
+    const asked: unknown[] = [];
+    const g = await proposeCodePatch(
+      deps('RATIONALE: x\nPREDICTION: {"pAccept":0.6,"expectedCost":5000}\n' + EDIT, {
+        onQuestion: (q) => asked.push(q),
+        roundBudgetTokens: 4000,
+      }),
+    );
+    expect(g).toBeNull();
+    expect(asked).toHaveLength(1);
+  });
+
+  test("need_tool and need_method are recorded and the round still runs", async () => {
+    const g = await proposeCodePatch(
+      deps('RATIONALE: x\nPREDICTION: {"pAccept":0.3,"expectedCost":100,"failureClass":"need_tool"}\n' + EDIT),
+    );
+    expect(g?.proposal.prediction?.failureClass).toBe("need_tool");
+  });
+});

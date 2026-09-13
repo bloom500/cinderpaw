@@ -45,6 +45,15 @@ export const FAILURE_CLASSES = [
   "unmeasured",
   /** Something the proposer needed to know and did not. */
   "missing_info",
+  /** The change needs a tool the agent does not have (competence plan §2.4;
+   *  recorded as the input signal for the skill library, §3.1). */
+  "need_tool",
+  /** The change needs a method the agent has not got: it would have to
+   *  experiment first (input to §3.2). */
+  "need_method",
+  /** The change is real but costs more than the round is allowed to spend.
+   *  Treated like `missing`: a question to the user, not a round. */
+  "over_mandate",
 ] as const;
 export type FailureClass = (typeof FAILURE_CLASSES)[number];
 

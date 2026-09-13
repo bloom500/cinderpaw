@@ -27,6 +27,7 @@ import type { CodeGenome } from "./code-genome.ts";
 import { DEFAULT_CODE_PATCH_POLICY } from "./code-genome.ts";
 import { createHash } from "node:crypto";
 import { buildSelfModel, nothingLeftToLearn } from "./self-model.ts";
+import { DEFAULT_BUDGET_CAPS } from "../infra/budget.ts";
 import {
   FAILURE_CLASSES,
   SELECTOR_VERSION,
@@ -60,6 +61,10 @@ export interface ProposerDeps {
   /** Called instead of returning a candidate when the proposer says it
    *  lacks information (`Prediction.missing`). The round does not run. */
   onQuestion?: (q: { file: string; question: string; rationale: string }) => void;
+  /** Tokens one round may spend (the contract's cycle cap). A prediction
+   *  that says `over_mandate`, or an `expectedCost` above this, becomes a
+   *  question for the user instead of a round. Default: the BRSI cycle cap. */
+  roundBudgetTokens?: number;
   /** Called instead of asking the model when the self-model says every file
    *  in the pool is a settled result (`nothingLeftToLearn`). The round costs
    *  nothing; `poolSize` is how many files were considered. */
@@ -125,7 +130,7 @@ You propose ONE small improvement to ONE TypeScript source file.
 Output format — one RATIONALE line, one PREDICTION line, then 1 to 3 edit blocks:
 
 RATIONALE: <what and why, one sentence>
-PREDICTION: {"pAccept":<0..1>,"expectedEffect":<score points, 0 if none>,"expectedCost":<tokens>,"failureClass":<"wrong_proposal"|"wrong_file"|"unmeasured"|"missing_info"|null>,"missing":<"what you need to know from the user"|null>}
+PREDICTION: {"pAccept":<0..1>,"expectedEffect":<score points, 0 if none>,"expectedCost":<tokens>,"failureClass":<"wrong_proposal"|"wrong_file"|"unmeasured"|"missing_info"|"need_tool"|"need_method"|"over_mandate"|null>,"missing":<"what you need to know from the user"|null>}
 <<<<<<< SEARCH
 <exact lines copied verbatim from the file, enough to be unique>
 =======
@@ -144,10 +149,16 @@ efficiency win. If you see nothing worth changing, output the single word SKIP.
 
 The PREDICTION is a bet about yourself and it is checked: after the change is
 judged, your pAccept is scored against the verdict, so an honest 0.3 beats a
-flattering 0.9. "failureClass" is the failure you expect IF you fail. Set
-"missing" only when you genuinely cannot decide without something the user
-knows (what a value is for, whether a behaviour is intended); then emit NO edit
-blocks: the question is sent to the user and you get the answer next time.`;
+flattering 0.9. "failureClass" is the failure you expect IF you fail:
+wrong_proposal (the idea), wrong_file (the place), unmeasured (the evaluator
+cannot see the gain), missing_info (you need to know something), need_tool
+(you would need a tool you do not have), need_method (you would need to
+experiment first), over_mandate (the right change costs more than this round
+may spend). Set "missing" only when you genuinely cannot decide without
+something the user knows (what a value is for, whether a behaviour is
+intended); then emit NO edit blocks: the question is sent to the user and you
+get the answer next time. over_mandate is also sent to the user as a question,
+so say in "missing" what the larger change would be.`;
 
 /** The prompt's identity, written on every receipt. Two rounds under
  *  different prompt hashes were asked different questions. */
@@ -323,6 +334,21 @@ export async function proposeCodePatch(deps: ProposerDeps): Promise<CodeGenome |
   // answered, and the ledger does not record a refusal that was never tried.
   if (prediction?.missing) {
     deps.onQuestion?.({ file: target, question: prediction.missing, rationale });
+    return null;
+  }
+  // "The right change is bigger than my mandate" is the same shape: the
+  // user decides the scope, the loop does not quietly try a cheaper thing
+  // and record a refusal for it. Astra's fifth decision (plan §2.4). The
+  // budget is not lifted by an answer; the answer reshapes the next proposal.
+  const budget = deps.roundBudgetTokens ?? DEFAULT_BUDGET_CAPS.tokens;
+  if (prediction && (prediction.failureClass === "over_mandate" || prediction.expectedCost > budget)) {
+    deps.onQuestion?.({
+      file: target,
+      question:
+        `This change looks like ~${Math.round(prediction.expectedCost)} tokens, above the ` +
+        `${budget}-token round budget. Answer with a smaller scope for this file, or refuse to leave it alone.`,
+      rationale,
+    });
     return null;
   }
   // Primary path: SEARCH/REPLACE blocks → apply → serialize a clean diff
