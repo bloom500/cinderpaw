@@ -57,3 +57,33 @@ expected to stay higher and is reported, not gated.
 
 The thresholds are judgement, set before data: 0.30 is well under today's 0.82
 and well over the ~0.05 to 0.2 overlap of the input glomerulus sets at these k.
+
+## 2026-09-15 03:10: step 2 under variant 2 (bypass the antennal lobe), criteria before measuring
+
+Why: step 1 stopped at the antennal lobe; the literature pass (ledger, "AL
+LITERATURE INVESTIGATION") classified the smear as a model-class limitation:
+electrical eLN->PN coupling is absent from FlyWire, and presynaptic, slow and
+nonspiking inhibition cannot be expressed by the simulator. Darius chose to
+test whether the mushroom body works when it receives clean glomerular input,
+and to say in the docs that the antennal lobe is bypassed.
+
+**Stimulus.** Same odors as step 1 (k = 3 and 8 glomeruli, 8 odors, seed 1,
+same draw order), but the driven neurons are the uniglomerular ALPNs whose
+cell_type starts with `<glomerulus>_`, at 2 mV/ms for 50 ms. ORNs are not driven.
+
+**Two conditions, both measured and both reported:**
+- 2a intact: nothing else changed.
+- 2b lesion: every edge from an ORN or an ALLN onto any ALPN has effective weight
+  0 (the antennal-lobe local circuit cannot reach the PNs). Declared a lesion,
+  not biology.
+
+**Measured:** uni PN overlap, all ALPN overlap, KC overlap, KC sparsity (50 ms
+union and per 5 ms bin), same metric as step 1.
+
+**GO for variant 2** if KC overlap < 0.30 at both k in 2a (preferred) or,
+failing that, in 2b. KC sparsity is reported, not gated; if it is high, APL
+(step 3) is the next question, not a reason to retune.
+
+**STOP** if KC overlap >= 0.30 at either k in both 2a and 2b: the mushroom body
+does not separate clean input either, CinderBrain leaves the release, and the
+release goes ahead without it.
