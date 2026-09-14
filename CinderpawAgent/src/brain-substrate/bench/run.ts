@@ -5,8 +5,8 @@
  * (median and min/max per condition, one verdict line). "yes" needs the real
  * median above the shuffled median by more than the larger spread (spec 7).
  */
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { loadPack } from "../pack/load.ts";
 import { fixtureCircuit } from "../sim/fixture-circuit.ts";
 import { degreeSignPreservingShuffle } from "../sim/shuffle.ts";
@@ -18,8 +18,8 @@ function arg(name: string, fallback?: string): string | undefined {
 }
 
 const packArg = arg("pack");
-const out = arg("out");
-if (!packArg || !out) {
+const outArg = arg("out");
+if (!packArg || !outArg) {
   console.error("usage: bun run brain:bench --pack <dir|fixture> --seeds N --shuffles N [--pairs N] [--interference N] --out <dir>");
   process.exit(2);
 }
@@ -28,17 +28,26 @@ const shuffles = Number(arg("shuffles", "2"));
 const pairs = Number(arg("pairs", "200"));
 const interference = Number(arg("interference", "500"));
 
+// Bun 1.3 on Windows throws EEXIST from a recursive mkdir of an existing relative ".." path; an absolute one is fine.
+// Created before the run, and every row is appended as it lands, so a late crash cannot throw away hours of compute.
+const out = resolve(outArg);
+mkdirSync(out, { recursive: true });
+const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+const partial = join(out, `${stamp}-synthetic.partial.jsonl`);
+console.error(`rows so far: ${partial}`);
+
 const pack = packArg === "fixture" ? fixtureCircuit() : loadPack(packArg);
 const dense = densePlasticPack(pack);
 const rows: SyntheticResult[] = [];
+const keep = (r: SyntheticResult) => { rows.push(r); appendFileSync(partial, JSON.stringify(r) + "\n"); };
 const t0 = performance.now();
 for (let seed = 1; seed <= seeds; seed++) {
-  rows.push(runPlasticityBench(pack, { condition: "real", seed, pairs, interference, plasticity: true }));
-  rows.push(runPlasticityBench(pack, { condition: "real", seed, pairs, interference, plasticity: false }));
-  rows.push(runPlasticityBench(dense, { condition: "dense", seed, pairs, interference, plasticity: true }));
+  keep(runPlasticityBench(pack, { condition: "real", seed, pairs, interference, plasticity: true }));
+  keep(runPlasticityBench(pack, { condition: "real", seed, pairs, interference, plasticity: false }));
+  keep(runPlasticityBench(dense, { condition: "dense", seed, pairs, interference, plasticity: true }));
   for (let sh = 1; sh <= shuffles; sh++) {
     const shuffleSeed = 1000 + sh;
-    rows.push(runPlasticityBench(degreeSignPreservingShuffle(pack, shuffleSeed), { condition: "shuffled", seed, shuffleSeed, pairs, interference, plasticity: true }));
+    keep(runPlasticityBench(degreeSignPreservingShuffle(pack, shuffleSeed), { condition: "shuffled", seed, shuffleSeed, pairs, interference, plasticity: true }));
   }
   console.error(`seed ${seed}/${seeds} done, ${((performance.now() - t0) / 1000).toFixed(0)}s`);
 }
@@ -74,8 +83,6 @@ const md = [
   ``,
 ].join("\n");
 
-mkdirSync(out, { recursive: true });
-const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 writeFileSync(join(out, `${stamp}-synthetic.json`), JSON.stringify(rows, null, 2));
 writeFileSync(join(out, `${stamp}-synthetic.md`), md);
 console.log(md);

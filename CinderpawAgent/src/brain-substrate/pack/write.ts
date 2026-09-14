@@ -11,7 +11,7 @@
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { CSR_MAGIC, HEADER_BYTES, PLASTIC_MAGIC, type Manifest, type PackFiles } from "./types.ts";
 
 function header(magic: string, a: number, b: number): Uint8Array {
@@ -51,7 +51,7 @@ export function encodePlastic(f: PackFiles): Uint8Array {
 }
 
 export function writePackFiles(dir: string, files: PackFiles): Manifest {
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(resolve(dir), { recursive: true }); // Bun 1.3 on Windows: EEXIST on an existing relative ".." path
   const csr = encodeCsr(files);
   const plastic = encodePlastic(files);
   writeFileSync(join(dir, "csr.bin"), csr);
