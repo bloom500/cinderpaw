@@ -1,8 +1,19 @@
 /**
  * The control condition (spec section 7): the same neurons, the same number
  * of edges in and out of each of them, the same signs and per-row weights,
- * but who talks to whom is random. If the real wiring cannot beat this, the
- * connectome is not doing the work.
+ * and the same number of edges between each pair of roles (sensory->kc,
+ * kc->mbon, ...), but within those blocks who talks to whom is random. If the
+ * real wiring cannot beat this, the connectome is not doing the work.
+ *
+ * Only the mushroom body is rewired: edges into KCs and the plastic KC->MBON
+ * edges. Every other edge keeps its real target, so the input reaches the KCs
+ * along the real roads and the question is only about the circuit that learns.
+ *
+ * Both limits came from the first FlyWire kill gate: a whole-brain shuffle
+ * fired 0.1% of KCs against 28% on the real pack, and a whole-brain shuffle
+ * inside role blocks still only 3.5%. Either control scored chance by being
+ * silent, not by lacking topology. The MB-only shuffle fires 27.9% and moves
+ * ~89% of those edges (measured on flywire-783-v1, seed 1001).
  */
 import { mulberry32 } from "../../memory/fractal/prng.ts";
 import type { BrainPack } from "../pack/types.ts";
@@ -21,9 +32,19 @@ export function degreeSignPreservingShuffle(pack: BrainPack, seed: number): Brai
   // and KC->MBON edges are permuted among themselves so the control has exactly as many learnable edges.
   const isPlastic = new Uint8Array(E);
   for (const e of pack.plastic.edgeIdx) isPlastic[e] = 1;
+  // Role index per neuron (first role that lists it); 0 = no role. Mushroom-body edges are shuffled within
+  // (sign, plastic, source role, target role); every other edge is a group of one, so it keeps its target.
+  const role = new Int32Array(N);
+  const roleNames = Object.keys(pack.populations);
+  roleNames.forEach((name, r) => { for (const id of pack.populations[name as keyof typeof pack.populations]!) if (role[id] === 0) role[id] = r + 1; });
+  const R = roleNames.length + 1;
+  const kcRole = roleNames.indexOf("kc") + 1;
   const groups = new Map<number, number[]>();
   for (let e = 0; e < E; e++) {
-    const sg = Math.sign(pack.weight[e]!) * 2 + isPlastic[e]!;
+    const inMushroomBody = isPlastic[e] === 1 || (kcRole > 0 && role[pack.colIdx[e]!] === kcRole);
+    const sg = inMushroomBody
+      ? ((Math.sign(pack.weight[e]!) + 1) * 2 + isPlastic[e]!) * R * R + role[src[e]!]! * R + role[pack.colIdx[e]!]!
+      : -1 - e;
     let g = groups.get(sg);
     if (!g) groups.set(sg, (g = []));
     g.push(e);

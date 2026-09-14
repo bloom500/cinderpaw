@@ -53,6 +53,40 @@ describe("kc-mbon-depression-v1", () => {
     expect(sh.plastic.edgeIdx.length).toBe(pack.plastic.edgeIdx.length);
   });
 
+  test("a shuffle keeps how many edges run between each pair of roles, so the input still has a road to the KCs", () => {
+    const pack = fixtureCircuit();
+    const sh = degreeSignPreservingShuffle(pack, 11);
+    const roleOf = new Map<number, string>();
+    for (const [role, ids] of Object.entries(pack.populations)) for (const id of ids!) if (!roleOf.has(id)) roleOf.set(id, role);
+    const blocks = (p: typeof pack) => {
+      const count = new Map<string, number>();
+      for (let i = 0; i < p.manifest.neurons; i++) {
+        for (let e = p.rowPtr[i]!; e < p.rowPtr[i + 1]!; e++) {
+          const k = `${roleOf.get(i) ?? "none"}->${roleOf.get(p.colIdx[e]!) ?? "none"}`;
+          count.set(k, (count.get(k) ?? 0) + 1);
+        }
+      }
+      return Object.fromEntries([...count].sort());
+    };
+    expect(blocks(sh)).toEqual(blocks(pack));
+  });
+
+  test("a shuffle rewires only the mushroom body: every edge that is not into a KC and not plastic keeps its target", () => {
+    const pack = fixtureCircuit();
+    const sh = degreeSignPreservingShuffle(pack, 11);
+    const kc = new Set(pack.populations.kc!);
+    const outsideMb = (p: typeof pack) => {
+      const plastic = new Set(p.plastic.edgeIdx);
+      const edges: string[] = [];
+      for (let i = 0; i < p.manifest.neurons; i++) {
+        for (let e = p.rowPtr[i]!; e < p.rowPtr[i + 1]!; e++) if (!plastic.has(e) && !kc.has(p.colIdx[e]!)) edges.push(`${i}>${p.colIdx[e]}:${p.weight[e]}`);
+      }
+      return edges.sort();
+    };
+    expect(outsideMb(sh).length).toBeGreaterThan(0);
+    expect(outsideMb(sh)).toEqual(outsideMb(pack));
+  });
+
   test("a valence without a DAN that fires changes nothing (ledger ruling)", () => {
     const pack = fixtureCircuit();
     for (const c of pack.manifest.compartments) c.danIds = [];
