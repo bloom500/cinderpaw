@@ -457,6 +457,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
           ? { reasoning: { max_tokens: req.reasoningMaxTokens } }
           : {}),
       ...cinderpawExtensionBody(target, req),
+      ...openRouterUsageAccounting(target),
       stream: false,
     };
     if (useNativeTools) {
@@ -490,6 +491,8 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         prompt_tokens?: number;
         completion_tokens?: number;
         prompt_tokens_details?: { cached_tokens?: number };
+        /** OpenRouter, with usage accounting on: USD for this completion. */
+        cost?: number;
       };
       /** OpenRouter names the endpoint that actually served the call. */
       provider?: string;
@@ -533,8 +536,10 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     // indistinguishable from a provider that does not cache at all. Same
     // dialect as `#stream`: `prompt_tokens` INCLUDES the cached ones.
     const cachedTokens = raw.usage?.prompt_tokens_details?.cached_tokens;
+    const costUsd = typeof raw.usage?.cost === "number" ? raw.usage.cost : undefined;
     return {
       content,
+      costUsd,
       promptTokens,
       completionTokens,
       totalTokens: promptTokens + completionTokens,
@@ -592,6 +597,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       // looked identical to one that does not cache at all.
       stream_options: { include_usage: true },
       ...openRouterProviderPin(target),
+      ...openRouterUsageAccounting(target),
     };
     if (useNativeTools) {
       body.tools = req.openAITools;
@@ -616,6 +622,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     });
     let content = "";
     let cacheReadTokens: number | undefined;
+    let costUsd: number | undefined;
     let promptTokens = 0;
     let completionTokens = 0;
     // Explicit presence, not truthiness: a provider that legitimately reports 0
@@ -804,9 +811,11 @@ export class OpenAICompatibleProvider implements InferenceProvider {
             prompt_tokens?: number;
             completion_tokens?: number;
             prompt_tokens_details?: { cached_tokens?: number };
+            cost?: number;
           };
         }).usage;
         if (usage) {
+          if (typeof usage.cost === "number") costUsd = usage.cost;
           if (usage.prompt_tokens !== undefined) {
             reportedPrompt = usage.prompt_tokens;
             promptTokens = usage.prompt_tokens;
@@ -873,6 +882,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         : {}),
       ...(finishReason ? { finishReason } : {}),
       ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+      ...(costUsd !== undefined ? { costUsd } : {}),
       // OpenAI dialect: `prompt_tokens` already counts the cached ones, so the
       // fresh half is the difference. Clamped at 0 — a provider reporting more
       // cached than prompt is lying, and a negative cost is worse than a zero.
@@ -1746,6 +1756,13 @@ function anthropicCacheControl(req: InferenceRequest): Record<string, unknown> {
  * the benchmark opts in. `allow_fallbacks: false` is the point: a pin that
  * silently falls back to a different provider measures nothing.
  */
+/** OpenRouter only: put the USD cost of the completion in its `usage`
+ *  block. Other OpenAI-compatible servers get no such field, some reject
+ *  unknown ones, and none would honour it. */
+export function openRouterUsageAccounting(target: ModelTarget): Record<string, unknown> {
+  return /openrouter\.ai/i.test(target.baseUrl ?? "") ? { usage: { include: true } } : {};
+}
+
 export function openRouterProviderPin(target: ModelTarget): Record<string, unknown> {
   const raw = readEnv("CINDERPAW_OPENROUTER_PROVIDER")?.trim();
   if (!raw) return {};

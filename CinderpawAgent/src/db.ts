@@ -463,6 +463,9 @@ function migrate(db: Database): void {
   // later needs the ALTER path or every INSERT naming it fails — silently, in
   // this case, because the writer swallows its own errors by design.
   addColumnIfMissing(db, "completion_cost", "tokens_estimated", "INTEGER NOT NULL DEFAULT 0");
+  // The provider's own USD figure (OpenRouter only). NULL = not reported,
+  // never 0: a provider that says nothing about money is not a free one.
+  addColumnIfMissing(db, "completion_cost", "cost_usd", "REAL");
 
   // Semantic memory: persistent key-value facts about the user, updated by the
   // agent as it learns preferences, context, and long-term patterns.

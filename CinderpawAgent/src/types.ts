@@ -847,6 +847,14 @@ export interface InferenceResponse {
    * columns: unknown is not zero, and ours is not theirs.
    */
   tokensEstimated?: boolean;
+  /**
+   * What the provider says this completion cost, in USD. Only OpenRouter
+   * reports one (asked for with `usage: {include: true}`); every other
+   * provider leaves this undefined and a consumer that wants dollars must
+   * estimate, and say so. Never filled in from a price table here: a
+   * reported figure and an estimate must not share a field.
+   */
+  costUsd?: number;
 }
 
 export type BudgetExhaustedReason = "conversation" | "day";

@@ -27,6 +27,7 @@
 
 import type { Database } from "bun:sqlite";
 import type { PromptPart } from "../memory/working.ts";
+import { blendedPricePer1kUsd, estimateUsd } from "../rsi/infra/rsi-cost.ts";
 
 /** One lane of what we sent, summed over the window. */
 export interface CategoryTotal {
@@ -274,4 +275,50 @@ export function renderCostReport(report: CostReport): string {
   out.push("");
   out.push("_The two tables are not joined. Cache is reported per request, never per message, so no category here carries a cache share._");
   return out.join("\n");
+}
+
+/** What one run cost, summed over its completions: tokens both ways
+ *  (`run_turns.tokens` is completion tokens only, the router's counter), and
+ *  USD. Same rule as the
+ *  rest of this file: a figure the provider reported and one we estimated
+ *  are never added silently. `estimated` is true when ANY completion in the
+ *  window had no provider figure and was priced from the blended table in
+ *  rsi-cost.ts; a local (loopback) model prices at $0. */
+export function costOfRun(
+  db: Database,
+  sessionId: string,
+  sinceMs: number,
+): { tokens: number; usd: number; estimated: boolean } {
+  try {
+    const rows = db
+      .query(
+        `SELECT model, base_url AS baseUrl, prompt_tokens + completion_tokens AS tokens, cost_usd AS usd
+         FROM completion_cost WHERE session_id = ? AND ts >= ?`,
+      )
+      .all(sessionId, sinceMs) as Array<{ model: string; baseUrl: string; tokens: number; usd: number | null }>;
+    let tokens = 0;
+    let usd = 0;
+    let estimated = false;
+    for (const r of rows) {
+      tokens += r.tokens;
+      if (r.usd !== null) {
+        usd += r.usd;
+        continue;
+      }
+      estimated = true;
+      usd += estimateUsd(r.tokens, blendedPricePer1kUsd(r.model, isLoopbackUrl(r.baseUrl)));
+    }
+    return { tokens, usd, estimated };
+  } catch {
+    return { tokens: 0, usd: 0, estimated: true };
+  }
+}
+
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
 }

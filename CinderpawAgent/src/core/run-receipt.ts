@@ -28,8 +28,11 @@ export function runReceipt(opts: {
   verified: boolean;
   /** Tool names in call order, from `toolCallsOfRun`. */
   tools: string[];
-  /** Tokens the run spent, summed over its turns: the cost per task. */
+  /** Tokens the run spent, prompt and completion, over its completions. */
   tokens: number;
+  /** Dollars, from `usdOfRun`: what the provider reported, or an estimate
+   *  that says it is one. Undefined when the caller has no cost table. */
+  usd?: { usd: number; estimated: boolean };
   now: number;
 }): Attempt | null {
   // No tools, no step: a verified answer with nothing done is not a procedure.
@@ -41,7 +44,7 @@ export function runReceipt(opts: {
     verdict: opts.verified ? "accept" : "reject",
     reason: `done_when ${opts.doneWhen.kind} ${what} ${opts.verified ? "passed" : "failed"}`.trim(),
     ts: opts.now,
-    observed: { accepted: opts.verified, effect: null, cost: opts.tokens, failureClass: null },
+    observed: { accepted: opts.verified, effect: null, cost: opts.tokens, failureClass: null, ...(opts.usd ? { usd: opts.usd } : {}) },
     methodVersion: { selector: RUN_RECEIPT_METHOD, promptHash: "none" },
     condition: runCondition(opts.doneWhen),
   };

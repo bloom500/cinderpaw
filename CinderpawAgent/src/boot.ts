@@ -30,6 +30,7 @@ import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { UtilityLedger, rerankByUtility } from "./memory/fractal/utility.ts";
 import { runReceipt } from "./core/run-receipt.ts";
+import { costOfRun } from "./core/cost-report.ts";
 import { appendAttempt } from "./rsi/l3-code/experiment-selector.ts";
 import { SkillLibrary, defaultSkillLibraryPath } from "./memory/fractal/skill-library.ts";
 import { MemoryGraph } from "./memory/graph.ts";
@@ -1465,11 +1466,13 @@ export async function boot(transportOverride?: Transport) {
     // on a fresh install this file does not exist until a user asks to be
     // checked. Separate from the L3 ledger, see core/run-receipt.ts.
     if (verified !== null && row.doneWhen) {
+      const cost = costOfRun(db.raw, row.sessionId, row.createdAt);
       const receipt = runReceipt({
         doneWhen: row.doneWhen,
         verified,
         tools: toolCallsOfRun(db.raw, row.sessionId, row.createdAt),
-        tokens: runStore.turnsOf(row.id).reduce((sum, t) => sum + t.tokens, 0),
+        tokens: cost.tokens,
+        usd: { usd: cost.usd, estimated: cost.estimated },
         now: Date.now(),
       });
       if (receipt) {
