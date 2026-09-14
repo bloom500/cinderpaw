@@ -87,3 +87,17 @@ failing that, in 2b. KC sparsity is reported, not gated; if it is high, APL
 **STOP** if KC overlap >= 0.30 at either k in both 2a and 2b: the mushroom body
 does not separate clean input either, CinderBrain leaves the release, and the
 release goes ahead without it.
+
+## 2026-09-15 03:30: step 2 result, and why the GO is not accepted
+
+The criterion above reads GO for 2b (KC overlap 0.007 / 0.024 < 0.30). The
+criterion is not edited. But in 2b the KCs are nearly silent: 0.3% / 0.6% of
+KCs fire in 50 ms (about 15 to 30 of 5177), against 26 to 29% in 2a and a 5 to
+10% biological range. Low overlap between almost-empty sets is separation by
+silence, the same failure the first shuffled control had. The criterion did not
+anticipate a lower bound; that gap was in the preregistration, not in the data.
+Recorded as: GO by the letter, NOT ACCEPTED as evidence that the mushroom body
+separates odors. 2a (antennal lobe intact, PNs driven directly) smears again
+(PN overlap 0.86 to 0.90, KC overlap 0.78 to 0.79): PN -> LN -> PN recurrence
+brings the antennal-lobe spread back even without ORN input.
+Nothing retuned. Decision on the next step is Darius's.
