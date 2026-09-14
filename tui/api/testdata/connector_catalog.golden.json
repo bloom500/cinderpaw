@@ -380,7 +380,7 @@
     "id": "synology-chat",
     "transport": "synology-chat",
     "name": "Synology Chat",
-    "description": "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you: on this computer set CINDERPAW_INBOUND_HOST=0.0.0.0, then give the NAS http://<this computer's LAN address>:18790/connectors/synology-chat as the outgoing webhook. Nothing leaves your network. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🗄️",
     "logo_url": "https://cdn.simpleicons.org/synology",
     "pairing_fields": [
@@ -396,7 +396,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false
   },
   {
     "id": "tlon",

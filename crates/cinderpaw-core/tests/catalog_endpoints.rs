@@ -879,6 +879,28 @@ async fn connectors_decision_d_rich_fields_present() {
                 assert!(entry.validate_endpoint.is_none(), "the transport validates against the account lookup itself");
                 assert!(entry.console_url.is_some(), "sms must point at the Twilio console");
             }
+            "synology-chat" => {
+                // Landed 2026-09-14 on the inbound receiver. The NAS is another
+                // box on the LAN, so the loopback default can never reach it:
+                // the card must name the host setting, or the connector
+                // "connects" and never hears a message.
+                assert!(entry.description.contains("address your"));
+                assert!(
+                    entry.description.contains("CINDERPAW_INBOUND_HOST") && entry.description.contains("/connectors/synology-chat"),
+                    "the Synology card must name the bind setting and the webhook path"
+                );
+                for key in ["SYNOLOGY_CHAT_WEBHOOK_URL", "SYNOLOGY_CHAT_TOKEN"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("synology-chat declares {key}"));
+                    // The incoming webhook URL carries its token in the query
+                    // string, so it is a credential too.
+                    assert!(field.secret, "synology-chat's {key} is a credential");
+                }
+                assert!(entry.validate_endpoint.is_none(), "nothing to probe: the proof is the token in each message");
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the

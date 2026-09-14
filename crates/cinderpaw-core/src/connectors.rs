@@ -723,7 +723,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "synology-chat".into(),
             device_flow: None,
             name: "Synology Chat".into(),
-            description: "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you: on this computer set CINDERPAW_INBOUND_HOST=0.0.0.0, then give the NAS http://<this computer's LAN address>:18790/connectors/synology-chat as the outgoing webhook. Nothing leaves your network. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🗄️".into(),
             logo_url: Some("https://cdn.simpleicons.org/synology".into()),
             pairing_fields: vec![
@@ -739,11 +739,9 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: InstanceToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/synology-chat.ts`
+            // on the inbound receiver; the "public" address is a LAN one.
+            coming_soon: false,
             console_url: None,
             free_tier_note: None,
             validate_endpoint: None,
