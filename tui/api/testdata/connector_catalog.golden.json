@@ -225,7 +225,7 @@
     "id": "line",
     "transport": "line",
     "name": "LINE",
-    "description": "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790 and paste https://<your host>/connectors/line as the webhook URL in the console. Replies are push messages and count against your plan's monthly quota. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "💚",
     "logo_url": "https://cdn.simpleicons.org/line",
     "pairing_fields": [
@@ -241,7 +241,7 @@
       }
     ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://developers.line.biz/console/"
   },
   {

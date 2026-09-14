@@ -121,6 +121,7 @@ writes a review arm for the newly live card by hand.
 | nextcloud-talk | that a webhook design can be re-pointed: paired as a user, polled, so it works behind a router |
 | zalo | that the HTTP status can lie: a rejected token comes back 200 with `ok:false` |
 | feishu | that a webhook connector can hide a socket the platform dials out on, and that a two-cloud product can be probed instead of asked about |
+| line | the first on the inbound receiver (`inbound.ts`): the signature is checked on the raw bytes before parsing, and the user brings the public address |
 
 Nostr is the first that needed a new dependency: `nostr-tools`, for the BIP-340
 Schnorr signature `node:crypto` does not have. It is Unlicense, so it adds
@@ -132,8 +133,9 @@ with `python scripts/openclaw/license-inventory.py`.
 Eight remain. They do not all fail for the same reason, and only one of the
 reasons is a decision:
 
-**Five need an inbound public URL** and cannot work on a home machine:
-`googlechat`, `line`, `msteams`, `sms` (Twilio) and `synology-chat`. Each is a
+**Five need an inbound public URL** and cannot work on a home machine without
+one: `googlechat`, `line` (ported 2026-09-14 on the receiver), `msteams`, `sms`
+(Twilio) and `synology-chat`. Each is a
 webhook platform: the provider POSTs to an address you own. A person running
 Cinderpaw behind a router has no such address, no certificate, and no way to
 get one without a tunnel.

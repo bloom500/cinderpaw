@@ -820,6 +820,35 @@ async fn connectors_decision_d_rich_fields_present() {
                 );
                 assert!(entry.console_url.is_some(), "feishu must point at the app console");
             }
+            "line" => {
+                // Landed 2026-09-14 on the inbound receiver. The user brings the
+                // public address (decision 2026-09-12), so the card must say
+                // three things before a token is pasted: that an address is
+                // needed, WHERE to point it (the receiver's port and path), and
+                // that replies are push messages, which LINE meters.
+                assert!(entry.description.contains("public web address"));
+                assert!(
+                    entry.description.contains("/connectors/line") && entry.description.contains("18790"),
+                    "the LINE card must name the webhook path and port, or the person has to read source to finish setup"
+                );
+                assert!(
+                    entry.description.to_lowercase().contains("quota"),
+                    "push messages are metered on LINE's free plan; the card says so"
+                );
+                for key in ["LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("line declares {key}"));
+                    assert!(field.secret, "line's {key} is a credential");
+                }
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "the transport validates the token itself against bot/info before it opens a port"
+                );
+                assert!(entry.console_url.is_some(), "line must point at the developers console");
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the

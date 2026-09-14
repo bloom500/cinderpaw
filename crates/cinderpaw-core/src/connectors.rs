@@ -493,7 +493,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "line".into(),
             device_flow: None,
             name: "LINE".into(),
-            description: "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790 and paste https://<your host>/connectors/line as the webhook URL in the console. Replies are push messages and count against your plan's monthly quota. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "💚".into(),
             logo_url: Some("https://cdn.simpleicons.org/line".into()),
             pairing_fields: vec![
@@ -509,11 +509,10 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/line.ts` on the
+            // inbound receiver (`inbound.ts`). The user still brings the public
+            // address; the card says so above.
+            coming_soon: false,
             console_url: Some("https://developers.line.biz/console/".into()),
             free_tier_note: None,
             validate_endpoint: None,
