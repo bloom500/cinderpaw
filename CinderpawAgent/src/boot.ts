@@ -16,7 +16,7 @@ import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
 import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, defaultDbPath, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
-import { AuditLog } from "./egress/audit-log.ts";
+import { AuditLog, toolCallsOfRun } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { pathWithin } from "./egress/tool-permissions.ts";
@@ -29,6 +29,8 @@ import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { UtilityLedger, rerankByUtility } from "./memory/fractal/utility.ts";
+import { runReceipt } from "./core/run-receipt.ts";
+import { appendAttempt } from "./rsi/l3-code/experiment-selector.ts";
 import { SkillLibrary, defaultSkillLibraryPath } from "./memory/fractal/skill-library.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
@@ -1441,12 +1443,43 @@ export async function boot(transportOverride?: Transport) {
      *  null = nothing was checked, which is not evidence either way. */
     verified: boolean | null = null,
   ): Promise<void> {
-    // The task closed: the memories shown during its session helped, or did
-    // not. Only a verifier's verdict counts (plan §3.3); "finished" without
-    // a done_when is the model's own word and teaches the ledger nothing.
-    if (verified !== null && utility.closed([row.sessionId], verified) > 0) saveUtility();
+    settleVerdict(row, verified);
     runStore.finish(row.id, status, reason, text);
     await deliverAndMark(runStore, row, text, deliverRunReport);
+  }
+
+  /**
+   * What a verifier's verdict teaches, on every path that ends a run: the
+   * chat and connector path (`runHooks.conclude`) and the cron and resume
+   * path (`concludeRun`). Until 14 Sep 2026 only the second called this, so
+   * a chat run with a done_when never closed the utility ledger.
+   *
+   * The task closed: the memories shown during its session helped, or did
+   * not. Only a verifier's verdict counts (plan §3.3); "finished" without
+   * a done_when is the model's own word and teaches the ledger nothing.
+   */
+  function settleVerdict(row: RunRow, verified: boolean | null): void {
+    if (verified !== null && utility.closed([row.sessionId], verified) > 0) saveUtility();
+    // The run's receipt (plan §3.1): the tool sequence the verifier judged,
+    // with what it cost. Only a run that declared a done_when writes one, so
+    // on a fresh install this file does not exist until a user asks to be
+    // checked. Separate from the L3 ledger, see core/run-receipt.ts.
+    if (verified !== null && row.doneWhen) {
+      const receipt = runReceipt({
+        doneWhen: row.doneWhen,
+        verified,
+        tools: toolCallsOfRun(db.raw, row.sessionId, row.createdAt),
+        tokens: runStore.turnsOf(row.id).reduce((sum, t) => sum + t.tokens, 0),
+        now: Date.now(),
+      });
+      if (receipt) {
+        try {
+          appendAttempt(join(dataDir, "run-receipts.jsonl"), receipt);
+        } catch (e) {
+          log(`[run-receipt] not written: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
   }
 
   /**
@@ -2219,6 +2252,7 @@ export async function boot(transportOverride?: Transport) {
       // owes exists. See `concludeRun` for why those cannot be the same moment.
       let verdictStatus: RunStatus = "unfinished";
       let verdictReason: RunStopReason = "not_continuable";
+      let verdictVerified: boolean | null = null;
       return {
         recorder: turnRecorder(row, safety, doneWhen),
         stalled: () =>
@@ -2233,6 +2267,7 @@ export async function boot(transportOverride?: Transport) {
           const check = await verifyDoneWhen(doneWhen, safety[0]?.root ?? null);
           verdictStatus = run.finished && check.passed ? "finished" : "unfinished";
           verdictReason = run.stoppedBecause;
+          verdictVerified = check.checked ? check.passed : null;
           clearIntents(sessionId);
           if (!check.checked) return null;
           return check.passed
@@ -2244,6 +2279,7 @@ export async function boot(transportOverride?: Transport) {
         // about to send. Until the connector reports back, this run counts as
         // owed, and a boot that finds it will send it.
         conclude: (reply: string) => {
+          settleVerdict(row, verdictVerified);
           runStore.finish(row.id, verdictStatus, verdictReason, reply);
         },
         // The connector says this once the message is actually out. Until then
