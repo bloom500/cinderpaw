@@ -1755,7 +1755,7 @@ function RoundButton({
  * the agent cannot load, and that failure lands inside a forked job process
  * where nobody sees it.
  */
-function ProviderToggle({
+export function ProviderToggle({
   providers,
   effective,
   willEcho,
@@ -1768,43 +1768,77 @@ function ProviderToggle({
   /** True when that provider has no key, so the far end will only echo. */
   willEcho: boolean;
   onChange: (id: string) => void;
-  t: (key: 'call.providerNoKey' | 'call.providerNone') => string;
+  t: (key: 'call.providerNoKey' | 'call.providerNone' | 'call.groupPipeline' | 'call.groupS2s') => string;
 }) {
   if (providers.length === 0) return null;
+  // Two kinds of call, then the vendor. Three flat pills put "Gemini",
+  // "OpenAI" and "Transcribe → answer → speak" side by side as if they were
+  // three vendors, when the third is a different kind of call altogether:
+  // our own STT + TTS chain, with its engines chosen elsewhere. The first row
+  // is that choice; the vendor row only appears for speech to speech.
+  const pipeline = providers.find((p) => p.pipeline) ?? null;
+  const s2s = providers.filter((p) => !p.pipeline);
+  const current = providers.find((p) => p.id === effective) ?? null;
+  const s2sSelected = current !== null && !current.pipeline;
+  // Switching to speech to speech picks the vendor that can actually answer,
+  // so the switch itself never lands on an echo when a keyed vendor exists.
+  const firstS2s = s2s.find((p) => p.connected) ?? s2s[0] ?? null;
+  const pill = (active: boolean, extra?: string) =>
+    cn(
+      'flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors',
+      active ? 'bg-brand text-on-brand' : 'text-text-muted hover:text-text-primary',
+      extra,
+    );
   return (
     <div className="flex flex-col items-center gap-2">
       <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
-        {providers.map((p) => (
+        {pipeline && (
           <button
-            key={p.id}
             type="button"
-            onClick={() => { if (p.id !== effective) onChange(p.id); }}
-            aria-pressed={p.id === effective}
-            className={cn(
-              'flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors',
-              p.id === effective
-                ? 'bg-brand text-on-brand'
-                : 'text-text-muted hover:text-text-primary',
-            )}
+            onClick={() => { if (pipeline.id !== effective) onChange(pipeline.id); }}
+            aria-pressed={current?.id === pipeline.id}
+            className={pill(current?.id === pipeline.id)}
           >
-            {p.label}
-            {/* Said on the button itself, not only in a tooltip or a log: a
-                vendor with no key produces an echo, and "why did it just repeat
-                me" is not a question the app should make somebody research. */}
-            {!p.connected && (
-              <span className={cn('text-micro', p.id === effective ? 'opacity-80' : 'text-text-disabled')}>
-                ({t('call.providerNoKey')})
-              </span>
-            )}
+            {t('call.groupPipeline')}
           </button>
-        ))}
+        )}
+        {firstS2s && (
+          <button
+            type="button"
+            onClick={() => { if (!s2sSelected) onChange(firstS2s.id); }}
+            aria-pressed={s2sSelected}
+            className={pill(s2sSelected)}
+          >
+            {t('call.groupS2s')}
+          </button>
+        )}
       </div>
+      {s2sSelected && s2s.length > 0 && (
+        <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
+          {s2s.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => { if (p.id !== effective) onChange(p.id); }}
+              aria-pressed={p.id === effective}
+              className={pill(p.id === effective)}
+            >
+              {p.label}
+              {/* Said on the button itself, not only in a tooltip or a log: a
+                  vendor with no key produces an echo, and "why did it just repeat
+                  me" is not a question the app should make somebody research. */}
+              {!p.connected && (
+                <span className={cn('text-micro', p.id === effective ? 'opacity-80' : 'text-text-disabled')}>
+                  ({t('call.providerNoKey')})
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
       {willEcho && (
         <p className="max-w-sm text-center text-xs text-text-muted">
-          {t('call.providerNone').replace(
-            '{provider}',
-            providers.find((p) => p.id === effective)?.label ?? '',
-          )}
+          {t('call.providerNone').replace('{provider}', current?.label ?? '')}
         </p>
       )}
     </div>
