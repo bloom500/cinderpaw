@@ -348,7 +348,7 @@
     "id": "sms",
     "transport": "sms",
     "name": "SMS",
-    "description": "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, paste https://<your host>/connectors/sms as the number's incoming-message webhook, and type that same URL below (Twilio signs each message with it). Every reply is a billed SMS. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "📱",
     "pairing_fields": [
       {
@@ -365,10 +365,15 @@
         "key": "TWILIO_FROM_NUMBER",
         "label": "Sending number (e.g. +15551234567)",
         "secret": false
+      },
+      {
+        "key": "TWILIO_WEBHOOK_URL",
+        "label": "Public webhook URL, exactly as pasted in Twilio (e.g. https://your.host/connectors/sms)",
+        "secret": false
       }
     ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://console.twilio.com/"
   },
   {

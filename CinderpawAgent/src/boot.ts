@@ -131,6 +131,7 @@ import "./transports/nextcloud-talk.ts";
 import "./transports/zalo.ts";
 import "./transports/feishu.ts";
 import "./transports/line.ts";
+import "./transports/sms.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";

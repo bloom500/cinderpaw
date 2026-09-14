@@ -681,7 +681,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "sms".into(),
             device_flow: None,
             name: "SMS".into(),
-            description: "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, paste https://<your host>/connectors/sms as the number's incoming-message webhook, and type that same URL below (Twilio signs each message with it). Every reply is a billed SMS. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "📱".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -700,13 +700,17 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                     label: "Sending number (e.g. +15551234567)".into(),
                     secret: false,
                 },
+                PairingFieldDef {
+                    key: "TWILIO_WEBHOOK_URL".into(),
+                    label: "Public webhook URL, exactly as pasted in Twilio (e.g. https://your.host/connectors/sms)".into(),
+                    secret: false,
+                },
             ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/sms.ts` on the
+            // inbound receiver. The public URL is a pairing field because
+            // Twilio's signature covers it.
+            coming_soon: false,
             console_url: Some("https://console.twilio.com/".into()),
             free_tier_note: None,
             validate_endpoint: None,

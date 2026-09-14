@@ -849,6 +849,36 @@ async fn connectors_decision_d_rich_fields_present() {
                 );
                 assert!(entry.console_url.is_some(), "line must point at the developers console");
             }
+            "sms" => {
+                // Landed 2026-09-14 on the inbound receiver. Twilio's signature
+                // covers the public URL, so the URL is a pairing field, not a
+                // guess; and every reply is a billed message.
+                assert!(entry.description.contains("public web address"));
+                assert!(
+                    entry.description.contains("/connectors/sms") && entry.description.contains("18790"),
+                    "the SMS card must name the webhook path and port"
+                );
+                assert!(
+                    entry.description.to_lowercase().contains("billed"),
+                    "outbound SMS costs money per message; the card says so"
+                );
+                let url = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "TWILIO_WEBHOOK_URL")
+                    .expect("sms declares TWILIO_WEBHOOK_URL: the signature cannot be checked without it");
+                assert!(!url.secret, "the public URL is not a secret and the person must be able to read it back");
+                for key in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("sms declares {key}"));
+                    assert!(field.secret, "sms's {key} is a credential");
+                }
+                assert!(entry.validate_endpoint.is_none(), "the transport validates against the account lookup itself");
+                assert!(entry.console_url.is_some(), "sms must point at the Twilio console");
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the
