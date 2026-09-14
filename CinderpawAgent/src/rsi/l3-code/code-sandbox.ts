@@ -59,7 +59,8 @@ export interface CodeSandboxTimeouts {
 }
 
 export const DEFAULT_CODE_SANDBOX_TIMEOUTS: CodeSandboxTimeouts = {
-  gitMs: 60_000,
+  // A 1500-file checkout took 7s idle on 14 Sep and blew 60s under load.
+  gitMs: 180_000,
   testsMs: 600_000,
   tscMs: 180_000,
   buildMs: 600_000,
@@ -92,6 +93,10 @@ export interface CodeEvalMeasurements {
   /** Added + removed lines, from `git apply --numstat` over the patch. */
   changedLines: number;
   durationMs: number;
+  /** The last lines the test run printed, for a verdict a person can act
+   *  on: "0 fail (exit 1)" was the whole story of the first live round on
+   *  14 Sep 2026, and it said nothing. Empty when the suite passed. */
+  testsTail?: string;
 }
 
 export type CodeEvalResult =
@@ -131,7 +136,7 @@ export async function evaluateCodePatch(
     return {
       ok: false,
       stage: "worktree_create",
-      reason: firstLine(created.stderr) || `git worktree add exited ${created.exitCode}`,
+      reason: failReason(created, "git worktree add", t.gitMs),
     };
   }
 
@@ -159,7 +164,7 @@ export async function evaluateCodePatch(
       return {
         ok: false,
         stage: "patch_apply",
-        reason: firstLine(applied.stderr) || `git apply exited ${applied.exitCode}`,
+        reason: failReason(applied, "git apply", t.gitMs),
       };
     }
 
@@ -179,6 +184,7 @@ export async function evaluateCodePatch(
         testsPassed: summary.passed,
         testsFailed: summary.failed,
         testsExitCode: tests.exitCode,
+        ...(tests.exitCode !== 0 ? { testsTail: lastLines(tests.stderr + "\n" + tests.stdout, 6) } : {}),
         tscExitCode: tsc.exitCode,
         buildExitCode: build.exitCode,
         changedLines,
@@ -236,8 +242,19 @@ export function sumNumstat(stdout: string): number {
   return total;
 }
 
-function firstLine(s: string): string {
-  return s.split("\n", 1)[0]?.trim() ?? "";
+function lastLines(s: string, n: number): string {
+  const lines = s.split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.slice(-n).join(" | ");
+}
+
+/** Why an exec failed, in words the person can act on. A timeout says so:
+ *  git prints "Preparing worktree" first and its progress after, so the
+ *  first stderr line of a killed checkout reads like success. The first
+ *  live cloud round (14 Sep) halted on exactly that line. */
+function failReason(r: ExecResult, what: string, timeoutMs: number): string {
+  if (r.timedOut) return `${what} timed out after ${Math.round(timeoutMs / 1000)}s`;
+  const line = r.stderr.split("\n").map((l) => l.trim()).find((l) => l && !/^Preparing worktree|^Updating files/.test(l));
+  return line || `${what} exited ${r.exitCode}`;
 }
 
 /** Resolve `bun`/`bunx` to the real executable path. Windows `uv_spawn`

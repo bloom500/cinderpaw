@@ -237,6 +237,8 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_RSI_STOP_ON_ACTIVITY` | bool | `false` |  | Pause RSI when the user is active. |
 | `CINDERPAW_RSI_TELEMETRY` | path | `null` |  | Telemetry JSONL file path override (default ~/.cinderpaw/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch. |
 | `CINDERPAW_CODE_RSI_REPO` | path | `null` |  | Source repo for code-RSI to propose/apply against; without it, code-RSI rounds and live-apply are unavailable. |
+| `CINDERPAW_CODE_RSI_ALLOW_CLOUD` | bool | `false` | yes | Let a code-RSI round propose with a CLOUD primary model. Off, a round needs a local model (the source of the agent is sent to the provider otherwise). On, it also needs CINDERPAW_RSI_MAX_COST_USD > 0 and stops when the proposer's spend reaches it. A research knob; the default is the product. |
+| `CINDERPAW_CODE_RSI_ROUND_ON_READY` | bool | `false` |  | Run one code-RSI round as soon as the agent is ready, instead of waiting for the Dreams trigger. For headless tests of the round; never set in the product. |
 | `CINDERPAW_MODULE_SEED` | int | `1` |  | Deterministic seed for module selection (module-host.ts). |
 | `CINDERPAW_CRON_TICK_MS` | int | `30_000` |  | Tick interval for the cron scheduler. |
 | `CINDERPAW_CRON_JOB_TIMEOUT_MS` | int | `3_600_000` |  | Max wall-clock for a single cron job, and the deadline handed to its unattended run. The old default of 5 minutes predates the agent doing multi-step work on a reasoning model, where one completion alone can take two: a scheduled job was cut off mid-task and the partial recorded as the result. One hour leaves room for a real job while still bounding a wedged one far below the mission deadline. Raise it for a scheduled overnight mission. |
@@ -356,7 +358,9 @@ CINDERPAW_BUDGET_POLICY
 CINDERPAW_BYOK_PROVIDER
 CINDERPAW_CLOUD_IDLE_TIMEOUT_MS
 CINDERPAW_CLOUD_TRANSCRIPT_BUDGET
+CINDERPAW_CODE_RSI_ALLOW_CLOUD
 CINDERPAW_CODE_RSI_REPO
+CINDERPAW_CODE_RSI_ROUND_ON_READY
 CINDERPAW_CRON_JOB_TIMEOUT_MS
 CINDERPAW_CRON_TICK_MS
 CINDERPAW_DB

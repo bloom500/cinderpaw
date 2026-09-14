@@ -120,7 +120,9 @@ export function contractLeavesForCodePatch(
       if (m.testsFailed > 0 || m.testsExitCode !== 0) {
         return {
           ok: false,
-          reason: `worktree tests failed: ${m.testsFailed} fail (exit ${m.testsExitCode})`,
+          reason:
+            `worktree tests failed: ${m.testsFailed} fail (exit ${m.testsExitCode})` +
+            (m.testsTail ? `: ${m.testsTail}` : ""),
         };
       }
       return { ok: true };

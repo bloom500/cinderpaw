@@ -246,6 +246,11 @@ describe("proposal operator — pure pieces", () => {
     expect(parseEditBlocks("no blocks here")).toBeNull();
   });
 
+  test("applyEditBlocks: a CRLF source takes an LF block and keeps CRLF (every rsi/ file on a Windows checkout)", () => {
+    const src = "one\r\ntwo\r\nthree\r\n";
+    expect(applyEditBlocks(src, [{ search: "two\nthree", replace: "2\n3" }])).toBe("one\r\n2\r\n3\r\n");
+  });
+
   test("applyEditBlocks: unique match applies; missing or ambiguous → null", () => {
     const src = "one\ntwo\nthree\n";
     expect(applyEditBlocks(src, [{ search: "two", replace: "2" }])).toBe("one\n2\nthree\n");

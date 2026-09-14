@@ -1985,8 +1985,26 @@ export async function boot(transportOverride?: Transport) {
     const repoRoot = cfgPath("CINDERPAW_CODE_RSI_REPO");
     if (!repoRoot || codeRsiBusy) return;
     if (!router.isPrimaryLocal) {
-      log("code-rsi: skipped — proposal requires a LOCAL primary model (spec §2.5)");
-      return;
+      // A cloud proposer sends the agent's own source to a provider, so it is
+      // opt-in, and a paid round needs a ceiling a human wrote (recursive
+      // learning spec §11). The ceiling is enforced on what the provider
+      // reported (completion_cost.cost_usd, or the blended estimate), summed
+      // over every proposer completion so far.
+      const capUsd = Number(readEnv("CINDERPAW_RSI_MAX_COST_USD") ?? 0);
+      if (!cfgBool("CINDERPAW_CODE_RSI_ALLOW_CLOUD")) {
+        log("code-rsi: skipped — proposal requires a LOCAL primary model (spec §2.5); CINDERPAW_CODE_RSI_ALLOW_CLOUD=true opts in");
+        return;
+      }
+      if (!(capUsd > 0)) {
+        log("code-rsi: skipped — a cloud round needs CINDERPAW_RSI_MAX_COST_USD > 0 (spec §11)");
+        return;
+      }
+      const spent = costOfRun(db.raw, "code-rsi-proposer", 0);
+      if (spent.usd >= capUsd) {
+        log(`code-rsi: skipped — proposer spend $${spent.usd.toFixed(4)}${spent.estimated ? " (estimated)" : ""} reached the cap $${capUsd}`);
+        return;
+      }
+      log(`code-rsi: CLOUD proposer — the agent's source leaves this machine; spent $${spent.usd.toFixed(4)} of $${capUsd}`);
     }
     codeRsiBusy = true;
     try {
@@ -2003,6 +2021,7 @@ export async function boot(transportOverride?: Transport) {
       // Tokens the proposer spent this round: the observed cost the
       // self-model scores its `expectedCost` against.
       let proposerTokens = 0;
+      let proposerText = "";
       let asked: { file: string; question: string } | null = null;
       let settled: number | null = null;
       const genome = await proposeCodePatch({
@@ -2034,10 +2053,20 @@ export async function boot(transportOverride?: Transport) {
             temperature: 0.4,
             cachePrompt: false,
             skipBudgetCheck: false,
+            // A reasoning model spends the answer budget thinking: the first
+            // live cloud round (14 Sep, GLM 5.3 flash) used all 4096 tokens
+            // and emitted nothing diff-shaped, which read as "nothing to
+            // propose". Low effort, and say so when it still runs out.
+            reasoningEffort: "low",
           });
           proposerTokens += res.totalTokens ?? 0;
+          proposerText = res.content;
+          if (res.completionTokens >= maxTokens) {
+            log(`code-rsi: proposer output hit maxTokens=${maxTokens}; a SKIP after this is the cut, not the model's verdict`);
+          }
           return res.content;
         },
+        maxTokens: 16384,
         // R2: rsi/ is now layered into subdirs (l1-config/, l3-code/, …), so
         // this must recurse and return rsi/-relative paths (e.g.
         // "l1-config/mutation.ts") — readRsiFile/proposeCodePatch already
@@ -2069,7 +2098,11 @@ export async function boot(transportOverride?: Transport) {
         return;
       }
       if (!genome) {
-        log("code-rsi: proposer declined (SKIP / nothing diff-shaped) — no candidate this round");
+        // The decline carries its text: "SKIP" is the model's verdict, anything
+        // else is a reply the parser could not read, which is our bug, not
+        // its opinion. One line, trimmed, so the log tells the two apart.
+        const said = proposerText.replace(/<think>[\s\S]*?<\/think>/g, "").trim().replace(/\s+/g, " ");
+        log(`code-rsi: proposer declined (${said === "SKIP" ? "said SKIP" : "nothing diff-shaped"}) — no candidate this round; it said: ${said.slice(0, 400) || "(empty)"}`);
         sendCodePatches({ at: Date.now(), target: "", verdict: "no candidate", reason: "The proposer had nothing to suggest this round." });
         return;
       }
@@ -2638,6 +2671,9 @@ export async function boot(transportOverride?: Transport) {
     // Chaining on the reload promise waits for the real signal instead of
     // guessing with a timer.
     void connectors.reload().then(() => resumeInterrupted());
+    // One round on demand, for a headless test of the code-RSI path; the
+    // product's trigger is the Dreams cycle.
+    if (cfgBool("CINDERPAW_CODE_RSI_ROUND_ON_READY")) void maybeCodeRsiRound();
 
     // Dream Cycle: arm the event-driven scheduler ONLY when the user opted
     // in (CINDERPAW_DREAMS_ENABLED=true, the master switch from Settings)
