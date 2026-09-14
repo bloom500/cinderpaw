@@ -56,7 +56,6 @@ export class LifSim extends DenseLif {
       this.refr[i] === 0 &&
       Math.abs(this.v[i]! - this.pack.manifest.simParams.vRest) <= V_EPS &&
       Math.abs(this.g[i]!) <= G_EPS &&
-      Math.abs(this.x[i]!) <= G_EPS &&
       this.iExt[i] === 0
     );
   }
@@ -71,7 +70,6 @@ export class LifSim extends DenseLif {
         this.isActive[i] = 0;
         this.v[i] = vRest;
         this.g[i] = 0;
-        this.x[i] = 0;
       } else {
         this.active[keep++] = i;
       }

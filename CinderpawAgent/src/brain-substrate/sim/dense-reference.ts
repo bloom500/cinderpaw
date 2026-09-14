@@ -1,8 +1,21 @@
 /**
  * DenseLif: the correctness oracle for LifSim. Every neuron is updated every
  * step, O(N) per step with no active set, so nothing can be skipped by
- * mistake. Same dynamics as lif.ts (spec section 3): LIF with alpha synapses,
- * exponential Euler, Shiu 2024 parameters from the pack manifest.
+ * mistake. Same dynamics as lif.ts (spec section 3), and the same equations as
+ * the reference Brian2 model of Shiu et al. 2024
+ * (github.com/philshiu/Drosophila_brain_model, model.py):
+ *
+ *   dv/dt = (v_0 - v + g) / t_mbr     (unless refractory)
+ *   dg/dt = -g / tau                  (unless refractory)
+ *   on a presynaptic spike, after the delay:  g += w        (w = sign * synapses * 0.275 mV)
+ *   on threshold:  v = v_rst, g = 0, refractory 2.2 ms
+ *
+ * g is a voltage; one spike through a weight w adds w * tau / t_mbr = w / 4
+ * to the membrane integral. The plan's original kernel fed an alpha function
+ * into v without the 1 / t_mbr and integrated to 5 w: a 20x gain that made
+ * every pack run away (measured 2026-09-14). External input is a held drive in
+ * mV per ms, so a sensory neuron at 2 mV/ms fires near the 150 Hz the
+ * reference model gives its Poisson-driven neurons.
  *
  * Never run this on FlyWire; it exists so tests/brain-sim.test.ts can prove
  * the sparse simulator equals it to 1e-3 on the fixture circuit.
@@ -20,7 +33,6 @@ export class DenseLif {
   protected readonly ringLen: number;
   protected v: Float32Array;
   protected g: Float32Array;
-  protected x: Float32Array;
   protected refr: Int32Array;
   protected iExt: Float32Array;
   protected spikes: Int32Array;
@@ -44,7 +56,6 @@ export class DenseLif {
     this.ringLen = this.delaySteps + 1;
     this.v = new Float32Array(this.n).fill(p.vRest);
     this.g = new Float32Array(this.n);
-    this.x = new Float32Array(this.n);
     this.refr = new Int32Array(this.n);
     this.iExt = new Float32Array(this.n);
     this.spikes = new Int32Array(this.n);
@@ -86,7 +97,6 @@ export class DenseLif {
   resetState(): void {
     this.v.fill(this.pack.manifest.simParams.vRest);
     this.g.fill(0);
-    this.x.fill(0);
     this.refr.fill(0);
     for (const slot of this.pending) slot.length = 0;
     this.t = 0;
@@ -117,7 +127,7 @@ export class DenseLif {
     return this.spikeTotal;
   }
 
-  /** Spikes due this step land on their targets' rising synaptic state. */
+  /** Spikes due this step land on their targets' synaptic drive. */
   protected deliver(): void {
     const slot = this.pending[this.t % this.ringLen]!;
     if (slot.length === 0) return;
@@ -131,7 +141,7 @@ export class DenseLif {
   }
 
   protected onArrival(target: number, w: number): void {
-    this.x[target] = this.x[target]! + w;
+    this.g[target] = this.g[target]! + w;
   }
 
   protected fire(i: number): void {
@@ -142,18 +152,18 @@ export class DenseLif {
 
   /** One neuron, one dt. Shared with the sparse sim so the two can only differ in who gets updated. */
   protected updateNeuron(i: number): void {
-    const p = this.pack.manifest.simParams;
-    this.g[i] = this.g[i]! * this.eS + this.x[i]! * (this.dt / p.tauS);
-    this.x[i] = this.x[i]! * this.eS;
     if (this.refr[i]! > 0) {
+      // "unless refractory": v and g are frozen; arrivals still add to g
       this.refr[i]!--;
-      this.v[i] = p.vRest;
       return;
     }
-    const drive = this.g[i]! + this.iExt[i]!;
-    this.v[i] = p.vRest + (this.v[i]! - p.vRest) * this.eM + drive * p.tauM * (1 - this.eM);
-    if (this.v[i]! >= p.vThresh) {
+    const p = this.pack.manifest.simParams;
+    this.g[i] = this.g[i]! * this.eS;
+    // exponential Euler on dv/dt = (vRest - v + g) / tauM + iExt, g held over the step
+    this.v[i] = p.vRest + (this.v[i]! - p.vRest) * this.eM + (this.g[i]! + this.iExt[i]! * p.tauM) * (1 - this.eM);
+    if (this.v[i]! > p.vThresh) {
       this.v[i] = p.vRest;
+      this.g[i] = 0;
       this.refr[i] = this.refrSteps;
       this.fire(i);
     }

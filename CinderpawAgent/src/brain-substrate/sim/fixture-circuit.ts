@@ -4,8 +4,8 @@
  *
  * Neuron ids and wiring (synapse count, sign):
  *
- *   0..7    sensory        s -> kc 8 + (3s + j) mod 12, j in 0..2     6, +
- *   8..19   kc             k -> mbon 20 + (k mod 4), 20 + ((k+1) mod 4)  5, +   (plastic)
+ *   0..7    sensory        s -> kc 8 + (3s + j) mod 12, j in 0..2     40, +
+ *   8..19   kc             k -> mbon 20 + (k mod 4), 20 + ((k+1) mod 4)  40, +  (plastic)
  *   20..23  mbon           20, 21 approach; 22, 23 avoidance
  *   24..27  dan            d -> mbon 20 + (d - 24)                       3, +
  *                          24, 25 approach; 26, 27 avoidance
@@ -14,7 +14,9 @@
  *   36..39  neuromodulator m -> ring 28 + 2(m - 36), 28 + 2(m - 36) + 1  5, +
  *
  * Compartments: one per MBON, danIds = the two DANs of that MBON's valence.
- * Weight = sign * count * SHIU_2024.wSyn.
+ * Weight = sign * count * SHIU_2024.wSyn. Synapse counts on the sensory -> kc
+ * -> mbon path are 40 so that a few inputs at ~150 Hz carry a neuron over the
+ * 7 mV threshold under the reference gain (w * tauS / tauM per spike).
  */
 import { SHIU_2024, type BrainPack, type Compartment, type Manifest } from "../pack/types.ts";
 
@@ -30,10 +32,10 @@ export function fixtureCircuit(): BrainPack {
   const wSyn = SHIU_2024.wSyn;
   // [src, dst, signed synapse count]
   const edges: [number, number, number][] = [];
-  for (const s of SENSORY) for (let j = 0; j < 3; j++) edges.push([s, KC[(3 * s + j) % 12]!, 6]);
+  for (const s of SENSORY) for (let j = 0; j < 3; j++) edges.push([s, KC[(3 * s + j) % 12]!, 40]);
   for (const k of KC) {
-    edges.push([k, MBON[(k - 8) % 4]!, 5]);
-    edges.push([k, MBON[(k - 8 + 1) % 4]!, 5]);
+    edges.push([k, MBON[(k - 8) % 4]!, 40]);
+    edges.push([k, MBON[(k - 8 + 1) % 4]!, 40]);
   }
   for (const d of DAN) edges.push([d, MBON[d - 24]!, 3]);
   for (const r of RING) {
