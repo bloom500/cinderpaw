@@ -134,6 +134,7 @@ import "./transports/line.ts";
 import "./transports/sms.ts";
 import "./transports/synology-chat.ts";
 import "./transports/googlechat.ts";
+import "./transports/msteams.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";

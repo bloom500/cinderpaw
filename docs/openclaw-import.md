@@ -125,6 +125,7 @@ writes a review arm for the newly live card by hand.
 | sms | that a signature can cover the public URL itself, so the URL becomes a pairing field the person types, not something the receiver can infer |
 | synology-chat | that "a public address" can be a LAN address, and that a loopback default is then a silent failure the card has to pre-empt |
 | googlechat | that a proof can be a signed token instead of a shared secret: RS256 against published certificates, with `node:crypto` and no dependency |
+| msteams | that a token can name where replies may go (`serviceurl`), and that a card with no pairing fields is coming_soon by another name |
 
 Nostr is the first that needed a new dependency: `nostr-tools`, for the BIP-340
 Schnorr signature `node:crypto` does not have. It is Unlicense, so it adds
@@ -137,8 +138,8 @@ Eight remain. They do not all fail for the same reason, and only one of the
 reasons is a decision:
 
 **Five need an inbound public URL** and cannot work on a home machine without
-one: `line`, `sms`, `synology-chat` and `googlechat` (all ported 2026-09-14 on
-the receiver) and `msteams`. Each is a
+one: `line`, `sms`, `synology-chat`, `googlechat` and `msteams`, all ported
+2026-09-14 on the receiver (`CinderpawAgent/src/transports/inbound.ts`). Each is a
 webhook platform: the provider POSTs to an address you own. A person running
 Cinderpaw behind a router has no such address, no certificate, and no way to
 get one without a tunnel.

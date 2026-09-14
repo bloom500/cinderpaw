@@ -930,6 +930,34 @@ async fn connectors_decision_d_rich_fields_present() {
                 assert!(entry.validate_endpoint.is_none(), "the transport buys a token with the key before it opens a port");
                 assert!(entry.console_url.is_some(), "googlechat must point at the Chat API page");
             }
+            "msteams" => {
+                // Landed 2026-09-14 on the inbound receiver. The card had NO
+                // pairing fields before, which is its own kind of coming_soon;
+                // now it asks for what the Bot Framework needs and says the
+                // admin install is part of the price.
+                assert!(entry.description.contains("public web address"));
+                assert!(
+                    entry.description.contains("/connectors/msteams") && entry.description.contains("18790"),
+                    "the Teams card must name the messaging endpoint path and port"
+                );
+                assert!(entry.description.contains("administrator"), "an admin install is the real cost; say it");
+                let pw = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "MSTEAMS_APP_PASSWORD")
+                    .expect("msteams declares the app password");
+                assert!(pw.secret, "the app password is a credential");
+                for key in ["MSTEAMS_APP_ID", "MSTEAMS_TENANT_ID"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("msteams declares {key}"));
+                    assert!(!field.secret, "{key} is an identifier the person must be able to read back");
+                }
+                assert!(entry.validate_endpoint.is_none(), "the transport buys a token with the credentials before it opens a port");
+                assert!(entry.console_url.is_some(), "msteams must point at the developer portal");
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the

@@ -292,11 +292,27 @@
     "id": "msteams",
     "transport": "msteams",
     "name": "Microsoft Teams",
-    "description": "Microsoft Teams, through the Teams SDK. Needs a public web address you provide, and an administrator who can install the app into your tenant. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "Microsoft Teams, as a Bot Framework bot. Needs a public web address you provide, and an administrator who can install the app into your tenant: register an Azure Bot, set its messaging endpoint to https://<your host>/connectors/msteams (point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790), enable the Teams channel, and paste the app id and a client secret below. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🟦",
-    "pairing_fields": [],
+    "pairing_fields": [
+      {
+        "key": "MSTEAMS_APP_ID",
+        "label": "Microsoft App ID",
+        "secret": false
+      },
+      {
+        "key": "MSTEAMS_APP_PASSWORD",
+        "label": "Client secret (app password)",
+        "secret": true
+      },
+      {
+        "key": "MSTEAMS_TENANT_ID",
+        "label": "Tenant ID (single-tenant bots only; leave blank otherwise)",
+        "secret": false
+      }
+    ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://dev.teams.microsoft.com/apps"
   },
   {

@@ -592,16 +592,31 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "msteams".into(),
             device_flow: None,
             name: "Microsoft Teams".into(),
-            description: "Microsoft Teams, through the Teams SDK. Needs a public web address you provide, and an administrator who can install the app into your tenant. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "Microsoft Teams, as a Bot Framework bot. Needs a public web address you provide, and an administrator who can install the app into your tenant: register an Azure Bot, set its messaging endpoint to https://<your host>/connectors/msteams (point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790), enable the Teams channel, and paste the app id and a client secret below. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🟦".into(),
             logo_url: None,
-            pairing_fields: Vec::new(),
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "MSTEAMS_APP_ID".into(),
+                    label: "Microsoft App ID".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "MSTEAMS_APP_PASSWORD".into(),
+                    label: "Client secret (app password)".into(),
+                    secret: true,
+                },
+                PairingFieldDef {
+                    key: "MSTEAMS_TENANT_ID".into(),
+                    label: "Tenant ID (single-tenant bots only; leave blank otherwise)".into(),
+                    secret: false,
+                },
+            ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/msteams.ts` on
+            // the inbound receiver. The card had no fields at all before; a
+            // person could not have paired it even once the code existed.
+            coming_soon: false,
             console_url: Some("https://dev.teams.microsoft.com/apps".into()),
             free_tier_note: None,
             validate_endpoint: None,
