@@ -58,9 +58,12 @@ measured too slow on the FlyWire pack.
   - `plasticEdges`: `[start, end)` ranges in the CSR that are KC→MBON. Only these
     may ever carry a learned delta.
   - `sha256` per file.
-- `csr.bin`: `rowPtr Int32`, `colIdx Int32`, `weight Float32` (sign already applied
-  from neurotransmitter prediction; magnitude = synapse count × per-synapse weight).
-  No JSON for large numerics.
+- `csr.bin`: `rowPtr Int32`, `colIdx Int32`, `weight Float32`. `weight` is the
+  **signed effective structural weight of the connection**,
+  `sign × synCount × W_syn` (W_syn = 0.275 mV from `simParams`), so a
+  connection made of 40 synapses is 8× stronger than one made of 5. It is
+  NOT a per-synapse weight; the synapse count is folded in at build time and
+  `synCount` is not stored separately. No JSON for large numerics.
 - `ATTRIBUTION.md`: citations and the derived-work notice.
 
 ### 2.2 Learned state, separate from the pack
@@ -134,20 +137,33 @@ Every off state carries its reason on screen, not only in a log.
 Leaky integrate-and-fire with α-synapses, parameters from Shiu et al. 2024 as
 used by flypoke, carried in the manifest's `simParams` so a future pack can
 override them: rest −52 mV, threshold −45 mV, τ_membrane 20 ms, τ_synapse 5 ms,
-refractory 2.2 ms, delay 1.8 ms, 0.275 mV per synapse, dt 0.1 ms, exponential
-Euler. Event-driven: only neurons that spiked propagate along their CSR row.
-Deterministic under a seed. The sim exposes `inject(population, currentVector)`,
+refractory 2.2 ms, delay 1.8 ms, W_syn 0.275 mV per synapse, dt 0.1 ms,
+exponential Euler. Spike propagation is sparse over the CSR (only neurons that
+spiked traverse their row), but membrane potential and synaptic conductance
+evolve continuously for every neuron (`dv/dt`, `dg/dt` with τ_membrane and
+τ_synapse) and must preserve the Shiu LIF/α-synapse dynamics; "event-driven"
+refers to edge traversal, never to skipping state decay. Lazy state updates
+or vectorised stepping are implementation choices, benchmarked for
+correctness against a dense reference on the fixture circuit (§8.5a) and for
+speed on FlyWire. Deterministic under a seed. The sim exposes `inject(population, currentVector)`,
 `step(ms)`, `rates(population)` and nothing species-specific.
 
 ## 4. Plasticity
 
 - Only on the CSR ranges the manifest declares as `plasticEdges` (KC→MBON). Any
   edge outside those ranges has a learned delta of exactly 0, always.
-- Rule: dopamine-gated Hebbian. After a turn, if the turn produced a positive
-  receipt, the `dan` population is driven; the delta on a KC→MBON edge changes
-  by `η · pre_rate · post_rate · dan_gate`, sign per the pack's compartment
-  convention. No receipt → no change. Negative receipt drives an inhibitory
-  subset and depresses the same way.
+- Rule: a configurable dopamine-gated KC→MBON learning rule, chosen at
+  implementation time from published Drosophila mushroom-body models after
+  research, not invented here. In the fly this plasticity is
+  compartment-specific and frequently depressive (reward depresses the
+  KC→MBON synapses onto avoidance-coding MBONs, punishment depresses those
+  onto approach-coding MBONs), with valence and timing carried by which DANs
+  fire. It must NOT be described or implemented as generic Hebbian
+  strengthening. The pack manifest therefore carries, per plastic range, the
+  MBON valence and the DAN subset that gates it. A positive receipt drives the
+  reward DANs, a negative receipt the punishment DANs; no receipt → no change.
+  The rule name and its parameters are in `plasticity.rule` and are part of
+  `plasticitySchemaVersion`.
 - `base_weight` (from the pack) and `learned_delta` are stored and logged
   separately; the effective weight is their sum at load time and after each
   update. `|learned_delta|` is clamped per edge (`plasticity.maxDelta`, default
