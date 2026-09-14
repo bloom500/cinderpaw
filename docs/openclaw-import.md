@@ -134,8 +134,9 @@ with `python scripts/openclaw/license-inventory.py`.
 
 ### What is left, and the one thing blocking most of it
 
-Eight remain. They do not all fail for the same reason, and only one of the
-reasons is a decision:
+Three remain (18 of 21 are live as of 2026-09-14). The five webhook platforms
+below were the eight's largest group, and they shipped on one receiver in one
+day once the decision was made; what follows records why they were blocked:
 
 **Five need an inbound public URL** and cannot work on a home machine without
 one: `line`, `sms`, `synology-chat`, `googlechat` and `msteams`, all ported
