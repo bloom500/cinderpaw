@@ -270,17 +270,22 @@
     "id": "googlechat",
     "transport": "googlechat",
     "name": "Google Chat",
-    "description": "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, and in the Chat API configuration set the HTTP endpoint URL to https://<your host>/connectors/googlechat with the project number as the authentication audience. Needs a Google Cloud project with the Chat API enabled and a service account key. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🔷",
     "pairing_fields": [
       {
         "key": "GOOGLE_CHAT_SERVICE_ACCOUNT",
         "label": "Service account JSON",
         "secret": true
+      },
+      {
+        "key": "GOOGLE_CHAT_PROJECT_NUMBER",
+        "label": "Cloud project number (digits only; on the project dashboard)",
+        "secret": false
       }
     ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://console.cloud.google.com/apis/library/chat.googleapis.com"
   },
   {

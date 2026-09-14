@@ -36,6 +36,7 @@ import "../src/transports/feishu.ts";
 import "../src/transports/line.ts";
 import "../src/transports/sms.ts";
 import "../src/transports/synology-chat.ts";
+import "../src/transports/googlechat.ts";
 
 interface CatalogEntry {
   id: string;

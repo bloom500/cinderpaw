@@ -901,6 +901,35 @@ async fn connectors_decision_d_rich_fields_present() {
                 }
                 assert!(entry.validate_endpoint.is_none(), "nothing to probe: the proof is the token in each message");
             }
+            "googlechat" => {
+                // Landed 2026-09-14 on the inbound receiver. Google's bearer
+                // token is issued for the project NUMBER, which the key file
+                // does not contain, so it is a field; and the setup needs a
+                // Cloud project, which the card must say before anyone starts.
+                assert!(entry.description.contains("public web address"));
+                assert!(
+                    entry.description.contains("/connectors/googlechat") && entry.description.contains("18790"),
+                    "the Google Chat card must name the endpoint path and port"
+                );
+                assert!(
+                    entry.description.contains("Google Cloud project"),
+                    "a Cloud project is the real setup cost; say it up front"
+                );
+                let number = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "GOOGLE_CHAT_PROJECT_NUMBER")
+                    .expect("googlechat declares GOOGLE_CHAT_PROJECT_NUMBER: the token audience");
+                assert!(!number.secret, "a project number is not a secret and must be readable back");
+                let key = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "GOOGLE_CHAT_SERVICE_ACCOUNT")
+                    .expect("googlechat declares the service account key");
+                assert!(key.secret, "the service account JSON holds a private key");
+                assert!(entry.validate_endpoint.is_none(), "the transport buys a token with the key before it opens a port");
+                assert!(entry.console_url.is_some(), "googlechat must point at the Chat API page");
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the

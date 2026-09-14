@@ -560,7 +560,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "googlechat".into(),
             device_flow: None,
             name: "Google Chat".into(),
-            description: "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, and in the Chat API configuration set the HTTP endpoint URL to https://<your host>/connectors/googlechat with the project number as the authentication audience. Needs a Google Cloud project with the Chat API enabled and a service account key. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🔷".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -569,13 +569,17 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                     label: "Service account JSON".into(),
                     secret: true,
                 },
+                PairingFieldDef {
+                    key: "GOOGLE_CHAT_PROJECT_NUMBER".into(),
+                    label: "Cloud project number (digits only; on the project dashboard)".into(),
+                    secret: false,
+                },
             ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/googlechat.ts`
+            // on the inbound receiver. The project number is a field because
+            // Google's bearer token is issued for it, and it is not in the key.
+            coming_soon: false,
             console_url: Some("https://console.cloud.google.com/apis/library/chat.googleapis.com".into()),
             free_tier_note: None,
             validate_endpoint: None,
