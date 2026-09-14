@@ -55,8 +55,13 @@ measured too slow on the FlyWire pack.
     `mbon`, `dan`, `persistent-state`, `neuromodulator`; `sensory-visual` reserved.
     A pack may omit roles; each seam refuses to activate without the roles it
     needs and says so on screen.
-  - `plasticEdges`: `[start, end)` ranges in the CSR that are KC→MBON. Only these
-    may ever carry a learned delta.
+  - `compartments`: `[{id, mbonValence: "approach" | "avoidance", danIds}]`,
+    the mushroom-body compartments the plasticity rule is gated by.
+  - `plastic.bin` (sibling file): `edgeIdx Int32Array` (positions into
+    `colIdx`/`weight` that are KC→MBON), `src Int32Array` (the KC of each),
+    `compartment Int8Array` (index into `compartments`). Only these edge
+    positions may ever carry a learned delta. An explicit list, not CSR
+    ranges: a KC row mixes MBON and non-MBON targets, so ranges cannot name them.
   - `sha256` per file.
 - `csr.bin`: `rowPtr Int32`, `colIdx Int32`, `weight Float32`. `weight` is the
   **signed effective structural weight of the connection**,
@@ -70,7 +75,7 @@ measured too slow on the FlyWire pack.
 
 `~/.cinderpaw/brain/state/<packId>/`
 
-- `learned_delta.bin`: `Float32Array` over the plastic edge ranges only.
+- `learned_delta.bin`: `Float32Array` parallel to `plastic.bin`'s `edgeIdx`.
 - `cx_state.bin`: membrane state of the `persistent-state` population.
 - `meta.json`: `packSha256` (of `csr.bin`), `plasticitySchemaVersion`, `updatedAt`.
 
@@ -90,10 +95,13 @@ directory and nothing else. Replacing a connectome never migrates learned state.
   octopaminergic for `neuromodulator`, antennal-lobe projection neurons as the
   default `sensory` set) → `csr.bin` + manifest. Output uploaded to the GitHub
   release as `cinderbrain-flywire-783-v1.tar.zst`.
-- **larva** (Winding et al. 2023, ~3k neurons): same script, same roles, output
-  committed to `CinderpawAgent/test-fixtures/brain/larva/` if its data license
-  allows redistribution; otherwise built in CI from the official source. To
-  verify at implementation time.
+- **larva** (Winding et al. 2023, ~3k neurons): same script, roles `sensory`,
+  `kc`, `mbon`, `dan`, `neuromodulator`. No `persistent-state`: the larval
+  central complex is immature (it develops in the pupa), so the control-dial's
+  CI tests run on a hand-built fixture circuit (§8.5a), not on the larva.
+  Output committed to `CinderpawAgent/tests/fixtures/brain/larva/`. License:
+  the author manuscript on PMC (PMC7614541) is CC BY 4.0; the fixture ships
+  with its own `ATTRIBUTION.md`.
 
 ### 2.4 Licensing (verified 2026-09-14)
 
@@ -122,13 +130,14 @@ is named).
   "CinderBrain: downloading the FlyWire pack (42 MB)".
 - Installed atomically: `<id>.partial` → verify sha256 → unpack to temp dir →
   validate manifest + CSR (row pointers monotone, indices in range, populations
-  in range, plastic ranges inside the CSR) → atomic rename to `packs/<id>/`. A
+  in range, plastic edge positions inside the CSR) → atomic rename to `packs/<id>/`. A
   crash at any step leaves either the previous pack intact or no pack, never a
   partial one.
 - Loaded → "CinderBrain: active · 139,255 neurons" (shown after load, not after download).
 - Hash mismatch → pack removed, "CinderBrain: off, corrupt pack, retrying".
 - No network → "CinderBrain: off, no connection; the agent works normally".
-- `CINDERPAW_BRAIN=0` → off, for benchmarks and CI.
+- `CINDERPAW_CINDERBRAIN=0` → off, for benchmarks and CI. (`CINDERPAW_BRAIN` is
+  already the Brain Stack router's switch and is not reused.)
 
 Every off state carries its reason on screen, not only in a log.
 
@@ -150,8 +159,8 @@ speed on FlyWire. Deterministic under a seed. The sim exposes `inject(population
 
 ## 4. Plasticity
 
-- Only on the CSR ranges the manifest declares as `plasticEdges` (KC→MBON). Any
-  edge outside those ranges has a learned delta of exactly 0, always.
+- Only on the edge positions `plastic.bin` declares (KC→MBON). Any edge not
+  in that list has a learned delta of exactly 0, always.
 - Rule: a configurable dopamine-gated KC→MBON learning rule, chosen at
   implementation time from published Drosophila mushroom-body models after
   research, not invented here. In the fly this plasticity is
@@ -166,8 +175,10 @@ speed on FlyWire. Deterministic under a seed. The sim exposes `inject(population
   `plasticitySchemaVersion`.
 - `base_weight` (from the pack) and `learned_delta` are stored and logged
   separately; the effective weight is their sum at load time and after each
-  update. `|learned_delta|` is clamped per edge (`plasticity.maxDelta`, default
-  = base per-synapse weight × 4). Delta is resettable by "Reset brain".
+  update. `learned_delta` is clamped per edge to `[−min(maxDelta, |base|), 0]`:
+  a depressive rule can weaken a synapse to silence but never flip its sign
+  or strengthen it beyond the pack (`plasticity.maxDelta` defaults to
+  `|base|`). Delta is resettable by "Reset brain".
 - `plasticity=off` is a first-class flag for benchmarks.
 
 ## 5. The two seams
@@ -273,7 +284,7 @@ Larva runs in CI. FlyWire runs locally once before release.
 
 ## 8. Tests (larva fixture, CI)
 
-1. **bit-for-bit**: same conversation under `CINDERPAW_BRAIN=0`, pack missing,
+1. **bit-for-bit**: same conversation under `CINDERPAW_CINDERBRAIN=0`, pack missing,
    and seam off → identical inference request JSON (params, messages, recall
    list). Compares requests, not model replies.
 2. **pack-roundtrip**: build larva → load → neuron/edge counts, signs,
