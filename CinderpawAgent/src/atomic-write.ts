@@ -27,12 +27,14 @@ function tmpPathFor(filePath: string): string {
 }
 
 // ponytail: write-temp + fsync + rename. Atomic on POSIX; best-effort on Windows.
-export function atomicWriteFileSync(filePath: string, contents: string): void {
+export function atomicWriteFileSync(filePath: string, contents: string | Uint8Array): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tmp = tmpPathFor(filePath);
   const fd = fs.openSync(tmp, "w");
   try {
-    fs.writeSync(fd, contents);
+    // Two calls, not one: writeSync's overloads take a string or a buffer, never the union.
+    if (typeof contents === "string") fs.writeSync(fd, contents);
+    else fs.writeSync(fd, contents);
     fs.fsyncSync(fd);
   } finally {
     fs.closeSync(fd);
