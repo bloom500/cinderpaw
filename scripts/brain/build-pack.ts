@@ -7,11 +7,12 @@
  *
  * --wsyn overrides simParams.wSyn (weights are sign * synCount * wSyn, so the
  * whole csr.bin is rebuilt with it). The larva allows at most one such
- * adjustment, in Task 2. The flywire adapter arrives in Task 6.
+ * adjustment, in Task 2.
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildLarvaPack, LARVA_ATTRIBUTION } from "../../CinderpawAgent/src/brain-substrate/pack/adapters/larva.ts";
+import { buildFlyWirePack, FLYWIRE_ATTRIBUTION, type FlyWireBuildReport } from "../../CinderpawAgent/src/brain-substrate/pack/adapters/flywire.ts";
 import { writePackFiles } from "../../CinderpawAgent/src/brain-substrate/pack/write.ts";
 import { loadPack } from "../../CinderpawAgent/src/brain-substrate/pack/load.ts";
 import type { PackFiles } from "../../CinderpawAgent/src/brain-substrate/pack/types.ts";
@@ -26,7 +27,7 @@ const src = arg("src");
 const out = arg("out");
 const wsynRaw = arg("wsyn");
 if (!adapter || !src || !out) {
-  console.error("usage: bun scripts/brain/build-pack.ts --adapter larva --src <dir> --out <dir> [--wsyn <number>]");
+  console.error("usage: bun scripts/brain/build-pack.ts --adapter larva|flywire --src <dir> --out <dir> [--wsyn <number>]");
   process.exit(2);
 }
 const wSyn = wsynRaw === undefined ? undefined : Number(wsynRaw);
@@ -39,8 +40,13 @@ let files: PackFiles, attribution: string;
 if (adapter === "larva") {
   files = buildLarvaPack(src, { wSyn });
   attribution = LARVA_ATTRIBUTION;
+} else if (adapter === "flywire") {
+  const report: FlyWireBuildReport = { droppedUnannotated: 0, unknownTransmitter: 0, belowFloor: 0 };
+  files = buildFlyWirePack(src, { wSyn, report });
+  attribution = FLYWIRE_ATTRIBUTION;
+  console.log(`flywire build: ${JSON.stringify(report)}`);
 } else {
-  console.error(`unknown adapter "${adapter}"; only "larva" exists yet (flywire comes in Task 6)`);
+  console.error(`unknown adapter "${adapter}"; known: larva, flywire`);
   process.exit(2);
 }
 
