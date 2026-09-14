@@ -360,6 +360,18 @@ re-run the same pilot so the two selectors are compared under one manifest.
   - §3.5 spec: `2026-09-14-learner-evolution-design.md` (the live denylist
     never changes; successors only inside a campaign; preconditions unmet).
   - §3.6 is a measurement, not a build, unchanged.
+- 14 Sep, day, §3.1 live induction CLOSED on a real machine (`3421a41`,
+  `5bb0e6d`, `3349d25`): a run with a `done_when` writes a receipt to
+  `data/run-receipts.jsonl` (file = tool sequence from audit_log, condition
+  = `done_when:<kind>`, cost = tokens both ways + USD reported by OpenRouter
+  or estimated and flagged); `induceFromReceipts` runs after each one into the
+  learned library. Third real run: `proc-05492f27` = list_directory >
+  write_file > read_file for `done_when:file_contains`, held-out passed.
+  Found on the way: `runHooks.conclude` (chat, connectors) bypassed
+  `concludeRun`, so the §3.3 ledger never closed on chat runs; fixed with
+  `settleVerdict` on both paths. `run_turns.tokens` is completion tokens
+  only. Left in §3.1: nothing reads a learned procedure back into the
+  prompt (the menu lists it; the model must call read_skill).
 
 ## 6. Order
 
