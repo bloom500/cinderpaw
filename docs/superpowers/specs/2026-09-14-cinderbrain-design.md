@@ -28,8 +28,8 @@ imports between them except through the types in `pack/`:
 | Piece | Job | Knows about |
 |---|---|---|
 | `pack/` | `BrainPack` type, manifest schema, loader + validator, atomic installer, and the build-time adapters (`flywire`, `larva`) | nothing else |
-| `sim/` | event-driven LIF over a `BrainPack` (Shiu et al. 2024 parameters) | `pack/` |
-| `plasticity/` | dopamine-gated Hebbian delta on the declared plastic edges only; learned state persisted separately from the pack | `pack/`, `sim/` |
+| `sim/` | LIF with sparse spike propagation over a `BrainPack` (Shiu et al. 2024 parameters) | `pack/` |
+| `plasticity/` | compartment-specific, dopamine-gated KC→MBON delta on the declared plastic edges only (§4); learned state persisted separately from the pack | `pack/`, `sim/` |
 | `seams/` | `memory-rerank` (into `Recaller`) and `control-dial` (into `#championParams`), each with a kill switch | all three above, plus the two existing agent-loop inlets |
 
 Runtime: TypeScript over typed arrays (`Int32Array` CSR, `Float32Array`
