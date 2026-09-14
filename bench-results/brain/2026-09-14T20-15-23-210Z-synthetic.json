@@ -1,0 +1,158 @@
+[
+  {
+    "condition": "real",
+    "plasticity": true,
+    "seed": 1,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.575,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 63.729166666666664
+  },
+  {
+    "condition": "real",
+    "plasticity": false,
+    "seed": 1,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.5,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 0
+  },
+  {
+    "condition": "dense",
+    "plasticity": true,
+    "seed": 1,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.575,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 82.87499999999999
+  },
+  {
+    "condition": "shuffled",
+    "plasticity": true,
+    "seed": 1,
+    "shuffleSeed": 1001,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.575,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 77.41666666666667
+  },
+  {
+    "condition": "shuffled",
+    "plasticity": true,
+    "seed": 1,
+    "shuffleSeed": 1002,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.575,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 77.02083333333333
+  },
+  {
+    "condition": "real",
+    "plasticity": true,
+    "seed": 2,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.575,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 62.19791666666665
+  },
+  {
+    "condition": "real",
+    "plasticity": false,
+    "seed": 2,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.5,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 0
+  },
+  {
+    "condition": "dense",
+    "plasticity": true,
+    "seed": 2,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.575,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 83.32291666666667
+  },
+  {
+    "condition": "shuffled",
+    "plasticity": true,
+    "seed": 2,
+    "shuffleSeed": 1001,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.575,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 79.16666666666664
+  },
+  {
+    "condition": "shuffled",
+    "plasticity": true,
+    "seed": 2,
+    "shuffleSeed": 1002,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.575,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 76.91666666666667
+  },
+  {
+    "condition": "real",
+    "plasticity": true,
+    "seed": 3,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.375,
+    "kcSparsity": 0.9996527777777783,
+    "meanShiftHz": 62.593749999999964
+  },
+  {
+    "condition": "real",
+    "plasticity": false,
+    "seed": 3,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.5,
+    "kcSparsity": 0.9996527777777783,
+    "meanShiftHz": 0
+  },
+  {
+    "condition": "dense",
+    "plasticity": true,
+    "seed": 3,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.375,
+    "kcSparsity": 0.9996527777777783,
+    "meanShiftHz": 83.86458333333331
+  },
+  {
+    "condition": "shuffled",
+    "plasticity": true,
+    "seed": 3,
+    "shuffleSeed": 1001,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.375,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 78.48958333333333
+  },
+  {
+    "condition": "shuffled",
+    "plasticity": true,
+    "seed": 3,
+    "shuffleSeed": 1002,
+    "pairs": 40,
+    "interference": 80,
+    "accuracy": 0.375,
+    "kcSparsity": 1.0000000000000004,
+    "meanShiftHz": 77.69791666666667
+  }
+]

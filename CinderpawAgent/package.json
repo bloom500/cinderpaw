@@ -42,6 +42,7 @@
     "start": "bun run src/index.ts",
     "dev": "bun --watch run src/index.ts",
     "typecheck": "bunx tsc --noEmit",
+    "brain:bench": "bun run src/brain-substrate/bench/run.ts",
     "build": "bun build src/index.ts --compile --outfile dist/cinderpaw-agent",
     "build:js": "bun build src/index.ts --target=bun --outfile dist/cinderpaw-agent.js",
     "package:win": "node scripts/package-win.mjs"
