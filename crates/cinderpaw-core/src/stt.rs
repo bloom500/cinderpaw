@@ -110,6 +110,49 @@ pub fn resolve(preferred: Option<&str>) -> Option<&'static str> {
     known.first().map(|m| m.id)
 }
 
+/// A cloud transcriber: where to POST the OpenAI-shaped multipart form, which
+/// model to name, and which BYOK id holds the key.
+///
+/// One table for the two callers (the Tauri command and the gateway route),
+/// which each used to carry their own `match` with Groq hard-wired. Adding a
+/// vendor meant editing both, and the day one was edited and the other was
+/// not, the desktop mic and the LiveKit pipeline would disagree about which
+/// clouds exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CloudStt {
+    pub endpoint: &'static str,
+    pub model: &'static str,
+    /// The BYOK id whose key is sent. `openrouter` reuses the chat key on
+    /// purpose: it is one account and one bill, and asking for it twice would
+    /// only produce two copies that can disagree.
+    pub key_provider: &'static str,
+    /// Whether the vendor accepts Whisper's `prompt` vocabulary hint and
+    /// `response_format=verbose_json`. Only sent where known to be accepted; an
+    /// unknown field is a 400 on some gateways, which reads as a broken mic.
+    pub whisper_extras: bool,
+}
+
+pub fn cloud(provider: &str) -> Option<CloudStt> {
+    match provider {
+        "groq" => Some(CloudStt {
+            endpoint: "https://api.groq.com/openai/v1/audio/transcriptions",
+            model: "whisper-large-v3",
+            key_provider: "groq",
+            whisper_extras: true,
+        }),
+        "openrouter" => Some(CloudStt {
+            endpoint: "https://openrouter.ai/api/v1/audio/transcriptions",
+            // Fish Audio's transcriber, routed by OpenRouter: automatic
+            // language detection, billed per second on the same OpenRouter
+            // account the chat side already uses.
+            model: "fish-audio/transcribe-1",
+            key_provider: "openrouter",
+            whisper_extras: false,
+        }),
+        _ => None,
+    }
+}
+
 /// Transcribe 16 kHz mono f32 PCM with the on-device model `id`.
 ///
 /// Blocking and CPU-bound: call it from `spawn_blocking`. Both callers do.

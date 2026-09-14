@@ -360,6 +360,19 @@ pub fn catalog() -> Vec<TtsEngine> {
                 "Hosted. OpenAI, Groq, or any /v1/audio/speech endpoint. Set your own base URL and model.",
             )
         },
+        TtsEngine {
+            needs_key: true,
+            // Fixed endpoint; the model is a choice (Fish S2.1 Pro by default,
+            // any TTS model OpenRouter lists), and the voice is a Fish
+            // reference id typed in the voice field.
+            needs_model: true,
+            console_url: Some("https://openrouter.ai/settings/keys".into()),
+            ..engine(
+                openai_compat::OPENROUTER_ID,
+                "OpenRouter",
+                "Hosted. Fish Audio S2.1 Pro and other TTS models through your OpenRouter key, the same one the chat side uses. Voice = a Fish reference id.",
+            )
+        },
     ]
 }
 
@@ -400,6 +413,16 @@ pub struct EngineConfig<'a> {
     pub model: Option<&'a str>,
 }
 
+/// The BYOK id whose key an engine sends.
+///
+/// Every engine but one keys on its own id. OpenRouter's TTS row reuses the
+/// `openrouter` chat key: one account, one bill, and a person who already
+/// pasted it for chat should not be asked for it a second time under a
+/// second name, where the two copies can then disagree.
+pub fn key_provider(id: &str) -> &str {
+    if id == openai_compat::OPENROUTER_ID { "openrouter" } else { id }
+}
+
 /// Does the engine `id` need an API key? `None` when `id` is not a TTS engine.
 ///
 /// Exists because the BYOK save path guards "enabled without a key" and had no
@@ -438,6 +461,7 @@ pub fn from_id(id: &str, cfg: EngineConfig) -> Result<Box<dyn TtsProvider>> {
             azure::ID => Ok(Box::new(azure::AzureTts::new(&cfg)?)),
             elevenlabs::ID => Ok(Box::new(elevenlabs::ElevenLabsTts::new(&cfg))),
             openai_compat::ID => Ok(Box::new(openai_compat::OpenAiCompatTts::new(&cfg))),
+            openai_compat::OPENROUTER_ID => Ok(Box::new(openai_compat::OpenAiCompatTts::openrouter(&cfg))),
             // Unreachable while the catalog and this match agree; the test below
             // is what keeps them agreeing.
             other => anyhow::bail!("TTS provider {other:?} is catalogued but not wired"),

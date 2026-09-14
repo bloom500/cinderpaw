@@ -71,9 +71,19 @@ pub(crate) fn save_byok_provider(
     // pressing Save was refused with "paste the key" for a key that does not
     // exist and never will. It only worked on a machine where some record had
     // already been written by hand.
-    let api_key = api_key.trim().to_string();
+    let mut api_key = api_key.trim().to_string();
     let keyless = cinderpaw_core::tts::needs_api_key(&provider_id) == Some(false);
-    if enabled && !keyless && api_key.is_empty() && byok::byok_get(&provider_id).is_none() {
+    // A voice engine that sends another record's key (OpenRouter's TTS row
+    // sends the `openrouter` chat key). A key pasted on that row goes to the
+    // keychain entry the engine actually reads, and the row itself keeps only
+    // its voice and model; otherwise the paste lands under a name nothing
+    // reads and the call echoes with "no key" on screen.
+    let key_owner = cinderpaw_core::tts::key_provider(&provider_id).to_string();
+    if key_owner != provider_id && !api_key.is_empty() {
+        byok::byok_set(&key_owner, &api_key).map_err(|e| e.to_string())?;
+        api_key.clear();
+    }
+    if enabled && !keyless && api_key.is_empty() && byok::byok_get(&key_owner).is_none() {
         return Err(format!(
             "{provider_id} cannot be enabled without an API key — paste the key, or leave the provider off"
         ));

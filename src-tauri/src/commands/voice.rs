@@ -445,17 +445,14 @@ pub(crate) async fn transcribe_audio_cloud(
     // none, because it makes you conclude confidently and wrongly. That cost two
     // rounds of debugging tonight, on two separate labels.
     tracing::info!(provider = %provider, path = %audio_path, "stt: cloud transcribe requested");
-    let key = byok::byok_get(&provider).ok_or_else(|| {
-        tracing::warn!(provider = %provider, "stt: no key stored for this provider");
+    // One table with the gateway route (`stt::cloud`), so the desktop mic and
+    // the LiveKit pipeline can never disagree about which clouds exist.
+    let cloud = cinderpaw_core::stt::cloud(&provider).ok_or_else(|| "stt-cloud-failed".to_string())?;
+    let key = byok::byok_get(cloud.key_provider).ok_or_else(|| {
+        tracing::warn!(provider = %provider, key = cloud.key_provider, "stt: no key stored for this provider");
         "stt-no-key".to_string()
     })?;
-
-    // Endpoint per provider. Only Groq (whisper-large-v3) is wired today; the
-    // `provider` arg keeps the call site stable when more are added.
-    let endpoint = match provider.as_str() {
-        "groq" => "https://api.groq.com/openai/v1/audio/transcriptions",
-        _ => return Err("stt-cloud-failed".into()),
-    };
+    let endpoint = cloud.endpoint;
 
     // Only a blob this app recorded is ours to upload. `audio_path` arrives
     // from the webview, and without this the command reads any file on the
@@ -496,19 +493,20 @@ pub(crate) async fn transcribe_audio_cloud(
     let language = request_language(language);
     tracing::info!(sending = language.as_deref().unwrap_or("<none>"), "stt: language");
 
-    let mut form = reqwest::multipart::Form::new()
-        .text("model", "whisper-large-v3")
-        // `verbose_json` so the response carries the language it decided on. That
-        // answer is the input to the next request's hint.
-        .text("response_format", "verbose_json")
-        // Proper nouns Whisper has never seen, so it approximates them phonetically:
-        // "Cinderpaw" came back as Mouth, Molaus, Paula and Mose across one evening of
-        // testing, and each miss became a message the agent had to answer as if it
-        // were a different word. The prompt field is a vocabulary hint, not an
-        // instruction — it biases decoding toward these spellings when the audio is
-        // ambiguous, which is exactly the failure being fixed.
-        .text("prompt", PROPER_NOUNS)
-        .part("file", part);
+    let mut form = reqwest::multipart::Form::new().text("model", cloud.model).part("file", part);
+    if cloud.whisper_extras {
+        form = form
+            // `verbose_json` so the response carries the language it decided on. That
+            // answer is the input to the next request's hint.
+            .text("response_format", "verbose_json")
+            // Proper nouns Whisper has never seen, so it approximates them phonetically:
+            // "Cinderpaw" came back as Mouth, Molaus, Paula and Mose across one evening of
+            // testing, and each miss became a message the agent had to answer as if it
+            // were a different word. The prompt field is a vocabulary hint, not an
+            // instruction — it biases decoding toward these spellings when the audio is
+            // ambiguous, which is exactly the failure being fixed.
+            .text("prompt", PROPER_NOUNS);
+    }
     if let Some(lang) = language.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
         form = form.text("language", lang.to_string());
     }
@@ -802,7 +800,7 @@ pub(crate) async fn download_tts_voice(
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn tts_has_key(provider_id: String) -> bool {
-    byok::byok_get(&provider_id).is_some_and(|k| !k.trim().is_empty())
+    byok::byok_get(tts::key_provider(&provider_id)).is_some_and(|k| !k.trim().is_empty())
 }
 
 /// Can this engine actually speak right now?
@@ -842,7 +840,7 @@ pub(crate) fn tts_ready(state: State<AppState>, provider_id: String) -> bool {
     }
 
     if entry.needs_key {
-        return byok::byok_get(&provider_id).is_some_and(|k| !k.trim().is_empty());
+        return byok::byok_get(tts::key_provider(&provider_id)).is_some_and(|k| !k.trim().is_empty());
     }
     true
 }
@@ -858,7 +856,7 @@ fn engine_for(state: &AppState, provider_id: &str) -> Result<Box<dyn tts::TtsPro
     tts::from_id(
         provider_id,
         tts::EngineConfig {
-            api_key: &byok::byok_get(provider_id).unwrap_or_default(),
+            api_key: &byok::byok_get(tts::key_provider(provider_id)).unwrap_or_default(),
             base_url: stored.and_then(|c| c.base_url.as_deref()),
             model: stored.and_then(|c| c.default_model.as_deref()),
         },
