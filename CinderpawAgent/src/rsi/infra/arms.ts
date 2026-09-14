@@ -42,7 +42,7 @@
 import type { ArmFn, ArmRun, FixtureTask } from "./campaign.ts";
 import { REPAIRS, checkRepo, rngOf, type Fixture, type Repair, type Repo } from "./fixtures.ts";
 import { selectExperiment, type Attempt } from "../l3-code/experiment-selector.ts";
-import { SkillLibrary, induceProcedure } from "../../memory/fractal/skill-library.ts";
+import { SkillLibrary, induceFromReceipts } from "../../memory/fractal/skill-library.ts";
 import { UtilityLedger, utilityScore } from "../../memory/fractal/utility.ts";
 
 /** What the arm remembers about one attempt. Kept in the same shape as an
@@ -187,30 +187,6 @@ export interface ArmOptions {
 }
 
 export type ArmKind = "fixed" | "fms" | "fms-u" | "brsi" | "brsi-c" | "both" | "skilled";
-
-/**
- * Induce one procedure per condition from the learning-phase receipts. The
- * receipts of each condition are split by time: the last third is held
- * out, so a step that only worked on the tasks it was fitted to is refused
- * the way `skill-library.ts` refuses it.
- */
-export function induceFromReceipts(receipts: Receipt[], library: SkillLibrary): number {
-  const byCondition = new Map<string, Receipt[]>();
-  for (const r of receipts) if (r.condition) byCondition.set(r.condition, [...(byCondition.get(r.condition) ?? []), r]);
-  let induced = 0;
-  for (const rows of byCondition.values()) {
-    const sorted = [...rows].sort((x, y) => x.ts - y.ts);
-    const cut = Math.max(1, Math.floor((sorted.length * 2) / 3));
-    const out = induceProcedure({
-      train: sorted.slice(0, cut),
-      heldOut: sorted.slice(cut),
-      verifiedBy: "checkRepo",
-      methodVersion: "m0.2",
-    });
-    if (out.skill && library.add(out.skill).added) induced++;
-  }
-  return induced;
-}
 
 function makeArm(kind: ArmKind, opts: ArmOptions = {}): ArmFn {
   const maxAttempts = opts.maxAttempts ?? REPAIRS.length;

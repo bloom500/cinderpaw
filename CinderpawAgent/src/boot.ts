@@ -29,10 +29,10 @@ import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { UtilityLedger, rerankByUtility } from "./memory/fractal/utility.ts";
-import { runReceipt } from "./core/run-receipt.ts";
+import { RUN_RECEIPT_METHOD, runReceipt } from "./core/run-receipt.ts";
 import { costOfRun } from "./core/cost-report.ts";
-import { appendAttempt } from "./rsi/l3-code/experiment-selector.ts";
-import { SkillLibrary, defaultSkillLibraryPath } from "./memory/fractal/skill-library.ts";
+import { appendAttempt, readAttempts } from "./rsi/l3-code/experiment-selector.ts";
+import { SkillLibrary, defaultSkillLibraryPath, induceFromReceipts } from "./memory/fractal/skill-library.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getActiveWorkspaceId } from "./memory/workspaces.ts";
@@ -1477,7 +1477,17 @@ export async function boot(transportOverride?: Transport) {
       });
       if (receipt) {
         try {
-          appendAttempt(join(dataDir, "run-receipts.jsonl"), receipt);
+          const ledger = join(dataDir, "run-receipts.jsonl");
+          appendAttempt(ledger, receipt);
+          // Live induction (plan §3.1): with enough receipts under one
+          // condition, the step they verified becomes a learned procedure in
+          // the skills menu. Needs held-out, so nothing appears before the
+          // second verified run of a kind; a fresh install lists nothing.
+          const induced = induceFromReceipts(readAttempts(ledger), learnedSkills, {
+            verifiedBy: "done_when",
+            methodVersion: RUN_RECEIPT_METHOD,
+          });
+          if (induced > 0) log(`[skills] learned ${induced} procedure(s) from verified runs: ${receipt.condition}`);
         } catch (e) {
           log(`[run-receipt] not written: ${e instanceof Error ? e.message : String(e)}`);
         }
