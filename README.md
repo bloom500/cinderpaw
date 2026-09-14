@@ -1,3 +1,5 @@
+
+
 <p align="center">
   <img src="frontend-react/public/README%20banner.jpeg" alt="Cinderpaw — your local-first AI workspace" width="100%" />
 </p>
@@ -76,7 +78,7 @@ Linux `.deb`/`.rpm` — is on the
 
 ### Just the CLI (npm)
 
-Want the terminal agent without the desktop app? One command, any OS:
+Want the terminal agent without the desktop app? One command, any OS (Node.js 18+):
 
 ```bash
 npm install -g cinderpaw-agent
