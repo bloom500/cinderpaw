@@ -70,5 +70,8 @@
   },
   "overrides": {
     "undici": ">=8.9.0"
+  },
+  "dependencies": {
+    "zca-js": "2.1.2"
   }
 }
