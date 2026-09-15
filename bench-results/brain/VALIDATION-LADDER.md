@@ -265,3 +265,61 @@ git alone does not prove the order for this follow-up.
 Summary: G3 = FAIL as preregistered (criterion window too early); the model reproduces Eq 12,
 Eq 15 asymptotics, the Figure 5 trends, gamma ~ 1.5 and an Olsen-range Rmax with k = 5 Hz/nS.
 It is usable as the reference AL rate model for G4. Nothing was tuned.
+
+## 2026-09-15 21:45: Variant 1, step G4 (local and global inhibition, still no electrical synapses), design and criteria before any code measures
+
+G3 stays FAIL as preregistered; G3b' and the Rmax / gamma diagnostic are supporting evidence,
+not a verdict (Darius, 15 Sep). G4 does not interpret G2's sensitivity as proof that inhibition
+will fix it.
+
+### Mechanisms added to the FlyWire LIF (subclass AlSim; LifSim unchanged)
+1. **Patchy LNs as graded compartments.** Cells: PATCHY variant, see below. A patchy cell never
+   spikes. It has one compartment per glomerulus it has assigned synapses in (glomerulus
+   attribution frozen at commit 93cfabc). Each compartment has v and g with exactly the Shiu
+   2024 membrane and synapse kernel, no threshold, no reset, no coupling between compartments
+   (coupling is a separate question, per round-1 answer D). A pack edge onto a patchy cell is
+   split across that cell's compartments in proportion to its assigned synapses per glomerulus;
+   unassigned synapses (6%) are distributed in the same proportions.
+   **Output, no fitted parameter:** each compartment releases at an expected rate
+   f = (1000 / refractoryMs) * clamp((v - vRest) / (vThresh - vRest), 0, 1) Hz, delivered every
+   step as w * frac(glomerulus) * f * dt to its targets' g, using only that cell's edges assigned
+   to the same glomerulus. This is the expected value of the spiking output at that depolarisation
+   under the model's own ceiling, stated as an assumption, not biology.
+2. **Presynaptic inhibition on ORN terminals.** Every ALLN -> ORN edge that is inhibitory under
+   the label set stops adding current to the ORN membrane. It feeds a presynaptic variable gPre
+   of that ORN (same tauS kernel). Each ORN has p with tau_p dp/dt = -p + 1 / (1 + |gPre| / gHalf),
+   tau_p = 300 ms (Liu et al. 2021, the only published value), p(0) = 1, and every outgoing edge
+   of that ORN delivers w * p. gHalf has no published value: GRID gHalf in {1, 4, 16} mV, primary 4.
+
+### Conditions
+Label sets: CORRECTED-U+, CORRECTED-U-, TYPE-CONSENSUS/T+, TYPE-CONSENSUS/T-.
+Mechanisms: BASE (none), PATCHY, PRESYN, BOTH.
+PATCHY variants: all lLN2P (primary), lLN2P_a only, lLN2P_b only, lLN2P_c only.
+Primary setting = patchy all lLN2P, gHalf 4 mV.
+
+### Protocols (seed 1, ORN drive 2 mV/ms as in steps 1 and G2)
+- P1 FOCAL: each glomerulus with ORNs, alone, 50 ms.
+- P2 DISTRIBUTED: 5 test glomeruli drawn once (seed 1) from the 23 Hallem-covered glomeruli; for
+  each, its ORNs driven plus n public glomeruli (n in {0, 4, 16}, drawn once per test glomerulus,
+  seed 1, excluding it), 300 ms; readout = mean rate of the test glomerulus's uniglomerular PNs
+  over 50-300 ms, and mean p of its ORNs at 300 ms.
+- P3 OVERLAP: exactly step 1 (k = 3 and 8), reported for every condition, not gated.
+
+### Q1, is the inhibition local where it should be? (PATCHY and BOTH conditions)
+For each focal stimulation and each patchy cell with a compartment in the stimulated glomerulus:
+ratio = mean (v - vRest) over 50 ms in that compartment / mean over the cell's other compartments.
+LOCAL if the median ratio over all (stimulation, cell) pairs is >= 3.
+
+### Q2, does distributed input produce the global component of gain control? (PRESYN and BOTH)
+GLOBAL if, averaged over the 5 test glomeruli: PN readout strictly decreases from n = 0 to 4 to 16,
+AND R(16) / R(0) is at least 0.10 lower than the same ratio in BASE for the same label set, AND
+mean ORN p strictly decreases with n.
+
+### Q3, is it robust to the label uncertainty?
+- Q1 ROBUST if LOCAL in all 4 label sets for every PATCHY variant, in both PATCHY and BOTH.
+- Q2 ROBUST if GLOBAL in all 4 label sets at every gHalf, in both PRESYN and BOTH (primary patchy).
+- A result that passes in the primary setting for all 4 label sets but not across the grid or
+  variants is reported "holds, parameter-sensitive". Anything else is "not robust".
+No label set, variant or gHalf is selected afterwards; every row is reported.
+G4 answers only Q1-Q3. Whether V1 is becoming a coherent nervous system is decided by Darius after
+reading the full table, before any electrical synapse is built.
