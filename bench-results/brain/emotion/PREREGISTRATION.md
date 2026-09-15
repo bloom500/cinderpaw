@@ -70,3 +70,13 @@ uninformative, which is NOT evidence for the real wiring.
 - PRESENT only: "emotion-like states from a spiking fruit-fly brain model" and nothing about the
   wiring being the reason.
 - Not present: no emotion claim from the fly model.
+
+## Clarification, 2026-09-15, before any code measures (not a change of threshold)
+The simulator has no noise, so with no input every baseline rate is exactly 0. Two criteria compare
+against a multiple of a baseline: they are read as "<= max(2 x baseline, 0.1 Hz)" for the whole-brain
+return in P3, and the NEUTRAL comparison in P1 and S as "Delta >= max(2 x Delta_NEUTRAL, 0.1 Hz)".
+P3 persistence bins: the first two 50 ms bins after offset (200-300 ms) must both exceed Delta / e;
+"back by 2000 ms" is the last bin (1950-2000 ms). Shuffle: whole-brain, targets permuted among edges
+of the same weight sign (keeps every neuron's in-degree and out-degree and every edge's sign and
+weight; duplicates and self-loops are allowed and counted). The MB-only shuffle in sim/shuffle.ts
+does not apply to taste input and is not used.
