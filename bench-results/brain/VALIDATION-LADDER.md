@@ -197,3 +197,37 @@ Observation only, no verdict: the 17 tied cells alone move uni PN overlap by 0.1
 antennal lobe as modelled is very sensitive to the sign of a few LNs, which reads as a network
 near a runaway threshold rather than one with robust gain control. It is exploratory and does
 not replace the G2 extremes. Nothing retuned.
+
+## 2026-09-15 21:00: Variant 1, step G3 (reference AL rate model, Liu et al. 2021), criteria before measuring
+
+Why: the round-1 answer (variant1/03) asks for a published model reproduced first, to verify
+equations, units and parameters before anything is wired into FlyWire. Source read from the
+Europe PMC XML (PMC8568954), equations 1-5 and 12, Table 1, and the Figure 4/5 captions. An
+automated summary of the same paper had the presynaptic-inhibition and STP equations WRONG;
+only the XML is used.
+
+**What CANNOT be reproduced, stated before running:** Figure 2's fit to Olsen et al. 2010 (the
+16 / 15 data points exist only as plotted symbols, the public ORN rate of each line was a free
+fitted parameter not listed, and Table 1 gives no tau_p and no k). Figure 5's agreement with Kim
+et al. 2015 is also plot-only. G3 therefore checks the implementation, not agreement with data.
+
+**Model, exactly Eqs 1-5:** dR_PN/dt = -R_PN/tauE + k wEE u+ x p R; dR_LN/dt = -R_LN/tauE +
+k wIE sum_j R_j; tau_p dp/dt = -p + 1/(1 + rho R_LN); dx/dt = (1-x)/tauD - x u+ p R;
+du-/dt = -u-/tauF + U (1-u-) p R; u+ = u- + U (1-u-). Initial x = p = 1, rest 0.
+**Unit convention (an inference, not stated in the paper):** seconds and Hz, weights enter as
+k * w with k = 5 Hz/nS (the only k given, Figure 5), so A = k rho wIE tauE as in the supplement.
+
+**G3a, analytic consistency (gated):** Table 1 DL5 and VM7 parameters, tau_p = 300 ms (the only
+tau_p given), constant private R in {5, 10, 20, 50, 100, 200} Hz, public sum in {0, 100, 500} Hz,
+forward Euler dt = 0.05 ms for 10 s. PASS if the final R_PN is within 1% of Equation 12 in every
+case, and within 1% again at dt = 0.1 ms (step-size check).
+**G3b, text claims with the Figure 4/5 parameter set (gated):** U 0.24, public 0, wEE 75 nS,
+wIE 21 nS, tauE 55 ms, rho 8 ms, tau_p 300 ms, tauF 50 ms, tauD 100 ms.
+- Ramp R = K t, K in {50, 100, 200, 400} Hz/s: PASS if R_PN at t = 3 s differs by <= 10% across K
+  ("adapted responses are independent of K") and is within 10% of Equation 15 with R_eff* = 1/A.
+- Triangle, same peak ORN rate 200 Hz for every K, rise at K then fall at the same |K|: PASS if
+  PN peak value increases monotonically with K and PN peaks before the input peak for every K.
+**G3c, reported not gated:** effective Hill coefficient of the 500 ms average PN response vs R
+at public 0, DL5 and VM7 Table 1 parameters (the paper's gamma_a ~ 1.5 was fitted to data).
+If G3a or G3b fails, the unit convention or the implementation is wrong: fix the cause, never a
+parameter, and record it as a new dated section.
