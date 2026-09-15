@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { knnLabel } from "../src/brain-substrate/bench/al-synapses.ts";
 import { alnLabel, nullJaccard, typeConsensus } from "../src/brain-substrate/bench/labels.ts";
 
 describe("G2 ALLN label rule", () => {
@@ -26,5 +27,12 @@ describe("G2-X type consensus", () => {
   it("a literature label anywhere in the type wins, ties and untyped cells stay uncertain", () => {
     expect(typeConsensus([c("B", "serotonin"), c("B", "gaba", 0.2, "acetylcholine")])).toEqual([1, 1]);
     expect(typeConsensus([c("C", "gaba"), c("C", "dopamine"), c("", "gaba")])).toEqual(["uncertain", "uncertain", "uncertain"]);
+  });
+});
+
+describe("AL synapse glomerulus vote", () => {
+  it("majority wins, a tie goes to the label of the nearest point", () => {
+    expect(knnLabel([1, 2, 3], [7, 8, 8])).toEqual({ label: 8, agree: 2 / 3 });
+    expect(knnLabel([5, 1, 2, 3], [7, 8, 7, 8])).toEqual({ label: 8, agree: 0.5 });
   });
 });
