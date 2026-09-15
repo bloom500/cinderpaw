@@ -346,3 +346,11 @@ Observations only, not tested: (a) PN saturation under the 2 mV/ms ORN drive cap
 inhibition can show in the + sets; (b) turning lLN2P from spiking into graded cells may REMOVE net
 inhibition, since spiking lLN2P fired toward the 450 Hz ceiling; either would need its own
 preregistered test. Nothing retuned. Electrical synapses NOT started; decision is Darius's.
+
+## 2026-09-15 23:40: VARIANT 1 STOPPED AT G4 (Darius)
+
+Decision by Darius after reading G4: Variant 1 stops at G4. Electrical synapses (G5) are not
+built. CinderBrain may not delay the release. Two follow-ups, both outside the release path:
+(1) a memory-order headroom experiment with a real LLM, prepared with a cost estimate and NOT run
+until he approves (bench-results/memory-order/); (2) resolving the transmitter sign of the
+uncertain antennal-lobe local neurons, as a separate research track.
