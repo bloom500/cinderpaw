@@ -231,3 +231,37 @@ wIE 21 nS, tauE 55 ms, rho 8 ms, tau_p 300 ms, tauF 50 ms, tauD 100 ms.
 at public 0, DL5 and VM7 Table 1 parameters (the paper's gamma_a ~ 1.5 was fitted to data).
 If G3a or G3b fails, the unit convention or the implementation is wrong: fix the cause, never a
 parameter, and record it as a new dated section.
+
+## 2026-09-15 21:20: step G3 result, and one follow-up written before running it
+
+Run: bench-results/brain/variant1/g3/. **G3a PASS** (0.000% worst error at both dt), but it is
+weaker than it looks: a forward-Euler fixed point equals the analytic steady state at any dt,
+and k scales both sides, so G3a verifies the algebra of Eqs 1-5 vs Eq 12, not the unit
+convention and not the integrator. **G3b triangle PASS** (peak 96 -> 180 Hz with K, always
+before the input peak). **G3b ramp FAIL as preregistered:** spread across K at t = 3 s is 10.1%
+(limit 10%), worst deviation from Eq 15 9.1%. **VERDICT G3 = FAIL** stands.
+
+Cause found, not a parameter: Eq 14 says R_eff = K t / (A K (t - tauE) + 1) reaches 1/A only when
+A K t >> 1. With A = k rho wIE tauE = 0.0462 /Hz, the slowest ramp (K = 50) has A K t ~ 6.9 at
+3 s, so R_eff is still ~11% below 1/A. The 3 s window in the criterion was too early for K = 50;
+the implementation agrees with the paper's own asymptotics. The criterion is not edited.
+
+G3c, reported: log-log slope at half-max 0.76 (DL5) / 0.75 (VM7). **Correction of the wording in
+G3c, not of the number:** for a Hill function the log-log slope at half-max is gamma / 2, so these
+slopes imply gamma ~ 1.52 / 1.50, against the paper's gamma_a ~ 1.5. A diagnostic, run after the
+FAIL and labelled as such: with k = 5 Hz/nS the 500 ms average saturates at 176 Hz (DL5) and
+197 Hz (VM7); with k = 1 at 35 / 39 Hz. Olsen 2010 reports Rmax 144-170 Hz. So k = 5 is the
+convention consistent with the paper's Figure 2; k = 1 is not.
+
+**Follow-up G3b', criteria before running:** same ramps and parameters, evaluated at the time
+where A K (t - tauE) = 50 for the slowest ramp (t = 21.7 s; ORN rates there are unphysical, this
+checks the asymptotics only). PASS if spread across K <= 10% and every value within 10% of Eq 15.
+G3's FAIL is not overwritten by it; both are reported.
+
+G3b' result: at t = 21.7 s, R_PN 95.05 / 95.73 / 96.07 / 96.24 Hz for K = 50 / 100 / 200 / 400;
+spread 1.2%, worst deviation from Eq 15 1.0%: **PASS**. Disclosure: the G3b' section above was
+written to this file before the run, but committed together with its result in one commit, so
+git alone does not prove the order for this follow-up.
+Summary: G3 = FAIL as preregistered (criterion window too early); the model reproduces Eq 12,
+Eq 15 asymptotics, the Figure 5 trends, gamma ~ 1.5 and an Olsen-range Rmax with k = 5 Hz/nS.
+It is usable as the reference AL rate model for G4. Nothing was tuned.
