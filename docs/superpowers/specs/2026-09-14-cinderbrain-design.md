@@ -2,6 +2,49 @@
 
 Date: 2026-09-14. Status: design approved in conversation, awaiting written review.
 
+## 00. Thesis, frozen 2026-09-15 (supersedes the framing of §0 and §5.1)
+
+Frozen by Darius. A change to this section is a new dated section, not an edit.
+
+**What CinderBrain is not.** Not an LLM made of a fly, not an intelligent fly, not a replacement for
+any part of the model's reasoning. No sensory processing for the agent: G1-G4 and the antennal-lobe
+ladder went there, and E1 showed the sensory -> dopamine path does not run in this simulator.
+
+**What it is.** A hybrid. The LLM thinks (planning, reasoning, language, tool use, reading the
+state). BRSI adapts. FMS holds semantic and episodic memory. CinderBrain is the biologically derived
+affective and modulatory substrate, with two jobs:
+
+1. **Affective state.** Agent outcomes (success, failure, correction, receipts) enter as drive to the
+   biologically justified reinforcement populations (PAM for reward, PPL1 for punishment). The
+   state is read from the simulated connectome's activity: dopamine, and serotonin only where an
+   input is justified by its own test. The LLM sees the state (tone, behaviour); the mascot shows it.
+2. **Memory modulation.** The same state marks experiences as more or less salient for FMS
+   (consolidation, salience, retrieval weight). The fly does not search; it modulates, FMS manages.
+
+```
+Outcome -> biological input (PAM / PPL1) -> connectome dynamics -> DA (5-HT) state
+                                                                    |-> LLM
+                                                                    |-> mascot
+                                                                    `-> FMS salience -> LLM
+```
+
+**The rule.** The outcome is the input; the dynamics must be the connectome's output.
+- A hand-coded mapping (failure -> sad = 0.8 -> 20 min decay) is an ornament, not CinderBrain.
+- A population we drive is never read back as the state: that is a copy of the input. The state
+  counts only from activity the drive does not set directly (E2 names the readouts).
+- Every layer we add (kinetics, plasticity rule, recovery) is declared, and nothing we add may be
+  described as coming from FlyWire.
+- CinderBrain contributes something only if the real connectome turns outcome history into a state
+  that differs from a sign-and-degree-preserving shuffle AND is not reproduced by the best simple
+  integrator of the same history (E2, bench-results/brain/emotion/E2-PREREGISTRATION.md). If it
+  fails, any mood layer that ships is the integrator, named as that.
+- Memory modulation is a performance claim on FMS, so it needs its own preregistered test against
+  the same state from the simple integrator, plus FMS without it. E2 does not test it.
+
+**Marketing line, gated.** "I put a real fruit-fly connectome inside an AI agent. The LLM does the
+thinking. The fly gives it an internal state." It may be said only after E2 reads TRANSFORMS and
+CONNECTOME-SPECIFIC. Until then only the first sentence is true of anything. Never "feels".
+
 ## 0. What it is, in one paragraph
 
 CinderBrain runs a spiking simulation of a real whole-brain connectome (FlyWire,
