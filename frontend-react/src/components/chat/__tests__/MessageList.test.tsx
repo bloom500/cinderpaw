@@ -65,10 +65,19 @@ describe('chat tool widgets', () => {
     return el as HTMLElement;
   }
 
-  /** Scroll away from the bottom, which is what reveals the button. */
+  /**
+   * Read older messages the way a person does: a wheel away from the bottom.
+   * The scroller measures rows, not scrollHeight, so the transcript is given a
+   * real height (2000px of rows in a 600px viewport) before the scroll.
+   */
   function scrollUp(container: HTMLElement): HTMLElement {
     const scroller = scrollerOf(container);
-    Object.defineProperties(scroller, { scrollHeight: { value: 2000 }, clientHeight: { value: 600 } });
+    const rect = (top: number, height: number) => ({ top, bottom: top + height, height, left: 0, right: 0, width: 0, x: 0, y: top, toJSON: () => ({}) });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return (this.dataset.messageId ? rect(0, 2000) : rect(0, 600)) as DOMRect;
+    });
+    Object.defineProperties(scroller, { scrollHeight: { value: 2000, configurable: true }, clientHeight: { value: 600, configurable: true } });
+    fireEvent.wheel(scroller);
     scroller.scrollTop = 100;
     fireEvent.scroll(scroller);
     return scroller;
@@ -79,6 +88,16 @@ describe('chat tool widgets', () => {
     const scroller = scrollUp(container);
     act(() => useChat.getState().updateLastAssistantMessage({ toolActivity: [startActivity('read_file', { path: 'guide.txt' })] }));
     expect(scroller.scrollTop).toBe(100);
+  });
+
+  it('anchors your own turns, so a long reply streams below the question instead of pushing it away', () => {
+    useChat.setState({ messages: [
+      { id: 'q', role: 'user', content: 'Why?', createdAt: Date.now() },
+      { id: 'a', role: 'assistant', content: 'Because.', createdAt: Date.now() },
+    ] } as never);
+    const { container } = render(<MessageList />);
+    expect(container.querySelector('[data-message-id="q"]')).toHaveAttribute('data-scroll-anchor', 'true');
+    expect(container.querySelector('[data-message-id="a"]')).toHaveAttribute('data-scroll-anchor', 'false');
   });
 
   describe('jump to bottom stays above the composer', () => {
