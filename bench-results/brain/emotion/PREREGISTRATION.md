@@ -80,3 +80,21 @@ P3 persistence bins: the first two 50 ms bins after offset (200-300 ms) must bot
 of the same weight sign (keeps every neuron's in-degree and out-degree and every edge's sign and
 weight; duplicates and self-loops are allowed and counted). The MB-only shuffle in sim/shuffle.ts
 does not apply to taste input and is not used.
+
+## 2026-09-15 result of E1
+Run: bench-results/brain/emotion/ (log e1-run.log), code committed before the run.
+**EMOTION-LIKE STATE PRESENT = NO** in AS-BUILT, CORRECTED-U+ and CORRECTED-U-. P1 valence, P2
+scalability, P3 persistence and P4 generalization all fail, for one reason: **not one PAM or PPL
+dopamine neuron fires** in any protocol, at any intensity, in any label set or in the shuffle.
+S serotonin: the known-serotonin population responds to sugar (Delta 0.48 Hz at I = 1, 0.94 at
+I = 2) and not to bitter; it also responds in the shuffle (0.10 / 0.53), so it is not evidence
+for the wiring. The shuffle was informative by the rule (brain rate 0.087 vs 0.132 Hz).
+
+Diagnostic, run after the result and labelled as such (nothing retuned): the harness drives
+correctly, all 129 sugar neurons fire at 71.5 Hz (I = 1) and 144.6 Hz (I = 2); but only 465 / 519
+neurons in the whole brain fire. The wiring does connect taste to dopamine: 121 of 307 PAM cells
+are 3 synapses from the sugar neurons and 21 of 24 PPL cells are 3 from the bitter neurons. The
+activity dies after about two synapses. So in this model (point LIF, no spontaneous activity, no
+neuromodulator release, Shiu 2024 weights), a taste never reaches the dopamine system. That is a
+model property, not a finding about flies: in flies sugar does activate PAM neurons.
+No emotion claim may be made from this model as built.
