@@ -19,12 +19,14 @@ export const BIN_MS = 50;
 const PRE_MS = 200, STIM_MS = 200, POST_END_MS = 2000;
 const GRID_W = 160, GRID_H = 80;
 
-/** Whole-brain control: targets permuted among edges of the same sign; degrees, signs and weights kept. */
-export function signPreservingTargetShuffle(pack: BrainPack, seed: number): BrainPack {
+/** Whole-brain control: targets permuted among edges of the same sign; degrees, signs and weights kept. Edges in `keep` stay put. */
+export function signPreservingTargetShuffle(pack: BrainPack, seed: number, keep?: Int32Array): BrainPack {
   const rand = mulberry32(seed), colIdx = Int32Array.from(pack.colIdx);
+  const kept = new Uint8Array(colIdx.length);
+  keep?.forEach((e) => { kept[e] = 1; });
   for (const positive of [true, false]) {
     const edges: number[] = [];
-    for (let e = 0; e < colIdx.length; e++) if (pack.weight[e]! > 0 === positive) edges.push(e);
+    for (let e = 0; e < colIdx.length; e++) if (!kept[e] && pack.weight[e]! > 0 === positive) edges.push(e);
     for (let i = edges.length - 1; i > 0; i--) {
       const j = Math.floor(rand() * (i + 1));
       const a = edges[i]!, b = edges[j]!;

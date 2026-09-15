@@ -141,3 +141,25 @@ quantity misses it by at least the same threshold (e.g. H1: |real contrast - bas
   the simple integrator, described as that, with no connectome claim.
 - On a machine that never downloaded the pack, any shipped layer is off and says so on screen; that
   belongs to the implementation spec, not to E2.
+
+## Clarification, 2026-09-15, written with the code and before any E2 number exists (no threshold changed)
+Readings the text above left open, fixed in src/brain-substrate/bench/e2-history.ts:
+- Every sequence starts with zero plastic deltas and K state 0; every event runs from rest.
+- "The baseline" = the one of B0/B1/B2 with the best pooled 5-fold CV R^2 on training (folds by
+  sequence); V1 is its test R^2. V0 uses B0 itself. B0/B1 ridge lambda 1e-6; B2 lambda from
+  {0.01, 0.1, 1, 10, 100} by CV, tau = B1's choice. Context enters every baseline as its KC Jaccard
+  with A..D (one-hot for A..D). B2's last 8 events use the same 16-number event code, gaps as
+  log10(1 + s), and products of the current event code with the traces, history and gaps.
+- H2: at most 20 recovery events; 21 = not recovered. H3's baseline miss is in the same units,
+  |I_real - I_baseline| >= 0.2 x mean |y_real|. H4 fresh values are one-event sequences. H5 "the
+  p = 0.5 points" = mean m over the events with p in [0.4, 0.6] on each leg (i 8-11 up, 28-31 down).
+  If Y0, H3's scale or H5's range is 0, the threshold is empty and the effect FAILS.
+- V4 with a silent first event: the limit is max(3 x first, 0.1 Hz), the E1 floor. V2's perturbed
+  run scales the KC and DAN drives by 1.05, moves the DAN pulse to 2-102 ms, draws A..D with seed
+  2002, and uses the baseline fitted on the unperturbed training run.
+- Shuffle informative: a rate of 0 in both arms counts as within 2x.
+- READABLE: the mood at the last event of READ_R and READ_P; flicker over all consecutive event
+  pairs of the 60 test sequences. CONTROLLED PERSISTENCE: each test sequence against its own peak.
+- The four arms run as four parallel single-thread processes. COST is p95 over the PR arm's
+  training and test events measured under that contention, so it can only be pessimistic. G0's
+  "fits one night" = the longest arm is estimated at <= 10 h.
