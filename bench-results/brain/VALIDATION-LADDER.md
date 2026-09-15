@@ -323,3 +323,26 @@ mean ORN p strictly decreases with n.
 No label set, variant or gHalf is selected afterwards; every row is reported.
 G4 answers only Q1-Q3. Whether V1 is becoming a coherent nervous system is decided by Darius after
 reading the full table, before any electrical synapse is built.
+
+## 2026-09-15 23:15: step G4 result
+
+Run: bench-results/brain/variant1/g4/ (80 conditions, ~2 h). Code c274dcd, criteria 64cf404.
+Sanity: every BASE row reproduces the G2 numbers of its label set (AlSim = LifSim with both off).
+
+**Q1 LOCAL: 36/64 -> NOT ROBUST.** By label set: CORRECTED-U- 16/16 (median ratio 44-162),
+TYPE-CONSENSUS/T- 16/16 (11-24), TYPE-CONSENSUS/T+ 4/16 (only lLN2P_c, 4.5-4.7), CORRECTED-U+ 0/16
+(1.4-2.0). Locality appears exactly where the uncertain LNs are inhibitory and the lobe is not
+globally active, and disappears where it is.
+**Q2 GLOBAL: 3/24 -> NOT ROBUST.** Passes only in CORRECTED-U- (PRESYN gHalf 1; BOTH gHalf 1 and 4).
+In the + label sets uniglomerular PNs sit at 184-213 Hz for n = 0, 4 and 16 alike: presynaptic
+inhibition lowers ORN efficacy p to 0.59-0.87 but the PNs stay saturated. In TYPE-CONSENSUS/T- the
+PN readout moves by < 10%. Across all sets p falls mostly from n = 0 to 4 and barely after.
+**Q3:** neither Q1 nor Q2 holds across the four label sets, even in the primary setting.
+
+Reported, not gated (P3): neither mechanism improves odor separation in any label set. PRESYN
+leaves overlap unchanged; PATCHY slightly RAISES uniglomerular PN overlap and firing (e.g. T- k=8
+0.76 -> 0.82, U- k=8 0.49 -> 0.55). KC overlap and activity are unchanged.
+Observations only, not tested: (a) PN saturation under the 2 mV/ms ORN drive caps what any
+inhibition can show in the + sets; (b) turning lLN2P from spiking into graded cells may REMOVE net
+inhibition, since spiking lLN2P fired toward the 450 Hz ceiling; either would need its own
+preregistered test. Nothing retuned. Electrical synapses NOT started; decision is Darius's.
