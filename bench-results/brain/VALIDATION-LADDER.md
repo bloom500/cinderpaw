@@ -101,3 +101,42 @@ separates odors. 2a (antennal lobe intact, PNs driven directly) smears again
 (PN overlap 0.86 to 0.90, KC overlap 0.78 to 0.79): PN -> LN -> PN recurrence
 brings the antennal-lobe spread back even without ORN input.
 Nothing retuned. Decision on the next step is Darius's.
+
+## 2026-09-15 19:00: Variant 1, step G2 (corrected transmitter labels, no electrical synapses), criteria before measuring
+
+Why: the G1 audit (bench-results/brain/variant1/04-data-audit.md) found that for 36 of the 62
+antennal-lobe local neurons (ALLNs) with a literature transmitter, FlyWire's predicted top_nt is
+a different transmitter. Variant 1 adds electrical synapses; any benefit it shows must not be
+the benefit of fixing signs. So the reference without electrical synapses is rebuilt first.
+Rulings by Darius, 15 Sep: keep predictions only above a preregistered confidence; run the
+uncertain cells BOTH excitatory and inhibitory, no post-hoc choice.
+
+**Scope.** Only ALLNs (cell_class ALLN, 429 cells) are relabelled. Every other neuron keeps its
+sign as built. Relabelling = the sign of every outgoing edge of that neuron, weight magnitude
+unchanged (LifSim effectiveWeight; the pack is not rebuilt).
+
+**Label rule, fixed now.**
+1. ALLN with a non-empty known_nt: sign from the FIRST transmitter named in known_nt
+   (text before the first ',' or ';'): gaba or glutamate -> -1; acetylcholine -> +1; anything
+   else -> treated as no known_nt. ("gaba, MIP; acetylcholine-negative" -> gaba -> -1.)
+2. ALLN without a usable known_nt and top_nt_conf >= **0.50**: sign from top_nt as the adapter
+   does today (gaba/glutamate -1, everything else +1). 0.50 is judgement, set before any G2
+   number exists; it is not tuned afterwards.
+3. ALLN without a usable known_nt and top_nt_conf < 0.50: UNCERTAIN.
+
+**Three label sets, all measured, all reported:** AS-BUILT (today's pack), CORRECTED-U+
+(uncertain = +1), CORRECTED-U- (uncertain = -1).
+
+**Stimulus and metrics.** Exactly step 1: ORNs of k = 3 and 8 random glomeruli, 8 odors per size,
+seed 1, 2 mV/ms for 50 ms, same draw order; uniglomerular / multiglomerular / all ALPN overlap,
+KC overlap, KC sparsity. Added: for each overlap, an activity-matched null = mean Jaccard of
+random sets of the same sizes drawn from the same population (1000 draws), reported as the ratio
+observed / null.
+
+**What G2 decides (it is a reference, not a GO for Variant 1):**
+- LABEL EFFECT MATERIAL if uniglomerular ALPN overlap differs from AS-BUILT by >= 0.10 in at
+  least one corrected set at both k. Otherwise LABEL EFFECT SMALL.
+- UNCERTAIN CELLS DECISIVE if the step-1 criterion (uni < 0.30 AND all < 0.50 at both k) passes
+  in exactly one of CORRECTED-U+ / CORRECTED-U-. Then every later Variant 1 claim must hold in
+  BOTH label sets, not in the one that looks better.
+- Both corrected sets are carried into G3-G5 as the no-gap references. Neither is selected.
