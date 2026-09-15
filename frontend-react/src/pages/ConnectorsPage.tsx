@@ -418,7 +418,7 @@ function ConnectorCard({
                   value={secrets[f.key] ?? ''}
                   placeholder={filled.has(f.key) ? 'Leave blank to keep current' : ''}
                   onChange={(e) => setSecrets((s) => ({ ...s, [f.key]: e.target.value }))}
-                  className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none"
+                  className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden"
                 />
               </label>
             ))
@@ -434,7 +434,7 @@ function ConnectorCard({
               onChange={(e) => setAllowlist(e.target.value)}
               rows={2}
               placeholder={entry.id === 'whatsapp' ? 'e.g. 40712345678' : 'e.g. 215094730484056064'}
-              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none resize-y font-mono"
+              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden resize-y font-mono"
             />
           </label>
 
@@ -448,7 +448,7 @@ function ConnectorCard({
               onChange={(e) => setChannels(e.target.value)}
               rows={2}
               placeholder={channelPlaceholder}
-              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none resize-y font-mono"
+              className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden resize-y font-mono"
             />
           </label>
 
@@ -498,7 +498,7 @@ function ConnectorCard({
                       onChange={(e) => setKnowledgeBase(e.target.value)}
                       rows={6}
                       placeholder={'e.g.\nWe sell handmade leather bags.\nPrices: tote €120, crossbody €85.\nShipping: 3–5 days in the EU, free over €100.\nFor orders or a callback, leave your name and number.'}
-                      className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none resize-y"
+                      className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden resize-y"
                     />
                   </label>
                 </>

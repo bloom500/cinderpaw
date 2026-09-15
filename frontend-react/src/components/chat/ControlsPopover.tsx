@@ -48,7 +48,7 @@ function ParamRow({
           min={min}
           max={max}
           step={step}
-          className="w-16 text-right text-xs bg-transparent border-none outline-none text-text-primary [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          className="w-16 text-right text-xs bg-transparent border-none outline-hidden text-text-primary [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
@@ -197,7 +197,7 @@ export function ControlsPopover() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="flex items-center justify-center h-full px-2.5 text-text-muted hover:text-text-secondary transition-colors outline-none">
+        <button className="flex items-center justify-center h-full px-2.5 text-text-muted hover:text-text-secondary transition-colors outline-hidden">
           <Settings2 size={12} />
         </button>
       </PopoverTrigger>

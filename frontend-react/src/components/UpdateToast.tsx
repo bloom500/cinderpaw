@@ -36,7 +36,7 @@ export function UpdateToast() {
             'bg-bg-elevated/80 backdrop-blur-xl backdrop-saturate-150',
             'shadow-xl shadow-black/25 ring-1 ring-inset ring-white/10',
             'before:absolute before:inset-0 before:rounded-xl before:pointer-events-none',
-            'before:bg-gradient-to-b before:from-white/[0.06] before:to-transparent',
+            'before:bg-linear-to-b before:from-white/6 before:to-transparent',
           )}
         >
           <div className="flex items-start gap-2.5">

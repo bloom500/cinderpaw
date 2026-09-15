@@ -236,7 +236,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
                     // While a chat is being dragged, every project row advertises
                     // itself as a target (dashed outline); the row under the cursor
                     // lights up solid and lifts slightly.
-                    draggingChat && 'outline outline-1 outline-dashed outline-brand/40',
+                    draggingChat && 'outline-solid outline-1 outline-dashed outline-brand/40',
                     dragOverProject === p.id &&
                       'ring-1 ring-brand bg-bg-active scale-[1.02]',
                   )}
@@ -361,7 +361,7 @@ export function SideNav() {
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1, transition: { delay: 0.16, duration: 0.12 } }}
             exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.08 } }}
-            className="fixed left-3 top-3 z-30 h-9 w-9 grid place-items-center rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer shadow-md"
+            className="fixed left-3 top-3 z-30 h-9 w-9 grid place-items-center rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur-sm text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer shadow-md"
           >
             <PanelLeftOpen size={20} />
           </motion.button>

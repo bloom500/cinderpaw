@@ -141,7 +141,7 @@ function TierPanel({
                     setExpandedIdx(expanded ? null : i);
                   }
                 }}
-                className={`cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${expanded ? 'border-brand/50' : ''}`}
+                className={`cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand ${expanded ? 'border-brand/50' : ''}`}
               >
                 <div className="flex items-baseline justify-between gap-3 text-xs">
                   <span className="font-mono text-brand">{formatClock(n.touched_at)}</span>
@@ -218,7 +218,7 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
       ? `last ratchet ${formatTimeAgo(Date.now(), snapshot.lastRatchetAt)}`
       : 'no ratchets yet';
   return (
-    <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-bg-surface px-3 py-1.5 text-2xs backdrop-blur ${tone}`}>
+    <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-bg-surface px-3 py-1.5 text-2xs backdrop-blur-sm ${tone}`}>
       <span className={`h-2 w-2 rounded-full ${dot}`} />
       <Brain size={12} className="opacity-70" />
       <span className="font-medium uppercase tracking-wide">RSI · {label}</span>

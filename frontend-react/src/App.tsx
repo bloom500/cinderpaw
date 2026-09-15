@@ -18,7 +18,7 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
   const pct = Math.round(state.progress * 100);
   return (
     <div
-      className="fixed top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full border border-border-subtle bg-bg-surface/85 px-3 py-1.5 text-xs text-text-secondary backdrop-blur shadow-lg"
+      className="fixed top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full border border-border-subtle bg-bg-surface/85 px-3 py-1.5 text-xs text-text-secondary backdrop-blur-sm shadow-lg"
       role="status"
       aria-live="polite"
     >

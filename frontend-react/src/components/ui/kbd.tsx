@@ -16,7 +16,7 @@ export function Kbd({ keys, className }: { keys: string[]; className?: string })
       {keys.map((k) => (
         <kbd
           key={k}
-          className="min-w-[1.25rem] rounded border border-border-default bg-bg-elevated px-1 text-center font-sans text-2xs leading-4 text-text-muted"
+          className="min-w-5 rounded border border-border-default bg-bg-elevated px-1 text-center font-sans text-2xs leading-4 text-text-muted"
         >
           {k}
         </kbd>

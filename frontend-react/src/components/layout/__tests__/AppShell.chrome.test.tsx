@@ -10,7 +10,7 @@ import { AppShell } from '@/components/layout/AppShell';
  * They were covered, and raising their z-index could never have uncovered them:
  * the band lives inside `#root`, which sets `z-index: 1`, and inside
  * `.app-pane`, which has a `backdrop-filter`. Both open a stacking context, so
- * `z-[200]` there is 200 within a layer worth 1, while the call overlay is
+ * `z-200` there is 200 within a layer worth 1, while the call overlay is
  * portalled to <body> at z-40 and compared against that 1. Leaving the context
  * is the only fix, and "is it a child of <body>" is the only part of that a
  * test in jsdom can see — jsdom computes no stacking at all, so the number

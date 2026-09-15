@@ -80,7 +80,7 @@ export function ChatsPage() {
             <button
               type="button"
               onClick={() => { useConversations.getState().newChat(); navigate('/chat'); }}
-              className="inline-flex items-center gap-2 rounded-lg bg-bg-elevated px-3 py-2 text-sm text-text-primary hover:bg-bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              className="inline-flex items-center gap-2 rounded-lg bg-bg-elevated px-3 py-2 text-sm text-text-primary hover:bg-bg-hover focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand"
             >
               <Plus size={16} aria-hidden />
               New chat
@@ -98,11 +98,11 @@ export function ChatsPage() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); clearFilter(); } }}
-                  className="min-w-0 flex-1 bg-transparent py-3 text-sm text-text-primary placeholder:text-text-muted outline-none [&::-webkit-search-cancel-button]:hidden"
+                  className="min-w-0 flex-1 bg-transparent py-3 text-sm text-text-primary placeholder:text-text-muted outline-hidden [&::-webkit-search-cancel-button]:hidden"
                 />
                 {query && (
                   <button type="button" aria-label="Clear filter" onClick={clearFilter}
-                    className="rounded p-1 text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                    className="rounded p-1 text-text-muted hover:text-text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand">
                     <X size={16} aria-hidden />
                   </button>
                 )}
@@ -112,7 +112,7 @@ export function ChatsPage() {
                 <button
                   type="button"
                   onClick={() => openSearch()}
-                  className="rounded text-text-muted hover:text-text-secondary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                  className="rounded text-text-muted hover:text-text-secondary cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand"
                 >
                   Search message content
                 </button>
@@ -148,7 +148,7 @@ export function ChatsPage() {
                           type="button"
                           aria-current={c.id === currentId ? 'page' : undefined}
                           onClick={() => { void useConversations.getState().open(c.id); navigate('/chat'); }}
-                          className="flex-1 min-w-0 rounded-xl text-left px-4 py-3 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                          className="flex-1 min-w-0 rounded-xl text-left px-4 py-3 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand"
                         >
                           <span className="flex items-center gap-2">
                             {streamingIds[c.id] && (

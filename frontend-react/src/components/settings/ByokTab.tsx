@@ -294,7 +294,7 @@ export function ByokTab() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search providers…"
-          className="flex-1 min-w-0 rounded-md border border-border-subtle bg-bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-brand"
+          className="flex-1 min-w-0 rounded-md border border-border-subtle bg-bg-surface px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-hidden focus:ring-1 focus:ring-brand"
         />
         <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer select-none shrink-0">
           <input type="checkbox" checked={onlyConfigured} onChange={(e) => setOnlyConfigured(e.target.checked)} className="rounded" />

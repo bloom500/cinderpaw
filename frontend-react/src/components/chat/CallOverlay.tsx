@@ -89,7 +89,7 @@ export function CallTranscript({ text, fallback }: { text: string; fallback: str
     <p
       data-testid="call-transcript"
       aria-label={text || undefined}
-      className="line-clamp-3 max-h-[4.5rem] max-w-xl overflow-hidden break-words text-lg font-light leading-6 text-text-muted"
+      className="line-clamp-3 max-h-18 max-w-xl overflow-hidden wrap-break-word text-lg font-light leading-6 text-text-muted"
     >
       {text ? (
         <>
@@ -98,7 +98,7 @@ export function CallTranscript({ text, fallback }: { text: string; fallback: str
             <span
               key={`${text.length}-${fresh}`}
               data-testid="call-transcript-new"
-              className="inline-block animate-in fade-in-0 slide-in-from-bottom-1 duration-[20ms] ease-out motion-reduce:animate-none"
+              className="inline-block animate-in fade-in-0 slide-in-from-bottom-1 duration-20 ease-out motion-reduce:animate-none"
             >
               {fresh}
             </span>
@@ -476,7 +476,7 @@ export function CallOverlay({
   return createPortal(
     // `z-40`, deliberately BELOW the app's z-50 layer.
     //
-    // At z-[100] this overlay sat above every Radix portal — dialogs, dropdowns,
+    // At z-100 this overlay sat above every Radix portal — dialogs, dropdowns,
     // image zoom all render at z-50 — so anything opened from inside the call
     // appeared behind it while Radix froze the page for modality. That produced
     // the same bug three times: an invisible engine picker, an invisible STT
@@ -565,7 +565,7 @@ export function CallOverlay({
             "something is happening" is still the speech-tied one below. */}
         <div
           aria-hidden
-          className="orb-motion pointer-events-none absolute -inset-[12%]"
+          className="orb-motion pointer-events-none absolute inset-[-12%]"
           style={{
             background: [
               // Two washes that are two different colours, so the warp is a
@@ -672,7 +672,7 @@ export function CallOverlay({
             fallback={t('call.prompt')}
           />
           {/* Said out loud on screen when nothing was said out loud in audio. */}
-          {notice && <p className="text-sm text-[var(--warning)]">{notice}</p>}
+          {notice && <p className="text-sm text-(--warning)">{notice}</p>}
         </div>
 
         {phase === 'ready' && (
@@ -768,7 +768,7 @@ export function CallOverlay({
             {!hasTools && (
               <span className="flex items-center gap-2">
                 <span className="text-text-muted">{t('call.tools')}</span>
-                <span className="text-[var(--warning)]">{t('call.toolsOff')}</span>
+                <span className="text-(--warning)">{t('call.toolsOff')}</span>
               </span>
             )}
 
@@ -779,12 +779,12 @@ export function CallOverlay({
               before being told to check whether they were online.
             */}
             {noEngine && (
-              <p className="max-w-sm text-center text-xs text-[var(--warning)]">
+              <p className="max-w-sm text-center text-xs text-(--warning)">
                 {t('call.noEngine')}
               </p>
             )}
             {ready === false && !noEngine && voice?.needsDownload && (
-              <p className="max-w-sm text-center text-xs text-[var(--warning)]">{t('call.voiceMissing')}</p>
+              <p className="max-w-sm text-center text-xs text-(--warning)">{t('call.voiceMissing')}</p>
             )}
             {ready === false && !noEngine && (live || voice?.needsKey) && (
               <div className="w-full max-w-sm">
@@ -1251,7 +1251,7 @@ function Orb({
       {working && (
         <div
           aria-hidden
-          className="orb-motion pointer-events-none absolute -inset-[7%] rounded-full"
+          className="orb-motion pointer-events-none absolute inset-[-7%] rounded-full"
           style={{ animation: 'orb-sweep-pulse 2.1s ease-in-out infinite' }}
         >
           <div
@@ -1730,7 +1730,7 @@ function RoundButton({
         // theme (#C0472A dark, #A03820 light) while `rose-400` is a single
         // value picked to sit on black and washes out on cream.
         tone === 'danger' &&
-          'border-border-default bg-bg-elevated text-[var(--error)] hover:bg-[color-mix(in_srgb,var(--error)_12%,transparent)]',
+          'border-border-default bg-bg-elevated text-(--error) hover:bg-[color-mix(in_srgb,var(--error)_12%,transparent)]',
         tone === 'brand' && 'border-transparent bg-brand text-bg-primary hover:bg-brand-hover',
         tone === 'neutral' && 'border-border-default bg-bg-elevated text-text-secondary hover:bg-bg-hover',
         active && 'text-brand',
@@ -1847,8 +1847,8 @@ function EngineLine({
         className={cn(
           'flex items-center gap-1 rounded border px-1.5 py-0.5 text-micro font-medium',
           local
-            ? 'border-[var(--badge-ok-br)] bg-[var(--badge-ok-bg)] text-[var(--badge-ok-fg)]'
-            : 'border-[var(--badge-warn-br)] bg-[var(--badge-warn-bg)] text-[var(--badge-warn-fg)]',
+            ? 'border-(--badge-ok-br) bg-(--badge-ok-bg) text-(--badge-ok-fg)'
+            : 'border-(--badge-warn-br) bg-(--badge-warn-bg) text-(--badge-warn-fg)',
         )}
       >
         {local ? <Laptop size={12} /> : <Cloud size={12} />}
@@ -1911,7 +1911,7 @@ function CallChatPanel({ onClose, onSay }: { onClose: () => void; onSay: (text: 
     // above everything. Without it this panel's own close button sat directly
     // under the application's close button — two X's in a column, and the wrong
     // one is the one that quits.
-    <aside className="flex w-[22rem] shrink-0 flex-col border-l border-border-default bg-bg-surface pt-8">
+    <aside className="flex w-88 shrink-0 flex-col border-l border-border-default bg-bg-surface pt-8">
       <header className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
         {/* Close on the LEFT, for the same reason: the top-right corner of the
             window belongs to the window, not to a panel inside it. */}

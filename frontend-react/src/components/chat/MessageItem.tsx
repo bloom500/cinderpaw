@@ -52,7 +52,7 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
         type="button"
         onClick={() => setOpen(true)}
         aria-label={`View ${alt || 'image'} full size`}
-        className="block cursor-zoom-in rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        className="block cursor-zoom-in rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand"
       >
         <img
           src={src}
@@ -67,7 +67,7 @@ function ZoomableImage({ src, alt }: { src: string; alt: string }) {
           aria-label="Close image preview"
           onClick={() => setShown(false)}
           className={cn(
-            'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm cursor-zoom-out',
+            'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs cursor-zoom-out',
             'transition-opacity duration-300 ease-out',
             shown ? 'opacity-100' : 'opacity-0',
           )}
@@ -144,7 +144,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             exactly this reason: the shape has to read before the tail can
             mean anything. */}
         <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-brand text-bg-primary shadow-md">
-          <BubbleTail className="absolute right-[-11px] bottom-0 text-[color:var(--brand)]" />
+          <BubbleTail className="absolute right-[-11px] bottom-0 text-(--brand)" />
           {images.length > 0 && (
             <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
               {images.map((src, i) => (
@@ -160,7 +160,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             </div>
           )}
           {visibleText && (
-            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">
+            <p className="text-sm whitespace-pre-wrap wrap-break-word leading-relaxed">
               {visibleText}
             </p>
           )}

@@ -46,7 +46,7 @@
     "active": true,
     "targets": ["nsis", "msi", "app", "dmg", "deb", "rpm"],
     "macOS": {
-      "minimumSystemVersion": "10.15",
+      "minimumSystemVersion": "13.3",
       "signingIdentity": "-"
     },
     "linux": {

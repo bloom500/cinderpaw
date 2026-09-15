@@ -1,16 +1,230 @@
 /* highlight.js themes must come before @tailwind to satisfy CSS @import order */
-@import 'highlight.js/styles/atom-one-dark.css';
+@import 'highlight.js/styles/atom-one-dark.css' layer(base);
 /* Geist — the app typeface, bundled locally (no CDN requests, and none can be
    made: the app runs under a CSP that blocks external hosts).
    Replaces Inter. Both are workhorse UI faces; Geist is drawn with slightly
    tighter defaults and a squarer bowl, which is the difference people read as
    "made recently". The type scale in tailwind.config already carries the
    negative tracking the display sizes need. */
-@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist' layer(base);
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+/* The enter/exit classes the shadcn primitives write (`animate-in`, `fade-in-0`,
+   `zoom-in-95`, `slide-in-from-top-2`): without them every dialog, popover and
+   tooltip appears and vanishes instantly. tw-animate-css is the v4-native
+   successor of tailwindcss-animate, with the same class names. */
+@import 'tw-animate-css';
+
+@plugin '@tailwindcss/typography';
+
+@custom-variant dark (&:is([data-theme="dark"] *));
+
+@theme {
+  /*
+   * The type scale. Nine steps and nothing between them. Before it the app used
+   * sixteen sizes, each chosen where needed and never compared with its
+   * neighbours: that is what "looks unfinished" is, most of the time. Line
+   * heights are baked in so a size cannot be used without its rhythm, and the
+   * large steps carry negative tracking because display text reads loose.
+   * The floor is 11 px (test/scale.test.ts): 10 px labels read as cramped.
+   */
+  --text-micro: 11px;
+  --text-micro--line-height: 14px;
+  --text-micro--letter-spacing: 0.01em;
+  --text-2xs: 12px;
+  --text-2xs--line-height: 16px;
+  --text-xs: 12.5px;
+  --text-xs--line-height: 18px;
+  --text-sm: 13.5px;
+  --text-sm--line-height: 20px;
+  --text-base: 15px;
+  --text-base--line-height: 23px;
+  --text-lg: 17px;
+  --text-lg--line-height: 26px;
+  --text-lg--letter-spacing: -0.01em;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-xl--letter-spacing: -0.015em;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 30px;
+  --text-2xl--letter-spacing: -0.02em;
+  --text-3xl: 32px;
+  --text-3xl--line-height: 38px;
+  --text-3xl--letter-spacing: -0.025em;
+
+  /*
+   * Three corners: 6 px for small things (badges, kbd, marks), 10 px for
+   * controls, 18 px for panels. The extra names alias them so every class
+   * already written lands on one of the three.
+   */
+  --radius: 6px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 10px;
+  --radius-xl: 18px;
+  --radius-2xl: 18px;
+  --radius-3xl: 18px;
+
+  /*
+   * Elevation. Dark UIs get depth from a light edge above and a soft shadow
+   * below; on a near-black ground a black blur is invisible.
+   */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.34);
+  --shadow-lg: 0 14px 34px rgba(0, 0, 0, 0.38);
+  --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.44);
+  --shadow-2xl: 0 32px 80px rgba(0, 0, 0, 0.5);
+
+  /*
+   * Colours. Our semantic palette (bg-bg-surface, text-text-muted, ...) for app
+   * code; the shadcn aliases below it are for shadcn primitives only. Do NOT use
+   * bg-accent/text-accent in app code: bg-brand/text-brand is the warm orange.
+   *
+   * v3 needed a color-mix wrapper so `bg-bg-surface/70` could split a hex out of
+   * a CSS variable; without it 26 translucent surfaces silently rendered fully
+   * transparent. v4 applies the /opacity modifier with color-mix itself, so a
+   * plain var() is enough and the bug cannot come back.
+   */
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-disabled: var(--text-disabled);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-muted: var(--brand-muted);
+  --color-error: var(--error);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+/*
+ * Where a colour changes meaning depending on the utility.
+ *
+ * `bg-brand` paints a shape and supplies its own ground; `--brand-foreground`
+ * handles the label on it. `text-brand` paints a WORD onto the glass pane, where
+ * the ground is partly the user's wallpaper, and the fill values measured worst
+ * case 3.31:1 (brand), 2.55:1 (error), 3.28:1 (success) and 4.39:1 (warning),
+ * all below AA. So the five text utilities read the -text tokens, and every one
+ * of the 130+ call sites stays correct without being edited, including the ones
+ * written next week. (In v3 this was `extend.textColor`; v4 has no per-utility
+ * colour namespace, so it is five plain rules. test/glass.test.ts holds it.)
+ */
+@layer utilities {
+  /* Plain rules, not @utility: v4 drops an @utility whose name a theme colour
+     already generates, silently. Later in the same layer, so these win. */
+  .text-brand { color: var(--brand-text); }
+  .text-error { color: var(--error-text); }
+  .text-success { color: var(--success-text); }
+  .text-warning { color: var(--warning-text); }
+  .text-info { color: var(--info-text); }
+
+  /* Variants are generated from the theme colour, not from the rules above, so
+     each one in use needs its own line. test/glass.test.ts fails on a variant
+     written in a component without a line here. */
+  .hover\:text-brand:hover { color: var(--brand-text); }
+  .hover\:text-error:hover { color: var(--error-text); }
+  .hover\:text-success:hover { color: var(--success-text); }
+  .hover\:text-warning:hover { color: var(--warning-text); }
+  .hover\:text-info:hover { color: var(--info-text); }
+  .focus\:text-brand:focus { color: var(--brand-text); }
+  .focus\:text-error:focus { color: var(--error-text); }
+  .focus\:text-success:focus { color: var(--success-text); }
+  .focus\:text-warning:focus { color: var(--warning-text); }
+  .focus\:text-info:focus { color: var(--info-text); }
+  .prose-a\:text-brand :where(a) { color: var(--brand-text); }
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility thin-scrollbar {
+  /* ChatGPT/Qwen-style thin interactive scrollbar — faint line, expands on hover */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+  &:hover {
+    scrollbar-color: var(--border-default) transparent;
+  }
+  &::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+  }
+  &:hover::-webkit-scrollbar-thumb {
+    background-color: color-mix(
+      in srgb,
+      var(--border-default) 70%,
+      transparent
+    );
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-muted);
+  }
+  &:hover::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+}
 
 @layer base {
   html {
@@ -18,7 +232,8 @@
   }
 }
 
-/*
+@layer utilities {
+  /*
  * The call field's one moving part.
  *
  * Runs ONLY while someone is actually talking — a background that drifts all
@@ -29,12 +244,17 @@
  * Transform only, on one small layer, so the 4-stop gradient underneath is
  * never repainted.
  */
-@keyframes stage-drift {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50%      { transform: translate3d(-4%, 3%, 0) scale(1.14); }
-}
+  @keyframes stage-drift {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    50% {
+      transform: translate3d(-4%, 3%, 0) scale(1.14);
+    }
+  }
 
-/* ── The orb ───────────────────────────────────────────────────────────────
+  /* ── The orb ───────────────────────────────────────────────────────────────
  *
  * A swirl sphere: a few broad regions of colour suspended inside glass, meeting
  * and bleeding into one another. What makes it read as a solid ball rather than
@@ -51,11 +271,15 @@
  * one set of motions driven faster or slower keeps idle, listening, thinking
  * and speaking recognisably the same object.
  */
-@keyframes orb-drift {
-  from { transform: translate(-7%, 4%) scale(1); }
-  to   { transform: translate(8%, -6%) scale(1.12); }
-}
-/* The liquid version of the same idea, and the difference is that a blob no
+  @keyframes orb-drift {
+    from {
+      transform: translate(-7%, 4%) scale(1);
+    }
+    to {
+      transform: translate(8%, -6%) scale(1.12);
+    }
+  }
+  /* The liquid version of the same idea, and the difference is that a blob no
  * longer keeps its shape while it moves.
  *
  * Translating a soft disc gives you a disc somewhere else — the eye reads a
@@ -71,7 +295,7 @@
  *
  * (The keyframe itself is further down; what follows first is the live half.)
  */
-/* The live half of the sphere.
+  /* The live half of the sphere.
  *
  * `--orb-level` is written by a frame loop in `CallOverlay`, 0..1, and it is a
  * MEASUREMENT: the microphone while the user speaks, the reply's own loudness
@@ -81,8 +305,10 @@
  * Defaulted here so nothing depends on the loop having run yet — before the
  * first call, and under reduced-motion where the loop never starts, this is a
  * still sphere rather than a broken one. */
-.orb-shell { --orb-level: 0; }
-/* The voice reaction, at exactly the strength it shipped with: the ball follows
+  .orb-shell {
+    --orb-level: 0;
+  }
+  /* The voice reaction, at exactly the strength it shipped with: the ball follows
  * a loud voice by 14% and the halo by 1.8 times that. Two differences from the
  * original, both of them fixes rather than changes:
  *
@@ -92,15 +318,27 @@
  *  - it follows the AGENT's voice too, measured off the audio being played.
  *    Only the microphone was ever read, so through an entire answer the sphere
  *    had nothing to react to. */
-.orb-shell .orb-body { transform: scale(calc(1 + var(--orb-level) * 0.14)); }
-.orb-shell .orb-halo { transform: scale(calc(1 + var(--orb-level) * 0.252)); }
-@keyframes orb-flow {
-  0%   { transform: translate(-8%, 5%) rotate(0deg) scale(1.04, 0.93); }
-  35%  { transform: translate(3%, -6%) rotate(38deg) scale(0.9, 1.12); }
-  70%  { transform: translate(8%, 4%) rotate(76deg) scale(1.14, 0.95); }
-  100% { transform: translate(-4%, -4%) rotate(104deg) scale(0.97, 1.06); }
-}
-/* The field's slow warp. Amplitude deliberately near the threshold of notice:
+  .orb-shell .orb-body {
+    transform: scale(calc(1 + var(--orb-level) * 0.14));
+  }
+  .orb-shell .orb-halo {
+    transform: scale(calc(1 + var(--orb-level) * 0.252));
+  }
+  @keyframes orb-flow {
+    0% {
+      transform: translate(-8%, 5%) rotate(0deg) scale(1.04, 0.93);
+    }
+    35% {
+      transform: translate(3%, -6%) rotate(38deg) scale(0.9, 1.12);
+    }
+    70% {
+      transform: translate(8%, 4%) rotate(76deg) scale(1.14, 0.95);
+    }
+    100% {
+      transform: translate(-4%, -4%) rotate(104deg) scale(0.97, 1.06);
+    }
+  }
+  /* The field's slow warp. Amplitude deliberately near the threshold of notice:
  * the argument against a continuously moving background is that it becomes
  * wallpaper, and that argument holds for anything you can SEE moving. This is
  * slower than a minute per cycle and moves a few percent, so it never announces
@@ -108,13 +346,21 @@
  * still the speech-tied highlight, which is the layer that answers "is anything
  * happening".
  */
-@keyframes stage-flow {
-  0%   { transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.10, 1.04); }
-  33%  { transform: translate3d(4%, -3%, 0) rotate(11deg) scale(1.02, 1.16); }
-  66%  { transform: translate3d(3%, 4%, 0) rotate(-7deg) scale(1.14, 1.02); }
-  100% { transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.10, 1.04); }
-}
-/* Breathing, so the sphere is never completely still. Idle should look alive
+  @keyframes stage-flow {
+    0% {
+      transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.1, 1.04);
+    }
+    33% {
+      transform: translate3d(4%, -3%, 0) rotate(11deg) scale(1.02, 1.16);
+    }
+    66% {
+      transform: translate3d(3%, 4%, 0) rotate(-7deg) scale(1.14, 1.02);
+    }
+    100% {
+      transform: translate3d(-5%, 3%, 0) rotate(0deg) scale(1.1, 1.04);
+    }
+  }
+  /* Breathing, so the sphere is never completely still. Idle should look alive
    but not busy; the amplitude stays small enough to read as breath.
 
    Restored to exactly what shipped in 87f69dd after three attempts to improve
@@ -123,19 +369,31 @@
    breath into a throb. The original is a small, continuous, slow swell of the
    COLOUR inside the glass, and the glass around it holding still is part of why
    it reads as breathing rather than as pulsing. */
-@keyframes orb-breathe {
-  0%, 100% { transform: scale(1); }
-  50%      { transform: scale(1.035); }
-}
-/* The travelling glint. A real specular highlight moves across a sphere as it
+  @keyframes orb-breathe {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.035);
+    }
+  }
+  /* The travelling glint. A real specular highlight moves across a sphere as it
    turns; a fixed one is the single clearest tell that the ball is a flat disc
    with a gradient on it. */
-@keyframes orb-glint {
-  0%, 100% { transform: translate(-6%, -4%) scale(1); opacity: 0.9; }
-  50%      { transform: translate(8%, 6%) scale(1.15); opacity: 0.55; }
-}
+  @keyframes orb-glint {
+    0%,
+    100% {
+      transform: translate(-6%, -4%) scale(1);
+      opacity: 0.9;
+    }
+    50% {
+      transform: translate(8%, 6%) scale(1.15);
+      opacity: 0.55;
+    }
+  }
 
-/* Tools are running.
+  /* Tools are running.
  *
  * A tool call used to show up only as the fluid inside moving faster, which is
  * invisible unless you already knew to look: the sphere is always moving, so
@@ -146,65 +404,35 @@
  *
  * A steady rotation on purpose: every other motion here eases back and forth
  * because liquid never travels in a straight line, and this one is not liquid. */
-@keyframes orb-sweep {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
+  @keyframes orb-sweep {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
 
-/* The arc brightens as it comes round, so a slow sweep still has a pulse to it
+  /* The arc brightens as it comes round, so a slow sweep still has a pulse to it
  * and the ring never sits at one flat intensity. */
-@keyframes orb-sweep-pulse {
-  0%, 100% { opacity: 0.55; }
-  50%      { opacity: 1; }
-}
+  @keyframes orb-sweep-pulse {
+    0%,
+    100% {
+      opacity: 0.55;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
 
-/* Motion is decoration here — the call's state is also carried by the status
+  /* Motion is decoration here — the call's state is also carried by the status
    line and the buttons, so removing it costs nothing and keeping it can cost a
    user their focus or their stomach. The sphere stays lit and present, just
    still. */
-@media (prefers-reduced-motion: reduce) {
-  .orb-motion { animation: none !important; }
-}
-
-@layer utilities {
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-  /* ChatGPT/Qwen-style thin interactive scrollbar — faint line, expands on hover */
-  .thin-scrollbar {
-    scrollbar-width: thin;
-    scrollbar-color: transparent transparent;
-    scrollbar-gutter: stable;
-  }
-  .thin-scrollbar:hover {
-    scrollbar-color: var(--border-default) transparent;
-  }
-  .thin-scrollbar::-webkit-scrollbar {
-    width: 3px;
-    height: 3px;
-  }
-  .thin-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .thin-scrollbar::-webkit-scrollbar-thumb {
-    background-color: transparent;
-    border-radius: 9999px;
-    border: 1px solid transparent;
-    background-clip: padding-box;
-  }
-  .thin-scrollbar:hover::-webkit-scrollbar-thumb {
-    background-color: color-mix(in srgb, var(--border-default) 70%, transparent);
-  }
-  .thin-scrollbar::-webkit-scrollbar-thumb:hover {
-    background-color: var(--text-muted);
-  }
-  .thin-scrollbar:hover::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  @media (prefers-reduced-motion: reduce) {
+    .orb-motion {
+      animation: none !important;
+    }
   }
 }
 
@@ -215,26 +443,31 @@
  * (higher specificity → wins over these). Firefox uses the `scrollbar-*`
  * properties; Chromium/WebKit the `::-webkit-scrollbar` pseudo-elements.
  */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-default) transparent;
-}
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track,
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background-color: var(--border-default);
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-muted);
+/* In @layer base, not bare: Tailwind 4 uses real cascade layers, and a bare
+   rule beats every layered utility whatever its specificity. Bare, this `*`
+   rule overrode `.scrollbar-hide` and put a scrollbar back on the sidebar. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-default) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border-default);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-muted);
+  }
 }
 
 /*
@@ -1044,8 +1277,14 @@ body::after {
   50%       { opacity: 0; }
 }
 
-/* Base resets */
-*, *::before, *::after { box-sizing: border-box; }
+/* Base resets. The universal rule is layered for the same reason as the
+   scrollbars above: bare, it would beat `box-content` and every other utility. */
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  /* v3 gave every button a pointer; v4's preflight dropped it. Kept, so the
+     upgrade does not turn every clickable thing back into an arrow. */
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+}
 html, body, #root { height: 100%; margin: 0; }
 body { overflow: hidden; }
 
@@ -1295,10 +1534,15 @@ body { overflow: hidden; }
    The roles keep their rings: a menu item carrying `tabindex="-1"` as part of a
    roving-focus group still matches `[role="menuitem"]`, so keyboard users lose
    nothing. Only containers nobody can Tab to stop drawing one. */
-:where(a, button, input, select, textarea, summary, [role="button"], [role="menuitem"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
-  outline: 2px solid var(--brand, #3b69ef);
-  outline-offset: 2px;
-  border-radius: inherit;
+/* Layered: `:where()` has zero specificity, and unlayered in Tailwind 4 it beat
+   every utility, squaring `rounded-xl` corners with `border-radius: inherit` and
+   drawing an outline over `focus-visible:outline-hidden`. */
+@layer base {
+  :where(a, button, input, select, textarea, summary, [role="button"], [role="menuitem"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid var(--brand, #3b69ef);
+    outline-offset: 2px;
+    border-radius: inherit;
+  }
 }
 
 /* ── Reduced motion, as a blanket ──────────────────────────────────────────

@@ -31,7 +31,7 @@ export function NameAgentStep({ name, onChange, onSubmit }: Props) {
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) onSubmit(); }}
         placeholder="e.g. My Research Assistant"
-        className="w-full rounded-xl border border-bg-hover bg-bg-primary px-4 py-3 text-sm text-text-primary outline-none focus:ring-2 focus:ring-brand placeholder:text-text-muted text-center"
+        className="w-full rounded-xl border border-bg-hover bg-bg-primary px-4 py-3 text-sm text-text-primary outline-hidden focus:ring-2 focus:ring-brand placeholder:text-text-muted text-center"
       />
     </div>
   );

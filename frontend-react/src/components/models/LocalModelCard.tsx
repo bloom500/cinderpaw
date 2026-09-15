@@ -265,8 +265,8 @@ export function LocalModelCard({ model, onDelete }: Props) {
         </div>
       )}
 
-      {loadError && <p className="text-xs text-error break-words">{loadError}</p>}
-      {deleteError && !confirmOpen && <p className="text-xs text-error break-words">{deleteError}</p>}
+      {loadError && <p className="text-xs text-error wrap-break-word">{loadError}</p>}
+      {deleteError && !confirmOpen && <p className="text-xs text-error wrap-break-word">{deleteError}</p>}
 
       <Dialog open={confirmOpen} onOpenChange={(open) => { if (!isDeleting) { setConfirmOpen(open); if (!open) setDeleteError(null); } }}>
         <DialogContent className="sm:max-w-sm">
@@ -277,7 +277,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
             This deletes <span className="text-text-primary">{displayName}</span> ({sizeStr}) from disk.
             You'll have to download it again to use it.
           </p>
-          {deleteError && <p className="text-xs text-error break-words">{deleteError}</p>}
+          {deleteError && <p className="text-xs text-error wrap-break-word">{deleteError}</p>}
           <DialogFooter>
             <button
               type="button"

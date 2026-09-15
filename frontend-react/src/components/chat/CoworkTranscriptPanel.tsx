@@ -234,7 +234,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
             className={cn(
               'absolute bottom-0',
               right
-                ? 'right-[-11px] text-[color:var(--brand)]'
+                ? 'right-[-11px] text-(--brand)'
                 : 'left-[-11px] -scale-x-100 text-bg-surface',
             )}
           />
@@ -243,7 +243,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
           <div
             ref={bodyRef}
             className={cn(
-              'w-full text-sm leading-relaxed break-words select-text',
+              'w-full text-sm leading-relaxed wrap-break-word select-text',
               'prose prose-xs max-w-none prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1 prose-table:text-xs',
               'prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap',
               right ? 'prose-invert' : 'prose-neutral dark:prose-invert',
@@ -251,7 +251,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
               // square slab of brand colour. 14 lets a normal paragraph
               // through whole and keeps "show more" for the ones that are
               // genuinely long.
-              !expanded && 'line-clamp-[14]',
+              !expanded && 'line-clamp-14',
             )}
           >
             <Markdown>{m.text}</Markdown>
@@ -466,7 +466,7 @@ function ApprovalRow({ e }: { e: CoworkExchange }) {
         {/* WHAT is being approved. A decision prompt without the subject of
             the decision is not a prompt, it is a coin flip. */}
         {e.requestText && (
-          <span className="w-full break-words text-center font-mono text-text-secondary">
+          <span className="w-full wrap-break-word text-center font-mono text-text-secondary">
             {e.requestText}
           </span>
         )}
@@ -584,7 +584,7 @@ function Composer({
           placeholder={`Message ${displayName(to, participants.find(([id]) => id === to)?.[1])}…`}
           className="flex-1 min-w-0 rounded-md border border-border-default bg-bg-surface px-2 py-1
                      text-xs text-text-primary placeholder:text-text-muted
-                     focus:outline-none focus:ring-1 focus:ring-brand"
+                     focus:outline-hidden focus:ring-1 focus:ring-brand"
         />
         <button
           type="button"
@@ -1225,7 +1225,7 @@ export function CoworkTranscriptPanel() {
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
             placeholder="Search…"
-            className="flex-1 min-w-0 rounded-md border border-border-subtle bg-bg-elevated px-2 py-1 text-2xs text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-brand"
+            className="flex-1 min-w-0 rounded-md border border-border-subtle bg-bg-elevated px-2 py-1 text-2xs text-text-primary placeholder:text-text-muted focus:outline-hidden focus:ring-1 focus:ring-brand"
           />
           {participants.length > 1 && (
             <div className="flex gap-1 shrink-0">

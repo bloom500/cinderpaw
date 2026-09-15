@@ -272,7 +272,7 @@ export function LiveKitSelfTest() {
         </p>
       )}
       {phase === 'live' && !agentAudible && agentSilent && (
-        <p className="text-xs text-[var(--warning)]">
+        <p className="text-xs text-(--warning)">
           Connected, but the voice engine never joined. The room and your
           microphone are fine, so the problem is on the engine side. The timings
           below show how far it got. Stop and try again; if it keeps happening,

@@ -423,7 +423,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       )}>
         <div
           className={cn(
-            'relative rounded-2xl border bg-[var(--surface-typing)] focus-within:border-brand transition-colors',
+            'relative rounded-2xl border bg-(--surface-typing) focus-within:border-brand transition-colors',
             // Same material as the rail and the popovers. Without these two it
             // was the only piece of chrome in the app that was merely tinted:
             // a flat rectangle sitting beside a sidebar made of glass.
@@ -432,7 +432,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           )}
         >
           {dragOver && (
-            <div className="absolute inset-0 z-10 rounded-2xl bg-brand/10 backdrop-blur-sm border-2 border-dashed border-brand flex items-center justify-center pointer-events-none">
+            <div className="absolute inset-0 z-10 rounded-2xl bg-brand/10 backdrop-blur-xs border-2 border-dashed border-brand flex items-center justify-center pointer-events-none">
               <span className="text-sm font-medium text-brand">Drop to attach</span>
             </div>
           )}

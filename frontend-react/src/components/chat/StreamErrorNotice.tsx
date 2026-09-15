@@ -80,7 +80,7 @@ export function StreamErrorNotice() {
             </button>
           )}
           {showDetail && (
-            <pre className="text-xs text-text-muted bg-bg-surface border border-border-subtle rounded px-2 py-1.5 max-h-28 overflow-auto whitespace-pre-wrap break-words">
+            <pre className="text-xs text-text-muted bg-bg-surface border border-border-subtle rounded px-2 py-1.5 max-h-28 overflow-auto whitespace-pre-wrap wrap-break-word">
               {err.detail}
             </pre>
           )}

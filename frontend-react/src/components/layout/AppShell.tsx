@@ -116,7 +116,7 @@ export function AppShell() {
           Portalled to <body>, and raising the z-index is why that is necessary
           rather than tidy. This band lives inside `.app-pane`, which has a
           `backdrop-filter`, and inside `#root`, which sets `z-index: 1`. Both
-          open a stacking context, so `z-[200]` here is 200 WITHIN a layer whose
+          open a stacking context, so `z-200` here is 200 WITHIN a layer whose
           own value is 1 — and the call overlay is portalled to <body> at z-40,
           outside all of it. 40 beats 1, whatever the number inside says. The
           controls were raised from z-40 to z-200 once already to fix exactly
@@ -126,7 +126,7 @@ export function AppShell() {
           state, like the toasts below it, and the sidebar it used to live in
           hid it whenever the rail was collapsed. */}
       {createPortal(
-        <div className="fixed top-0 right-0 z-[200] flex items-center">
+        <div className="fixed top-0 right-0 z-200 flex items-center">
           <DownloadStatus />
           <WinControls />
         </div>,
@@ -140,12 +140,12 @@ export function AppShell() {
           corner beneath it. They now stack together where the eye already goes.
           pointer-events-none so the empty column never swallows clicks meant
           for the page; each card re-enables them. */}
-      {/* Portalled for the same reason as the controls above: z-[200] inside
+      {/* Portalled for the same reason as the controls above: z-200 inside
           `#root`'s z-index-1 stacking context lost to the call overlay's z-40
           outside it, so the errors that explain a failed call were invisible
           exactly when they were needed. */}
       {createPortal(
-        <div className="fixed top-11 right-4 z-[200] w-80 flex flex-col gap-2 pointer-events-none">
+        <div className="fixed top-11 right-4 z-200 w-80 flex flex-col gap-2 pointer-events-none">
           <UpdateToast />
           <Toasts />
         </div>,

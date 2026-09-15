@@ -479,3 +479,55 @@ describe('no component writes text in a raw Tailwind colour', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('status words read the -text tokens, variants included', () => {
+  // Tailwind v4 has no per-utility colour namespace, so `text-error` would
+  // silently take the FILL value (2.55:1 on glass) unless globals.css overrides
+  // it, and every variant (`hover:text-error`) is generated separately.
+  const NAMES = ['brand', 'error', 'success', 'warning', 'info'];
+  const TSX = import.meta.glob(['/src/**/*.tsx', '!/src/**/__tests__/**'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+
+  test('the five base utilities are overridden', () => {
+    for (const n of NAMES) expect(CSS).toContain(`.text-${n} { color: var(--${n}-text); }`);
+  });
+
+  test('every variant used in a component has its override', () => {
+    const used = new Set(
+      Object.values(TSX).flatMap((src) =>
+        [...src.matchAll(/\b([a-z][a-z-]*):text-(brand|error|success|warning|info)\b/g)].map((m) => `${m[1]}:${m[2]}`),
+      ),
+    );
+    const missing = [...used].filter((u) => {
+      const [variant, name] = u.split(':');
+      return !CSS.includes(`.${variant}\\:text-${name}`);
+    });
+    expect(missing).toEqual([]);
+  });
+});
+
+describe('Tailwind 4 cascade layers', () => {
+  // A bare rule beats every layered utility whatever its specificity. Three
+  // shipped that way in the upgrade: `*` put the sidebar scrollbar back over
+  // `.scrollbar-hide`, `:where(...)` squared `rounded-xl` and doubled focus
+  // rings. `html` and `body` stay bare on purpose: nothing puts utilities there.
+  test('no bare universal, :where() or element-only rule outside a layer', () => {
+    const src = CSS.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+    const offenders: string[] = [];
+    let depth = 0, buf = '';
+    for (const ch of src) {
+      if (ch === '{') {
+        if (depth === 0) {
+          const sel = buf.trim();
+          const lowSpec = /:where\(/.test(sel) || !/[.#[]/.test(sel.replace(/::?[a-z-]+(\([^)]*\))?/g, ''));
+          const allowed = /^(html|body)(::?[a-z-]+)?(\s*,\s*body(::?[a-z-]+)?)*$/.test(sel);
+          if (sel && !sel.startsWith('@') && lowSpec && !allowed) offenders.push(sel);
+        }
+        depth++; buf = ''; continue;
+      }
+      if (ch === '}') { depth--; buf = ''; continue; }
+      if (depth === 0) buf += ch === ';' ? '' : ch;
+      if (depth === 0 && ch === ';') buf = '';
+    }
+    expect(offenders).toEqual([]);
+  });
+});

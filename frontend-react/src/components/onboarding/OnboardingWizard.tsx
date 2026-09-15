@@ -55,7 +55,7 @@ export function OnboardingWizard() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-primary/95 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-primary/95 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-title"
@@ -221,7 +221,7 @@ function PersonalizeStep() {
             placeholder="e.g. Darius"
             autoFocus
             maxLength={40}
-            className="w-full text-base px-3 py-2.5 rounded-lg border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
+            className="w-full text-base px-3 py-2.5 rounded-lg border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted/50 focus:outline-hidden focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
             aria-label="Your name"
           />
         </Field>
@@ -236,7 +236,7 @@ function PersonalizeStep() {
             onChange={(e) => setAgentName(e.target.value)}
             placeholder="Cinderpaw"
             maxLength={40}
-            className="w-full text-base px-3 py-2.5 rounded-lg border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
+            className="w-full text-base px-3 py-2.5 rounded-lg border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted/50 focus:outline-hidden focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
             aria-label="Agent name"
           />
         </Field>
@@ -797,7 +797,7 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           placeholder={def.keyPlaceholder}
-          className="w-full pl-3 pr-10 py-2 rounded-lg border border-border-default bg-bg-primary text-sm text-text-primary font-mono placeholder:text-text-muted/50 focus:outline-none focus:ring-2 focus:ring-brand/50"
+          className="w-full pl-3 pr-10 py-2 rounded-lg border border-border-default bg-bg-primary text-sm text-text-primary font-mono placeholder:text-text-muted/50 focus:outline-hidden focus:ring-2 focus:ring-brand/50"
           aria-label={`${def.name} API key`}
         />
         <button

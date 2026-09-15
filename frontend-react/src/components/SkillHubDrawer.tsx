@@ -352,7 +352,7 @@ export function SkillHubDrawer() {
                       </p>
                     )}
                     {content && !contentLoading && !contentError && (
-                      <pre className="text-2xs leading-relaxed text-text-muted p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto scrollbar-hide font-mono">{content}</pre>
+                      <pre className="text-2xs leading-relaxed text-text-muted p-3 whitespace-pre-wrap wrap-break-word max-h-64 overflow-y-auto scrollbar-hide font-mono">{content}</pre>
                     )}
                   </div>
 
@@ -495,7 +495,7 @@ export function SkillHubDrawer() {
                     onChange={e => setImportInput(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') void doImport(); }}
                     placeholder="https://raw.githubusercontent.com/… or /path/to/SKILL.md"
-                    className="w-full rounded-md border border-bg-hover bg-bg-elevated px-3 py-2 text-xs text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
+                    className="w-full rounded-md border border-bg-hover bg-bg-elevated px-3 py-2 text-xs text-text-primary outline-hidden focus:ring-1 focus:ring-brand placeholder:text-text-muted"
                   />
                   <button
                     type="button"

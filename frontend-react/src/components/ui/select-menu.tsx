@@ -37,7 +37,7 @@ export function SelectMenu<T extends string>({
           className={cn(
             'inline-flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-surface px-2 py-1.5',
             'text-sm text-text-primary transition-colors hover:border-border-default',
-            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand',
+            'focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-brand',
             className,
           )}
         >
@@ -45,7 +45,7 @@ export function SelectMenu<T extends string>({
           <ChevronDown size={14} className="shrink-0 text-text-muted" aria-hidden />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[var(--radix-dropdown-menu-trigger-width)] max-h-72">
+      <DropdownMenuContent align="end" className="min-w-(--radix-dropdown-menu-trigger-width) max-h-72">
         <DropdownMenuRadioGroup value={value} onValueChange={(v) => onChange(v as T)}>
           {options.map((o) => (
             <DropdownMenuRadioItem key={o.value} value={o.value} className="text-sm">

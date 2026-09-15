@@ -273,7 +273,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
                     type="button"
                     onClick={() => void handleLoad(localPath)}
                     disabled={isLoading}
-                    className="flex items-center gap-1 text-xs text-success hover:text-success/80 disabled:opacity-40 transition-colors"
+                    className="flex items-center gap-1 text-xs text-success hover:opacity-80 disabled:opacity-40 transition-colors"
                   >
                     <Play size={12} />
                     {isLoading && loadProgress ? `${loadProgress.percentage.toFixed(0)}%` : 'Load'}

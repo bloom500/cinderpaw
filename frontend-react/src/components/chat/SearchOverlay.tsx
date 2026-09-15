@@ -317,7 +317,7 @@ export function SearchOverlay() {
             aria-controls="search-results"
             aria-activedescendant={activeIdx >= 0 ? `search-result-${activeIdx}` : undefined}
             placeholder={scope ? `Search in ${scope.name}…` : 'Search chats, projects and actions…'}
-            className="flex-1 bg-transparent text-text-primary text-sm outline-none placeholder:text-text-muted"
+            className="flex-1 bg-transparent text-text-primary text-sm outline-hidden placeholder:text-text-muted"
           />
           <button
             onClick={closeSearch}

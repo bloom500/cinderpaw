@@ -15,7 +15,7 @@ export const PopoverContent = React.forwardRef<
       align={align}
       sideOffset={sideOffset}
       className={cn(
-        'z-50 rounded-md bg-popover p-3 text-popover-foreground shadow-md outline-none',
+        'z-50 rounded-md bg-popover p-3 text-popover-foreground shadow-md outline-hidden',
         // Over content, not over the pane: without a backdrop of its own the
         // text underneath reads through the panel.
         'liquid-glass liquid-glass-rim',

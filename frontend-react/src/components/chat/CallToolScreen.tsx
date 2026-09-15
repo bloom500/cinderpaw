@@ -39,7 +39,7 @@ export const CallToolScreen = memo(function CallToolScreen({ activity }: { activ
 
   return (
     <div
-      className="pointer-events-none absolute bottom-6 left-6 z-10 flex w-[23rem] max-w-[calc(100%-3rem)] flex-col gap-2"
+      className="pointer-events-none absolute bottom-6 left-6 z-10 flex w-92 max-w-[calc(100%-3rem)] flex-col gap-2"
       // Polite: it narrates background work and must not interrupt a screen
       // reader mid-sentence during a call.
       aria-live="polite"
@@ -48,7 +48,7 @@ export const CallToolScreen = memo(function CallToolScreen({ activity }: { activ
           the moment the user learns Cinderpaw orchestrates rather than making one
           call — so it is said plainly, and never when it would be a lie. */}
       {running > 1 && (
-        <div className="tw-rise flex items-center gap-2 self-start rounded-full border border-border-subtle bg-bg-surface/90 px-3 py-1 text-2xs text-text-secondary backdrop-blur">
+        <div className="tw-rise flex items-center gap-2 self-start rounded-full border border-border-subtle bg-bg-surface/90 px-3 py-1 text-2xs text-text-secondary backdrop-blur-sm">
           <Loader2 size={12} className="animate-spin text-brand" />
           {running} {t('call.toolsRunning')}
         </div>
@@ -95,7 +95,7 @@ export function Widget({ activity: a, flat = false }: { activity: ToolActivity; 
     // sitting inside a reply is part of the page, not a window floating over it.
     <div className={cn(
       'tw-rise pointer-events-auto overflow-hidden rounded-xl border border-border-default',
-      flat ? 'bg-bg-surface/60' : 'bg-bg-surface/95 shadow-2xl backdrop-blur',
+      flat ? 'bg-bg-surface/60' : 'bg-bg-surface/95 shadow-2xl backdrop-blur-sm',
     )}>
       {/* The browser gets a real window's head — traffic lights and a tab —
           because that is the part a viewer recognises before reading anything.
@@ -149,7 +149,7 @@ export function Widget({ activity: a, flat = false }: { activity: ToolActivity; 
         {a.error ? (
           // A failure says so. A search that failed and a search that found
           // nothing look identical otherwise, and one of them is a bug.
-          <p className="text-2xs text-[var(--warning)]" title={a.error}>
+          <p className="text-2xs text-(--warning)" title={a.error}>
             {a.error}
           </p>
         ) : a.kind === 'agent' ? (
@@ -220,9 +220,9 @@ function State({ a, className }: { a: ToolActivity; className?: string }) {
       {running ? (
         <Loader2 size={12} className="animate-spin text-brand" />
       ) : a.status === 'failed' ? (
-        <AlertTriangle size={12} className="text-[var(--warning)]" />
+        <AlertTriangle size={12} className="text-(--warning)" />
       ) : (
-        <Check size={12} className="tw-pop text-[var(--success)]" />
+        <Check size={12} className="tw-pop text-(--success)" />
       )}
     </span>
   );
@@ -317,7 +317,7 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
                 type="button"
                 onClick={() => void open(h.url)}
                 title={h.url}
-                className="mt-0.5 block w-full truncate text-left text-xs leading-snug text-[var(--result-link)] hover:underline"
+                className="mt-0.5 block w-full truncate text-left text-xs leading-snug text-(--result-link) hover:underline"
               >
                 {h.title}
               </button>
@@ -418,7 +418,7 @@ function TerminalBody({ a, running }: { a: ToolActivity; running: boolean }) {
       </div>
 
       <div
-        className="bg-[#1E1E1E] px-2.5 py-2 text-micro leading-[1.5]"
+        className="bg-[#1E1E1E] px-2.5 py-2 text-micro leading-normal"
         // SF Mono then Menlo: Terminal.app's own faces, in its own order. Named
         // so the widget uses the real thing where it exists instead of whatever
         // generic monospace the browser would pick.
@@ -585,7 +585,7 @@ function DesktopBody({ d, running }: { d: DesktopFact; running: boolean }) {
               style={{ animationDelay: `${Math.min(i, 4) * 45}ms` }}
             >
               <AppWindow size={12} className="text-text-muted" />
-              <span className="max-w-[8rem] truncate">{name}</span>
+              <span className="max-w-32 truncate">{name}</span>
             </li>
           ))}
         </ul>

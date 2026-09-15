@@ -117,7 +117,7 @@ export function ToolCallBubble({
       {expanded && detail && (
         <pre
           className={cn(
-            'mt-1 max-w-[20rem] max-h-32 overflow-auto whitespace-pre-wrap break-words',
+            'mt-1 max-w-[20rem] max-h-32 overflow-auto whitespace-pre-wrap wrap-break-word',
             'rounded bg-bg-surface border border-border-subtle px-1.5 py-1 text-micro',
             errorMessage ? 'text-error' : 'text-text-muted',
           )}

@@ -94,7 +94,7 @@ function Card({ a }: { a: ToolActivity }) {
                 title={h.url}
                 className="block w-full text-left"
               >
-                <span className="block truncate text-2xs text-[var(--result-link)] hover:underline">
+                <span className="block truncate text-2xs text-(--result-link) hover:underline">
                   {h.title}
                 </span>
                 <span className="block truncate text-micro text-text-muted">{h.host}</span>

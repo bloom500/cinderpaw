@@ -54,7 +54,7 @@ function Row({ a, streaming }: { a: ToolActivity; streaming: boolean }) {
       onClick={() => setChoice(true)}
       className={cn(
         'flex w-full items-center gap-2 rounded-lg border border-border-subtle bg-bg-surface/40 px-2.5 py-1.5 text-left',
-        'text-2xs text-text-secondary hover:bg-bg-surface/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
+        'text-2xs text-text-secondary hover:bg-bg-surface/70 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand',
       )}
     >
       <ChevronRight size={12} className="shrink-0 text-text-muted" />
@@ -63,9 +63,9 @@ function Row({ a, streaming }: { a: ToolActivity; streaming: boolean }) {
       {a.status === 'running' ? (
         <Loader2 size={12} className="shrink-0 animate-spin text-brand" />
       ) : a.status === 'failed' ? (
-        <AlertTriangle size={12} className="shrink-0 text-[var(--warning)]" />
+        <AlertTriangle size={12} className="shrink-0 text-(--warning)" />
       ) : (
-        <Check size={12} className="shrink-0 text-[var(--success)]" />
+        <Check size={12} className="shrink-0 text-(--success)" />
       )}
     </button>
   );

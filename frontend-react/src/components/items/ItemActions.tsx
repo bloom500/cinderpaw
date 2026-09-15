@@ -178,7 +178,7 @@ function RenameDialog({
           onKeyDown={(e) => { if (e.key === 'Enter') void save(); }}
           placeholder={label}
           aria-label={label}
-          className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
+          className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-sm text-text-primary outline-hidden focus:ring-1 focus:ring-brand placeholder:text-text-muted"
         />
         {error && (
           <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">

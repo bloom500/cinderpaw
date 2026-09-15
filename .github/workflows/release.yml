@@ -258,7 +258,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # llama.cpp (llama-cpp-sys-2) uses std::filesystem, which needs a
           # macOS 10.15+ deployment target — Tauri's default of 10.13 makes
-          # clang reject std::filesystem::path during the CMake build.
+          # clang reject std::filesystem::path during the CMake build. This is the
+          # compile floor only: the app itself requires macOS 13.3 (tauri.conf.json
+          # minimumSystemVersion), because Tailwind 4 needs Safari 16.4 WebKit.
           MACOSX_DEPLOYMENT_TARGET: "10.15"
           # The sidecar is an externalBin: Tauri looks it up by TARGET triple,
           # and it has to be able to run on the target machine. Both of those

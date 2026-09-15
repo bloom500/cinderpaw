@@ -280,7 +280,7 @@ function QuestionBlock({
       onKeyDown={handleKey}
       role={question.multiSelect ? 'group' : 'radiogroup'}
       aria-label={question.question}
-      className="space-y-2 outline-none"
+      className="space-y-2 outline-hidden"
       data-question-index={index}
     >
       <div className="flex items-baseline gap-2">
@@ -327,7 +327,7 @@ function QuestionBlock({
                 className={cn(
                   'w-full text-left px-3 py-2 rounded-lg border transition-all',
                   'flex items-start gap-2.5 group',
-                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50',
+                  'focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand/50',
                   'border-border-default bg-bg-primary hover:bg-bg-elevated hover:border-brand/50',
                   isSelected && 'border-brand bg-brand/10',
                   'disabled:opacity-50 disabled:cursor-default',
@@ -386,7 +386,7 @@ function QuestionBlock({
                 placeholder="Other (optional)…"
                 value={otherText}
                 onChange={(e) => setOtherText(e.target.value)}
-                className="flex-1 text-xs px-2 py-1.5 rounded border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-brand/50"
+                className="flex-1 text-xs px-2 py-1.5 rounded border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-hidden focus:ring-1 focus:ring-brand/50"
               />
               <button
                 type="button"
@@ -442,7 +442,7 @@ function OtherInput({ open, value, onChange, onOpen, onSubmit }: OtherInputProps
         placeholder="Type your answer…"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="flex-1 text-sm px-2 py-1.5 rounded border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-brand/50"
+        className="flex-1 text-sm px-2 py-1.5 rounded border border-border-default bg-bg-primary text-text-primary placeholder:text-text-muted focus:outline-hidden focus:ring-1 focus:ring-brand/50"
       />
       <button
         type="submit"

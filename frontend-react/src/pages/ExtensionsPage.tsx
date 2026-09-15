@@ -432,7 +432,7 @@ function CatalogCard({
                 type={f.secret ? 'password' : 'text'}
                 value={values[f.key] ?? ''}
                 onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-none"
+                className="mt-1 w-full rounded-md border border-border-default bg-bg-primary px-2 py-1.5 text-xs text-text-primary focus:border-brand outline-hidden"
               />
             </label>
           ))}

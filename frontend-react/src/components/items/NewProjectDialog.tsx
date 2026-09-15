@@ -49,7 +49,7 @@ export function NewProjectDialog({
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void create(); }}
           placeholder="Project name"
-          className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-sm text-text-primary outline-none focus:ring-1 focus:ring-brand placeholder:text-text-muted"
+          className="w-full rounded-md border border-bg-hover bg-bg-primary px-3 py-2 text-sm text-text-primary outline-hidden focus:ring-1 focus:ring-brand placeholder:text-text-muted"
         />
         <DialogFooter>
           <button
