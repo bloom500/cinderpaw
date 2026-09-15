@@ -57,3 +57,10 @@ No arm, subset or question type is selected after the run; per-type numbers are 
   published LongMemEval QA numbers, which use gpt-4o.
 - Estimate with pinned endpoint prices: $0.83 (short) / $1.88 (long) / $6.39 (both models reason
   far beyond the settings). See COST-ESTIMATE.md.
+
+## Embedding server, fixed 2026-09-15 before any paid call
+`C:\Users\Darius\AppData\Local\Programs\Ollama\lib\ollama\llama-server.exe -m ~/.cinderpaw/models/bge-m3-Q8_0.gguf --embeddings --pooling mean --port 18099 -c 8192 -b 8192 -ub 8192`.
+Checked against the 12 Sep LongMemEval cache on 5 questions: cosine 0.9998-1.0000 with mean pooling,
+0.79-0.82 with cls. So the 12 Sep FMS numbers were produced with MEAN pooling, and this run uses the
+same. Side note, not acted on: bge-m3's reference pooling is CLS; whether that changes FMS recall is
+a separate question.
