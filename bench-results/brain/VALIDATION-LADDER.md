@@ -180,3 +180,20 @@ that the authors recommend type-level aggregation over per-neuron labels. So thi
 
 Measured exactly as G2 (step-1 stimulus, same metrics and nulls). No verdict beyond reporting the
 numbers next to the two G2 extremes; no parameter is changed in response.
+
+## 2026-09-15 20:15: G2-X result (EXPLORATORY)
+
+Run: bench-results/brain/variant1/g2x/. Type consensus resolves 194 of the 211 uncertain ALLNs;
+17 stay uncertain (ties in 7 small types: CB1266, vLN24, CB2845, lLN9, CB3575, l2LN23, v2LN30)
+and run both ways. Signs changed vs the built pack: only 30 (T+) / 29 (T-), so type consensus
+mostly agrees with the as-built predictions.
+
+| set | k | uni PN overlap (null ratio) | uni firing | KC overlap (null ratio) | KC active |
+|---|---|---|---|---|---|
+| TYPE-CONSENSUS/T+ | 3 / 8 | 0.921 (1.51) / 0.906 (1.41) | 76% / 79% | 0.794 (4.2) / 0.827 (3.7) | 32% / 37% |
+| TYPE-CONSENSUS/T- | 3 / 8 | 0.627 (2.26) / 0.761 (2.18) | 43% / 52% | 0.395 (6.4) / 0.593 (6.4) | 12% / 17% |
+
+Observation only, no verdict: the 17 tied cells alone move uni PN overlap by 0.15-0.29. The
+antennal lobe as modelled is very sensitive to the sign of a few LNs, which reads as a network
+near a runaway threshold rather than one with robust gain control. It is exploratory and does
+not replace the G2 extremes. Nothing retuned.

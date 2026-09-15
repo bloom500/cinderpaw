@@ -27,6 +27,27 @@ export function alnLabel(knownNt: string, topNt: string, conf: number): Label {
   return topNt === "gaba" || topNt === "glutamate" ? -1 : 1;
 }
 
+export interface AllnCell { type: string; known: string; top: string; conf: number }
+
+/**
+ * G2-X, exploratory (VALIDATION-LADDER.md 2026-09-15 20:00): an uncertain cell takes its
+ * cell type's literature sign if any cell of the type has one, else the majority top_nt sign
+ * over every cell of the type. Ties and untyped cells stay uncertain.
+ */
+export function typeConsensus(cells: AllnCell[]): Label[] {
+  const own = cells.map((c) => alnLabel(c.known, c.top, c.conf));
+  const byType = new Map<string, number[]>();
+  cells.forEach((c, i) => { if (c.type) (byType.get(c.type) ?? byType.set(c.type, []).get(c.type)!).push(i); });
+  return own.map((l, i) => {
+    if (l !== "uncertain" || !cells[i]!.type) return l;
+    const members = byType.get(cells[i]!.type)!;
+    const literature = members.map((m) => alnLabel(cells[m]!.known, "", Number.NaN)).find((x) => x !== "uncertain");
+    if (literature !== undefined) return literature;
+    const vote = members.reduce((v, m) => v + (cells[m]!.top === "gaba" || cells[m]!.top === "glutamate" ? -1 : 1), 0);
+    return vote > 0 ? 1 : vote < 0 ? -1 : "uncertain";
+  });
+}
+
 /** Pack weights with every outgoing edge of each relabelled neuron given its new sign. */
 export function relabel(pack: BrainPack, signs: Map<number, 1 | -1>): Float32Array {
   const w = Float32Array.from(pack.weight);
@@ -58,22 +79,33 @@ if (import.meta.main) {
 
   const lines = readFileSync(tsv, "utf8").split("\n");
   const header = lines[0]!.replace(/\r$/, "").split("\t");
+  const consensus = process.argv.includes("--type-consensus");
+  const cType = header.indexOf("cell_type");
   const cClass = header.indexOf("cell_class"), cKnown = header.indexOf("known_nt"), cTop = header.indexOf("top_nt"), cConf = header.indexOf("top_nt_conf");
   const labels = new Map<number, Label>();
+  const allnIdx: number[] = [], allnCells: AllnCell[] = [];
   let idx = 0;
   for (let li = 1; li < lines.length; li++) {
     const line = lines[li]!.replace(/\r$/, "");
     if (!line) continue;
     const f = line.split("\t");
-    if (f[cClass] === "ALLN") labels.set(idx, alnLabel(f[cKnown]!, f[cTop]!, Number(f[cConf])));
+    if (f[cClass] === "ALLN") {
+      labels.set(idx, alnLabel(f[cKnown]!, f[cTop]!, Number(f[cConf])));
+      allnIdx.push(idx);
+      allnCells.push({ type: f[cType]!, known: f[cKnown]!, top: f[cTop]!, conf: Number(f[cConf]) });
+    }
     idx++;
   }
+  const g2Uncertain = [...labels.values()].filter((l) => l === "uncertain").length;
+  if (consensus) typeConsensus(allnCells).forEach((l, j) => labels.set(allnIdx[j]!, l));
   const signsFor = (u: 1 | -1) => new Map([...labels].map(([n, l]) => [n, l === "uncertain" ? u : l] as [number, 1 | -1]));
   const nUncertain = [...labels.values()].filter((l) => l === "uncertain").length;
   const asBuiltNeg = [...labels.keys()].filter((n) => { const e = pack.rowPtr[n]!; return e < pack.rowPtr[n + 1]! && pack.weight[e]! < 0; }).length;
   const flippedFromBuilt = (u: 1 | -1) => [...signsFor(u)].filter(([n, s]) => { const e = pack.rowPtr[n]!; return e < pack.rowPtr[n + 1]! && Math.sign(pack.weight[e]!) !== s; }).length;
 
-  const sets: [string, Float32Array | undefined][] = [["AS-BUILT", undefined], ["CORRECTED-U+", relabel(pack, signsFor(1))], ["CORRECTED-U-", relabel(pack, signsFor(-1))]];
+  const sets: [string, Float32Array | undefined][] = consensus
+    ? [["TYPE-CONSENSUS/T+", relabel(pack, signsFor(1))], ["TYPE-CONSENSUS/T-", relabel(pack, signsFor(-1))]]
+    : [["AS-BUILT", undefined], ["CORRECTED-U+", relabel(pack, signsFor(1))], ["CORRECTED-U-", relabel(pack, signsFor(-1))]];
   const results: { set: string; rows: StageRow[] }[] = [];
   for (const [name, w] of sets) {
     const t0 = Date.now();
@@ -89,6 +121,24 @@ if (import.meta.main) {
     const kcNull = nullJaccard(new Array(8).fill(Math.round(r.kcSparsityUnion * kcN)), pack.populations.kc!, 200, 7);
     return `| ${set} | ${r.k} | ${f(r.alpnUniOverlap)} | ${f(uniNull)} | ${f(r.alpnUniOverlap / (uniNull || NaN))} | ${f(r.alpnAllOverlap)} | ${f(r.alpnUniFiringFrac)} | ${f(r.kcOverlap)} | ${f(kcNull)} | ${f(r.kcOverlap / (kcNull || NaN))} | ${f(r.kcSparsityUnion)} | ${r.go ? "yes" : "no"} |`;
   }));
+
+  if (consensus) {
+    const md = [
+      `# CinderBrain G2-X: type-consensus sensitivity analysis (EXPLORATORY, not the reference)`,
+      ``,
+      `pack: ${pack.manifest.packId}; ALLNs ${labels.size}; uncertain after G2 rules ${g2Uncertain}; still uncertain after type consensus (ties/untyped, run both ways) ${nUncertain}; resolved by consensus ${g2Uncertain - nUncertain}; signs changed vs built: T+ ${flippedFromBuilt(1)}, T- ${flippedFromBuilt(-1)}. Compare with the G2 extremes CORRECTED-U+ / CORRECTED-U- in g2/.`,
+      ``,
+      `| label set | k | uni PN overlap | null | ratio | all ALPN overlap | uni firing | KC overlap | null | ratio | KC sparsity | step-1 criterion |`,
+      `|---|---|---|---|---|---|---|---|---|---|---|---|`,
+      ...rowsMd,
+      ``,
+    ].join("\n");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    writeFileSync(join(out, `${stamp}-g2x-type-consensus.json`), JSON.stringify({ g2Uncertain, nUncertain, results }, null, 2));
+    writeFileSync(join(out, `${stamp}-g2x-type-consensus.md`), md);
+    console.log(md);
+    process.exit(0);
+  }
 
   const uni = (set: string, k: number) => results.find((x) => x.set === set)!.rows.find((r) => r.k === k)!;
   const material = ["CORRECTED-U+", "CORRECTED-U-"].some((s) => [3, 8].every((k) => Math.abs(uni(s, k).alpnUniOverlap - uni("AS-BUILT", k).alpnUniOverlap) >= 0.1));
