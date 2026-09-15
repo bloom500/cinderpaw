@@ -166,4 +166,13 @@ describe('ProviderToggle', () => {
     screen.getByRole('button', { name: 'Speech to speech' }).click();
     expect(picked).toEqual(['openai']);
   });
+
+  it('with STT + TTS parked, shows the vendors directly, even before any key exists', () => {
+    const s2sOnly = providers.slice(0, 2).map((p: never) => ({ ...(p as object), connected: false })) as never[];
+    render(<ProviderToggle providers={s2sOnly} effective={null} willEcho={false} onChange={() => {}} t={t as never} />);
+    expect(screen.queryByRole('button', { name: 'Speech to speech' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'STT + TTS' })).toBeNull();
+    expect(screen.getByText('Gemini Realtime')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI Realtime')).toBeInTheDocument();
+  });
 });

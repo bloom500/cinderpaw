@@ -1789,10 +1789,15 @@ export function ProviderToggle({
       active ? 'bg-brand text-on-brand' : 'text-text-muted hover:text-text-primary',
       extra,
     );
+  // With STT + TTS parked there is one kind of call left, and a row holding a
+  // single always-pressed pill is a choice that is not one. The mode row only
+  // appears when there are two modes; otherwise the vendors show straight away,
+  // including on a machine with no key yet, where nothing is selected.
+  const showVendors = s2s.length > 0 && (s2sSelected || !pipeline);
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
-        {pipeline && (
+      {pipeline && (
+        <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
           <button
             type="button"
             onClick={() => { if (pipeline.id !== effective) onChange(pipeline.id); }}
@@ -1801,19 +1806,19 @@ export function ProviderToggle({
           >
             {t('call.groupPipeline')}
           </button>
-        )}
-        {firstS2s && (
-          <button
-            type="button"
-            onClick={() => { if (!s2sSelected) onChange(firstS2s.id); }}
-            aria-pressed={s2sSelected}
-            className={pill(s2sSelected)}
-          >
-            {t('call.groupS2s')}
-          </button>
-        )}
-      </div>
-      {s2sSelected && s2s.length > 0 && (
+          {firstS2s && (
+            <button
+              type="button"
+              onClick={() => { if (!s2sSelected) onChange(firstS2s.id); }}
+              aria-pressed={s2sSelected}
+              className={pill(s2sSelected)}
+            >
+              {t('call.groupS2s')}
+            </button>
+          )}
+        </div>
+      )}
+      {showVendors && (
         <div className="flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface/70 p-1">
           {s2s.map((p) => (
             <button

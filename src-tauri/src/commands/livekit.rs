@@ -69,6 +69,9 @@ pub struct S2sProviderInfo {
 pub(crate) fn list_s2s_providers() -> Vec<S2sProviderInfo> {
     cinderpaw_core::livekit::S2S_PROVIDERS
         .iter()
+        // A parked row is not offered: showing it would hand people the mode
+        // that is known not to hear them.
+        .filter(|p| cinderpaw_core::livekit::is_offered(p))
         .map(|p| S2sProviderInfo {
             id: p.id.to_string(),
             label: p.label.to_string(),
