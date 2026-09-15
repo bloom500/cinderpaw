@@ -124,10 +124,10 @@ export interface StageRow {
  * READOUT_MS, firing sets per stage. `effectiveWeight` replaces the pack weights
  * (the 2b lesion, or relabelled signs) without rebuilding the pack.
  */
-export function measureStages(pack: BrainPack, map: OlfactoryMap, mode: StageMode, effectiveWeight?: Float32Array): StageRow[] {
+export function measureStages(pack: BrainPack, map: OlfactoryMap, mode: StageMode, effectiveWeight?: Float32Array, makeSim?: () => LifSim): StageRow[] {
   const kc = pack.populations.kc!;
   const names = [...map.glomeruli.keys()].sort();
-  const sim = new LifSim(pack, effectiveWeight ? { effectiveWeight } : {});
+  const sim = makeSim ? makeSim() : new LifSim(pack, effectiveWeight ? { effectiveWeight } : {});
   const firing = (pop: Int32Array, into: Set<number>) => sim.rates(pop).forEach((r, j) => { if (r > 0) into.add(pop[j]!); });
   const rows: StageRow[] = [];
   for (const k of ODOR_SIZES) {
