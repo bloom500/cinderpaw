@@ -182,7 +182,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
         <ThinkingBlock
           id={message.id}
           content={message.thinking!}
-          duration={message.thinkingDurationMs ? Math.round(message.thinkingDurationMs / 1000) : 0}
+          durationMs={message.thinkingDurationMs}
           active={!message.thinkingComplete}
         />
       )}
