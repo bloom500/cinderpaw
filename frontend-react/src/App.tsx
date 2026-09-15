@@ -13,7 +13,7 @@ import { useModel } from '@/stores/model';
  * streaming in still sees the indicator. Disappears as soon as the model
  * is on disk (the 'present' state).
  */
-function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbeddingDownloadStatus> }): JSX.Element | null {
+function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbeddingDownloadStatus> }): React.JSX.Element | null {
   if (state.kind !== 'downloading') return null;
   const pct = Math.round(state.progress * 100);
   return (
