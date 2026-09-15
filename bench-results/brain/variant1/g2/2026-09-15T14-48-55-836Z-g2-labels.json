@@ -1,0 +1,182 @@
+{
+  "nUncertain": 211,
+  "results": [
+    {
+      "set": "AS-BUILT",
+      "rows": [
+        {
+          "mode": "orn",
+          "k": 3,
+          "inputGlomeruliOverlap": 0.021428571428571432,
+          "drivenOverlap": 0.029469142627661846,
+          "meanDriven": 146.5,
+          "alpnUniOverlap": 0.8388865034764752,
+          "alpnMultiOverlap": 0.7548147294140063,
+          "alpnAllOverlap": 0.804273048178762,
+          "alpnUniFiringFrac": 0.6344765342960289,
+          "alpnMultiFiringFrac": 0.28625,
+          "kcOverlap": 0.6017659864153165,
+          "kcSparsityUnion": 0.20470349623333978,
+          "kcSparsityPerBin": [
+            0,
+            0,
+            0,
+            0,
+            0.0014970059880239522,
+            0.01644292061039212,
+            0.03880142939926598,
+            0.05437512072628936,
+            0.07002124782692679,
+            0.06968321421672784
+          ],
+          "go": false
+        },
+        {
+          "mode": "orn",
+          "k": 8,
+          "inputGlomeruliOverlap": 0.0847462061747776,
+          "drivenOverlap": 0.08851944750734173,
+          "meanDriven": 379.25,
+          "alpnUniOverlap": 0.8618684989663079,
+          "alpnMultiOverlap": 0.8577990951379677,
+          "alpnAllOverlap": 0.8600217813574501,
+          "alpnUniFiringFrac": 0.6868231046931408,
+          "alpnMultiFiringFrac": 0.329375,
+          "kcOverlap": 0.7248250369342343,
+          "kcSparsityUnion": 0.2766563646899749,
+          "kcSparsityPerBin": [
+            0,
+            0,
+            0,
+            0.000024145257871354065,
+            0.008281823449874446,
+            0.05273324319103728,
+            0.08378404481359862,
+            0.07936546262314083,
+            0.0804761444852231,
+            0.08057272551670851
+          ],
+          "go": false
+        }
+      ]
+    },
+    {
+      "set": "CORRECTED-U+",
+      "rows": [
+        {
+          "mode": "orn",
+          "k": 3,
+          "inputGlomeruliOverlap": 0.021428571428571432,
+          "drivenOverlap": 0.029469142627661846,
+          "meanDriven": 146.5,
+          "alpnUniOverlap": 0.934809352920446,
+          "alpnMultiOverlap": 0.911088167738218,
+          "alpnAllOverlap": 0.9233568994470797,
+          "alpnUniFiringFrac": 0.8267148014440433,
+          "alpnMultiFiringFrac": 0.513125,
+          "kcOverlap": 0.881115294981527,
+          "kcSparsityUnion": 0.4341317365269461,
+          "kcSparsityPerBin": [
+            0,
+            0,
+            0,
+            0.000024145257871354065,
+            0.012627969866718176,
+            0.05951806065288777,
+            0.12618311763569634,
+            0.16208711609039983,
+            0.15168050994784626,
+            0.14955572725516708
+          ],
+          "go": false
+        },
+        {
+          "mode": "orn",
+          "k": 8,
+          "inputGlomeruliOverlap": 0.0847462061747776,
+          "drivenOverlap": 0.08851944750734173,
+          "meanDriven": 379.25,
+          "alpnUniOverlap": 0.9336941536727014,
+          "alpnMultiOverlap": 0.9275296164275922,
+          "alpnAllOverlap": 0.9305687578489958,
+          "alpnUniFiringFrac": 0.8370938628158845,
+          "alpnMultiFiringFrac": 0.5528125,
+          "kcOverlap": 0.8921800284858675,
+          "kcSparsityUnion": 0.47295731118408346,
+          "kcSparsityPerBin": [
+            0,
+            0,
+            0,
+            0.0009175197991114546,
+            0.06147382654046745,
+            0.15462623140815143,
+            0.16397044620436546,
+            0.16013135020282018,
+            0.15696832142167277,
+            0.16085570793896078
+          ],
+          "go": false
+        }
+      ]
+    },
+    {
+      "set": "CORRECTED-U-",
+      "rows": [
+        {
+          "mode": "orn",
+          "k": 3,
+          "inputGlomeruliOverlap": 0.021428571428571432,
+          "drivenOverlap": 0.029469142627661846,
+          "meanDriven": 146.5,
+          "alpnUniOverlap": 0.3809947744666066,
+          "alpnMultiOverlap": 0.3413535775855458,
+          "alpnAllOverlap": 0.3664917277577577,
+          "alpnUniFiringFrac": 0.22021660649819494,
+          "alpnMultiFiringFrac": 0.06375,
+          "kcOverlap": 0.04682566653003561,
+          "kcSparsityUnion": 0.014656171527911918,
+          "kcSparsityPerBin": [
+            0,
+            0,
+            0,
+            0,
+            0.0001448715472281244,
+            0.001207262893567703,
+            0.0017384585667374929,
+            0.0027525593973343632,
+            0.005408537763183311,
+            0.004829051574270813
+          ],
+          "go": false
+        },
+        {
+          "mode": "orn",
+          "k": 8,
+          "inputGlomeruliOverlap": 0.0847462061747776,
+          "drivenOverlap": 0.08851944750734173,
+          "meanDriven": 379.25,
+          "alpnUniOverlap": 0.4885585173256674,
+          "alpnMultiOverlap": 0.5409525494162419,
+          "alpnAllOverlap": 0.5033256599524234,
+          "alpnUniFiringFrac": 0.30505415162454874,
+          "alpnMultiFiringFrac": 0.095625,
+          "kcOverlap": 0.05620336939946008,
+          "kcSparsityUnion": 0.015573691327023373,
+          "kcSparsityPerBin": [
+            0,
+            0,
+            0,
+            0,
+            0.0006277767046552057,
+            0.0022937994977786365,
+            0.002173073208421866,
+            0.0027525593973343637,
+            0.004466872706200503,
+            0.004466872706200502
+          ],
+          "go": false
+        }
+      ]
+    }
+  ]
+}

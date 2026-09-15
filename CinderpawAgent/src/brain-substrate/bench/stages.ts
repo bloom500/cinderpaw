@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { mulberry32 } from "../../memory/fractal/prng.ts";
 import { loadPack } from "../pack/load.ts";
+import type { BrainPack } from "../pack/types.ts";
 import { PATTERN_DRIVE_MV_PER_MS, READOUT_MS } from "../seams/pattern.ts";
 import { LifSim } from "../sim/lif.ts";
 
@@ -118,6 +119,69 @@ export interface StageRow {
   go: boolean;
 }
 
+/**
+ * One stage measurement: 8 odors per size, seed 1, the chosen neurons driven for
+ * READOUT_MS, firing sets per stage. `effectiveWeight` replaces the pack weights
+ * (the 2b lesion, or relabelled signs) without rebuilding the pack.
+ */
+export function measureStages(pack: BrainPack, map: OlfactoryMap, mode: StageMode, effectiveWeight?: Float32Array): StageRow[] {
+  const kc = pack.populations.kc!;
+  const names = [...map.glomeruli.keys()].sort();
+  const sim = new LifSim(pack, effectiveWeight ? { effectiveWeight } : {});
+  const firing = (pop: Int32Array, into: Set<number>) => sim.rates(pop).forEach((r, j) => { if (r > 0) into.add(pop[j]!); });
+  const rows: StageRow[] = [];
+  for (const k of ODOR_SIZES) {
+    const rand = mulberry32(1);
+    const gSets: Set<number>[] = [], drivenSets: Set<number>[] = [], uni: Set<number>[] = [], multi: Set<number>[] = [], all: Set<number>[] = [], kcs: Set<number>[] = [];
+    const perBin = new Array(Math.round(READOUT_MS / BIN_MS)).fill(0);
+    let drivenMean = 0;
+    for (let o = 0; o < ODORS_PER_SIZE; o++) {
+      const chosen = sampleWithoutReplacement(names, k, rand);
+      gSets.push(new Set(chosen.map((g) => names.indexOf(g))));
+      const source = mode === "orn" ? map.glomeruli : map.pnByGlomerulus;
+      const driven = Int32Array.from(chosen.flatMap((g) => source.get(g)!));
+      drivenSets.push(new Set(driven));
+      drivenMean += driven.length / ODORS_PER_SIZE;
+      sim.resetState();
+      sim.inject(driven, new Float32Array(driven.length).fill(PATTERN_DRIVE_MV_PER_MS));
+      const u = new Set<number>(), m = new Set<number>(), kk = new Set<number>();
+      for (let b = 0; b < perBin.length; b++) {
+        sim.resetRates();
+        sim.step(BIN_MS);
+        firing(map.alpnUni, u);
+        firing(map.alpnMulti, m);
+        const binKc = new Set<number>();
+        firing(kc, binKc);
+        for (const x of binKc) kk.add(x);
+        perBin[b] += binKc.size / kc.length / ODORS_PER_SIZE;
+      }
+      sim.clearInput();
+      uni.push(u); multi.push(m); kcs.push(kk);
+      all.push(new Set([...u, ...m]));
+    }
+    const row: StageRow = {
+      mode,
+      k,
+      inputGlomeruliOverlap: meanJaccard(gSets),
+      drivenOverlap: meanJaccard(drivenSets),
+      meanDriven: drivenMean,
+      alpnUniOverlap: meanJaccard(uni),
+      alpnMultiOverlap: meanJaccard(multi),
+      alpnAllOverlap: meanJaccard(all),
+      alpnUniFiringFrac: uni.reduce((s, x) => s + x.size, 0) / ODORS_PER_SIZE / map.alpnUni.length,
+      alpnMultiFiringFrac: multi.reduce((s, x) => s + x.size, 0) / ODORS_PER_SIZE / map.alpnMulti.length,
+      kcOverlap: meanJaccard(kcs),
+      kcSparsityUnion: kcs.reduce((s, x) => s + x.size, 0) / ODORS_PER_SIZE / kc.length,
+      kcSparsityPerBin: perBin,
+      go: false,
+    };
+    // Criteria fixed in VALIDATION-LADDER.md before these ran: step 1 on the PNs, step 2 on the KCs.
+    row.go = mode === "orn" ? row.alpnUniOverlap < 0.3 && row.alpnAllOverlap < 0.5 : row.kcOverlap < 0.3;
+    rows.push(row);
+  }
+  return rows;
+}
+
 if (import.meta.main) {
   const arg = (name: string) => {
     const i = process.argv.indexOf(`--${name}`);
@@ -146,61 +210,8 @@ if (import.meta.main) {
     }
   }
 
-  const measure = (mode: StageMode): StageRow[] => {
-    const sim = new LifSim(pack, mode === "pn-lesion" ? { effectiveWeight: lesion } : {});
-    const firing = (pop: Int32Array, into: Set<number>) => sim.rates(pop).forEach((r, j) => { if (r > 0) into.add(pop[j]!); });
-    const rows: StageRow[] = [];
-    for (const k of ODOR_SIZES) {
-      const rand = mulberry32(1);
-      const gSets: Set<number>[] = [], drivenSets: Set<number>[] = [], uni: Set<number>[] = [], multi: Set<number>[] = [], all: Set<number>[] = [], kcs: Set<number>[] = [];
-      const perBin = new Array(Math.round(READOUT_MS / BIN_MS)).fill(0);
-      let drivenMean = 0;
-      for (let o = 0; o < ODORS_PER_SIZE; o++) {
-        const chosen = sampleWithoutReplacement(names, k, rand);
-        gSets.push(new Set(chosen.map((g) => names.indexOf(g))));
-        const source = mode === "orn" ? map.glomeruli : map.pnByGlomerulus;
-        const driven = Int32Array.from(chosen.flatMap((g) => source.get(g)!));
-        drivenSets.push(new Set(driven));
-        drivenMean += driven.length / ODORS_PER_SIZE;
-        sim.resetState();
-        sim.inject(driven, new Float32Array(driven.length).fill(PATTERN_DRIVE_MV_PER_MS));
-        const u = new Set<number>(), m = new Set<number>(), kk = new Set<number>();
-        for (let b = 0; b < perBin.length; b++) {
-          sim.resetRates();
-          sim.step(BIN_MS);
-          firing(map.alpnUni, u);
-          firing(map.alpnMulti, m);
-          const binKc = new Set<number>();
-          firing(kc, binKc);
-          for (const x of binKc) kk.add(x);
-          perBin[b] += binKc.size / kc.length / ODORS_PER_SIZE;
-        }
-        sim.clearInput();
-        uni.push(u); multi.push(m); kcs.push(kk);
-        all.push(new Set([...u, ...m]));
-      }
-      const row: StageRow = {
-        mode,
-        k,
-        inputGlomeruliOverlap: meanJaccard(gSets),
-        drivenOverlap: meanJaccard(drivenSets),
-        meanDriven: drivenMean,
-        alpnUniOverlap: meanJaccard(uni),
-        alpnMultiOverlap: meanJaccard(multi),
-        alpnAllOverlap: meanJaccard(all),
-        alpnUniFiringFrac: uni.reduce((s, x) => s + x.size, 0) / ODORS_PER_SIZE / map.alpnUni.length,
-        alpnMultiFiringFrac: multi.reduce((s, x) => s + x.size, 0) / ODORS_PER_SIZE / map.alpnMulti.length,
-        kcOverlap: meanJaccard(kcs),
-        kcSparsityUnion: kcs.reduce((s, x) => s + x.size, 0) / ODORS_PER_SIZE / kc.length,
-        kcSparsityPerBin: perBin,
-        go: false,
-      };
-      // Criteria fixed in VALIDATION-LADDER.md before these ran: step 1 on the PNs, step 2 on the KCs.
-      row.go = mode === "orn" ? row.alpnUniOverlap < 0.3 && row.alpnAllOverlap < 0.5 : row.kcOverlap < 0.3;
-      rows.push(row);
-    }
-    return rows;
-  };
+  const measure = (mode: StageMode): StageRow[] =>
+    measureStages(pack, map, mode, mode === "pn-lesion" ? lesion : undefined);
 
   const rows = step === "1" ? measure("orn") : [...measure("pn"), ...measure("pn-lesion")];
   const f = (x: number) => x.toFixed(3);

@@ -140,3 +140,21 @@ observed / null.
   in exactly one of CORRECTED-U+ / CORRECTED-U-. Then every later Variant 1 claim must hold in
   BOTH label sets, not in the one that looks better.
 - Both corrected sets are carried into G3-G5 as the no-gap references. Neither is selected.
+
+## 2026-09-15 19:40: step G2 result
+
+Run: bench-results/brain/variant1/g2/ (log g2-run.log). 211 of 429 ALLNs are UNCERTAIN under the
+rule (no literature label, top_nt_conf < 0.50); U+ changes 139 signs vs the pack, U- changes 78.
+
+| set | k | uni PN overlap (null ratio) | uni firing | KC overlap (null ratio) | KC active |
+|---|---|---|---|---|---|
+| AS-BUILT | 3 / 8 | 0.839 (1.80) / 0.862 (1.65) | 63% / 69% | 0.602 (5.3) / 0.725 (4.5) | 21% / 28% |
+| CORRECTED-U+ | 3 / 8 | 0.935 (1.33) / 0.934 (1.30) | 83% / 84% | 0.881 (3.2) / 0.892 (2.9) | 43% / 47% |
+| CORRECTED-U- | 3 / 8 | 0.381 (3.05) / 0.489 (2.68) | 22% / 31% | 0.047 (6.3) / 0.056 (7.0) | 1.5% / 1.6% |
+
+Verdicts as preregistered: LABEL EFFECT MATERIAL. UNCERTAIN CELLS not decisive by the step-1
+criterion (it fails in both corrected sets). Not preregistered, stated as an observation only:
+the two corrected sets span smear (U+) to near-separation with sparse KCs (U-), so the sign of the
+211 uncertain ALLNs moves uniglomerular PN overlap by ~0.45-0.55, far more than any mechanism
+has moved it so far. Until those cells are labelled from better evidence, every Variant 1 claim
+must hold in both sets, as G2 required. No label set is selected; nothing retuned.
