@@ -42,3 +42,18 @@ No arm, subset or question type is selected after the run; per-type numbers are 
 **Cost:** see COST-ESTIMATE.md (live prices). Nothing runs until Darius approves a cap.
 **Run needs:** OPENROUTER_API_KEY, and the bge-m3 llama-server on 127.0.0.1:18099 (not running on
 15 Sep evening).
+
+## Amendment, 2026-09-15 (before any paid call): models changed by Darius, for cost
+- Answer: deepseek/deepseek-v4-flash pinned to deepinfra/fp8 (no fallbacks), reasoning disabled,
+  temperature 0, max 512. Replaces z-ai/glm-5.3-flash.
+- Judge: openai/gpt-5.6-luna pinned to openai, reasoning effort minimal, max 1000 tokens (its
+  reasoning counts against max_tokens), no temperature (the model takes none). Replaces
+  LongMemEval's official gpt-4o-2024-08-06; the official per-type prompts are unchanged.
+- Because the judge is no longer the official one, a guard is added before trusting it: the first
+  50 FMS-arm judgements are also judged by gpt-4o-2024-08-06; if Luna agrees on fewer than 45 of
+  50, the run stops and no accuracy is reported. Also stops if more than 5 of the first 100 Luna
+  replies are empty. Parsing is now a whole-word "yes".
+- Results stay comparable across arms (same judge everywhere); they are NOT comparable with
+  published LongMemEval QA numbers, which use gpt-4o.
+- Estimate with pinned endpoint prices: $0.83 (short) / $1.88 (long) / $6.39 (both models reason
+  far beyond the settings). See COST-ESTIMATE.md.

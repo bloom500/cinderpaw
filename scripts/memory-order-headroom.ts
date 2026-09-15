@@ -29,9 +29,17 @@ import { embedCached, isAbstention, makeFts, stratify, type Instance, type Turn 
 
 export const ARMS = ["NONE", "FMS", "REVERSED", "RANDOM", "ORACLE", "ORACLE-FULL"] as const;
 export type Arm = (typeof ARMS)[number];
-export const ANSWER_MODEL = "z-ai/glm-5.3-flash";
-export const ANSWER_PROVIDER = "z-ai/fp8";
-export const JUDGE_MODEL = "openai/gpt-4o-2024-08-06";
+/** Darius, 15 Sep: DeepSeek V4 Flash answers, GPT Luna judges (cheaper than GLM + gpt-4o). */
+export const ANSWER_MODEL = "deepseek/deepseek-v4-flash";
+export const ANSWER_PROVIDER = "deepinfra/fp8";
+export const JUDGE_MODEL = "openai/gpt-5.6-luna";
+export const JUDGE_PROVIDER = "openai";
+/** LongMemEval's official judge, used only to check agreement on the first CALIBRATION judgements. */
+export const REFERENCE_JUDGE = "openai/gpt-4o-2024-08-06";
+export const REFERENCE_PROVIDER = "openai";
+const CALIBRATION = 50;
+/** Luna reasons before it answers and that counts against max_tokens, so 10 tokens would come back empty. */
+const JUDGE_MAX_TOKENS = 1000;
 /** Production: CINDERPAW_RECALL_INJECTION_MAX_CHARS default. */
 export const INJECTION_MAX_CHARS = 4000;
 const POOL = 40;
@@ -100,10 +108,15 @@ export function pairedDiff(a: boolean[], b: boolean[], resamples = 2000, seed = 
   return { diff: d.reduce((x, y) => x + y, 0) / n, lo: means[Math.floor(0.025 * resamples)]!, hi: means[Math.floor(0.975 * resamples)]!, wins: d.filter((x) => x > 0).length, losses: d.filter((x) => x < 0).length, ties: d.filter((x) => x === 0).length };
 }
 
+/** Price of the PINNED endpoint, not the model's headline price: the pin is what the run pays. */
 async function prices(): Promise<Record<string, { in: number; out: number }>> {
-  const d = (await (await fetch("https://openrouter.ai/api/v1/models")).json()) as { data: { id: string; pricing: { prompt: string; completion: string } }[] };
-  const pick = (id: string) => { const m = d.data.find((x) => x.id === id); if (!m) throw new Error(`${id} not listed by OpenRouter`); return { in: Number(m.pricing.prompt), out: Number(m.pricing.completion) }; };
-  return { [ANSWER_MODEL]: pick(ANSWER_MODEL), [JUDGE_MODEL]: pick(JUDGE_MODEL) };
+  const pick = async (id: string, tag: string) => {
+    const d = (await (await fetch(`https://openrouter.ai/api/v1/models/${id}/endpoints`)).json()) as { data: { endpoints: { tag: string; pricing: { prompt: string; completion: string } }[] } };
+    const e = d.data.endpoints.find((x) => x.tag === tag);
+    if (!e) throw new Error(`${id} has no endpoint ${tag} on OpenRouter today`);
+    return { in: Number(e.pricing.prompt), out: Number(e.pricing.completion) };
+  };
+  return { [ANSWER_MODEL]: await pick(ANSWER_MODEL, ANSWER_PROVIDER), [JUDGE_MODEL]: await pick(JUDGE_MODEL, JUDGE_PROVIDER), [REFERENCE_JUDGE]: await pick(REFERENCE_JUDGE, REFERENCE_PROVIDER) };
 }
 
 const turnsOf = (inst: Instance): (Turn & { evidence: boolean })[] => {
@@ -135,21 +148,22 @@ if (import.meta.main) {
       answerIn += tok(base) + 4 * tok(base + 60 + 10 * cutLine) + tok(base + evFull);
     }
     const calls = pool.length * ARMS.length;
-    const scen = (outTok: number) => {
+    const refCalib = CALIBRATION * (tok(700 + 150 * 3.5) * pr[REFERENCE_JUDGE]!.in + 3 * pr[REFERENCE_JUDGE]!.out);
+    const scen = (outTok: number, judgeOut: number) => {
       const judgeIn = calls * tok(700 + outTok * 3.5);
       const answer = answerIn * pr[ANSWER_MODEL]!.in + calls * outTok * pr[ANSWER_MODEL]!.out;
-      const judge = judgeIn * pr[JUDGE_MODEL]!.in + calls * 3 * pr[JUDGE_MODEL]!.out;
+      const judge = judgeIn * pr[JUDGE_MODEL]!.in + calls * judgeOut * pr[JUDGE_MODEL]!.out + refCalib;
       return { answer, judge, total: answer + judge };
     };
     const lines = [
       `# Memory-order headroom: cost estimate (nothing paid was called)`,
       ``,
       `${pool.length} LongMemEval-S questions (non-abstention) x ${ARMS.length} arms = ${calls} answer calls + ${calls} judge calls. Questions with no has_answer turn (ORACLE = FMS for them): ${noEvidence}.`,
-      `Answer ${ANSWER_MODEL} pinned to ${ANSWER_PROVIDER}: $${(pr[ANSWER_MODEL]!.in * 1e6).toFixed(3)} / $${(pr[ANSWER_MODEL]!.out * 1e6).toFixed(3)} per M in/out. Judge ${JUDGE_MODEL} (LongMemEval's official judge): $${(pr[JUDGE_MODEL]!.in * 1e6).toFixed(2)} / $${(pr[JUDGE_MODEL]!.out * 1e6).toFixed(2)}. Prices read live from OpenRouter ${new Date().toISOString().slice(0, 10)}.`,
+      `Answer ${ANSWER_MODEL} pinned to ${ANSWER_PROVIDER}: $${(pr[ANSWER_MODEL]!.in * 1e6).toFixed(3)} / $${(pr[ANSWER_MODEL]!.out * 1e6).toFixed(3)} per M in/out. Judge ${JUDGE_MODEL} pinned to ${JUDGE_PROVIDER}: $${(pr[JUDGE_MODEL]!.in * 1e6).toFixed(2)} / $${(pr[JUDGE_MODEL]!.out * 1e6).toFixed(2)}, plus ${CALIBRATION} agreement judgements by LongMemEval's official judge ${REFERENCE_JUDGE}. Endpoint prices read live from OpenRouter ${new Date().toISOString().slice(0, 10)}.`,
       `Answer input tokens (upper bound): ${(answerIn / 1e6).toFixed(2)} M.`,
       ``,
       `| scenario | answer $ | judge $ | total $ |`, `|---|---|---|---|`,
-      ...[["short answers, reasoning off (150 tok)", 150], ["long answers (500 tok)", 500], ["reasoning leaks through (2500 tok)", 2500]].map(([n, o]) => { const s = scen(o as number); return `| ${n} | ${s.answer.toFixed(2)} | ${s.judge.toFixed(2)} | ${s.total.toFixed(2)} |`; }),
+      ...([["answers 150 tok, judge reasons 100 tok", 150, 100], ["answers 500 tok, judge reasons 300 tok", 500, 300], ["answer reasoning leaks 2500 tok, judge 1000 tok", 2500, 1000]] as const).map(([n, o, j]) => { const s = scen(o, j); return `| ${n} | ${s.answer.toFixed(2)} | ${s.judge.toFixed(2)} | ${s.total.toFixed(2)} |`; }),
       ``,
       `Add ~20% for retries. The run refuses to start without --approved-usd and stops when spend reaches it.`,
     ].join("\n");
@@ -163,10 +177,13 @@ if (import.meta.main) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error("OPENROUTER_API_KEY is not set");
   let spend = 0;
-  const call = async (model: string, prompt: string, maxTokens: number, provider?: string) => {
+  const call = async (model: string, prompt: string, maxTokens: number, provider: string) => {
     if (spend >= cap) throw new Error(`spend cap $${cap} reached`);
-    const body: Record<string, unknown> = { model, messages: [{ role: "user", content: prompt }], temperature: 0, max_tokens: maxTokens };
-    if (provider) Object.assign(body, { provider: { order: [provider], allow_fallbacks: false }, reasoning: { enabled: false } });
+    const body: Record<string, unknown> = { model, messages: [{ role: "user", content: prompt }], max_tokens: maxTokens, provider: { order: [provider], allow_fallbacks: false } };
+    // Luna takes no temperature and cannot turn reasoning off; the answer model and gpt-4o take temperature 0.
+    if (model === JUDGE_MODEL) body.reasoning = { effort: "minimal" };
+    else body.temperature = 0;
+    if (model === ANSWER_MODEL) body.reasoning = { enabled: false };
     for (let attempt = 0; ; attempt++) {
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(120_000) });
       if (res.ok) {
@@ -183,7 +200,8 @@ if (import.meta.main) {
   mkdirSync(OUT_DIR, { recursive: true });
   const partial = join(OUT_DIR, `${stamp}.partial.jsonl`);
   const rows: { qid: string; type: string; arm: Arm; correct: boolean; outTokens: number }[] = [];
-  let answerTokens = 0, answers = 0;
+  let answerTokens = 0, answers = 0, judgeEmpty = 0, judgeCalls = 0;
+  const calibration: boolean[] = [];
   for (const [qi, inst] of pool.entries()) {
     const turns = turnsOf(inst);
     const vecs = await embedCached(`${inst.question_id}-turns`, turns.map((t) => t.content));
@@ -203,8 +221,19 @@ if (import.meta.main) {
       answerTokens += a.outTokens; answers++;
       // Cost guard from the GLM reasoning explosion (arc-canary memory): stop early instead of paying for it.
       if (answers === 30 && answerTokens / answers > 1500) throw new Error(`answers average ${Math.round(answerTokens / answers)} tokens: reasoning is not off, stopping`);
-      const j = await call(JUDGE_MODEL, judgePrompt(inst.question_type, inst.question, inst.answer, a.text), 10);
-      const row = { qid: inst.question_id, type: inst.question_type, arm, correct: j.text.toLowerCase().includes("yes"), outTokens: a.outTokens, answer: a.text, judge: j.text };
+      const jp = judgePrompt(inst.question_type, inst.question, inst.answer, a.text);
+      const j = await call(JUDGE_MODEL, jp, JUDGE_MAX_TOKENS, JUDGE_PROVIDER);
+      if (!j.text.trim()) judgeEmpty++;
+      if (++judgeCalls === 100 && judgeEmpty > 5) throw new Error(`${judgeEmpty} of 100 judge replies were empty: raise JUDGE_MAX_TOKENS or change the judge, stopping`);
+      const row: { qid: string; type: string; arm: Arm; correct: boolean; outTokens: number; answer: string; judge: string; reference?: boolean } =
+        { qid: inst.question_id, type: inst.question_type, arm, correct: /\byes\b/i.test(j.text), outTokens: a.outTokens, answer: a.text, judge: j.text };
+      // Agreement with LongMemEval's official judge on the first CALIBRATION FMS judgements; below 90% the run stops.
+      if (arm === "FMS" && calibration.length < CALIBRATION) {
+        const r = await call(REFERENCE_JUDGE, jp, 10, REFERENCE_PROVIDER);
+        row.reference = /\byes\b/i.test(r.text);
+        calibration.push(row.reference === row.correct);
+        if (calibration.length === CALIBRATION && calibration.filter(Boolean).length < 0.9 * CALIBRATION) throw new Error(`judge agrees with ${REFERENCE_JUDGE} on only ${calibration.filter(Boolean).length}/${CALIBRATION}: stopping, the judge is not trusted`);
+      }
       rows.push(row);
       appendFileSync(partial, JSON.stringify(row) + "\n");
     }
@@ -214,7 +243,7 @@ if (import.meta.main) {
   const byArm = (arm: Arm) => pool.map((i) => rows.find((r) => r.qid === i.question_id && r.arm === arm)!.correct);
   const fms = byArm("FMS"), pct = (x: number) => (100 * x).toFixed(1);
   const md = [
-    `# Memory-order headroom result`, ``, `${pool.length} questions, answer ${ANSWER_MODEL}@${ANSWER_PROVIDER}, judge ${JUDGE_MODEL}, spend $${spend.toFixed(2)}.`, ``,
+    `# Memory-order headroom result`, ``, `${pool.length} questions, answer ${ANSWER_MODEL}@${ANSWER_PROVIDER}, judge ${JUDGE_MODEL}@${JUDGE_PROVIDER} (agrees with ${REFERENCE_JUDGE} on ${calibration.filter(Boolean).length}/${calibration.length}; empty judge replies ${judgeEmpty}), spend $${spend.toFixed(2)}.`, ``,
     `| arm | accuracy | vs FMS (95% CI) | wins / losses / ties |`, `|---|---|---|---|`,
     ...ARMS.map((arm) => { const b = byArm(arm), d = pairedDiff(fms, b); return `| ${arm} | ${pct(b.filter(Boolean).length / b.length)}% | ${arm === "FMS" ? "-" : `${pct(d.diff)} [${pct(d.lo)}, ${pct(d.hi)}]`} | ${arm === "FMS" ? "-" : `${d.wins} / ${d.losses} / ${d.ties}`} |`; }),
   ].join("\n");
