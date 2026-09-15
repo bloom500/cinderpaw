@@ -158,3 +158,25 @@ the two corrected sets span smear (U+) to near-separation with sparse KCs (U-), 
 211 uncertain ALLNs moves uniglomerular PN overlap by ~0.45-0.55, far more than any mechanism
 has moved it so far. Until those cells are labelled from better evidence, every Variant 1 claim
 must hold in both sets, as G2 required. No label set is selected; nothing retuned.
+
+## 2026-09-15 20:00: G2-X type-consensus sensitivity analysis (EXPLORATORY, added after G2), rule before computing
+
+Status: exploratory, added AFTER the G2 result was seen. It is NOT the reference. The two G2
+extremes (CORRECTED-U+, CORRECTED-U-) stay mandatory in every later analysis.
+
+Source check (Eckstein et al. 2024, Cell, PMC11106717): the paper assigns a neuron's transmitter
+by majority vote of its presynapses and reports accuracy at neuron (94% FAFB-Catmaid) and cell-type
+level, and notes that conflicted types have lower mean prediction scores. Claude could NOT confirm
+that the authors recommend type-level aggregation over per-neuron labels. So this set is named
+"type-consensus sensitivity analysis", not a FlyWire-recommended method.
+
+**Rule, deterministic, same for every type, no threshold chosen from PN/KC results:**
+1. ALLNs with a G2 literature or confident label keep it (G2 rules 1-2, threshold 0.50 unchanged).
+2. An UNCERTAIN ALLN with a non-empty cell_type takes the majority sign of top_nt over ALL ALLNs
+   of that cell_type (every cell counts once, regardless of confidence; gaba/glutamate -1, other +1).
+   If any cell of the type has a usable literature known_nt, that sign is used for the type instead.
+3. Ties, untyped cells, and types where rule 2 cannot apply stay uncertain and are run BOTH ways:
+   TYPE-CONSENSUS/T+ and TYPE-CONSENSUS/T-. Counts of each case are reported.
+
+Measured exactly as G2 (step-1 stimulus, same metrics and nulls). No verdict beyond reporting the
+numbers next to the two G2 extremes; no parameter is changed in response.
