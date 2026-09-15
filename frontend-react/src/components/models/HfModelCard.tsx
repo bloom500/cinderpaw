@@ -17,17 +17,17 @@ import type { HfModelSummary, HfModelDetail } from '@/lib/tauri';
 function CompatBadge({ compat }: { compat: Compat }) {
   if (compat === 'fits') return (
     <span className="flex items-center gap-1 text-success text-xs font-medium">
-      <CheckCircle size={11} /> Fits
+      <CheckCircle size={12} /> Fits
     </span>
   );
   if (compat === 'slow') return (
     <span className="flex items-center gap-1 text-warning text-xs font-medium">
-      <AlertTriangle size={11} /> May be slow
+      <AlertTriangle size={12} /> May be slow
     </span>
   );
   return (
     <span className="flex items-center gap-1 text-error text-xs font-medium">
-      <XCircle size={11} /> Won't fit
+      <XCircle size={12} /> Won't fit
     </span>
   );
 }

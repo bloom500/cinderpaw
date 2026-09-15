@@ -49,7 +49,7 @@ export const CallToolScreen = memo(function CallToolScreen({ activity }: { activ
           call — so it is said plainly, and never when it would be a lie. */}
       {running > 1 && (
         <div className="tw-rise flex items-center gap-2 self-start rounded-full border border-border-subtle bg-bg-surface/90 px-3 py-1 text-2xs text-text-secondary backdrop-blur">
-          <Loader2 size={11} className="animate-spin text-brand" />
+          <Loader2 size={12} className="animate-spin text-brand" />
           {running} {t('call.toolsRunning')}
         </div>
       )}
@@ -109,11 +109,11 @@ export function Widget({ activity: a, flat = false }: { activity: ToolActivity; 
             <i className="h-2 w-2 rounded-full bg-[#28c840]" />
           </span>
           <span className="flex min-w-0 items-center gap-1.5 rounded-t-md bg-bg-elevated px-2 py-1">
-            <EngineMark size={10} />
+            <EngineMark size={12} />
             <span className="truncate text-micro text-text-secondary">DuckDuckGo</span>
-            <X size={9} className="shrink-0 text-text-muted/50" />
+            <X size={12} className="shrink-0 text-text-muted/50" />
           </span>
-          <Plus size={10} className="shrink-0 text-text-muted/50" />
+          <Plus size={12} className="shrink-0 text-text-muted/50" />
           <State a={a} className="ml-auto" />
         </header>
       ) : app ? (
@@ -126,7 +126,7 @@ export function Widget({ activity: a, flat = false }: { activity: ToolActivity; 
             <i className="h-2 w-2 rounded-full bg-[#28c840]" />
           </span>
           <span className="pointer-events-none absolute inset-x-0 flex items-center justify-center gap-1.5 text-micro font-medium text-text-secondary">
-            <AppWindow size={10} className="shrink-0 text-brand" />
+            <AppWindow size={12} className="shrink-0 text-brand" />
             <span className="max-w-[70%] truncate">{appTitle(app) || a.tool}</span>
           </span>
           <State a={a} className="z-10 ml-auto" />
@@ -139,7 +139,7 @@ export function Widget({ activity: a, flat = false }: { activity: ToolActivity; 
         null
       ) : (
         <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
-          <Icon size={13} className={cn('shrink-0', tint)} />
+          <Icon size={14} className={cn('shrink-0', tint)} />
           <span className="shrink-0 text-2xs font-medium text-text-secondary">{a.tool}</span>
           <State a={a} className="ml-auto" />
         </header>
@@ -261,9 +261,9 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
           there because a browser without them does not read as a browser. */}
       <div className="flex items-center gap-2 pb-2">
         <span className="flex shrink-0 items-center gap-1.5 text-text-muted/40">
-          <ArrowLeft size={11} />
-          <ArrowRight size={11} />
-          <RotateCw size={10} />
+          <ArrowLeft size={12} />
+          <ArrowRight size={12} />
+          <RotateCw size={12} />
         </span>
         <div
           className={cn(
@@ -276,7 +276,7 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
           {/* The engine's mark sits left of the field, where the reference puts
               it — it is what identifies the bar before a single word is read. */}
           <EngineMark size={12} />
-          <Search size={10} className="shrink-0 text-text-muted" />
+          <Search size={12} className="shrink-0 text-text-muted" />
           <span className="min-w-0 flex-1 truncate text-2xs text-text-primary" title={a.subject}>
             {/* Typed in, not printed. The string is exactly what the agent sent;
                 revealing it progressively is what makes a still panel read as
@@ -301,7 +301,7 @@ function BrowserBody({ a, running, t }: { a: ToolActivity; running: boolean; t: 
                   favicon disc, the host, then the path as places. */}
               <div className="flex items-center gap-1.5">
                 <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-bg-elevated">
-                  <Globe size={8} className="text-text-muted" />
+                  <Globe size={12} className="text-text-muted" />
                 </span>
                 <span className="truncate text-micro text-text-muted">
                   {h.host}
@@ -353,7 +353,7 @@ function FilesBody({ a }: { a: ToolActivity }) {
             className="tw-row flex items-center gap-2"
             style={{ animationDelay: `${Math.min(i, 4) * 45}ms` }}
           >
-            <FileText size={11} className="shrink-0 text-warning" />
+            <FileText size={12} className="shrink-0 text-warning" />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-2xs text-text-secondary" title={f.path}>
                 {name}
@@ -557,17 +557,17 @@ function DesktopBody({ d, running }: { d: DesktopFact; running: boolean }) {
         <div className="mt-2 rounded-t-md border border-b-0 border-border-subtle bg-bg-elevated/40 px-2 pt-1.5">
           <div className="flex items-center gap-1.5">
             <span className="flex min-w-0 max-w-[70%] items-center gap-1.5 rounded-t-md bg-bg-elevated px-2 py-1">
-              <Globe size={9} className="shrink-0 text-text-muted" />
+              <Globe size={12} className="shrink-0 text-text-muted" />
               <span className="truncate text-micro text-text-secondary">{d.windowTitle || d.app.replace(/\.exe$/i, '')}</span>
-              <X size={9} className="shrink-0 text-text-muted/50" />
+              <X size={12} className="shrink-0 text-text-muted/50" />
             </span>
-            <Plus size={10} className="shrink-0 text-text-muted/50" />
+            <Plus size={12} className="shrink-0 text-text-muted/50" />
           </div>
           <div className="flex items-center gap-2 py-1.5">
             <span className="flex shrink-0 items-center gap-1.5 text-text-muted/40">
-              <ArrowLeft size={11} />
-              <ArrowRight size={11} />
-              <RotateCw size={10} />
+              <ArrowLeft size={12} />
+              <ArrowRight size={12} />
+              <RotateCw size={12} />
             </span>
             <span className="min-w-0 flex-1 truncate rounded-full bg-bg-elevated px-2 py-0.5 text-2xs text-text-primary ring-1 ring-inset ring-border-subtle">
               {addressOf(d) || <span className="italic text-text-muted">{d.elements.length > 0 ? 'no address in the window yet' : 'layout not read yet'}</span>}
@@ -584,7 +584,7 @@ function DesktopBody({ d, running }: { d: DesktopFact; running: boolean }) {
               className="tw-row flex items-center gap-1 rounded-md bg-bg-elevated px-1.5 py-0.5 text-micro text-text-secondary"
               style={{ animationDelay: `${Math.min(i, 4) * 45}ms` }}
             >
-              <AppWindow size={9} className="text-text-muted" />
+              <AppWindow size={12} className="text-text-muted" />
               <span className="max-w-[8rem] truncate">{name}</span>
             </li>
           ))}

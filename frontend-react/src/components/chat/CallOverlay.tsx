@@ -892,7 +892,7 @@ export function CallOverlay({
             title={t('call.artifacts')}
             className="absolute bottom-24 right-6 flex items-center gap-1.5 rounded-full border border-border-default bg-bg-elevated px-3 py-2 text-xs text-text-secondary shadow-lg transition-colors hover:border-brand hover:text-brand"
           >
-            <Archive size={15} />
+            <Archive size={14} />
             {artifactCount}
           </button>
         )}
@@ -905,7 +905,7 @@ export function CallOverlay({
             title={t('call.chat')}
             className="absolute bottom-6 right-6 rounded-full border border-border-default bg-bg-elevated p-3 text-text-secondary shadow-lg transition-colors hover:border-brand hover:text-brand"
           >
-            <MessageSquare size={18} />
+            <MessageSquare size={20} />
           </button>
         )}
       </div>
@@ -1651,7 +1651,7 @@ function VoicePicker({
           aria-label={t('call.voice')}
           className="flex items-center gap-2 rounded-full border border-border-default bg-bg-surface/70 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:border-brand hover:text-text-primary"
         >
-          <AudioLines size={13} className="text-brand" />
+          <AudioLines size={14} className="text-brand" />
           {current?.label ?? t('call.voicesLoading')}
           <ChevronDown size={12} />
         </button>
@@ -1851,7 +1851,7 @@ function EngineLine({
             : 'border-[var(--badge-warn-br)] bg-[var(--badge-warn-bg)] text-[var(--badge-warn-fg)]',
         )}
       >
-        {local ? <Laptop size={10} /> : <Cloud size={10} />}
+        {local ? <Laptop size={12} /> : <Cloud size={12} />}
         {local ? t('call.onDevice') : t('call.leavesDevice')}
       </span>
       )}
@@ -1863,7 +1863,7 @@ function EngineLine({
           title={t('engine.change')}
           className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-brand"
         >
-          <Settings2 size={13} />
+          <Settings2 size={14} />
         </button>
       )}
     </span>
@@ -1955,7 +1955,7 @@ function CallChatPanel({ onClose, onSay }: { onClose: () => void; onSay: (text: 
             className="max-h-32 resize-none text-sm text-text-primary placeholder:text-text-muted"
           />
           <Button size="icon" onClick={submit} disabled={!text.trim()} aria-label={t('chat.send')} className="h-8 w-8 shrink-0">
-            <ArrowUp size={13} />
+            <ArrowUp size={14} />
           </Button>
         </div>
       </div>

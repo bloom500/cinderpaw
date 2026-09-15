@@ -39,7 +39,7 @@ export function PickPresetStep({ presets, loading, error, selected, onSelect, on
               onClick={onRetry}
               className="text-xs text-text-muted hover:text-text-secondary inline-flex items-center gap-1"
             >
-              <RefreshCw size={11} /> Try again
+              <RefreshCw size={12} /> Try again
             </button>
           </div>
         </div>

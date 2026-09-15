@@ -38,7 +38,7 @@ function ActionsTrigger({ label, className }: { label: string; className?: strin
   return (
     <DropdownMenuTrigger asChild>
       <button type="button" aria-label={label} className={cn(TRIGGER_CLASS, className)}>
-        <MoreHorizontal size={13} />
+        <MoreHorizontal size={14} />
       </button>
     </DropdownMenuTrigger>
   );
@@ -85,7 +85,7 @@ function ConfirmDeleteDialog({
         <p className="text-sm text-text-secondary">{body}</p>
         {error && (
           <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
-            <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+            <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />
             <p className="text-sm text-error">{error}</p>
           </div>
         )}
@@ -182,7 +182,7 @@ function RenameDialog({
         />
         {error && (
           <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
-            <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+            <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />
             <p className="text-sm text-error">{error}</p>
           </div>
         )}
@@ -243,7 +243,7 @@ export function ConversationActions({
         <ActionsTrigger label="Chat options" className={className} />
         <DropdownMenuContent side={side} align={align}>
           <DropdownMenuItem onClick={() => setRenaming(true)}>
-            <Pencil size={13} />
+            <Pencil size={14} />
             Rename
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -251,13 +251,13 @@ export function ConversationActions({
             <DropdownMenuItem
               onClick={() => void useProjects.getState().removeChat(parent.id, conv.id)}
             >
-              <FolderMinus size={13} />
+              <FolderMinus size={14} />
               Remove from project
             </DropdownMenuItem>
           ) : (
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={projects.length === 0}>
-                <FolderInput size={13} />
+                <FolderInput size={14} />
                 {projects.length === 0 ? 'No projects yet' : 'Add to project'}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
@@ -266,7 +266,7 @@ export function ConversationActions({
                     key={p.id}
                     onClick={() => void useProjects.getState().addChat(p.id, conv.id)}
                   >
-                    <Folder size={13} />
+                    <Folder size={14} />
                     {p.name}
                   </DropdownMenuItem>
                 ))}
@@ -278,7 +278,7 @@ export function ConversationActions({
             onClick={() => setConfirmDelete(true)}
             className="text-error focus:text-error"
           >
-            <Trash2 size={13} />
+            <Trash2 size={14} />
             Delete chat
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -327,7 +327,7 @@ export function ProjectActions({
             onClick={() => setConfirmDelete(true)}
             className="text-error focus:text-error"
           >
-            <Trash2 size={13} />
+            <Trash2 size={14} />
             Delete project
           </DropdownMenuItem>
         </DropdownMenuContent>

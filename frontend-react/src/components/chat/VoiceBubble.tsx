@@ -21,7 +21,7 @@ export function VoiceBubble({
     <div className="flex flex-col gap-1 max-w-sm">
       <div className="flex items-center gap-2 rounded-2xl bg-bg-surface border border-border-default px-3 py-2">
         <button type="button" onClick={() => void toggle()} aria-label={playing ? 'Pause' : 'Play'} className="p-1 rounded hover:bg-bg-hover">
-          {playing ? <Pause size={18} /> : <Play size={18} />}
+          {playing ? <Pause size={20} /> : <Play size={20} />}
         </button>
         <WaveformBars peaks={voice.peaks} progress={progress} className="flex-1" />
         <span className="text-xs text-text-muted tabular-nums">{Math.round(voice.durationMs / 1000)}s</span>

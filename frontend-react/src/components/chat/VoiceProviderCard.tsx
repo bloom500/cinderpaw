@@ -140,7 +140,7 @@ export function VoiceProviderCard({
             <OptionRow
               active={choice === 'local'}
               onClick={() => setChoice('local')}
-              icon={<Mic size={18} />}
+              icon={<Mic size={20} />}
               title={t('voice.provider.local.title')}
               desc={t('voice.provider.local.desc')}
             />
@@ -148,7 +148,7 @@ export function VoiceProviderCard({
           <OptionRow
             active={choice === 'groq'}
             onClick={() => setChoice('groq')}
-            icon={<Cloud size={18} />}
+            icon={<Cloud size={20} />}
             title={t('voice.provider.cloud.title')}
             desc={t('voice.provider.cloud.desc')}
           />

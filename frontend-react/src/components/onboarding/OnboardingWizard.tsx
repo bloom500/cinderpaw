@@ -433,14 +433,14 @@ export function ProviderStep() {
 
       <div className="grid grid-cols-2 gap-3">
         <ForkCard
-          icon={<HardDrive size={18} />}
+          icon={<HardDrive size={20} />}
           title="Run locally"
           subtitle="Private · free · on your machine"
           selected={choice === 'local'}
           onClick={() => setChoice('local')}
         />
         <ForkCard
-          icon={<Cloud size={18} />}
+          icon={<Cloud size={20} />}
           title="Use a cloud key"
           subtitle="Instant · stronger · some free tiers"
           selected={choice === 'cloud'}
@@ -496,7 +496,7 @@ function DetectedSection() {
   return (
     <div className="rounded-lg border border-brand/30 bg-brand/5 p-4 space-y-2.5">
       <p className="text-xs font-medium text-brand flex items-center gap-1.5">
-        <Sparkles size={13} /> Found on your machine
+        <Sparkles size={14} /> Found on your machine
       </p>
       {candidates.map((c) => {
         const outcome = results[c.id];
@@ -515,7 +515,7 @@ function DetectedSection() {
             </div>
             {outcome?.ok ? (
               <span className="flex items-center gap-1.5 text-xs text-success shrink-0">
-                <Check size={13} /> ready, I'll use it ({outcome.message})
+                <Check size={14} /> ready, I'll use it ({outcome.message})
               </span>
             ) : isTesting ? (
               <span className="flex items-center gap-1.5 text-xs text-text-muted shrink-0">
@@ -607,7 +607,7 @@ function LocalBranch() {
           disabled={!!active}
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-50"
         >
-          <Download size={15} /> Download {model.label} ({model.approxSize})
+          <Download size={14} /> Download {model.label} ({model.approxSize})
         </button>
       )}
 
@@ -918,7 +918,7 @@ function DiskEncryptionNotice() {
         variant.ring,
       )}
     >
-      <variant.Icon size={18} className={cn('shrink-0 mt-0.5', variant.accent)} />
+      <variant.Icon size={20} className={cn('shrink-0 mt-0.5', variant.accent)} />
       <div className="space-y-1">
         <p className="text-sm font-medium text-text-primary">{variant.title}</p>
         <p className="text-xs text-text-muted leading-relaxed">{variant.body}</p>

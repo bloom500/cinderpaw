@@ -60,7 +60,7 @@ export function UpdateToast() {
                 aria-label="Dismiss"
                 className="shrink-0 text-text-muted/60 hover:text-text-muted transition-colors"
               >
-                <X size={15} />
+                <X size={14} />
               </button>
             )}
           </div>

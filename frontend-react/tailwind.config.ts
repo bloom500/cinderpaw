@@ -37,8 +37,8 @@ export default {
        * at default spacing reads loose.
        */
       fontSize: {
-        micro:  ['10px',   { lineHeight: '13px', letterSpacing: '0.02em' }],
-        '2xs':  ['11.5px', { lineHeight: '16px' }],
+        micro:  ['11px',   { lineHeight: '14px', letterSpacing: '0.01em' }],
+        '2xs':  ['12px',   { lineHeight: '16px' }],
         xs:     ['12.5px', { lineHeight: '18px' }],
         sm:     ['13.5px', { lineHeight: '20px' }],
         base:   ['15px',   { lineHeight: '23px' }],
@@ -57,7 +57,11 @@ export default {
        * say why.
        */
       borderRadius: {
-        sm:    '8px',
+        // Tailwind's own `rounded` is 4px, and 125 call sites used it beside
+        // the 10px control radius: a third corner nobody chose. Small things
+        // (badges, kbd, marks) get 6px.
+        DEFAULT: '6px',
+        sm:    '6px',
         md:    '10px',
         lg:    '10px',
         xl:    '18px',

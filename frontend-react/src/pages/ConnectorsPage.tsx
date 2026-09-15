@@ -82,7 +82,7 @@ export function ConnectorsPage() {
 
           {/* Security banner */}
           <div className="mb-8 rounded-xl border border-warning/30 bg-warning/10 p-3 flex items-start gap-2.5">
-            <ShieldAlert size={15} className="text-warning shrink-0 mt-0.5" />
+            <ShieldAlert size={14} className="text-warning shrink-0 mt-0.5" />
             <p className="text-xs text-warning leading-relaxed">
               Anyone you add to a connector's allowed list can command your assistant, and everything it can do, on this
               computer. Add only people you trust. Leave the list empty and no one but you can reach it.
@@ -105,7 +105,7 @@ export function ConnectorsPage() {
                 onClick={load}
                 className="text-xs text-text-muted hover:text-text-secondary inline-flex items-center gap-1 shrink-0"
               >
-                <RefreshCw size={11} /> Try again
+                <RefreshCw size={12} /> Try again
               </button>
             </div>
           )}
@@ -395,7 +395,7 @@ function ConnectorCard({
                 </span>
               ) : enabled ? (
                 <span className="text-text-muted">
-                  <Loader2 size={10} className="inline animate-spin mr-1 -mt-0.5" />
+                  <Loader2 size={12} className="inline animate-spin mr-1 -mt-0.5" />
                   Getting a QR code ready…
                 </span>
               ) : (
@@ -527,7 +527,7 @@ function ConnectorCard({
               )}
             >
               {busy ? (
-                <Loader2 size={11} className="animate-spin" />
+                <Loader2 size={12} className="animate-spin" />
               ) : justSaved ? (
                 <Check size={12} />
               ) : null}
@@ -543,7 +543,7 @@ function ConnectorCard({
                   removeArmed ? 'text-error font-medium' : 'text-text-muted hover:text-error',
                 )}
               >
-                <Trash2 size={11} /> {removeArmed ? 'Click again to remove' : 'Remove'}
+                <Trash2 size={12} /> {removeArmed ? 'Click again to remove' : 'Remove'}
               </button>
             )}
           </div>

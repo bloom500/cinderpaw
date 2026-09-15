@@ -7,7 +7,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { SearchOverlay } from '../SearchOverlay';
 import { useConversations } from '@/stores/conversations';
 import { useProjects } from '@/stores/projects';
@@ -138,7 +138,7 @@ describe('SearchOverlay', () => {
     setup();
     await userEvent.type(screen.getByRole('combobox'), 'zzzznothing');
     await waitFor(() =>
-      expect(screen.getByText(/No conversations or projects match/i)).toBeInTheDocument(),
+      expect(screen.getByText(/No conversations, projects or actions match/i)).toBeInTheDocument(),
     );
   });
 });
@@ -186,5 +186,43 @@ describe('opened already narrowed to a project', () => {
     const listed = await rows();
     expect(listed).toHaveLength(1);
     expect(listed[0]).toContain('Route planning');
+  });
+});
+
+describe('actions', () => {
+  // The scoped-project test above leaves a scope in the store; actions only exist unscoped.
+  beforeEach(() => { useUI.setState({ searchScopeId: null } as never); });
+
+  function Where() {
+    const { pathname, search } = useLocation();
+    return <output data-testid="where">{pathname + search}</output>;
+  }
+
+  it('finds a settings screen by a word that is not in its name, and Enter goes there', async () => {
+    useConversations.setState({ list: CONVS as never, open: vi.fn() as never });
+    useProjects.setState({ list: PROJECTS as never });
+    useUI.setState({ searchOpen: true } as never);
+    render(<MemoryRouter><SearchOverlay /><Where /></MemoryRouter>);
+
+    await userEvent.type(screen.getByRole('combobox'), 'api key');
+    await waitFor(async () => expect((await rows())[0]).toContain('Settings: Cloud Keys'));
+    await userEvent.keyboard('{Enter}');
+
+    expect(screen.getByTestId('where').textContent).toBe('/settings?cat=byok');
+    expect(useUI.getState().searchOpen).toBe(false);
+  });
+
+  it('switches mode from the keyboard and names the mode it switches to', async () => {
+    setup();
+    useUI.setState({ inputMode: 'chat' } as never);
+    await userEvent.type(screen.getByRole('combobox'), 'mode');
+    await waitFor(async () => expect((await rows()).join(' ')).toContain('Switch to Agent mode'));
+    await userEvent.keyboard('{Enter}');
+    expect(useUI.getState().inputMode).toBe('agent');
+  });
+
+  it('stays out of the browse list when nothing is typed', async () => {
+    setup();
+    expect((await rows()).join(' ')).not.toContain('Settings:');
   });
 });

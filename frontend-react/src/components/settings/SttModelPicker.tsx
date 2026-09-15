@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Download, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SelectMenu } from '@/components/ui/select-menu';
 import { tauri, type SttModel } from '@/lib/tauri';
 import { events } from '@/lib/tauri/events';
 import { useUI } from '@/stores/ui';
@@ -118,17 +119,12 @@ export function SttModelPicker() {
             On-device speech-to-text. Nothing leaves the machine.
           </p>
         </div>
-        <select
+        <SelectMenu
           value={selected?.id ?? ''}
-          onChange={(e) => setSttModel(e.target.value)}
-          className="px-2 py-1.5 rounded-md border border-border-subtle bg-bg-surface text-sm text-text-primary"
-        >
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label} · {m.sizeMb} MB
-            </option>
-          ))}
-        </select>
+          onChange={setSttModel}
+          ariaLabel="Voice transcription model"
+          options={models.map((m) => ({ value: m.id, label: `${m.label} · ${m.size_mb} MB` }))}
+        />
       </div>
 
       {progress !== null ? (
@@ -145,7 +141,7 @@ export function SttModelPicker() {
         <div className="flex items-center gap-2 flex-wrap">
           <Button variant="outline" size="sm" className="gap-2" onClick={() => void startDownload()}>
             <Download size={14} />
-            Download {selected?.sizeMb} MB
+            Download {selected?.size_mb} MB
           </Button>
           <span className="text-xs text-text-muted">
             Needed before this model can transcribe anything.

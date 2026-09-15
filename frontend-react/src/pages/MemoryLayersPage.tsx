@@ -220,7 +220,7 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
   return (
     <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-bg-surface px-3 py-1.5 text-2xs backdrop-blur ${tone}`}>
       <span className={`h-2 w-2 rounded-full ${dot}`} />
-      <Brain size={11} className="opacity-70" />
+      <Brain size={12} className="opacity-70" />
       <span className="font-medium uppercase tracking-wide">RSI · {label}</span>
       <span className="opacity-70">· {detail}</span>
     </div>
@@ -340,7 +340,7 @@ export default function MemoryLayersPage() {
               aria-label="Refresh memory layers"
               className="ml-auto rounded-lg border border-border-subtle bg-bg-surface p-2 text-text-secondary hover:text-text-primary disabled:opacity-50"
             >
-              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             </button>
           </div>
         </header>

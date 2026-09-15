@@ -31,7 +31,7 @@ function WinControls() {
         className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-white/5 transition-colors"
         aria-label="Minimize"
       >
-        <Minus size={13} strokeWidth={1.5} />
+        <Minus size={14} strokeWidth={1.5} />
       </button>
       <button
         type="button"
@@ -39,7 +39,7 @@ function WinControls() {
         className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-white/5 transition-colors"
         aria-label="Maximize"
       >
-        <Square size={11} strokeWidth={1.5} />
+        <Square size={12} strokeWidth={1.5} />
       </button>
       <button
         type="button"
@@ -50,7 +50,7 @@ function WinControls() {
         )}
         aria-label="Close"
       >
-        <X size={13} strokeWidth={1.5} />
+        <X size={14} strokeWidth={1.5} />
       </button>
     </div>
   );

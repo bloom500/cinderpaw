@@ -48,7 +48,7 @@ export function AgentOfflineBanner() {
         role="status"
         className="mx-4 mt-1 flex items-center gap-2 rounded-xl border border-border-subtle bg-bg-elevated px-4 py-2 text-xs text-text-secondary"
       >
-        <Loader2 size={13} className="shrink-0 animate-spin text-brand" />
+        <Loader2 size={14} className="shrink-0 animate-spin text-brand" />
         {/* The headline shimmers, the explanation does not: a moving sentence
             is harder to read, and only the first half needs to say "still
             working on it" at a glance. */}
@@ -75,7 +75,7 @@ export function AgentOfflineBanner() {
     >
       {restarting ? (
         <>
-          <Loader2 size={13} className="animate-spin shrink-0" />
+          <Loader2 size={14} className="animate-spin shrink-0" />
           <span>
             Cinderpaw Agent went offline and is restarting automatically. Messages sent now
             will fail until it&apos;s back.
@@ -83,7 +83,7 @@ export function AgentOfflineBanner() {
         </>
       ) : (
         <>
-          <WifiOff size={13} className="shrink-0" />
+          <WifiOff size={14} className="shrink-0" />
           {/* The reason comes from Rust, which is the only side that knows
               whether the sidecar was never found or found and repeatedly
               died. The generic sentence stays as the fallback for an older

@@ -212,7 +212,7 @@ export function ModelPickerPopover() {
         {hasLocal && (
           <>
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
-              <HardDrive size={11} /> Local
+              <HardDrive size={12} /> Local
             </DropdownMenuLabel>
             {localModels.map((m) => (
               <DropdownMenuItem
@@ -234,7 +234,7 @@ export function ModelPickerPopover() {
           <>
             {hasLocal && <DropdownMenuSeparator />}
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
-              <Cloud size={11} /> Cloud
+              <Cloud size={12} /> Cloud
             </DropdownMenuLabel>
             {cloudProviders.map((p) => {
               const modelId = p.default_model ?? '';

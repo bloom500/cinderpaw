@@ -15,9 +15,9 @@ import { useNotifications, type ToastKind } from '@/stores/notifications';
 import { cn } from '@/lib/utils';
 
 const ICONS: Record<ToastKind, React.ReactNode> = {
-  info:    <Info size={15} className="text-info shrink-0 mt-0.5" />,
-  success: <CheckCircle2 size={15} className="text-success shrink-0 mt-0.5" />,
-  error:   <AlertCircle size={15} className="text-error shrink-0 mt-0.5" />,
+  info:    <Info size={14} className="text-info shrink-0 mt-0.5" />,
+  success: <CheckCircle2 size={14} className="text-success shrink-0 mt-0.5" />,
+  error:   <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />,
 };
 
 export function Toasts() {
@@ -67,7 +67,7 @@ export function Toasts() {
                 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity',
               )}
             >
-              <X size={13} />
+              <X size={14} />
             </button>
           </motion.div>
         ))}

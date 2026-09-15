@@ -124,11 +124,11 @@ export function CinderpawModelSelector() {
           disabled={busy}
         >
           {busy
-            ? <Loader2 size={11} className="animate-spin shrink-0" />
-            : <Cpu size={11} className="shrink-0 text-text-muted" />
+            ? <Loader2 size={12} className="animate-spin shrink-0" />
+            : <Cpu size={12} className="shrink-0 text-text-muted" />
           }
           <span className="truncate max-w-[180px]">{label}</span>
-          <ChevronDown size={10} className="shrink-0 opacity-50" />
+          <ChevronDown size={12} className="shrink-0 opacity-50" />
         </button>
       </DropdownMenuTrigger>
 
@@ -136,7 +136,7 @@ export function CinderpawModelSelector() {
         {hasLocal && (
           <>
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
-              <Cpu size={11} /> Local (Cinderpaw)
+              <Cpu size={12} /> Local (Cinderpaw)
             </DropdownMenuLabel>
             {localModels.map((m) => {
               const isActive =
@@ -151,7 +151,7 @@ export function CinderpawModelSelector() {
                 >
                   <span className="text-text-primary truncate">{m.name}</span>
                   {isLoading
-                    ? <Loader2 size={11} className="ml-auto animate-spin text-brand shrink-0" />
+                    ? <Loader2 size={12} className="ml-auto animate-spin text-brand shrink-0" />
                     : isActive && <span className="ml-auto text-xs text-brand">active</span>}
                 </DropdownMenuItem>
               );
@@ -163,7 +163,7 @@ export function CinderpawModelSelector() {
           <>
             {hasLocal && <DropdownMenuSeparator />}
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-text-muted">
-              <Cloud size={11} /> Cloud (BYOK)
+              <Cloud size={12} /> Cloud (BYOK)
             </DropdownMenuLabel>
             {cloudProviders.map((p) => {
               const modelId = p.default_model ?? '';

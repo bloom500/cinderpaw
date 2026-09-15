@@ -22,7 +22,7 @@ function EmbeddingDownloadBanner({ state }: { state: ReturnType<typeof useEmbedd
       role="status"
       aria-live="polite"
     >
-      <Download size={13} className="shrink-0 text-brand animate-pulse" />
+      <Download size={14} className="shrink-0 text-brand animate-pulse" />
       <span>
         Downloading embedding model… {pct}%
       </span>

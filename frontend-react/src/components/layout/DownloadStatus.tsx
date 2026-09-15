@@ -83,7 +83,7 @@ export function DownloadStatus() {
                       className="shrink-0 p-0.5 rounded text-text-muted hover:text-error hover:bg-error/10 transition-colors"
                       aria-label="Cancel download"
                     >
-                      <X size={13} />
+                      <X size={14} />
                     </button>
                   </div>
                   <div className="space-y-1">

@@ -23,6 +23,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Copy, Check, Star, GripVertical } from 'lucide-react';
+import { SelectMenu } from '@/components/ui/select-menu';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { cn } from '@/lib/utils';
 import { BubbleTail } from './BubbleTail';
@@ -242,7 +243,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
           <div
             ref={bodyRef}
             className={cn(
-              'w-full text-[13px] leading-relaxed break-words select-text',
+              'w-full text-sm leading-relaxed break-words select-text',
               'prose prose-xs max-w-none prose-p:my-1 prose-pre:my-1 prose-ul:my-1 prose-ol:my-1 prose-table:text-xs',
               'prose-table:block prose-table:overflow-x-auto prose-table:whitespace-nowrap',
               right ? 'prose-invert' : 'prose-neutral dark:prose-invert',
@@ -278,7 +279,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
                 : 'bg-bg-elevated border-border-subtle text-text-muted hover:text-text-secondary hover:border-brand/30',
             )}
           >
-            {copied ? <Check size={10} /> : <Copy size={10} />}
+            {copied ? <Check size={12} /> : <Copy size={12} />}
             {copied ? 'Copied!' : 'Copy'}
           </button>
           {onTogglePin && (
@@ -293,7 +294,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
                   : 'bg-bg-elevated border-border-subtle text-text-muted hover:text-warning hover:border-warning/30',
               )}
             >
-              <Star size={10} fill={pinned ? 'currentColor' : 'none'} />
+              <Star size={12} fill={pinned ? 'currentColor' : 'none'} />
               {pinned ? 'Pinned' : 'Pin'}
             </button>
           )}
@@ -554,22 +555,16 @@ function Composer({
     <div className="border-t border-border-default px-2.5 py-2 flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5">
         {participants.length > 1 && (
-          <select
+          <SelectMenu
             value={to}
-            onChange={(ev) => {
+            onChange={(id) => {
               touched.current = true;
-              setTo(ev.target.value);
+              setTo(id);
             }}
-            aria-label="Send to"
-            className="rounded-md border border-border-default bg-bg-surface px-1.5 py-1
-                       text-2xs text-text-secondary cursor-pointer"
-          >
-            {participants.map(([id, name]) => (
-              <option key={id} value={id}>
-                {displayName(id, name)}
-              </option>
-            ))}
-          </select>
+            ariaLabel="Send to"
+            className="px-1.5 py-1 text-2xs text-text-secondary"
+            options={participants.map(([id, name]) => ({ value: id, label: displayName(id, name) }))}
+          />
         )}
         <input
           value={text}
@@ -1283,7 +1278,7 @@ export function CoworkTranscriptPanel() {
           {pinnedMessages.length > 0 && (
             <div className="mb-2 rounded-lg border border-warning/20 bg-warning/5 p-2">
               <div className="text-2xs font-medium text-warning mb-1.5 flex items-center gap-1">
-                <Star size={10} fill="currentColor" /> Pinned
+                <Star size={12} fill="currentColor" /> Pinned
               </div>
               {/* A real list: Bubble renders an <li>, and an <li> whose parent
                   is a <div> is not a list item to a screen reader. */}

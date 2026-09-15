@@ -48,12 +48,12 @@ export function AboutTab() {
 
         {status === 'up-to-date' && (
           <span className="flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-1 bg-success text-primary-foreground shadow-sm">
-            <CheckCircle size={13} /> You're on the latest version
+            <CheckCircle size={14} /> You're on the latest version
           </span>
         )}
         {status === 'error' && (
           <span className="flex items-center gap-1 text-xs text-error">
-            <AlertCircle size={13} /> {error}
+            <AlertCircle size={14} /> {error}
           </span>
         )}
       </div>

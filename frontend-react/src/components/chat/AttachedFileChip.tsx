@@ -52,7 +52,7 @@ export function AttachedFileChip({ file, onRemove }: Props) {
         className="ml-0.5 rounded hover:text-text-primary"
         aria-label={`Remove ${file.name}`}
       >
-        <X size={10} />
+        <X size={12} />
       </button>
     </span>
   );

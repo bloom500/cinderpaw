@@ -363,9 +363,9 @@ export function VoiceEngineCard({
                     {((e as unknown as { isLocal?: boolean; is_local?: boolean }).isLocal ??
                       (e as unknown as { isLocal?: boolean; is_local?: boolean }).is_local ??
                       false) ? (
-                      <Laptop size={18} />
+                      <Laptop size={20} />
                     ) : (
-                      <Cloud size={18} />
+                      <Cloud size={20} />
                     )}
                   </span>
                   <span className="flex-1">

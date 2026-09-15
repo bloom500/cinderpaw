@@ -56,7 +56,7 @@ export function BackendBadge({ className }: { className?: string }) {
         className,
       )}
     >
-      <Icon size={10} strokeWidth={2} />
+      <Icon size={12} strokeWidth={2} />
       {label}
     </span>
   );

@@ -302,7 +302,7 @@ export function SkillHubDrawer() {
                     onClick={closeDetail}
                     className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary w-fit"
                   >
-                    <ChevronLeft size={13} />
+                    <ChevronLeft size={14} />
                     Back
                   </button>
 
@@ -337,7 +337,7 @@ export function SkillHubDrawer() {
                       rel="noreferrer"
                       className="flex items-center gap-1 text-2xs text-brand hover:underline w-fit"
                     >
-                      View source <ArrowUpRight size={11} />
+                      View source <ArrowUpRight size={12} />
                     </a>
                   )}
 

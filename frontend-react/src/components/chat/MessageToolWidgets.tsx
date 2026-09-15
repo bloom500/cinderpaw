@@ -57,15 +57,15 @@ function Row({ a, streaming }: { a: ToolActivity; streaming: boolean }) {
         'text-2xs text-text-secondary hover:bg-bg-surface/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
       )}
     >
-      <ChevronRight size={11} className="shrink-0 text-text-muted" />
+      <ChevronRight size={12} className="shrink-0 text-text-muted" />
       <span className="shrink-0 font-medium">{a.tool}</span>
       <span className="min-w-0 flex-1 truncate text-text-muted" title={summaryOf(a)}>{summaryOf(a)}</span>
       {a.status === 'running' ? (
-        <Loader2 size={11} className="shrink-0 animate-spin text-brand" />
+        <Loader2 size={12} className="shrink-0 animate-spin text-brand" />
       ) : a.status === 'failed' ? (
-        <AlertTriangle size={11} className="shrink-0 text-[var(--warning)]" />
+        <AlertTriangle size={12} className="shrink-0 text-[var(--warning)]" />
       ) : (
-        <Check size={11} className="shrink-0 text-[var(--success)]" />
+        <Check size={12} className="shrink-0 text-[var(--success)]" />
       )}
     </button>
   );

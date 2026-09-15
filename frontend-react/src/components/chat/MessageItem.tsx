@@ -345,7 +345,7 @@ function FeedbackButtons({ messageId }: { messageId: string }) {
             vote === 'up' ? 'text-brand' : 'text-text-muted hover:text-text-secondary',
           )}
         >
-          <ThumbsUp size={13} />
+          <ThumbsUp size={14} />
         </button>
         <button
           type="button"
@@ -357,7 +357,7 @@ function FeedbackButtons({ messageId }: { messageId: string }) {
             vote === 'down' ? 'text-error' : 'text-text-muted hover:text-text-secondary',
           )}
         >
-          <ThumbsDown size={13} />
+          <ThumbsDown size={14} />
         </button>
       </div>
       {toast && (

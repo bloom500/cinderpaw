@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ByokTab } from '@/components/settings/ByokTab';
 import { useSettings } from '@/stores/settings';
@@ -93,12 +93,13 @@ describe('ByokTab', () => {
     );
   });
 
-  it('MiniMax row shows a model <select> with MiniMax-M3 preselected', async () => {
+  it('MiniMax row shows a themed model picker with MiniMax-M3 preselected', async () => {
     render(<ByokTab />);
     await userEvent.click(screen.getByText('MiniMax'));
-    const select = await screen.findByRole('combobox');
-    expect(select).toHaveValue('MiniMax-M3');
-    const options = within(select as HTMLSelectElement).getAllByRole('option');
+    const picker = await screen.findByRole('button', { name: 'Model' });
+    expect(picker).toHaveTextContent('MiniMax-M3');
+    await userEvent.click(picker);
+    const options = await screen.findAllByRole('menuitemradio');
     expect(options.map((o) => o.textContent)).toEqual([
       'MiniMax-M3',
       'MiniMax-M2.7',
@@ -106,13 +107,13 @@ describe('ByokTab', () => {
       'MiniMax-M2.5',
       'MiniMax-M2.5-highspeed',
     ]);
+    expect(options[0]).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('GLM row shows a model <select> with glm-5.1 as first option', async () => {
+  it('GLM row shows a model picker with glm-5.1 first', async () => {
     render(<ByokTab />);
     await userEvent.click(screen.getByText('GLM (Z.ai)'));
-    const select = await screen.findByRole('combobox');
-    expect(select).toHaveValue('glm-5.1');
+    expect(await screen.findByRole('button', { name: 'Model' })).toHaveTextContent('glm-5.1');
   });
 
   it('Kimi shows key-detected hint when key starts with sk-kimi-', async () => {

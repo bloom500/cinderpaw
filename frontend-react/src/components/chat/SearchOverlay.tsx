@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, Folder } from 'lucide-react';
+import { Search, X, Folder, MessageSquarePlus, Box, Sun, Moon, Bot, MessageSquare, type LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
 import { useProjects, type Project } from '@/stores/projects';
 import { tauri, type Conversation } from '@/lib/tauri';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
+import { Kbd, MOD } from '@/components/ui/kbd';
+import { CATS, type Category } from '@/lib/settingsCategories';
 
 /**
  * One row. Two kinds, because Search is where the sidebar's conversation list
@@ -16,8 +18,35 @@ import { ConversationActions, ProjectActions } from '@/components/items/ItemActi
  * Enter keep working across the whole list without a second index to reconcile.
  */
 type SearchResult =
+  | { kind: 'action'; action: PaletteAction }
   | { kind: 'project'; project: Project; chatCount: number }
   | { kind: 'conversation'; conv: ConversationSummary; snippet: string | null };
+
+/**
+ * Something the app can DO, found by typing its name. The field that finds a
+ * chat is also the fastest way to every screen, so ⌘K/Ctrl+K reaches Settings,
+ * Models and the mode switch without a mouse. Actions only appear once something
+ * is typed: with an empty field this stays the browse list of what you have.
+ */
+interface PaletteAction {
+  id: string;
+  label: string;
+  hint: string;
+  icon: LucideIcon;
+  /** Extra words that should find it, never shown ("api key" finds Cloud Keys). */
+  keywords?: string;
+  keys?: string[];
+  run: () => void;
+}
+
+const SETTINGS_KEYWORDS: Partial<Record<Category, string>> = {
+  byok: 'api key provider openai anthropic openrouter',
+  accounts: 'connectors integrations discord telegram slack',
+  capabilities: 'skills extensions tools',
+  appearance: 'theme dark light mascot',
+  hardware: 'gpu ram cpu',
+  general: 'language',
+};
 
 function highlight(text: string, query: string): React.ReactNode {
   const lower = text.toLowerCase();
@@ -52,6 +81,10 @@ export function SearchOverlay() {
   const convOpen    = useConversations((s) => s.open);
   const allConvs    = useConversations((s) => s.list);
   const allProjects = useProjects((s) => s.list);
+  const resolvedTheme = useUI((s) => s.resolvedTheme);
+  const setTheme      = useUI((s) => s.setTheme);
+  const inputMode     = useUI((s) => s.inputMode);
+  const setInputMode  = useUI((s) => s.setInputMode);
 
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -140,6 +173,36 @@ export function SearchOverlay() {
     setResults(final);
   }, [allConvs, allProjects]);
 
+  const actions: PaletteAction[] = [
+    {
+      id: 'new-chat', label: 'New chat', hint: 'Start an empty conversation', icon: MessageSquarePlus,
+      keys: [MOD, 'N'],
+      run: () => { useConversations.getState().newChat(); navigate('/chat'); },
+    },
+    { id: 'models', label: 'Models', hint: 'Download, load or pick a model', icon: Box, run: () => navigate('/models') },
+    resolvedTheme === 'dark'
+      ? { id: 'theme', label: 'Switch to light theme', hint: 'Appearance', icon: Sun, keywords: 'theme', run: () => setTheme('light') }
+      : { id: 'theme', label: 'Switch to dark theme', hint: 'Appearance', icon: Moon, keywords: 'theme', run: () => setTheme('dark') },
+    inputMode === 'agent'
+      ? { id: 'mode', label: 'Switch to Chat mode', hint: 'Answers only, no tools', icon: MessageSquare, keywords: 'mode', run: () => setInputMode('chat') }
+      : { id: 'mode', label: 'Switch to Agent mode', hint: 'Cinderpaw can use tools and act', icon: Bot, keywords: 'mode', run: () => setInputMode('agent') },
+    ...CATS.map((c): PaletteAction => ({
+      id: `settings:${c.id}`, label: `Settings: ${c.label}`, hint: 'Open settings', icon: c.icon,
+      keywords: SETTINGS_KEYWORDS[c.id], run: () => navigate(`/settings?cat=${c.id}`),
+    })),
+  ];
+  const matchedActions = (q: string): SearchResult[] => {
+    const lower = q.trim().toLowerCase();
+    if (!lower) return [];
+    // Whole-word hits first: "mode" means the mode switch, not "Models".
+    const word = new RegExp(`\\b${lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+    const text = (a: PaletteAction) => `${a.label} ${a.keywords ?? ''}`.toLowerCase();
+    return actions
+      .filter((a) => text(a).includes(lower))
+      .sort((a, b) => Number(!word.test(text(a))) - Number(!word.test(text(b))))
+      .map((action) => ({ kind: 'action', action }));
+  };
+
   /**
    * Results actually rendered. Inside a project scope only its conversations
    * survive, and project rows are dropped — you are already in one.
@@ -163,7 +226,7 @@ export function SearchOverlay() {
         .map((conv): SearchResult => ({ kind: 'conversation', conv, snippet: null }));
       return [...projects, ...convs];
     }
-    if (!scope) return results;
+    if (!scope) return [...matchedActions(query), ...results];
     // Inside a project with nothing typed yet, the answer is what the project
     // CONTAINS. Filtering an empty search would report "nothing matches" about
     // a question the user never asked — which is how opening a project from
@@ -193,6 +256,11 @@ export function SearchOverlay() {
    * so the honest response to picking one is to show what is inside it.
    */
   const handleSelect = async (r: SearchResult) => {
+    if (r.kind === 'action') {
+      closeSearch();
+      r.action.run();
+      return;
+    }
     if (r.kind === 'project') {
       setScope(r.project);
       setActiveIdx(-1);
@@ -208,7 +276,7 @@ export function SearchOverlay() {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Search chats and projects"
+      aria-label="Search chats, projects and actions"
       className="fixed inset-0 z-50 flex flex-col items-center pt-[15vh] backdrop-blur-md bg-black/40"
       onClick={closeSearch}
     >
@@ -218,7 +286,7 @@ export function SearchOverlay() {
       >
         {/* Pill input */}
         <div className="flex items-center gap-3 bg-bg-surface border border-bg-hover rounded-3xl px-4 h-[52px] shadow-xl">
-          <Search size={18} className="text-text-muted shrink-0" />
+          <Search size={20} className="text-text-muted shrink-0" />
           <input
             ref={inputRef}
             value={query}
@@ -248,7 +316,7 @@ export function SearchOverlay() {
             aria-expanded={query.trim().length > 0}
             aria-controls="search-results"
             aria-activedescendant={activeIdx >= 0 ? `search-result-${activeIdx}` : undefined}
-            placeholder={scope ? `Search in ${scope.name}…` : 'Search chats and projects…'}
+            placeholder={scope ? `Search in ${scope.name}…` : 'Search chats, projects and actions…'}
             className="flex-1 bg-transparent text-text-primary text-sm outline-none placeholder:text-text-muted"
           />
           <button
@@ -256,7 +324,7 @@ export function SearchOverlay() {
             className="text-text-muted hover:text-text-secondary shrink-0"
             aria-label="Close search"
           >
-            <X size={18} />
+            <X size={20} />
           </button>
         </div>
 
@@ -264,7 +332,7 @@ export function SearchOverlay() {
         {scope && (
           <div className="mt-2 flex items-center gap-2 text-xs text-text-muted">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border-default bg-bg-surface px-2.5 py-1">
-              <Folder size={11} aria-hidden />
+              <Folder size={12} aria-hidden />
               <span className="text-text-secondary">{scope.name}</span>
               <button
                 type="button"
@@ -272,7 +340,7 @@ export function SearchOverlay() {
                 aria-label={`Search everything instead of ${scope.name}`}
                 className="ml-0.5 rounded-full p-0.5 hover:bg-bg-hover hover:text-text-secondary"
               >
-                <X size={11} />
+                <X size={12} />
               </button>
             </span>
           </div>
@@ -300,13 +368,13 @@ export function SearchOverlay() {
                       ? `Nothing in ${scope.name} matches.`
                       : `${scope.name} has no conversations yet.`)
                   : query.trim()
-                    ? 'No conversations or projects match.'
+                    ? 'No conversations, projects or actions match.'
                     : 'No conversations yet. Ask Cinderpaw something and it will show up here.'}
               </div>
             ) : (
               visible.map((r, i) => (
                 <div
-                  key={r.kind === 'project' ? `p:${r.project.id}` : `c:${r.conv.id}`}
+                  key={r.kind === 'action' ? `a:${r.action.id}` : r.kind === 'project' ? `p:${r.project.id}` : `c:${r.conv.id}`}
                   // Presentational so the option stays the listbox's child as
                   // far as assistive tech is concerned; the row is only layout.
                   role="presentation"
@@ -320,7 +388,16 @@ export function SearchOverlay() {
                   onClick={() => { void handleSelect(r); }}
                   className="flex-1 min-w-0 text-left px-4 py-3"
                 >
-                  {r.kind === 'project' ? (
+                  {r.kind === 'action' ? (
+                    <div className="flex items-center gap-2">
+                      <r.action.icon size={14} className="shrink-0 text-text-muted" aria-hidden />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text-primary truncate">{highlight(r.action.label, query)}</div>
+                        <div className="text-2xs text-text-disabled mt-0.5">{r.action.hint}</div>
+                      </div>
+                      {r.action.keys && <Kbd keys={r.action.keys} />}
+                    </div>
+                  ) : r.kind === 'project' ? (
                     <>
                       <div className="flex items-center gap-2 text-sm font-medium text-text-primary truncate">
                         <Folder size={14} className="shrink-0 text-text-muted" aria-hidden />
@@ -352,7 +429,9 @@ export function SearchOverlay() {
                       Search a weaker home than the rail it replaces. */}
                   {r.kind === 'project'
                     ? <ProjectActions project={r.project} side="bottom" align="end" />
-                    : <ConversationActions conv={r.conv} side="bottom" align="end" />}
+                    : r.kind === 'conversation'
+                      ? <ConversationActions conv={r.conv} side="bottom" align="end" />
+                      : null}
                 </div>
               ))
             )}

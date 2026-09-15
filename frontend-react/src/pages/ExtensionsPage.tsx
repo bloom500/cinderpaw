@@ -99,7 +99,7 @@ export function ExtensionsPage() {
                 Written instructions your assistant follows for a particular kind of job.
               </span>
             </span>
-            <ArrowUpRight size={15} className="text-text-muted shrink-0" />
+            <ArrowUpRight size={14} className="text-text-muted shrink-0" />
           </button>
 
           {loading && (
@@ -118,7 +118,7 @@ export function ExtensionsPage() {
                 onClick={load}
                 className="text-xs text-text-muted hover:text-text-secondary inline-flex items-center gap-1 shrink-0"
               >
-                <RefreshCw size={11} /> Try again
+                <RefreshCw size={12} /> Try again
               </button>
             </div>
           )}
@@ -308,7 +308,7 @@ function InstalledCard({
           disabled={!server.running}
           className="inline-flex items-center gap-1 text-2xs text-text-muted hover:text-text-secondary disabled:opacity-40"
         >
-          What can it do? {toolsOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          What can it do? {toolsOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
         </button>
         <button
           type="button"
@@ -319,7 +319,7 @@ function InstalledCard({
             removeArmed ? 'text-error font-medium' : 'text-text-muted hover:text-error',
           )}
         >
-          <Trash2 size={11} /> {removeArmed ? 'Click again to remove' : 'Remove'}
+          <Trash2 size={12} /> {removeArmed ? 'Click again to remove' : 'Remove'}
         </button>
       </div>
 
@@ -457,7 +457,7 @@ function CatalogCard({
               : 'bg-brand text-on-brand hover:bg-brand/90',
           )}
         >
-          {busy && <Loader2 size={11} className="animate-spin" />}
+          {busy && <Loader2 size={12} className="animate-spin" />}
           {installed
             ? '✓ Installed'
             : // A bare spinner for up to ten minutes reads as frozen. Say what

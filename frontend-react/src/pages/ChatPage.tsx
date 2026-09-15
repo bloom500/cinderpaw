@@ -212,13 +212,6 @@ export function ChatPage() {
     }
   }, [inputMode, loaded]);
 
-  // Listen for Ctrl+N / ⌘N from useGlobalHotkeys
-  useEffect(() => {
-    const handler = () => useConversations.getState().newChat();
-    window.addEventListener('cinderpaw:new-chat', handler);
-    return () => window.removeEventListener('cinderpaw:new-chat', handler);
-  }, []);
-
   const handleSuggestion = (text: string) => {
     chatInputRef.current?.setText(text);
   };

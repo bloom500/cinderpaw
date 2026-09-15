@@ -61,11 +61,13 @@ export interface TtsVoice { id: string; label: string; locale: string }
  *
  * The list comes from the binary rather than from a table here, because the
  * frontend ships as one bundle for every build and cannot know whether the
- * engine underneath it is Moonshine, whisper, or nothing at all. `sizeMb` is
+ * engine underneath it is Moonshine, whisper, or nothing at all. `size_mb` is
  * on the row and not behind the download: it is the reason somebody picks one
  * model over another.
  */
-export interface SttModel { id: string; label: string; sizeMb: number; present: boolean }
+// snake_case on purpose: the Rust struct has no `rename_all`, so this is the
+// name that arrives. `sizeMb` here read undefined and the picker said "undefined MB".
+export interface SttModel { id: string; label: string; size_mb: number; present: boolean }
 
 /**
  * One speech-to-speech vendor a call can run on — mirrors

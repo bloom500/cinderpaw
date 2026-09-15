@@ -46,7 +46,7 @@ export function ReviewStep({ name, preset, saveError }: Props) {
 
       {saveError && (
         <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/5 p-3">
-          <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+          <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />
           <p className="text-sm text-error">Couldn't save your agent. Please try again.</p>
         </div>
       )}

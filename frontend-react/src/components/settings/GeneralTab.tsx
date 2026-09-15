@@ -6,6 +6,7 @@ import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { RefreshCw, CheckCircle, AlertCircle, Sparkles } from 'lucide-react';
 import { useSettings } from '@/stores/settings';
 import { useUI, type LangPref } from '@/stores/ui';
+import { SelectMenu } from '@/components/ui/select-menu';
 import { useUpdater } from '@/stores/updater';
 import { useAppVersion } from '@/hooks/useAppVersion';
 import { useOnboarding } from '@/stores/onboarding';
@@ -88,7 +89,7 @@ export function GeneralTab() {
             className={cn(btnCls, (updateStatus === 'checking' || updateStatus === 'downloading') && 'opacity-50 cursor-not-allowed')}
           >
             <span className="flex items-center gap-1.5">
-              <RefreshCw size={13} className={cn(updateStatus === 'checking' && 'animate-spin')} />
+              <RefreshCw size={14} className={cn(updateStatus === 'checking' && 'animate-spin')} />
               {updateStatus === 'downloading' ? 'Downloading…' : 'Check for updates'}
             </span>
           </button>
@@ -122,14 +123,12 @@ export function GeneralTab() {
           <p className="text-sm font-medium text-text-primary">Language</p>
           <p className="text-xs text-text-muted mt-0.5">Interface language</p>
         </div>
-        <select
+        <SelectMenu<LangPref>
           value={language}
-          onChange={(e) => setLanguage(e.target.value as LangPref)}
-          className="px-2 py-1.5 rounded-md border border-border-subtle bg-bg-surface text-sm text-text-primary"
-        >
-          <option value="en">English</option>
-          <option value="ro">Română</option>
-        </select>
+          onChange={setLanguage}
+          ariaLabel="Interface language"
+          options={[{ value: 'en', label: 'English' }, { value: 'ro', label: 'Română' }]}
+        />
       </div>
 
       {/* Voice transcription model, plus the download it needs. The rows come

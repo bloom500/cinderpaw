@@ -16,6 +16,7 @@ import { groupByRecency, type DatedGroup } from '@/lib/chatGroups';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
 import { cn } from '@/lib/utils';
+import { Kbd, MOD } from '@/components/ui/kbd';
 import { APP_NAME } from '@/lib/brand';
 
 /**
@@ -55,7 +56,7 @@ const NAV = [
 ] as const;
 
 function Row({
-  icon: Icon, label, collapsed, onClick, to, active,
+  icon: Icon, label, collapsed, onClick, to, active, hint,
 }: {
   icon: React.ComponentType<{ size?: number | string; className?: string }>;
   label: string;
@@ -63,6 +64,8 @@ function Row({
   onClick?: () => void;
   to?: string;
   active?: boolean;
+  /** Shown at the end of the row while expanded, e.g. its keyboard shortcut. */
+  hint?: React.ReactNode;
 }) {
   const inner = (
     <>
@@ -78,6 +81,7 @@ function Row({
           </motion.span>
         )}
       </AnimatePresence>
+      {!collapsed && hint}
     </>
   );
   const classes = (isActive: boolean) => cn(
@@ -190,7 +194,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
           >
             {/* A chat can be generating while you are looking at another one. */}
             {streamingIds[c.id] && (
-              <Loader2 size={11} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
+              <Loader2 size={12} className="shrink-0 animate-spin text-brand" aria-label="Generating" />
             )}
             <span className="truncate">{c.title}</span>
           </button>
@@ -276,7 +280,7 @@ function Library({ collapsed }: { collapsed: boolean }) {
                     ) : (
                       <ChevronRight size={12} className="shrink-0" aria-hidden />
                     )}
-                    <Folder size={13} className="shrink-0" aria-hidden />
+                    <Folder size={14} className="shrink-0" aria-hidden />
                     <span className="truncate">{p.name}</span>
                   </button>
                   <ProjectActions project={p} side="right" align="start" />
@@ -331,8 +335,8 @@ export function SideNav() {
   const [projectOpen, setProjectOpen] = useState(false);
 
   const newChat = () => {
+    useConversations.getState().newChat();
     navigate('/chat');
-    window.dispatchEvent(new CustomEvent('cinderpaw:new-chat'));
   };
 
   // Gone entirely, with one way back — but GONE ANIMATED. The collapse used
@@ -359,7 +363,7 @@ export function SideNav() {
             exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.08 } }}
             className="fixed left-3 top-3 z-30 h-9 w-9 grid place-items-center rounded-lg border border-border-subtle bg-bg-elevated/80 backdrop-blur text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors cursor-pointer shadow-md"
           >
-            <PanelLeftOpen size={19} />
+            <PanelLeftOpen size={20} />
           </motion.button>
         ) : (
           <motion.nav
@@ -406,7 +410,7 @@ export function SideNav() {
             title="Collapse navigation"
             className="h-9 w-9 grid place-items-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer"
           >
-            <PanelLeftClose size={19} />
+            <PanelLeftClose size={20} />
           </button>
         </div>
 
@@ -432,7 +436,7 @@ export function SideNav() {
               <DropdownMenuItem onSelect={newChat} className="gap-2">
                 <MessageSquare size={14} />
                 New chat
-                <span className="ml-auto text-2xs text-text-muted">⌘N</span>
+                <Kbd keys={[MOD, 'N']} />
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setProjectOpen(true)} className="gap-2">
                 <FolderPlus size={14} />
@@ -441,7 +445,7 @@ export function SideNav() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Row icon={Search} label="Search" collapsed={collapsed} onClick={() => openSearch()} />
+          <Row icon={Search} label="Search" collapsed={collapsed} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} collapsed={collapsed} to={n.to} />
           ))}

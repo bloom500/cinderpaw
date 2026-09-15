@@ -574,7 +574,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   title={t('call.title')}
                   className="h-7 w-7 text-text-muted hover:text-brand"
                 >
-                  <Phone size={13} />
+                  <Phone size={14} />
                 </Button>
               )}
               {isStreaming ? (

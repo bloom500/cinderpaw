@@ -78,7 +78,7 @@ export function RsiEngineStatusPanel() {
     return (
       <div className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-3 text-xs text-text-muted">
         <div className="flex items-center gap-2 text-text-secondary">
-          <AlertTriangle size={13} className="text-text-muted" />
+          <AlertTriangle size={14} className="text-text-muted" />
           <span>RSI engine status unavailable</span>
         </div>
         <p className="mt-1 text-text-disabled">{error}</p>
@@ -89,7 +89,7 @@ export function RsiEngineStatusPanel() {
   if (!status) {
     return (
       <div className="flex items-center gap-2 px-4 py-3 text-xs text-text-muted">
-        <RefreshCw size={11} className="animate-spin" /> Loading engine status…
+        <RefreshCw size={12} className="animate-spin" /> Loading engine status…
       </div>
     );
   }
@@ -105,7 +105,7 @@ export function RsiEngineStatusPanel() {
     <div className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-3 space-y-3">
       <header className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Activity size={13} className={running ? 'text-brand' : 'text-text-muted'} />
+          <Activity size={14} className={running ? 'text-brand' : 'text-text-muted'} />
           <span className="text-sm font-medium text-text-primary">Engine</span>
           <StatusPill running={running} stopReason={e?.stop_reason ?? null} engineKnown={e !== null} />
         </div>
@@ -116,7 +116,7 @@ export function RsiEngineStatusPanel() {
             aria-label="Refresh engine status"
             className="rounded-md p-1 text-text-muted hover:text-text-primary hover:bg-bg-hover"
           >
-            <RefreshCw size={11} />
+            <RefreshCw size={12} />
           </button>
           {running && (
             <button
@@ -125,7 +125,7 @@ export function RsiEngineStatusPanel() {
               disabled={stopping}
               className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-bg-elevated px-2 py-1 text-2xs text-text-secondary hover:text-text-primary disabled:opacity-50"
             >
-              <Square size={10} /> {stopping ? 'Stopping…' : 'Stop'}
+              <Square size={12} /> {stopping ? 'Stopping…' : 'Stop'}
             </button>
           )}
         </div>
@@ -140,7 +140,7 @@ export function RsiEngineStatusPanel() {
 
       <div className="flex items-center gap-3 text-2xs">
         <span className="flex items-center gap-1.5 text-text-secondary">
-          <Zap size={11} /> Concurrency
+          <Zap size={12} /> Concurrency
         </span>
         <div className="flex items-center gap-1">
           {Array.from({ length: MAX_CONCURRENCY - MIN_CONCURRENCY + 1 }, (_, i) => MIN_CONCURRENCY + i).map((n) => {
@@ -174,7 +174,7 @@ export function RsiEngineStatusPanel() {
 
       {stopError && (
         <p className="text-2xs text-text-muted">
-          <Pause size={10} className="inline-block align-text-bottom mr-1" />
+          <Pause size={12} className="inline-block align-text-bottom mr-1" />
           Stop failed: {stopError}
         </p>
       )}

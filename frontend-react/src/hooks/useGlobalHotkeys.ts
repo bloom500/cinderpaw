@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useConversations } from '@/stores/conversations';
 
 export function useGlobalHotkeys() {
   const navigate = useNavigate();
@@ -18,8 +19,11 @@ export function useGlobalHotkeys() {
 
       if (e.key.toLowerCase() === 'n' && !inEditable) {
         e.preventDefault();
+        // Called on the store, not announced as an event: from Models or
+        // Settings the chat page is not mounted yet, so nobody was listening and
+        // Ctrl+N reopened the last conversation instead of starting one.
+        useConversations.getState().newChat();
         navigate('/chat');
-        window.dispatchEvent(new CustomEvent('cinderpaw:new-chat'));
       }
 
       if (e.key.toLowerCase() === 'k') {

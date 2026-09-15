@@ -436,7 +436,7 @@ export function CinderpawDreamsPanel() {
   return (
     <div className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-3 space-y-3">
       <header className="flex items-center gap-2">
-        <Moon size={13} className="text-brand" />
+        <Moon size={14} className="text-brand" />
         <span className="text-sm font-medium text-text-primary">Cinderpaw&apos;s Dreams</span>
         <span className="text-2xs text-text-muted">self-improvement while you&apos;re idle</span>
         <button
@@ -521,7 +521,7 @@ export function CinderpawDreamsPanel() {
 
       {dreaming && (
         <div className="flex items-center gap-2 rounded border border-brand/30 bg-brand/5 px-2.5 py-1.5">
-          <Moon size={11} className="shrink-0 animate-pulse text-brand" />
+          <Moon size={12} className="shrink-0 animate-pulse text-brand" />
           <DreamStageStepper stage={stage} />
         </div>
       )}
@@ -552,7 +552,7 @@ export function CinderpawDreamsPanel() {
 
           {summary.last[0] && (
             <p className="flex items-center gap-1.5 text-2xs text-text-secondary">
-              <Sparkles size={11} className="text-brand" />
+              <Sparkles size={12} className="text-brand" />
               Last dream: {summary.last[0].trigger}-triggered ·{' '}
               {summary.last[0].ratchets > 0
                 ? `${summary.last[0].ratchets} improvement${summary.last[0].ratchets === 1 ? '' : 's'}`
@@ -648,7 +648,7 @@ function GovernanceCard({
   return (
     <section className="space-y-1.5 border-t border-border-subtle pt-2">
       <header className="flex items-center gap-1.5">
-        <Shield size={11} className="text-brand" />
+        <Shield size={12} className="text-brand" />
         <span className="text-2xs font-medium text-text-primary">Safety rules</span>
         <span className="text-micro text-text-muted">
           the guardrails Cinderpaw follows while improving itself
@@ -674,7 +674,7 @@ function GovernanceCard({
 
       {status.failClosed ? (
         <p className="flex items-center gap-1.5 text-micro text-warning">
-          <AlertTriangle size={10} />
+          <AlertTriangle size={12} />
           The rulebook couldn&apos;t be read, so Cinderpaw switched to its strictest built-in
           rules and paused all self-improvement until it&apos;s fixed.
         </p>
@@ -694,9 +694,9 @@ function GovernanceCard({
               <li key={p.policyId} className="space-y-1 text-2xs">
                 <div className="flex items-center gap-1.5">
                   {needsOk ? (
-                    <AlertTriangle size={10} className="shrink-0 text-warning" />
+                    <AlertTriangle size={12} className="shrink-0 text-warning" />
                   ) : (
-                    <Check size={10} className="shrink-0 text-brand" />
+                    <Check size={12} className="shrink-0 text-brand" />
                   )}
                   <span className="text-text-secondary">
                     {needsOk
@@ -713,7 +713,7 @@ function GovernanceCard({
                       onClick={() => onResolve(p.policyId, 'approve')}
                       className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-micro text-brand hover:border-brand disabled:opacity-50"
                     >
-                      <Check size={10} className="inline -mt-px mr-0.5" />
+                      <Check size={12} className="inline -mt-px mr-0.5" />
                       Allow it
                     </button>
                     <button
@@ -722,7 +722,7 @@ function GovernanceCard({
                       onClick={() => onResolve(p.policyId, 'reject')}
                       className="rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary disabled:opacity-50"
                     >
-                      <X size={10} className="inline -mt-px mr-0.5" />
+                      <X size={12} className="inline -mt-px mr-0.5" />
                       Keep things as they are
                     </button>
                   </div>
@@ -735,7 +735,7 @@ function GovernanceCard({
 
       {note && (
         <p className="flex items-center gap-1 text-micro text-text-muted">
-          <AlertTriangle size={10} className="text-brand" />
+          <AlertTriangle size={12} className="text-brand" />
           {note}
         </p>
       )}
@@ -780,7 +780,7 @@ function ArchitectureCard({
   return (
     <section className="space-y-1.5 border-t border-border-subtle pt-2">
       <header className="flex items-center gap-1.5">
-        <GitMerge size={11} className="text-brand" />
+        <GitMerge size={12} className="text-brand" />
         <span className="text-2xs font-medium text-text-primary">Architecture</span>
         <span className="text-micro text-text-muted">
           replacement parts Cinderpaw built for itself
@@ -797,7 +797,7 @@ function ArchitectureCard({
             const chip = SEAM_LABELS[m.seam] ?? m.seam;
             return (
               <div key={m.id} className="flex items-center gap-1.5 text-2xs">
-                <Check size={10} className="shrink-0 text-brand" />
+                <Check size={12} className="shrink-0 text-brand" />
                 <span className="text-text-secondary">
                   {chip} runs a part Cinderpaw built: {m.displayName}
                 </span>
@@ -808,7 +808,7 @@ function ArchitectureCard({
                   title="Instantly switch this part back to the original"
                   className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary disabled:opacity-50"
                 >
-                  <Undo2 size={10} className="inline -mt-px mr-0.5" />
+                  <Undo2 size={12} className="inline -mt-px mr-0.5" />
                   Use the original
                 </button>
               </div>
@@ -819,7 +819,7 @@ function ArchitectureCard({
             return (
               <div key={m.id} className="space-y-1 text-2xs">
                 <div className="flex items-center gap-1.5">
-                  <AlertTriangle size={10} className="shrink-0 text-warning" />
+                  <AlertTriangle size={12} className="shrink-0 text-warning" />
                   <span className="text-text-secondary">
                     Cinderpaw built a new {chip} part ({m.displayName}) and it passed its exam
                     {m.eval?.reason ? '' : ''} Nothing changes without your OK.
@@ -835,7 +835,7 @@ function ArchitectureCard({
                     onClick={() => onResolve('approve', { moduleId: m.id })}
                     className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-micro text-brand hover:border-brand disabled:opacity-50"
                   >
-                    <Check size={10} className="inline -mt-px mr-0.5" />
+                    <Check size={12} className="inline -mt-px mr-0.5" />
                     Let it take over
                   </button>
                   <button
@@ -844,7 +844,7 @@ function ArchitectureCard({
                     onClick={() => onResolve('reject', { moduleId: m.id })}
                     className="rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary disabled:opacity-50"
                   >
-                    <X size={10} className="inline -mt-px mr-0.5" />
+                    <X size={12} className="inline -mt-px mr-0.5" />
                     Keep the original
                   </button>
                 </div>
@@ -864,7 +864,7 @@ function ArchitectureCard({
 
       {note && (
         <p className="flex items-center gap-1 text-micro text-text-muted">
-          <AlertTriangle size={10} className="text-brand" />
+          <AlertTriangle size={12} className="text-brand" />
           {note}
         </p>
       )}
@@ -893,7 +893,7 @@ function MetaEvolutionCard({
   return (
     <section className="space-y-1.5 border-t border-border-subtle pt-2">
       <header className="flex items-center gap-1.5">
-        <Brain size={11} className="text-brand" />
+        <Brain size={12} className="text-brand" />
         <span className="text-2xs font-medium text-text-primary">Meta Evolution</span>
         <span className="text-micro text-text-muted">
           generation {status.generation ?? 0}
@@ -908,7 +908,7 @@ function MetaEvolutionCard({
               title="Drop the pending candidate and return to its baseline"
               className="rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
             >
-              <Undo2 size={10} className="mr-1 inline" />
+              <Undo2 size={12} className="mr-1 inline" />
               Rollback
             </button>
           )}
@@ -940,7 +940,7 @@ function MetaEvolutionCard({
       )}
       {note && (
         <p className="flex items-center gap-1 text-micro text-text-muted">
-          <AlertTriangle size={10} className="text-brand" />
+          <AlertTriangle size={12} className="text-brand" />
           {note}
         </p>
       )}
@@ -973,7 +973,7 @@ function LoraReviews({
   return (
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <div className="flex items-center gap-2">
-        <Brain size={11} className="text-brand" />
+        <Brain size={12} className="text-brand" />
         <span className="text-2xs font-medium text-text-secondary">Personal adaptation</span>
         <span className="text-text-muted text-2xs">LoRA · learns how you work</span>
         <button
@@ -1022,7 +1022,7 @@ function LoraReviews({
         <ul className="space-y-0.5">
           {champions.map((c) => (
             <li key={c.domain} className="flex items-center gap-2 text-2xs">
-              <Check size={10} className="text-brand" />
+              <Check size={12} className="text-brand" />
               <span className="text-text-secondary">{c.domain}</span>
               <span className="ml-auto font-mono text-micro text-text-muted">{c.id}</span>
             </li>
@@ -1056,7 +1056,7 @@ function LoraReviews({
                       onClick={() => onResolve(r.id, 'approve')}
                       className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-brand hover:border-brand disabled:opacity-50"
                     >
-                      <Check size={10} className="inline -mt-px mr-0.5" />
+                      <Check size={12} className="inline -mt-px mr-0.5" />
                       Approve &amp; use
                     </button>
                   )}
@@ -1066,7 +1066,7 @@ function LoraReviews({
                     onClick={() => onResolve(r.id, 'reject')}
                     className="rounded border border-border-subtle px-2 py-0.5 text-text-secondary hover:text-text-primary disabled:opacity-50"
                   >
-                    <X size={10} className="inline -mt-px mr-0.5" />
+                    <X size={12} className="inline -mt-px mr-0.5" />
                     Reject
                   </button>
                 </div>
@@ -1093,7 +1093,7 @@ function LoraVerdictBadge({ status, verdict }: { status: string; verdict: string
   const { icon: Icon, cls, label } = entry;
   return (
     <span className={`inline-flex items-center gap-1 font-medium ${cls}`}>
-      <Icon size={11} />
+      <Icon size={12} />
       {label}
     </span>
   );
@@ -1176,7 +1176,7 @@ function DecisionBadge({ action }: { action: string }) {
   const { icon: Icon, cls, label } = map[action] ?? map.reject;
   return (
     <span className={`inline-flex items-center gap-1 font-medium ${cls}`}>
-      <Icon size={11} />
+      <Icon size={12} />
       {label}
     </span>
   );
@@ -1205,7 +1205,7 @@ function LoopQuestions({
   return (
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <div className="flex items-center gap-2">
-        <MessageCircleQuestion size={11} className="text-brand" />
+        <MessageCircleQuestion size={12} className="text-brand" />
         <span className="text-2xs font-medium text-text-secondary">
           Cinderpaw is asking
         </span>
@@ -1247,7 +1247,7 @@ function QuestionRow({
           title="Dismiss"
           className="rounded p-0.5 text-text-muted hover:text-text-primary disabled:opacity-50"
         >
-          <X size={11} />
+          <X size={12} />
         </button>
       </div>
       <p className="text-text-primary">{q.question}</p>
@@ -1271,7 +1271,7 @@ function QuestionRow({
           onClick={() => onResolve(q.id, 'answer', answer.trim())}
           className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-brand hover:border-brand disabled:opacity-50"
         >
-          <Check size={10} className="inline -mt-px mr-0.5" />
+          <Check size={12} className="inline -mt-px mr-0.5" />
           Answer
         </button>
         <button
@@ -1309,7 +1309,7 @@ function PendingPatches({
   return (
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <div className="flex items-center gap-2">
-        <Code2 size={11} className="text-brand" />
+        <Code2 size={12} className="text-brand" />
         <span className="text-2xs font-medium text-text-secondary">
           Pending patches
         </span>
@@ -1389,7 +1389,7 @@ function PatchRow({
       )}
       <details className="rounded border border-border-subtle">
         <summary className="cursor-pointer select-none px-2 py-1 text-text-muted hover:text-text-secondary">
-          <FileText size={10} className="inline -mt-px mr-1" />
+          <FileText size={12} className="inline -mt-px mr-1" />
           Show diff
         </summary>
         <pre className="overflow-x-auto whitespace-pre bg-bg-base/40 px-2 py-1.5 font-mono text-micro text-text-secondary border-t border-border-subtle">
@@ -1404,7 +1404,7 @@ function PatchRow({
             onClick={() => onResolve(patch.id, 'approve')}
             className="rounded border border-brand/40 bg-brand/10 px-2 py-0.5 text-brand hover:border-brand disabled:opacity-50"
           >
-            <Check size={10} className="inline -mt-px mr-0.5" />
+            <Check size={12} className="inline -mt-px mr-0.5" />
             Approve
           </button>
           <button
@@ -1413,7 +1413,7 @@ function PatchRow({
             onClick={() => onResolve(patch.id, 'reject')}
             className="rounded border border-border-subtle px-2 py-0.5 text-text-secondary hover:text-text-primary disabled:opacity-50"
           >
-            <X size={10} className="inline -mt-px mr-0.5" />
+            <X size={12} className="inline -mt-px mr-0.5" />
             Reject
           </button>
         </div>
@@ -1436,7 +1436,7 @@ function PatchStatusBadge({ status }: { status: CodePatchStatus | string }) {
   const { icon: Icon, cls, label } = entry;
   return (
     <span className={`inline-flex items-center gap-1 font-medium ${cls}`}>
-      <Icon size={11} />
+      <Icon size={12} />
       {label}
     </span>
   );

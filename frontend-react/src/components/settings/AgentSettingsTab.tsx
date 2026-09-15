@@ -64,7 +64,7 @@ export function AgentSettingsTab() {
           disabled={loading}
           className={cn(SECONDARY_BUTTON, 'inline-flex items-center gap-1.5')}
         >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           Refresh
         </button>
         <button
@@ -75,14 +75,14 @@ export function AgentSettingsTab() {
           }}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-brand text-on-brand text-sm font-medium hover:bg-brand/90 transition-colors"
         >
-          <Plus size={13} />
+          <Plus size={14} />
           New agent
         </button>
       </div>
 
       {error && (
         <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
-          <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+          <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />
           <p className="text-sm text-error">{error}</p>
         </div>
       )}
@@ -165,7 +165,7 @@ export function AgentSettingsTab() {
                     className="inline-flex items-center gap-1 text-2xs text-text-muted hover:text-error transition-colors"
                     aria-label={`Delete ${a.name}`}
                   >
-                    <Trash2 size={11} />
+                    <Trash2 size={12} />
                     Delete
                   </button>
                 </div>
@@ -195,7 +195,7 @@ export function AgentSettingsTab() {
           </p>
           {deleteError && (
             <div className="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 p-3">
-              <AlertCircle size={13} className="text-error shrink-0 mt-0.5" />
+              <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />
               <p className="text-sm text-error">{deleteError}</p>
             </div>
           )}
@@ -483,7 +483,7 @@ function DesktopControlToggle() {
       )}
 
       <p className="text-2xs text-text-muted flex items-center gap-1.5">
-        <AlertCircle size={11} className="shrink-0" />
+        <AlertCircle size={12} className="shrink-0" />
         {busy || yoloBusy
           ? 'Restarting the agent…'
           : 'Changes restart the agent briefly so the tool reloads.'}

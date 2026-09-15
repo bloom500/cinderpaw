@@ -75,7 +75,7 @@ export function StreamErrorNotice() {
               onClick={() => setShowDetail((v) => !v)}
               className="flex items-center gap-1 text-xs text-text-muted hover:text-text-secondary"
             >
-              {showDetail ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              {showDetail ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               Technical details
             </button>
           )}
@@ -87,7 +87,7 @@ export function StreamErrorNotice() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Button size="sm" variant="outline" onClick={retry}>
-            <RotateCcw size={13} className="mr-1.5" />
+            <RotateCcw size={14} className="mr-1.5" />
             Retry
           </Button>
           {err.action && (

@@ -80,7 +80,7 @@ function CompatPopover({ filename, modelTags, compat }: CompatPopoverProps) {
           onMouseEnter={() => setOpen(true)}
           onMouseLeave={() => setOpen(false)}
         >
-          <cfg.Icon size={13} className={cfg.iconCls} />
+          <cfg.Icon size={14} className={cfg.iconCls} />
         </span>
       </PopoverTrigger>
       <PopoverContent
@@ -231,7 +231,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
               </span>
               {isRecommended && (
                 <span className="flex items-center gap-1 text-micro text-brand shrink-0">
-                  <Star size={9} fill="currentColor" /> Best
+                  <Star size={12} fill="currentColor" /> Best
                 </span>
               )}
 
@@ -275,7 +275,7 @@ export function HfDetailPanel({ repoId, detail, loading }: Props) {
                     disabled={isLoading}
                     className="flex items-center gap-1 text-xs text-success hover:text-success/80 disabled:opacity-40 transition-colors"
                   >
-                    <Play size={11} />
+                    <Play size={12} />
                     {isLoading && loadProgress ? `${loadProgress.percentage.toFixed(0)}%` : 'Load'}
                   </button>
                 ) : (

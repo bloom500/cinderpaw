@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { SelectMenu } from '@/components/ui/select-menu';
 import { useSettings, type ByokProviderUpdate } from '@/stores/settings';
 import { useCatalog } from '@/stores/catalog';
 import type { ByokProvider } from '@/lib/tauri';
@@ -185,15 +186,13 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
               {def.availableModels ? 'Model' : 'Default model (optional)'}
             </label>
             {def.availableModels ? (
-              <select
+              <SelectMenu
                 value={defaultModel}
-                onChange={(e) => setDefModel(e.target.value)}
-                className={cn(inputCls, 'cursor-pointer appearance-none')}
-              >
-                {def.availableModels.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
+                onChange={setDefModel}
+                ariaLabel="Model"
+                className="w-full"
+                options={def.availableModels.map((m) => ({ value: m, label: m }))}
+              />
             ) : (
               <input
                 type="text"
