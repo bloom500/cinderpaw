@@ -23,6 +23,27 @@ import { defaultJournalDir, journalFilename, verifyJournal } from "./rsi/infra/j
 import { liveModuleRegistry } from "./rsi/l4-modules/seam-runtime.ts";
 import { bannerTitle, getCurrentTask, getLastActive } from "./memory/resume.ts";
 import { getActiveWorkspaceId, getWorkspace } from "./memory/workspaces.ts";
+import type { Artifact } from "./artifacts/store.ts";
+import { activeWorkspaceId } from "./tools/builtin/artifact.ts";
+
+/**
+ * One artifact as the panel needs it: everything except the content.
+ *
+ * The content is fetched per row, on open. Sending every document in the list
+ * reply would put the whole workspace through the stdout pipe every time the
+ * panel refreshes, to render a list of titles.
+ */
+function toPanelRow(a: Artifact) {
+  return {
+    id: a.id,
+    kind: a.kind,
+    title: a.title,
+    version: a.version,
+    bytes: a.bytes,
+    updatedAt: a.updatedAt,
+    modifiedBy: a.modifiedBy,
+  };
+}
 import { governanceCheck } from "./rsi/l5-gov/governance.ts";
 import { readChampion, defaultChampionPath } from "./rsi/l1-config/champion.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
@@ -99,7 +120,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts,
     runHooks,
     brainDerived, brainBreaker,
   } = ctx;
@@ -581,6 +602,56 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // looks up `current_task` + `active_workspace_id` + `last_active_at` in
       // `meta` and joins the workspace name from `workspaces`. On first launch
       // every field is null and the host renders "fresh start" copy.
+      // The workspace panel's only read path. Two shapes behind one message,
+      // because a second inbound type would have to be mirrored in three
+      // allow-lists to buy nothing: the panel lists, then opens one row.
+      case "artifact_query": {
+        const replyId = msg.id ?? "";
+        try {
+          if (msg.artifactAction === "get") {
+            const wanted = msg.artifactId ?? "";
+            const row = artifacts.get(wanted);
+            const content = row ? artifacts.read(wanted) : null;
+            if (!row || content === null) {
+              transport.send({
+                type: "artifact_result",
+                id: replyId,
+                ok: false,
+                error: `No artifact with id ${wanted}.`,
+              });
+              break;
+            }
+            transport.send({
+              type: "artifact_result",
+              id: replyId,
+              ok: true,
+              content,
+              items: [toPanelRow(row)],
+            });
+            break;
+          }
+          transport.send({
+            type: "artifact_result",
+            id: replyId,
+            ok: true,
+            items: artifacts
+              .list({ workspaceId: activeWorkspaceId(db.raw) })
+              .map(toPanelRow),
+          });
+        } catch (e) {
+          // The panel is waiting on this id. An unanswered request leaves it
+          // spinning forever, which reads to the user as a hung app rather
+          // than as one file that could not be read.
+          transport.send({
+            type: "artifact_result",
+            id: replyId,
+            ok: false,
+            error: String(e),
+          });
+        }
+        break;
+      }
+
       case "resume_get": {
         const task = getCurrentTask(db.raw);
         const workspaceId = getActiveWorkspaceId(db.raw);

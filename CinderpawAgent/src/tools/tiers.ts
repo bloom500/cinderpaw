@@ -53,12 +53,17 @@
 
 /** Loaded only via the on-demand drawer (`list_tools` → `load_tool`). */
 export const EXTENDED_TOOLS = new Set<string>([
-  // `tool_forge`, both PDF tools and the three write/history git tools were
-  // advertised on every completion. Together they are ~1,600 tokens per call
-  // for capabilities a task asks for by name when it wants them.
+  // `tool_forge` and the three write/history git tools were advertised on every
+  // completion. Together they are ~1,600 tokens per call for capabilities a
+  // task asks for by name when it wants them.
+  //
+  // `pdf_generator` and `pdf_report` used to be listed here, and the comment
+  // above used to reason about "both PDF tools" costing schema tokens. Neither
+  // tool has ever existed in this repo — grep finds the names only in this
+  // file. They were removed on 2026-09-17, because a set that is supposed to be
+  // the single source of truth about the tool surface is worse than useless
+  // when it names tools that are not there: the next reader budgets for them.
   "tool_forge",
-  "pdf_generator",
-  "pdf_report",
   "git_branch",
   "git_commit",
   "git_log",
@@ -67,6 +72,16 @@ export const EXTENDED_TOOLS = new Set<string>([
   "time_date",
   "http_request",
   "tool_health",
+  // Four of the six artifact tools. `artifact_list` and `artifact_read` stay
+  // core, by the rule this file is built on: a task cannot move forward without
+  // knowing what already exists, and making the model spend a drawer round trip
+  // to find that out is how it ends up writing a second copy of a document the
+  // user already has. Creating, editing, exporting and deleting are all things
+  // a task asks for by name once it knows the id.
+  "artifact_create",
+  "artifact_edit",
+  "artifact_export",
+  "artifact_delete",
   // Added 2026-08-26 and immediately drawered, by its own evidence: the boot
   // line went from 41 of 85 tools to 42 of 86 and the per-completion floor
   // from 12,793 to 13,053 — a tool for reading the token bill was costing

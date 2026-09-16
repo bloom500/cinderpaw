@@ -105,8 +105,24 @@ test("the drawer is sorted by what a task needs to move forward, not by what is 
   // 583 tokens on every call, reached for about once a month. The single
   // clearest example of the rule.
   expect(isExtendedTool("tool_forge")).toBe(true);
-  for (const rare of ["pdf_generator", "pdf_report", "git_branch", "git_commit", "git_log"]) {
+  for (const rare of ["git_branch", "git_commit", "git_log"]) {
     expect(isExtendedTool(rare)).toBe(true);
+  }
+
+  // This list used to include "pdf_generator" and "pdf_report", and so did the
+  // drawer itself. Neither tool has ever existed in this repo — the test was
+  // asserting a fact about two names, not about two capabilities, and it passed
+  // for exactly that reason. Both were removed on 2026-09-17.
+
+  // The artifact tools split the same way, for the same reason. Knowing what
+  // already exists is what stops the model writing a second copy of a document
+  // the user already has, so those two are free; the four that change something
+  // are asked for by name once the id is known.
+  for (const known of ["artifact_list", "artifact_read"]) {
+    expect(isCoreTool(known)).toBe(true);
+  }
+  for (const acts of ["artifact_create", "artifact_edit", "artifact_export", "artifact_delete"]) {
+    expect(isExtendedTool(acts)).toBe(true);
   }
 
   // Read-only git stays advertised on purpose: cheap, constant in code work,

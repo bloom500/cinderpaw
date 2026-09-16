@@ -73,6 +73,16 @@ import { Subagent } from "./core/subagent.ts";
 import { createShellExecTool } from "./tools/builtin/shell-exec.ts";
 import { createToolForgeTool, registerPersistedCustomTools } from "./tools/builtin/tool-forge.ts";
 import { createTodoWriteTool, TodoStore } from "./tools/builtin/todo-write.ts";
+import { ArtifactStore, type ArtifactChangeEvent } from "./artifacts/store.ts";
+import {
+  artifactStoreGuard,
+  createArtifactCreateTool,
+  createArtifactDeleteTool,
+  createArtifactEditTool,
+  createArtifactExportTool,
+  createArtifactListTool,
+  createArtifactReadTool,
+} from "./tools/builtin/artifact.ts";
 import { CheckpointStore } from "./memory/checkpoint.ts";
 import { createGitStatusTool, createGitDiffTool, createGitLogTool, createGitCommitTool, createGitBranchTool } from "./tools/builtin/git.ts";
 import { createHttpRequestTool } from "./tools/builtin/http-request.ts";
@@ -885,6 +895,29 @@ export async function boot(transportOverride?: Transport) {
   // WorkingMemory (see agent.setTodoStore below).
   const todoStore = new TodoStore(db.raw);
   registry.register(createTodoWriteTool(todoStore));
+
+  // The artifact store: work that outlives the conversation. The transport does
+  // not exist yet at this point in boot — it is built further down — so the
+  // change event goes through a holder that is filled in once it does, the same
+  // shape the ask_user bridge uses for the same reason. Until then a change is
+  // simply not announced; nothing is listening yet either way.
+  let announceArtifact: (event: ArtifactChangeEvent) => void = () => {};
+  const artifactRoot = join(cinderpawHome(), "artifacts");
+  const artifactStore = new ArtifactStore(db.raw, artifactRoot, {
+    guard: artifactStoreGuard(artifactRoot),
+    onChange: (event) => announceArtifact(event),
+  });
+  const artifactDeps = {
+    db: db.raw,
+    store: artifactStore,
+    workspaceRoots: config.workspaceRoots,
+  };
+  registry.register(createArtifactCreateTool(artifactDeps));
+  registry.register(createArtifactListTool(artifactDeps));
+  registry.register(createArtifactReadTool(artifactDeps));
+  registry.register(createArtifactEditTool(artifactDeps));
+  registry.register(createArtifactExportTool(artifactDeps));
+  registry.register(createArtifactDeleteTool(artifactDeps));
   registry.register(createCodeQualityTool("run_tests", config.workspaceRoots));
   registry.register(createCodeQualityTool("format_code", config.workspaceRoots));
   registry.register(createCodeQualityTool("lint_code", config.workspaceRoots));
@@ -1659,6 +1692,20 @@ export async function boot(transportOverride?: Transport) {
   // Accept an override (e.g. TuiTransport for the terminal chat) or build
   // the default TauriTransport (newline-delimited JSON over stdin/stdout).
   const transport = transportOverride ?? buildTransport(config.transport);
+  // Same wiring, same reason as the ask_user bridge below: the artifact store
+  // is built with the tools, long before there is anywhere to send an event.
+  // From here on every create/edit/delete reaches the UI.
+  announceArtifact = (event) => {
+    transport.send({
+      type: "artifact",
+      id: event.id,
+      kind: event.kind,
+      title: event.title,
+      version: event.version,
+      sessionId: event.sessionId,
+      action: event.action,
+    });
+  };
   // Now that the transport exists, wire the ask_user bridge's emit target.
   // Every `ask_user` event from now on flows through the transport to the
   // React UI, and `ask_user_response` messages from the UI are routed back
@@ -2485,6 +2532,13 @@ export async function boot(transportOverride?: Transport) {
     // a whole model turn to retype it, and lets it be paraphrased on the way.
     coworkMailbox,
     coworkAgents,
+    // The workspace panel reads through dispatch, not through the filesystem:
+    // the artifact root lives under ~/.cinderpaw, which `deny_cinderpaw_private`
+    // keeps the webview out of on purpose (the api token and the BYOK metadata
+    // are in there). Asking the process that owns the store means the security
+    // wall stays whole instead of gaining a carve-out, which is how a wall
+    // stops being one.
+    artifacts: artifactStore,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path

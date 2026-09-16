@@ -1222,6 +1222,11 @@ export interface InboundMessage {
     // top-level cluster; the sidecar replies with a `fractal_cluster_leaves_result`
     // paired by `id`. Reuses the plain `id` field as the request correlator.
     | "fractal_cluster_leaves"
+    // The workspace panel asking what exists, or for one artifact's content.
+    // Replies with one `artifact_result` paired by `id`. The panel cannot read
+    // the files itself: they live under ~/.cinderpaw, which the webview is
+    // denied on purpose, so the process that owns the store answers instead.
+    | "artifact_query"
     // RSI engine driver (Faza 1 production wiring) — the Rust host
     // commands the sidecar engine via these messages; the sidecar
     // emits `rsi_engine_event` outbound events to ack + mirror state.
@@ -1344,6 +1349,11 @@ export interface InboundMessage {
    *  rides the plain `id` field. `answer` is required for "answer". */
   questionAction?: "answer" | "refuse" | "dismiss";
   answer?: string;
+  /** Workspace-panel payload (type === "artifact_query"). "list" answers with
+   *  the rows; "get" adds the content of `artifactId`. The correlator rides the
+   *  plain `id` field, like every other paired request here. */
+  artifactAction?: "list" | "get";
+  artifactId?: string;
   /** Cowork direct-message payload (type === "cowork_user_message"). */
   toAgentId?: string;
   body?: string;
@@ -1682,6 +1692,40 @@ export type OutboundEvent =
       promptTokens?: number;
       tokensGenerated?: number;
       tokensPerSec?: number;
+    }
+  /**
+   * An artifact was created, changed or removed.
+   *
+   * Deliberately carries metadata only, never the content: the desktop panel
+   * fetches what it renders, and a surface that cannot render anything turns
+   * this into one sentence. Putting the document in the event would put a
+   * 40-page report through every transport that can only send text.
+   */
+  | {
+      type: "artifact";
+      id: string;
+      kind: string;
+      title: string;
+      version: number;
+      sessionId: string;
+      action: "created" | "updated" | "deleted";
+    }
+  /** The answer to one `artifact_query`, paired by `id`. */
+  | {
+      type: "artifact_result";
+      id: string;
+      ok: boolean;
+      items?: Array<{
+        id: string;
+        kind: string;
+        title: string;
+        version: number;
+        bytes: number;
+        updatedAt: number;
+        modifiedBy: string;
+      }>;
+      content?: string;
+      error?: string;
     }
   | { type: "cron_fired"; jobId: string; jobName: string; sessionId: string; content: string; traceId?: string }
   // X3: surfaced when a scheduled job throws or times out — previously cron

@@ -223,6 +223,15 @@ configured workspace roots, and `edit_file` / `write_file` both refuse to
 overwrite a file the agent has not read first — an unread overwrite destroys
 whatever it did not know was there.
 
+## Artifacts
+
+A reply scrolls away; an artifact does not. `artifact_create` stores a document,
+chart, table, code or data file under a stable id; `artifact_list` and
+`artifact_read` find it again from any surface, so one made on WhatsApp is the
+one the desktop opens; `artifact_edit` changes one span and leaves the rest,
+each edit a new version that can be rolled back; `artifact_export` writes a real
+file; `artifact_delete` hides one without destroying it.
+
 ## Teammates (Agent Cowork)
 
 Persistent named teammate agents, stored in the same local database.

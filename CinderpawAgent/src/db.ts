@@ -304,8 +304,9 @@ function addColumnIfMissing(
  *
  *   v0 → 1: meta table created (current_task + embedding_model + schema_version)
  *   v1 → 2: workspaces table + workspace_id column on episodic / semantic
+ *   v2 → 3: artifact + artifact_version tables (the workspace store)
  */
-export const CURRENT_MEMORY_SCHEMA_VERSION = 2;
+export const CURRENT_MEMORY_SCHEMA_VERSION = 3;
 
 /** The migration, for tests that build a raw `bun:sqlite` database. */
 export function migrateForTests(db: Database): void {
@@ -953,6 +954,50 @@ function migrate(db: Database): void {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_cowork_approvals_pending
       ON cowork_approvals (status, created_at DESC);
+  `);
+
+  // The artifact store: work that is not a sentence. One row per artifact,
+  // bytes on disk at `path` — deliberately NOT a BLOB, because this database is
+  // shared with the fractal memory substrate and a 40-page document in a column
+  // makes every memory query pay for it. See `artifacts/store.ts`.
+  //
+  // `deleted_at` is a soft delete: nothing the agent made vanishes on the
+  // agent's own say-so. Every read filters on `deleted_at IS NULL`.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS artifact (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      path TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      bytes INTEGER NOT NULL,
+      version INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      created_by TEXT NOT NULL,
+      modified_by TEXT NOT NULL,
+      origin TEXT,
+      deleted_at INTEGER
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_artifact_recent
+      ON artifact (workspace_id, updated_at DESC);
+  `);
+  // One row per version, each pointing at a complete file. History, diff
+  // preview, rollback and comparison all fall out of keeping whole files; a
+  // diff chain would save disk and buy a replay path that can corrupt.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS artifact_version (
+      artifact_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      path TEXT NOT NULL,
+      author TEXT NOT NULL,
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (artifact_id, version)
+    );
   `);
 
   // Stamp the schema version after every successful migration. Done last so

@@ -59,6 +59,8 @@ const NOT_IN_PRODUCT_DOC: Record<string, string> = {
   capture_lead: "public-persona connector feature, covered by the WhatsApp section",
   schedule_meeting: "public-persona connector feature",
   recall: "the read half of memory; the memory section covers the capability",
+  artifact_store: "not a tool — the artifact store's own internal file-access manifest, "
+    + "which exists so read-only mode reaches the store's writes; see artifacts/store.ts",
 };
 
 /** Every builtin tool's registered name, read from the source of truth. */
