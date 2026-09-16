@@ -4,9 +4,17 @@ import { useAppVersion } from '@/hooks/useAppVersion';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { BugReportForm } from './BugReportForm';
+import { ActivityGrid } from '@/components/ui/ActivityGrid';
+import { useConversations } from '@/stores/conversations';
 
 export function AboutTab() {
   const version  = useAppVersion();
+  // Already in memory: the sidebar loads this list on mount, so the grid costs
+  // no request. `loaded` matters here for the same reason it does there —
+  // an empty list is "nothing yet" AND "not read yet", and only one of those
+  // is worth telling somebody about.
+  const conversations = useConversations((s) => s.list);
+  const conversationsLoaded = useConversations((s) => s.loaded);
   const status   = useUpdater((s) => s.status);
   const progress = useUpdater((s) => s.progress);
   const error    = useUpdater((s) => s.error);
@@ -32,6 +40,15 @@ export function AboutTab() {
           licence with any copy you pass on.
         </p>
       </div>
+
+      {/* What you have actually done with it, before anything about versions.
+          A year of days, drawn from the conversations already on disk. */}
+      {conversationsLoaded && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-text-primary">Your year with Cinderpaw</p>
+          <ActivityGrid timestamps={conversations.map((c) => c.updated_at)} />
+        </div>
+      )}
 
       {/* Update section — the install flow itself is handled by the global UpdateToast */}
       <div className="flex items-center gap-3">

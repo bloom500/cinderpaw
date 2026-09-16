@@ -17,6 +17,7 @@ import { ConversationActions, ProjectActions } from '@/components/items/ItemActi
 import { useProjects } from '@/stores/projects';
 import { cn } from '@/lib/utils';
 import { Kbd, MOD } from '@/components/ui/kbd';
+import { useMagnetic } from '@/hooks/useMagnetic';
 import { APP_NAME } from '@/lib/brand';
 
 /**
@@ -67,9 +68,22 @@ function Row({
   /** Shown at the end of the row while expanded, e.g. its keyboard shortcut. */
   hint?: React.ReactNode;
 }) {
+  // Only while the rail is collapsed, and that is the whole justification.
+  // Collapsed it IS a dock: icons in a column with nothing else to aim at, and
+  // the lean tells you which one the pointer has before you get there.
+  // Expanded these are labelled rows in a list, and a list whose rows move
+  // under the cursor is a list that is harder to click.
+  const magnet = useMagnetic<HTMLSpanElement>({ enabled: collapsed, radius: 72, pull: 5 });
+
   const inner = (
     <>
-      <Icon size={16} className="shrink-0" />
+      <motion.span
+        ref={magnet.ref}
+        style={{ x: magnet.x, y: magnet.y }}
+        className="flex shrink-0 items-center justify-center"
+      >
+        <Icon size={16} className="shrink-0" />
+      </motion.span>
       <AnimatePresence initial={false}>
         {!collapsed && (
           <motion.span
