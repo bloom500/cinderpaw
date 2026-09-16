@@ -310,6 +310,10 @@ export function useLiveKitCallSession() {
         args.model,
         args.pipeline,
         args.language,
+        // The conversation on screen. What `ask_cinder` does during this call
+        // runs in it, so the work is in the place the person will look for it
+        // afterwards rather than in a session with a process id for a name.
+        useChat.getState().sessionId,
       );
       if (mine !== generation.current) {
         // Hung up while starting. Rust has already minted a room and

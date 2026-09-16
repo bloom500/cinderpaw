@@ -811,6 +811,19 @@ const CHAT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12
 /// due, on every slow tool, for as long as both numbers existed apart.
 pub(crate) const VOICE_TOOL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(45);
 
+/// How long a finished answer is kept so a second ask gets it instead of
+/// redoing the work.
+///
+/// It was thirty seconds, against a deadline of forty-five: past the deadline
+/// the model is TOLD to ask again in a moment, and "a moment" in a conversation
+/// is however long the person keeps talking. A request that finished at sixty
+/// seconds and was asked for again at ninety found nothing and ran a second
+/// time — a second search, a second file written, a second message sent, with
+/// only the first one's sentence ever said out loud. Three minutes is longer
+/// than any call spends on one question, and holding a string that long costs
+/// nothing.
+const VOICE_TOOL_ANSWER_KEPT: std::time::Duration = std::time::Duration::from_secs(180);
+
 /// Work that outlived its deadline, keyed by the request that started it.
 ///
 /// Two jobs, both only visible on a call that lasts. The model is free again
@@ -1101,6 +1114,21 @@ fn voice_session_id(call: &crate::live::FunctionCall) -> String {
     }
 }
 
+/// The conversation the agent should actually work in.
+///
+/// The window's, when the host has said which one. The voice worker knows only
+/// its own `voice-<pid>`, and running there meant every search, file and
+/// setting a call touched landed in a conversation nobody was looking at — so
+/// the screen kept showing the state from before the call, and the only
+/// evidence the work happened was the model saying it had.
+///
+/// Kept separate from `voice_session_id` on purpose: that one is the identity
+/// of the CALL and still keys the dedupe, so two callers asking the same thing
+/// do not share an answer just because they share a conversation.
+fn agent_session_id(call: &crate::live::FunctionCall) -> String {
+    crate::live::bridge::chat_session().unwrap_or_else(|| voice_session_id(call))
+}
+
 /// The key that decides "this is the same work, wait for it" rather than
 /// starting it twice.
 ///
@@ -1128,6 +1156,7 @@ async fn runtime_voice_tool(
         call.args.get("request").and_then(|v| v.as_str()).unwrap_or_default().trim().to_lowercase();
     let session = voice_session_id(&call);
     let dedupe_key = voice_dedupe_key(&session, &call.name, &request);
+    let agent_session = agent_session_id(&call);
     let started = std::time::Instant::now();
     // Logged on the way in as well as out. A tool call used to leave no trace
     // at all, so "did it even try to search?" had no answer anywhere — and that
@@ -1155,14 +1184,14 @@ async fn runtime_voice_tool(
             let runtime = state.runtime.clone();
             let call = call.clone();
             let key = dedupe_key.clone();
-            let session = session.clone();
+            let session = agent_session.clone();
             tokio::spawn(async move {
                 let answered =
                     crate::live::bridge::answer(&call, Some(&runtime), &session).await;
                 let _ = tx.send(Some(answered.response.to_string()));
-                // Kept briefly after finishing so a model that asks again right
-                // away gets the answer instead of restarting the work.
-                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                // Kept after finishing so a model that asks again gets the
+                // answer instead of restarting work that may have side effects.
+                tokio::time::sleep(VOICE_TOOL_ANSWER_KEPT).await;
                 voice_in_flight().lock().remove(&key);
             });
         }

@@ -257,8 +257,15 @@ pub(crate) async fn start_livekit_call(
     stt_model: Option<String>,
     stt_provider: Option<String>,
     stt_language: Option<String>,
+    // The conversation open in the window. Everything `ask_cinder` does on this
+    // call runs there, so a search, a file or a setting the agent touches lands
+    // where the person is looking instead of in a `voice-<pid>` session they
+    // cannot open. `None` from a client that does not send one leaves the call
+    // in its own session, which is what a headless host wants.
+    session_id: Option<String>,
 ) -> Result<LiveKitCall, String> {
     GENERATION.fetch_add(1, Ordering::SeqCst);
+    cinderpaw_core::live::bridge::set_chat_session(session_id);
 
     let wanted = cinderpaw_core::livekit::session_spec(
         provider.as_deref(),
@@ -510,6 +517,9 @@ pub(crate) async fn end_livekit_call(
     _state: State<'_, AppState>,
 ) -> Result<(), String> {
     let armed_at = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    // Cleared here, not left pointing at whatever was on screen last time: a
+    // tool call arriving after the call ends belongs to nobody.
+    cinderpaw_core::live::bridge::set_chat_session(None);
 
     // The webview has already left the room by the time this runs, so the call
     // is over from the person's side no matter what happens below. What is

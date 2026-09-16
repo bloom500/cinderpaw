@@ -1062,7 +1062,7 @@ const raw = {
   // Rejects with `livekit-no-node` when no Node runtime is installed — a code
   // rather than a sentence, because the answer needs a link the UI can put in
   // the user's language.
-  startLivekitCall:     (provider?: string | null, voice?: string | null, model?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }, language?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo'; warm: boolean }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, model: model ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: language ?? pipeline?.sttLanguage ?? null }),
+  startLivekitCall:     (provider?: string | null, voice?: string | null, model?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }, language?: string | null, sessionId?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo'; warm: boolean }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, model: model ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: language ?? pipeline?.sttLanguage ?? null, sessionId: sessionId ?? null }),
   endLivekitCall:       () => invoke<void>('end_livekit_call'),
   /** Same arguments as `startLivekitCall`, and that is load-bearing: a chain
    *  is warmed FOR one vendor, voice and pair of engines, and Rust throws

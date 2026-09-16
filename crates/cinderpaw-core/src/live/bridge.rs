@@ -21,6 +21,40 @@ use crate::tools::{execute, ToolType};
 /// The one thing the model can ask for.
 pub const ASK_CINDER: &str = "ask_cinder";
 
+/// The conversation on screen, so that what the voice call DOES lands there.
+///
+/// `ask_cinder` used to run in a session of its own, `voice-<pid>`. Everything
+/// the agent did on a call — the search, the file, the setting it changed —
+/// happened in a conversation nobody was looking at and nobody could open
+/// afterwards, so the only evidence the work was real was the sentence the
+/// model said out loud about it. Asked to stop something, it stopped it, and
+/// the window went on showing the old state.
+///
+/// Set by the host when a call starts and cleared when it ends, rather than
+/// baked into the worker's environment at boot: the warm worker is booted
+/// before the person has necessarily settled on a conversation, and a value
+/// that can change without a reboot must not be part of what a reboot decides.
+///
+/// `None` means nobody told us, which is a real state on a headless host — the
+/// caller's own `voice-<pid>` is then still the honest answer.
+static CHAT_SESSION: std::sync::OnceLock<parking_lot::RwLock<Option<String>>> =
+    std::sync::OnceLock::new();
+
+fn chat_session_cell() -> &'static parking_lot::RwLock<Option<String>> {
+    CHAT_SESSION.get_or_init(|| parking_lot::RwLock::new(None))
+}
+
+/// Point voice tool calls at this conversation. `None` sends them back to their
+/// own session.
+pub fn set_chat_session(id: Option<String>) {
+    *chat_session_cell().write() = id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+}
+
+/// The conversation a voice tool call should run in.
+pub fn chat_session() -> Option<String> {
+    chat_session_cell().read().clone()
+}
+
 /// Everything the model is told it can do — which is one thing, on purpose.
 ///
 /// It used to be the five tools Rust owns, and that was wrong twice over. They
@@ -171,6 +205,23 @@ pub async fn answer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One test, not three: this is process-wide state and `cargo test` runs
+    /// threads in parallel, so three tests setting and clearing one cell race
+    /// each other and the failure reads as a broken feature.
+    #[test]
+    fn the_call_can_be_pointed_at_the_conversation_on_screen() {
+        set_chat_session(None);
+        assert_eq!(chat_session(), None, "nobody told us, and that is a real state");
+        set_chat_session(Some("  chat-7  ".into()));
+        assert_eq!(chat_session().as_deref(), Some("chat-7"), "the id was not trimmed");
+        // A window that hands over a blank id is telling us nothing, not
+        // telling us the session is called "". Treated as nothing, the voice
+        // call keeps its own session; treated as an id, every call would file
+        // its work under a conversation that cannot be opened.
+        set_chat_session(Some("   ".into()));
+        assert_eq!(chat_session(), None);
+    }
 
     #[test]
     fn every_declared_name_is_answerable() {
