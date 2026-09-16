@@ -120,7 +120,7 @@ const VOICE_SURFACE_BRIEF = [
 
 export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Promise<void> {
   const {
-    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts,
+    db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter,
     runHooks,
     brainDerived, brainBreaker,
   } = ctx;
@@ -602,52 +602,80 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       // looks up `current_task` + `active_workspace_id` + `last_active_at` in
       // `meta` and joins the workspace name from `workspaces`. On first launch
       // every field is null and the host renders "fresh start" copy.
-      // The workspace panel's only read path. Two shapes behind one message,
-      // because a second inbound type would have to be mirrored in three
-      // allow-lists to buy nothing: the panel lists, then opens one row.
-      case "artifact_query": {
+      // Everything the workspace panel does, behind one message.
+      //
+      // Five inbound types would each have cost a Tauri command, a specta
+      // binding and a line in three allow-lists, to say the same word five
+      // ways. The actions are validated here, where the store already is.
+      //
+      // Export and delete deliberately go through the SAME code the agent's
+      // tools use: `ArtifactExporter` owns the permission manifest, so a click
+      // in the UI is refused in read-only mode and cannot escape the workspace
+      // roots for exactly the same reason a tool call cannot.
+      case "artifact_op": {
         const replyId = msg.id ?? "";
+        const fail = (error: string) =>
+          transport.send({ type: "artifact_result", id: replyId, ok: false, error });
         try {
-          if (msg.artifactAction === "get") {
-            const wanted = msg.artifactId ?? "";
-            const row = artifacts.get(wanted);
-            const content = row ? artifacts.read(wanted) : null;
-            if (!row || content === null) {
-              transport.send({
-                type: "artifact_result",
-                id: replyId,
-                ok: false,
-                error: `No artifact with id ${wanted}.`,
-              });
-              break;
-            }
+          const action = msg.artifactAction ?? "list";
+          if (action === "list") {
             transport.send({
               type: "artifact_result",
               id: replyId,
               ok: true,
-              content,
-              items: [toPanelRow(row)],
+              items: artifacts
+                .list({ workspaceId: activeWorkspaceId(db.raw) })
+                .map(toPanelRow),
             });
             break;
           }
-          transport.send({
-            type: "artifact_result",
-            id: replyId,
-            ok: true,
-            items: artifacts
-              .list({ workspaceId: activeWorkspaceId(db.raw) })
-              .map(toPanelRow),
-          });
+
+          const wanted = msg.artifactId ?? "";
+          const row = artifacts.get(wanted);
+          if (!row) {
+            fail(`No artifact with id ${wanted}.`);
+            break;
+          }
+
+          if (action === "get") {
+            const v = msg.artifactVersion;
+            const content =
+              typeof v === "number" ? artifacts.readVersion(wanted, v) : artifacts.read(wanted);
+            if (content === null) {
+              fail(`Artifact ${wanted} has no version ${String(v)}.`);
+              break;
+            }
+            transport.send({
+              type: "artifact_result", id: replyId, ok: true,
+              content, items: [toPanelRow(row)],
+            });
+          } else if (action === "versions") {
+            transport.send({
+              type: "artifact_result", id: replyId, ok: true,
+              items: [toPanelRow(row)],
+              versions: artifacts.versions(wanted).map((v) => ({
+                version: v.version, author: v.author, note: v.note, createdAt: v.createdAt,
+              })),
+            });
+          } else if (action === "export") {
+            const res = await artifactExporter.run(row, msg.dest);
+            transport.send({
+              type: "artifact_result", id: replyId, ok: true,
+              items: [toPanelRow(row)], path: res.path, note: res.note.trim(),
+            });
+          } else if (action === "delete") {
+            // "user", not a session id: the person clicked it, and the version
+            // history should say so rather than blaming whichever chat was open.
+            artifacts.remove(wanted, "user");
+            transport.send({ type: "artifact_result", id: replyId, ok: true });
+          } else {
+            fail(`Unknown artifact action "${String(action)}".`);
+          }
         } catch (e) {
           // The panel is waiting on this id. An unanswered request leaves it
-          // spinning forever, which reads to the user as a hung app rather
-          // than as one file that could not be read.
-          transport.send({
-            type: "artifact_result",
-            id: replyId,
-            ok: false,
-            error: String(e),
-          });
+          // spinning forever, which reads as a hung app rather than as one
+          // file that could not be written.
+          fail(String(e instanceof Error ? e.message : e));
         }
         break;
       }

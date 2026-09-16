@@ -42,8 +42,8 @@ export const INBOUND_TYPES = [
   "cowork_approval_resolve", "cowork_user_message",
   "admin_response", "capability_response", "provider_conformance",
   "cowork_history",
-  // The workspace panel's read path — see `artifact_query` in types.ts.
-  "artifact_query",
+  // Everything the workspace panel does — see `artifact_op` in types.ts.
+  "artifact_op",
 ] as const;
 
 export const OUTBOUND_TYPES = [

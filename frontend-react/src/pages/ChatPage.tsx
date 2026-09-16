@@ -11,6 +11,8 @@ import { HomeGreeting } from '@/components/shell/HomeGreeting';
 import { HomeIntents } from '@/components/shell/HomeIntents';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
+import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
+import { useArtifacts } from '@/stores/artifacts';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
@@ -45,6 +47,8 @@ export function ChatPage() {
   const containerRef    = useRef<HTMLDivElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
   const chatInputRef    = useRef<ChatInputHandle>(null);
+  const panelOpen       = useArtifacts((s) => s.panelOpen);
+  const togglePanel     = useArtifacts((s) => s.togglePanel);
   const [translateY, setTranslateY] = useState(0);
   // #17: agent-creation onboarding — shown in agent mode when no agent
   // exists, but never while the first-run wizard is still on screen.
@@ -217,7 +221,11 @@ export function ChatPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    // A row, so the workspace can sit BESIDE the conversation rather than over
+    // it. `min-w-0` on the column is what stops a long code line in a message
+    // from pushing the panel off the edge instead of wrapping.
+    <div className="flex h-full">
+    <div className="flex flex-col h-full min-w-0 flex-1">
       {isAgentMode && showAgentOnboarding && !wizardActive && (
         <AgentsOnboarding
           onDone={() => setShowAgentOnboarding(false)}
@@ -291,6 +299,19 @@ export function ChatPage() {
           {isEmpty && !showAgentOnboarding && <HomeIntents onPick={handleSuggestion} />}
         </div>
       </div>
+    </div>
+      {panelOpen && (
+        <ArtifactsPanel
+          onClose={togglePanel}
+          // Not "send this to the agent": it fills the composer and leaves the
+          // person holding the sentence, so they can say what they actually
+          // want before spending a turn.
+          onAsk={(row) => {
+            chatInputRef.current?.setText(`About the artifact "${row.title}" (${row.id}): `);
+            chatInputRef.current?.focus();
+          }}
+        />
+      )}
     </div>
   );
 }

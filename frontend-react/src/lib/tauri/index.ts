@@ -722,6 +722,30 @@ export type CinderpawAgentEvent =
   | { type: 'spawning'; id: string; count: number }
   // Real token usage per completion — drives the live context ring in agent mode.
   | { type: 'usage'; id: string; sessionId: string; promptTokens: number; completionTokens: number }
+  // The artifact store. `artifact` is unprompted — it fires whenever anything
+  // creates, changes or removes one, from ANY surface, so a report written from
+  // a voice call or from Telegram appears in the panel without it asking.
+  // `artifact_result` is the answer to one `cinderpawArtifactOp`, paired by id.
+  | {
+      type: 'artifact';
+      id: string;
+      kind: string;
+      title: string;
+      version: number;
+      sessionId: string;
+      action: 'created' | 'updated' | 'deleted';
+    }
+  | {
+      type: 'artifact_result';
+      id: string;
+      ok: boolean;
+      items?: import('@/stores/artifacts').ArtifactRow[];
+      content?: string;
+      versions?: import('@/stores/artifacts').ArtifactVersionRow[];
+      path?: string;
+      note?: string;
+      error?: string;
+    }
   // X3: scheduled-job results and failures, surfaced as toasts.
   | { type: 'cron_fired'; jobId: string; jobName: string; sessionId: string; content: string }
   | { type: 'cron_error'; jobId: string; jobName: string; message: string }
@@ -969,6 +993,21 @@ const raw = {
    *  without asking the main agent to retype what the person already wrote. */
   /** Agent Cowork S6 — replay one chat's teammate traffic. The answer
    *  arrives as a `cowork_history_result` event, paired by thread id. */
+  /** The workspace panel's one door to the artifact store. The answer arrives
+   *  as an `artifact_result` event, paired by the `id` passed in. One command
+   *  for five actions: see the Rust side for why. */
+  cinderpawArtifactOp: (
+    id: string,
+    action: 'list' | 'get' | 'versions' | 'export' | 'delete',
+    opts: { artifactId?: string; version?: number; dest?: string } = {},
+  ) =>
+    invoke<void>('cinderpaw_artifact_op', {
+      id,
+      action,
+      artifactId: opts.artifactId ?? null,
+      version: opts.version ?? null,
+      dest: opts.dest ?? null,
+    }),
   cinderpawCoworkHistory: (threadId?: string | null) =>
     invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
   cinderpawCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
@@ -1315,6 +1354,15 @@ export const tauri = {
     addFacts: (facts: MemoryFactInput[]): Promise<number> => raw.addMemoryFacts(facts),
     /** Sprint 1.6 — Memory Resume. First-launch safe (every field null). */
     getLastTask: (): Promise<LastTaskView> => raw.getLastTask(),
+  },
+  /** The workspace panel. Every call is fire-and-forget: the answer comes back
+   *  as an `artifact_result` event carrying the same `id`. */
+  artifacts: {
+    op: (
+      id: string,
+      action: 'list' | 'get' | 'versions' | 'export' | 'delete',
+      opts: { artifactId?: string; version?: number; dest?: string } = {},
+    ): Promise<void> => raw.cinderpawArtifactOp(id, action, opts),
   },
 };
 

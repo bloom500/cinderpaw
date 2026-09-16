@@ -26,7 +26,6 @@
  * only reach the workspace roots the user already granted.
  */
 
-import { basename, join, resolve } from "node:path";
 import type { Database } from "bun:sqlite";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
@@ -36,7 +35,8 @@ import {
   type Artifact,
   type ArtifactKind,
 } from "../../artifacts/store.ts";
-import { APP_AUTHORING_BRIEF, inlineApp } from "../../artifacts/app.ts";
+import { APP_AUTHORING_BRIEF } from "../../artifacts/app.ts";
+import { ArtifactExporter } from "../../artifacts/export.ts";
 import {
   ensureWorkspace,
   getActiveWorkspaceId,
@@ -365,16 +365,15 @@ export function createArtifactExportTool(deps: ArtifactToolDeps): Tool {
     name: "artifact_export",
     description:
       "Write a copy of an artifact to a real file the user can open or attach. " +
-      "Without `dest` it lands in the workspace root under its own name.",
-    permissions: ["fs:write", "fs:read"],
+      "Without `dest` it lands in the workspace root under its own name. An " +
+      "`app` gets its chart library inlined, so the file works offline.",
+    // The real file access happens inside ArtifactExporter, which owns the
+    // manifest that guards it. Declaring the permissions twice would let the
+    // two drift, and the one that matters is the one at the write.
+    permissions: [],
     networkAccess: false,
-    // The artifact root is readable but never writable from here; the copy may
-    // only land in a root the user already granted the agent.
-    allowedPaths: [
-      { path: deps.store.root, mode: "read" },
-      ...deps.workspaceRoots,
-    ],
   };
+  const exporter = new ArtifactExporter(deps.store, deps.workspaceRoots);
 
   return {
     manifest,
@@ -391,54 +390,15 @@ export function createArtifactExportTool(deps: ArtifactToolDeps): Tool {
       if (!id) return { ok: false, error: "bad_args", content: "artifact_export: 'id' is required." };
       const a = deps.store.get(id);
       if (!a) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
-      const content = deps.store.read(id);
-      if (content === null) {
-        return { ok: false, error: "not_found", content: `Artifact ${id} has no readable content.` };
-      }
-
-      const root = deps.workspaceRoots[0];
-      if (!root) {
-        return {
-          ok: false,
-          error: "bad_args",
-          content:
-            "artifact_export: there is no workspace directory to write into. " +
-            "Open a folder in Cinderpaw first, or pass an absolute 'dest'.",
-        };
-      }
-      const requested = typeof args.dest === "string" && args.dest.trim() ? args.dest.trim() : "";
-      const target = requested
-        ? resolve(root, requested)
-        : join(root, `${safeFileName(a.title)}${ArtifactStore.extensionFor(a.kind)}`);
-
-      // An app is only useful as a file if it still works once it is one. The
-      // chart library is inlined HERE rather than stored in the artifact, so
-      // the exported page opens offline in any browser with nothing installed,
-      // and every future export picks up the vendored bundle we ship today.
-      let out = content;
-      let note = "";
-      if (a.kind === "app") {
-        const app = inlineApp(content);
-        out = app.html;
-        if (app.charts) note += " Charts are inlined, so it works offline.";
-        if (app.externals.length > 0) {
-          // Said on the user's screen, not in a log. A file that quietly needs
-          // the network is a different promise from the one this feature makes,
-          // and they find out on the machine where it matters otherwise.
-          note +=
-            ` It still loads ${app.externals.length} thing(s) from the internet` +
-            ` and will not work offline: ${app.externals.slice(0, 3).join(", ")}.`;
-        }
-      }
-
-      // The same choke point every write tool uses: escapes and read-only mode
-      // are refused here, not by a check this file would have to remember.
-      const safe = resolveAllowedPath(manifest, "fs:write", target);
-      await Bun.write(safe, out);
+      const dest = typeof args.dest === "string" ? args.dest : undefined;
+      const res = await exporter.run(a, dest);
       return {
         ok: true,
-        content: `Exported "${a.title}" to ${safe}.${note}`,
-        data: { id, path: safe, bytes: Buffer.byteLength(out, "utf8"), title: a.title, kind: a.kind, version: a.version },
+        content: `Exported "${a.title}" to ${res.path}.${res.note}`,
+        data: {
+          id, path: res.path, bytes: res.bytes,
+          title: a.title, kind: a.kind, version: a.version,
+        },
       };
     },
   };
@@ -475,18 +435,8 @@ export function createArtifactDeleteTool(deps: ArtifactToolDeps): Tool {
 }
 
 /**
- * A title turned into something a filesystem accepts, on every OS.
- *
- * Windows is the strict one: `: * ? " < > |` are illegal in a name, not merely
- * awkward, and a title like "Q3: revenue vs plan" would otherwise fail the
- * write on the platform most users are on. Path separators go too — the
- * filename must never become a directory hop.
+ * Re-exported from `artifacts/export.ts`, where it lives next to the only code
+ * that uses it. Kept reachable here because the test that pins the Windows
+ * character rules imports it from this module.
  */
-export function safeFileName(title: string): string {
-  const cleaned = basename(title)
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-")
-    .replace(/\s+/g, " ")
-    .replace(/^[.\s]+|[.\s]+$/g, "")
-    .trim();
-  return cleaned.slice(0, 80) || "artifact";
-}
+export { safeFileName } from "../../artifacts/export.ts";

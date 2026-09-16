@@ -15,6 +15,7 @@ import { useAgent } from '@/stores/agent';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
+import { useArtifacts } from '@/stores/artifacts';
 import { t } from '@/lib/i18n';
 import { autoTitle } from '@/lib/autoTitle';
 import { voiceToPersisted } from '@/lib/messageMapping';
@@ -628,6 +629,12 @@ export function useCinderpawGlobal() {
           }
         } else if (parsed.type === 'model_error') {
           setModelError(parsed.message);
+        } else if (parsed.type === 'artifact') {
+          // Unprompted, from any surface: a report written during a voice call
+          // or asked for on Telegram reaches the panel without it polling.
+          useArtifacts.getState().onEvent({ id: parsed.id, action: parsed.action });
+        } else if (parsed.type === 'artifact_result') {
+          useArtifacts.getState().onResult(parsed);
         } else if (parsed.type === 'cron_fired') {
           // X3: scheduled-job results were previously dropped on the floor.
           // Capped. Both strings are model output — a cron job's answer and the

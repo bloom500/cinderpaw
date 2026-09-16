@@ -424,6 +424,48 @@ pub(crate) async fn cinderpaw_cowork_history(
     Ok(())
 }
 
+/// The workspace panel's one door to the artifact store.
+///
+/// Fire-and-forget, like every other paired request here: the answer arrives as
+/// an `artifact_result` event on the normal stream, matched by `id`.
+///
+/// ONE command for five actions on purpose. Each inbound message type costs a
+/// command, a specta binding and a line in three allow-lists, and the panel
+/// would have spent all of that five times to say the same word in five
+/// spellings. The action is validated in the sidecar, next to the store it acts
+/// on, which is also where export and delete reuse the agent's own permission
+/// manifest: a click in the UI is refused in read-only mode, and cannot write
+/// outside the workspace roots, for the same reason a tool call cannot.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_artifact_op(
+    state: State<'_, AppState>,
+    id: String,
+    action: String,
+    artifact_id: Option<String>,
+    version: Option<i64>,
+    dest: Option<String>,
+) -> Result<(), String> {
+    let msg = serde_json::json!({
+        "type": "artifact_op",
+        "id": id,
+        "artifactAction": action,
+        "artifactId": artifact_id,
+        "artifactVersion": version,
+        "dest": dest,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Agent Cowork S6 — send a message the person typed in the Agent Cowork
 /// panel straight to one teammate's inbox.
 ///

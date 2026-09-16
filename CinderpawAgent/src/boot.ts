@@ -74,6 +74,7 @@ import { createShellExecTool } from "./tools/builtin/shell-exec.ts";
 import { createToolForgeTool, registerPersistedCustomTools } from "./tools/builtin/tool-forge.ts";
 import { createTodoWriteTool, TodoStore } from "./tools/builtin/todo-write.ts";
 import { ArtifactStore, type ArtifactChangeEvent } from "./artifacts/store.ts";
+import { ArtifactExporter } from "./artifacts/export.ts";
 import {
   artifactStoreGuard,
   createArtifactCreateTool,
@@ -912,6 +913,10 @@ export async function boot(transportOverride?: Transport) {
     store: artifactStore,
     workspaceRoots: config.workspaceRoots,
   };
+  // One exporter for the agent's tool and for the panel's Export button. Two
+  // instances would be two permission manifests, and the day they disagree the
+  // UI is the one that writes where it should not.
+  const artifactExporter = new ArtifactExporter(artifactStore, config.workspaceRoots);
   registry.register(createArtifactCreateTool(artifactDeps));
   registry.register(createArtifactListTool(artifactDeps));
   registry.register(createArtifactReadTool(artifactDeps));
@@ -2539,6 +2544,7 @@ export async function boot(transportOverride?: Transport) {
     // wall stays whole instead of gaining a carve-out, which is how a wall
     // stops being one.
     artifacts: artifactStore,
+    artifactExporter,
     // Not connector-only, despite where they are built: an autonomous turn over
     // the sidecar transport is the same kind of unattended work and needs the
     // same guards. Passed through so `dispatch` stops being the one live path

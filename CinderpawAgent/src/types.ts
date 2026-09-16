@@ -1226,7 +1226,7 @@ export interface InboundMessage {
     // Replies with one `artifact_result` paired by `id`. The panel cannot read
     // the files itself: they live under ~/.cinderpaw, which the webview is
     // denied on purpose, so the process that owns the store answers instead.
-    | "artifact_query"
+    | "artifact_op"
     // RSI engine driver (Faza 1 production wiring) — the Rust host
     // commands the sidecar engine via these messages; the sidecar
     // emits `rsi_engine_event` outbound events to ack + mirror state.
@@ -1349,11 +1349,22 @@ export interface InboundMessage {
    *  rides the plain `id` field. `answer` is required for "answer". */
   questionAction?: "answer" | "refuse" | "dismiss";
   answer?: string;
-  /** Workspace-panel payload (type === "artifact_query"). "list" answers with
-   *  the rows; "get" adds the content of `artifactId`. The correlator rides the
-   *  plain `id` field, like every other paired request here. */
-  artifactAction?: "list" | "get";
+  /** Workspace-panel payload (type === "artifact_op"). One message for the
+   *  whole panel rather than five, because every inbound type costs a Tauri
+   *  command, a specta binding and an entry in three allow-lists, and the panel
+   *  would have spent all of that to say the same word in five spellings.
+   *  The correlator rides the plain `id` field, like every other paired request.
+   *
+   *    list      → the rows (no other field)
+   *    get       → one artifact's content; `artifactVersion` reads an older one
+   *    versions  → the version history of `artifactId`
+   *    export    → write a real file; `dest` optional
+   *    delete    → hide it (soft; the bytes stay)
+   */
+  artifactAction?: "list" | "get" | "versions" | "export" | "delete";
   artifactId?: string;
+  artifactVersion?: number;
+  dest?: string;
   /** Cowork direct-message payload (type === "cowork_user_message"). */
   toAgentId?: string;
   body?: string;
@@ -1725,6 +1736,15 @@ export type OutboundEvent =
         modifiedBy: string;
       }>;
       content?: string;
+      versions?: Array<{
+        version: number;
+        author: string;
+        note: string | null;
+        createdAt: number;
+      }>;
+      /** `export` only: where the file landed, and anything worth saying about it. */
+      path?: string;
+      note?: string;
       error?: string;
     }
   | { type: "cron_fired"; jobId: string; jobName: string; sessionId: string; content: string; traceId?: string }

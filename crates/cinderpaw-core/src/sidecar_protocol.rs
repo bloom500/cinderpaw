@@ -31,8 +31,8 @@ pub const INBOUND_TYPES: &[&str] = &[
     // compile-checked, so the canonical list could fall behind in silence.
     "admin_response", "capability_response", "provider_conformance",
     "cowork_history",
-    // The workspace panel's read path — see `artifact_query` in types.ts.
-    "artifact_query",
+    // Everything the workspace panel does — see `artifact_op` in types.ts.
+    "artifact_op",
 ];
 
 pub const OUTBOUND_TYPES: &[&str] = &[

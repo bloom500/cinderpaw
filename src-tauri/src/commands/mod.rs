@@ -103,7 +103,11 @@ mod command_count_test {
     // 169 -> 170 = + list_s2s_models (the voice panel's model picker asks the
     // vendor which realtime models its key can open, instead of shipping a
     // list that goes stale the next time Google ships a Live model).
-    const EXPECTED_COMMAND_COUNT: usize = 170;
+    // 170 -> 171 = + cinderpaw_artifact_op (the workspace panel's one door to
+    // the artifact store: list, get, versions, export, delete behind a single
+    // command, because each extra inbound type costs a binding and three
+    // allow-list entries to say the same word another way).
+    const EXPECTED_COMMAND_COUNT: usize = 171;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
