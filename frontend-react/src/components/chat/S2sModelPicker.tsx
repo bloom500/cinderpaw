@@ -22,7 +22,7 @@ import { useUI } from '@/stores/ui';
 export function S2sModelPicker({ provider, label }: { provider: string; label: string }) {
   const chosen = useUI((s) => s.s2sModel[provider] ?? '');
   const setS2sModel = useUI((s) => s.setS2sModel);
-  const [models, setModels] = useState<string[] | null>(null);
+  const [models, setModels] = useState<{ id: string; label: string }[] | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = () => {
@@ -55,9 +55,9 @@ export function S2sModelPicker({ provider, label }: { provider: string; label: s
       </div>
       <SelectMenu
         ariaLabel={`${label} realtime model`}
-        value={chosen || models[0]!}
+        value={chosen || models[0]!.id}
         onChange={(v) => setS2sModel(provider, v)}
-        options={models.map((m) => ({ value: m, label: m }))}
+        options={models.map((m) => ({ value: m.id, label: m.label }))}
       />
       {/* The vendor answering "yes I will open a session" is not the same as the
           model holding a conversation: gemini-3.5-transcribe-live is in Google's

@@ -59,6 +59,21 @@ pub struct S2sProviderInfo {
     pub connected: bool,
 }
 
+/// One realtime model, as the vendor names it.
+///
+/// Two fields because an id is an address and a name is what the thing is
+/// called: nothing in this app puts `gemini-3.8-live-extended-thinking` in
+/// front of a person when Google itself says "Gemini 3.8 Live Extended
+/// Thinking".
+#[derive(serde::Serialize, specta::Type)]
+pub struct S2sModelInfo {
+    pub id: String,
+    /// The vendor's own display name, or the id when it publishes none —
+    /// OpenAI's `/v1/models` carries no name, so that list shows ids and the
+    /// picker is honest about it rather than inventing prettier ones.
+    pub label: String,
+}
+
 /// The realtime models this vendor will actually open a call with, asked of the
 /// vendor itself.
 ///
@@ -77,16 +92,17 @@ pub struct S2sProviderInfo {
 /// `gemini-3.5-transcribe-live` is in Google's list and only transcribes.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn list_s2s_models(provider: String) -> Vec<String> {
+pub(crate) async fn list_s2s_models(provider: String) -> Vec<S2sModelInfo> {
     let Some(p) = cinderpaw_core::livekit::provider_by_id(&provider) else { return Vec::new() };
-    let fallback = || vec![p.model.to_string()];
+    let fallback =
+        || vec![S2sModelInfo { id: p.model.to_string(), label: p.model.to_string() }];
     if p.pipeline {
         return Vec::new(); // the pipeline has no single model: each half has its own picker
     }
     let Some(key) = cinderpaw_core::byok::byok_get(p.id) else { return fallback() };
 
     let client = reqwest::Client::new();
-    let found: Vec<String> = match p.id {
+    let found: Vec<S2sModelInfo> = match p.id {
         "google" => {
             let url = format!(
                 "https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=1000"
@@ -102,9 +118,19 @@ pub(crate) async fn list_s2s_models(provider: String) -> Vec<String> {
                                 .as_array()
                                 .is_some_and(|g| g.iter().any(|v| v == "bidiGenerateContent"))
                         })
-                        // Google returns "models/<id>"; the plugin wants the bare id.
-                        .filter_map(|m| m["name"].as_str())
-                        .map(|n| n.trim_start_matches("models/").to_string())
+                        .filter_map(|m| {
+                            // Google returns "models/<id>" in `name` and the
+                            // human name in `displayName`; the plugin wants the
+                            // bare id.
+                            let id =
+                                m["name"].as_str()?.trim_start_matches("models/").to_string();
+                            let label = m["displayName"]
+                                .as_str()
+                                .filter(|d| !d.is_empty())
+                                .unwrap_or(&id)
+                                .to_string();
+                            Some(S2sModelInfo { id, label })
+                        })
                         .collect()
                 })
                 .unwrap_or_default()
@@ -125,7 +151,9 @@ pub(crate) async fn list_s2s_models(provider: String) -> Vec<String> {
                     ms.iter()
                         .filter_map(|m| m["id"].as_str())
                         .filter(|id| id.contains("realtime"))
-                        .map(str::to_string)
+                        // No display name in this payload, so the id is the
+                        // label. Better an id than a name we made up.
+                        .map(|id| S2sModelInfo { id: id.to_string(), label: id.to_string() })
                         .collect()
                 })
                 .unwrap_or_default()
@@ -139,8 +167,8 @@ pub(crate) async fn list_s2s_models(provider: String) -> Vec<String> {
     // The pinned default first, so the list opens on the model this build was
     // tested with rather than on whatever the vendor happens to sort first.
     let mut out = found;
-    out.sort();
-    if let Some(i) = out.iter().position(|m| m == p.model) {
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    if let Some(i) = out.iter().position(|m| m.id == p.model) {
         out.swap(0, i);
     }
     out

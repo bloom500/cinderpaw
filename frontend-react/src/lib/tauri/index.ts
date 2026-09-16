@@ -1079,7 +1079,7 @@ const raw = {
   // build, so this never answers with an empty picker. ACCEPTED IS NOT
   // SUPPORTED: `gemini-3.5-transcribe-live` is in Google's answer and only
   // transcribes.
-  listS2sModels:        (provider: string) => invoke<string[]>('list_s2s_models', { provider }),
+  listS2sModels:        (provider: string) => invoke<{ id: string; label: string }[]>('list_s2s_models', { provider }),
   // Whether this BINARY can transcribe on the machine. One frontend bundle
   // ships against builds compiled with different features, so it cannot know
   // from its own source whether the local path exists.

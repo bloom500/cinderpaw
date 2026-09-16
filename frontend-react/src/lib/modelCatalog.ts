@@ -23,13 +23,20 @@
  */
 
 const CATALOG_URL = 'https://openrouter.ai/api/v1/models';
-const CACHE_KEY = 'cinderpaw-model-context-limits';
+const CACHE_KEY = 'cinderpaw-model-catalog-v2';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export interface CatalogEntry {
+  /** Context window in tokens. */
+  limit: number;
+  /** What the maker calls it, e.g. "Z.ai: GLM 4.6" for `z-ai/glm-4.6`. */
+  name: string;
+}
 
 export interface CatalogCache {
   fetchedAt: number;
-  /** model id (lowercase, as the provider spells it) -> context window in tokens */
-  limits: Record<string, number>;
+  /** model id (lowercase, as the provider spells it) -> what is known about it */
+  limits: Record<string, CatalogEntry>;
 }
 
 let memo: CatalogCache | null | undefined;
@@ -71,17 +78,24 @@ export function isStale(cache: CatalogCache | null, now = Date.now()): boolean {
  * suffix match is deliberately last: `gpt-4o` must not win over `openai/gpt-4o`
  * when both are present.
  */
-export function lookupLimit(limits: Record<string, number>, modelId: string): number | null {
+export function lookupEntry(
+  limits: Record<string, CatalogEntry>,
+  modelId: string,
+): CatalogEntry | null {
   const id = modelId.trim().toLowerCase();
   if (!id) return null;
-  if (limits[id]) return limits[id];
+  if (limits[id]) return limits[id]!;
 
   const bare = id.slice(id.lastIndexOf('/') + 1);
-  if (limits[bare]) return limits[bare];
+  if (limits[bare]) return limits[bare]!;
   for (const [key, value] of Object.entries(limits)) {
     if (key.slice(key.lastIndexOf('/') + 1) === bare) return value;
   }
   return null;
+}
+
+export function lookupLimit(limits: Record<string, CatalogEntry>, modelId: string): number | null {
+  return lookupEntry(limits, modelId)?.limit ?? null;
 }
 
 /** The limit already on disk, without touching the network. `null` = not known here. */
@@ -91,6 +105,36 @@ export function cachedLimitFor(modelId: string | undefined): number | null {
   return cache ? lookupLimit(cache.limits, modelId) : null;
 }
 
+/**
+ * What to put on screen for a model id.
+ *
+ * An id is a routing detail: `z-ai/glm-4.6` is how the request is addressed,
+ * "Z.ai: GLM 4.6" is what the thing is called. The composer pill, the picker and
+ * the context card all showed the id, which is why the composer read
+ * `openrouter · ~z-ai/glm-fl…` — a truncated address where a name belongs.
+ *
+ * The published catalogue is asked first. With no answer the id is tidied up
+ * rather than shown raw: vendor prefix dropped, separators turned into spaces,
+ * words capitalised. That is a guess about capitalisation, never about the
+ * name — "GLM 4.6" may come out "Glm 4.6", which is wrong in a way nobody has
+ * to debug, unlike a model that appears to be missing.
+ */
+export function modelLabel(modelId: string | undefined): string {
+  if (!modelId) return '';
+  const cache = readCache();
+  const known = cache ? lookupEntry(cache.limits, modelId)?.name : null;
+  if (known) return known;
+
+  const bare = modelId.slice(modelId.lastIndexOf('/') + 1).replace(/\.gguf$/i, '');
+  // Not on the dot. A version number is one word to a reader: splitting there
+  // turned `glm-4.6` into "Glm 4 6", which looks like two models.
+  return bare
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((w) => (/\d/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
 export function catalogFetchedAt(): number | null {
   return readCache()?.fetchedAt ?? null;
 }
@@ -98,16 +142,19 @@ export function catalogFetchedAt(): number | null {
 interface CatalogRow {
   id?: unknown;
   context_length?: unknown;
+  /** The maker's own name for it, e.g. "Z.ai: GLM 4.6". */
+  name?: unknown;
 }
 
-export function parseCatalog(payload: unknown): Record<string, number> {
+export function parseCatalog(payload: unknown): Record<string, CatalogEntry> {
   const rows = (payload as { data?: CatalogRow[] })?.data;
-  const limits: Record<string, number> = {};
+  const limits: Record<string, CatalogEntry> = {};
   if (!Array.isArray(rows)) return limits;
   for (const row of rows) {
     const id = typeof row?.id === 'string' ? row.id.toLowerCase() : null;
     const len = typeof row?.context_length === 'number' ? row.context_length : null;
-    if (id && len && len > 0) limits[id] = len;
+    const name = typeof row?.name === 'string' ? row.name : '';
+    if (id && len && len > 0) limits[id] = { limit: len, name };
   }
   return limits;
 }

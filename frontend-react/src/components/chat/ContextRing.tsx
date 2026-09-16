@@ -4,7 +4,7 @@ import { useUI } from '@/stores/ui';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { activeContextWindow, estimateTokens, estimateRemaining } from '@/lib/contextWindow';
-import { catalogFetchedAt, refreshCatalog } from '@/lib/modelCatalog';
+import { catalogFetchedAt, modelLabel, refreshCatalog } from '@/lib/modelCatalog';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Separator } from '@/components/ui/separator';
 
@@ -49,7 +49,7 @@ export function ContextRing() {
     // nothing and reading "NaN%".
     const pct = ctxWindow && ctxWindow > 0 ? Math.min(1, used / ctxWindow) : 0;
     const remaining = estimateRemaining(ctxWindow ?? 0, used, messages.length);
-    return { used, ctxWindow, pct, modelName: model ?? 'Unknown', remaining, isLive };
+    return { used, ctxWindow, pct, modelName: modelLabel(model) || 'Unknown', remaining, isLive };
   }, [messages, livePromptTokens, liveCompletionTokens, isAgentMode, cinderpawConfig, cloudModel, loaded, catalogAt]);
 
   // Only a cloud model whose window nobody here knows costs a request, and the

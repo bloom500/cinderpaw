@@ -13,6 +13,7 @@ import { useUI } from '@/stores/ui';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
+import { modelLabel, refreshCatalog } from '@/lib/modelCatalog';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { BackendBadge } from '@/components/BackendBadge';
 
@@ -79,6 +80,10 @@ export function ModelPickerPopover() {
       .then((all) => setLocalModels(all.filter((m) => !m.is_embedding)))
       .catch(() => {});
     void refreshCloud();
+    // Names for cloud models come from the published catalogue, cached for a
+    // day. Asked when the picker opens rather than at startup, so a local-only
+    // install still never calls out.
+    void refreshCatalog();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshCloud is stable enough; open is the trigger
   }, [open]);
 
@@ -163,7 +168,9 @@ export function ModelPickerPopover() {
   } else if (isLoading) {
     label = `Loading ${progress?.percentage.toFixed(0) ?? 0}%`;
   } else if (cloudModel) {
-    label = `${cloudModel.modelId} · ${cloudModel.providerName}`;
+    // The name, not the address. This pill read `openrouter · ~z-ai/glm-fl…`:
+    // an id, truncated in the middle, where a person expects "GLM 4.6".
+    label = `${modelLabel(cloudModel.modelId)} · ${cloudModel.providerName}`;
   } else {
     label = loaded?.name ?? unpinnedLabel;
   }
@@ -279,7 +286,9 @@ export function ModelPickerPopover() {
                 >
                   <span className="text-text-primary">{p.name}</span>
                   <span className="text-xs text-text-muted">
-                    {modelId || 'Set a default model in Settings → Cloud Keys'}
+                    {modelId
+                      ? modelLabel(modelId)
+                      : 'Set a default model in Settings → Cloud Keys'}
                   </span>
                 </DropdownMenuItem>
               );
