@@ -1,10 +1,12 @@
+import { cachedLimitFor } from '@/lib/modelCatalog';
+
 /**
- * Best-effort context-window size (in tokens) for a model, used by the live
- * context ring. This is a frontend heuristic — local models default to a
- * conservative window, cloud/BYOK models match their real published context so
- * the ring reflects actual headroom (e.g. MiniMax ~1M sits near-empty).
+ * Last-resort context windows, used only when the published catalog
+ * (`modelCatalog.ts`) has no answer, e.g. on a machine that has never been
+ * online. It is a guess by family and it goes stale: Claude is listed at
+ * 200k here and Sonnet 4.5 has since shipped with 1M. The catalog wins.
  *
- * Extend KNOWN with new families as needed; order matters (first match wins).
+ * Order matters (first match wins).
  */
 const KNOWN: Array<[RegExp, number]> = [
   [/minimax/i,                          1_000_000],
@@ -22,14 +24,24 @@ const KNOWN: Array<[RegExp, number]> = [
 
 /** Default window for an unknown local model (most local GGUFs run 4k–8k). */
 export const LOCAL_DEFAULT_CONTEXT = 8_192;
-/** Default window for an unknown cloud model (conservative). */
-export const CLOUD_DEFAULT_CONTEXT = 32_768;
 
-export function contextWindowFor(model: string | undefined, isLocal: boolean): number {
+/**
+ * The context window of a model, or `null` when nothing here knows it.
+ *
+ * `null` is the whole point of this signature. The old code answered 32,768 for
+ * every cloud model it had not heard of, so a 200k GLM and a 1M Gemini both drew
+ * a ring that was 'full' after a long file, and nothing on screen said the
+ * number was invented. A local model keeps a default because a GGUF that is
+ * loaded reports its real `ctx_len` anyway, and 8k is the honest shape of one
+ * that is not.
+ */
+export function contextWindowFor(model: string | undefined, isLocal: boolean): number | null {
   if (model) {
+    const published = cachedLimitFor(model);
+    if (published) return published;
     for (const [re, n] of KNOWN) if (re.test(model)) return n;
   }
-  return isLocal ? LOCAL_DEFAULT_CONTEXT : CLOUD_DEFAULT_CONTEXT;
+  return isLocal ? LOCAL_DEFAULT_CONTEXT : null;
 }
 
 /**
@@ -68,7 +80,7 @@ export interface ActiveModelInputs {
  * KV cache says nothing about MiniMax's 1M window, and letting it win is what
  * pinned the ring to 8192 during cloud sessions.
  */
-export function activeContextWindow(i: ActiveModelInputs): { model: string | undefined; isLocal: boolean; ctxWindow: number } {
+export function activeContextWindow(i: ActiveModelInputs): { model: string | undefined; isLocal: boolean; ctxWindow: number | null } {
   let model: string | undefined;
   let isLocal: boolean;
 

@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useModel } from '@/stores/model';
 import { useCinderpawStore } from '@/stores/cinderpaw';
 import { activeContextWindow, estimateTokens, estimateRemaining } from '@/lib/contextWindow';
+import { catalogFetchedAt, refreshCatalog } from '@/lib/modelCatalog';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Separator } from '@/components/ui/separator';
 
@@ -19,6 +20,10 @@ export function ContextRing() {
   const loaded              = useModel((s) => s.loaded);
   const cloudModel          = useModel((s) => s.cloudModel);
   const cinderpawConfig         = useCinderpawStore((s) => s.modelConfig);
+
+  // Bumped when the published catalog lands, so the ring redraws with the real
+  // number instead of staying on "limit unknown" until the next keystroke.
+  const [catalogAt, setCatalogAt] = useState(catalogFetchedAt);
 
   const { used, ctxWindow, pct, modelName, remaining, isLive } = useMemo(() => {
     const { model, ctxWindow } = activeContextWindow({
@@ -42,10 +47,20 @@ export function ContextRing() {
     // `ctxWindow` is 0 when no model is loaded, and 0/0 is NaN — which then
     // flows into the ring's stroke-dashoffset and the percentage label, drawing
     // nothing and reading "NaN%".
-    const pct = ctxWindow > 0 ? Math.min(1, used / ctxWindow) : 0;
-    const remaining = estimateRemaining(ctxWindow, used, messages.length);
+    const pct = ctxWindow && ctxWindow > 0 ? Math.min(1, used / ctxWindow) : 0;
+    const remaining = estimateRemaining(ctxWindow ?? 0, used, messages.length);
     return { used, ctxWindow, pct, modelName: model ?? 'Unknown', remaining, isLive };
-  }, [messages, livePromptTokens, liveCompletionTokens, isAgentMode, cinderpawConfig, cloudModel, loaded]);
+  }, [messages, livePromptTokens, liveCompletionTokens, isAgentMode, cinderpawConfig, cloudModel, loaded, catalogAt]);
+
+  // Only a cloud model whose window nobody here knows costs a request, and the
+  // catalog is cached for a day: an offline or local-only install never calls out.
+  const needsCatalog = ctxWindow === null;
+  useEffect(() => {
+    if (!needsCatalog) return;
+    let alive = true;
+    void refreshCatalog().then((c) => { if (alive && c) setCatalogAt(c.fetchedAt); });
+    return () => { alive = false; };
+  }, [needsCatalog, modelName]);
 
   if (messages.length === 0) return null;
 
@@ -69,16 +84,23 @@ export function ContextRing() {
     ? `~${remaining.freeTokens.toLocaleString()} tokens left`
     : `~${remaining.msgsRemaining} msgs left`;
 
-  const statusLabel = pct >= 0.9
-    ? `Approaching limit · ${remainingLabel}`
-    : `${pctLabel}% · ${remainingLabel}`;
+  // A model whose published limit we could not get draws no arc and claims no
+  // percentage. It still counts what has been used, which is true either way.
+  const known = ctxWindow !== null;
+  const statusLabel = !known
+    ? 'Cinderpaw does not know this model’s limit, so it cannot show how full the window is.'
+    : pct >= 0.9
+      ? `Approaching limit · ${remainingLabel}`
+      : `${pctLabel}% · ${remainingLabel}`;
 
   return (
     <HoverCard openDelay={200} closeDelay={100}>
       <HoverCardTrigger asChild>
         <div
           className="flex items-center shrink-0 text-text-muted cursor-default"
-          aria-label={`Context: ~${used.toLocaleString()} / ${ctxWindow.toLocaleString()} tokens (${pctLabel}%)`}
+          aria-label={known
+            ? `Context: ~${used.toLocaleString()} / ${ctxWindow!.toLocaleString()} tokens (${pctLabel}%)`
+            : `Context: ~${used.toLocaleString()} tokens used, limit unknown for this model`}
         >
           <svg width="18" height="18" viewBox="0 0 20 20" className="shrink-0">
             <circle cx="10" cy="10" r={R} fill="none" stroke="currentColor" strokeWidth="2.5" opacity="0.2" />
@@ -120,7 +142,9 @@ export function ContextRing() {
           <span className="text-text-primary truncate text-right">{modelName}</span>
 
           <span className="text-text-muted">Window</span>
-          <span className="text-text-primary text-right">{ctxWindow.toLocaleString()} tokens</span>
+          <span className="text-text-primary text-right">
+            {known ? `${ctxWindow!.toLocaleString()} tokens` : 'unknown'}
+          </span>
 
           <span className="text-text-muted">Used</span>
           <span className="text-text-primary text-right">
@@ -129,7 +153,7 @@ export function ContextRing() {
 
           <span className="text-text-muted">Free</span>
           <span className="text-text-primary text-right">
-            {isLive ? '' : '~'}{remaining.freeTokens.toLocaleString()} tokens
+            {known ? `${isLive ? '' : '~'}${remaining.freeTokens.toLocaleString()} tokens` : '—'}
           </span>
 
           <span className="text-text-muted">Messages</span>

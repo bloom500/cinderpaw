@@ -6,7 +6,6 @@ import {
   estimateRemaining,
   isLocalBaseUrl,
   LOCAL_DEFAULT_CONTEXT,
-  CLOUD_DEFAULT_CONTEXT,
 } from '../contextWindow';
 
 describe('contextWindowFor', () => {
@@ -19,8 +18,11 @@ describe('contextWindowFor', () => {
   it('returns LOCAL_DEFAULT_CONTEXT for unknown local model', () => {
     expect(contextWindowFor('unknown-gguf', true)).toBe(LOCAL_DEFAULT_CONTEXT);
   });
-  it('returns CLOUD_DEFAULT_CONTEXT for unknown cloud model', () => {
-    expect(contextWindowFor(undefined, false)).toBe(CLOUD_DEFAULT_CONTEXT);
+  // Was 32_768, which is what drew a full ring on a 200k GLM and a 1M Gemini.
+  // Not knowing has to be sayable, so the ring can say it.
+  it('returns null for a cloud model nobody here knows', () => {
+    expect(contextWindowFor(undefined, false)).toBeNull();
+    expect(contextWindowFor('glm-4.6', false)).toBeNull();
   });
 });
 
