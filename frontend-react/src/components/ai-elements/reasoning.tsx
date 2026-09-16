@@ -5,7 +5,8 @@
 //      bundle (measured), for diagrams and equations a reasoning trace does not contain;
 //   3. their Shimmer (which pulls `motion`) swapped for our ShimmeringText, which is the same
 //      animation on the `framer-motion` this app already ships;
-//   4. the label when nobody measured a duration: see thinkingLabel below.
+//   4. the label when nobody measured a duration: see thinkingLabel below;
+//   5. no auto-close: see the note on the effect that used to do it.
 "use client";
 
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
@@ -29,7 +30,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { Streamdown } from "streamdown";
 
@@ -89,7 +89,6 @@ export const Reasoning = memo(
     });
 
     const hasEverStreamedRef = useRef(isStreaming);
-    const [hasAutoClosed, setHasAutoClosed] = useState(false);
     const startTimeRef = useRef<number | null>(null);
 
     // Track when streaming starts and compute duration
@@ -112,22 +111,14 @@ export const Reasoning = memo(
       }
     }, [isStreaming, isOpen, setIsOpen, isExplicitlyClosed]);
 
-    // Auto-close when streaming ends (once only, and only if it ever streamed)
-    useEffect(() => {
-      if (
-        hasEverStreamedRef.current &&
-        !isStreaming &&
-        isOpen &&
-        !hasAutoClosed
-      ) {
-        const timer = setTimeout(() => {
-          setIsOpen(false);
-          setHasAutoClosed(true);
-        }, AUTO_CLOSE_DELAY);
-
-        return () => clearTimeout(timer);
-      }
-    }, [isStreaming, isOpen, setIsOpen, hasAutoClosed]);
+    // Upstream closes this a second after the answer starts. Removed, change 5:
+    // Darius, watching it: "cand agentul gandeste apare doar 'Thinking...' iar in
+    // momentul in care agentul raspunde, dispare". A panel that folds itself while
+    // you are reading it is the app taking the page away, and the reasoning is
+    // often the part worth keeping — it is where the agent says what it is about
+    // to do. It opens itself when thinking starts and then stays exactly as the
+    // reader left it, open or closed, for the life of the message.
+    void AUTO_CLOSE_DELAY;
 
     const handleOpenChange = useCallback(
       (newOpen: boolean) => {
