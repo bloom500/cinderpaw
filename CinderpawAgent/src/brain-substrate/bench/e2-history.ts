@@ -6,7 +6,7 @@
  *
  * bun run src/brain-substrate/bench/e2-history.ts --stage g0|arm|analyze --pack <dir> --annotations <tsv> --out <dir> [--arm K|PR|P|PR-SHUFFLED]
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { mulberry32 } from "../../memory/fractal/prng.ts";
 import { loadPack } from "../pack/load.ts";
@@ -407,13 +407,34 @@ if (import.meta.main) {
     if (!opts) throw new Error(`unknown arm ${name}`);
     const pack = opts.shuffled ? signPreservingTargetShuffle(pack0, 1001, pack0.plastic.edgeIdx) : pack0;
     const sim = new LifSim(pack);
-    const runSet = (seqs: Seq[], label: string, o: ArmOpts, c = ctx) => seqs.map((s, i) => {
-      const r = runSequence(sim, pack, pops, c, o, s);
-      if (i % 10 === 9 || i === seqs.length - 1) log(`${name} ${label} ${i + 1}/${seqs.length}`);
-      return r;
-    });
+    // Every sequence is independent (fresh deltas, resetState per event), so a finished one can be
+    // replayed from disk instead of resimulated. A killed run resumes where it stopped.
+    const cached = (label: string): Rec[][] => {
+      const p = join(out, `arm-${name}-${label}.jsonl`);
+      if (!existsSync(p)) return [];
+      const rows: Rec[][] = [];
+      for (const line of readFileSync(p, "utf8").split("\n")) {
+        if (!line) continue;
+        try { rows.push(JSON.parse(line) as Rec[]); } catch { break; } // truncated tail from a kill
+      }
+      return rows;
+    };
+    const runSet = (seqs: Seq[], label: string, o: ArmOpts, c = ctx) => {
+      const p = join(out, `arm-${name}-${label}.jsonl`), done = cached(label);
+      if (done.length) { writeFileSync(p, done.map((r) => JSON.stringify(r)).join("\n") + "\n"); log(`${name} ${label} resume at ${done.length}/${seqs.length}`); }
+      return seqs.map((s, i) => {
+        const r = done[i] ?? runSequence(sim, pack, pops, c, o, s);
+        if (!done[i]) appendFileSync(p, `${JSON.stringify(r)}\n`);
+        if (i % 10 === 9 || i === seqs.length - 1) log(`${name} ${label} ${i + 1}/${seqs.length}`);
+        return r;
+      });
+    };
     const result: Record<string, unknown> = { J, arm: name };
-    result.probes = Object.fromEntries(probeSeqs.map((s) => [s.id, runSequence(sim, pack, pops, ctx, opts, s)]));
+    const probeFile = join(out, `arm-${name}-probes.json`);
+    result.probes = existsSync(probeFile)
+      ? (JSON.parse(readFileSync(probeFile, "utf8")) as Record<string, Rec[]>)
+      : Object.fromEntries(probeSeqs.map((s) => [s.id, runSequence(sim, pack, pops, ctx, opts, s)]));
+    if (!existsSync(probeFile)) writeFileSync(probeFile, JSON.stringify(result.probes));
     log(`${name} probes done`);
     result.train = runSet(train, "train", opts);
     result.test = runSet(test, "test", opts);
