@@ -115,11 +115,31 @@ function phaseOf(state: string): CallPhase | null {
   }
 }
 
+/**
+ * Loud enough to be a voice rather than a room.
+ *
+ * `startMeter` reports a peak in 0..1 off the published track. Breathing and a
+ * fan sit well under this; a spoken word goes over it within a frame, which is
+ * the whole point — this is the only signal about the caller that arrives
+ * without waiting for a vendor.
+ */
+export const SPEAKING_LEVEL = 0.06;
+
 export function useLiveKitCallSession() {
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [stage, setStage] = useState<CallStage>(null);
   const [heard, setHeard] = useState('');
   const [level, setLevel] = useState(0);
+  /**
+   * True once the vendor has settled the last thing it heard.
+   *
+   * The screen used to hold that settled sentence while the caller was already
+   * saying the next one — on a native-audio model the new transcript lands
+   * AFTER the turn, so for those seconds the words on screen are the previous
+   * question. It reads as a call that stopped listening. The microphone knows
+   * better and knows instantly, so it is what clears the line.
+   */
+  const turnSettled = useRef(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const room = useRef<Room | null>(null);
@@ -192,6 +212,7 @@ export function useLiveKitCallSession() {
         // Written to the conversation only once it has. A partial is the same
         // sentence mid-revision, so persisting it would file a dozen truncated
         // copies of every utterance in the chat history.
+        turnSettled.current = !e.partial;
         if (!e.partial) writeToChat('user', e.text);
       }
       if (e.kind === 'said' && e.text) {
@@ -344,7 +365,16 @@ export function useLiveKitCallSession() {
       callMark('microphone_ready');
       setPhase('listening');
       setStage(null);
-      meter.current = startMeter(r, setLevel);
+      meter.current = startMeter(r, (v) => {
+        setLevel(v);
+        // Speech, not silence: one loud frame is a door slamming, and the
+        // threshold is the same one the transcript line uses to decide it is
+        // being spoken over.
+        if (v > SPEAKING_LEVEL && turnSettled.current) {
+          turnSettled.current = false;
+          setHeard('');
+        }
+      });
     } catch (e) {
       // A cancelled attempt may reject after the next call has connected.
       if (mine !== generation.current) return;

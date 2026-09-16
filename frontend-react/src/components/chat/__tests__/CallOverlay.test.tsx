@@ -139,6 +139,27 @@ describe('which engine speaks on a machine nobody has configured', () => {
   });
 });
 
+describe('CallTranscript', () => {
+  // The gap this closes: on a native-audio model the transcript lands after
+  // the turn, so between the first word spoken and the words appearing there
+  // was nothing moving on screen at all. The dots are driven by the caller's
+  // own microphone, so they are true the instant they show.
+  it('shows that it is hearing you before any transcript exists', () => {
+    const { rerender } = render(<CallTranscript text="" fallback="Say something" speaking={false} />);
+    expect(screen.getByTestId('call-transcript')).toHaveTextContent('Say something');
+
+    rerender(<CallTranscript text="" fallback="Say something" speaking />);
+    expect(screen.getByTestId('call-transcript-listening')).toBeInTheDocument();
+    expect(screen.getByTestId('call-transcript')).not.toHaveTextContent('Say something');
+  });
+
+  it('the words win over the dots the moment they land', () => {
+    render(<CallTranscript text="how much did we spend" fallback="Say something" speaking />);
+    expect(screen.queryByTestId('call-transcript-listening')).toBeNull();
+    expect(screen.getByTestId('call-transcript')).toHaveTextContent('how much did we spend');
+  });
+});
+
 describe('ProviderToggle', () => {
   const providers = [
     { id: 'google', label: 'Gemini Realtime', pipeline: false, connected: false, voices: [], defaultVoice: '' },

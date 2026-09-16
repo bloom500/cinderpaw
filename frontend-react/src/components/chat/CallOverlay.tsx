@@ -29,6 +29,7 @@ import { CallToolScreen } from './CallToolScreen';
 import { S2sModelPicker } from './S2sModelPicker';
 import { CallArtifacts } from './CallArtifacts';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
+import { SPEAKING_LEVEL } from '@/hooks/useLiveKitCallSession';
 import { warmLiveKit } from '@/hooks/useLiveKitCallSession';
 import { speechLevel } from '@/hooks/useSpeechPlayer';
 import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
@@ -70,7 +71,24 @@ export function compactCallTranscript(text: string, maxChars = 280): string {
 
 /** The transcript itself is synchronous; only the newly appended vendor piece
  * gets a short entrance, so motion never becomes another queue. */
-export function CallTranscript({ text, fallback }: { text: string; fallback: string }) {
+export function CallTranscript({
+  text,
+  fallback,
+  speaking = false,
+}: {
+  text: string;
+  fallback: string;
+  /**
+   * The microphone says the caller is talking right now.
+   *
+   * Nothing on this screen used to move between the first word spoken and the
+   * vendor's transcript, and on a native-audio model that gap is seconds long —
+   * long enough to conclude the call has died and hang up. Three dots driven by
+   * the caller's own microphone close it without inventing a single word: they
+   * say "you are being heard", which is exactly what is known.
+   */
+  speaking?: boolean;
+}) {
   const previousRef = useRef('');
   const visible = compactCallTranscript(text);
   const previous = previousRef.current;
@@ -92,7 +110,17 @@ export function CallTranscript({ text, fallback }: { text: string; fallback: str
       aria-label={text || undefined}
       className="line-clamp-3 max-h-18 max-w-xl overflow-hidden wrap-break-word text-lg font-light leading-6 text-text-muted"
     >
-      {text ? (
+      {!text && speaking ? (
+        <span data-testid="call-transcript-listening" className="inline-flex gap-1 align-middle">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="size-1.5 animate-bounce rounded-full bg-text-muted motion-reduce:animate-none"
+              style={{ animationDelay: `${i * 120}ms` }}
+            />
+          ))}
+        </span>
+      ) : text ? (
         <>
           “{stable}
           {fresh && (
@@ -671,6 +699,11 @@ export function CallOverlay({
           <CallTranscript
             text={phase !== 'ready' ? heard : ''}
             fallback={t('call.prompt')}
+            // The caller's microphone, not the agent's turn — `speaking` a few
+            // lines up is the other party. Derived here rather than passed in,
+            // so every engine that drives this overlay gets it from the one
+            // number all of them already report.
+            speaking={phase === 'listening' && level > SPEAKING_LEVEL}
           />
           {/* Said out loud on screen when nothing was said out loud in audio. */}
           {notice && <p className="text-sm text-(--warning)">{notice}</p>}

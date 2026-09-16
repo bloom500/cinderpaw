@@ -134,6 +134,35 @@ fn persona() -> Option<String> {
     persona_cell().read().clone()
 }
 
+/// A short stand-in for "which SOUL.md is loaded", safe to put in a log line,
+/// an env var or a session key.
+///
+/// Never the text. The persona is the user's own writing about themselves, and
+/// a persona in a log file is a persona in every bug report they ever send.
+/// `none` is a value like any other here, and it is the important one: it is
+/// what a chain warmed before the sidecar finished booting carries, and the
+/// reason the caller then spent the whole call talking to a stock assistant.
+pub fn persona_fingerprint() -> String {
+    use std::hash::{Hash as _, Hasher as _};
+    match persona() {
+        None => "none".to_string(),
+        Some(p) => {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            p.hash(&mut h);
+            format!("{:x}", h.finish())
+        }
+    }
+}
+
+/// How much persona a call would be briefed with right now, in characters.
+///
+/// Separate from the length of the whole brief, because the whole brief is
+/// never empty — the spoken rules are always there — so its length answered
+/// "did SOUL.md arrive?" with a reassuring four-digit number no matter what.
+pub fn persona_len() -> usize {
+    persona().map(|p| p.len()).unwrap_or(0)
+}
+
 /// Reconciles the two documents when they disagree, which they do.
 ///
 /// SOUL.md is written for a text surface and says emoji are fine when they earn
@@ -241,6 +270,20 @@ mod tests {
         set_persona(None);
         let bare = system_instruction(&Briefing::default());
         assert!(bare.starts_with("You are Cinderpaw"), "an empty persona left a gap");
+
+        // The fingerprint is what `session_spec` carries, and the case it
+        // exists for is this one: a chain warmed while the sidecar was still
+        // booting has "none" in its spec, so the call that follows cannot
+        // silently reuse it. Measured as a bug first — a whole conversation ran
+        // on the stock rules because the warm worker matched.
+        assert_eq!(persona_fingerprint(), "none");
+        assert_eq!(persona_len(), 0);
+        set_persona(Some("Short declarative sentences.".into()));
+        assert_ne!(persona_fingerprint(), "none", "a loaded persona still looked absent");
+        assert_eq!(persona_len(), "Short declarative sentences.".len());
+        // Never the text itself: this value goes in logs and process specs.
+        assert!(!persona_fingerprint().contains("declarative"));
+        set_persona(None);
     }
 
     #[test]

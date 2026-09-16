@@ -571,8 +571,18 @@ pub fn session_spec(
     stt_language: Option<&str>,
 ) -> String {
     let id = resolve_provider(provider).map(|(p, _)| p.id).unwrap_or("echo");
+    // The persona belongs here for the same reason the model does: a worker is
+    // reused when the spec matches, and the brief is handed over ONCE, at boot.
+    //
+    // The warmup fires when the pre-call screen appears, which on a cold start
+    // is before the sidecar has sent SOUL.md. Without this line that
+    // persona-less worker matched the spec of the call that followed, was
+    // reused, and the whole conversation ran on the stock rules — a correct,
+    // polite appliance, with nothing on screen saying so. With it, the spec
+    // changes the moment the persona arrives and the stale chain is rebooted.
+    let persona = crate::live::briefing::persona_fingerprint();
     format!(
-        "{id}|{}|{}|{}|{}|{}|{}",
+        "{id}|{}|{}|{}|{}|{}|{}|{persona}",
         voice.unwrap_or(""),
         model.unwrap_or(""),
         tts_engine.unwrap_or(""),
@@ -972,12 +982,19 @@ pub async fn start(
         // in a log file is a persona in every bug report. Zero here is the
         // difference between Cinderpaw and a stock assistant, and it is
         // otherwise only audible — which is a terrible place to learn it.
+        // Two numbers, because one of them was a lie. This used to print the
+        // length of the WHOLE brief and call it "chars of persona" — and the
+        // brief is never empty, the spoken rules are always in it, so it
+        // reported a comfortable four digits on a call that had no SOUL.md at
+        // all. The only question this line exists to answer is whether the
+        // persona arrived, so the persona is counted on its own.
+        let persona_chars = crate::live::briefing::persona_len();
         tracing::info!(
-            "livekit: {} briefed with {} chars of persona",
+            "livekit: {} briefed with {persona_chars} chars of persona, {} chars of brief",
             p.label,
             brief.len()
         );
-        if brief.is_empty() {
+        if persona_chars == 0 {
             tracing::warn!(
                 "livekit: no persona — the sidecar has not sent SOUL.md yet, so this call                  will sound like a stock assistant"
             );

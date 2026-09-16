@@ -899,6 +899,19 @@ async fn stdout_reader(
             // protocol version. v1 is warn-only — an old sidecar binary that
             // never sends `hello` (or a mismatched version) must not stop the
             // reader loop, so this just logs and moves on.
+            // The persona is taken from a `hello` wherever it appears, not only
+            // from the first line. The version check below still cares about
+            // being first — that is what it is for — but SOUL.md is the
+            // difference between Cinderpaw and a stock assistant on every voice
+            // call, and hanging it on "no other line reached stdout before this
+            // one" meant one stray write lost it for the whole run, silently,
+            // with the only symptom being a call that sounds like an appliance.
+            if v.get("type").and_then(|t| t.as_str()) == Some("hello") {
+                if let Some(p) = v.get("persona").and_then(|p| p.as_str()) {
+                    crate::live::briefing::set_persona(Some(p.to_string()));
+                    tracing::info!("cinderpaw-agent: persona received ({} chars)", p.len());
+                }
+            }
             if !seen_first_line {
                 seen_first_line = true;
                 if v.get("type").and_then(|t| t.as_str()) == Some("hello") {
@@ -912,16 +925,8 @@ async fn stdout_reader(
                             "cinderpaw-agent: hello line missing 'protocol' field: {v}"
                         ),
                     }
-                    // SOUL.md, for the voice call. A speech-to-speech session
-                    // is briefed by us rather than by the agent loop, so this
-                    // is the only route the persona has into a call — without
-                    // it the caller hears the formatting rules and nothing
-                    // else, which is a correct appliance rather than a voice.
-                    // Absent on an older sidecar; the call just stays as it was.
-                    if let Some(p) = v.get("persona").and_then(|p| p.as_str()) {
-                        crate::live::briefing::set_persona(Some(p.to_string()));
-                        tracing::info!("cinderpaw-agent: persona received ({} chars)", p.len());
-                    }
+                    // SOUL.md was already taken above, wherever the `hello`
+                    // landed in the stream.
                     continue;
                 }
             }
