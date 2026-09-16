@@ -26,6 +26,7 @@ import { preferredVoice, shortlistVoices } from '@/lib/voices';
 import { MessageItem } from './MessageItem';
 import { MoltenOrb } from './MoltenOrb';
 import { CallToolScreen } from './CallToolScreen';
+import { S2sModelPicker } from './S2sModelPicker';
 import { CallArtifacts } from './CallArtifacts';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 import { warmLiveKit } from '@/hooks/useLiveKitCallSession';
@@ -786,15 +787,28 @@ export function CallOverlay({
             {ready === false && !noEngine && voice?.needsDownload && (
               <p className="max-w-sm text-center text-xs text-(--warning)">{t('call.voiceMissing')}</p>
             )}
-            {ready === false && !noEngine && (live || voice?.needsKey) && (
+            {/* The model this vendor will run on. Shown whenever a realtime
+                vendor is selected, not only when something is broken: it is a
+                setting, not a repair. */}
+            {live && currentS2s && !currentS2s.pipeline && (
+              <S2sModelPicker provider={currentS2s.id} label={currentS2s.label} />
+            )}
+            {/* The key field used to appear only when the call could not run,
+                so the one way to replace a key that was wrong, rotated or
+                pasted into the wrong vendor was to delete it somewhere else
+                first. A key is a setting; it is reachable while things work. */}
+            {((ready === false && !noEngine) || (live && !!currentS2s && !currentS2s.pipeline))
+              && (live || voice?.needsKey) && (
               <div className="w-full max-w-sm">
                 <p className="mb-2 text-center text-xs text-text-muted">
-                  {keyOwner(currentS2s, voice)
-                    ? t('call.keyNeededFor').replace(
-                        '{provider}',
-                        keyOwner(currentS2s, voice)!.label,
-                      )
-                    : t('call.keyNeeded')}
+                  {currentS2s?.connected
+                    ? `${keyOwner(currentS2s, voice)?.label ?? ''} key stored. Paste another to replace it.`.trim()
+                    : keyOwner(currentS2s, voice)
+                      ? t('call.keyNeededFor').replace(
+                          '{provider}',
+                          keyOwner(currentS2s, voice)!.label,
+                        )
+                      : t('call.keyNeeded')}
                 </p>
                 <div className="flex gap-2">
                   <Input

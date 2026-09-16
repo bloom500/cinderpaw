@@ -59,6 +59,93 @@ pub struct S2sProviderInfo {
     pub connected: bool,
 }
 
+/// The realtime models this vendor will actually open a call with, asked of the
+/// vendor itself.
+///
+/// Hard-coding this list is the same mistake as hard-coding a context window:
+/// Google shipped `gemini-3.8-live` and `gemini-3.8-live-extended-thinking`
+/// after this app's list was written, and a user who knows the id has nowhere
+/// to put it. So the vendor is asked, with the key already stored for it, and
+/// the answer is filtered to the models that can actually hold a live session:
+/// Google marks those with the `bidiGenerateContent` method, OpenAI spells
+/// `realtime` in the id.
+///
+/// `fallback` is what ships in the binary and is returned whenever there is no
+/// key, no network, or an answer that makes no sense: a picker with one honest
+/// option beats an empty one. **ACCEPTED IS NOT SUPPORTED** — this says the
+/// vendor will open a session with that id, not that the model speaks back.
+/// `gemini-3.5-transcribe-live` is in Google's list and only transcribes.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn list_s2s_models(provider: String) -> Vec<String> {
+    let Some(p) = cinderpaw_core::livekit::provider_by_id(&provider) else { return Vec::new() };
+    let fallback = || vec![p.model.to_string()];
+    if p.pipeline {
+        return Vec::new(); // the pipeline has no single model: each half has its own picker
+    }
+    let Some(key) = cinderpaw_core::byok::byok_get(p.id) else { return fallback() };
+
+    let client = reqwest::Client::new();
+    let found: Vec<String> = match p.id {
+        "google" => {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=1000"
+            );
+            let Ok(body) = client.get(url).send().await else { return fallback() };
+            let Ok(json) = body.json::<serde_json::Value>().await else { return fallback() };
+            json["models"]
+                .as_array()
+                .map(|ms| {
+                    ms.iter()
+                        .filter(|m| {
+                            m["supportedGenerationMethods"]
+                                .as_array()
+                                .is_some_and(|g| g.iter().any(|v| v == "bidiGenerateContent"))
+                        })
+                        // Google returns "models/<id>"; the plugin wants the bare id.
+                        .filter_map(|m| m["name"].as_str())
+                        .map(|n| n.trim_start_matches("models/").to_string())
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        "openai" => {
+            let Ok(body) = client
+                .get("https://api.openai.com/v1/models")
+                .bearer_auth(&key)
+                .send()
+                .await
+            else {
+                return fallback();
+            };
+            let Ok(json) = body.json::<serde_json::Value>().await else { return fallback() };
+            json["data"]
+                .as_array()
+                .map(|ms| {
+                    ms.iter()
+                        .filter_map(|m| m["id"].as_str())
+                        .filter(|id| id.contains("realtime"))
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        _ => Vec::new(),
+    };
+
+    if found.is_empty() {
+        return fallback();
+    }
+    // The pinned default first, so the list opens on the model this build was
+    // tested with rather than on whatever the vendor happens to sort first.
+    let mut out = found;
+    out.sort();
+    if let Some(i) = out.iter().position(|m| m == p.model) {
+        out.swap(0, i);
+    }
+    out
+}
+
 /// The speech-to-speech vendors this build can run a call on.
 ///
 /// Served from Rust rather than listed in the frontend because the same table
@@ -129,6 +216,9 @@ pub(crate) async fn start_livekit_call(
     // from a previous vendor is refused mid-session, i.e. a call that connects
     // and then dies.
     voice: Option<String>,
+    // The realtime model for that vendor, or `None` for the pinned default.
+    // Not validated against a list on purpose: see `livekit::start`.
+    model: Option<String>,
     // Pipeline mode only: which engine speaks, and which transcription model
     // listens. Both are existing product settings with their own pickers; they
     // are passed in rather than read here so there is one source of truth.
@@ -142,6 +232,7 @@ pub(crate) async fn start_livekit_call(
     let wanted = cinderpaw_core::livekit::session_spec(
         provider.as_deref(),
         voice.as_deref(),
+        model.as_deref(),
         tts_engine.as_deref(),
         stt_model.as_deref(),
         stt_provider.as_deref(),
@@ -181,6 +272,7 @@ pub(crate) async fn start_livekit_call(
                 Some(cinderpaw_core::live::system_instruction(&brief)),
                 provider,
                 voice,
+                model,
                 // Whichever engines the user actually picked. Hard-coding Piper
                 // here is what made Kokoro, Fish Audio, Azure and ElevenLabs
                 // unreachable from a call while all four sat in the catalogue.
@@ -249,6 +341,10 @@ pub(crate) async fn warm_livekit(
     state: State<'_, AppState>,
     provider: Option<String>,
     voice: Option<String>,
+    // Warming a chain the call will not use is warming nothing, so the model
+    // belongs here too: it is part of the spec that decides whether the worker
+    // the call finds is the worker it wanted.
+    model: Option<String>,
     tts_engine: Option<String>,
     stt_model: Option<String>,
     stt_provider: Option<String>,
@@ -282,6 +378,7 @@ pub(crate) async fn warm_livekit(
     let wanted = cinderpaw_core::livekit::session_spec(
         provider.as_deref(),
         voice.as_deref(),
+        model.as_deref(),
         tts_engine.as_deref(),
         stt_model.as_deref(),
         stt_provider.as_deref(),
@@ -310,6 +407,7 @@ pub(crate) async fn warm_livekit(
                 Some(cinderpaw_core::live::system_instruction(&brief)),
                 provider,
                 voice,
+                model,
                 tts_engine,
                 stt_model,
                 stt_provider,

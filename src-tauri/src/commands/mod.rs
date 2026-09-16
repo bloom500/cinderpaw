@@ -100,7 +100,10 @@ mod command_count_test {
     // models it has and what they cost, instead of the frontend guessing.
     // 168 = + bug_report_log_preview + submit_bug_report (Settings > About
     // report button: the log preview a person approves, and the send).
-    const EXPECTED_COMMAND_COUNT: usize = 169;
+    // 169 -> 170 = + list_s2s_models (the voice panel's model picker asks the
+    // vendor which realtime models its key can open, instead of shipping a
+    // list that goes stale the next time Google ships a Live model).
+    const EXPECTED_COMMAND_COUNT: usize = 170;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

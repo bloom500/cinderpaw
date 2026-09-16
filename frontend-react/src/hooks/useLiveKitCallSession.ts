@@ -47,7 +47,7 @@ export function trimNotice(raw: string, max = 120): string {
  * while the pre-call screen is open has to apply to THIS call, not the next.
  */
 function callArgs() {
-  const { s2sProvider, ttsVoice, ttsProvider, sttModel, sttProvider, language } =
+  const { s2sProvider, s2sModel, ttsVoice, ttsProvider, sttModel, sttProvider, language } =
     useUI.getState();
   // In pipeline mode the voice belongs to the TTS ENGINE, not to the row — the
   // row has no voices of its own. Filing it under the row would lose the choice
@@ -58,6 +58,10 @@ function callArgs() {
   return {
     provider: s2sProvider,
     voice: voiceKey ? (ttsVoice[voiceKey] ?? null) : null,
+    // The pipeline has no single model — its halves have their own pickers —
+    // so it never sends one, and Rust keeps the vendor's pinned default when
+    // this is empty.
+    model: !pipeline && s2sProvider ? (s2sModel[s2sProvider] || null) : null,
     // Sent for EVERY call, not only the pipeline's. Whatever the agent says on
     // its own while a tool runs has to be said in the language the app is being
     // used in; a Romanian caller hearing "one moment" in English has been
@@ -92,7 +96,7 @@ function callArgs() {
  */
 export function warmLiveKit(): void {
   const a = callArgs();
-  void tauri.raw.warmLivekit(a.provider, a.voice, a.pipeline, a.language).catch(() => {});
+  void tauri.raw.warmLivekit(a.provider, a.voice, a.model, a.pipeline, a.language).catch(() => {});
 }
 
 /** The far end's own words for what it is doing, mapped to the overlay's four
@@ -282,6 +286,7 @@ export function useLiveKitCallSession() {
       const call = await tauri.raw.startLivekitCall(
         args.provider,
         args.voice,
+        args.model,
         args.pipeline,
         args.language,
       );

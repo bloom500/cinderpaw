@@ -1062,18 +1062,24 @@ const raw = {
   // Rejects with `livekit-no-node` when no Node runtime is installed — a code
   // rather than a sentence, because the answer needs a link the UI can put in
   // the user's language.
-  startLivekitCall:     (provider?: string | null, voice?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }, language?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo'; warm: boolean }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: language ?? pipeline?.sttLanguage ?? null }),
+  startLivekitCall:     (provider?: string | null, voice?: string | null, model?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }, language?: string | null) => invoke<{ url: string; token: string; room: string; mode: 'assistant' | 'echo'; warm: boolean }>('start_livekit_call', { provider: provider ?? null, voice: voice ?? null, model: model ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: language ?? pipeline?.sttLanguage ?? null }),
   endLivekitCall:       () => invoke<void>('end_livekit_call'),
   /** Same arguments as `startLivekitCall`, and that is load-bearing: a chain
    *  is warmed FOR one vendor, voice and pair of engines, and Rust throws
    *  away one that was warmed for anything else. Warming with fewer
    *  arguments than the call will use is a warmup guaranteed to be discarded. */
-  warmLivekit:          (provider?: string | null, voice?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }, language?: string | null) => invoke<void>('warm_livekit', { provider: provider ?? null, voice: voice ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: language ?? pipeline?.sttLanguage ?? null }),
+  warmLivekit:          (provider?: string | null, voice?: string | null, model?: string | null, pipeline?: { ttsEngine: string | null; sttModel: string | null; sttProvider: string | null; sttLanguage: string | null }, language?: string | null) => invoke<void>('warm_livekit', { provider: provider ?? null, voice: voice ?? null, model: model ?? null, ttsEngine: pipeline?.ttsEngine ?? null, sttModel: pipeline?.sttModel ?? null, sttProvider: pipeline?.sttProvider ?? null, sttLanguage: language ?? pipeline?.sttLanguage ?? null }),
   // Which speech-to-speech vendors this build can run a call on, and which of
   // them actually have a key. Asked of Rust rather than listed here: the same
   // table decides which npm plugin gets installed, and a second list in
   // TypeScript would be free to offer a vendor the agent cannot load.
   listS2sProviders:     () => invoke<S2sProviderInfo[]>('list_s2s_providers'),
+  // The realtime models this vendor's stored key can actually open a session
+  // with, asked of the vendor. Falls back in Rust to the one pinned in the
+  // build, so this never answers with an empty picker. ACCEPTED IS NOT
+  // SUPPORTED: `gemini-3.5-transcribe-live` is in Google's answer and only
+  // transcribes.
+  listS2sModels:        (provider: string) => invoke<string[]>('list_s2s_models', { provider }),
   // Whether this BINARY can transcribe on the machine. One frontend bundle
   // ships against builds compiled with different features, so it cannot know
   // from its own source whether the local path exists.

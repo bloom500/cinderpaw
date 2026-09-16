@@ -120,6 +120,11 @@ interface UIStore {
    * require a second gesture to notice the first one.
    */
   s2sProvider: string | null;
+  /** The realtime model per speech-to-speech vendor, e.g. `{ google:
+   *  'gemini-3.8-live-extended-thinking' }`. Empty means the one pinned in the
+   *  build. Persisted: a model picked once is the model the next call uses. */
+  s2sModel: Record<string, string>;
+  setS2sModel: (provider: string, model: string) => void;
   setS2sProvider: (id: string | null) => void;
   /**
    * Chosen voice per engine id.
@@ -186,6 +191,9 @@ export const useUI = create<UIStore>()(
       setCallEngine: (callEngine) => set({ callEngine }),
       s2sProvider: null,
       setS2sProvider: (s2sProvider) => set({ s2sProvider }),
+      s2sModel: {},
+      setS2sModel: (provider, model) =>
+        set((st) => ({ s2sModel: { ...st.s2sModel, [provider]: model } })),
       ttsVoice: {},
       setTtsVoice: (engineId, voiceId) =>
         set((s) => ({ ttsVoice: { ...s.ttsVoice, [engineId]: voiceId } })),
@@ -211,6 +219,7 @@ export const useUI = create<UIStore>()(
         ttsProvider: s.ttsProvider,
         callEngine: s.callEngine,
         s2sProvider: s.s2sProvider,
+        s2sModel: s.s2sModel,
         ttsVoice: s.ttsVoice,
       }),
       // Dropping the two keys from `partialize` only stops them being WRITTEN.

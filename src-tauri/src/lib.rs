@@ -545,6 +545,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             end_livekit_call,
             warm_livekit,
             list_s2s_providers,
+            list_s2s_models,
             stt_local_available,
             load_projects,
             save_project,

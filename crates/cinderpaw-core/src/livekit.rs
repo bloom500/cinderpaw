@@ -545,6 +545,11 @@ logging:
 pub fn session_spec(
     provider: Option<&str>,
     voice: Option<&str>,
+    // The realtime model the user picked. In the spec because a running worker
+    // is reused when the spec matches: leaving it out means picking a different
+    // model in the middle of a session changes nothing until the next restart,
+    // which reads as the setting being ignored.
+    model: Option<&str>,
     tts_engine: Option<&str>,
     stt_model: Option<&str>,
     stt_provider: Option<&str>,
@@ -552,8 +557,9 @@ pub fn session_spec(
 ) -> String {
     let id = resolve_provider(provider).map(|(p, _)| p.id).unwrap_or("echo");
     format!(
-        "{id}|{}|{}|{}|{}|{}",
+        "{id}|{}|{}|{}|{}|{}|{}",
         voice.unwrap_or(""),
+        model.unwrap_or(""),
         tts_engine.unwrap_or(""),
         stt_model.unwrap_or(""),
         stt_provider.unwrap_or(""),
@@ -809,6 +815,13 @@ pub async fn start(
     // through: a stale id from a previous provider is rejected by the vendor
     // mid-session, which is a call that connects and then dies.
     voice: Option<String>,
+    // The realtime model for that vendor, or `None` for the one pinned in
+    // S2S_PROVIDERS. Unlike a voice it is NOT checked against a list: vendors
+    // ship new live models between our releases, and a build that only accepts
+    // the ids we knew about is a build that cannot use them. An id the vendor
+    // does not know closes the socket, which surfaces as a call that fails to
+    // connect — see the model-id note in `commands/live.rs`.
+    model: Option<String>,
     // On-device only: which speech engine speaks and which Whisper model
     // listens. Both are existing product settings; they are passed rather than
     // read here so this module keeps one source of truth for them.
@@ -837,6 +850,7 @@ pub async fn start(
     let spec = session_spec(
         provider.as_deref(),
         voice.as_deref(),
+        model.as_deref(),
         tts_engine.as_deref(),
         stt_model.as_deref(),
         stt_provider.as_deref(),
@@ -1004,7 +1018,13 @@ pub async fn start(
         cmd.env("CINDERPAW_LIVE_LANGUAGE", stt_language.as_deref().unwrap_or(""));
         cmd.env("CINDERPAW_LIVE_PROVIDER", p.id)
             .env("CINDERPAW_LIVE_API_KEY", k)
-            .env("CINDERPAW_LIVE_MODEL", p.model)
+            .env(
+                "CINDERPAW_LIVE_MODEL",
+                match model.as_deref() {
+                    Some(m) if !m.trim().is_empty() && !p.pipeline => m,
+                    _ => p.model,
+                },
+            )
             .env(
                 "CINDERPAW_LIVE_VOICE",
                 // A realtime vendor's voices are a fixed list, so a stale id is
@@ -1325,10 +1345,10 @@ mod tests {
         // Whatever a default call on THIS machine resolves to. Hard-coding
         // "echo" here measured a chain that was never asked for on a machine
         // with a key stored.
-        let spec = session_spec(None, None, None, None, None, None);
+        let spec = session_spec(None, None, None, None, None, None, None);
         let spec = spec.as_str();
         let boot = || async {
-            start(&[], "you", None, None, None, None, None, None, None, |_| {}, None).await
+            start(&[], "you", None, None, None, None, None, None, None, None, |_| {}, None).await
         };
 
         let gate = BootGate::const_new(());
