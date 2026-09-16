@@ -99,7 +99,9 @@ covers, what it does not, and why the rest of that package was left behind.
 - **License:** Apache-2.0, full text in
   `CinderpawAgent/src/artifacts/vendor/LICENSE`
 - **Copyright:** The Apache Software Foundation
-- **Modifications:** none. Byte-for-byte the published bundle.
+- **Modifications:** none. Byte-for-byte the published bundle: 1,034,102 bytes,
+  sha256 starting `bf4a2235`. `.gitattributes` marks it `-text` so line-ending
+  normalisation cannot quietly make that sentence false.
 
 Vendored rather than loaded from a CDN, and that is a product decision, not a
 packaging one. An artifact that fetches its chart library at open time does not

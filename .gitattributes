@@ -31,3 +31,8 @@
 *.gguf  binary
 *.bin   binary
 *.wasm  binary
+
+# Vendored third-party bundles are byte-for-byte what upstream published, and
+# THIRD-PARTY-NOTICES says so. Line-ending normalisation would quietly make that
+# sentence false and change the file's hash against upstream's.
+CinderpawAgent/src/artifacts/vendor/echarts.min.js -text

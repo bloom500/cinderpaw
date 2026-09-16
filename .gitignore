@@ -130,6 +130,15 @@ runs-arc/
 # Cloned third-party benchmark harnesses (tau2-bench). Never committed: they
 # carry their own git history and a .env with live API keys.
 vendor/
+# ...except third-party SOURCE we deliberately keep in the tree. The rule
+# above is aimed at cloned harnesses and build outputs, and it also swallowed
+# the directories where we vendor code we ship. tool-call-repair survived only
+# because it was tracked before the rule existed; anything added after it is
+# silently absent from a clean clone and the build fails on a missing import,
+# with nothing pointing at .gitignore. Each vendored source dir is re-included
+# by name, so adding one stays a decision someone made on purpose.
+!CinderpawAgent/src/vendor/
+!CinderpawAgent/src/artifacts/vendor/
 
 # Python bytecode from the tau2 harness.
 __pycache__/
