@@ -24,7 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Copy, Check, Star, GripVertical } from 'lucide-react';
 import { SelectMenu } from '@/components/ui/select-menu';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { copyText as writeText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 import { BubbleTail } from './BubbleTail';
 import { Markdown } from '@/lib/markdown';

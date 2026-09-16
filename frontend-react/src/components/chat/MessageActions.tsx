@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { Check, Copy, Pencil, RotateCcw } from 'lucide-react';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { Check, Copy, Pencil, RotateCcw, X } from 'lucide-react';
+import { copyText } from '@/lib/clipboard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
@@ -56,19 +56,14 @@ export function MessageActions({
   onEdit?: () => void;
   className?: string;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
+  // Says what happened, not what was attempted. The first version of this
+  // button showed a tick whether or not the text reached the clipboard, which
+  // is how a dead clipboard plugin looked like a working button.
   const copy = async () => {
-    try {
-      await writeText(text);
-    } catch {
-      /* no clipboard (browser preview, locked-down session) */
-    }
-    // The tick shows either way. It reports that the button was pressed, which
-    // is the feedback that was missing; a clipboard that refuses is silent on
-    // every platform anyway.
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
+    setState((await copyText(text)) ? 'copied' : 'failed');
+    setTimeout(() => setState('idle'), 1600);
   };
 
   if (!text.trim() && !onRetry) return null;
@@ -77,10 +72,16 @@ export function MessageActions({
     <TooltipProvider delayDuration={200}>
       <div className={cn('flex items-center gap-0.5 -ml-1.5', className)}>
         {text.trim() && (
-          <Action label="Copy" done={copied ? 'Copied' : undefined} onClick={copy}>
-            {copied
+          <Action
+            label="Copy"
+            done={state === 'copied' ? 'Copied' : state === 'failed' ? 'Could not reach the clipboard' : undefined}
+            onClick={copy}
+          >
+            {state === 'copied'
               ? <span className="flex items-center gap-1 text-success"><Check size={13} /><span className="text-[11px]">Copied</span></span>
-              : <Copy size={13} />}
+              : state === 'failed'
+                ? <span className="flex items-center gap-1 text-error"><X size={13} /><span className="text-[11px]">Failed</span></span>
+                : <Copy size={13} />}
           </Action>
         )}
         {onEdit && (

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Copy, Check } from 'lucide-react';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { copyText as writeText } from '@/lib/clipboard';
 
 interface CodeBlockProps extends React.HTMLAttributes<HTMLPreElement> {
   children?: ReactNode;

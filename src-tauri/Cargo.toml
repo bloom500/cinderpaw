@@ -34,6 +34,11 @@ rfd = { version = "0.16", default-features = false, features = ["common-controls
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Every copy button in the app called this plugin's IPC command while the plugin
+# itself was never added here, never registered in lib.rs and never permitted in
+# capabilities/default.json. The JS package was installed, so the code compiled,
+# the call failed at runtime and the catch beside it swallowed the error.
+tauri-plugin-clipboard-manager = "2"
 # `serde_json`: so a `serde_json::Value` field can cross to TypeScript as `unknown`.
 specta = { version = "=2.0.0-rc.25", features = ["serde_json"] }
 specta-typescript = "0.0.12"
