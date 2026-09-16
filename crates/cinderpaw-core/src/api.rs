@@ -1157,6 +1157,19 @@ async fn runtime_voice_tool(
     let session = voice_session_id(&call);
     let dedupe_key = voice_dedupe_key(&session, &call.name, &request);
     let agent_session = agent_session_id(&call);
+
+    // The stop never joins the in-flight map, and that is not a shortcut.
+    // It takes no arguments, so every stop in a conversation has the SAME
+    // dedupe key — a second one within the keep window would have been handed
+    // the first one's "Stopped." and no line would have gone out, while the
+    // model told the caller it had. The map exists to stop work being done
+    // twice; a stop done twice costs nothing and is what was asked for.
+    if call.name == crate::live::bridge::STOP_CINDER {
+        let answered =
+            crate::live::bridge::answer(&call, Some(&state.runtime), &agent_session).await;
+        tracing::info!(ok = %answered.response["ok"], "voice tool: stop issued");
+        return Json(json!({ "id": call.id, "response": answered.response })).into_response();
+    }
     let started = std::time::Instant::now();
     // Logged on the way in as well as out. A tool call used to leave no trace
     // at all, so "did it even try to search?" had no answer anywhere — and that

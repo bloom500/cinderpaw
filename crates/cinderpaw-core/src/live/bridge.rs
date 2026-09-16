@@ -21,6 +21,18 @@ use crate::tools::{execute, ToolType};
 /// The one thing the model can ask for.
 pub const ASK_CINDER: &str = "ask_cinder";
 
+/// ...and the one thing it can call off.
+///
+/// Its own tool rather than a sentence inside `ask_cinder`, because stopping is
+/// not a request the agent can serve: a stop is a protocol line to the sidecar,
+/// which aborts the in-flight generation and the tool signal for that session.
+/// Asked through the door instead, the agent answered "stopped" in words and
+/// nothing stopped — measured 16 Sep: the caller said "stop the searches and the
+/// agent", the voice said "done, it is stopped", and the `ask_cinder` card went
+/// on spinning because the search it described was still running. The card was
+/// right. The only thing broken was that the model had no lever to pull.
+pub const STOP_CINDER: &str = "stop_cinder";
+
 /// The conversation on screen, so that what the voice call DOES lands there.
 ///
 /// `ask_cinder` used to run in a session of its own, `voice-<pid>`. Everything
@@ -113,6 +125,34 @@ pub fn declarations() -> Vec<FunctionDeclaration> {
         // — 3.1 runs every call sequentially, so a call on 3.1 goes silent for
         // the length of the request.
         behavior: Some("NON_BLOCKING".to_string()),
+    },
+    FunctionDeclaration {
+        name: STOP_CINDER.to_string(),
+        // A trigger, like the door above, and for the same measured reason: a
+        // description that offers a capability gets discussed, one that names
+        // the words meaning "do it" gets called.
+        // Written as one joined list rather than a continued literal: a
+        // backslash-continued string here becomes a run of invisible spaces in
+        // the middle of a sentence the model reads.
+        description: [
+            "Stop whatever Cinderpaw is doing right now: a search, a download,",
+            "a file being written, a running agent turn.",
+            "Call this the moment the user says stop, cancel, abort, leave it,",
+            "forget it or that is enough, or tells you to halt anything in",
+            "progress: those words are instructions to call this tool, not",
+            "something to agree with. Saying you have stopped it does not stop",
+            "it; only this call does. It takes effect immediately and needs no",
+            "arguments.",
+        ]
+        .join(" "),
+        // No arguments on purpose. "Stop what?" is a question the caller has
+        // already answered by saying stop, and an argument here would be one
+        // more thing for the model to get wrong while the user waits.
+        parameters: serde_json::json!({ "type": "object", "properties": {} }),
+        // Blocking: it returns as fast as a line on a pipe, and NON_BLOCKING
+        // on a call this short only widens the window in which the model
+        // answers before the work has actually been called off.
+        behavior: None,
     }]
 }
 
@@ -155,6 +195,32 @@ async fn ask_cinder(
     crate::api::await_agent_reply(rx, &msg_id).await
 }
 
+/// Call off whatever is running in this conversation.
+///
+/// The same line the Stop button sends, `{"type":"stop","sessionId":...}`, so
+/// there is one definition of what stopping means. The agent loop aborts the
+/// router fetch and the per-session tool signal and emits its `done` with
+/// `stopped: true` — which is what closes the tool card in the window, because
+/// the request that was waiting on that turn finally gets an answer.
+///
+/// Scoped to the session, not `stopAll`: since the voice call works in the
+/// conversation on screen, that session IS the work the caller means. Stopping
+/// everything would also kill a cron job or a dream cycle the caller never
+/// mentioned.
+async fn stop_cinder(runtime: &Arc<RuntimeState>, session_id: &str) -> Result<(), String> {
+    let tx = runtime
+        .cinderpaw_agent_tx
+        .lock()
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "Cinderpaw's agent is not running right now".to_string())?;
+    tx.send(
+        serde_json::json!({ "type": "stop", "sessionId": session_id }).to_string(),
+    )
+    .await
+    .map_err(|_| "Cinderpaw's agent stopped accepting messages".to_string())
+}
+
 /// Run one call and produce the response that must go back.
 ///
 /// Always returns a response, including for a tool that does not exist. The
@@ -166,7 +232,17 @@ pub async fn answer(
     runtime: Option<&Arc<RuntimeState>>,
     session_id: &str,
 ) -> FunctionResponse {
-    let response = if call.name == ASK_CINDER {
+    let response = if call.name == STOP_CINDER {
+        match runtime {
+            None => serde_json::json!({ "ok": false, "output": "Cinderpaw is not reachable from here" }),
+            Some(rt) => match stop_cinder(rt, session_id).await {
+                // Said plainly so the model has a true sentence to say out
+                // loud. It used to invent one.
+                Ok(()) => serde_json::json!({ "ok": true, "output": "Stopped." }),
+                Err(e) => serde_json::json!({ "ok": false, "output": e }),
+            },
+        }
+    } else if call.name == ASK_CINDER {
         let request = call.args.get("request").and_then(|v| v.as_str()).unwrap_or("");
         match runtime {
             // Only a host that owns a sidecar can answer this. `None` is the
@@ -234,7 +310,7 @@ mod tests {
         assert_eq!(names.len(), declarations().len(), "two tools share a name");
         for name in names {
             assert!(
-                name == ASK_CINDER || ToolType::from_name(&name).is_some(),
+                name == ASK_CINDER || name == STOP_CINDER || ToolType::from_name(&name).is_some(),
                 "{name} is declared but nothing answers it",
             );
         }
@@ -264,7 +340,7 @@ mod tests {
         // Rust's are weaker — its web_search answers HTTP 429 while the
         // sidecar's works. Declaring both let the model pick the broken one.
         let names: Vec<_> = declarations().into_iter().map(|d| d.name).collect();
-        assert_eq!(names, vec![ASK_CINDER.to_string()]);
+        assert_eq!(names, vec![ASK_CINDER.to_string(), STOP_CINDER.to_string()]);
     }
 
     #[test]
@@ -277,6 +353,38 @@ mod tests {
             assert_eq!(tool.to_anthropic_definition()["input_schema"], schema);
             assert_eq!(tool.to_gemini_declaration().parameters, schema);
         }
+    }
+
+    #[test]
+    fn stopping_is_its_own_tool_and_takes_no_arguments() {
+        // Argument-free on purpose: "stop what?" is a question the caller
+        // already answered by saying stop. And blocking, unlike the door: the
+        // whole complaint was a model that said "it is stopped" before
+        // anything was, and NON_BLOCKING on a call this short only widens that
+        // window.
+        let stop = declarations().into_iter().find(|d| d.name == STOP_CINDER).unwrap();
+        assert_eq!(stop.parameters["properties"], serde_json::json!({}));
+        assert_eq!(stop.behavior, None);
+        // It has to read as an instruction, not as an offer. A description that
+        // offers a capability gets discussed instead of called.
+        assert!(stop.description.contains("the moment the user says stop"));
+        assert!(stop.description.contains("does not stop it"));
+    }
+
+    #[tokio::test]
+    async fn a_stop_with_no_agent_says_so_instead_of_claiming_success() {
+        // The one answer that must never be optimistic: the model reads `ok`
+        // and says it out loud. On a host with no sidecar there is nothing to
+        // stop, and "Stopped." would be the same lie this tool exists to end.
+        let call = FunctionCall {
+            id: "call-stop".into(),
+            name: STOP_CINDER.into(),
+            args: serde_json::json!({}),
+            session: "voice-1".into(),
+        };
+        let response = answer(&call, None, "s1").await;
+        assert_eq!(response.response["ok"], false);
+        assert!(response.response["output"].as_str().unwrap().contains("not reachable"));
     }
 
     #[tokio::test]

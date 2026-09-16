@@ -628,11 +628,21 @@ function toolsFromDeclarations(session) {
         // something, watched nothing happen for up to a hundred seconds, and
         // reasonably concluded the tool was broken. These two lines are the
         // only thing that ever told them otherwise.
-        emit({ kind: 'toolCall', text: String(args?.request ?? '').trim() });
+        // A row only for a call that HAS a subject. `stop_cinder` takes no
+        // arguments, and opening a blank row for it would replace the row of
+        // the very search it is cancelling (rows are keyed by tool) with an
+        // empty card. Skipping it leaves that row on screen and lets the
+        // `toolResult` below close it, which is what the caller asked for: the
+        // thing they stopped, shown as stopped.
+        const subject = String(args?.request ?? '').trim();
+        if (subject) emit({ kind: 'toolCall', text: subject });
         // The panel says what is running; this says it out loud, which is the
         // half a person on a phone call actually receives.
         // Gemini can speak in its own voice during a nonblocking tool call.
-        const done = PROVIDER === 'google' ? () => {} : keepLineWarm(session);
+        // Nothing needs covering for a call that returns as fast as a line on
+        // a pipe either: a filler for the stop would talk over the
+        // confirmation it is waiting for.
+        const done = PROVIDER === 'google' || !subject ? () => {} : keepLineWarm(session);
         try {
           const out = await askRust(decl.name, args);
           emit({ kind: 'toolResult', text: out?.ok === false ? String(out.output ?? 'failed') : '' });

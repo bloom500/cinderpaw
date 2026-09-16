@@ -105,6 +105,13 @@ const SPOKEN_RULES: &[&str] = &[
     // nothing to say. A promise is not an action.
     "Never announce a call you have not made. No 'I am about to', no 'I am preparing the request', no 'give me a moment while I set it up' — those are promises, and a promise is not an action. Either the call is going out as you speak, or you say plainly that you have not done it yet.",
     "While you wait for ask_cinder, keep the line warm: say something every ten or fifteen seconds, and answer anything the user says in the meantime. Never let the call go quiet for more than about fifteen seconds.",
+    // Stopping is a different door, and it has to be named or the model keeps
+    // knocking on the only one it knows. Measured 16 Sep: asked to stop the
+    // searches and the agent, it put that through ask_cinder, was answered in
+    // words, and told the caller it was done while the work carried on and the
+    // panel went on saying so. The last sentence is the one that matters: this
+    // model cannot stop anything by describing it.
+    "Stopping is a different tool: stop_cinder, with no arguments. The moment the user says stop, cancel, abort, leave it, forget it or that is enough, call stop_cinder — not ask_cinder, and not instead of it. Do not say you have stopped anything until that call has gone out, because saying it stops nothing and the user is watching a panel that shows what is actually still running.",
 ];
 
 /// Compose the setup message's system instruction.
@@ -352,6 +359,19 @@ mod tests {
         assert!(
             text.contains("never describe searching"),
             "nothing forbids narrating a search that is not happening",
+        );
+    }
+
+    /// The bug: asked to stop, the model reached for the only door it had been
+    /// told about, was answered in prose, and reported success while the work
+    /// ran on. Naming the second tool is the whole fix on this side.
+    #[test]
+    fn stopping_is_named_as_its_own_tool() {
+        let text = system_instruction(&Briefing::default());
+        assert!(text.contains("stop_cinder"), "the model was never told the stop exists");
+        assert!(
+            text.contains("saying it stops nothing"),
+            "nothing forbids announcing a stop that has not been made",
         );
     }
 
