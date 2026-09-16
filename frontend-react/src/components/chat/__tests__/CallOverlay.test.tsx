@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { CallTranscript, chooseSpeechEngine, compactCallTranscript, keyOwner } from '../CallOverlay';
+import { CallTranscript, ProviderToggle, chooseSpeechEngine, compactCallTranscript, keyOwner } from '../CallOverlay';
 import type { TtsProviderInfo } from '@/lib/tauri';
 
 describe('compactCallTranscript', () => {
@@ -136,5 +136,43 @@ describe('which engine speaks on a machine nobody has configured', () => {
     const { engine: chosen, source } = chooseSpeechEngine([piper], 'an-engine-that-was-removed');
     expect(chosen?.id).toBe('piper');
     expect(source).toBe('default');
+  });
+});
+
+describe('ProviderToggle', () => {
+  const providers = [
+    { id: 'google', label: 'Gemini Realtime', pipeline: false, connected: false, voices: [], defaultVoice: '' },
+    { id: 'openai', label: 'OpenAI Realtime', pipeline: false, connected: true, voices: [], defaultVoice: '' },
+    { id: 'pipeline', label: 'Transcribe → answer → speak', pipeline: true, connected: true, voices: [], defaultVoice: '' },
+  ] as never[];
+  const t = (k: string) => ({ 'call.groupPipeline': 'STT + TTS', 'call.groupS2s': 'Speech to speech' }[k] ?? k);
+
+  it('shows two kinds of call, and the vendors only under speech to speech', () => {
+    const { rerender } = render(
+      <ProviderToggle providers={providers} effective="pipeline" willEcho={false} onChange={() => {}} t={t as never} />,
+    );
+    expect(screen.getByRole('button', { name: 'STT + TTS' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('Gemini Realtime')).toBeNull();
+
+    rerender(<ProviderToggle providers={providers} effective="google" willEcho={false} onChange={() => {}} t={t as never} />);
+    expect(screen.getByRole('button', { name: 'Speech to speech' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Gemini Realtime')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI Realtime')).toBeInTheDocument();
+  });
+
+  it('switching to speech to speech lands on a vendor that has a key', () => {
+    const picked: string[] = [];
+    render(<ProviderToggle providers={providers} effective="pipeline" willEcho={false} onChange={(id: string) => picked.push(id)} t={t as never} />);
+    screen.getByRole('button', { name: 'Speech to speech' }).click();
+    expect(picked).toEqual(['openai']);
+  });
+
+  it('with STT + TTS parked, shows the vendors directly, even before any key exists', () => {
+    const s2sOnly = providers.slice(0, 2).map((p: never) => ({ ...(p as object), connected: false })) as never[];
+    render(<ProviderToggle providers={s2sOnly} effective={null} willEcho={false} onChange={() => {}} t={t as never} />);
+    expect(screen.queryByRole('button', { name: 'Speech to speech' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'STT + TTS' })).toBeNull();
+    expect(screen.getByText('Gemini Realtime')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI Realtime')).toBeInTheDocument();
   });
 });

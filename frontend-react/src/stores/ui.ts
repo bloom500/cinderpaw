@@ -240,6 +240,10 @@ export const useUI = create<UIStore>()(
         if (RETIRED_CALL_ENGINES.includes(merged.callEngine)) {
           merged.callEngine = 'livekit';
         }
+        // STT + TTS is parked (`PIPELINE_PARKED` in livekit.rs). A stored pick of
+        // it would still route the call button through its setup cards, so it is
+        // cleared here and the picker falls back to speech to speech.
+        if (merged.s2sProvider === 'pipeline') merged.s2sProvider = null;
         return merged;
       },
       onRehydrateStorage: () => (state) => {

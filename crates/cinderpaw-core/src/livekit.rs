@@ -232,6 +232,17 @@ pub const S2S_PROVIDERS: &[S2sProvider] = &[
     },
 ];
 
+/// The STT + TTS pipeline is parked: nobody is offered it and a stored pick of
+/// it is ignored, until a call on it actually hears the person (14 Sep: on the
+/// dev build he spoke for minutes and got nothing back). The row and its code
+/// stay so that re-opening it is this one line, not a restore from git.
+pub const PIPELINE_PARKED: bool = true;
+
+/// Whether a row may be shown in the picker or run a call.
+pub fn is_offered(p: &S2sProvider) -> bool {
+    !(p.pipeline && PIPELINE_PARKED)
+}
+
 pub fn provider_by_id(id: &str) -> Option<&'static S2sProvider> {
     S2S_PROVIDERS.iter().find(|p| p.id == id)
 }
@@ -250,6 +261,10 @@ pub fn provider_by_id(id: &str) -> Option<&'static S2sProvider> {
 /// the exact lie this table was introduced to remove. The fallback applies only
 /// when nothing was picked, where there is no claim to contradict.
 pub fn resolve_provider(preferred: Option<&str>) -> Option<(&'static S2sProvider, String)> {
+    // A machine that picked the pipeline before it was parked still has that
+    // pick stored. Honouring it would leave exactly those people on the mode
+    // that does not hear them, so it counts as no pick at all.
+    let preferred = preferred.filter(|id| provider_by_id(id).is_none_or(is_offered));
     // The pipeline is the one row that carries no key of its own — its halves
     // bring their own, when they need one at all. Testing for a stored key
     // first would put "no key stored" on screen for the option whose entire
@@ -1564,10 +1579,16 @@ listen tcp :61111: bind: Only one usage of each socket address (protocol/network
     fn the_pipeline_needs_no_key_and_is_never_the_silent_default() {
         let row = provider_by_id("pipeline").expect("a pipeline row");
         assert!(row.pipeline);
-        // Picked explicitly: resolved, with an empty key, whatever is stored.
-        let (p, key) = resolve_provider(Some("pipeline")).expect("the pipeline needs no key");
-        assert_eq!(p.id, "pipeline");
-        assert!(key.is_empty());
+        if PIPELINE_PARKED {
+            // Parked: a stored pick never runs it, whatever keys are stored.
+            assert!(!is_offered(row));
+            assert!(resolve_provider(Some("pipeline")).is_none_or(|(p, _)| !p.pipeline));
+        } else {
+            // Picked explicitly: resolved, with an empty key, whatever is stored.
+            let (p, key) = resolve_provider(Some("pipeline")).expect("the pipeline needs no key");
+            assert_eq!(p.id, "pipeline");
+            assert!(key.is_empty());
+        }
         // Not picked: never chosen for the user. This asserts the FILTER, not
         // the machine's keychain — a developer box with a key stored would
         // otherwise make this pass for the wrong reason.
