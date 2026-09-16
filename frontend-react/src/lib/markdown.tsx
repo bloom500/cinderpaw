@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import rehypeHighlight from 'rehype-highlight';
+import 'katex/dist/katex.min.css';
 import { Maximize2, X } from 'lucide-react';
 import { CodeBlock } from '@/components/chat/CodeBlock';
+import { MermaidDiagram } from '@/components/chat/MermaidDiagram';
 import { ExternalLink } from '@/components/chat/ExternalLink';
 import { rehypeWordFade } from '@/lib/rehypeWordFade';
 
@@ -66,13 +70,19 @@ function InlineCode({ children }: { children?: React.ReactNode }) {
 
 export function Markdown({ children, animateWords }: { children: string; animateWords?: boolean }) {
   // Word-fade runs after highlight so it can skip code/pre nodes it produced.
+  // KaTeX before highlight, so a formula is a formula and not a code span.
+  //
+  // `singleDollarTextMath: false` is deliberate: with it on, "it cost $4.49 and
+  // $0.30 in probes" is one inline formula, and this agent talks about money in
+  // almost every report. $$…$$ blocks and \(…\) still work, which is what a
+  // model writes when it means mathematics.
   const rehypePlugins = animateWords
-    ? [rehypeHighlight, rehypeWordFade]
-    : [rehypeHighlight];
+    ? [rehypeKatex, rehypeHighlight, rehypeWordFade]
+    : [rehypeKatex, rehypeHighlight];
   return (
     <div className="prose dark:prose-invert max-w-none wrap-break-word wrap-anywhere text-text-primary prose-headings:text-text-primary prose-strong:text-text-primary prose-pre:p-0 prose-pre:bg-transparent prose-pre:border-none prose-a:text-brand prose-li:text-text-primary prose-p:text-text-primary">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
         rehypePlugins={rehypePlugins}
         components={{
           pre:  CodeBlock as React.ComponentType<React.HTMLAttributes<HTMLPreElement>>,
@@ -82,6 +92,9 @@ export function Markdown({ children, animateWords }: { children: string; animate
             // Fenced code blocks are handled by CodeBlock via the `pre` component.
             // Only render inline code here (no language class on the element).
             const isBlock = typeof className === 'string' && className.startsWith('language-');
+            if (className === 'language-mermaid') {
+              return <MermaidDiagram code={String(children).trimEnd()} />;
+            }
             if (isBlock) return <code className={className} {...props}>{children}</code>;
             return <InlineCode>{children}</InlineCode>;
           }) as React.ComponentType<React.HTMLAttributes<HTMLElement>>,

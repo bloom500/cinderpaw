@@ -8,6 +8,7 @@ import { BubbleTail } from './BubbleTail';
 import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
 import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
+import { MessageActions } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
@@ -195,6 +196,9 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
       <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
         <Markdown animateWords={streaming}>{message.content}</Markdown>
       </div>
+      {/* Only on a finished reply: a copy button beside text that is still
+          arriving would copy half of it. */}
+      {!isUser && !streaming && <MessageActions text={message.content} />}
       {askUser && (
         <AskUserCard
           // Force a fresh component instance per request so internal submit
