@@ -90,6 +90,29 @@ covers, what it does not, and why the rest of that package was left behind.
 
 ---
 
+## Apache ECharts — the charts inside `app` artifacts
+
+**Copied verbatim into:** `CinderpawAgent/src/artifacts/vendor/echarts.min.js`
+
+- **Source:** https://github.com/apache/echarts (v5.6.0, the published
+  `dist/echarts.min.js`)
+- **License:** Apache-2.0, full text in
+  `CinderpawAgent/src/artifacts/vendor/LICENSE`
+- **Copyright:** The Apache Software Foundation
+- **Modifications:** none. Byte-for-byte the published bundle.
+
+Vendored rather than loaded from a CDN, and that is a product decision, not a
+packaging one. An artifact that fetches its chart library at open time does not
+work on a plane, and it tells a third party which of their own documents the
+user just opened. The file is inlined into an exported `app` artifact at export
+time, so the exported .html runs offline in any browser with nothing else
+installed. Upgrading this file upgrades every artifact ever exported after it.
+
+It is NOT in the desktop bundle: the React app never imports it, so the 1 MB is
+paid once inside an exported file, by the people who asked for a chart.
+
+---
+
 ## grapheme_to_phoneme and arpabet — pronouncing words the dictionary lacks
 
 **Used in:** `crates/cinderpaw-core/src/tts/g2p.rs` (the `kokoro` feature)

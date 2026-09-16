@@ -36,6 +36,7 @@ import {
   type Artifact,
   type ArtifactKind,
 } from "../../artifacts/store.ts";
+import { APP_AUTHORING_BRIEF, inlineApp } from "../../artifacts/app.ts";
 import {
   ensureWorkspace,
   getActiveWorkspaceId,
@@ -102,12 +103,18 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
   const manifest: ToolManifest = {
     name: "artifact_create",
     description:
-      "Create a durable piece of work that outlives the conversation: a document, " +
-      "report, chart, table, code file or data file. Returns a stable id you can " +
-      "edit later by name, from any surface — chat, a voice call, or a connected " +
-      "chat app. Use this instead of pasting a long result into the reply when the " +
-      "user will want it again. Kinds: document (rich text, HTML), markdown, chart " +
-      "(an ECharts option object as JSON), table (JSON rows), code, json, html, file.",
+      "Put the result HERE instead of in the reply whenever it is longer than " +
+      "about 15 lines, stands on its own, or is something the user will want to " +
+      "edit, re-read or reuse after this conversation: a report, a summary, a " +
+      "plan, a draft, a dataset, a script, an interactive chart or tool. Those " +
+      "conditions are the instruction to call this: a long answer typed into " +
+      "chat scrolls away and cannot be edited or exported. Returns a stable id " +
+      "you can change later by name, from any surface: chat, a voice call, or a " +
+      "connected chat app.\n\n" +
+      "Kinds: document (prose, as HTML), markdown, app (see below), table (JSON " +
+      "rows), code, json, html, file.\n\n" +
+      "app = " + APP_AUTHORING_BRIEF + " Charts are apps: there is no separate " +
+      "chart kind, because a chart is an app with no controls.",
     permissions: ["fs:write", "fs:read"],
     networkAccess: false,
     allowedPaths: [deps.store.root],
@@ -404,14 +411,34 @@ export function createArtifactExportTool(deps: ArtifactToolDeps): Tool {
         ? resolve(root, requested)
         : join(root, `${safeFileName(a.title)}${ArtifactStore.extensionFor(a.kind)}`);
 
+      // An app is only useful as a file if it still works once it is one. The
+      // chart library is inlined HERE rather than stored in the artifact, so
+      // the exported page opens offline in any browser with nothing installed,
+      // and every future export picks up the vendored bundle we ship today.
+      let out = content;
+      let note = "";
+      if (a.kind === "app") {
+        const app = inlineApp(content);
+        out = app.html;
+        if (app.charts) note += " Charts are inlined, so it works offline.";
+        if (app.externals.length > 0) {
+          // Said on the user's screen, not in a log. A file that quietly needs
+          // the network is a different promise from the one this feature makes,
+          // and they find out on the machine where it matters otherwise.
+          note +=
+            ` It still loads ${app.externals.length} thing(s) from the internet` +
+            ` and will not work offline: ${app.externals.slice(0, 3).join(", ")}.`;
+        }
+      }
+
       // The same choke point every write tool uses: escapes and read-only mode
       // are refused here, not by a check this file would have to remember.
       const safe = resolveAllowedPath(manifest, "fs:write", target);
-      await Bun.write(safe, content);
+      await Bun.write(safe, out);
       return {
         ok: true,
-        content: `Exported "${a.title}" to ${safe}.`,
-        data: { id, path: safe, bytes: a.bytes },
+        content: `Exported "${a.title}" to ${safe}.${note}`,
+        data: { id, path: safe, bytes: Buffer.byteLength(out, "utf8") },
       };
     },
   };
@@ -457,7 +484,7 @@ export function createArtifactDeleteTool(deps: ArtifactToolDeps): Tool {
  */
 export function safeFileName(title: string): string {
   const cleaned = basename(title)
-    .replace(/[\\/:*?"<>| -]/g, "-")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-")
     .replace(/\s+/g, " ")
     .replace(/^[.\s]+|[.\s]+$/g, "")
     .trim();

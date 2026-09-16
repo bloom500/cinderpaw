@@ -9,8 +9,8 @@
  * An artifact is a row plus a file. That is the whole model, and it is
  * deliberately not eleven models: `kind` picks a renderer and nothing else, so
  * the store, the versioning and (later) the delivery path never grow a branch
- * per type. A chart is a JSON file whose renderer draws it; a document is HTML;
- * a downloaded file is a file.
+ * per type. An app is an HTML file its renderer runs in a sandbox; a document
+ * is HTML; a downloaded file is a file.
  *
  * WHY THE BYTES ARE NOT IN SQLITE. This database is shared with the fractal
  * memory substrate, and a 40-page document in a BLOB makes every memory query
@@ -42,7 +42,14 @@ import type { Database } from "bun:sqlite";
 export type ArtifactKind =
   | "document"
   | "markdown"
-  | "chart"
+  /**
+   * One self-contained, interactive HTML file: charts, sliders, dashboards,
+   * small simulations. `chart` was its own kind for about a day; it is an app
+   * with no buttons, and splitting them bought a second renderer for the case
+   * where the user immediately asks whether the chart can be dragged. See
+   * `artifacts/app.ts` for the two rules it runs under.
+   */
+  | "app"
   | "table"
   | "code"
   | "json"
@@ -52,7 +59,7 @@ export type ArtifactKind =
   | "file";
 
 const KINDS: ReadonlySet<string> = new Set<ArtifactKind>([
-  "document", "markdown", "chart", "table", "code", "json", "html", "pdf", "image", "file",
+  "document", "markdown", "app", "table", "code", "json", "html", "pdf", "image", "file",
 ]);
 
 export function isArtifactKind(v: unknown): v is ArtifactKind {
@@ -67,13 +74,13 @@ export function isArtifactKind(v: unknown): v is ArtifactKind {
  * instead, rather than writing a .pdf file full of prose that no reader opens.
  */
 const TEXT_KINDS: ReadonlySet<ArtifactKind> = new Set<ArtifactKind>([
-  "document", "markdown", "chart", "table", "code", "json", "html", "file",
+  "document", "markdown", "app", "table", "code", "json", "html", "file",
 ]);
 
 const EXT: Record<ArtifactKind, string> = {
   document: ".html",
   markdown: ".md",
-  chart: ".json",
+  app: ".html",
   table: ".json",
   code: ".txt",
   json: ".json",
@@ -86,7 +93,7 @@ const EXT: Record<ArtifactKind, string> = {
 const MIME: Record<ArtifactKind, string> = {
   document: "text/html",
   markdown: "text/markdown",
-  chart: "application/json",
+  app: "text/html",
   table: "application/json",
   code: "text/plain",
   json: "application/json",
