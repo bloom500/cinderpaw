@@ -433,13 +433,14 @@ if (import.meta.main) {
     const runSet = (seqs: Seq[], label: string, o: ArmOpts, c = ctx) => {
       const p = shardFile(label), done = cached(label);
       if (done.size) log(`${name} ${label} ${done.size}/${seqs.length} already on disk`);
+      let ran = 0; // count what THIS process computed: i % 10 is only ever 9 on an odd shard
       return seqs.map((s, i) => {
         const hit = done.get(i);
         if (hit) return hit;
         if (i % shardN !== shardK) { missing++; return [] as Rec[]; }
         const r = runSequence(sim, pack, pops, c, o, s);
         appendFileSync(p, `${JSON.stringify({ i, r })}\n`);
-        if (i % 10 === 9 || i === seqs.length - 1) log(`${name} ${label} ${i + 1}/${seqs.length}`);
+        if (++ran % 10 === 0 || i === seqs.length - 1) log(`${name} ${label} shard ${shardK}/${shardN} ran ${ran}, at ${i + 1}/${seqs.length}`);
         return r;
       });
     };
