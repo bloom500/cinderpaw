@@ -29,7 +29,6 @@ import { CallToolScreen } from './CallToolScreen';
 import { S2sModelPicker } from './S2sModelPicker';
 import { CallArtifacts } from './CallArtifacts';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
-import { SPEAKING_LEVEL } from '@/hooks/useLiveKitCallSession';
 import { warmLiveKit } from '@/hooks/useLiveKitCallSession';
 import { speechLevel } from '@/hooks/useSpeechPlayer';
 import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
@@ -200,6 +199,7 @@ export function CallOverlay({
   stage = null,
   heard,
   level,
+  youSpeaking = false,
   notice,
   onAnswer,
   onHangUp,
@@ -213,6 +213,14 @@ export function CallOverlay({
   stage?: CallStage;
   heard: string;
   level: number;
+  /**
+   * The caller is mid-sentence, as their own microphone says.
+   *
+   * Optional and false by default: the two retired call engines drive this
+   * same overlay and do not report it, and the honest thing for them is a line
+   * that waits for the transcript rather than one that claims to hear anyone.
+   */
+  youSpeaking?: boolean;
   /** Why the last turn said nothing, when it said nothing. */
   notice: string | null;
   onAnswer: () => void;
@@ -700,10 +708,13 @@ export function CallOverlay({
             text={phase !== 'ready' ? heard : ''}
             fallback={t('call.prompt')}
             // The caller's microphone, not the agent's turn — `speaking` a few
-            // lines up is the other party. Derived here rather than passed in,
-            // so every engine that drives this overlay gets it from the one
-            // number all of them already report.
-            speaking={phase === 'listening' && level > SPEAKING_LEVEL}
+            // lines up is the other party. It arrives as a prop rather than
+            // being derived from `level` here: derived, it was recomputed every
+            // animation frame and crossed its threshold several times a second
+            // on the gaps inside an ordinary sentence, so the dots and the
+            // invitation underneath them alternated. The hook smooths it,
+            // because the hook is where the raw frames are.
+            speaking={phase === 'listening' && youSpeaking}
           />
           {/* Said out loud on screen when nothing was said out loud in audio. */}
           {notice && <p className="text-sm text-(--warning)">{notice}</p>}

@@ -125,6 +125,27 @@ function phaseOf(state: string): CallPhase | null {
  */
 export const SPEAKING_LEVEL = 0.06;
 
+/**
+ * Below this, a voice is over: the level has to fall this far before the line
+ * is allowed to stop saying you are being heard.
+ *
+ * Two thresholds rather than one, because speech is not loud continuously. A
+ * single threshold is crossed several times a second by the gaps inside an
+ * ordinary sentence — between words, on a consonant, at a breath — so the
+ * dots and the invitation underneath them alternated at that rate. Measured on
+ * a real call: "it flickers hard".
+ */
+const QUIET_LEVEL = 0.025;
+
+/**
+ * ...and how long a gap may be before it counts as a silence.
+ *
+ * Hysteresis alone is not enough. A pause between two words drops below even
+ * the quiet threshold, and 500 ms is longer than any gap inside a sentence and
+ * shorter than the pause before somebody expects an answer.
+ */
+const QUIET_HOLD_MS = 500;
+
 export function useLiveKitCallSession() {
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [stage, setStage] = useState<CallStage>(null);
@@ -140,6 +161,9 @@ export function useLiveKitCallSession() {
    * better and knows instantly, so it is what clears the line.
    */
   const turnSettled = useRef(false);
+  /** Whether the caller is mid-sentence, with the gaps inside one smoothed over. */
+  const [youSpeaking, setYouSpeaking] = useState(false);
+  const quietSince = useRef(0);
   const [notice, setNotice] = useState<string | null>(null);
 
   const room = useRef<Room | null>(null);
@@ -185,6 +209,7 @@ export function useLiveKitCallSession() {
     setStage(null);
     setHeard('');
     setLevel(0);
+    setYouSpeaking(false);
     setNotice(null);
   }, [cleanup]);
 
@@ -378,6 +403,17 @@ export function useLiveKitCallSession() {
           turnSettled.current = false;
           setHeard('');
         }
+        // Loud starts it; only a gap long enough to be a silence ends it.
+        // `setYouSpeaking` with the same value is a no-op in React, so this
+        // runs every animation frame and re-renders on the two that matter.
+        if (v > SPEAKING_LEVEL) {
+          quietSince.current = 0;
+          setYouSpeaking(true);
+        } else if (v < QUIET_LEVEL) {
+          const now = Date.now();
+          if (quietSince.current === 0) quietSince.current = now;
+          else if (now - quietSince.current > QUIET_HOLD_MS) setYouSpeaking(false);
+        }
       });
     } catch (e) {
       // A cancelled attempt may reject after the next call has connected.
@@ -434,7 +470,7 @@ export function useLiveKitCallSession() {
   // `transcribing` exists because the other two engines expose it; here the far
   // end transcribes continuously and never reports a gap, so claiming a moment
   // of it would be invention.
-  return { phase, stage, heard, level, notice, transcribing: false, open, begin, hangUp, interrupt, say };
+  return { phase, stage, heard, level, youSpeaking, notice, transcribing: false, open, begin, hangUp, interrupt, say };
 }
 
 /**

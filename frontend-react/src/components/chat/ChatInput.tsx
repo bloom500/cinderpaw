@@ -615,6 +615,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         // shape and pass none, so this needs no branch on the engine.
         stage={call.stage}
         heard={call.heard}
+        // Only the LiveKit engine measures this; the retired two omit it.
+        youSpeaking={'youSpeaking' in call ? Boolean(call.youSpeaking) : false}
         level={call.level}
         notice={call.notice}
         onAnswer={() => void call.begin()}

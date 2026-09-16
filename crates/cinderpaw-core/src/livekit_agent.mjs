@@ -419,6 +419,21 @@ const REALTIME = {
       outputAudioTranscription: {},
       // The Google plugin otherwise discards mic frames while tools are pending.
       toolBehavior: 'NON_BLOCKING',
+      // ...and without this, that is a tool whose answer is never said out loud.
+      //
+      // A NON_BLOCKING function response carries a `scheduling` field, and the
+      // server's default for one that omits it is SILENT: the result is added
+      // to the conversation and no generation is triggered. The plugin only
+      // sets the field when this option is defined, so leaving it out meant
+      // SILENT on every call. Measured 16 Sep on a real one: he asked for
+      // promotion strategies, the model said it was searching, the search
+      // finished, and nothing came back. The answer sat in the context until
+      // he spoke again, and only then did the model use it.
+      //
+      // WHEN_IDLE rather than INTERRUPT: the answer is spoken at the next
+      // pause instead of cutting the assistant off mid-word. It is idle for
+      // most of a long tool call, so "the next pause" is usually immediate.
+      toolResponseScheduling: 'WHEN_IDLE',
       realtimeInputConfig: { automaticActivityDetection: endpointing() },
       instructions: INSTRUCTIONS,
     });
