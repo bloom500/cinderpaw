@@ -14,6 +14,10 @@
    tooltip appears and vanishes instantly. tw-animate-css is the v4-native
    successor of tailwindcss-animate, with the same class names. */
 @import 'tw-animate-css';
+/* Streamdown (AI Elements' markdown renderer) ships its classes in node_modules,
+   where Tailwind does not look unless told. Its plugin packages are not installed:
+   see the note at the top of components/ai-elements/reasoning.tsx. */
+@source '../../node_modules/streamdown/dist/*.js';
 
 @plugin '@tailwindcss/typography';
 

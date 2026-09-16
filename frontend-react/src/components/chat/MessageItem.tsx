@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
 import { Markdown } from '@/lib/markdown';
 import { BubbleTail } from './BubbleTail';
-import { ThinkingBlock } from './ThinkingBlock';
+import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
 import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
 import { VoiceBubble } from './VoiceBubble';
@@ -179,12 +179,15 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
   return (
     <div className="group flex flex-col gap-2">
       {showThinking && (
-        <ThinkingBlock
-          id={message.id}
-          content={message.thinking!}
-          durationMs={message.thinkingDurationMs}
-          active={!message.thinkingComplete}
-        />
+        <Reasoning
+          isStreaming={!message.thinkingComplete}
+          // Seconds, or undefined when nobody measured it (a reopened chat has no
+          // duration saved), which the block reads as 'Reasoning' rather than a time.
+          duration={message.thinkingDurationMs ? Math.max(1, Math.ceil(message.thinkingDurationMs / 1000)) : undefined}
+        >
+          <ReasoningTrigger />
+          <ReasoningContent>{message.thinking!}</ReasoningContent>
+        </Reasoning>
       )}
       {message.toolActivity && message.toolActivity.length > 0 && (
         <MessageToolWidgets activity={message.toolActivity} streaming={streaming} />
