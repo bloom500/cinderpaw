@@ -7,6 +7,7 @@ import './lib/bootStorage';
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MotionConfig } from 'framer-motion';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/globals.css';
@@ -34,7 +35,17 @@ import './styles/globals.css';
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      {/* One line, at the root, for every `motion.*` element in the app.
+          The canvas and sprite animations each read
+          `prefers-reduced-motion` themselves — the orb, the mascot, the tool
+          cards — but the dozen Framer components never did, so somebody who
+          has asked their OS to stop moving things still got every panel
+          sliding and every list staggering. `"user"` means the setting is
+          theirs to make, which is the point: it is a default nobody sets in
+          this app and it has to be right without being found. */}
+      <MotionConfig reducedMotion="user">
+        <App />
+      </MotionConfig>
     </ErrorBoundary>
   </StrictMode>,
 );
