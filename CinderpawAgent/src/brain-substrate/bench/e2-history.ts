@@ -6,7 +6,7 @@
  *
  * bun run src/brain-substrate/bench/e2-history.ts --stage g0|arm|analyze --pack <dir> --annotations <tsv> --out <dir> [--arm K|PR|P|PR-SHUFFLED]
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { mulberry32 } from "../../memory/fractal/prng.ts";
 import { loadPack } from "../pack/load.ts";
@@ -408,33 +408,48 @@ if (import.meta.main) {
     const pack = opts.shuffled ? signPreservingTargetShuffle(pack0, 1001, pack0.plastic.edgeIdx) : pack0;
     const sim = new LifSim(pack);
     // Every sequence is independent (fresh deltas, resetState per event), so a finished one can be
-    // replayed from disk instead of resimulated. A killed run resumes where it stopped.
-    const cached = (label: string): Rec[][] => {
-      const p = join(out, `arm-${name}-${label}.jsonl`);
-      if (!existsSync(p)) return [];
-      const rows: Rec[][] = [];
-      for (const line of readFileSync(p, "utf8").split("\n")) {
-        if (!line) continue;
-        try { rows.push(JSON.parse(line) as Rec[]); } catch { break; } // truncated tail from a kill
+    // replayed from disk instead of resimulated, by this process or by any other. That makes the
+    // run both resumable after a kill and splittable across cores: --shard k/N computes only the
+    // sequences with i % N === k and writes its own file; the run that finds every index cached
+    // writes the arm's result. This PC has 16 cores and one arm uses one, so N is free speed.
+    const [shardK, shardN] = (arg("shard") ?? "0/1").split("/").map(Number) as [number, number];
+    const shardFile = (label: string) => join(out, `arm-${name}-${label}.s${shardK}-${shardN}.jsonl`);
+    const cached = (label: string): Map<number, Rec[]> => {
+      const rows = new Map<number, Rec[]>();
+      const prefix = `arm-${name}-${label}`;
+      for (const f of readdirSync(out).filter((f) => f.startsWith(prefix) && f.endsWith(".jsonl"))) {
+        let seq = 0; // the pre-shard format is a bare Rec[] per line, in order
+        for (const line of readFileSync(join(out, f), "utf8").split("\n")) {
+          if (!line) continue;
+          let parsed: unknown;
+          try { parsed = JSON.parse(line); } catch { break; } // truncated tail from a kill
+          if (Array.isArray(parsed)) rows.set(seq++, parsed as Rec[]);
+          else { const { i, r } = parsed as { i: number; r: Rec[] }; rows.set(i, r); }
+        }
       }
       return rows;
     };
+    let missing = 0;
     const runSet = (seqs: Seq[], label: string, o: ArmOpts, c = ctx) => {
-      const p = join(out, `arm-${name}-${label}.jsonl`), done = cached(label);
-      if (done.length) { writeFileSync(p, done.map((r) => JSON.stringify(r)).join("\n") + "\n"); log(`${name} ${label} resume at ${done.length}/${seqs.length}`); }
+      const p = shardFile(label), done = cached(label);
+      if (done.size) log(`${name} ${label} ${done.size}/${seqs.length} already on disk`);
       return seqs.map((s, i) => {
-        const r = done[i] ?? runSequence(sim, pack, pops, c, o, s);
-        if (!done[i]) appendFileSync(p, `${JSON.stringify(r)}\n`);
+        const hit = done.get(i);
+        if (hit) return hit;
+        if (i % shardN !== shardK) { missing++; return [] as Rec[]; }
+        const r = runSequence(sim, pack, pops, c, o, s);
+        appendFileSync(p, `${JSON.stringify({ i, r })}\n`);
         if (i % 10 === 9 || i === seqs.length - 1) log(`${name} ${label} ${i + 1}/${seqs.length}`);
         return r;
       });
     };
     const result: Record<string, unknown> = { J, arm: name };
     const probeFile = join(out, `arm-${name}-probes.json`);
-    result.probes = existsSync(probeFile)
-      ? (JSON.parse(readFileSync(probeFile, "utf8")) as Record<string, Rec[]>)
-      : Object.fromEntries(probeSeqs.map((s) => [s.id, runSequence(sim, pack, pops, ctx, opts, s)]));
-    if (!existsSync(probeFile)) writeFileSync(probeFile, JSON.stringify(result.probes));
+    if (existsSync(probeFile)) result.probes = JSON.parse(readFileSync(probeFile, "utf8")) as Record<string, Rec[]>;
+    else if (shardK === 0) { // one writer, so shards never race on this file
+      result.probes = Object.fromEntries(probeSeqs.map((s) => [s.id, runSequence(sim, pack, pops, ctx, opts, s)]));
+      writeFileSync(probeFile, JSON.stringify(result.probes));
+    } else { result.probes = {}; missing++; }
     log(`${name} probes done`);
     result.train = runSet(train, "train", opts);
     result.test = runSet(test, "test", opts);
@@ -442,6 +457,7 @@ if (import.meta.main) {
       const ctxPert = makeContexts(kcs, 2002);
       result.testPert = runSet(test, "testPert", { ...opts, driveScale: 1.05, onsetMs: 2 }, { ...ctxPert, "A'": ctx["A'"] });
     }
+    if (missing > 0) { log(`${name} shard ${shardK}/${shardN} done; ${missing} sequences belong to other shards, no result written`); process.exit(0); }
     writeFileSync(join(out, `arm-${name}.json`), JSON.stringify(result));
     log(`${name} written`);
   }

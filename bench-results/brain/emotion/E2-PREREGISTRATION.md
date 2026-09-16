@@ -163,3 +163,16 @@ Readings the text above left open, fixed in src/brain-substrate/bench/e2-history
 - The four arms run as four parallel single-thread processes. COST is p95 over the PR arm's
   training and test events measured under that contention, so it can only be pessimistic. G0's
   "fits one night" = the longest arm is estimated at <= 10 h.
+
+## Deviation, 2026-09-16, declared before the re-run finishes (no threshold changed)
+The first run died at 02:17 with no result file. The harness now resumes from disk and accepts
+`--shard k/N`: sequence i is computed by the process with i % N == k, and the run that finds every
+index on disk writes the arm's result. Each sequence is independent (fresh deltas, sim reset per
+event), so a sequence replayed from another process's file is the same arithmetic as one run here.
+Nothing about the science moves: same seeds, same sequences, same drives, same readouts, same
+thresholds, same verdict rules.
+One preregistered CONDITION does move. The text above measures COST under four parallel
+single-thread processes; the re-run uses eight, two per arm. Contention can only lengthen a wall
+time, so the p95 reported stays pessimistic against the 1.0 s gate, which is the guarantee the
+original sentence was making. If COST ever needs to be read as a shipping number rather than as an
+upper bound, it needs its own single-process measurement, and that is a new dated section.
