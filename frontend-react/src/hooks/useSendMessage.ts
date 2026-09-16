@@ -332,10 +332,20 @@ export function useSendMessage() {
       // Persist the finished turn to THIS conversation by id — correct even
       // when it is no longer the active session (user switched tabs).
       const persistFinal = async () => {
-        const persisted: PersistedMessage[] = snapshot.map((m) => ({
+        // The snapshot was taken when the turn started, and the store replaces a
+        // message object as it streams rather than mutating it. So `thinking`,
+        // which arrives DURING the turn, was read off the stale copy and saved as
+        // undefined: the block was there until you left the chat and never came
+        // back. The snapshot still decides WHICH messages belong to this save;
+        // the store decides what each of them currently says.
+        const live = new Map(useChat.getState().messages.map((m) => [m.id, m] as const));
+        const persisted: PersistedMessage[] = snapshot.map((s0) => {
+          const m = live.get(s0.id) ?? s0;
+          return {
           role: m.role,
           content: m.id === asstId ? answer : m.content,
           thinking: m.thinking || undefined,
+          thinking_ms: m.thinkingDurationMs,
           voice: voiceToPersisted(m.voice),
           // This is the plain-chat path (no Cinderpaw agent, so nothing writes to
           // the scratchpad here) — but it re-saves the WHOLE conversation, so
@@ -343,7 +353,7 @@ export function useSendMessage() {
           scratch: m.scratch,
           tools: m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined,
           created_at: m.createdAt,
-        }));
+          }; });
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);
           await useConversations.getState().refresh();

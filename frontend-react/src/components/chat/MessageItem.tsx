@@ -104,8 +104,21 @@ function MessageAttachmentChip({ attachment }: { attachment: DisplayAttachment }
 // Memoized: the store rebuilds only the last (streaming) message object each
 // token, so completed messages keep their reference and skip the expensive
 // markdown re-parse + re-highlight on every streamed token.
-export const MessageItem = memo(function MessageItem({ message, streaming = false }: { message: ChatMessage; streaming?: boolean }) {
+export const MessageItem = memo(function MessageItem({
+  message,
+  streaming = false,
+  onRetry,
+  onEdit,
+}: {
+  message: ChatMessage;
+  streaming?: boolean;
+  /** Send this turn again. Absent while a reply is still arriving. */
+  onRetry?: () => void;
+  /** Send this user turn again with different words. */
+  onEdit?: (text: string) => void;
+}) {
   const isUser = message.role === 'user';
+  const [draft, setDraft] = useState<string | null>(null);
   const reasoningMode = useUI((s) => s.reasoningMode);
   const t = useT();
   const navigate = useNavigate();
@@ -134,7 +147,7 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
       // One rule for the whole transcript: every message says when it was sent.
       // The reply carried a time and the question did not, which read as an
       // oversight because it was one.
-      <div className="flex flex-col items-end gap-1">
+      <div className="group flex flex-col items-end gap-1">
         {/* The bubble and its tail are one shape in two elements, so they
             share one fill and no border: a stroke would have to be drawn
             around the join as well, and the join is the whole illusion. */}
@@ -144,6 +157,37 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             tail not at all. Apple's user bubble is the accent colour for
             exactly this reason: the shape has to read before the tail can
             mean anything. */}
+        {draft !== null ? (
+          <div className="w-full max-w-[75%] flex flex-col gap-2">
+            <textarea
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setDraft(null);
+                // Enter sends, Shift+Enter breaks the line: the same contract as
+                // the composer, because this IS the composer for this message.
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  const next = draft.trim();
+                  setDraft(null);
+                  if (next && next !== visibleText) onEdit?.(next);
+                }
+              }}
+              className="w-full min-h-20 rounded-xl border border-border-default bg-bg-elevated px-3 py-2
+                         text-sm text-text-primary outline-hidden focus-visible:border-brand resize-y"
+            />
+            <div className="flex justify-end gap-2 text-xs">
+              <button type="button" className="px-2 py-1 rounded-md text-text-muted hover:text-text-secondary"
+                      onClick={() => setDraft(null)}>Cancel</button>
+              <button type="button" className="px-2 py-1 rounded-md bg-brand text-bg-primary disabled:opacity-40"
+                      disabled={!draft.trim() || draft.trim() === visibleText}
+                      onClick={() => { const next = draft.trim(); setDraft(null); onEdit?.(next); }}>
+                Send
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-brand text-bg-primary shadow-md">
           <BubbleTail className="absolute right-[-11px] bottom-0 text-(--brand)" />
           {images.length > 0 && (
@@ -166,6 +210,13 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
             </p>
           )}
         </div>
+        )}
+        {draft === null && (
+          <MessageActions
+            text={visibleText}
+            onEdit={onEdit ? () => setDraft(visibleText) : undefined}
+          />
+        )}
         <MessageMeta message={message} />
       </div>
     );
@@ -198,7 +249,9 @@ export const MessageItem = memo(function MessageItem({ message, streaming = fals
       </div>
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
-      {!isUser && !streaming && <MessageActions text={message.content} />}
+      {!isUser && !streaming && (
+        <MessageActions text={message.content} onRetry={onRetry} />
+      )}
       {askUser && (
         <AskUserCard
           // Force a fresh component instance per request so internal submit

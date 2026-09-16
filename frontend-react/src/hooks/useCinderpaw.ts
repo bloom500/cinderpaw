@@ -279,10 +279,20 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
       };
 
       const persistFinal = async () => {
-        const persisted: PersistedMessage[] = snapshot.map((m) => ({
+        // The snapshot was taken when the turn started, and the store replaces a
+        // message object as it streams rather than mutating it. So `thinking`,
+        // which arrives DURING the turn, was read off the stale copy and saved as
+        // undefined: the block was there until you left the chat and never came
+        // back. The snapshot still decides WHICH messages belong to this save;
+        // the store decides what each of them currently says.
+        const live = new Map(useChat.getState().messages.map((m) => [m.id, m] as const));
+        const persisted: PersistedMessage[] = snapshot.map((s0) => {
+          const m = live.get(s0.id) ?? s0;
+          return {
           role: m.role,
           content: m.id === asstId ? joinSegments(state.committed, state.answer) : m.content,
           thinking: m.thinking || undefined,
+          thinking_ms: m.thinkingDurationMs,
           voice: voiceToPersisted(m.voice),
           // The turn being finalised has its stats in `state`; earlier messages
           // in the snapshot carry their own from when they were live. Without
@@ -293,7 +303,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
             ? (state.tools.length > 0 ? state.tools : undefined)
             : (m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined),
           created_at: m.createdAt,
-        }));
+          }; });
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
           await useConversations.getState().refresh();

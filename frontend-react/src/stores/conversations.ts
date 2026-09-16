@@ -52,6 +52,9 @@ function toChatMessage(p: PersistedMessage, idx: number): ChatMessage {
     content: p.content,
     thinking: p.thinking,
     thinkingComplete: p.thinking != null ? true : undefined,
+    // Absent on every conversation saved before the field existed, and the block
+    // says "Reasoning" then, which is the truth: nobody timed it.
+    thinkingDurationMs: p.thinking_ms ?? undefined,
     voice: voiceFromPersisted(p.voice),
     // `?? undefined` because the store's field is optional while the wire type
     // is nullable — a literal null would render as a present-but-empty stat.
@@ -72,6 +75,7 @@ function toPersisted(m: ChatMessage): PersistedMessage {
     role: m.role,
     content: m.content,
     thinking: m.thinking || undefined,
+    thinking_ms: m.thinkingDurationMs,
     voice: voiceToPersisted(m.voice),
     scratch: m.scratch,
     tools: m.toolActivity && m.toolActivity.length > 0 ? m.toolActivity : undefined,

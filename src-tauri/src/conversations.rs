@@ -36,6 +36,15 @@ pub struct PersistedMessage {
     /// Optional so existing on-disk conversations without this field load cleanly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
+    /// How long the model spent on that thinking, in milliseconds.
+    ///
+    /// Nothing recorded it, so a reopened conversation had a thinking block with
+    /// no duration and the UI printed the missing number as "Thought for 0s".
+    /// Same `#[serde(default)]` contract as every field below: a conversation
+    /// saved before this existed loads with `None` and reads "Reasoning", which
+    /// is true — nobody timed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_ms: Option<u64>,
     /// Present when this user turn was recorded as a voice message. Optional and
     /// `#[serde(default)]` so conversations saved before this field load cleanly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -412,7 +421,7 @@ mod tests {
             .map(|i| PersistedMessage {
                 role: if i % 2 == 0 { "user".into() } else { "assistant".into() },
                 content: format!("Message {}", i),
-                thinking: None,
+                thinking: None, thinking_ms: None,
                 voice: None,
                 scratch: None, tools: None, created_at: None })
             .collect()
@@ -422,7 +431,7 @@ mod tests {
         PersistedMessage {
             role: "user".into(),
             content: "spoken".into(),
-            thinking: None,
+            thinking: None, thinking_ms: None,
             voice: Some(VoiceMeta {
                 audio_path: audio_path.to_string(),
                 duration_ms: 1200,
@@ -529,7 +538,7 @@ mod tests {
         let messages = vec![PersistedMessage {
             role: "user".into(),
             content: "hi".into(),
-            thinking: None,
+            thinking: None, thinking_ms: None,
             voice: Some(VoiceMeta {
                 audio_path: victim.to_string_lossy().into_owned(),
                 duration_ms: 1,
@@ -572,7 +581,7 @@ mod tests {
         let msgs = vec![PersistedMessage {
             role: "assistant".into(),
             content: "wrote my notes".into(),
-            thinking: None,
+            thinking: None, thinking_ms: None,
             voice: None,
             scratch: Some(ScratchStats { edits: 1, added: 71, removed: 0 }), tools: None, created_at: None }];
         save_to_dir(&dir, "c1", "Title", &msgs, None).unwrap();
@@ -591,7 +600,7 @@ mod tests {
         let m = PersistedMessage {
             role: "user".into(),
             content: "hi".into(),
-            thinking: None,
+            thinking: None, thinking_ms: None,
             voice: None,
             scratch: None, tools: None, created_at: None,
         };
@@ -691,15 +700,15 @@ mod tests {
         let dir = tmp();
 
         let conv1_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None, voice: None, scratch: None, tools: None, created_at: None },
-            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None, voice: None, scratch: None, tools: None, created_at: None },
-            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None, voice: None, scratch: None, tools: None, created_at: None },
+            PersistedMessage { role: "user".into(),      content: "Hello world".into(),               thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None },
+            PersistedMessage { role: "assistant".into(), content: "Hi there!".into(),                 thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None },
+            PersistedMessage { role: "user".into(),      content: "What is Rust?".into(),             thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None },
         ];
         let conv2_msgs = vec![
-            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None, voice: None, scratch: None, tools: None, created_at: None },
-            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None, voice: None, scratch: None, tools: None, created_at: None },
-            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None, voice: None, scratch: None, tools: None, created_at: None },
-            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None, voice: None, scratch: None, tools: None, created_at: None },
+            PersistedMessage { role: "user".into(),      content: "Tell me a joke".into(),            thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None },
+            PersistedMessage { role: "assistant".into(), content: "Why did the crab...".into(),       thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None },
+            PersistedMessage { role: "user".into(),      content: "Ha! Another one".into(),           thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None },
+            PersistedMessage { role: "assistant".into(), content: "Sure! What do you call...".into(), thinking: None, thinking_ms: None, voice: None, scratch: None, tools: None, created_at: None },
         ];
 
         save_to_dir(&dir, "session-1", "Hello world", &conv1_msgs, None).unwrap();

@@ -11,54 +11,23 @@ import { AlertCircle, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { useChat } from '@/stores/chat';
 import { humanizeError } from '@/lib/humanizeError';
-import { useSendMessage } from '@/hooks/useSendMessage';
-import type { AttachedFile } from '@/components/chat/AttachedFileChip';
+import { useResendTurn } from '@/hooks/useResendTurn';
 
-const IMAGE_NOTE_RE = /^\[Image attached: ([^\]]*)\]\s*$/gm;
 
 export function StreamErrorNotice() {
   const status = useChat((s) => s.streamStatus);
   const raw = useChat((s) => s.streamError);
   const navigate = useNavigate();
-  const sendMessage = useSendMessage();
+  const resend = useResendTurn();
   const [showDetail, setShowDetail] = useState(false);
 
   if (status !== 'error' || !raw) return null;
   const err = humanizeError(raw);
 
-  // Resend the last user turn: drop the failed assistant message and the user
-  // message that triggered it, then send the same content again. Image
-  // attachments are rebuilt from the message's in-memory data URLs; their
-  // "[Image attached: …]" note lines are stripped from the text because
-  // buildUserContent regenerates them from the files array.
-  const retry = () => {
-    const { messages } = useChat.getState();
-    let i = messages.length - 1;
-    while (i >= 0 && messages[i].role !== 'user') i--;
-    if (i < 0) return;
-    const user = messages[i];
-
-    const images = user.images ?? [];
-    const names = [...user.content.matchAll(IMAGE_NOTE_RE)].map((m) => m[1]);
-    const files: AttachedFile[] = images.map((dataUrl, n) => ({
-      name: names[n] ?? `image-${n + 1}.png`,
-      path: `retry://${n}`,
-      content: null,
-      kind: 'image',
-      dataUrl,
-    }));
-    const text =
-      images.length > 0
-        ? user.content.replace(IMAGE_NOTE_RE, '').replace(/\n{3,}/g, '\n\n').trim()
-        : user.content;
-
-    useChat.setState({
-      messages: messages.slice(0, i),
-      streamStatus: 'idle',
-      streamError: null,
-    });
-    void sendMessage(text, files);
-  };
+  // One resend for the whole app (`useResendTurn`). This used to be its own
+  // copy of the logic and it only ever called the chat path, so pressing Retry
+  // in agent mode sent the turn past the agent to the local model.
+  const retry = () => void resend(useChat.getState().messages.length - 1);
 
   return (
     <div

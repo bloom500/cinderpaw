@@ -5,6 +5,7 @@ import {
 } from '@shadcn/react/message-scroller';
 import { useChat } from '@/stores/chat';
 import { MessageItem } from './MessageItem';
+import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
 
 /**
@@ -19,6 +20,9 @@ import { StreamingIndicator } from './StreamingIndicator';
  */
 export function MessageList() {
   const messages = useChat((s) => s.messages);
+  // One resend for the whole transcript: the hooks it needs are called here,
+  // once, not inside every row.
+  const resend = useResendTurn();
   const status = useChat((s) => s.streamStatus);
   const agentPhase = useChat((s) => s.agentPhase);
   const agentTool = useChat((s) => s.agentTool);
@@ -51,6 +55,19 @@ export function MessageList() {
                 <MessageItem
                   message={m}
                   streaming={status === 'streaming' && i === messages.length - 1 && m.role === 'assistant'}
+                  // Retry under a reply resends the question above it; Send under
+                  // an edited question resends that one. Both drop everything
+                  // below, which is why they are off while a reply is arriving.
+                  onRetry={
+                    status === 'streaming' || m.role !== 'assistant' || i === 0
+                      ? undefined
+                      : () => void resend(i - 1)
+                  }
+                  onEdit={
+                    status === 'streaming' || m.role !== 'user'
+                      ? undefined
+                      : (text) => void resend(i, text)
+                  }
                 />
               </MessageScroller.Item>
             ))}
