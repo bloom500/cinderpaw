@@ -164,10 +164,46 @@ describe('chat tool widgets', () => {
     expect(screen.getByText('Memory unavailable')).toBeInTheDocument();
   });
 
+  it('shows what an artifact tool made, from its data and not from its sentence', () => {
+    // The failure this pins: before the artifact kind existed, every
+    // artifact_* call fell through to the generic widget, which draws a wrench
+    // and one blank line. Writing a report looked exactly like doing nothing.
+    const made = finishActivity(
+      startActivity('artifact_create', { kind: 'document', title: 'Q3 report' }),
+      { ok: true, content: 'Created document "Q3 report" - id abc (v1, 900 bytes).',
+        data: { id: 'abc', kind: 'document', title: 'Q3 report', version: 1 } },
+    );
+    expect(made.kind).toBe('artifact');
+
+    const edited = finishActivity(
+      startActivity('artifact_edit', { id: 'abc', find: 'x', replace: 'y' }),
+      { ok: true, content: 'Edited it.',
+        data: { id: 'abc', kind: 'document', title: 'Q3 report', version: 3 } },
+    );
+
+    render(<MessageToolWidgets activity={[made, edited]} streaming />);
+    expect(screen.getAllByText('Q3 report').length).toBe(2);
+    // v1 stays quiet; a later version is the reassurance that drafts survive.
+    expect(screen.getByText(/v3/)).toBeInTheDocument();
+  });
+
+  it('falls back to the generic body when a result carries no artifact data', () => {
+    // An older sidecar returns the sentence and no `data`. The widget must not
+    // draw a card headed "undefined" — it must degrade to what it does know.
+    const thin = finishActivity(
+      startActivity('artifact_delete', { id: 'abc' }),
+      { ok: true, content: 'Removed it.' },
+    );
+    expect(thin.kind).toBe('artifact');
+    expect(thin.artifact).toBeNull();
+    render(<MessageToolWidgets activity={[thin]} streaming />);
+    expect(screen.queryByText(/undefined/)).toBeNull();
+  });
+
   it('keeps the voice layout as the default', () => {
     const { container } = render(<CallToolScreen activity={[{
       id: 'voice', tool: 'recall', kind: 'memory', subject: 'notes', status: 'done', startedAt: 0, endedAt: 1000,
-      note: null, hits: [], files: [], output: '', cwd: '', facts: ['Remembered fact'], desktop: null, error: null,
+      note: null, hits: [], files: [], output: '', cwd: '', facts: ['Remembered fact'], desktop: null, artifact: null, error: null,
     }]} />);
     expect(container.firstChild).toHaveClass('absolute');
     expect(container.querySelector('details')).toBeNull();

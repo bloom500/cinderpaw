@@ -19,6 +19,7 @@ function activity(over: Partial<ToolActivity> = {}): ToolActivity {
     note: null,
     hits: [{ title: 'T', url: 'https://x.dev', host: 'x.dev', snippet: '', crumbs: '' }],
     desktop: null,
+    artifact: null,
     files: [],
     output: '',
     cwd: '',

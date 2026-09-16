@@ -310,7 +310,7 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
         return {
           ok: true,
           content: `Restored "${rolled.title}" to the content of v${args.rollback_to}, saved as v${rolled.version}.`,
-          data: { id, version: rolled.version },
+          data: { id, version: rolled.version, title: rolled.title, kind: rolled.kind },
         };
       }
 
@@ -321,7 +321,7 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
         return {
           ok: true,
           content: `Rewrote "${updated!.title}" — now v${updated!.version} (${updated!.bytes} bytes).`,
-          data: { id, version: updated!.version },
+          data: { id, version: updated!.version, title: updated!.title, kind: updated!.kind },
         };
       }
 
@@ -354,7 +354,7 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
       return {
         ok: true,
         content: `Edited "${updated!.title}" — now v${updated!.version} (${updated!.bytes} bytes).`,
-        data: { id, version: updated!.version },
+        data: { id, version: updated!.version, title: updated!.title, kind: updated!.kind },
       };
     },
   };
@@ -438,7 +438,7 @@ export function createArtifactExportTool(deps: ArtifactToolDeps): Tool {
       return {
         ok: true,
         content: `Exported "${a.title}" to ${safe}.${note}`,
-        data: { id, path: safe, bytes: Buffer.byteLength(out, "utf8") },
+        data: { id, path: safe, bytes: Buffer.byteLength(out, "utf8"), title: a.title, kind: a.kind, version: a.version },
       };
     },
   };
@@ -468,7 +468,7 @@ export function createArtifactDeleteTool(deps: ArtifactToolDeps): Tool {
       return {
         ok: true,
         content: `Removed "${a.title}" from the workspace. The content is kept and can be restored.`,
-        data: { id },
+        data: { id, title: a.title, kind: a.kind, version: a.version },
       };
     },
   };

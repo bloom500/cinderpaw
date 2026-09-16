@@ -2,11 +2,11 @@ import { memo, useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-shell';
 import {
   Globe, Loader2, Check, AlertTriangle, FileText, TerminalSquare, Brain, Wrench, Sparkles, Search,
-  ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus, AppWindow,
+  ArrowLeft, ArrowRight, RotateCw, MoreHorizontal, X, Plus, AppWindow, FileBox,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import type { ToolActivity, ToolKind, DesktopFact, DesktopElement } from '@/hooks/useLiveToolActivity';
+import type { ArtifactFact, ToolActivity, ToolKind, DesktopFact, DesktopElement } from '@/hooks/useLiveToolActivity';
 
 /**
  * A screen in the corner of a call, showing what Cinderpaw is actually doing.
@@ -69,12 +69,16 @@ const CHROME: Record<ToolKind, { icon: typeof Globe; tint: string }> = {
   terminal: { icon: TerminalSquare, tint: 'text-success' },
   memory: { icon: Brain, tint: 'text-info' },
   desktop: { icon: AppWindow, tint: 'text-brand' },
+  artifact: { icon: FileBox, tint: 'text-warning' },
   generic: { icon: Wrench, tint: 'text-text-muted' },
 };
 
 /** One line for a widget that is folded away: what ran, on what, how it ended. */
 export function summaryOf(a: ToolActivity): string {
   if (a.kind === 'desktop' && a.desktop) return desktopLine(a.desktop);
+  // Folded, an artifact row is worth more as its title than as its id: the
+  // title is the thing the person asked for, and the id is a uuid.
+  if (a.artifact) return a.artifact.title;
   return a.subject;
 }
 
@@ -162,6 +166,8 @@ export function Widget({ activity: a, flat = false }: { activity: ToolActivity; 
           <TerminalBody a={a} running={running} />
         ) : a.kind === 'memory' ? (
           <MemoryBody a={a} />
+        ) : a.artifact ? (
+          <ArtifactBody f={a.artifact} />
         ) : app ? (
           <DesktopBody d={app} running={running} />
         ) : (
@@ -665,6 +671,34 @@ function Wireframe({ elements, target, flush = false }: { elements: DesktopEleme
 }
 
 /** Everything unclassified: the argument, and nothing invented around it. */
+/**
+ * What the agent just made, as the thing it is rather than as a tool call.
+ *
+ * The title leads, because that is what the person asked for. The kind and
+ * version come second and in smaller text: "v3" is the quiet reassurance that
+ * the earlier drafts still exist, which is the whole promise of the store.
+ * An export also shows where the real file landed, since that is the only part
+ * the person can act on outside this window.
+ */
+function ArtifactBody({ f }: { f: ArtifactFact }) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-2xs font-medium text-text-primary" title={f.title}>
+        {f.title}
+      </p>
+      <p className="truncate text-2xs text-text-muted">
+        {f.kind}
+        {f.version > 1 ? ` · v${f.version}` : ''}
+      </p>
+      {f.path && (
+        <p className="mt-0.5 truncate text-2xs text-text-muted" title={f.path}>
+          {f.path}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function GenericBody({ a, running, t }: { a: ToolActivity; running: boolean; t: (k: 'call.toolSearching') => string }) {
   return (
     <p className="truncate text-2xs text-text-muted" title={a.subject}>

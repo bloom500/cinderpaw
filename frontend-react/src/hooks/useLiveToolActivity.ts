@@ -38,7 +38,7 @@ export interface ToolHit {
  * getting a component. `generic` is the honest fallback — a row with a name and
  * a state, which is still better than nothing and never pretends to more.
  */
-export type ToolKind = 'agent' | 'browser' | 'files' | 'terminal' | 'memory' | 'desktop' | 'generic';
+export type ToolKind = 'agent' | 'browser' | 'files' | 'terminal' | 'memory' | 'desktop' | 'artifact' | 'generic';
 
 /**
  * The name the Live call's own request travels under.
@@ -60,6 +60,10 @@ const KINDS: Array<[ToolKind, string[]]> = [
   // Both names: the tool was renamed on a branch that has not merged yet, and
   // a widget that only knows one of them goes blank on the other.
   ['desktop', ['computer_use', 'control_app']],
+  // Every artifact_* tool. Without this they were 'generic', which draws a
+  // wrench and one empty line: the agent writing a report looked identical to
+  // the agent doing nothing in particular.
+  ['artifact', ['artifact']],
 ];
 
 export function kindOf(tool: string): ToolKind {
@@ -68,6 +72,22 @@ export function kindOf(tool: string): ToolKind {
     if (names.some((n) => tool === n || tool.startsWith(`${n}_`))) return kind;
   }
   return 'generic';
+}
+
+/**
+ * What an artifact tool made or changed.
+ *
+ * Every field comes from the tool's structured `data`. The tool also returns an
+ * English sentence, and reading the title out of THAT would have worked today
+ * and broken the first time someone rephrased it or translated the UI.
+ */
+export interface ArtifactFact {
+  id: string;
+  title: string;
+  kind: string;
+  version: number;
+  /** Only an export has one: where the real file landed. */
+  path: string | null;
 }
 
 /** A file the agent touched, with the numbers its tool reported. */
@@ -100,6 +120,9 @@ export interface ToolActivity {
   facts: string[];
   /** What a desktop-control step did and saw — the app window widget's body. */
   desktop: DesktopFact | null;
+  /** What an artifact tool made or changed. Read from the tool's `data`, never
+   *  parsed out of its English sentence: the sentence is for the model. */
+  artifact: ArtifactFact | null;
   /** Present when the tool failed, so the panel can say so rather than empty. */
   error: string | null;
 }
@@ -258,6 +281,7 @@ export function startActivity(tool: string, args: Record<string, unknown> | unde
     cwd: typeof args?.cwd === 'string' ? args.cwd : '',
     facts: [],
     desktop: desktopOf(args),
+    artifact: null,
     error: null,
   };
 }
@@ -276,6 +300,7 @@ export function finishActivity(a: ToolActivity, result: unknown): ToolActivity {
     files: filesOf(result),
     facts: factsOf(result),
     desktop: desktopDone(a.desktop, result),
+    artifact: a.kind === 'artifact' ? artifactOf(result) : null,
     // The terminal widget's body. Trimmed hard: a build log is megabytes and
     // the panel is twenty lines tall.
     output: ok ? content.slice(0, 1200) : '',
@@ -317,6 +342,9 @@ export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
       cwd: typeof r.cwd === 'string' ? r.cwd : '',
       facts: Array.isArray(r.facts) ? r.facts : [],
       desktop: r.desktop && typeof r.desktop === 'object' ? r.desktop : null,
+      // Same rule as `desktop`: a row written by another build may not have
+      // it, and a widget must never render a card it cannot fill.
+      artifact: r.artifact && typeof r.artifact === 'object' ? r.artifact : null,
       error: running ? 'interrupted' : typeof r.error === 'string' ? r.error : null,
     });
   }
@@ -348,11 +376,36 @@ const MAX = 6;
  *  reads to believe the search is real. */
 export function subjectOf(args: Record<string, unknown> | undefined): string {
   if (!args) return '';
-  for (const key of ['query', 'url', 'path', 'request', 'command', 'pattern', 'app', 'window_title']) {
+  // `title` is the artifact tools' subject. It goes LAST of the name-ish keys
+  // deliberately: artifact_export takes both a title-bearing id and a `path`,
+  // and the path is what the person wants to see once a file exists.
+  for (const key of ['query', 'url', 'path', 'request', 'command', 'pattern', 'app', 'window_title', 'title']) {
     const v = args[key];
     if (typeof v === 'string' && v.trim()) return v.trim();
   }
   return '';
+}
+
+/**
+ * The artifact facts out of a tool result, or null when there are none.
+ *
+ * Null rather than a half-filled object: a widget that cannot say WHICH
+ * artifact should fall back to the generic body, not draw a card headed
+ * "undefined".
+ */
+export function artifactOf(result: unknown): ArtifactFact | null {
+  const data = (result as { data?: Record<string, unknown> } | null)?.data;
+  if (!data) return null;
+  const id = typeof data.id === 'string' ? data.id : '';
+  const title = typeof data.title === 'string' ? data.title : '';
+  if (!id || !title) return null;
+  return {
+    id,
+    title,
+    kind: typeof data.kind === 'string' ? data.kind : 'file',
+    version: typeof data.version === 'number' ? data.version : 1,
+    path: typeof data.path === 'string' ? data.path : null,
+  };
 }
 
 /** Host only — a full URL wraps and reads as noise at this size. */
