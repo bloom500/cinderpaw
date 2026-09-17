@@ -1007,6 +1007,20 @@ html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238
   backdrop-filter: blur(30px) saturate(150%) brightness(1.06) url(#liquid-glass);
   -webkit-backdrop-filter: blur(30px) saturate(150%) brightness(1.06) url(#liquid-glass);
 }
+/* While a panel is sliding, EVERY glass surface drops its refraction, not just
+   the page pane. The nav rail is `liquid-glass` too, and it is the thing being
+   animated: moving a surface whose backdrop runs through url(#liquid-glass)
+   re-samples the whole window behind it on every frame, which is the delay on
+   open and close that survived the mount fix (17 Sep, measured on a 16 GB box
+   with the browser's own webview at 800 MB). Same frost, no refraction, for
+   200 ms.
+
+   `html.panel-moving` is set by panelMotion for the length of the slide. */
+html.panel-moving .liquid-glass {
+  backdrop-filter: blur(30px) saturate(150%) brightness(1.06);
+  -webkit-backdrop-filter: blur(30px) saturate(150%) brightness(1.06);
+}
+
 /* ── Specular rim ──────────────────────────────────────────────────────────
    Real glass catches light along its top edge and goes dark at the bottom; a
    uniform 1px border reads as a drawn rectangle instead.

@@ -1,4 +1,4 @@
-import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
+import { onPanelMotionSettled, panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, Globe, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
@@ -93,10 +93,16 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
     const report = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const r = el.getBoundingClientRect();
-        void tauri.browser
-          .ui('set_bounds', { x: r.left, y: r.top, width: r.width, height: r.height, visible: true })
-          .catch(() => {});
+        // Never mid-slide. A native webview resize is a window resize the page
+        // relayouts for, and doing it while the nav or the chat drawer is
+        // animating stalled both for a second or two (17 Sep). Deferred to the
+        // end of the slide, where the rectangle is final anyway.
+        onPanelMotionSettled(() => {
+          const r = el.getBoundingClientRect();
+          void tauri.browser
+            .ui('set_bounds', { x: r.left, y: r.top, width: r.width, height: r.height, visible: true })
+            .catch(() => {});
+        });
       });
     };
     report();
@@ -358,10 +364,20 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           </div>
         )}
       </div>
-      {wide && chatOpen && chat && (
+      {wide && chat && (
         // Beside the page, at the chat column's own minimum width, so the
         // composer and the transcript are the ones the person already knows.
-        <div className="flex w-[28rem] shrink-0 flex-col border-l border-border-default bg-bg-surface">
+        //
+        // Mounted for the whole of wide mode and merely HIDDEN when shut, not
+        // mounted on each press: the column is the entire transcript, and
+        // building it in the frame the drawer opens is what made the bubble
+        // take a second or two to appear (17 Sep, same defect as the nav rail).
+        // `hidden` is display:none — the rows keep their state and cost no
+        // layout while shut.
+        <div
+          hidden={!chatOpen}
+          className="flex w-[28rem] shrink-0 flex-col border-l border-border-default bg-bg-surface"
+        >
           {chat}
         </div>
       )}
