@@ -95,7 +95,9 @@ export const EXTENDED_TOOLS = new Set<string>([
   // capability — hiding the tool in the drawer meant the model had to
   // list_tools → load_tool before it could ever delegate, so it never did.
   "computer_use",
-  "browser",
+  // `browser` is NOT here, on the same evidence as delegate_task above: in the
+  // drawer the model never reached for it on its own, and a browser it has to
+  // ask for by name is a browser it drives only when told to.
   // code-quality family (code-quality.ts CodeQualityKind)
   "run_tests",
   "format_code",

@@ -46,7 +46,8 @@ export function createWebSearchTool(opts: WebSearchOpts = {}): Tool {
     description:
       "Search the web and return ranked results (title, URL, snippet). Use for " +
       "anything current, factual, or outside your training data. Follow up with " +
-      "read_webpage on a result URL when you need the full page.",
+      "read_webpage on a result URL when you need the full page, or open it in the " +
+      "`browser` tool when the page has to be used (a form, a login, a download).",
     permissions: ["network:outbound"],
     networkAccess: true,
     // Only the configured SearXNG host is whitelisted — plus DDG for the

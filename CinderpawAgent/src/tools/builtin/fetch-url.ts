@@ -53,7 +53,8 @@ export function createFetchUrlTool(allowedDomains: string[]): Tool {
     description:
       "Fetch the content of a URL (HTTP GET). Any public HTTPS URL works " +
       "(internal/private addresses are blocked). Returns a web page's visible text, " +
-      "or any other response body as it came.",
+      "or any other response body as it came. For a page that needs a login, a form, " +
+      "clicks or JavaScript, use the `browser` tool instead.",
     permissions: ["network:outbound"],
     networkAccess: true,
     allowedDomains,
