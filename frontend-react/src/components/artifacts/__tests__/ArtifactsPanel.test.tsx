@@ -171,14 +171,18 @@ describe('the request pairing', () => {
 });
 
 describe('resizing and the live frame', () => {
-  it('the edge resizes with the keyboard, stays inside its bounds, and is remembered', async () => {
+  it('the edge resizes with the keyboard, never squeezes the chat, and is remembered', async () => {
     const { ArtifactsPanel } = await import('../ArtifactsPanel');
-    render(<ArtifactsPanel onClose={() => {}} />);
+    const { container } = render(<div><ArtifactsPanel onClose={() => {}} /></div>);
+    // The row the panel shares with the chat: 1200px, so the panel may reach 1200 - 448.
+    Object.defineProperty(container.firstElementChild!, 'clientWidth', { value: 1200, configurable: true });
     const edge = screen.getByRole('separator', { name: 'Resize artifacts panel' });
     const before = Number(edge.getAttribute('aria-valuenow'));
     fireEvent.keyDown(edge, { key: 'ArrowLeft' });
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(before + 24);
     expect(localStorage.getItem('cinderpaw.artifactsPanelWidth')).toBe(String(before + 24));
+    for (let i = 0; i < 100; i++) fireEvent.keyDown(edge, { key: 'ArrowLeft' });
+    expect(Number(edge.getAttribute('aria-valuenow'))).toBe(1200 - 448);
     for (let i = 0; i < 100; i++) fireEvent.keyDown(edge, { key: 'ArrowRight' });
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(320);
   });

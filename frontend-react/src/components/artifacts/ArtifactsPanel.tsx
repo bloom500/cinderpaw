@@ -19,10 +19,18 @@ import { cn, readLocal, writeLocal } from '@/lib/utils';
 const WIDTH_KEY = 'cinderpaw.artifactsPanelWidth';
 const DEFAULT_WIDTH = 416;
 const MIN_WIDTH = 320;
+/** Must match the chat column's min-w-[28rem] in ChatPage. */
+const CHAT_MIN_WIDTH = 448;
 
-/** Never narrower than a readable column, never so wide the chat disappears. */
-function clampWidth(w: number): number {
-  const max = Math.max(MIN_WIDTH, Math.round(window.innerWidth * 0.7));
+/**
+ * Never narrower than a readable column, never so wide the chat cannot be read.
+ *
+ * The limit is what the row the panel sits in has left after the chat's minimum,
+ * not a share of the window: 70% of the window ignored the sidebar and left the
+ * chat about 100px wide, one word per line (17 Sep, screenshot).
+ */
+function clampWidth(w: number, rowWidth: number): number {
+  const max = Math.max(MIN_WIDTH, rowWidth - CHAT_MIN_WIDTH);
   return Math.min(max, Math.max(MIN_WIDTH, Math.round(w)));
 }
 
@@ -57,23 +65,31 @@ export function ArtifactsPanel({
     void refresh();
   }, [refresh]);
 
-  const [width, setWidth] = useState(() => clampWidth(Number(readLocal(WIDTH_KEY)) || DEFAULT_WIDTH));
+  const asideRef = useRef<HTMLElement>(null);
+  // The row = chat column + this panel. Before the first layout there is no
+  // row to measure, so the window stands in; the chat's CSS min-width still
+  // protects it in that one frame, and on every window resize after.
+  const rowWidth = () => asideRef.current?.parentElement?.clientWidth ?? window.innerWidth;
+  const [width, setWidth] = useState(() => clampWidth(Number(readLocal(WIDTH_KEY)) || DEFAULT_WIDTH, window.innerWidth));
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; w: number } | null>(null);
-  const resizeTo = (w: number) => setWidth(clampWidth(w));
+  const resizeTo = (w: number) => setWidth(clampWidth(w, rowWidth()));
 
   return (
     // Width + opacity animate on mount/unmount (AnimatePresence in ChatPage
     // drives the unmount half). overflow-hidden so the header/list don't wrap
     // and flash mid-slide while the width is still growing.
     <motion.aside
+      ref={asideRef}
       initial={{ width: 0, opacity: 0 }}
       animate={{ width, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
       // No easing while dragging: the edge has to stay under the pointer.
       transition={dragging ? { duration: 0 } : { duration: 0.22, ease: 'easeInOut' }}
       className={cn(
-        'relative flex shrink-0 flex-col overflow-hidden border-l border-border-default bg-bg-surface',
+        // shrink, not shrink-0: when the window narrows below a saved width, the
+        // panel gives way down to its minimum rather than pushing the chat off.
+        'relative flex min-w-[320px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
         // The frame is another document: without this, crossing it mid-drag
         // hands the pointer to the page inside and the drag stops.
         dragging && '[&_iframe]:pointer-events-none select-none',
@@ -103,7 +119,7 @@ export function ArtifactsPanel({
           const step = e.key === 'ArrowLeft' ? 24 : e.key === 'ArrowRight' ? -24 : 0;
           if (!step) return;
           e.preventDefault();
-          const next = clampWidth(width + step);
+          const next = clampWidth(width + step, rowWidth());
           setWidth(next);
           writeLocal(WIDTH_KEY, String(next));
         }}

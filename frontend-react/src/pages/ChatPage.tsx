@@ -226,7 +226,9 @@ export function ChatPage() {
     // it. `min-w-0` on the column is what stops a long code line in a message
     // from pushing the panel off the edge instead of wrapping.
     <div className="flex h-full">
-    <div className="flex flex-col h-full min-w-0 flex-1">
+    {/* min-w-[28rem]: the artifacts panel may widen only until the chat is this
+        wide (CHAT_MIN_WIDTH in ArtifactsPanel). */}
+    <div className="flex flex-col h-full min-w-[28rem] flex-1">
       {isAgentMode && showAgentOnboarding && !wizardActive && (
         <AgentsOnboarding
           onDone={() => setShowAgentOnboarding(false)}
