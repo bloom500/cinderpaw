@@ -54,6 +54,9 @@ export function createDeepResearchTool(
       "Use this for complex questions that require up-to-date information from multiple sources.",
     permissions: ["network:outbound"],
     networkAccess: true,
+    // Several searches, several pages read, a synthesis: minutes, not seconds.
+    // At the 60 s default it was cut off mid-research every time.
+    timeoutMs: 15 * 60_000,
     // duckduckgo.com: the keyless search fallback ResearchLoop uses when no
     // Jina key is set (s.jina.ai answers 401 without one).
     allowedDomains: ["s.jina.ai", "r.jina.ai", "duckduckgo.com"],

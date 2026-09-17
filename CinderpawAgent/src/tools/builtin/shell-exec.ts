@@ -56,6 +56,7 @@ import { tmpdir, homedir } from "node:os";
 import { resolveExecutables } from "../../core/executables.ts";
 import { cinderpawHome, readEnv } from "../../config.ts";
 import { classifyCommand, recordIntent } from "../../core/command-intent.ts";
+import { readMaxTimeoutMs } from "../../egress/process-sandbox.ts";
 import {
   canAskAHuman,
   decideIntent,
@@ -296,6 +297,9 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       "convenient shortcuts but this tool can do anything a terminal can.",
     permissions: ["process:spawn", "fs:read"],
     networkAccess: false,
+    // The description promises up to the sandbox's ceiling (5 min by default);
+    // at the registry's 60 s default that promise was false for every build.
+    timeoutMs: readMaxTimeoutMs() + 15_000,
     allowedPaths,
     allowedExecutables: SAFE_BINARIES,
     // Running any BINARY and running in any DIRECTORY are two different

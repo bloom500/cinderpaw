@@ -125,7 +125,7 @@ function safePath(): string {
  * clamped to [60s, 60min] so a typo can neither make every build fail instantly
  * nor let a wedged process hold a tool slot for the life of the sidecar.
  */
-function readMaxTimeoutMs(): number {
+export function readMaxTimeoutMs(): number {
   const raw = cfgInt("CINDERPAW_SHELL_MAX_TIMEOUT_MS");
   if (!Number.isFinite(raw) || raw <= 0) return 300_000;
   return Math.min(3_600_000, Math.max(60_000, raw));

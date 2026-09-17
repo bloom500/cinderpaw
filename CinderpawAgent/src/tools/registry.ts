@@ -450,7 +450,7 @@ export class ToolRegistry {
     //   2. internal timeout (default 60s, overridable per call)
     // The combined signal is what the tool sees via `ctx.signal`.
     const ac = new AbortController();
-    const timeoutMs = opts.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+    const timeoutMs = opts.timeoutMs ?? tool.manifest.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
     const timer = toolClock(() => ac.abort("timeout"), timeoutMs);
     const onCallerAbort = () => ac.abort("cancelled");
     if (opts.signal) {

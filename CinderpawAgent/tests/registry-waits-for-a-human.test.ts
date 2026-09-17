@@ -85,3 +85,23 @@ describe("a question with no timeout set", () => {
     expect(router.handleInbound("telegram:1:2", "2")).toBe(true);
   });
 });
+
+describe("a tool's own time limit", () => {
+  const slow = (manifestTimeout?: number): Tool => ({
+    manifest: { name: "slow_tool", description: "sleeps", permissions: [], networkAccess: false, ...(manifestTimeout ? { timeoutMs: manifestTimeout } : {}) },
+    parameters: {},
+    async execute() {
+      await new Promise((r) => setTimeout(r, 150));
+      return { ok: true, content: "done" };
+    },
+  });
+
+  test("the registry reads the limit a tool declares", async () => {
+    // deep_research was killed at the 60 s default on 17 Sep, mid-research, and
+    // the agent fell back to reading raw HTML and wandered off the question.
+    // A tool that runs long now says how long, and this is the reading of it.
+    const registry = setup(0);
+    registry.register(slow(50));
+    expect(await registry.call("slow_tool", {}, "s1")).toMatchObject({ ok: false, error: "timeout" });
+  });
+});

@@ -88,6 +88,13 @@ export interface ToolManifest {
    */
   retry?: ToolRetryPolicy;
   /**
+   * How long one call may run, in ms. Default 60 s, which suits a file read or
+   * a fetch. A tool whose job takes minutes (research, a build, a subagent)
+   * declares its own, or the registry cuts it off mid-work and the model is
+   * left with "aborted: timeout" and no result.
+   */
+  timeoutMs?: number;
+  /**
    * Cinderpaw-WIP #2: optional list of fallback tool names to try in order
    * when this tool returns a non-retryable failure. Each fallback must
    * be a registered tool. The registry invokes them in the given order

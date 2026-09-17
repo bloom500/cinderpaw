@@ -25,6 +25,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Tool, ToolManifest, ToolResult } from "../../types.ts";
 import { resolveExecutables } from "../../core/executables.ts";
+import { readMaxTimeoutMs } from "../../egress/process-sandbox.ts";
 
 // Resolve the executables we need at module load (F0.5 hardening).
 // npm/npx, cargo, pytest/python -m, go, make. On Windows, npm and npx
@@ -193,6 +194,8 @@ export function createCodeQualityTool(
     description: KIND_DESCRIPTIONS[kind],
     permissions: ["process:spawn", "fs:read", "fs:write"],
     networkAccess: false,
+    // A test run, an install or a build: the sandbox's ceiling, not 60 s.
+    timeoutMs: readMaxTimeoutMs() + 15_000,
     allowedPaths,
     allowedExecutables: allExecs,
   };

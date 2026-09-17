@@ -72,6 +72,8 @@ export function createDelegateTaskTool(deps: {
       "parallel and you assemble their summaries.",
     permissions: [],
     networkAccess: false,
+    // A whole subagent run (up to its iteration budget, each a model call).
+    timeoutMs: 30 * 60_000,
   };
 
   const subagent = new Subagent({
