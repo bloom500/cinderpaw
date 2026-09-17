@@ -12,6 +12,7 @@ pub mod chat;
 pub mod conversations;
 pub mod cinderpaw;
 pub mod files;
+pub mod google;
 pub mod live;
 pub mod livekit;
 pub mod models;
@@ -28,6 +29,7 @@ pub(crate) use chat::*;
 pub(crate) use conversations::*;
 pub(crate) use cinderpaw::*;
 pub(crate) use files::*;
+pub(crate) use google::*;
 pub(crate) use live::*;
 pub(crate) use livekit::*;
 pub(crate) use models::*;
@@ -112,7 +114,8 @@ mod command_count_test {
     // 171 -> 172 = + browser_ui (the browser panel: address bar, back and
     // forward, and where the page sits; the agent uses the same code through
     // desktop control).
-    const EXPECTED_COMMAND_COUNT: usize = 172;
+    // 172 -> 176 = + google_status/connect/disconnect/upload (Send to Google Docs).
+    const EXPECTED_COMMAND_COUNT: usize = 176;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

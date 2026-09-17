@@ -99,6 +99,14 @@ interface ArtifactsStore {
   error: string | null;
   /** Set after an export, so the panel can say where the file went. */
   lastExport: { path: string; note: string } | null;
+  /** After Send to Google Docs: the link, or what went wrong. */
+  google: { link?: string; error?: string; busy?: boolean } | null;
+  /**
+   * Send the open artifact to the person's Google Drive: text and HTML become
+   * a Google Doc, a PDF stays a PDF. First time, it logs them in through the
+   * built-in browser and then finishes the send on its own.
+   */
+  sendToGoogle: () => Promise<void>;
   /** Non-null while the person is editing the open artifact. */
   editing: EditSession | null;
   /**
@@ -184,6 +192,27 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   editing: null,
   conflict: null,
   review: null,
+  google: null,
+
+  sendToGoogle: async () => {
+    const open = get().open;
+    if (!open) return;
+    const plan = googlePlan(open.row.kind);
+    if (!plan) return;
+    set({ google: { busy: true } });
+    try {
+      if (!(await tauri.google.status())) {
+        // Opens Google's consent page in the Browser panel and resolves once
+        // the person has approved; the artifact stays open underneath.
+        await tauri.google.connect();
+      }
+      const name = `${fileName(open.row.title)}${plan.convert ? '' : extensionFor(open.row.kind)}`;
+      const link = await tauri.google.upload(name, plan.mime, open.content, open.encoding === 'base64' ? 'base64' : null, plan.convert);
+      set({ google: { link } });
+    } catch (e) {
+      set({ google: { error: String(e) } });
+    }
+  },
 
   showingArchived: false,
 
@@ -382,7 +411,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
   },
 
-  close: () => set({ open: null, lastExport: null, error: null, editing: null, conflict: null, review: null }),
+  close: () => set({ open: null, lastExport: null, error: null, editing: null, conflict: null, review: null, google: null }),
 
   onEvent: (e) => {
     // Deliberately a refresh rather than a local patch. The event carries
@@ -535,6 +564,18 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
   },
 }));
+
+/** What each kind becomes on Drive; null for kinds the button does not offer. */
+export function googlePlan(kind: string): { mime: string; convert: boolean } | null {
+  switch (kind) {
+    case 'document': case 'html': case 'app': return { mime: 'text/html', convert: true };
+    case 'markdown': case 'code': case 'json': case 'table': return { mime: 'text/plain', convert: true };
+    case 'pdf': return { mime: 'application/pdf', convert: false };
+    // A Word file's bytes are not in the panel (only its preview), and an
+    // image is not a document.
+    default: return null;
+  }
+}
 
 /** Mirrors `EXT` in the sidecar's artifacts/store.ts. */
 function extensionFor(kind: string): string {

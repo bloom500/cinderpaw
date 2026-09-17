@@ -1,7 +1,7 @@
 import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPanel } from '../ArtifactsPanel';
-import { useArtifacts, resetArtifactRequests, type ArtifactRow } from '@/stores/artifacts';
+import { useArtifacts, resetArtifactRequests, googlePlan, type ArtifactRow } from '@/stores/artifacts';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { tauri } from '@/lib/tauri';
 
@@ -503,5 +503,30 @@ describe('rename, archive and delete in the list', () => {
     op.mockClear();
     fireEvent.click(screen.getByText('Archived'));
     await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'list' && c[2]?.content === 'archived')).toBe(true));
+  });
+});
+
+describe('Send to Google Docs', () => {
+  it('logs in first when not connected, then uploads a document as a Google Doc', async () => {
+    const { tauri: t } = await import('@/lib/tauri');
+    const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    g.status = vi.fn().mockResolvedValue(false);
+    g.connect = vi.fn().mockResolvedValue(undefined);
+    g.upload = vi.fn().mockResolvedValue('https://docs.google.com/document/d/abc/edit');
+    useArtifacts.setState({
+      loaded: true, editing: null, google: null,
+      open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByLabelText('Send to Google Docs'));
+    await waitFor(() => expect(g.upload).toHaveBeenCalled());
+    expect(g.connect).toHaveBeenCalledTimes(1);
+    expect(g.upload).toHaveBeenCalledWith('Q3- report', 'text/html', '<p>hi</p>', null, true);
+    expect(await screen.findByText('open it')).toHaveAttribute('href', 'https://docs.google.com/document/d/abc/edit');
+  });
+
+  it('a PDF goes as a PDF, and a Word file has no button', () => {
+    expect(googlePlan('pdf')).toEqual({ mime: 'application/pdf', convert: false });
+    expect(googlePlan('docx')).toBeNull();
   });
 });

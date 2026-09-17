@@ -1,5 +1,6 @@
 mod agents;
 mod browser;
+mod google;
 mod commands;
 mod connectors;
 mod conversations;
@@ -565,6 +566,10 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             get_hf_model_size,
             get_byok_settings,
             browser_ui,
+            google_status,
+            google_connect,
+            google_disconnect,
+            google_upload,
             provider_catalog,
             setup_detect,
             setup_verify,
