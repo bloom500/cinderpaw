@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Plus, Search, MessageSquare, Folder, Box, Settings,
+  Plus, Search, MessageSquare, Folder, Box, Settings, FileBox,
   PanelLeftClose, PanelLeftOpen, Loader2, FolderPlus,
   ChevronDown, ChevronRight,
 } from 'lucide-react';
@@ -15,6 +15,7 @@ import { useConversations, type ConversationSummary } from '@/stores/conversatio
 import { groupByRecency, type DatedGroup } from '@/lib/chatGroups';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
+import { useArtifacts } from '@/stores/artifacts';
 import { cn } from '@/lib/utils';
 import { Kbd, MOD } from '@/components/ui/kbd';
 import { useMagnetic } from '@/hooks/useMagnetic';
@@ -346,6 +347,15 @@ export function SideNav() {
   const collapsed = useUI((s) => s.navCollapsed);
   const toggle = useUI((s) => s.toggleNav);
   const openSearch = useUI((s) => s.openSearch);
+  const { pathname } = useLocation();
+  const panelOpen = useArtifacts((s) => s.panelOpen);
+  // The panel lives on the chat page, so from Models or Settings the row
+  // goes there and opens it, rather than toggling something off screen.
+  const openWorkspace = () => {
+    if (pathname === '/chat') { useArtifacts.getState().togglePanel(); return; }
+    useArtifacts.setState({ panelOpen: true });
+    navigate('/chat');
+  };
   const [projectOpen, setProjectOpen] = useState(false);
 
   const newChat = () => {
@@ -460,6 +470,9 @@ export function SideNav() {
           </DropdownMenu>
 
           <Row icon={Search} label="Search" collapsed={collapsed} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
+          {/* The workspace's entrance. It sat in the chat header first, right
+              under the window's maximize button, where a miss resizes the window. */}
+          <Row icon={FileBox} label="Workspace" collapsed={collapsed} onClick={openWorkspace} active={pathname === '/chat' && panelOpen} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} collapsed={collapsed} to={n.to} />
           ))}

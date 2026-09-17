@@ -1,11 +1,6 @@
-import { FileBox } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useArtifacts } from '@/stores/artifacts';
 import { useConversations } from '@/stores/conversations';
 
 export function ChatHeader() {
-  const panelOpen   = useArtifacts((s) => s.panelOpen);
-  const togglePanel = useArtifacts((s) => s.togglePanel);
   const currentId = useConversations((s) => s.currentId);
   const list      = useConversations((s) => s.list);
   const current   = list?.find((c) => c.id === currentId);
@@ -24,22 +19,6 @@ export function ChatHeader() {
             stays: a frameless window still has to be draggable. */}
         {current?.title ?? ''}
       </span>
-      {/* The workspace's only entrance. Without it the store is a capability
-          the agent has and the person does not: artifacts would exist, be
-          listed by tools, and have nowhere on screen to be opened from. */}
-      <button
-        type="button"
-        onClick={togglePanel}
-        aria-label="Workspace"
-        aria-pressed={panelOpen}
-        title="Workspace"
-        className={cn(
-          'shrink-0 rounded p-1.5 hover:bg-bg-hover',
-          panelOpen ? 'text-text-primary' : 'text-text-muted hover:text-text-primary',
-        )}
-      >
-        <FileBox size={16} />
-      </button>
     </div>
   );
 }
