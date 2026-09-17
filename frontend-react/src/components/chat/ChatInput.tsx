@@ -506,8 +506,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           >
             <span className="text-2xs text-text-muted select-none">Shift+Enter for newline</span>
           </div>
-          <div className="flex items-center justify-between px-2.5 pb-2.5 pt-1">
-            <div className="flex items-center gap-1">
+          {/* The left group is the one that gives way (the model name truncates);
+              the right group never does, because Stop and Send are the controls
+              that must stay inside the bar. At a narrow chat the unshrinkable
+              pill pushed Stop out past the bar's edge (17 Sep). */}
+          <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
+            <div className="flex min-w-0 items-center gap-1">
               <ModelPill />
               <FileAttachButton onFilesSelected={addFiles} />
               {!isStreaming && (
@@ -530,7 +534,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   agent, not from these checkboxes. Two controls that were only
                   ever correct at their defaults. */}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               {/* Live context-usage ring, left of the mode toggle */}
               <ContextRing />
               {/* Chat / Agent mode toggle */}

@@ -11,7 +11,7 @@ export function ModelPill() {
     // page corner. The model is context for the field you are typing in, so it
     // belongs on the field — and the name alone is the label, because "Add a
     // model" was an instruction on a screen where nobody had to obey it.
-    <div className="relative flex items-center h-8 rounded-full hover:bg-bg-hover transition-colors overflow-hidden shrink-0">
+    <div className="relative flex items-center h-8 rounded-full hover:bg-bg-hover transition-colors overflow-hidden min-w-0">
       <ModelPickerPopover />
       <ControlsPopover />
       {/* Thin progress bar at the bottom of the pill while a local model is
