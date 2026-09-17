@@ -1496,6 +1496,19 @@ export interface ConnectorRow {
   personaTools?: string[];
 }
 
+/**
+ * The owner on a room-keyed chat app, when the config says so without asking.
+ *
+ * Exactly one allowlisted person is the owner: somebody who connected a bot so
+ * that only they can talk to it. With two or more there is no safe guess, so
+ * nobody is, and every speaker keeps a memory of their own. A wrong guess there
+ * is how one member of a server renames everyone else.
+ */
+export function soleAllowlisted(row: ConnectorRow): string | null {
+  const ids = (row.allowlist ?? []).map((s) => s.trim()).filter(Boolean);
+  return ids.length === 1 ? ids[0]! : null;
+}
+
 export function configPath(): string {
   return join(cinderpawHome(), "connectors.json");
 }
@@ -1652,6 +1665,11 @@ export class ConnectorManager {
   /** ask_user-over-channel router — the AskUserBridge's delegate (boot.ts). */
   readonly askRouter = new ChannelAskRouter();
   /**
+   * Told on every reload who the owner is on Discord and on Slack (null when
+   * nobody can be named). Memory listens; the manager does not know memory.
+   */
+  onChatOwner: ((transport: string, userId: string | null) => void) | null = null;
+  /**
    * Every running connector, by id. This used to be six named fields —
    * `#discord`, `#discordKey`, `#slack`, … — and a hand-written
    * `#reconcileX` for each. A connector that shipped in the catalog but had
@@ -1752,6 +1770,13 @@ export class ConnectorManager {
    * just to have them read back.
    */
   async applyRows(rows: ConnectorRow[]): Promise<void> {
+    // Before anything starts, so the first message after a reload is already
+    // filed under the right person.
+    for (const transport of ["discord", "slack"]) {
+      const row = rows.find((r) => r.id === transport);
+      this.onChatOwner?.(transport, row ? soleAllowlisted(row) : null);
+    }
+
     const wanted = new Map<string, ConnectorRow>();
     for (const row of rows) if (row.enabled) wanted.set(row.id, row);
 

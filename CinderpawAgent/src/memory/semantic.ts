@@ -146,7 +146,30 @@ export function memoryScope(sessionId: string): string {
   // (plus `discord:dm:<user>`, where the speaker is still last). A legacy
   // two-segment session has no speaker and stays global.
   if (transport !== "discord" && transport !== "slack") return "";
-  return userId ? `${transport}/${userId}` : "";
+  if (!userId) return "";
+  // The owner speaking from a chat app is still the owner. Without this their
+  // own facts were scoped like a guest's, and a scoped fact shadows the global
+  // one, so a change made on the desktop never reached Discord.
+  if (chatOwners.get(transport) === userId) return "";
+  return speakerScope(transport, userId);
+}
+
+/** The scope a guest's facts live under. One spelling, for writers and for promotion. */
+export function speakerScope(transport: string, userId: string): string {
+  return `${transport}/${userId}`;
+}
+
+/**
+ * Who the owner is on each room-keyed transport, set from the connector config
+ * (see `soleAllowlisted` in transports/connectors.ts). Process-wide on purpose:
+ * `memoryScope` is a plain function with six callers, and threading the config
+ * through each of them would be six places to forget it.
+ */
+const chatOwners = new Map<string, string>();
+
+export function setChatOwner(transport: string, userId: string | null): void {
+  if (userId) chatOwners.set(transport, userId);
+  else chatOwners.delete(transport);
 }
 
 /** Storage key for `key` under `scope`. Global scope stores the bare key. */
@@ -357,6 +380,43 @@ export class SemanticMemory {
       updatedAt: row.updated_at,
       category: asCategory(row.category),
     };
+  }
+
+  /**
+   * Fold one speaker's facts into the owner's, once that speaker turns out to
+   * BE the owner.
+   *
+   * Per key, the newer statement wins, which is what the person meant: the last
+   * thing they said, wherever they said it. The scoped row is removed either
+   * way, because leaving it would keep shadowing the owner's value on that chat
+   * app, which is the bug this exists to end. Its history moves with it and is
+   * closed at the moment it stopped being true.
+   *
+   * Idempotent: a second run finds nothing under the scope. An empty scope is
+   * refused, since it would mean every owner row.
+   */
+  promoteScope(scope: string): number {
+    if (!scope) return 0;
+    const prefix = scopedKey(scope, "");
+    let promoted = 0;
+    for (const r of this.#rows().filter((row) => row.key.startsWith(prefix))) {
+      const key = r.key.slice(prefix.length);
+      const global = this.#db
+        .query<{ updated_at: number }, [string]>("SELECT updated_at FROM semantic WHERE key = ?")
+        .get(key);
+      const wins = !global || r.updated_at > global.updated_at;
+      this.#db.transaction(() => {
+        this.#db
+          .query("UPDATE semantic_history SET key = ?, valid_to = COALESCE(valid_to, ?) WHERE key = ?")
+          .run(key, Math.max(r.updated_at, global?.updated_at ?? 0), r.key);
+        this.#db.query("DELETE FROM semantic WHERE key = ?").run(r.key);
+      })();
+      if (wins) {
+        this.upsert(key, decryptField(r.value), "", asCategory(r.category), r.updated_at);
+        promoted++;
+      }
+    }
+    return promoted;
   }
 
   /** Delete a fact (e.g. user explicitly asks agent to forget something).

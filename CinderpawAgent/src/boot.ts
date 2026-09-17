@@ -23,7 +23,7 @@ import { pathWithin } from "./egress/tool-permissions.ts";
 import { InferenceRouter } from "./egress/inference-router.ts";
 import { EpisodicMemory } from "./memory/episodic.ts";
 import { isRestrictedSession } from "./core/session-visibility.ts";
-import { SemanticMemory, memoryScope } from "./memory/semantic.ts";
+import { SemanticMemory, memoryScope, setChatOwner, speakerScope } from "./memory/semantic.ts";
 import { RecallEngine } from "./memory/recall.ts";
 import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
@@ -2309,6 +2309,16 @@ export async function boot(transportOverride?: Transport) {
   };
 
   const connectors = new ConnectorManager(agent, log, leadDesk, runHooks);
+  // The one person on a Discord or Slack allowlist is the owner, so what they
+  // say there is the owner's memory, the same as on the desktop or a call. The
+  // facts they already left under their speaker scope are folded in, newest
+  // statement winning, or those would keep overriding the desktop on that app.
+  connectors.onChatOwner = (transport, userId) => {
+    setChatOwner(transport, userId);
+    if (!userId) return;
+    const moved = semantic.promoteScope(speakerScope(transport, userId));
+    if (moved > 0) log(`${transport}: ${moved} fact(s) you told Cinderpaw there now apply everywhere`);
+  };
   // ask_user for connector sessions is asked IN the channel (Discord/Slack/
   // WhatsApp text message; the next reply answers it) instead of emitting a
   // desktop card the chat user can never see.
