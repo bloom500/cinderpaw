@@ -140,12 +140,23 @@ const SCOPE_SEP = "";
  * mined into memory at all — is fixed upstream in the agent loop, which does
  * not run the extractor for restricted-profile sessions.
  */
+/**
+ * The transports whose session is `<transport>:<room>:<speaker>`: a room can
+ * hold many speakers, so a fact is the speaker's, not the owner's. Named one
+ * by one rather than "any three-segment id", because `subagent:<parent>:<id>`
+ * is three segments on the owner's side. WhatsApp, Signal and Nostr are one
+ * session per person and stay off this list.
+ */
+export const ROOM_KEYED_TRANSPORTS: ReadonlySet<string> = new Set([
+  "discord", "slack", "telegram", "matrix", "mattermost", "feishu", "irc",
+  "nextcloud-talk", "twitch", "zalo",
+]);
+
 export function memoryScope(sessionId: string): string {
   const [transport, , userId] = sessionId.split(":");
-  // Discord and Slack are the room-keyed transports: `<transport>:<room>:<user>`
-  // (plus `discord:dm:<user>`, where the speaker is still last). A legacy
-  // two-segment session has no speaker and stays global.
-  if (transport !== "discord" && transport !== "slack") return "";
+  // `<transport>:<room>:<user>` (plus `discord:dm:<user>`, where the speaker is
+  // still last). A legacy two-segment session has no speaker and stays global.
+  if (!transport || !ROOM_KEYED_TRANSPORTS.has(transport)) return "";
   if (!userId) return "";
   // The owner speaking from a chat app is still the owner. Without this their
   // own facts were scoped like a guest's, and a scoped fact shadows the global

@@ -44,6 +44,7 @@ import {
 } from "./registry.ts";
 import { ChannelAskRouter } from "../core/ask-user-channel.ts";
 import { readAttachments, type InboundAttachment } from "./attachments.ts";
+import { ROOM_KEYED_TRANSPORTS } from "../memory/semantic.ts";
 import { formatForChat, chatStyleBrief, DISCORD_LIMIT } from "./chat-format.ts";
 import {
   runUnattended,
@@ -1852,7 +1853,7 @@ export class ConnectorManager {
   async applyRows(rows: ConnectorRow[]): Promise<void> {
     // Before anything starts, so the first message after a reload is already
     // filed under the right person.
-    for (const transport of ["discord", "slack"]) {
+    for (const transport of ROOM_KEYED_TRANSPORTS) {
       const row = rows.find((r) => r.id === transport);
       this.onChatOwner?.(transport, row ? soleAllowlisted(row) : null);
     }

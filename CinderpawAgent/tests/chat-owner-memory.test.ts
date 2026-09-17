@@ -15,7 +15,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { migrateForTests } from "../src/db.ts";
-import { SemanticMemory, memoryScope, setChatOwner } from "../src/memory/semantic.ts";
+import { SemanticMemory, memoryScope, setChatOwner, ROOM_KEYED_TRANSPORTS } from "../src/memory/semantic.ts";
 import { ConnectorManager, soleAllowlisted, type AgentLike } from "../src/transports/connectors.ts";
 
 let db: Database;
@@ -107,7 +107,10 @@ describe("who the owner is", () => {
     await mgr.applyRows([{ id: "discord", enabled: false, allowlist: ["42"] }]);
     await mgr.applyRows([{ id: "discord", enabled: false, allowlist: ["42", "7"] }]);
     expect(seen).toContainEqual(["discord", "42"]);
-    expect(seen.at(-2)).toEqual(["discord", null]);
-    expect(seen.at(-1)).toEqual(["slack", null]);
+    // The second reload reports every room-keyed transport, discord cleared.
+    const last = seen.slice(-ROOM_KEYED_TRANSPORTS.size);
+    expect(last).toContainEqual(["discord", null]);
+    expect(last).toContainEqual(["slack", null]);
+    expect(last).toContainEqual(["telegram", null]);
   });
 });

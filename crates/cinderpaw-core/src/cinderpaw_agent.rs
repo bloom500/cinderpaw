@@ -561,6 +561,13 @@ pub async fn spawn(
         }
     }
 
+    // The sidecar's first workspace root is its working directory, and that is
+    // the directory the model reaches for when it writes a file without being
+    // told where. Inherited from the app it was src-tauri/ in dev and the
+    // install folder for a user (Program Files: refused, or worse, allowed).
+    // A folder of its own under Documents is where a person would look.
+    cmd.current_dir(agent_documents_dir());
+
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1160,6 +1167,17 @@ fn refresh_spawn_binary(extra_bin_dirs: &[PathBuf], repo_root: &str) -> Result<(
     std::fs::copy(&fresh, &dest)
         .map(|_| ())
         .map_err(|e| format!("copy {} -> {}: {e}", fresh.display(), dest.display()))
+}
+
+/// `~/Documents/Cinderpaw` (or `~/Cinderpaw` where there is no Documents),
+/// created on first use: the agent's working folder when the desktop app runs it.
+pub fn agent_documents_dir() -> std::path::PathBuf {
+    let base = dirs::document_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let dir = base.join("Cinderpaw");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 /// Reverse-apply a patch from the real source repo — the Rust mirror of the
