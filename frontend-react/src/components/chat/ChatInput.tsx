@@ -61,6 +61,16 @@ export interface ChatInputProps {
 }
 
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
+/**
+ * Where the red X takes you. During a call it ends the call and leaves you on
+ * the call screen, one press from calling again; only on that screen does it
+ * leave for the chat. It used to drop you in the chat from the middle of a call,
+ * so hanging up and calling back cost a trip through the composer (17 Sep).
+ */
+export function hangUpLandsOn(phase: string): 'ready' | 'idle' {
+  return phase === 'ready' || phase === 'idle' ? 'idle' : 'ready';
+}
+
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const [text, setText] = useState('');
@@ -624,7 +634,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         level={call.level}
         notice={call.notice}
         onAnswer={() => void call.begin()}
-        onHangUp={call.hangUp}
+        onHangUp={() => {
+          const next = hangUpLandsOn(call.phase);
+          call.hangUp();
+          if (next === 'ready') call.open();
+        }}
         onInterrupt={call.interrupt}
         // Both modes can be typed into now — the pipeline hands the text to its
         // turn loop, the Live session sends it on its own `clientContent`
