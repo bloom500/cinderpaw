@@ -256,3 +256,27 @@ describe("artifact_list across surfaces", () => {
     expect(lines.find((l) => l.includes("Dogs"))).toContain("made in the desktop app");
   });
 });
+
+/**
+ * Every artifact tool's manifest passes the registry's own check.
+ *
+ * The tests above build tools directly, which skips that check, and on 17 Sep
+ * artifact_send declared network access without the matching permission: every
+ * test passed and the sidecar refused to start, five times, on the first launch.
+ */
+describe("artifact tool manifests", () => {
+  test("all of them are accepted by the registry at boot", async () => {
+    const { validateManifest } = await import("../src/egress/tool-permissions.ts");
+    const t = await import("../src/tools/builtin/artifact.ts");
+    const db = openDatabase(":memory:");
+    const store = new ArtifactStore(db.raw, mkdtempSync(join(tmpdir(), "cinderpaw-manifest-")));
+    const deps = { db: db.raw, store, workspaceRoots: [] };
+    const delivery = { fileChannel: () => "ready" as const, sendFile: async () => {}, send: async () => {} };
+    const tools = [
+      t.createArtifactCreateTool(deps), t.createArtifactListTool(deps), t.createArtifactReadTool(deps),
+      t.createArtifactEditTool(deps), t.createArtifactExportTool(deps), t.createArtifactDeleteTool(deps),
+      t.createArtifactSendTool({ store, delivery }),
+    ];
+    for (const tool of tools) expect(() => validateManifest(tool.manifest)).not.toThrow();
+  });
+});
