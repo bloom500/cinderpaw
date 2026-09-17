@@ -59,6 +59,7 @@
     "@types/bun": "latest",
     "@types/qrcode-terminal": "^0.12.2",
     "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "apache-arrow": "21.1.0",
     "cron-parser": "^5.5.0",
     "discord.js": "^14.26.4",
     "gpt-tokenizer": "^3.4.0",
@@ -74,6 +75,7 @@
   "dependencies": {
     "@pdf-lib/fontkit": "1.1.1",
     "fflate": "0.8.2",
-    "pdf-lib": "1.17.1"
+    "pdf-lib": "1.17.1",
+    "zca-js": "2.1.2"
   }
 }

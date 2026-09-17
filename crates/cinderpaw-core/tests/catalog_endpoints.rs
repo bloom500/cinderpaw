@@ -820,6 +820,144 @@ async fn connectors_decision_d_rich_fields_present() {
                 );
                 assert!(entry.console_url.is_some(), "feishu must point at the app console");
             }
+            "line" => {
+                // Landed 2026-09-14 on the inbound receiver. The user brings the
+                // public address (decision 2026-09-12), so the card must say
+                // three things before a token is pasted: that an address is
+                // needed, WHERE to point it (the receiver's port and path), and
+                // that replies are push messages, which LINE meters.
+                assert!(entry.description.contains("public web address"));
+                assert!(
+                    entry.description.contains("/connectors/line") && entry.description.contains("18790"),
+                    "the LINE card must name the webhook path and port, or the person has to read source to finish setup"
+                );
+                assert!(
+                    entry.description.to_lowercase().contains("quota"),
+                    "push messages are metered on LINE's free plan; the card says so"
+                );
+                for key in ["LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("line declares {key}"));
+                    assert!(field.secret, "line's {key} is a credential");
+                }
+                assert!(
+                    entry.validate_endpoint.is_none(),
+                    "the transport validates the token itself against bot/info before it opens a port"
+                );
+                assert!(entry.console_url.is_some(), "line must point at the developers console");
+            }
+            "sms" => {
+                // Landed 2026-09-14 on the inbound receiver. Twilio's signature
+                // covers the public URL, so the URL is a pairing field, not a
+                // guess; and every reply is a billed message.
+                assert!(entry.description.contains("public web address"));
+                assert!(
+                    entry.description.contains("/connectors/sms") && entry.description.contains("18790"),
+                    "the SMS card must name the webhook path and port"
+                );
+                assert!(
+                    entry.description.to_lowercase().contains("billed"),
+                    "outbound SMS costs money per message; the card says so"
+                );
+                let url = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "TWILIO_WEBHOOK_URL")
+                    .expect("sms declares TWILIO_WEBHOOK_URL: the signature cannot be checked without it");
+                assert!(!url.secret, "the public URL is not a secret and the person must be able to read it back");
+                for key in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("sms declares {key}"));
+                    assert!(field.secret, "sms's {key} is a credential");
+                }
+                assert!(entry.validate_endpoint.is_none(), "the transport validates against the account lookup itself");
+                assert!(entry.console_url.is_some(), "sms must point at the Twilio console");
+            }
+            "synology-chat" => {
+                // Landed 2026-09-14 on the inbound receiver. The NAS is another
+                // box on the LAN, so the loopback default can never reach it:
+                // the card must name the host setting, or the connector
+                // "connects" and never hears a message.
+                assert!(entry.description.contains("address your"));
+                assert!(
+                    entry.description.contains("CINDERPAW_INBOUND_HOST") && entry.description.contains("/connectors/synology-chat"),
+                    "the Synology card must name the bind setting and the webhook path"
+                );
+                for key in ["SYNOLOGY_CHAT_WEBHOOK_URL", "SYNOLOGY_CHAT_TOKEN"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("synology-chat declares {key}"));
+                    // The incoming webhook URL carries its token in the query
+                    // string, so it is a credential too.
+                    assert!(field.secret, "synology-chat's {key} is a credential");
+                }
+                assert!(entry.validate_endpoint.is_none(), "nothing to probe: the proof is the token in each message");
+            }
+            "googlechat" => {
+                // Landed 2026-09-14 on the inbound receiver. Google's bearer
+                // token is issued for the project NUMBER, which the key file
+                // does not contain, so it is a field; and the setup needs a
+                // Cloud project, which the card must say before anyone starts.
+                assert!(entry.description.contains("public web address"));
+                assert!(
+                    entry.description.contains("/connectors/googlechat") && entry.description.contains("18790"),
+                    "the Google Chat card must name the endpoint path and port"
+                );
+                assert!(
+                    entry.description.contains("Google Cloud project"),
+                    "a Cloud project is the real setup cost; say it up front"
+                );
+                let number = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "GOOGLE_CHAT_PROJECT_NUMBER")
+                    .expect("googlechat declares GOOGLE_CHAT_PROJECT_NUMBER: the token audience");
+                assert!(!number.secret, "a project number is not a secret and must be readable back");
+                let key = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "GOOGLE_CHAT_SERVICE_ACCOUNT")
+                    .expect("googlechat declares the service account key");
+                assert!(key.secret, "the service account JSON holds a private key");
+                assert!(entry.validate_endpoint.is_none(), "the transport buys a token with the key before it opens a port");
+                assert!(entry.console_url.is_some(), "googlechat must point at the Chat API page");
+            }
+            "msteams" => {
+                // Landed 2026-09-14 on the inbound receiver. The card had NO
+                // pairing fields before, which is its own kind of coming_soon;
+                // now it asks for what the Bot Framework needs and says the
+                // admin install is part of the price.
+                assert!(entry.description.contains("public web address"));
+                assert!(
+                    entry.description.contains("/connectors/msteams") && entry.description.contains("18790"),
+                    "the Teams card must name the messaging endpoint path and port"
+                );
+                assert!(entry.description.contains("administrator"), "an admin install is the real cost; say it");
+                let pw = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "MSTEAMS_APP_PASSWORD")
+                    .expect("msteams declares the app password");
+                assert!(pw.secret, "the app password is a credential");
+                for key in ["MSTEAMS_APP_ID", "MSTEAMS_TENANT_ID"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("msteams declares {key}"));
+                    assert!(!field.secret, "{key} is an identifier the person must be able to read back");
+                }
+                assert!(entry.validate_endpoint.is_none(), "the transport buys a token with the credentials before it opens a port");
+                assert!(entry.console_url.is_some(), "msteams must point at the developer portal");
+            }
             other => {
                 // Everything else arrived with the OpenClaw import as a CARD
                 // with no transport behind it. It is allowed to sit in the

@@ -21,7 +21,14 @@ export type InputMode = 'chat' | 'agent';
 export type SttModelId = string;
 /** Speech-to-text backend for voice messages. `null` = user hasn't chosen yet
  *  (first mic tap opens the provider card). `groq` = cloud whisper-large-v3. */
-export type SttProvider = 'local' | 'groq';
+/** `local` = on-device; the cloud ids match `stt::cloud` in Rust, and
+ *  `openrouter` sends the same key the chat side already stores. */
+export type SttProvider = 'local' | 'groq' | 'openrouter';
+/** What each cloud transcriber is called, and which BYOK key it sends. */
+export const CLOUD_STT: Record<Exclude<SttProvider, 'local'>, { name: string; keyProvider: string }> = {
+  groq: { name: 'Groq · whisper-large-v3', keyProvider: 'groq' },
+  openrouter: { name: 'OpenRouter · Fish transcribe-1', keyProvider: 'openrouter' },
+};
 
 export type CallEngine = 'pipeline' | 'live' | 'livekit';
 

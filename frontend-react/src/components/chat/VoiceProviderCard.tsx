@@ -11,7 +11,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from './ExternalLink';
-import { useUI, type SttProvider } from '@/stores/ui';
+import { CLOUD_STT, useUI, type SttProvider } from '@/stores/ui';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
@@ -78,23 +78,28 @@ export function VoiceProviderCard({
   useEffect(() => {
     setChoice((c) => selectableSttProvider(c, localAvailable));
   }, [localAvailable]);
-  const [groqKey, setGroqKey] = useState('');
-  const [hasGroqKey, setHasGroqKey] = useState(false);
+  const [cloudKey, setCloudKey] = useState('');
+  // Which BYOK ids already hold a key. OpenRouter's transcriber sends the chat
+  // key, so a person who pasted it for chat sees "saved" here without typing
+  // it again under a second name.
+  const [storedKeys, setStoredKeys] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
 
-  // Sync the selected option + Groq key status each time the card opens.
+  // Sync the selected option + stored keys each time the card opens.
   useEffect(() => {
     if (!open) return;
     setChoice(selectableSttProvider(sttProvider, localAvailable));
-    setGroqKey('');
+    setCloudKey('');
     tauri.raw
       .getByokSettings()
-      .then((providers) => setHasGroqKey(providers.some((p) => p.id === 'groq' && p.has_api_key)))
-      .catch(() => setHasGroqKey(false));
+      .then((providers) => setStoredKeys(new Set(providers.filter((p) => p.has_api_key).map((p) => p.id))))
+      .catch(() => setStoredKeys(new Set()));
   }, [open, sttProvider, localAvailable]);
 
+  const cloud = choice === 'local' ? null : CLOUD_STT[choice];
+  const hasCloudKey = cloud !== null && storedKeys.has(cloud.keyProvider);
   // Cloud needs a key: either one already stored, or one typed in now.
-  const needsKey = choice === 'groq' && !hasGroqKey && groqKey.trim().length === 0;
+  const needsKey = cloud !== null && !hasCloudKey && cloudKey.trim().length === 0;
   // ...and an option this build cannot run is never confirmable, whatever the
   // key situation. Belt and braces with `selectableSttProvider`: that keeps the
   // selection honest, this keeps the BUTTON honest, and the two failed
@@ -105,8 +110,8 @@ export function VoiceProviderCard({
     if (needsKey || unavailable) return;
     setSaving(true);
     try {
-      if (choice === 'groq' && groqKey.trim()) {
-        await tauri.raw.saveByokProvider('groq', true, groqKey.trim());
+      if (cloud && cloudKey.trim()) {
+        await tauri.raw.saveByokProvider(cloud.keyProvider, true, cloudKey.trim());
       }
       setSttProvider(choice);
       onOpenChange(false);
@@ -152,22 +157,34 @@ export function VoiceProviderCard({
             title={t('voice.provider.cloud.title')}
             desc={t('voice.provider.cloud.desc')}
           />
+          <OptionRow
+            active={choice === 'openrouter'}
+            onClick={() => setChoice('openrouter')}
+            icon={<Cloud size={18} />}
+            title={t('voice.provider.openrouter.title')}
+            desc={t('voice.provider.openrouter.desc')}
+          />
         </div>
 
-        {choice === 'groq' &&
-          (hasGroqKey ? (
-            <p className="text-xs text-text-muted px-1">{t('voice.provider.cloud.keySet')}</p>
+        {cloud &&
+          (hasCloudKey ? (
+            <p className="text-xs text-text-muted px-1">
+              {t(choice === 'openrouter' ? 'voice.provider.openrouter.keySet' : 'voice.provider.cloud.keySet')}
+            </p>
           ) : (
             <div className="flex flex-col gap-1.5">
               <Input
                 type="password"
                 autoComplete="off"
-                value={groqKey}
-                onChange={(e) => setGroqKey(e.target.value)}
-                placeholder={t('voice.provider.cloud.keyPlaceholder')}
+                value={cloudKey}
+                onChange={(e) => setCloudKey(e.target.value)}
+                placeholder={t(choice === 'openrouter' ? 'voice.provider.openrouter.keyPlaceholder' : 'voice.provider.cloud.keyPlaceholder')}
               />
-              <ExternalLink href="https://console.groq.com/keys" className="text-xs self-start">
-                {t('voice.provider.cloud.getKey')}
+              <ExternalLink
+                href={choice === 'openrouter' ? 'https://openrouter.ai/settings/keys' : 'https://console.groq.com/keys'}
+                className="text-xs self-start"
+              >
+                {t(choice === 'openrouter' ? 'voice.provider.openrouter.getKey' : 'voice.provider.cloud.getKey')}
               </ExternalLink>
             </div>
           ))}

@@ -875,7 +875,7 @@ async fn runtime_voice_speak(
     let engine = match crate::tts::from_id(
         &req.provider,
         crate::tts::EngineConfig {
-            api_key: &crate::byok::byok_get(&req.provider).unwrap_or_default(),
+            api_key: &crate::byok::byok_get(crate::tts::key_provider(&req.provider)).unwrap_or_default(),
             base_url: stored.and_then(|c| c.base_url.as_deref()),
             model: stored.and_then(|c| c.default_model.as_deref()),
         },
@@ -951,14 +951,11 @@ fn wav_from_f32(pcm: &[f32], rate: u32) -> Vec<u8> {
 /// same endpoint, model and vocabulary prompt, so a call and a voice message are
 /// not transcribed by two subtly different requests.
 async fn transcribe_cloud(provider: &str, pcm: &[f32], language: Option<&str>) -> Response {
-    let endpoint = match provider {
-        "groq" => "https://api.groq.com/openai/v1/audio/transcriptions",
-        other => {
-            return (StatusCode::BAD_REQUEST, format!("no cloud transcriber called {other:?}"))
-                .into_response()
-        }
+    let Some(cloud) = crate::stt::cloud(provider) else {
+        return (StatusCode::BAD_REQUEST, format!("no cloud transcriber called {provider:?}"))
+            .into_response();
     };
-    let Some(key) = crate::byok::byok_get(provider) else {
+    let Some(key) = crate::byok::byok_get(cloud.key_provider) else {
         // Named, so the worker can say which key is missing rather than
         // reporting that the call cannot hear.
         return (StatusCode::SERVICE_UNAVAILABLE, "stt-no-key").into_response();
@@ -970,15 +967,15 @@ async fn transcribe_cloud(provider: &str, pcm: &[f32], language: Option<&str>) -
         Ok(p) => p,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
-    let mut form = reqwest::multipart::Form::new()
-        .text("model", "whisper-large-v3")
-        .text("prompt", STT_PROPER_NOUNS)
-        .part("file", part);
+    let mut form = reqwest::multipart::Form::new().text("model", cloud.model).part("file", part);
+    if cloud.whisper_extras {
+        form = form.text("prompt", STT_PROPER_NOUNS);
+    }
     if let Some(lang) = language.map(str::trim).filter(|l| !l.is_empty()) {
         form = form.text("language", lang.to_string());
     }
     let res = reqwest::Client::new()
-        .post(endpoint)
+        .post(cloud.endpoint)
         .bearer_auth(key)
         .multipart(form)
         .timeout(std::time::Duration::from_secs(60))
@@ -2939,7 +2936,7 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
             "type": "set_model",
             "provider": "openai_compatible",
             "model": loaded.name,
-            "baseUrl": format!("http://127.0.0.1:{}", state.runtime.settings.api_port),
+            "baseUrl": format!("http://127.0.0.1:{}", state.runtime.effective_api_port()),
             "apiKey": state.runtime.local_api_token.to_string(),
             "contextWindow": loaded.ctx_len,
         })
@@ -2952,7 +2949,7 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
     // goes back to a local GGUF.
     unsafe {
         std::env::set_var("CINDERPAW_PROVIDER", "openai_compatible");
-        std::env::set_var("CINDERPAW_BASE_URL", format!("http://127.0.0.1:{}", state.runtime.settings.api_port));
+        std::env::set_var("CINDERPAW_BASE_URL", format!("http://127.0.0.1:{}", state.runtime.effective_api_port()));
         std::env::set_var("CINDERPAW_MODEL", &loaded.name);
         std::env::remove_var("CINDERPAW_BYOK_PROVIDER");
     }

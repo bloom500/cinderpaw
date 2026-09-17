@@ -149,7 +149,9 @@ export function induceProcedure(
     skill: {
       id,
       name: step,
-      steps: [{ tool: step }],
+      // A run receipt's step is a tool sequence joined with ">"; an L3 step
+      // is one file and has none, so it stays one step.
+      steps: step.split(">").map((tool) => ({ tool })),
       conditions: { condition, requiresTools: opts.requiresTools ?? [step], verifiedBy: opts.verifiedBy },
       evidence: {
         supporting: supporting.map(receiptIdOf),
@@ -214,4 +216,33 @@ export class SkillLibrary {
   list(): LearnedProcedure[] {
     return [...this.#byId.values()];
   }
+}
+
+/**
+ * Induce one procedure per condition from a set of receipts. The receipts
+ * of each condition are split by time: the last third is held out, so a
+ * step that only worked on the tasks it was fitted to is refused the way
+ * `induceProcedure` refuses it. Returns how many were added. Was the
+ * campaign arm's (`rsi/infra/arms.ts`); the live run receipts use it too.
+ */
+export function induceFromReceipts(
+  receipts: Attempt[],
+  library: SkillLibrary,
+  opts: { verifiedBy: string; methodVersion: string } = { verifiedBy: "checkRepo", methodVersion: "m0.2" },
+): number {
+  const byCondition = new Map<string, Attempt[]>();
+  for (const r of receipts) if (r.condition) byCondition.set(r.condition, [...(byCondition.get(r.condition) ?? []), r]);
+  let induced = 0;
+  for (const rows of byCondition.values()) {
+    const sorted = [...rows].sort((x, y) => x.ts - y.ts);
+    const cut = Math.max(1, Math.floor((sorted.length * 2) / 3));
+    const out = induceProcedure({
+      train: sorted.slice(0, cut),
+      heldOut: sorted.slice(cut),
+      verifiedBy: opts.verifiedBy,
+      methodVersion: opts.methodVersion,
+    });
+    if (out.skill && library.add(out.skill).added) induced++;
+  }
+  return induced;
 }

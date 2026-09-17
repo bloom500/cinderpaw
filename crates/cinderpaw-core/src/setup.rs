@@ -570,7 +570,7 @@ async fn verify_local(
                     "type": "set_model",
                     "provider": "openai_compatible",
                     "model": loaded.name,
-                    "baseUrl": format!("http://127.0.0.1:{}", runtime.settings.api_port),
+                    "baseUrl": format!("http://127.0.0.1:{}", runtime.effective_api_port()),
                     "apiKey": runtime.local_api_token.to_string(),
                     "contextWindow": loaded.ctx_len,
                 })
@@ -584,7 +584,7 @@ async fn verify_local(
                 std::env::set_var("CINDERPAW_PROVIDER", "openai_compatible");
                 std::env::set_var(
                     "CINDERPAW_BASE_URL",
-                    format!("http://127.0.0.1:{}", runtime.settings.api_port),
+                    format!("http://127.0.0.1:{}", runtime.effective_api_port()),
                 );
                 std::env::set_var("CINDERPAW_MODEL", &loaded.name);
                 std::env::remove_var("CINDERPAW_BYOK_PROVIDER");

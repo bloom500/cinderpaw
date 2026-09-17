@@ -201,6 +201,67 @@ const CATALOG: Record<string, CatalogEntry> = {
       "Put your own Zalo user id in the allowlist.",
     ],
   },
+  // The five that arrive over a webhook. Their `steps` end with the public
+  // address the platform must reach, because without one they connect and
+  // stay silent, which reads as broken rather than as unconfigured.
+  line: {
+    secrets: ["LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET"],
+    note: "Channel access token and channel secret of a Messaging API channel. Inbound arrives on the webhook path /connectors/line.",
+    consoleUrl: "https://developers.line.biz/console/",
+    steps: [
+      "Open https://developers.line.biz/console/ and create a provider, then a Messaging API channel.",
+      "In the channel's Messaging API tab, issue a long-lived channel access token and copy it.",
+      "In the Basic settings tab, copy the channel secret.",
+      "Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Then set the channel's Webhook URL to your public address + /connectors/line and turn 'Use webhook' on. This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
+    ],
+  },
+  sms: {
+    secrets: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_WEBHOOK_URL"],
+    note: "Twilio account SID, auth token, the number messages are sent from, and the exact public URL you configured on that number (the signature is computed over it).",
+    consoleUrl: "https://console.twilio.com",
+    steps: [
+      "Open https://console.twilio.com and copy the Account SID and Auth Token from the dashboard.",
+      "Buy or pick a phone number with SMS capability and copy it in full international form.",
+      "Set that number's 'A message comes in' webhook to your public address + /connectors/sms, method POST.",
+      "Send me all four: SID, auth token, the number, and that exact URL. The URL is part of how the signature is checked, so it must match character for character. This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
+    ],
+  },
+  "synology-chat": {
+    secrets: ["SYNOLOGY_CHAT_WEBHOOK_URL", "SYNOLOGY_CHAT_TOKEN"],
+    note: "The NAS's incoming-webhook URL (we POST to it) and the outgoing-webhook token (it POSTs to us).",
+    consoleUrl: "https://www.synology.com/en-global/dsm/feature/chat",
+    steps: [
+      "In Synology Chat on your NAS (what it is: https://www.synology.com/en-global/dsm/feature/chat), open the profile menu, Integration, and create an Incoming Webhook. Copy the URL it gives you.",
+      "In the same place create an Outgoing Webhook pointing at your public address + /connectors/synology-chat, and copy its token.",
+      "Send me both. Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
+    ],
+  },
+  googlechat: {
+    secrets: ["GOOGLE_CHAT_PROJECT_NUMBER", "GOOGLE_CHAT_SERVICE_ACCOUNT"],
+    note: "The Google Cloud project number and a service-account key JSON. Inbound requests are verified by the signed token Google sends.",
+    consoleUrl: "https://console.cloud.google.com/apis/library/chat.googleapis.com",
+    steps: [
+      "Open https://console.cloud.google.com/apis/library/chat.googleapis.com and enable the Google Chat API in a project.",
+      "In the Chat API's Configuration tab, create the app and set Connection settings to 'HTTP endpoint URL' = your public address + /connectors/googlechat.",
+      "Copy the project NUMBER from the project's dashboard (the number, not the id).",
+      "Create a service account in that project, add a JSON key, and send me the whole JSON plus the project number. Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
+    ],
+  },
+  msteams: {
+    secrets: ["MSTEAMS_APP_ID", "MSTEAMS_APP_PASSWORD"],
+    note: "Bot Framework app id and password (client secret); MSTEAMS_TENANT_ID as well for a single-tenant bot.",
+    consoleUrl: "https://dev.botframework.com",
+    steps: [
+      "Register a bot at https://dev.botframework.com (or an Azure Bot resource) and copy its Microsoft App ID.",
+      "Create a client secret for that app registration and copy its value; it is shown once.",
+      "Set the bot's messaging endpoint to your public address + /connectors/msteams.",
+      "Send me the app id and the secret, and the tenant id too if the bot is single-tenant. Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
+    ],
+  },
 };
 
 const redact = (row: ConnectorRow | undefined, id: string) => ({

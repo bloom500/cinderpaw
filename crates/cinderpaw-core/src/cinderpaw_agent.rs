@@ -333,7 +333,7 @@ pub async fn spawn(
     admin: Option<AdminHandler>,
     extra_bin_dirs: Vec<PathBuf>,
 ) -> Result<tokio::process::Child, String> {
-    let api_port = runtime.settings.api_port;
+    let api_port = runtime.effective_api_port();
     let api_token = runtime.local_api_token.as_ref();
 
     let binary = find_binary(&extra_bin_dirs).ok_or_else(|| {

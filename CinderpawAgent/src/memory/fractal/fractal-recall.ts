@@ -79,7 +79,7 @@ const QUERY_BEAM = Math.max(
 );
 
 /** Max hits in the formatted context. Caps both backends after dedup. */
-const MAX_CONTEXT_HITS = 10;
+export const MAX_CONTEXT_HITS = 10;
 
 /** Boost added to a hit's semantic score when FTS5 also matched it. */
 const FTS_BOOST = 0.5;
@@ -97,7 +97,7 @@ const FTS_BOOST = 0.5;
 const MIN_SEMANTIC_SCORE = 0;
 
 /** Per-hit snippet length, matching `RecallEngine.snippetMaxChars`. */
-const SNIPPET_MAX_CHARS = 200;
+export const SNIPPET_MAX_CHARS = 200;
 
 /** Narrow fts signature — matches `EpisodicMemory.search(query, limit)`. */
 export type FtsSearch = (q: string, limit: number) => EpisodicEvent[];
@@ -150,12 +150,12 @@ interface MergedHit {
 }
 
 /** Format a date stamp matching the existing engine (`YYYY-MM-DD`). */
-function dateStamp(ts: number): string {
+export function dateStamp(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
 /** Truncate to `SNIPPET_MAX_CHARS`, matching the existing engine. */
-function snippet(text: string): string {
+export function snippet(text: string): string {
   return text.length > SNIPPET_MAX_CHARS
     ? text.slice(0, SNIPPET_MAX_CHARS) + "…"
     : text;

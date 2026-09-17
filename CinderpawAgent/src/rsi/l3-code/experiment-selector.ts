@@ -79,6 +79,11 @@ export interface Observation {
   effect: number | null;
   /** Tokens actually spent. */
   cost: number;
+  /** Dollars actually spent, when the run was priced. `estimated` is true
+   *  when any completion had no provider figure (see cost-report.ts
+   *  `usdOfRun`); a reported and an estimated figure never share a
+   *  field without this flag. Absent on L3 rows. */
+  usd?: { usd: number; estimated: boolean };
   /** The runner's classification of the failure, when it can tell. */
   failureClass: FailureClass | null;
 }

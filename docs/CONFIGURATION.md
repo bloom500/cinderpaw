@@ -237,6 +237,10 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_RSI_STOP_ON_ACTIVITY` | bool | `false` |  | Pause RSI when the user is active. |
 | `CINDERPAW_RSI_TELEMETRY` | path | `null` |  | Telemetry JSONL file path override (default ~/.cinderpaw/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch. |
 | `CINDERPAW_CODE_RSI_REPO` | path | `null` |  | Source repo for code-RSI to propose/apply against; without it, code-RSI rounds and live-apply are unavailable. |
+| `CINDERPAW_CODE_RSI_ALLOW_CLOUD` | bool | `false` | yes | Let a code-RSI round propose with a CLOUD primary model. Off, a round needs a local model (the source of the agent is sent to the provider otherwise). On, it also needs CINDERPAW_RSI_MAX_COST_USD > 0 and stops when the proposer's spend reaches it. A research knob; the default is the product. |
+| `CINDERPAW_INBOUND_HOST` | path | `"127.0.0.1"` | yes | Address the webhook receiver binds to. Only open while a webhook connector (LINE) is enabled; serves only POST /connectors/<id>, never the gateway. 127.0.0.1 is reachable by a tunnel or reverse proxy on this machine; set 0.0.0.0 for a proxy on another box. TLS is the proxy's job. |
+| `CINDERPAW_INBOUND_PORT` | int | `18790` |  | Port for the webhook receiver (see CINDERPAW_INBOUND_HOST). Change it when another program has it; the connector says so on failure. |
+| `CINDERPAW_CODE_RSI_ROUND_ON_READY` | bool | `false` |  | Run one code-RSI round as soon as the agent is ready, instead of waiting for the Dreams trigger. For headless tests of the round; never set in the product. |
 | `CINDERPAW_MODULE_SEED` | int | `1` |  | Deterministic seed for module selection (module-host.ts). |
 | `CINDERPAW_CRON_TICK_MS` | int | `30_000` |  | Tick interval for the cron scheduler. |
 | `CINDERPAW_CRON_JOB_TIMEOUT_MS` | int | `3_600_000` |  | Max wall-clock for a single cron job, and the deadline handed to its unattended run. The old default of 5 minutes predates the agent doing multi-step work on a reasoning model, where one completion alone can take two: a scheduled job was cut off mid-task and the partial recorded as the result. One hour leaves room for a real job while still bounding a wedged one far below the mission deadline. Raise it for a scheduled overnight mission. |
@@ -317,6 +321,8 @@ it from the voice settings in the app.
 | `CINDERPAW_API_TOKEN` | `livekit.rs` | Token for that callback. Never leaves the machine. |
 | `CINDERPAW_EVENT` | host/CLI | Event name passed to a spawned hook process. |
 | `CINDERPAW_DREAMS_ENABLED` | `boot.ts` | Whether the idle dream loop starts. |
+| `CINDERPAW_GOOGLE_CLIENT_ID` | `google.rs`, build time | OAuth client id for "Send to Google Docs", baked in at compile time. Absent in a self-built app: the button then asks for the person's own client file. |
+| `CINDERPAW_GOOGLE_CLIENT_SECRET` | `google.rs`, build time | The matching client secret. Same absence rule. |
 
 ## 4. Footnotes
 
@@ -356,7 +362,9 @@ CINDERPAW_BUDGET_POLICY
 CINDERPAW_BYOK_PROVIDER
 CINDERPAW_CLOUD_IDLE_TIMEOUT_MS
 CINDERPAW_CLOUD_TRANSCRIPT_BUDGET
+CINDERPAW_CODE_RSI_ALLOW_CLOUD
 CINDERPAW_CODE_RSI_REPO
+CINDERPAW_CODE_RSI_ROUND_ON_READY
 CINDERPAW_CRON_JOB_TIMEOUT_MS
 CINDERPAW_CRON_TICK_MS
 CINDERPAW_DB
@@ -396,19 +404,23 @@ CINDERPAW_FRACTAL_BENCH_MAX_LEAVES
 CINDERPAW_FRACTAL_BENCH_QUERIES
 CINDERPAW_FRACTAL_BENCH_SEED
 CINDERPAW_FS_DENY
+CINDERPAW_GOOGLE_CLIENT_ID
+CINDERPAW_GOOGLE_CLIENT_SECRET
 CINDERPAW_HEARTBEAT_INTERVAL_MS
 CINDERPAW_HOME
 CINDERPAW_HOST_TOOLS
 CINDERPAW_HTTP_DOMAINS
+CINDERPAW_INBOUND_HOST
+CINDERPAW_INBOUND_PORT
 CINDERPAW_INNER_THOUGHTS_ENABLED
 CINDERPAW_JINA_API_KEY
 CINDERPAW_LIVE_API_KEY
 CINDERPAW_LIVE_INSTRUCTIONS
+CINDERPAW_LIVE_LANGUAGE
 CINDERPAW_LIVE_MODEL
 CINDERPAW_LIVE_PIPELINE
 CINDERPAW_LIVE_PROVIDER
 CINDERPAW_LIVE_STT_LANGUAGE
-CINDERPAW_LIVE_LANGUAGE
 CINDERPAW_LIVE_STT_MODEL
 CINDERPAW_LIVE_STT_PROVIDER
 CINDERPAW_LIVE_TOOLS
@@ -430,7 +442,6 @@ CINDERPAW_MODULE_SEED
 CINDERPAW_NO_COLOR
 CINDERPAW_OLLAMA_NUM_CTX
 CINDERPAW_OPENROUTER_PROVIDER
-CINDERPAW_RECALL_UTILITY_WEIGHT
 CINDERPAW_PERMISSION_MODE
 CINDERPAW_PII_REDACTION
 CINDERPAW_PROACTIVE_ENABLED
@@ -444,6 +455,7 @@ CINDERPAW_PUBLIC_JOURNAL_VERSION
 CINDERPAW_RATE_LIMIT_RPM
 CINDERPAW_RECALL_INJECTION
 CINDERPAW_RECALL_INJECTION_MAX_CHARS
+CINDERPAW_RECALL_UTILITY_WEIGHT
 CINDERPAW_RSI_ALLOW_CLOUD
 CINDERPAW_RSI_CONCURRENCY
 CINDERPAW_RSI_COOLDOWN_MS
@@ -486,8 +498,8 @@ CINDERPAW_TOOL_GRAMMAR
 CINDERPAW_TOTAL_DEADLINE_MS
 CINDERPAW_TREE_BRANCH
 CINDERPAW_TREE_CLUSTER_MAX_CHARS
-CINDERPAW_TREE_PARTITION
 CINDERPAW_TREE_ITEM_MAX_CHARS
+CINDERPAW_TREE_PARTITION
 CINDERPAW_TRUSTED_BASE_URLS
 CINDERPAW_TRUSTED_LOCAL_ORIGINS
 CINDERPAW_TTFT_DEADLINE_MS

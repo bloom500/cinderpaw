@@ -225,7 +225,7 @@
     "id": "line",
     "transport": "line",
     "name": "LINE",
-    "description": "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790 and paste https://<your host>/connectors/line as the webhook URL in the console. Replies are push messages and count against your plan's monthly quota. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "💚",
     "logo_url": "https://cdn.simpleicons.org/line",
     "pairing_fields": [
@@ -241,7 +241,7 @@
       }
     ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://developers.line.biz/console/"
   },
   {
@@ -270,28 +270,49 @@
     "id": "googlechat",
     "transport": "googlechat",
     "name": "Google Chat",
-    "description": "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, and in the Chat API configuration set the HTTP endpoint URL to https://<your host>/connectors/googlechat with the project number as the authentication audience. Needs a Google Cloud project with the Chat API enabled and a service account key. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🔷",
     "pairing_fields": [
       {
         "key": "GOOGLE_CHAT_SERVICE_ACCOUNT",
         "label": "Service account JSON",
         "secret": true
+      },
+      {
+        "key": "GOOGLE_CHAT_PROJECT_NUMBER",
+        "label": "Cloud project number (digits only; on the project dashboard)",
+        "secret": false
       }
     ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://console.cloud.google.com/apis/library/chat.googleapis.com"
   },
   {
     "id": "msteams",
     "transport": "msteams",
     "name": "Microsoft Teams",
-    "description": "Microsoft Teams, through the Teams SDK. Needs a public web address you provide, and an administrator who can install the app into your tenant. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "Microsoft Teams, as a Bot Framework bot. Needs a public web address you provide, and an administrator who can install the app into your tenant: register an Azure Bot, set its messaging endpoint to https://<your host>/connectors/msteams (point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790), enable the Teams channel, and paste the app id and a client secret below. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🟦",
-    "pairing_fields": [],
+    "pairing_fields": [
+      {
+        "key": "MSTEAMS_APP_ID",
+        "label": "Microsoft App ID",
+        "secret": false
+      },
+      {
+        "key": "MSTEAMS_APP_PASSWORD",
+        "label": "Client secret (app password)",
+        "secret": true
+      },
+      {
+        "key": "MSTEAMS_TENANT_ID",
+        "label": "Tenant ID (single-tenant bots only; leave blank otherwise)",
+        "secret": false
+      }
+    ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://dev.teams.microsoft.com/apps"
   },
   {
@@ -348,7 +369,7 @@
     "id": "sms",
     "transport": "sms",
     "name": "SMS",
-    "description": "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, paste https://<your host>/connectors/sms as the number's incoming-message webhook, and type that same URL below (Twilio signs each message with it). Every reply is a billed SMS. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "📱",
     "pairing_fields": [
       {
@@ -365,17 +386,22 @@
         "key": "TWILIO_FROM_NUMBER",
         "label": "Sending number (e.g. +15551234567)",
         "secret": false
+      },
+      {
+        "key": "TWILIO_WEBHOOK_URL",
+        "label": "Public webhook URL, exactly as pasted in Twilio (e.g. https://your.host/connectors/sms)",
+        "secret": false
       }
     ],
     "pairing_method": "bot_token",
-    "coming_soon": true,
+    "coming_soon": false,
     "console_url": "https://console.twilio.com/"
   },
   {
     "id": "synology-chat",
     "transport": "synology-chat",
     "name": "Synology Chat",
-    "description": "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.",
+    "description": "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you: on this computer set CINDERPAW_INBOUND_HOST=0.0.0.0, then give the NAS http://<this computer's LAN address>:18790/connectors/synology-chat as the outgoing webhook. Nothing leaves your network. See docs/decisions/2026-09-12-webhook-inbound.md.",
     "icon": "🗄️",
     "logo_url": "https://cdn.simpleicons.org/synology",
     "pairing_fields": [
@@ -391,7 +417,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false
   },
   {
     "id": "tlon",

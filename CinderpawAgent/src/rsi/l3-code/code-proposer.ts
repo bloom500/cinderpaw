@@ -195,7 +195,14 @@ export function parseEditBlocks(text: string): EditBlock[] | null {
  */
 export function applyEditBlocks(source: string, blocks: EditBlock[]): string | null {
   let out = source;
-  for (const b of blocks) {
+  // The model writes LF; a Windows checkout is CRLF (all 94 rsi/ files on
+  // 14 Sep 2026), so a verbatim SEARCH never matched and every live round
+  // on Windows ended "nothing diff-shaped". Match in the file's own line
+  // ending; the edit keeps it, so the diff touches only the changed lines.
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const toEol = (t: string) => t.replace(/\r?\n/g, eol);
+  for (const raw of blocks) {
+    const b = { search: toEol(raw.search), replace: toEol(raw.replace) };
     if (b.search === "") return null;
     const first = out.indexOf(b.search);
     if (first === -1) return null;

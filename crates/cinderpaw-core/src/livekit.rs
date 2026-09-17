@@ -1084,7 +1084,7 @@ pub async fn start(
         // is already listening on loopback for the sidecar; this reuses it
         // rather than opening a second door into the same room.
         if let Some(rt) = &runtime {
-            cmd.env("CINDERPAW_API_URL", format!("http://127.0.0.1:{}", rt.settings.api_port))
+            cmd.env("CINDERPAW_API_URL", format!("http://127.0.0.1:{}", rt.effective_api_port()))
                 .env("CINDERPAW_API_TOKEN", rt.local_api_token.as_ref());
         }
     }

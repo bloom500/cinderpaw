@@ -33,7 +33,7 @@ import { warmLiveKit } from '@/hooks/useLiveKitCallSession';
 import { speechLevel } from '@/hooks/useSpeechPlayer';
 import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
 import { tauri, type S2sProviderInfo, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
-import { useUI } from '@/stores/ui';
+import { CLOUD_STT, useUI } from '@/stores/ui';
 import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
@@ -817,11 +817,11 @@ export function CallOverlay({
                     // on-device transcriber, which the row says rather than
                     // inventing a name for it.
                     name={
-                      sttProvider === 'groq'
-                        ? 'Groq · whisper-large-v3'
+                      sttProvider && sttProvider !== 'local'
+                        ? CLOUD_STT[sttProvider].name
                         : (localSttName ?? t('call.engineUnset'))
                     }
-                    local={sttProvider === 'local' ? true : sttProvider === 'groq' ? false : null}
+                    local={sttProvider === 'local' ? true : sttProvider ? false : null}
                     t={t}
                     // Both halves of the call are configurable from here. Only the
                     // speaking half had a way in, so the engine that hears you — and

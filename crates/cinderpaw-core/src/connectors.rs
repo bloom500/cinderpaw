@@ -493,7 +493,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "line".into(),
             device_flow: None,
             name: "LINE".into(),
-            description: "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "A LINE Messaging API bot, big in Japan, Taiwan and Thailand. Needs a public web address you provide, because LINE delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790 and paste https://<your host>/connectors/line as the webhook URL in the console. Replies are push messages and count against your plan's monthly quota. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "💚".into(),
             logo_url: Some("https://cdn.simpleicons.org/line".into()),
             pairing_fields: vec![
@@ -509,11 +509,10 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/line.ts` on the
+            // inbound receiver (`inbound.ts`). The user still brings the public
+            // address; the card says so above.
+            coming_soon: false,
             console_url: Some("https://developers.line.biz/console/".into()),
             free_tier_note: None,
             validate_endpoint: None,
@@ -561,7 +560,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "googlechat".into(),
             device_flow: None,
             name: "Google Chat".into(),
-            description: "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "A Google Workspace Chat app. Needs a public web address you provide, because Google delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, and in the Chat API configuration set the HTTP endpoint URL to https://<your host>/connectors/googlechat with the project number as the authentication audience. Needs a Google Cloud project with the Chat API enabled and a service account key. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🔷".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -570,13 +569,17 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                     label: "Service account JSON".into(),
                     secret: true,
                 },
+                PairingFieldDef {
+                    key: "GOOGLE_CHAT_PROJECT_NUMBER".into(),
+                    label: "Cloud project number (digits only; on the project dashboard)".into(),
+                    secret: false,
+                },
             ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/googlechat.ts`
+            // on the inbound receiver. The project number is a field because
+            // Google's bearer token is issued for it, and it is not in the key.
+            coming_soon: false,
             console_url: Some("https://console.cloud.google.com/apis/library/chat.googleapis.com".into()),
             free_tier_note: None,
             validate_endpoint: None,
@@ -589,16 +592,31 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "msteams".into(),
             device_flow: None,
             name: "Microsoft Teams".into(),
-            description: "Microsoft Teams, through the Teams SDK. Needs a public web address you provide, and an administrator who can install the app into your tenant. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "Microsoft Teams, as a Bot Framework bot. Needs a public web address you provide, and an administrator who can install the app into your tenant: register an Azure Bot, set its messaging endpoint to https://<your host>/connectors/msteams (point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790), enable the Teams channel, and paste the app id and a client secret below. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🟦".into(),
             logo_url: None,
-            pairing_fields: Vec::new(),
+            pairing_fields: vec![
+                PairingFieldDef {
+                    key: "MSTEAMS_APP_ID".into(),
+                    label: "Microsoft App ID".into(),
+                    secret: false,
+                },
+                PairingFieldDef {
+                    key: "MSTEAMS_APP_PASSWORD".into(),
+                    label: "Client secret (app password)".into(),
+                    secret: true,
+                },
+                PairingFieldDef {
+                    key: "MSTEAMS_TENANT_ID".into(),
+                    label: "Tenant ID (single-tenant bots only; leave blank otherwise)".into(),
+                    secret: false,
+                },
+            ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/msteams.ts` on
+            // the inbound receiver. The card had no fields at all before; a
+            // person could not have paired it even once the code existed.
+            coming_soon: false,
             console_url: Some("https://dev.teams.microsoft.com/apps".into()),
             free_tier_note: None,
             validate_endpoint: None,
@@ -682,7 +700,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "sms".into(),
             device_flow: None,
             name: "SMS".into(),
-            description: "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "Plain SMS through Twilio, to any phone, with no app to install. Needs a public web address you provide, because Twilio delivers messages by calling you: point a tunnel or reverse proxy at the receiver Cinderpaw opens on port 18790, paste https://<your host>/connectors/sms as the number's incoming-message webhook, and type that same URL below (Twilio signs each message with it). Every reply is a billed SMS. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "📱".into(),
             logo_url: None,
             pairing_fields: vec![
@@ -701,13 +719,17 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                     label: "Sending number (e.g. +15551234567)".into(),
                     secret: false,
                 },
+                PairingFieldDef {
+                    key: "TWILIO_WEBHOOK_URL".into(),
+                    label: "Public webhook URL, exactly as pasted in Twilio (e.g. https://your.host/connectors/sms)".into(),
+                    secret: false,
+                },
             ],
             pairing_method: BotToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/sms.ts` on the
+            // inbound receiver. The public URL is a pairing field because
+            // Twilio's signature covers it.
+            coming_soon: false,
             console_url: Some("https://console.twilio.com/".into()),
             free_tier_note: None,
             validate_endpoint: None,
@@ -720,7 +742,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "synology-chat".into(),
             device_flow: None,
             name: "Synology Chat".into(),
-            description: "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
+            description: "Chat on your own Synology NAS, with the full agent behind it. Needs an address your NAS can reach Cinderpaw at, because Chat delivers messages by calling you: on this computer set CINDERPAW_INBOUND_HOST=0.0.0.0, then give the NAS http://<this computer's LAN address>:18790/connectors/synology-chat as the outgoing webhook. Nothing leaves your network. See docs/decisions/2026-09-12-webhook-inbound.md.".into(),
             icon: "🗄️".into(),
             logo_url: Some("https://cdn.simpleicons.org/synology".into()),
             pairing_fields: vec![
@@ -736,11 +758,9 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: InstanceToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Landed 2026-09-14: `CinderpawAgent/src/transports/synology-chat.ts`
+            // on the inbound receiver; the "public" address is a LAN one.
+            coming_soon: false,
             console_url: None,
             free_tier_note: None,
             validate_endpoint: None,

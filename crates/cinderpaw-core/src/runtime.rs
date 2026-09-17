@@ -63,6 +63,16 @@ pub struct RuntimeState {
     /// the sidecar is pointed at the local engine, so the loopback API can
     /// require auth without breaking the in-app path.
     pub local_api_token: Arc<str>,
+    /// The port the loopback API actually bound, when it is not the configured
+    /// one. Zero until the server is up.
+    ///
+    /// The configured port can be taken — by a second Cinderpaw, by a leftover
+    /// process, by anything. When it was, the server died with "address in
+    /// use", the only sign was one log line, and everything that talks to the
+    /// local API failed for the rest of the session: `ask_cinder` in a voice
+    /// call answered "Could not reach Cinderpaw for that (fetch failed)" and
+    /// the person had no way to know why (17 Sep, seven times in one day).
+    pub api_port_actual: Arc<std::sync::atomic::AtomicU16>,
     /// Cinderpaw Agent sidecar process.
     pub cinderpaw_agent_process: Arc<Mutex<Option<tokio::process::Child>>>,
     /// Whether the sidecar has announced itself ready, right now.
@@ -151,6 +161,15 @@ pub struct ModelDownload {
 }
 
 impl RuntimeState {
+    /// The port the local API is really on: what it bound, or what was asked
+    /// for before it has bound anything. Every child process and every URL
+    /// that names the local API must go through this, never
+    /// `settings.api_port` directly.
+    pub fn effective_api_port(&self) -> u16 {
+        let actual = self.api_port_actual.load(std::sync::atomic::Ordering::SeqCst);
+        if actual == 0 { self.settings.api_port } else { actual }
+    }
+
     pub fn new(manager: Arc<ModelManager>, settings: Settings, local_api_token: Arc<str>) -> Self {
         // ponytail: 512-event ring buffer. Enough to bridge a subscriber's
         // reconnect gap without unbounded memory; a lagging client drops the
@@ -160,6 +179,7 @@ impl RuntimeState {
             manager,
             settings,
             local_api_token,
+            api_port_actual: Arc::new(std::sync::atomic::AtomicU16::new(0)),
             cinderpaw_agent_process: Arc::new(Mutex::new(None)),
             agent_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             cinderpaw_agent_tx: Arc::new(Mutex::new(None)),

@@ -489,13 +489,13 @@ export async function saveVoiceBlobToDisk(blob: Blob): Promise<string> {
  */
 export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promise<string> {
   const { sttProvider } = useUI.getState();
-  if (sttProvider === 'groq') {
+  if (sttProvider && sttProvider !== 'local') {
     // No language is ever sent. Whisper's `language` is an ORDER, not a hint:
     // an English UI once forced `language=en` on Romanian speech and turned
     // "Salut, Cinderpaw" into "Pozdvormiu Română!", and a stored preference is the
     // same mistake with the user's name on it. Detection runs per request, so a
     // wrong guess costs one turn instead of every turn after it.
-    const transcript = await tauri.voice.transcribeCloud(audioPath, 'groq', undefined);
+    const transcript = await tauri.voice.transcribeCloud(audioPath, sttProvider, undefined);
     console.log('[voice] cloud transcript ->', JSON.stringify(transcript));
     return transcript;
   }

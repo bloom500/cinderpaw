@@ -241,6 +241,14 @@ export const CONFIG_SCHEMA: ConfigEntry[] = [
     description: "Telemetry JSONL file path override (default ~/.cinderpaw/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch.", security: false },
   { name: "CINDERPAW_CODE_RSI_REPO", type: "path", default: null,
     description: "Source repo for code-RSI to propose/apply against; without it, code-RSI rounds and live-apply are unavailable.", security: false },
+  { name: "CINDERPAW_CODE_RSI_ALLOW_CLOUD", type: "bool", default: false,
+    description: "Let a code-RSI round propose with a CLOUD primary model. Off, a round needs a local model (the source of the agent is sent to the provider otherwise). On, it also needs CINDERPAW_RSI_MAX_COST_USD > 0 and stops when the proposer's spend reaches it. A research knob; the default is the product.", security: true },
+  { name: "CINDERPAW_INBOUND_HOST", type: "path", default: "127.0.0.1",
+    description: "Address the webhook receiver binds to. Only open while a webhook connector (LINE) is enabled; serves only POST /connectors/<id>, never the gateway. 127.0.0.1 is reachable by a tunnel or reverse proxy on this machine; set 0.0.0.0 for a proxy on another box. TLS is the proxy's job.", security: true },
+  { name: "CINDERPAW_INBOUND_PORT", type: "int", default: 18790,
+    description: "Port for the webhook receiver (see CINDERPAW_INBOUND_HOST). Change it when another program has it; the connector says so on failure.", security: false },
+  { name: "CINDERPAW_CODE_RSI_ROUND_ON_READY", type: "bool", default: false,
+    description: "Run one code-RSI round as soon as the agent is ready, instead of waiting for the Dreams trigger. For headless tests of the round; never set in the product.", security: false },
 
   // ---- L4 modules ----------------------------------------------------------------
   { name: "CINDERPAW_MODULE_SEED", type: "int", default: 1,

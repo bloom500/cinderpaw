@@ -16,7 +16,7 @@ import { openDatabase } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
 import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, defaultDbPath, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
-import { AuditLog } from "./egress/audit-log.ts";
+import { AuditLog, toolCallsOfRun } from "./egress/audit-log.ts";
 import { EgressProxy } from "./egress/egress-proxy.ts";
 import { RealProcessSandbox } from "./egress/process-sandbox.ts";
 import { pathWithin } from "./egress/tool-permissions.ts";
@@ -29,7 +29,10 @@ import { MemoryExtractor, isJunkFactKey } from "./memory/extractor.ts";
 import { Reconciler } from "./memory/reconciler.ts";
 import { runMigration } from "./memory/fractal/migration.ts";
 import { UtilityLedger, rerankByUtility } from "./memory/fractal/utility.ts";
-import { SkillLibrary, defaultSkillLibraryPath } from "./memory/fractal/skill-library.ts";
+import { RUN_RECEIPT_METHOD, runReceipt } from "./core/run-receipt.ts";
+import { costOfRun } from "./core/cost-report.ts";
+import { appendAttempt, readAttempts } from "./rsi/l3-code/experiment-selector.ts";
+import { SkillLibrary, defaultSkillLibraryPath, induceFromReceipts } from "./memory/fractal/skill-library.ts";
 import { MemoryGraph } from "./memory/graph.ts";
 import { MemoryGraphCleaner } from "./memory/graph-cleaner.ts";
 import { getActiveWorkspaceId } from "./memory/workspaces.ts";
@@ -140,6 +143,11 @@ import "./transports/nostr.ts";
 import "./transports/nextcloud-talk.ts";
 import "./transports/zalo.ts";
 import "./transports/feishu.ts";
+import "./transports/line.ts";
+import "./transports/sms.ts";
+import "./transports/synology-chat.ts";
+import "./transports/googlechat.ts";
+import "./transports/msteams.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
@@ -1488,12 +1496,55 @@ export async function boot(transportOverride?: Transport) {
      *  null = nothing was checked, which is not evidence either way. */
     verified: boolean | null = null,
   ): Promise<void> {
-    // The task closed: the memories shown during its session helped, or did
-    // not. Only a verifier's verdict counts (plan §3.3); "finished" without
-    // a done_when is the model's own word and teaches the ledger nothing.
-    if (verified !== null && utility.closed([row.sessionId], verified) > 0) saveUtility();
+    settleVerdict(row, verified);
     runStore.finish(row.id, status, reason, text);
     await deliverAndMark(runStore, row, text, deliverRunReport);
+  }
+
+  /**
+   * What a verifier's verdict teaches, on every path that ends a run: the
+   * chat and connector path (`runHooks.conclude`) and the cron and resume
+   * path (`concludeRun`). Until 14 Sep 2026 only the second called this, so
+   * a chat run with a done_when never closed the utility ledger.
+   *
+   * The task closed: the memories shown during its session helped, or did
+   * not. Only a verifier's verdict counts (plan §3.3); "finished" without
+   * a done_when is the model's own word and teaches the ledger nothing.
+   */
+  function settleVerdict(row: RunRow, verified: boolean | null): void {
+    if (verified !== null && utility.closed([row.sessionId], verified) > 0) saveUtility();
+    // The run's receipt (plan §3.1): the tool sequence the verifier judged,
+    // with what it cost. Only a run that declared a done_when writes one, so
+    // on a fresh install this file does not exist until a user asks to be
+    // checked. Separate from the L3 ledger, see core/run-receipt.ts.
+    if (verified !== null && row.doneWhen) {
+      const cost = costOfRun(db.raw, row.sessionId, row.createdAt);
+      const receipt = runReceipt({
+        doneWhen: row.doneWhen,
+        verified,
+        tools: toolCallsOfRun(db.raw, row.sessionId, row.createdAt),
+        tokens: cost.tokens,
+        usd: { usd: cost.usd, estimated: cost.estimated },
+        now: Date.now(),
+      });
+      if (receipt) {
+        try {
+          const ledger = join(dataDir, "run-receipts.jsonl");
+          appendAttempt(ledger, receipt);
+          // Live induction (plan §3.1): with enough receipts under one
+          // condition, the step they verified becomes a learned procedure in
+          // the skills menu. Needs held-out, so nothing appears before the
+          // second verified run of a kind; a fresh install lists nothing.
+          const induced = induceFromReceipts(readAttempts(ledger), learnedSkills, {
+            verifiedBy: "done_when",
+            methodVersion: RUN_RECEIPT_METHOD,
+          });
+          if (induced > 0) log(`[skills] learned ${induced} procedure(s) from verified runs: ${receipt.condition}`);
+        } catch (e) {
+          log(`[run-receipt] not written: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
   }
 
   /**
@@ -2000,8 +2051,26 @@ export async function boot(transportOverride?: Transport) {
     const repoRoot = cfgPath("CINDERPAW_CODE_RSI_REPO");
     if (!repoRoot || codeRsiBusy) return;
     if (!router.isPrimaryLocal) {
-      log("code-rsi: skipped — proposal requires a LOCAL primary model (spec §2.5)");
-      return;
+      // A cloud proposer sends the agent's own source to a provider, so it is
+      // opt-in, and a paid round needs a ceiling a human wrote (recursive
+      // learning spec §11). The ceiling is enforced on what the provider
+      // reported (completion_cost.cost_usd, or the blended estimate), summed
+      // over every proposer completion so far.
+      const capUsd = Number(readEnv("CINDERPAW_RSI_MAX_COST_USD") ?? 0);
+      if (!cfgBool("CINDERPAW_CODE_RSI_ALLOW_CLOUD")) {
+        log("code-rsi: skipped — proposal requires a LOCAL primary model (spec §2.5); CINDERPAW_CODE_RSI_ALLOW_CLOUD=true opts in");
+        return;
+      }
+      if (!(capUsd > 0)) {
+        log("code-rsi: skipped — a cloud round needs CINDERPAW_RSI_MAX_COST_USD > 0 (spec §11)");
+        return;
+      }
+      const spent = costOfRun(db.raw, "code-rsi-proposer", 0);
+      if (spent.usd >= capUsd) {
+        log(`code-rsi: skipped — proposer spend $${spent.usd.toFixed(4)}${spent.estimated ? " (estimated)" : ""} reached the cap $${capUsd}`);
+        return;
+      }
+      log(`code-rsi: CLOUD proposer — the agent's source leaves this machine; spent $${spent.usd.toFixed(4)} of $${capUsd}`);
     }
     codeRsiBusy = true;
     try {
@@ -2018,6 +2087,7 @@ export async function boot(transportOverride?: Transport) {
       // Tokens the proposer spent this round: the observed cost the
       // self-model scores its `expectedCost` against.
       let proposerTokens = 0;
+      let proposerText = "";
       let asked: { file: string; question: string } | null = null;
       let settled: number | null = null;
       const genome = await proposeCodePatch({
@@ -2049,10 +2119,20 @@ export async function boot(transportOverride?: Transport) {
             temperature: 0.4,
             cachePrompt: false,
             skipBudgetCheck: false,
+            // A reasoning model spends the answer budget thinking: the first
+            // live cloud round (14 Sep, GLM 5.3 flash) used all 4096 tokens
+            // and emitted nothing diff-shaped, which read as "nothing to
+            // propose". Low effort, and say so when it still runs out.
+            reasoningEffort: "low",
           });
           proposerTokens += res.totalTokens ?? 0;
+          proposerText = res.content;
+          if (res.completionTokens >= maxTokens) {
+            log(`code-rsi: proposer output hit maxTokens=${maxTokens}; a SKIP after this is the cut, not the model's verdict`);
+          }
           return res.content;
         },
+        maxTokens: 16384,
         // R2: rsi/ is now layered into subdirs (l1-config/, l3-code/, …), so
         // this must recurse and return rsi/-relative paths (e.g.
         // "l1-config/mutation.ts") — readRsiFile/proposeCodePatch already
@@ -2084,7 +2164,11 @@ export async function boot(transportOverride?: Transport) {
         return;
       }
       if (!genome) {
-        log("code-rsi: proposer declined (SKIP / nothing diff-shaped) — no candidate this round");
+        // The decline carries its text: "SKIP" is the model's verdict, anything
+        // else is a reply the parser could not read, which is our bug, not
+        // its opinion. One line, trimmed, so the log tells the two apart.
+        const said = proposerText.replace(/<think>[\s\S]*?<\/think>/g, "").trim().replace(/\s+/g, " ");
+        log(`code-rsi: proposer declined (${said === "SKIP" ? "said SKIP" : "nothing diff-shaped"}) — no candidate this round; it said: ${said.slice(0, 400) || "(empty)"}`);
         sendCodePatches({ at: Date.now(), target: "", verdict: "no candidate", reason: "The proposer had nothing to suggest this round." });
         return;
       }
@@ -2280,6 +2364,7 @@ export async function boot(transportOverride?: Transport) {
       // owes exists. See `concludeRun` for why those cannot be the same moment.
       let verdictStatus: RunStatus = "unfinished";
       let verdictReason: RunStopReason = "not_continuable";
+      let verdictVerified: boolean | null = null;
       return {
         recorder: turnRecorder(row, safety, doneWhen),
         stalled: () =>
@@ -2294,6 +2379,7 @@ export async function boot(transportOverride?: Transport) {
           const check = await verifyDoneWhen(doneWhen, safety[0]?.root ?? null);
           verdictStatus = run.finished && check.passed ? "finished" : "unfinished";
           verdictReason = run.stoppedBecause;
+          verdictVerified = check.checked ? check.passed : null;
           clearIntents(sessionId);
           if (!check.checked) return null;
           return check.passed
@@ -2305,6 +2391,7 @@ export async function boot(transportOverride?: Transport) {
         // about to send. Until the connector reports back, this run counts as
         // owed, and a boot that finds it will send it.
         conclude: (reply: string) => {
+          settleVerdict(row, verdictVerified);
           runStore.finish(row.id, verdictStatus, verdictReason, reply);
         },
         // The connector says this once the message is actually out. Until then
@@ -2672,6 +2759,9 @@ export async function boot(transportOverride?: Transport) {
     // Chaining on the reload promise waits for the real signal instead of
     // guessing with a timer.
     void connectors.reload().then(() => resumeInterrupted());
+    // One round on demand, for a headless test of the code-RSI path; the
+    // product's trigger is the Dreams cycle.
+    if (cfgBool("CINDERPAW_CODE_RSI_ROUND_ON_READY")) void maybeCodeRsiRound();
 
     // Dream Cycle: arm the event-driven scheduler ONLY when the user opted
     // in (CINDERPAW_DREAMS_ENABLED=true, the master switch from Settings)

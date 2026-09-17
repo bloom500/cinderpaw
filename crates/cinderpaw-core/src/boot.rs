@@ -356,12 +356,36 @@ async fn spawn_api_server_if_enabled(
         runtime: runtime.clone(),
     };
     let port = runtime.settings.api_port;
+    // Bind HERE, not inside the spawned task, so the port is known before
+    // anything is told where to reach us. A taken port used to kill the server
+    // with one log line and leave every local-API caller broken for the whole
+    // session (voice `ask_cinder` said only "fetch failed"). Now the second
+    // choice is any free port, and the rest of the process asks
+    // `effective_api_port()` rather than the number in settings.
+    let listener = match listener {
+        Some(l) => Some(l),
+        None => match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(l) => Some(l),
+            Err(e) => {
+                tracing::warn!(?e, port, "the configured api port is taken — taking any free port");
+                tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.ok()
+            }
+        },
+    };
+    let Some(listener) = listener else {
+        tracing::error!("no local api port could be bound; the local API is off this session");
+        return;
+    };
+    if let Ok(addr) = listener.local_addr() {
+        runtime
+            .api_port_actual
+            .store(addr.port(), std::sync::atomic::Ordering::SeqCst);
+        if addr.port() != port {
+            tracing::warn!(asked = port, got = addr.port(), "local api is on another port");
+        }
+    }
     tokio::spawn(async move {
-        let result = match listener {
-            Some(l) => api::serve_on(api_state, l).await,
-            None => api::serve(api_state, port).await,
-        };
-        if let Err(e) = result {
+        if let Err(e) = api::serve_on(api_state, listener).await {
             tracing::error!(?e, "api server stopped");
         }
     });
