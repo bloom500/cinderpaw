@@ -8,6 +8,8 @@
  * NOTE: configure writes the REAL ~/.cinderpaw/connectors.json. The test restores
  * the previous file content afterward.
  */
+import "../src/boot.ts";
+import { registeredTransports } from "../src/transports/registry.ts";
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -54,7 +56,8 @@ test("list returns the catalog with secrets redacted to present/absent", async (
   const discord = parsed.find((c) => c.id === "discord")!;
   expect(discord.enabled).toBe(true);
   expect(discord.configured[0]!.present).toBe(true);
-  expect(parsed.map((c) => c.id).sort()).toEqual(["discord", "slack", "whatsapp"]);
+  // Every transport this build can run, and nothing it cannot.
+  expect(parsed.map((c) => c.id).sort()).toEqual(registeredTransports().sort());
 });
 
 test("configure upserts a row, persists it, and pokes reload()", async () => {
@@ -90,7 +93,7 @@ test("configure with missing secrets reports what's still needed", async () => {
 
 test("unknown connector id is rejected", async () => {
   const { tool, reloads } = makeTool();
-  const res = await tool.execute({ action: "configure", id: "telegram" }, ctx);
+  const res = await tool.execute({ action: "configure", id: "myspace" }, ctx);
   expect(res.ok).toBe(false);
   expect(reloads()).toBe(0);
 });

@@ -84,6 +84,123 @@ const CATALOG: Record<string, CatalogEntry> = {
       "Scan the QR code there with WhatsApp on your phone: Settings → Linked devices → Link a device.",
     ],
   },
+  // Every other transport the sidecar can run. Without an entry the agent
+  // answered "unknown connector" to a person asking for Telegram.
+  // ponytail: steps written from what each transport reads, not walked
+  // through each portal; a portal that moved gets fixed here.
+  telegram: {
+    secrets: ["TELEGRAM_BOT_TOKEN"],
+    note: "Bot token from @BotFather. Allowlist holds numeric Telegram user ids; a group is answered only when its chat id is in channels.",
+    consoleUrl: "https://t.me/BotFather",
+    steps: [
+      "Open https://t.me/BotFather in Telegram and press Start.",
+      "Send /newbot, then a display name, then a username ending in 'bot'.",
+      "BotFather replies with a token like 123456:ABC-... Copy it. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Your own numeric user id goes in the allowlist: message @userinfobot in Telegram and it replies with it.",
+      "For a group, add the bot to the group and send me the group's chat id for channels; in a private chat nothing else is needed.",
+    ],
+  },
+  matrix: {
+    secrets: ["MATRIX_HOMESERVER", "MATRIX_ACCESS_TOKEN"],
+    note: "Homeserver URL and the bot account's access token. Allowlist holds full user ids like @name:matrix.org.",
+    consoleUrl: "https://app.element.io",
+    steps: [
+      "Make a separate Matrix account for me (not your own), for example at https://app.element.io.",
+      "Signed in as that account in Element: Settings, Help & About, Advanced, Access Token. Copy it.",
+      "The homeserver is the address the account lives on, e.g. https://matrix.org.",
+      "Send me both. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Your own full id (@you:server) goes in the allowlist; invite my account to the rooms you want me in.",
+    ],
+  },
+  mattermost: {
+    secrets: ["MATTERMOST_URL", "MATTERMOST_TOKEN"],
+    note: "Server URL and a personal access token for the account the agent speaks as.",
+    consoleUrl: "https://developers.mattermost.com/integrate/reference/personal-access-token/",
+    steps: [
+      "Personal access tokens must be enabled by the server admin (System Console, Integrations). See https://developers.mattermost.com/integrate/reference/personal-access-token/.",
+      "Signed in as the account I should speak as: Profile, Security, Personal Access Tokens, Create Token. Copy the token.",
+      "The URL is the address you open Mattermost at, e.g. https://chat.example.com.",
+      "Send me both. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+    ],
+  },
+  signal: {
+    secrets: ["SIGNAL_BRIDGE_URL", "SIGNAL_NUMBER"],
+    note: "Needs a running signal-cli REST bridge and the phone number registered with it.",
+    consoleUrl: "https://github.com/bbernhard/signal-cli-rest-api",
+    steps: [
+      "Signal has no bot API, so I talk through a bridge you run: https://github.com/bbernhard/signal-cli-rest-api (Docker).",
+      "Register or link a phone number in that bridge, following its README. Use a number that is not your main one.",
+      "Send me the bridge's address (e.g. http://localhost:8080) and that number with its country code.",
+      "Your own number goes in the allowlist.",
+    ],
+  },
+  irc: {
+    secrets: ["IRC_HOST", "IRC_NICK"],
+    note: "Server host and nickname; IRC_PASSWORD is optional (NickServ). Channels to join go in channels.",
+    consoleUrl: "https://libera.chat",
+    steps: [
+      "Pick a network and its server, e.g. irc.libera.chat (see https://libera.chat).",
+      "Pick a nickname for me that is not taken on that network.",
+      "If the nick is registered with NickServ, send its password as IRC_PASSWORD too; otherwise skip it.",
+      "Tell me which channels to join, and put your own nick in the allowlist.",
+    ],
+  },
+  feishu: {
+    secrets: ["FEISHU_APP_ID", "FEISHU_APP_SECRET"],
+    note: "App id and app secret of a custom app from the Feishu/Lark developer console.",
+    consoleUrl: "https://open.feishu.cn/app",
+    steps: [
+      "Open https://open.feishu.cn/app (Lark: open.larksuite.com/app) and create a custom app.",
+      "Turn on its bot capability and give it permission to read and send messages.",
+      "Under Credentials, copy the App ID and App Secret.",
+      "Send me both. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Publish the app version so it can be added to chats.",
+    ],
+  },
+  "nextcloud-talk": {
+    secrets: ["NEXTCLOUD_TALK_URL", "NEXTCLOUD_TALK_USER", "NEXTCLOUD_TALK_APP_PASSWORD"],
+    note: "Nextcloud server URL, the bot user's name, and an app password made in that user's Security settings.",
+    consoleUrl: "https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html",
+    steps: [
+      "Make a separate Nextcloud user for me on your server.",
+      "Signed in as that user: Settings, Security, Devices & sessions, create an app password. See https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html.",
+      "Send me the server address, that user's name, and the app password. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Add that user to the Talk conversations you want me in, and put your own user name in the allowlist.",
+    ],
+  },
+  nostr: {
+    secrets: ["NOSTR_PRIVATE_KEY", "NOSTR_RELAY_URLS"],
+    note: "The agent's own private key (a new one, never the user's) and comma-separated relay URLs.",
+    consoleUrl: "https://nostr.how",
+    steps: [
+      "Make a NEW key pair for me with any Nostr client (see https://nostr.how). Never give me your own private key.",
+      "Copy that new private key (nsec... or hex). Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send the relays to use, comma-separated, e.g. wss://relay.damus.io,wss://nos.lol.",
+      "Your own public key goes in the allowlist; I answer direct messages from it.",
+    ],
+  },
+  twitch: {
+    secrets: ["OAUTH_ACCESS"],
+    note: "An OAuth access token with chat:read and chat:edit for the bot account. Channels to join go in channels.",
+    consoleUrl: "https://dev.twitch.tv/console/apps",
+    steps: [
+      "Make a separate Twitch account for me, and register an app at https://dev.twitch.tv/console/apps.",
+      "Signed in as my account, get a user access token for that app with the chat:read and chat:edit scopes.",
+      "Send me the token. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Tell me which channels to join, and put your own Twitch login in the allowlist.",
+    ],
+  },
+  zalo: {
+    secrets: ["ZALO_BOT_TOKEN"],
+    note: "Bot token from Zalo Bot Platform.",
+    consoleUrl: "https://bot.zaloplatforms.com/",
+    steps: [
+      "Open https://bot.zaloplatforms.com/ and sign in with Zalo.",
+      "Create a bot and copy its token.",
+      "Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Put your own Zalo user id in the allowlist.",
+    ],
+  },
 };
 
 const redact = (row: ConnectorRow | undefined, id: string) => ({
@@ -119,7 +236,7 @@ export function createConnectorsManageTool(
   const manifest: ToolManifest = {
     name: "connectors_manage",
     description:
-      "Configure YOUR OWN messaging connectors (Discord, Slack, WhatsApp) — the " +
+      "Configure YOUR OWN messaging connectors (Discord, Slack, WhatsApp, Telegram, Matrix and more; 'list' names all) — the " +
       "accounts you yourself speak through. This does NOT configure any other " +
       "bot: if the user asks you to set up a different bot, this tool changes " +
       "you instead, and the usual result is that you go silent. Use action " +
@@ -145,7 +262,7 @@ export function createConnectorsManageTool(
       },
       id: {
         type: "string",
-        description: "Connector id (discord | slack | whatsapp). Required for 'configure'.",
+        description: "Connector id, as 'list' returns it (discord, slack, whatsapp, telegram, ...). Required for 'configure'.",
         required: false,
       },
       enabled: {
