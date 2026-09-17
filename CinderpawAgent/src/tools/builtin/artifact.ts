@@ -556,7 +556,11 @@ export function createArtifactSendTool(deps: { store: ArtifactStore; delivery: F
       "The user is asked to approve every send. On the desktop or in a voice call " +
       "there is no chat to send into: use artifact_export there.",
     permissions: ["fs:read"],
-    networkAccess: true,
+    // false, although a file leaves the machine: this tool never opens a
+    // connection. The connector does, through its own client, and a manifest
+    // that claimed network access would need an allowedDomains list naming
+    // every chat platform, which the registry then refuses to start without.
+    networkAccess: false,
     allowedPaths: [{ path: deps.store.root, mode: "read" }],
   };
 
