@@ -10,6 +10,8 @@ import { VoicePreview } from './VoicePreview';
 import { VoiceProviderCard } from './VoiceProviderCard';
 import { VoiceEngineCard } from './VoiceEngineCard';
 import { CallOverlay } from './CallOverlay';
+import { ComposerPlaceholder } from './ComposerPlaceholder';
+import { motion } from 'framer-motion';
 import { ModelPill } from './ModelPill';
 import { ContextRing } from './ContextRing';
 import { MascotPerch } from './mascot/MascotPerch';
@@ -82,6 +84,22 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const inputMode    = useUI((s) => s.inputMode);
   const setInputMode = useUI((s) => s.setInputMode);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  // In use until a press lands outside it. Not blur: the model menu and the
+  // voice cards open in portals, and treating that focus move as "left" would
+  // fold the row away under the menu the person just opened.
+  const [engaged, setEngaged] = useState(false);
+  useEffect(() => {
+    if (!engaged) return;
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      if (!target || composerRef.current?.contains(target)) return;
+      if (target.closest('[data-radix-popper-content-wrapper], [role="dialog"], [role="menu"]')) return;
+      setEngaged(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [engaged]);
   const send = useSendMessage();
   const t = useT();
   const rec = useVoiceRecorder();
@@ -424,6 +442,13 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     setAttachedFiles((prev) => prev.filter((f) => f.path !== path));
 
 
+  // Expanded while the composer is in use: focused, holding something, recording,
+  // streaming, or on Home where the field IS the screen. Collapsed to one row in
+  // a running conversation, where the transcript is the subject.
+  const expanded =
+    engaged || isEmpty || isStreaming || dragOver || text.length > 0 ||
+    attachedFiles.length > 0 || rec.state !== 'idle';
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className={cn(
@@ -432,8 +457,14 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           : 'px-4 py-3',
       )}>
         <div
+          ref={composerRef}
+          onFocusCapture={() => setEngaged(true)}
+          onPointerDownCapture={() => setEngaged(true)}
           className={cn(
-            'relative rounded-2xl border bg-(--surface-typing) focus-within:border-brand transition-colors',
+            // A pill, from the HextaUI AI chat input: 28px is half the collapsed
+            // height, so the ends are round, and the corners stay soft once it
+            // grows to two rows.
+            'relative rounded-[28px] border bg-(--surface-typing) focus-within:border-brand transition-colors',
             // Same material as the rail and the popovers. Without these two it
             // was the only piece of chrome in the app that was merely tinted:
             // a flat rectangle sitting beside a sidebar made of glass.
@@ -442,7 +473,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           )}
         >
           {dragOver && (
-            <div className="absolute inset-0 z-10 rounded-2xl bg-brand/10 backdrop-blur-xs border-2 border-dashed border-brand flex items-center justify-center pointer-events-none">
+            <div className="absolute inset-0 z-10 rounded-[28px] bg-brand/10 backdrop-blur-xs border-2 border-dashed border-brand flex items-center justify-center pointer-events-none">
               <span className="text-sm font-medium text-brand">Drop to attach</span>
             </div>
           )}
@@ -482,48 +513,36 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               }}
             />
           )}
-          <Textarea
-            ref={taRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            placeholder={
-              alwaysEnabled ? t('chat.placeholder.agent') : t('chat.placeholder')
-            }
-            disabled={disabled}
-            rows={1}
-            // Roomier on Home, where the field IS the screen and the reference
-            // it is measured against gives the question air. In a running
-            // conversation the transcript is the subject, so it stays compact.
-            // Measured against assistant-ui rather than guessed: a comfortable
-            // single row (min-h-11) that grows, not a tall empty box with the
-            // placeholder stranded at the top of it.
-            className={cn(
-              'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-4 pt-3 text-base min-h-11 thin-scrollbar',
-            )}
-          />
-          {/* The hint answers a question you only have once you are typing, so
-              it fades in when there is something to newline. Kept in the layout
-              at zero opacity rather than unmounted: appearing would otherwise
-              push the composer up under the cursor on the first keystroke. */}
-          <div
-            className={cn(
-              'px-4 pb-1 text-right transition-opacity duration-150',
-              text.length > 0 ? 'opacity-100' : 'opacity-0',
-            )}
-            aria-hidden={text.length === 0}
-          >
-            <span className="text-2xs text-text-muted select-none">Shift+Enter for newline</span>
-          </div>
-          {/* The left group is the one that gives way (the model name truncates);
-              the right group never does, because Stop and Send are the controls
-              that must stay inside the bar. At a narrow chat the unshrinkable
-              pill pushed Stop out past the bar's edge (17 Sep). */}
-          <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
-            <div className="flex min-w-0 items-center gap-1">
-              <ModelPill />
+          <div className="flex items-end gap-1 px-2 pt-2 pb-1.5">
+            <div className="flex h-11 shrink-0 items-center">
               <FileAttachButton onFilesSelected={addFiles} />
+            </div>
+            <div className="relative min-w-0 flex-1">
+              <Textarea
+                ref={taRef}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={onKeyDown}
+                onPaste={onPaste}
+                // The visible placeholder is drawn below, animated; the box keeps
+                // an accessible name so a screen reader still hears what it is for.
+                aria-label={alwaysEnabled ? t('chat.placeholder.agent') : t('chat.placeholder')}
+                disabled={disabled}
+                rows={1}
+                className={cn(
+                  'resize-none border-0 bg-transparent focus-visible:ring-0 max-h-[200px] px-2 pt-3 text-base min-h-11 thin-scrollbar',
+                )}
+              />
+              {text.length === 0 && rec.state !== 'preview' && (
+                <div aria-hidden className="pointer-events-none absolute inset-x-2 top-3 overflow-hidden text-base leading-6">
+                  <ComposerPlaceholder
+                    active={!engaged && !disabled}
+                    fallback={alwaysEnabled ? t('chat.placeholder.agent') : t('chat.placeholder')}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex h-11 shrink-0 items-center gap-1">
               {!isStreaming && (
                 <button
                   type="button"
@@ -532,52 +551,11 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   onPointerUp={clearMicHold}
                   onPointerLeave={clearMicHold}
                   aria-label={rec.state === 'recording' ? 'Stop recording' : 'Record voice message (hold to choose provider)'}
-                  className={cn('p-1.5 rounded hover:bg-bg-hover', rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-muted')}
+                  className={cn('p-1.5 rounded-full hover:bg-bg-hover', rec.state === 'recording' ? 'text-error animate-pulse' : 'text-text-muted')}
                 >
                   {rec.state === 'recording' ? <Square size={16} /> : <Mic size={16} />}
                 </button>
               )}
-              {/* The tools checklist and the reasoning-mode picker used to sit
-                  here. Both asked the person to configure something the app
-                  already decides better than they can: reasoning is inferred
-                  from the model, and in agent mode the tool list comes from the
-                  agent, not from these checkboxes. Two controls that were only
-                  ever correct at their defaults. */}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {/* Live context-usage ring, left of the mode toggle */}
-              <ContextRing />
-              {/* Chat / Agent mode toggle */}
-              <div className="flex rounded-lg border border-border-default bg-bg-elevated h-7 overflow-hidden shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setInputMode('agent')}
-                  aria-label="Switch to Agent mode"
-                  aria-pressed={inputMode === 'agent'}
-                  className={cn(
-                    'px-2.5 text-2xs font-medium transition-colors',
-                    inputMode === 'agent'
-                      ? 'bg-bg-hover text-text-primary'
-                      : 'text-text-muted hover:text-text-secondary',
-                  )}
-                >
-                  Agent
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setInputMode('chat')}
-                  aria-label="Switch to Chat mode"
-                  aria-pressed={inputMode === 'chat'}
-                  className={cn(
-                    'px-2.5 text-2xs font-medium transition-colors',
-                    inputMode === 'chat'
-                      ? 'bg-bg-hover text-text-primary'
-                      : 'text-text-muted hover:text-text-secondary',
-                  )}
-                >
-                  Chat
-                </button>
-              </div>
               {!isStreaming && (
                 <Button
                   size="icon"
@@ -586,9 +564,9 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   disabled={disabled}
                   aria-label={t('call.aria')}
                   title={t('call.title')}
-                  className="h-7 w-7 text-text-muted hover:text-brand"
+                  className="h-8 w-8 rounded-full text-text-muted hover:text-brand"
                 >
-                  <Phone size={14} />
+                  <Phone size={16} />
                 </Button>
               )}
               {isStreaming ? (
@@ -597,7 +575,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   variant="destructive"
                   onClick={() => void stopActiveStream(useChat.getState().sessionId)}
                   aria-label="Stop"
-                  className="h-7 w-7"
+                  className="h-8 w-8 rounded-full"
                 >
                   <Square size={12} />
                 </Button>
@@ -607,13 +585,75 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
                   onClick={() => void trySend()}
                   disabled={(!text.trim() && attachedFiles.length === 0 && rec.state !== 'preview') || disabled}
                   aria-label="Send"
-                  className="h-7 w-7"
+                  className="h-8 w-8 rounded-full"
                 >
-                  <ArrowUp size={12} />
+                  <ArrowUp size={16} />
                 </Button>
               )}
             </div>
           </div>
+          {/* The second row slides out when the composer is in use. It stays
+              mounted when collapsed, only clipped: the model menu opens in a
+              portal, and unmounting its trigger while it is open would strand
+              the menu with nothing to anchor to. */}
+          <motion.div
+            initial={false}
+            animate={expanded ? { height: 'auto', opacity: 1 } : { height: 0, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 30 }}
+            className="overflow-hidden"
+            aria-hidden={!expanded}
+            {...(!expanded ? { inert: true } : {})}
+          >
+            {/* The left group gives way (the model name truncates); the right
+                group never does. */}
+            <div className="flex items-center justify-between gap-2 px-3 pb-2.5">
+              <div className="flex min-w-0 items-center gap-1">
+                <ModelPill />
+                <span
+                  className={cn(
+                    'hidden truncate text-2xs text-text-muted transition-opacity duration-150 sm:inline',
+                    text.length > 0 ? 'opacity-100' : 'opacity-0',
+                  )}
+                  aria-hidden={text.length === 0}
+                >
+                  Shift+Enter for newline
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <ContextRing />
+                <div className="flex rounded-full border border-border-default bg-bg-elevated h-7 overflow-hidden shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('agent')}
+                    aria-label="Switch to Agent mode"
+                    aria-pressed={inputMode === 'agent'}
+                    className={cn(
+                      'px-2.5 text-2xs font-medium transition-colors',
+                      inputMode === 'agent'
+                        ? 'bg-bg-hover text-text-primary'
+                        : 'text-text-muted hover:text-text-secondary',
+                    )}
+                  >
+                    Agent
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('chat')}
+                    aria-label="Switch to Chat mode"
+                    aria-pressed={inputMode === 'chat'}
+                    className={cn(
+                      'px-2.5 text-2xs font-medium transition-colors',
+                      inputMode === 'chat'
+                        ? 'bg-bg-hover text-text-primary'
+                        : 'text-text-muted hover:text-text-secondary',
+                    )}
+                  >
+                    Chat
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
         </div>
       </div>
       <VoiceProviderCard open={providerCardOpen} onOpenChange={setProviderCardOpen} />

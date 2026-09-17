@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useChat, type AgentPhase } from '@/stores/chat';
 import { useModel } from '@/stores/model';
 import { events, type StreamProgressEvent } from '@/lib/tauri';
+import { MessageLoading } from '@/components/ui/message-loading';
 
 interface StreamingIndicatorProps {
   phase?: AgentPhase;
@@ -99,9 +100,9 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
 
   return (
     <div role="status" className="flex items-center gap-2 px-4 py-2 text-text-muted text-xs">
-      <span aria-hidden className="shrink-0 w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" />
-      <span aria-hidden className="shrink-0 w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse [animation-delay:150ms]" />
-      <span aria-hidden className="shrink-0 w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse [animation-delay:300ms]" />
+      {/* Hopping dots rather than three that pulse in place: movement reads as
+          "working" at a glance, a pulse reads as "waiting for something". */}
+      <MessageLoading className="shrink-0" />
       <span
         style={{ transition: 'opacity 120ms ease' }}
         className={visible ? 'opacity-100' : 'opacity-0'}
