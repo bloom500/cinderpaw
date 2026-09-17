@@ -450,3 +450,58 @@ describe('a PDF', () => {
     expect(JSON.parse(call[2].content as string)).toEqual({ name: 'contract.pdf', data: 'JVBERg==' });
   });
 });
+
+describe('rename, archive and delete in the list', () => {
+  beforeEach(() => {
+    useArtifacts.setState({ open: null, showingArchived: false, rows: [row()], loaded: true });
+  });
+
+  it('renames in place, shows the new name at once, and sends it', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    fireEvent.click(await screen.findByLabelText('Rename'));
+    const input = screen.getByLabelText('New name');
+    fireEvent.change(input, { target: { value: 'Q3 report, final' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(await screen.findByText('Q3 report, final')).toBeInTheDocument();
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'rename')).toBe(true));
+    expect(op.mock.calls.find((c) => c[1] === 'rename')![2]).toEqual({ artifactId: 'a1', content: 'Q3 report, final' });
+  });
+
+  it('Escape leaves the name as it was and sends nothing', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    fireEvent.click(await screen.findByLabelText('Rename'));
+    fireEvent.change(screen.getByLabelText('New name'), { target: { value: 'oops' } });
+    fireEvent.keyDown(screen.getByLabelText('New name'), { key: 'Escape' });
+    expect(screen.getByText('Q3 report')).toBeInTheDocument();
+    expect(op.mock.calls.some((c) => c[1] === 'rename')).toBe(false);
+  });
+
+  it('archive takes the row out of the list and sends archive', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    fireEvent.click(await screen.findByLabelText('Archive'));
+    expect(screen.queryByText('Q3 report')).toBeNull();
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'archive')).toBe(true));
+  });
+
+  it('delete asks first, and only a yes sends it', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    fireEvent.click(await screen.findByLabelText('Delete'));
+    expect(screen.getByText(/for good\?/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(false);
+    fireEvent.click(screen.getByLabelText('Delete'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'delete')).toBe(true));
+  });
+
+  it('the archive is its own list, asked for by name', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    fireEvent.click(screen.getByText('Archived'));
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'list' && c[2]?.content === 'archived')).toBe(true));
+  });
+});

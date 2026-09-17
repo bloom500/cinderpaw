@@ -625,8 +625,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               type: "artifact_result",
               id: replyId,
               ok: true,
+              // `content: "archived"` asks for the archive instead of the list.
               items: artifacts
-                .list({ workspaceId: activeWorkspaceId(db.raw) })
+                .list({ workspaceId: activeWorkspaceId(db.raw), archived: msg.content === "archived" })
                 .map(toPanelRow),
             });
             break;
@@ -792,10 +793,20 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               content: artifacts.read(wanted) ?? "", items: [toPanelRow(restored)],
             });
           } else if (action === "delete") {
-            // "user", not a session id: the person clicked it, and the version
-            // history should say so rather than blaming whichever chat was open.
-            artifacts.remove(wanted, "user");
+            // From the panel, Delete is for good: the person confirmed it, and
+            // Archive is the button for "out of the way, but keep it". The agent's
+            // artifact_delete still only hides, because nothing the agent made
+            // should vanish on the agent's say-so.
+            artifacts.purge(wanted, "user");
             transport.send({ type: "artifact_result", id: replyId, ok: true });
+          } else if (action === "rename") {
+            const renamed = artifacts.rename(wanted, msg.content ?? "", "user");
+            if (!renamed) fail("A name cannot be empty.");
+            else transport.send({ type: "artifact_result", id: replyId, ok: true, items: [toPanelRow(renamed)] });
+          } else if (action === "archive" || action === "unarchive") {
+            const changed = artifacts.setArchived(wanted, action === "archive", "user");
+            if (!changed) fail(`No artifact with id ${wanted}.`);
+            else transport.send({ type: "artifact_result", id: replyId, ok: true, items: [toPanelRow(changed)] });
           } else {
             fail(`Unknown artifact action "${String(action)}".`);
           }

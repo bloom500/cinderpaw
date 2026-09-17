@@ -998,7 +998,7 @@ const raw = {
    *  for five actions: see the Rust side for why. */
   cinderpawArtifactOp: (
     id: string,
-    action: 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import',
+    action: 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import' | 'rename' | 'archive' | 'unarchive',
     opts: { artifactId?: string; version?: number; dest?: string; content?: string } = {},
   ) =>
     invoke<void>('cinderpaw_artifact_op', {
@@ -1361,7 +1361,7 @@ export const tauri = {
   artifacts: {
     op: (
       id: string,
-      action: 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import',
+      action: 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import' | 'rename' | 'archive' | 'unarchive',
       opts: { artifactId?: string; version?: number; dest?: string; content?: string } = {},
     ): Promise<void> => raw.cinderpawArtifactOp(id, action, opts),
   },

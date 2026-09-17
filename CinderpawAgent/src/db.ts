@@ -985,6 +985,9 @@ function migrate(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_artifact_recent
       ON artifact (workspace_id, updated_at DESC);
   `);
+  // Archived: out of the list, not out of reach. Added as a column rather than a
+  // schema bump, like every other idempotent addition here.
+  addColumnIfMissing(db, "artifact", "archived_at", "INTEGER");
   // One row per version, each pointing at a complete file. History, diff
   // preview, rollback and comparison all fall out of keeping whole files; a
   // diff chain would save disk and buy a replay path that can corrupt.

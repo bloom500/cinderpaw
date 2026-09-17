@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Check, Download, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Check, Download, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X } from 'lucide-react';
 import {
   ArtifactAction,
   ArtifactActions,
@@ -70,8 +70,11 @@ export function ArtifactsPanel({
 }) {
   const {
     rows, loaded, open, busy, error, lastExport, refresh, close, exportArtifact, deleteArtifact,
-    editing, startEdit, cancelEdit, save, importPdf,
+    editing, startEdit, cancelEdit, save, importPdf, showingArchived, showArchived,
   } = useArtifacts();
+  // Delete is for good now, so the header's Delete asks first, in the panel.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  useEffect(() => setConfirmingDelete(false), [open?.row.id]);
   const pickRef = useRef<HTMLInputElement>(null);
   // Only the newest version is editable; an older one is restored instead.
   const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version;
@@ -154,7 +157,7 @@ export function ArtifactsPanel({
             <FileBox className="size-4 shrink-0 text-warning" />
           )}
           <div className="min-w-0 flex-1">
-            <ArtifactTitle className="truncate">{open ? open.row.title : 'Artifacts'}</ArtifactTitle>
+            <ArtifactTitle className="truncate">{open ? open.row.title : showingArchived ? 'Archived' : 'Artifacts'}</ArtifactTitle>
             {/* What it is and how fresh, where the eye already is. The list rows
                 say the same for each item; the header says it for the one open. */}
             {(open || rows.length > 0) && (
@@ -177,6 +180,14 @@ export function ArtifactsPanel({
             <ArtifactAction tooltip="Save" icon={Check} disabled={busy} onClick={() => void save()} />
           )}
           {!open && (
+            <ArtifactAction
+              tooltip={showingArchived ? 'Back to artifacts' : 'Archived'}
+              icon={showingArchived ? ArrowLeft : Archive}
+              aria-pressed={showingArchived}
+              onClick={() => showArchived(!showingArchived)}
+            />
+          )}
+          {!open && !showingArchived && (
             // Any PDF, not only ones Cinderpaw made: filling and signing a form
             // someone sent you is the reason most people open a PDF editor.
             <>
@@ -210,7 +221,7 @@ export function ArtifactsPanel({
           {open && !editing && (
             <ArtifactAction
               tooltip="Delete" icon={Trash2} disabled={busy}
-              onClick={() => void deleteArtifact(open.row.id)}
+              onClick={() => setConfirmingDelete(true)}
             />
           )}
           <ArtifactClose onClick={onClose} aria-label="Close artifacts" />
@@ -219,6 +230,17 @@ export function ArtifactsPanel({
 
       {error && (
         <p className="border-b border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>
+      )}
+
+      {open && confirmingDelete && (
+        <ConfirmDelete
+          title={open.row.title}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => {
+            setConfirmingDelete(false);
+            void deleteArtifact(open.row.id);
+          }}
+        />
       )}
 
       {open ? (
@@ -238,7 +260,7 @@ function List({
   busy: boolean;
   lastExport: { path: string; note: string } | null;
 }) {
-  const openArtifact = useArtifacts((s) => s.openArtifact);
+  const showingArchived = useArtifacts((s) => s.showingArchived);
 
   // Three states, not two. Before the first read comes back, "nothing here yet"
   // is a sentence about a fresh install being shown to someone with a dozen —
@@ -247,6 +269,15 @@ function List({
     return (
       <div className="flex flex-1 items-center justify-center">
         <Loader2 size={16} className="animate-spin text-text-muted" />
+      </div>
+    );
+  }
+
+  if (rows.length === 0 && showingArchived) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+        <Archive size={20} className="text-text-muted" />
+        <p className="text-xs text-text-muted">Nothing archived. Archive keeps work out of the list without deleting it.</p>
       </div>
     );
   }
@@ -272,28 +303,154 @@ function List({
         <ul className="flex flex-col gap-1 p-2">
           {rows.map((r) => (
             <li key={r.id}>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void openArtifact(r.id)}
-                className={cn(
-                  'w-full rounded-lg border border-transparent px-2.5 py-2 text-left',
-                  'hover:border-border-subtle hover:bg-bg-hover disabled:opacity-60',
-                )}
-              >
-                <p className="truncate text-xs font-medium text-text-primary" title={r.title}>
-                  {r.title}
-                </p>
-                <p className="truncate text-2xs text-text-muted">
-                  {r.kind}
-                  {r.version > 1 ? ` · v${r.version}` : ''} · {when(r.updatedAt)}
-                </p>
-              </button>
+              <RowItem row={r} busy={busy} archived={showingArchived} />
             </li>
           ))}
         </ul>
       </ScrollArea>
     </>
+  );
+}
+
+/**
+ * One artifact in the list, with its three actions beside it.
+ *
+ * The actions appear on hover and on keyboard focus, so a list of twenty is not
+ * sixty icons, and they are real buttons a keyboard reaches. Rename edits in
+ * place. Delete asks in the row itself, because it is for good.
+ */
+function RowItem({ row, busy, archived }: { row: ArtifactRow; busy: boolean; archived: boolean }) {
+  const openArtifact = useArtifacts((s) => s.openArtifact);
+  const renameArtifact = useArtifacts((s) => s.renameArtifact);
+  const archiveArtifact = useArtifacts((s) => s.archiveArtifact);
+  const deleteArtifact = useArtifacts((s) => s.deleteArtifact);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(row.title);
+  const [confirming, setConfirming] = useState(false);
+
+  if (confirming) {
+    return (
+      <ConfirmDelete
+        title={row.title}
+        compact
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false);
+          void deleteArtifact(row.id);
+        }}
+      />
+    );
+  }
+
+  const finishRename = (save: boolean) => {
+    setRenaming(false);
+    if (save) void renameArtifact(row.id, draft);
+    else setDraft(row.title);
+  };
+
+  return (
+    <div className="group flex items-center gap-1 rounded-lg border border-transparent pr-1 hover:border-border-subtle hover:bg-bg-hover focus-within:bg-bg-hover">
+      {renaming ? (
+        <input
+          autoFocus
+          aria-label="New name"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') finishRename(true);
+            if (e.key === 'Escape') finishRename(false);
+          }}
+          onBlur={() => finishRename(true)}
+          className="mx-1.5 my-1.5 min-w-0 flex-1 rounded-md border border-border-default bg-transparent px-2 py-1 text-xs text-text-primary outline-hidden focus:border-brand"
+        />
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void openArtifact(row.id)}
+          className="min-w-0 flex-1 px-2.5 py-2 text-left disabled:opacity-60"
+        >
+          <p className="truncate text-xs font-medium text-text-primary" title={row.title}>
+            {row.title}
+          </p>
+          <p className="truncate text-2xs text-text-muted">
+            {row.kind}
+            {row.version > 1 ? ` · v${row.version}` : ''} · {when(row.updatedAt)}
+          </p>
+        </button>
+      )}
+      {!renaming && (
+        <div className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          {/* Plain buttons with a native tooltip, not ArtifactAction: that one
+              mounts a Radix tooltip per button, and three per row across a long
+              list was paid on every render of the panel. */}
+          <RowButton
+            label="Rename" icon={Pencil}
+            onClick={() => {
+              setDraft(row.title);
+              setRenaming(true);
+            }}
+          />
+          <RowButton
+            label={archived ? 'Unarchive' : 'Archive'} icon={archived ? ArchiveRestore : Archive}
+            onClick={() => void archiveArtifact(row.id, !archived)}
+          />
+          <RowButton label="Delete" icon={Trash2} onClick={() => setConfirming(true)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RowButton({ label, icon: Icon, onClick }: { label: string; icon: typeof Pencil; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="flex size-7 items-center justify-center rounded-md text-text-muted hover:bg-bg-elevated hover:text-text-primary focus-visible:outline-1 focus-visible:outline-brand"
+    >
+      <Icon size={14} />
+    </button>
+  );
+}
+
+/** "Delete for good?" asked where the click happened, never in a browser dialog. */
+function ConfirmDelete({
+  title, compact, onCancel, onConfirm,
+}: {
+  title: string;
+  compact?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      role="alertdialog"
+      aria-label={`Delete ${title}`}
+      className={cn(
+        'flex items-center gap-2 border-border-subtle bg-bg-elevated/40 px-3 py-2',
+        compact ? 'rounded-lg border' : 'border-b',
+      )}
+    >
+      <p className="min-w-0 flex-1 truncate text-2xs text-text-primary">{`Delete "${title}" and all its versions for good?`}</p>
+      <button
+        type="button"
+        autoFocus
+        onClick={onCancel}
+        className="rounded-md px-2 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        onClick={onConfirm}
+        className="rounded-md border border-error/40 px-2 py-1 text-2xs text-error hover:bg-error/10"
+      >
+        Delete
+      </button>
+    </div>
   );
 }
 

@@ -244,3 +244,43 @@ describe("a missing version arriving as null", () => {
     expect(s.read(a.id)).toBe("mine");
   });
 });
+
+describe("rename, archive, delete for good", () => {
+  test("rename keeps the id, the content and the history", () => {
+    const s = store();
+    const a = make(s, "body");
+    const r = s.rename(a.id, "  Q3   report ", "user")!;
+    expect(r.title).toBe("Q3 report");
+    expect(s.read(a.id)).toBe("body");
+    expect(s.rename(a.id, "   ", "user")).toBeNull();
+  });
+
+  test("archived work leaves the list and comes back, untouched", () => {
+    const s = store();
+    const a = make(s, "body");
+    s.setArchived(a.id, true, "user");
+    expect(s.list({ workspaceId: "ws-1" }).map((x) => x.id)).not.toContain(a.id);
+    expect(s.list({ workspaceId: "ws-1", archived: true }).map((x) => x.id)).toEqual([a.id]);
+    expect(s.read(a.id)).toBe("body");
+    s.setArchived(a.id, false, "user");
+    expect(s.list({ workspaceId: "ws-1" }).map((x) => x.id)).toContain(a.id);
+  });
+
+  test("delete for good removes the rows and the files, and says so", () => {
+    const events: ArtifactChangeEvent[] = [];
+    const s = store(events);
+    const a = make(s, "body");
+    s.purge(a.id);
+    expect(s.get(a.id)).toBeNull();
+    expect(existsSync(join(s.root, a.id))).toBe(false);
+    expect(events.at(-1)).toMatchObject({ id: a.id, action: "deleted" });
+  });
+
+  test("purge never removes a path that is not one of its own ids", () => {
+    const s = store();
+    const a = make(s, "body");
+    s.purge("..");
+    expect(existsSync(s.root)).toBe(true);
+    expect(s.read(a.id)).toBe("body");
+  });
+});

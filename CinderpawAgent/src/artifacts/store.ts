@@ -322,8 +322,13 @@ export class ArtifactStore {
    * Newest first, because "the thing I was just working on" is what almost
    * every list is reaching for.
    */
-  list(filter: { workspaceId?: string; kind?: ArtifactKind; limit?: number } = {}): Artifact[] {
-    const where: string[] = ["deleted_at IS NULL"];
+  list(filter: { workspaceId?: string; kind?: ArtifactKind; limit?: number; archived?: boolean } = {}): Artifact[] {
+    const where: string[] = [
+      "deleted_at IS NULL",
+      // Archived work is kept out of every ordinary listing, the agent's too,
+      // and shown only when asked for by name.
+      filter.archived ? "archived_at IS NOT NULL" : "archived_at IS NULL",
+    ];
     const params: (string | number)[] = [];
     if (filter.workspaceId) {
       where.push("workspace_id = ?");
@@ -478,11 +483,39 @@ export class ArtifactStore {
     return true;
   }
 
+  /** A new name, from the person. The id, the bytes and the history stay. */
+  rename(id: string, title: string, author: string): Artifact | null {
+    const current = this.get(id);
+    const clean = cleanTitle(title);
+    if (!current || !clean) return null;
+    this.#db.prepare("UPDATE artifact SET title = ?, updated_at = ?, modified_by = ? WHERE id = ?")
+      .run(clean, Date.now(), author, id);
+    const next = this.get(id)!;
+    this.#announce(next, author, "updated");
+    return next;
+  }
+
+  /** Out of the list, or back into it. Reversible, and nothing is removed. */
+  setArchived(id: string, archived: boolean, author: string): Artifact | null {
+    const current = this.get(id);
+    if (!current) return null;
+    this.#db.prepare("UPDATE artifact SET archived_at = ? WHERE id = ?").run(archived ? Date.now() : null, id);
+    const next = this.get(id)!;
+    this.#announce(next, author, "updated");
+    return next;
+  }
+
   /** Bytes and rows, gone for good. The UI's empty-the-bin path, not a tool. */
-  purge(id: string): void {
+  purge(id: string, author = "user"): void {
+    const existing = this.get(id);
     this.#db.prepare("DELETE FROM artifact_version WHERE artifact_id = ?").run(id);
     this.#db.prepare("DELETE FROM artifact WHERE id = ?").run(id);
-    rmSync(join(this.#root, id), { recursive: true, force: true });
+    // The id names a directory: only ever a uuid this store minted, never a
+    // path from outside. Checked here because this is the one rm in the store.
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return;
+    rmSync(this.#guard(join(this.#root, id), "write"), { recursive: true, force: true });
+    // Every other surface (the chat widget, another window) learns it is gone.
+    if (existing) this.#announce(existing, author, "deleted");
   }
 
   #versionPath(id: string, version: number, kind: ArtifactKind): string {

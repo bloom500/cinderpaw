@@ -1369,17 +1369,20 @@ export interface InboundMessage {
    *    get       → one artifact's content; `artifactVersion` reads an older one
    *    versions  → the version history of `artifactId`
    *    export    → write a real file; `dest` optional
-   *    delete    → hide it (soft; the bytes stay)
+   *    delete    → remove it for good (rows and files); the agent's tool only hides
    *    write     → the person's edit, as a new version; `content` is the text and
    *                `artifactVersion` the version they edited (refused if stale)
    *    restore   → make `artifactVersion` current again, as a new version
+   *    rename    → `content` is the new title
+   *    archive / unarchive → out of the list, or back in
    *    import    → a PDF the person picked, as a new artifact; `content` is JSON
    *                `{ name, data }` with `data` in base64
    *
    *  For a pdf, `write` carries JSON `{ edits }` (see artifacts/pdf.ts) instead
    *  of the file, and every reply carrying content sends it as base64.
    */
-  artifactAction?: "list" | "get" | "versions" | "export" | "delete" | "write" | "restore" | "import";
+  artifactAction?: "list" | "get" | "versions" | "export" | "delete" | "write" | "restore" | "import"
+    | "rename" | "archive" | "unarchive";
   artifactId?: string;
   artifactVersion?: number;
   dest?: string;

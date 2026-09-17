@@ -49,7 +49,9 @@ export interface OpenArtifact {
 }
 
 type Pending =
-  | { kind: 'list' }
+  | { kind: 'list'; archived: boolean }
+  | { kind: 'rename'; id: string }
+  | { kind: 'archive'; id: string; archived: boolean }
   | { kind: 'open'; id: string; version?: number }
   | { kind: 'versions'; id: string }
   | { kind: 'export'; id: string }
@@ -59,7 +61,9 @@ type Pending =
   | { kind: 'compare'; id: string; version: number }
   | { kind: 'import' };
 
-export type ArtifactAction = 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import';
+export type ArtifactAction =
+  | 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import'
+  | 'rename' | 'archive' | 'unarchive';
 
 /** A draft with nothing in it yet, for a pdf. */
 export const EMPTY_PDF_DRAFT = JSON.stringify({ edits: [] });
@@ -110,7 +114,13 @@ interface ArtifactsStore {
   openArtifact: (id: string) => Promise<void>;
   showVersion: (version: number) => Promise<void>;
   exportArtifact: (id: string) => Promise<void>;
+  /** For good: rows and files. The panel confirms before calling it. */
   deleteArtifact: (id: string) => Promise<void>;
+  renameArtifact: (id: string, title: string) => Promise<void>;
+  archiveArtifact: (id: string, archived: boolean) => Promise<void>;
+  /** Whether the list shows the archive instead of the working set. */
+  showingArchived: boolean;
+  showArchived: (on: boolean) => void;
   startEdit: () => void;
   setDraft: (draft: string) => void;
   cancelEdit: () => void;
@@ -174,11 +184,19 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   conflict: null,
   review: null,
 
+  showingArchived: false,
+
   togglePanel: () => set((st) => ({ panelOpen: !st.panelOpen })),
 
+  showArchived: (on) => {
+    set({ showingArchived: on, loaded: false, rows: [] });
+    void get().refresh();
+  },
+
   refresh: async () => {
+    const archived = get().showingArchived;
     try {
-      await send({ kind: 'list' }, 'list');
+      await send({ kind: 'list', archived }, 'list', archived ? { content: 'archived' } : {});
     } catch (e) {
       // `loaded` is set even on failure: the panel must stop saying "loading"
       // and start saying what went wrong. A spinner that never resolves is the
@@ -226,6 +244,32 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       await send({ kind: 'delete', id }, 'delete', { artifactId: id });
     } catch (e) {
       set({ busy: false, error: String(e) });
+    }
+  },
+
+  renameArtifact: async (id, title) => {
+    const clean = title.replace(/\s+/g, ' ').trim();
+    const before = get().rows.find((r) => r.id === id);
+    if (!clean || clean === before?.title) return;
+    // Shown at once; the reply confirms it, and a refusal puts the old name back.
+    set((st) => ({ rows: st.rows.map((r) => (r.id === id ? { ...r, title: clean } : r)), error: null }));
+    try {
+      await send({ kind: 'rename', id }, 'rename', { artifactId: id, content: clean });
+    } catch (e) {
+      set({ error: String(e) });
+      void get().refresh();
+    }
+  },
+
+  archiveArtifact: async (id, archived) => {
+    // Out of the current list at once: waiting for the round trip made the row
+    // sit there looking like the click did nothing.
+    set((st) => ({ rows: st.rows.filter((r) => r.id !== id), error: null }));
+    try {
+      await send({ kind: 'archive', id, archived }, archived ? 'archive' : 'unarchive', { artifactId: id });
+    } catch (e) {
+      set({ error: String(e) });
+      void get().refresh();
     }
   },
 
@@ -379,7 +423,20 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
 
     switch (p.kind) {
       case 'list':
+        // An answer for the other view (the person switched while it was in
+        // flight) must not fill this one.
+        if (p.archived !== get().showingArchived) return;
         set({ rows: e.items ?? [], loaded: true, error: null });
+        return;
+      case 'rename': {
+        const row = e.items?.[0];
+        const open = get().open;
+        if (row && open?.row.id === row.id) set({ open: { ...open, row: { ...open.row, title: row.title } } });
+        return;
+      }
+      case 'archive':
+        if (get().open?.row.id === p.id) set({ open: null, editing: null, conflict: null, review: null });
+        void get().refresh();
         return;
       case 'open': {
         const row = e.items?.[0];
@@ -417,7 +474,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         });
         return;
       case 'delete':
-        set({ busy: false, error: null });
+        set({ busy: false, error: null, ...(get().open?.row.id === p.id ? { open: null, editing: null, review: null } : {}) });
         void get().refresh();
         return;
       case 'save':
