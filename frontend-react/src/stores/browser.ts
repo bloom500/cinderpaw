@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
 import { tauri } from '@/lib/tauri';
+import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 
 /**
  * The built-in browser panel: whether it is open, and what the page is doing.
@@ -15,6 +16,8 @@ interface BrowserStore {
   url: string;
   loading: boolean;
   error: string | null;
+  /** What happened to the last download, in a sentence. */
+  notice: string | null;
   setPanel: (open: boolean) => void;
   open: (address: string) => Promise<void>;
   go: (op: 'back' | 'forward' | 'reload') => Promise<void>;
@@ -25,6 +28,7 @@ export const useBrowser = create<BrowserStore>((set) => ({
   url: '',
   loading: false,
   error: null,
+  notice: null,
 
   setPanel: (open) => set({ panelOpen: open }),
 
@@ -54,6 +58,32 @@ export const useBrowser = create<BrowserStore>((set) => ({
 // an error worth surfacing.
 void listen<{ url: string; loading: boolean }>('browser://state', (e) => {
   useBrowser.setState({ url: e.payload.url, loading: e.payload.loading });
+}).catch(() => {});
+// A download. A PDF or Word file has already gone to Artifacts by the time
+// this arrives; anything else is a file the person is asked where to put.
+void listen<{ name: string; path?: string; artifact?: boolean; error?: string }>('browser://download', async (e) => {
+  const { name, path, artifact, error } = e.payload;
+  if (error) {
+    useBrowser.setState({ notice: `Could not download ${name}: ${error}` });
+    return;
+  }
+  if (artifact) {
+    useBrowser.setState({ notice: `${name} is in Artifacts.` });
+    return;
+  }
+  if (!path) return;
+  try {
+    const dest = await saveDialog({ defaultPath: name });
+    if (dest) {
+      const res = await tauri.browser.ui('save_download', { path, dest });
+      useBrowser.setState({ notice: `Saved ${name} to ${String(res.path ?? dest)}` });
+    } else {
+      await tauri.browser.ui('discard_download', { path });
+      useBrowser.setState({ notice: null });
+    }
+  } catch (err) {
+    useBrowser.setState({ notice: `Could not save ${name}: ${String(err)}` });
+  }
 }).catch(() => {});
 void listen<{ url: string }>('browser://open', (e) => {
   useBrowser.setState({ panelOpen: true, url: e.payload.url, error: null });

@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
  * that area for that reason.
  */
 export function BrowserPanel() {
-  const { url, loading, error, open, go, setPanel } = useBrowser();
+  const { url, loading, error, notice, open, go, setPanel } = useBrowser();
   const [address, setAddress] = useState(url);
   const [editing, setEditing] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -107,6 +107,7 @@ export function BrowserPanel() {
         <ChromeButton label="Close browser" icon={X} onClick={close} />
       </form>
       {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
+      {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
       <div ref={bodyRef} className="relative flex-1 bg-white">
         {!url && (
           // Only visible before the first page: after that the page covers it.

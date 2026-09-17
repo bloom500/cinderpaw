@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use serde_json::{json, Value};
-use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use tauri::webview::{DownloadEvent, PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl};
 
 const LABEL: &str = "browser-page";
@@ -40,6 +40,51 @@ fn bounds() -> &'static Mutex<Bounds> {
 
 /// True between a navigation starting and its page finishing.
 static LOADING: AtomicBool = AtomicBool::new(false);
+
+/// Where downloads land first. Under the profile dir: never a place the
+/// person picked, so nothing arrives on their desktop without them.
+fn downloads_dir() -> std::path::PathBuf {
+    cinderpaw_core::paths::cinderpaw_dir().join("browser-downloads")
+}
+
+/// A downloaded file: a PDF or a Word document goes to Artifacts, where the
+/// agent can read and fill it; anything else is offered to the person in the
+/// save dialog. Either way the panel is told.
+fn on_downloaded(app: &AppHandle, url: &Url, path: &std::path::Path) {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("download").to_string();
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            let _ = app.emit("browser://download", json!({ "name": name, "error": e.to_string() }));
+            return;
+        }
+    };
+    let is_pdf = bytes.starts_with(b"%PDF");
+    let is_docx = bytes.starts_with(b"PK") && name.to_lowercase().ends_with(".docx");
+    if is_pdf || is_docx {
+        use base64::Engine as _;
+        let content = json!({ "name": name, "data": base64::engine::general_purpose::STANDARD.encode(&bytes) }).to_string();
+        let msg = json!({
+            "type": "artifact_op",
+            "id": format!("browser-download-{}", uuid::Uuid::new_v4().simple()),
+            "artifactAction": "import",
+            "content": content,
+        })
+        .to_string();
+        let tx = app.state::<crate::AppState>().cinderpaw_agent_tx.lock().clone();
+        if let Some(tx) = tx {
+            let app = app.clone();
+            let name2 = name.clone();
+            tauri::async_runtime::spawn(async move {
+                let ok = tx.send(msg).await.is_ok();
+                let _ = app.emit("browser://download", json!({ "name": name2, "artifact": ok }));
+            });
+            let _ = std::fs::remove_file(path);
+            return;
+        }
+    }
+    let _ = app.emit("browser://download", json!({ "name": name, "path": path.to_string_lossy(), "url": url.as_str() }));
+}
 
 /// Only the web. `file:` would read the disk, `javascript:` would run in the
 /// page, and the app's own schemes would load the app inside itself.
@@ -106,6 +151,29 @@ fn open_or_navigate(app: &AppHandle, url: Url) -> Result<Webview, String> {
     let builder = WebviewBuilder::new(LABEL, WebviewUrl::External(url))
         .data_directory(cinderpaw_core::paths::cinderpaw_dir().join("browser-profile"))
         .on_navigation(|url| allowed(url))
+        .on_download(|wv, event| {
+            match event {
+                DownloadEvent::Requested { url, destination } => {
+                    // Keep the server's file name, in our own folder.
+                    let name = destination.file_name().map(|n| n.to_os_string())
+                        .filter(|n| !n.is_empty())
+                        .unwrap_or_else(|| url.path_segments().and_then(|mut s| s.next_back()).unwrap_or("download").into());
+                    let dir = downloads_dir();
+                    let _ = std::fs::create_dir_all(&dir);
+                    *destination = dir.join(format!("{}-{}", uuid::Uuid::new_v4().simple(), name.to_string_lossy()));
+                }
+                DownloadEvent::Finished { url, path, success } => {
+                    if success {
+                        if let Some(path) = path {
+                            on_downloaded(wv.app_handle(), &url, &path);
+                        }
+                    } else {
+                        let _ = wv.app_handle().emit("browser://download", json!({ "name": url.as_str(), "error": "the download failed" }));
+                    }
+                }
+            }
+            true
+        })
         .on_page_load(move |_wv, payload| {
             let finished = matches!(payload.event(), PageLoadEvent::Finished);
             LOADING.store(!finished, Ordering::SeqCst);
@@ -285,6 +353,30 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             Some(wv) => json!({ "open": true, "url": wv.url().map(|u| u.to_string()).unwrap_or_default(), "loading": LOADING.load(Ordering::SeqCst) }),
             None => json!({ "open": false }),
         }),
+        // The person chose where a download goes, in the save dialog.
+        "save_download" => {
+            let from = std::path::PathBuf::from(param_str(params, "path")?);
+            let to = std::path::PathBuf::from(param_str(params, "dest")?);
+            // Only files this browser downloaded, and never into our own data dir.
+            if !from.starts_with(downloads_dir()) {
+                return Err("browser: that is not a downloaded file".into());
+            }
+            if to.starts_with(cinderpaw_core::paths::cinderpaw_dir()) {
+                return Err("browser: pick a place outside Cinderpaw's data folder".into());
+            }
+            if std::fs::rename(&from, &to).is_err() {
+                std::fs::copy(&from, &to).map_err(|e| format!("browser: could not save the file ({e})"))?;
+                let _ = std::fs::remove_file(&from);
+            }
+            Ok(json!({ "ok": true, "path": to.to_string_lossy() }))
+        }
+        "discard_download" => {
+            let from = std::path::PathBuf::from(param_str(params, "path")?);
+            if from.starts_with(downloads_dir()) {
+                let _ = std::fs::remove_file(&from);
+            }
+            Ok(json!({ "ok": true }))
+        }
         // The panel reports where the page belongs; closing the panel parks it.
         "set_bounds" => {
             {
