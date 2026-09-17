@@ -14,7 +14,8 @@ const SLOW_START_MS = 5_000;
 function phaseLabel(phase: AgentPhase, tool?: string | null): string {
   if (phase === 'calling' && tool) return `Calling ${tool.replace(/_/g, ' ')}…`;
   if (phase === 'calling') return 'Calling tool…';
-  if (phase === 'processing') return 'Processing results…';
+  // After a tool returns the model is reading the result, which is thinking.
+  if (phase === 'processing') return 'Thinking…';
   if (phase === 'reading') return 'Reading…';
   if (phase === 'searching') return 'Searching…';
   if (phase === 'building') return 'Building…';
@@ -82,7 +83,7 @@ export function StreamingIndicator({ phase = 'thinking', tool }: StreamingIndica
         const pct = loadProgress ? ` ${Math.round(loadProgress.percentage)}%` : '';
         setBaseLabel(`Loading model…${pct}`);
       } else if (slowStart && phase === 'thinking') {
-        setBaseLabel('Processing your message. The first response after loading a model can take a while…');
+        setBaseLabel('Thinking… The first response after loading a model can take a while.');
       } else {
         setBaseLabel(phaseLabel(phase, tool));
       }

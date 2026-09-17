@@ -243,7 +243,10 @@ export const ReasoningContent = memo(
     <CollapsibleContent
       className={cn(
         "mt-4 text-sm",
-        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+        // Height, not only fade: fade and slide alone left the block's full
+        // height in place until the content unmounted, then the answer below
+        // jumped up. collapsible-up/down animate Radix's measured height.
+        "overflow-hidden text-muted-foreground outline-none data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down",
         className
       )}
       {...props}

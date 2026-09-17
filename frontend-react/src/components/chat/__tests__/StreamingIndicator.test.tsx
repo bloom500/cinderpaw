@@ -82,7 +82,7 @@ describe('StreamingIndicator', () => {
     render(<StreamingIndicator />);
     act(() => vi.advanceTimersByTime(5000));
     settle();
-    expect(screen.getByText(/Processing your message/)).toBeInTheDocument();
+    expect(screen.getByText(/first response after loading a model/)).toBeInTheDocument();
     act(() => useChat.setState({ sessionId: 'next' }));
     settle();
     expect(screen.getByText('Thinking…')).toBeInTheDocument();
