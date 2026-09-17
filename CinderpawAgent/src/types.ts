@@ -1454,6 +1454,8 @@ export interface InboundMessage {
    * Absent (connectors, TUI) leaves whatever brief that surface already set.
    */
   surface?: "voice" | "text";
+  /** The built-in browser's page, when one is on screen (desktop only). */
+  browserPage?: { url?: string; title?: string } | null;
   // set_model fields (all present when type === "set_model")
   provider?: string;
   model?: string;

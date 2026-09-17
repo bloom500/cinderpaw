@@ -96,6 +96,30 @@ function isLoopbackUrl(url: string): boolean {
  * markdown read aloud as punctuation, a 95-second monologue in reply to a
  * greeting, and notes recited at someone who just said hello.
  */
+/**
+ * What the person has open in the built-in browser, as a per-turn brief.
+ *
+ * `browser` beats web_search and fetch_url here for a reason the model cannot
+ * see on its own: the page is already loaded, already logged in, and already
+ * the thing being talked about. `snapshot` reads it with no second request and
+ * no paywall; `fetch_url` would fetch a different, logged-out copy.
+ */
+export function browserSurfaceBrief(page: { url?: string; title?: string } | null | undefined): string {
+  const url = page?.url?.trim();
+  if (!url) return "";
+  const title = page?.title?.trim();
+  return [
+    "## The built-in browser is open",
+    `On screen right now: ${title ? `"${title}" — ` : ""}${url}`,
+    "",
+    "Use the `browser` tool FIRST for anything about the web this turn: `snapshot`",
+    "reads the page the person is looking at (logged in, past any paywall, no second",
+    "request), and `open`/`click`/`type` act in that same window where they can watch.",
+    "Reach for web_search or fetch_url only when the answer is somewhere else entirely,",
+    "and say which page you read.",
+  ].join("\n");
+}
+
 const VOICE_SURFACE_BRIEF = [
   "## This turn is a VOICE CALL",
   "Your answer will be read out loud by a speech engine, and the person is listening, not reading.",
@@ -1615,12 +1639,18 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // full prompt and toolset intact). Set per message rather than per session
         // because the same conversation is spoken to and typed in, alternately,
         // and the brief must follow whichever is happening now.
+        // The built-in browser, when the host says a page is on screen. Without
+        // it the agent reached for web_search on the very page the person was
+        // looking at, because nothing told it the browser was open — the tool
+        // description cannot say "right now". Composed with the voice brief
+        // rather than replacing it: a call made from the browser is both.
+        const browserBrief = browserSurfaceBrief(msg.browserPage);
         if (msg.surface === "voice") {
-          agent.setSessionSurface(sessionId, VOICE_SURFACE_BRIEF, { spoken: true });
+          agent.setSessionSurface(sessionId, [VOICE_SURFACE_BRIEF, browserBrief].filter(Boolean).join("\n\n"), { spoken: true });
         } else if (msg.surface === "text") {
           // Explicitly typed → drop the spoken brief. Only the desktop sends this
           // field, so a connector's own brief is never touched here.
-          agent.setSessionSurface(sessionId, "");
+          agent.setSessionSurface(sessionId, browserBrief);
         }
         // Image attachments (data URLs) forwarded by the host. Passed through
         // to the agent loop so vision-capable models receive real pixels.

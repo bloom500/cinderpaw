@@ -345,6 +345,23 @@ pub fn parse_address(raw: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+/// The page the person is looking at right now, when the browser panel is
+/// showing one: `(url, title)`. Read on every send so the agent knows the
+/// browser is open without being told — see `cinderpaw_send_message`.
+pub fn visible_page() -> Option<(String, String)> {
+    if !bounds().lock().visible {
+        return None;
+    }
+    let t = tabs().lock();
+    let id = t.active?;
+    let tab = t.list.iter().find(|x| x.id == id)?;
+    let url = tab.history.get(tab.cursor)?.clone();
+    if url == HOME {
+        return None;
+    }
+    Some((url, tab.title.clone()))
+}
+
 /// The active tab's webview.
 fn page(app: &AppHandle) -> Option<Webview> {
     let label = {
