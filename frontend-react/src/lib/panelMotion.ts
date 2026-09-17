@@ -24,7 +24,20 @@ export function onPanelMotionSettled(fn: () => void): void {
     return;
   }
   settled.add(fn);
+  // A deferral is an optimisation, never a gate. `panelMotionEnd` runs from an
+  // animation callback, and an animation that is interrupted, never started
+  // (reduced motion) or running where nothing reports completion (a test) would
+  // otherwise leave the work undone for ever — for the browser that means a
+  // page that is never placed at all.
+  window.setTimeout(() => {
+    if (!settled.delete(fn)) return;
+    fn();
+  }, PANEL_MOTION_MAX_MS);
 }
+
+/** Longer than any slide in the app (the longest is 220 ms), short enough that
+ *  a missed callback is a hiccup rather than a hang. */
+const PANEL_MOTION_MAX_MS = 400;
 
 export function panelMotionStart(): void {
   moving += 1;
