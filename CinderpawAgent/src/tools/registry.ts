@@ -149,7 +149,7 @@ export class ToolRegistry {
     opts: ToolCallOptions,
     startedAt: number,
     ac: AbortController,
-    timer: ReturnType<typeof setTimeout>,
+    timer: ToolClock,
     onCallerAbort: () => void,
     allowFallback: boolean,
   ): Promise<ToolResult> {
@@ -451,7 +451,7 @@ export class ToolRegistry {
     // The combined signal is what the tool sees via `ctx.signal`.
     const ac = new AbortController();
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
-    const timer = setTimeout(() => ac.abort("timeout"), timeoutMs);
+    const timer = toolClock(() => ac.abort("timeout"), timeoutMs);
     const onCallerAbort = () => ac.abort("cancelled");
     if (opts.signal) {
       if (opts.signal.aborted) {
@@ -477,7 +477,10 @@ export class ToolRegistry {
       // askUser is always available when the registry was constructed
       // with a bridge; the ask_user tool checks ctx.askUser is defined
       // and refuses to run otherwise.
-      askUser: this.#askUser ?? undefined,
+      // The tool's clock stops while it waits on a person. Without this the
+      // 60 s cap cut off every question anyone took a minute to read: ask_user,
+      // the approval before a file is sent, a computer_use confirmation.
+      askUser: this.#askUser ? pausingWhileAsked(this.#askUser, timer) : undefined,
       desktopControl: this.#desktopControl ?? undefined,
       capabilities: this.#capabilities ?? undefined,
       admin: this.#admin ?? undefined,
@@ -818,11 +821,11 @@ const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 function finalize(
   result: ToolResult,
   ac: AbortController,
-  timer: ReturnType<typeof setTimeout>,
+  timer: ToolClock,
   callerSignal: AbortSignal | undefined,
   onCallerAbort: () => void,
 ): ToolResult {
-  clearTimeout(timer);
+  timer.clear();
   if (callerSignal) callerSignal.removeEventListener("abort", onCallerAbort);
   // If the race was lost (timeout or caller-cancel) but the inner promise
   // eventually settled with a "success" result, downgrade to a structured
@@ -868,6 +871,58 @@ function finalize(
  * the failure in-band means a future producer that CAN reject degrades to a
  * normal tool error instead of deadlocking the agent loop.
  */
+/** A tool's time limit, which can stop counting while a person is deciding. */
+export interface ToolClock {
+  pause(): void;
+  resume(): void;
+  clear(): void;
+}
+
+/**
+ * `setTimeout`, pausable. Pauses nest (a tool may ask twice at once) and a
+ * cleared clock never starts again, so an answer arriving after the tool
+ * finished cannot abort a call that is already over.
+ */
+export function toolClock(onExpire: () => void, ms: number): ToolClock {
+  let remaining = ms;
+  let startedAt = Date.now();
+  let handle: ReturnType<typeof setTimeout> | null = setTimeout(onExpire, ms);
+  let waiting = 0;
+  let cleared = false;
+  return {
+    pause() {
+      if (cleared || waiting++ > 0 || !handle) return;
+      clearTimeout(handle);
+      handle = null;
+      remaining -= Date.now() - startedAt;
+    },
+    resume() {
+      if (cleared || waiting === 0 || --waiting > 0) return;
+      startedAt = Date.now();
+      handle = setTimeout(onExpire, Math.max(0, remaining));
+    },
+    clear() {
+      cleared = true;
+      if (handle) clearTimeout(handle);
+      handle = null;
+    },
+  };
+}
+
+function pausingWhileAsked(bridge: AskUserBridge, clock: ToolClock): AskUserBridge {
+  return {
+    async ask(questions, sessionId) {
+      clock.pause();
+      try {
+        return await bridge.ask(questions, sessionId);
+      } finally {
+        clock.resume();
+      }
+    },
+    cancel: (id, reason) => bridge.cancel(id, reason),
+  };
+}
+
 async function raceWithAbort<T>(
   producer: () => Promise<T>,
   signal: AbortSignal,

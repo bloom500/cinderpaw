@@ -7,7 +7,7 @@
  *   - holds a map of pending requests by id
  *   - emits an `ask_user` event for each new request
  *   - resolves the matching Promise when `resolve()` is called
- *   - rejects with AskUserTimeoutError if no response arrives in time
+ *   - waits until the person answers or cancels, unless a timeout was set
  *   - supports `cancel()` for session shutdown / navigation
  *
  * The Tauri transport (or any transport) wires `resolve()` to the
@@ -28,18 +28,27 @@ import { AskUserTimeoutError } from "../types.ts";
 export { AskUserTimeoutError };
 
 export interface AskUserBridgeConfig {
-  /** Per-request timeout in ms. Default 5 minutes. */
-  timeoutMs: number;
+  /**
+   * Per-request timeout in ms, or null to wait for the person. Default null.
+   *
+   * It was 5 minutes, after which the recommended option was picked on the
+   * person's behalf. A question is asked because the answer is theirs to give;
+   * picking one because they were reading, or away from the desk, gave them an
+   * outcome they never chose. They still end a question by answering it, by
+   * dismissing it, or with Stop. Walk-away mode (CINDERPAW_AUTONOMOUS) does not
+   * reach this wait at all: it answers routine questions before asking.
+   */
+  timeoutMs: number | null;
 }
 
 const DEFAULT_CONFIG: AskUserBridgeConfig = {
-  timeoutMs: 5 * 60_000,
+  timeoutMs: null,
 };
 
 interface Pending {
   resolve: (answers: AskUserAnswer[]) => void;
   reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
   questions: AskUserQuestion[];
 }
 
@@ -84,13 +93,14 @@ export class AskUserBridgeImpl implements AskUserBridge {
     }
     const id = randomUUID();
     return new Promise<AskUserAnswer[]>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const limit = this.#config.timeoutMs;
+      const timer = limit === null ? null : setTimeout(() => {
         const p = this.#pending.get(id);
         if (!p) return;
         this.#pending.delete(id);
         this.#emit({ type: "ask_user_cancelled", id, sessionId, reason: "timeout" });
-        reject(new AskUserTimeoutError(id, this.#config.timeoutMs));
-      }, this.#config.timeoutMs);
+        reject(new AskUserTimeoutError(id, limit));
+      }, limit);
 
       this.#pending.set(id, { resolve, reject, timer, questions });
 
@@ -106,7 +116,7 @@ export class AskUserBridgeImpl implements AskUserBridge {
   resolve(id: string, answers: AskUserAnswer[]): void {
     const p = this.#pending.get(id);
     if (!p) return;
-    clearTimeout(p.timer);
+    if (p.timer) clearTimeout(p.timer);
     this.#pending.delete(id);
     p.resolve(answers);
   }
@@ -118,7 +128,7 @@ export class AskUserBridgeImpl implements AskUserBridge {
   cancel(id: string, reason: string = "cancelled"): void {
     const p = this.#pending.get(id);
     if (!p) return;
-    clearTimeout(p.timer);
+    if (p.timer) clearTimeout(p.timer);
     this.#pending.delete(id);
     p.reject(new Error(`ask_user request ${id} cancelled: ${reason}`));
   }

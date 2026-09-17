@@ -27,8 +27,11 @@ import { AskUserTimeoutError } from "../types.ts";
 /** Sends one plain-text message into the chat behind a sessionId. */
 export type ChannelSender = (sessionId: string, text: string) => Promise<void>;
 
-/** Default matches AskUserBridgeImpl's DEFAULT_CONFIG. */
-const DEFAULT_TIMEOUT_MS = 5 * 60_000;
+/**
+ * No timeout by default, matching AskUserBridgeImpl: the question stays until
+ * the person replies. In a chat app any reply answers it, so nothing is stuck.
+ */
+const DEFAULT_TIMEOUT_MS: number | null = null;
 
 /** Render 1-4 questions as one compact chat message. */
 export function formatQuestionsForChat(questions: AskUserQuestion[]): string {
@@ -109,7 +112,7 @@ export function parseChannelAnswers(
 interface PendingChannelAsk {
   resolve: (answers: AskUserAnswer[]) => void;
   reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
   questions: AskUserQuestion[];
   /** The promise handed to every caller sharing this entry (see the dedupe
    *  in `ask`). Assigned synchronously right after creation, before the
@@ -127,9 +130,9 @@ function sameQuestions(a: AskUserQuestion[], b: AskUserQuestion[]): boolean {
 export class ChannelAskRouter {
   readonly #senders = new Map<string, ChannelSender>();
   readonly #pending = new Map<string, PendingChannelAsk>();
-  readonly #timeoutMs: number;
+  readonly #timeoutMs: number | null;
 
-  constructor(timeoutMs: number = DEFAULT_TIMEOUT_MS) {
+  constructor(timeoutMs: number | null = DEFAULT_TIMEOUT_MS) {
     this.#timeoutMs = timeoutMs;
   }
 
@@ -229,7 +232,8 @@ export class ChannelAskRouter {
       resolveEntry = resolve;
       rejectEntry = reject;
     });
-    const timer = setTimeout(() => {
+    const limit = this.#timeoutMs;
+    const timer = limit === null ? null : setTimeout(() => {
       this.#pending.delete(sessionId);
       void sender(
         sessionId,
@@ -237,8 +241,8 @@ export class ChannelAskRouter {
           ? "⏳ No answer — this decision needs a human. No option was selected."
           : "⏳ No answer — going with the recommended option.",
       ).catch(() => {});
-      rejectEntry(new AskUserTimeoutError(sessionId, this.#timeoutMs));
-    }, this.#timeoutMs);
+      rejectEntry(new AskUserTimeoutError(sessionId, limit));
+    }, limit);
     this.#pending.set(sessionId, {
       resolve: resolveEntry,
       reject: rejectEntry,
@@ -267,7 +271,7 @@ export class ChannelAskRouter {
   handleInbound(sessionId: string, text: string): boolean {
     const p = this.#pending.get(sessionId);
     if (!p) return false;
-    clearTimeout(p.timer);
+    if (p.timer) clearTimeout(p.timer);
     this.#pending.delete(sessionId);
     try {
       p.resolve(parseChannelAnswers(p.questions, text));
@@ -285,7 +289,7 @@ export class ChannelAskRouter {
   #cancel(sessionId: string, reason: string): void {
     const p = this.#pending.get(sessionId);
     if (!p) return;
-    clearTimeout(p.timer);
+    if (p.timer) clearTimeout(p.timer);
     this.#pending.delete(sessionId);
     p.reject(new Error(`ask_user in ${sessionId} cancelled: ${reason}`));
   }

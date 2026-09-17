@@ -136,6 +136,9 @@ describe('AskUserCard', () => {
     // Accessible name is "1Yes" (single-select prepends the index number),
     // so a substring match is what we need.
     await user.click(screen.getByRole('radio', { name: /Yes/ }));
+    // Full, but not sent: the person reviews, then sends.
+    expect(onSubmit).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Send answers' }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith([
       { question: 'Pick a database', selected: ['PostgreSQL'] },
@@ -163,6 +166,7 @@ describe('AskUserCard', () => {
     // Finish Q2 — the submitted answers must reflect the LATEST Q1 pick.
     // Accessible name is "2No" (index + label), so use a substring match.
     await user.click(screen.getByRole('radio', { name: /No/ }));
+    await user.click(screen.getByRole('button', { name: 'Send answers' }));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith([
@@ -191,6 +195,7 @@ describe('AskUserCard', () => {
 
     // Q2 is single-select: click Yes (accessible name "1Yes" — index + label).
     await user.click(screen.getByRole('radio', { name: /Yes/ }));
+    await user.click(screen.getByRole('button', { name: 'Send answers' }));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith([
@@ -281,6 +286,18 @@ describe('AskUserCard', () => {
     // submittedRef guard, the auto-submit effect could fire twice
     // (once for each mount), sending two answers back to the agent.
     expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps "Send answers" disabled until every question has an answer', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(<AskUserCard requestId="req-send" questions={TWO_SINGLE_Q} onSubmit={onSubmit} />);
+    const sendButton = screen.getByRole('button', { name: 'Send answers' });
+    expect(sendButton).toBeDisabled();
+    await user.click(screen.getByRole('radio', { name: /PostgreSQL/ }));
+    expect(sendButton).toBeDisabled();
+    await user.click(sendButton);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it('does not submit when every question is unanswered (no clicks)', () => {

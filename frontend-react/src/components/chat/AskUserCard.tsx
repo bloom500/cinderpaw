@@ -102,9 +102,20 @@ export function AskUserCard({
     });
   }, []);
 
-  // Auto-submit when every question has an answer. Fires exactly once
-  // per card thanks to submittedRef.
+  const allAnswered = answers.length === questions.length && answers.every((a) => a !== null);
+  const send = useCallback(() => {
+    if (isAnswered || submittedRef.current || !allAnswered) return;
+    submittedRef.current = true;
+    onSubmit(answers as AskUserAnswer[]);
+  }, [allAnswered, answers, isAnswered, onSubmit]);
+
+  // Auto-submit a ONE-question card on its answer: a single click is the whole
+  // decision. A card with several questions waits for "Send answers" instead.
+  // Sending on the last click folded the card away the moment it was full, so
+  // someone who answered three questions and wanted to re-read the first saw
+  // them vanish, with no way to check what had been sent (17 Sep).
   useEffect(() => {
+    if (questions.length > 1) return;
     if (isAnswered || submittedRef.current) return;
     if (answers.length !== questions.length) return;
     if (answers.some((a) => a === null)) return;
@@ -145,15 +156,27 @@ export function AskUserCard({
           }}
         />
       ))}
-      {!isAnswered && onCancel && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded transition-colors"
-          >
-            Skip
-          </button>
+      {!isAnswered && (onCancel || questions.length > 1) && (
+        <div className="flex justify-end gap-2">
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="text-xs text-text-muted hover:text-text-primary px-2 py-1 rounded transition-colors"
+            >
+              Skip
+            </button>
+          )}
+          {questions.length > 1 && (
+            <button
+              type="button"
+              onClick={send}
+              disabled={!allAnswered}
+              className="rounded-md border border-border-default px-3 py-1 text-xs text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"
+            >
+              Send answers
+            </button>
+          )}
         </div>
       )}
     </div>

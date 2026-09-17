@@ -270,7 +270,8 @@ export interface AskUserBridge {
   /**
    * Ask the user one or more questions (max 4, each with 2-4 options).
    * Emits an `ask_user` event, then awaits a matching `ask_user_response`.
-   * Rejects with `AskUserTimeoutError` after 5 minutes. `sessionId` is
+   * Waits until answered or cancelled; rejects with `AskUserTimeoutError` only
+   * when a timeout was configured. `sessionId` is
    * included in the emitted event so the transport can route the question
    * to the right conversation (the impl defaults it to "default").
    */
