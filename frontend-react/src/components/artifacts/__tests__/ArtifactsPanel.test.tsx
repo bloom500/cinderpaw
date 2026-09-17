@@ -1,4 +1,4 @@
-import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactsPanel } from '../ArtifactsPanel';
 import { useArtifacts, resetArtifactRequests, type ArtifactRow } from '@/stores/artifacts';
@@ -185,5 +185,40 @@ describe('resizing and the live frame', () => {
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(1200 - 448);
     for (let i = 0; i < 100; i++) fireEvent.keyDown(edge, { key: 'ArrowRight' });
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(320);
+  });
+});
+
+describe('live edits', () => {
+  it('an edit to the artifact on screen shows its newest version, without being asked', async () => {
+    useArtifacts.setState({
+      loaded: true,
+      open: { row: row({ version: 2 }), content: 'second draft', showing: 1, versions: [] },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+
+    useArtifacts.getState().onEvent({ id: 'a1', action: 'updated' });
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get')).toBe(true));
+    const get = op.mock.calls.find((c) => c[1] === 'get')!;
+    // No version asked for: the newest one.
+    expect(get[2]).toEqual({ artifactId: 'a1' });
+
+    act(() => {
+      useArtifacts.getState().onResult({ id: get[0] as string, ok: true, items: [row({ version: 3 })], content: 'third draft' });
+    });
+    expect(await screen.findByText('third draft')).toBeInTheDocument();
+    expect(useArtifacts.getState().open?.showing).toBe(3);
+  });
+
+  it('an edit to a different artifact leaves the one on screen alone', async () => {
+    useArtifacts.setState({
+      loaded: true,
+      open: { row: row(), content: 'mine', showing: 2, versions: [] },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    useArtifacts.getState().onEvent({ id: 'other', action: 'updated' });
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(op.mock.calls.every((c) => c[1] === 'list')).toBe(true);
   });
 });

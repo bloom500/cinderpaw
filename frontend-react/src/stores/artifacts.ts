@@ -175,7 +175,14 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // a list that is right about the row and wrong about the order is harder to
     // trust than one that costs a cheap round trip.
     void get().refresh();
-    if (e.action === 'deleted' && get().open?.row.id === e.id) set({ open: null });
+    const open = get().open;
+    if (open?.row.id !== e.id) return;
+    if (e.action === 'deleted') set({ open: null });
+    // An edit to the artifact on screen jumps the viewer to the newest version,
+    // even from an older one: the person is watching the agent work on it, and
+    // an edit that lands only in the version picker looks like no edit at all.
+    // The older version stays one pick away.
+    if (e.action === 'updated') void get().openArtifact(e.id);
   },
 
   onResult: (e) => {
