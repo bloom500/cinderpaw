@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { ArrowLeft, Download, FileBox, Loader2, MessageSquare, Trash2, X } from 'lucide-react';
 import { Markdown } from '@/lib/markdown';
 import { Button } from '@/components/ui/button';
@@ -38,8 +39,21 @@ export function ArtifactsPanel({
   }, [refresh]);
 
   return (
-    <aside className="flex w-[26rem] shrink-0 flex-col border-l border-border-default bg-bg-surface">
-      <header className="flex items-center gap-2 border-b border-border-subtle px-3 py-2.5">
+    // Width + opacity animate on mount/unmount (AnimatePresence in ChatPage
+    // drives the unmount half). overflow-hidden so the header/list don't wrap
+    // and flash mid-slide while the width is still growing.
+    <motion.aside
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width: '26rem', opacity: 1 }}
+      exit={{ width: 0, opacity: 0 }}
+      transition={{ duration: 0.22, ease: 'easeInOut' }}
+      className="flex shrink-0 flex-col overflow-hidden border-l border-border-default bg-bg-surface"
+    >
+      {/* pt-6: the window's own close/maximize/minimize sit fixed at the top-right
+          of the whole app (32px tall), and this panel is the rightmost thing on
+          screen — its own header used to start almost directly under them, so its
+          close button nearly overlapped the window's. This clears that band. */}
+      <header className="flex items-center gap-2 border-b border-border-subtle px-3 pb-2.5 pt-6">
         {open ? (
           <button
             type="button"
@@ -74,7 +88,7 @@ export function ArtifactsPanel({
       ) : (
         <List rows={rows} loaded={loaded} busy={busy} lastExport={lastExport} />
       )}
-    </aside>
+    </motion.aside>
   );
 }
 

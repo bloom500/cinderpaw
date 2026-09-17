@@ -233,6 +233,9 @@ export const MessageItem = memo(function MessageItem({
       {showThinking && (
         <Reasoning
           isStreaming={!message.thinkingComplete}
+          // The auto-close signal: the whole turn, not just the thinking part.
+          // See the comment on `messageStreaming` in reasoning.tsx for why.
+          messageStreaming={streaming}
           // Seconds, or undefined when nobody measured it (a reopened chat has no
           // duration saved), which the block reads as 'Reasoning' rather than a time.
           duration={message.thinkingDurationMs ? Math.max(1, Math.ceil(message.thinkingDurationMs / 1000)) : undefined}

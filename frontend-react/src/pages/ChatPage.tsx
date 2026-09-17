@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 import { useChat } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
 import { useModel } from '@/stores/model';
@@ -300,18 +301,21 @@ export function ChatPage() {
         </div>
       </div>
     </div>
-      {panelOpen && (
-        <ArtifactsPanel
-          onClose={togglePanel}
-          // Not "send this to the agent": it fills the composer and leaves the
-          // person holding the sentence, so they can say what they actually
-          // want before spending a turn.
-          onAsk={(row) => {
-            chatInputRef.current?.setText(`About the artifact "${row.title}" (${row.id}): `);
-            chatInputRef.current?.focus();
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {panelOpen && (
+          <ArtifactsPanel
+            key="artifacts-panel"
+            onClose={togglePanel}
+            // Not "send this to the agent": it fills the composer and leaves the
+            // person holding the sentence, so they can say what they actually
+            // want before spending a turn.
+            onAsk={(row) => {
+              chatInputRef.current?.setText(`About the artifact "${row.title}" (${row.id}): `);
+              chatInputRef.current?.focus();
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

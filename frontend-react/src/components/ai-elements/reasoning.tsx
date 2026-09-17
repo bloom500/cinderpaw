@@ -1,4 +1,4 @@
-// From AI Elements (https://elements.ai-sdk.dev, Apache-2.0). Four changes, all so that it uses
+// From AI Elements (https://elements.ai-sdk.dev, Apache-2.0). Changes, all so that it uses
 // what this app already has instead of a second copy of it:
 //   1. the collapsible path;
 //   2. no Streamdown plugins. Mermaid, KaTeX and Shiki are 12.4 MB and 359 files of a desktop
@@ -6,7 +6,7 @@
 //   3. their Shimmer (which pulls `motion`) swapped for our ShimmeringText, which is the same
 //      animation on the `framer-motion` this app already ships;
 //   4. the label when nobody measured a duration: see thinkingLabel below;
-//   5. no auto-close: see the note on the effect that used to do it.
+//   5. auto-close on a different signal than upstream: see `messageStreaming` below.
 "use client";
 
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
@@ -54,6 +54,15 @@ export const useReasoning = () => {
 
 export type ReasoningProps = ComponentProps<typeof Collapsible> & {
   isStreaming?: boolean;
+  /**
+   * Whether the WHOLE turn (thinking + the visible answer) is still being
+   * written, as opposed to `isStreaming`, which is thinking only. Defaults to
+   * `isStreaming` so a caller that only has one signal still works. Distinct
+   * because the two end at different moments: thinking finishes first, the
+   * answer keeps typing after it — closing on the first would fold the trace
+   * away while the answer is still arriving.
+   */
+  messageStreaming?: boolean;
   open?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -67,6 +76,7 @@ export const Reasoning = memo(
   ({
     className,
     isStreaming = false,
+    messageStreaming,
     open,
     defaultOpen,
     onOpenChange,
@@ -74,6 +84,7 @@ export const Reasoning = memo(
     children,
     ...props
   }: ReasoningProps) => {
+    const wholeTurnStreaming = messageStreaming ?? isStreaming;
     const resolvedDefaultOpen = defaultOpen ?? isStreaming;
     // Track if defaultOpen was explicitly set to false (to prevent auto-open)
     const isExplicitlyClosed = defaultOpen === false;
@@ -111,14 +122,29 @@ export const Reasoning = memo(
       }
     }, [isStreaming, isOpen, setIsOpen, isExplicitlyClosed]);
 
-    // Upstream closes this a second after the answer starts. Removed, change 5:
-    // Darius, watching it: "cand agentul gandeste apare doar 'Thinking...' iar in
-    // momentul in care agentul raspunde, dispare". A panel that folds itself while
-    // you are reading it is the app taking the page away, and the reasoning is
-    // often the part worth keeping — it is where the agent says what it is about
-    // to do. It opens itself when thinking starts and then stays exactly as the
-    // reader left it, open or closed, for the life of the message.
-    void AUTO_CLOSE_DELAY;
+    // Upstream closed this a second after the ANSWER STARTS. That was the bug
+    // Darius flagged: "cand agentul gandeste apare doar 'Thinking...' iar in
+    // momentul in care agentul raspunde, dispare" — it folded the trace away
+    // while the answer was still arriving, taking the page out from under
+    // whoever was reading it.
+    //
+    // 17 Sep, Darius asked for the fold back, on a different signal: once the
+    // WHOLE turn is done (the final answer fully written), not once the answer
+    // merely starts. `wholeTurnStreaming` carries that; `isStreaming` (thinking
+    // only) still drives the open-on-start and the "Thinking…" shimmer below.
+    const wasWholeTurnStreamingRef = useRef(wholeTurnStreaming);
+    useEffect(() => {
+      const was = wasWholeTurnStreamingRef.current;
+      wasWholeTurnStreamingRef.current = wholeTurnStreaming;
+      if (was && !wholeTurnStreaming) {
+        // A beat so the final answer is visible first, then the trace folds —
+        // the fold itself is the CSS animate-out on ReasoningContent below, not
+        // a snap; this timer only decides WHEN it starts.
+        const t = setTimeout(() => setIsOpen(false), AUTO_CLOSE_DELAY);
+        return () => clearTimeout(t);
+      }
+      return undefined;
+    }, [wholeTurnStreaming, setIsOpen]);
 
     const handleOpenChange = useCallback(
       (newOpen: boolean) => {
