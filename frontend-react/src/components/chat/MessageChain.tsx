@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 import {
   AlertTriangle, Brain, Database, FileBox, FileText, Globe, Monitor, Sparkles, SquareTerminal, Wrench,
   type LucideIcon,
@@ -29,6 +30,23 @@ const ICON: Record<ToolKind, LucideIcon> = {
 
 /** No Streamdown plugins, for the same bundle reason as reasoning.tsx. */
 const NO_PLUGINS = {};
+
+function ThinkingText({ text, live }: { text: string; live: boolean }) {
+  const box = useRef<HTMLDivElement>(null);
+  // Follow the newest line inside the box, so the person reads the thought as
+  // it arrives without the page moving under them.
+  useEffect(() => {
+    if (live && box.current) box.current.scrollTop = box.current.scrollHeight;
+  }, [text, live]);
+  return (
+    <div
+      ref={box}
+      className={cn('text-xs text-muted-foreground', live && 'max-h-40 overflow-y-auto thin-scrollbar')}
+    >
+      <Streamdown plugins={NO_PLUGINS}>{text}</Streamdown>
+    </div>
+  );
+}
 
 /**
  * What the agent did before it answered, as steps: each tool it ran, and its
@@ -98,9 +116,12 @@ export function MessageChain({
             label={streaming && !thinkingComplete ? 'Thinking' : 'Reasoning'}
             status={streaming && !thinkingComplete ? 'active' : 'complete'}
           >
-            <div className="text-xs text-muted-foreground">
-              <Streamdown plugins={NO_PLUGINS}>{thinking}</Streamdown>
-            </div>
+            {/* While it streams, the reasoning grows inside a box of fixed
+                height that scrolls itself, instead of pushing the answer and
+                everything under it down a line at a time: that push, with the
+                page following, read as the whole transcript bouncing. Once
+                the thinking is complete the box opens to its full height. */}
+            <ThinkingText text={thinking} live={streaming && !thinkingComplete} />
           </ChainOfThoughtStep>
         )}
       </ChainOfThoughtContent>

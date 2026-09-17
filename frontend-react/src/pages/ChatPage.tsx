@@ -54,6 +54,7 @@ export function ChatPage() {
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);
   const browserWide     = useBrowser((s) => s.wide);
+  const browserChatOpen = useBrowser((s) => s.chatOpen);
   const [translateY, setTranslateY] = useState(0);
   // #17: agent-creation onboarding — shown in agent mode when no agent
   // exists, but never while the first-run wizard is still on screen.
@@ -113,7 +114,11 @@ export function ChatPage() {
     const ro = new ResizeObserver(publish);
     ro.observe(wrapper);
     return () => ro.disconnect();
-  }, []);
+    // The column moves between the page and the browser's drawer, which
+    // remounts it under a new container; measured only on first mount, the
+    // drawer's container had no value and "Jump to bottom" sat under the
+    // composer there.
+  }, [browserWide, browserChatOpen]);
 
   // The offset above is measured once per state change, so resizing the
   // window left the composer parked at the offset of a window size that
