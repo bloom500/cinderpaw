@@ -179,9 +179,10 @@ pub(crate) async fn list_s2s_models(provider: String) -> Vec<S2sModelInfo> {
 /// Served from Rust rather than listed in the frontend because the same table
 /// decides which npm plugin gets installed. A second list in TypeScript would
 /// be free to offer a vendor the agent cannot load.
+// async: one keychain read per provider, off the window's main thread (see get_byok_settings).
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn list_s2s_providers() -> Vec<S2sProviderInfo> {
+pub(crate) async fn list_s2s_providers() -> Vec<S2sProviderInfo> {
     cinderpaw_core::livekit::S2S_PROVIDERS
         .iter()
         // A parked row is not offered: showing it would hand people the mode

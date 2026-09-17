@@ -799,9 +799,10 @@ pub(crate) async fn download_tts_voice(
 /// only ever appears there by being mis-declared as a chat provider. The key
 /// itself lives in the same keychain under the same id, so reading it needs no
 /// new storage — only a way to ask.
+// async: a keychain read, off the window's main thread (see get_byok_settings).
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn tts_has_key(provider_id: String) -> bool {
+pub(crate) async fn tts_has_key(provider_id: String) -> bool {
     byok::byok_get(&provider_id).is_some_and(|k| !k.trim().is_empty())
 }
 
@@ -815,9 +816,15 @@ pub(crate) fn tts_has_key(provider_id: String) -> bool {
 /// The failure this prevents is specific: with `tts_has_key` alone, Piper (which
 /// needs no key) reported ready with no voice downloaded, and the call opened the
 /// microphone, listened, thought, and then had nothing to say with.
+// async, off the window's main thread (see get_byok_settings). Tauri requires an
+// async command that borrows State to return a Result, hence the wrapper.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn tts_ready(state: State<AppState>, provider_id: String) -> bool {
+pub(crate) async fn tts_ready(state: State<'_, AppState>, provider_id: String) -> Result<bool, String> {
+    Ok(tts_ready_blocking(&state, &provider_id))
+}
+
+fn tts_ready_blocking(state: &AppState, provider_id: &str) -> bool {
     let catalog = tts::catalog();
     let Some(entry) = catalog.iter().find(|e| e.id == provider_id) else {
         return false; // not an engine we know

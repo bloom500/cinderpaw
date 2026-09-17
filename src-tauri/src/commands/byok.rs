@@ -2,9 +2,12 @@
 
 use crate::*;
 
+// async: each provider's key is read from the OS keychain (Credential Manager on
+// Windows), and a synchronous command runs on the window's main thread, so the
+// whole app froze until every read returned. Settings took 2-3 s to appear.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn get_byok_settings() -> Vec<byok::ProviderInfo> {
+pub(crate) async fn get_byok_settings() -> Vec<byok::ProviderInfo> {
     let settings = byok::load(&settings::load());
     settings.get_all_providers()
 }
@@ -18,9 +21,10 @@ pub(crate) fn provider_catalog() -> Vec<byok::ProviderCatalogEntry> {
     byok::provider_catalog()
 }
 
+// async for the same reason as get_byok_settings: it reads and writes the keychain.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn save_byok_provider(
+pub(crate) async fn save_byok_provider(
     provider_id: String,
     enabled: bool,
     api_key: String,

@@ -97,16 +97,18 @@ export function ArtifactsPanel({
   const resizeTo = (w: number) => setWidth(clampWidth(w, rowWidth()));
 
   return (
-    // Width + opacity animate on mount/unmount (AnimatePresence in ChatPage
-    // drives the unmount half). overflow-hidden so the header/list don't wrap
-    // and flash mid-slide while the width is still growing.
+    // The panel takes its width at once and slides in on transform + opacity.
+    // It used to animate `width` from 0, which resized the chat column on every
+    // frame: the whole transcript was laid out again about thirteen times per
+    // open and per close, which is the 1-2 s of stutter reported on 17 Sep.
+    // Transform and opacity are composited, so the chat reflows once.
     <motion.aside
       ref={asideRef}
-      initial={{ width: 0, opacity: 0 }}
-      animate={{ width, opacity: 1 }}
-      exit={{ width: 0, opacity: 0 }}
-      // No easing while dragging: the edge has to stay under the pointer.
-      transition={dragging ? { duration: 0 } : { duration: 0.22, ease: 'easeInOut' }}
+      initial={{ x: 32, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 32, opacity: 0 }}
+      style={{ width }}
+      transition={{ duration: 0.16, ease: 'easeOut' }}
       className={cn(
         // shrink, not shrink-0: when the window narrows below a saved width, the
         // panel gives way down to its minimum rather than pushing the chat off.

@@ -15,6 +15,24 @@ const SettingsPage    = lazy(() => import('@/pages/SettingsPage').then((m) => ({
 
 const lazyPage = (page: React.ReactNode) => <Suspense fallback={null}>{page}</Suspense>;
 
+/**
+ * Fetch the split pages once the app is idle, so the first click on Settings
+ * does not wait for its chunk. The split still keeps them out of first paint;
+ * this only moves the load from "when clicked" to "when nothing else is
+ * happening". Browsers without requestIdleCallback get a short timeout.
+ */
+if (typeof window !== 'undefined') {
+  const warm = () => {
+    void import('@/pages/SettingsPage');
+    void import('@/pages/ChatsPage');
+    void import('@/pages/ProjectsPage');
+    void import('@/pages/ModelsPage');
+  };
+  const idle = (window as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
+  if (idle) idle(warm, { timeout: 4000 });
+  else setTimeout(warm, 2000);
+}
+
 export const router = createMemoryRouter([
   {
     path: '/',
