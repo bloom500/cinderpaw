@@ -1,8 +1,15 @@
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Download, FileBox, Loader2, MessageSquare, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Download, FileBox, Loader2, MessageSquare, Trash2 } from 'lucide-react';
+import {
+  ArtifactAction,
+  ArtifactActions,
+  ArtifactClose,
+  ArtifactDescription,
+  ArtifactHeader,
+  ArtifactTitle,
+} from '@/components/ai-elements/artifact';
 import { Markdown } from '@/lib/markdown';
-import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
@@ -29,7 +36,9 @@ export function ArtifactsPanel({
   /** Put a question about this artifact into the chat input. */
   onAsk?: (row: ArtifactRow) => void;
 }) {
-  const { rows, loaded, open, busy, error, lastExport, refresh, close } = useArtifacts();
+  const {
+    rows, loaded, open, busy, error, lastExport, refresh, close, exportArtifact, deleteArtifact,
+  } = useArtifacts();
 
   // The list is also kept current by `artifact` events, which arrive from every
   // surface. This is only the first read, for the case where the panel is
@@ -51,40 +60,53 @@ export function ArtifactsPanel({
     >
       {/* pt-6: the window's own close/maximize/minimize sit fixed at the top-right
           of the whole app (32px tall), and this panel is the rightmost thing on
-          screen — its own header used to start almost directly under them, so its
-          close button nearly overlapped the window's. This clears that band. */}
-      <header className="flex items-center gap-2 border-b border-border-subtle px-3 pb-2.5 pt-6">
-        {open ? (
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Back to the list"
-            className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
-          >
-            <ArrowLeft size={16} />
-          </button>
-        ) : (
-          <FileBox size={16} className="text-warning" />
-        )}
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
-          {open ? open.row.title : 'Workspace'}
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close the workspace"
-          className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
-        >
-          <X size={16} />
-        </button>
-      </header>
+          screen. Without it the panel's close button sat almost on the window's. */}
+      <ArtifactHeader className="px-3 pb-2.5 pt-6">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {open ? (
+            <ArtifactAction tooltip="Back to the list" icon={ArrowLeft} onClick={close} />
+          ) : (
+            <FileBox className="size-4 shrink-0 text-warning" />
+          )}
+          <div className="min-w-0 flex-1">
+            <ArtifactTitle className="truncate">{open ? open.row.title : 'Artifacts'}</ArtifactTitle>
+            {/* What it is and how fresh, where the eye already is. The list rows
+                say the same for each item; the header says it for the one open. */}
+            {(open || rows.length > 0) && (
+              <ArtifactDescription className="truncate text-2xs">
+                {open
+                  ? `${open.row.kind} · v${open.row.version} · updated ${when(open.row.updatedAt)}`
+                  : `${rows.length} saved`}
+              </ArtifactDescription>
+            )}
+          </div>
+        </div>
+        <ArtifactActions>
+          {open && onAsk && (
+            <ArtifactAction tooltip="Ask Cinderpaw" icon={MessageSquare} onClick={() => onAsk(open.row)} />
+          )}
+          {open && (
+            <ArtifactAction
+              tooltip="Export" icon={Download} disabled={busy}
+              onClick={() => void exportArtifact(open.row.id)}
+            />
+          )}
+          {open && (
+            <ArtifactAction
+              tooltip="Delete" icon={Trash2} disabled={busy}
+              onClick={() => void deleteArtifact(open.row.id)}
+            />
+          )}
+          <ArtifactClose onClick={onClose} aria-label="Close artifacts" />
+        </ArtifactActions>
+      </ArtifactHeader>
 
       {error && (
         <p className="border-b border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>
       )}
 
       {open ? (
-        <Viewer onAsk={onAsk} />
+        <Viewer />
       ) : (
         <List rows={rows} loaded={loaded} busy={busy} lastExport={lastExport} />
       )}
@@ -159,15 +181,17 @@ function List({
   );
 }
 
-function Viewer({ onAsk }: { onAsk?: (row: ArtifactRow) => void }) {
-  const { open, busy, lastExport, showVersion, exportArtifact, deleteArtifact } = useArtifacts();
+function Viewer() {
+  const { open, lastExport, showVersion } = useArtifacts();
   if (!open) return null;
   const { row, content, showing, versions } = open;
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-border-subtle px-3 py-2">
-        {versions.length > 1 && (
+      {/* Ask, Export and Delete moved up into the header's actions. What stays
+          here is the version picker, and only when there is a choice to make. */}
+      {versions.length > 1 && (
+        <div className="flex items-center border-b border-border-subtle px-3 py-2">
           <SelectMenu
             ariaLabel="Version"
             value={String(showing)}
@@ -181,28 +205,8 @@ function Viewer({ onAsk }: { onAsk?: (row: ArtifactRow) => void }) {
             onChange={(v) => void showVersion(Number(v))}
             className="h-7 text-2xs"
           />
-        )}
-        <div className="flex-1" />
-        {onAsk && (
-          <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-2xs" onClick={() => onAsk(row)}>
-            <MessageSquare size={12} /> Ask Cinderpaw
-          </Button>
-        )}
-        <Button
-          variant="ghost" size="sm" className="h-7 gap-1.5 text-2xs"
-          disabled={busy}
-          onClick={() => void exportArtifact(row.id)}
-        >
-          <Download size={12} /> Export
-        </Button>
-        <Button
-          variant="ghost" size="sm" className="h-7 gap-1.5 text-2xs"
-          disabled={busy}
-          onClick={() => void deleteArtifact(row.id)}
-        >
-          <Trash2 size={12} /> Delete
-        </Button>
-      </div>
+        </div>
+      )}
 
       {lastExport && (
         <SavedLine saved={lastExport} />

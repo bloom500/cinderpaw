@@ -351,7 +351,7 @@ export function SideNav() {
   const panelOpen = useArtifacts((s) => s.panelOpen);
   // The panel lives on the chat page, so from Models or Settings the row
   // goes there and opens it, rather than toggling something off screen.
-  const openWorkspace = () => {
+  const openArtifacts = () => {
     if (pathname === '/chat') { useArtifacts.getState().togglePanel(); return; }
     useArtifacts.setState({ panelOpen: true });
     navigate('/chat');
@@ -470,9 +470,11 @@ export function SideNav() {
           </DropdownMenu>
 
           <Row icon={Search} label="Search" collapsed={collapsed} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
-          {/* The workspace's entrance. It sat in the chat header first, right
-              under the window's maximize button, where a miss resizes the window. */}
-          <Row icon={FileBox} label="Workspace" collapsed={collapsed} onClick={openWorkspace} active={pathname === '/chat' && panelOpen} />
+          {/* The artifacts' entrance. It sat in the chat header first, right
+              under the window's maximize button, where a miss resizes the window.
+              Named Artifacts, not Workspace: the agent's scratch folder is already
+              called workspace, and one word for two places confused the agent. */}
+          <Row icon={FileBox} label="Artifacts" collapsed={collapsed} onClick={openArtifacts} active={pathname === '/chat' && panelOpen} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} collapsed={collapsed} to={n.to} />
           ))}
