@@ -387,7 +387,7 @@ export function SideNav() {
   return (
     <>
       <AnimatePresence initial={false}>
-        {collapsed ? (
+        {collapsed && (
           <motion.button
             key="sidenav-expand"
             type="button"
@@ -401,7 +401,11 @@ export function SideNav() {
           >
             <PanelLeftOpen size={20} />
           </motion.button>
-        ) : (
+        )}
+      </AnimatePresence>
+      {/* Always mounted: it only slides. Mounting it on every open rendered the
+          whole uncapped chat list and refreshed projects in the frame the slide
+          started, which was the stutter on open and not on close (17 Sep). */}
           <motion.nav
             key="sidenav"
             aria-label="Main"
@@ -411,12 +415,14 @@ export function SideNav() {
             // which was the stutter on open and close (17 Sep). The glass drops
             // its displacement for the length of the slide (panelMotion).
             style={{ width: NAV_W }}
-            initial={{ x: -(NAV_W + 12), opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -(NAV_W + 12), opacity: 0 }}
+            initial={false}
+            animate={collapsed ? { x: -(NAV_W + 12), opacity: 0 } : { x: 0, opacity: 1 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
             onAnimationStart={panelMotionStart}
             onAnimationComplete={panelMotionEnd}
+            // Off screen is not gone for a keyboard or a screen reader; inert is.
+            inert={collapsed}
+            aria-hidden={collapsed}
           className={cn(
             'fixed left-3 top-3 bottom-3 z-30 flex flex-col overflow-hidden',
           // Lifted, not sunken. A panel a shade DARKER than the page reads as a
@@ -439,10 +445,10 @@ export function SideNav() {
             The stage itself unmounts the instant collapse flips — what slides
             shut is the empty frame, which is both cleaner to watch and keeps
             every word out of the tree the moment "gone" was asked for. */}
-        {!collapsed && (
+        {(
         <div style={{ width: NAV_W }} className="h-full flex flex-col overflow-hidden">
         <div className="h-12 px-3 flex items-center justify-between shrink-0">
-          {!collapsed && (
+          {(
             <span className="font-semibold text-sm text-text-primary tracking-wide select-none">
               {APP_NAME.toUpperCase()}
             </span>
@@ -465,15 +471,15 @@ export function SideNav() {
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                title={collapsed ? 'New' : undefined}
+                title={undefined}
                 className={cn(
                   'w-full flex items-center gap-3 h-9 px-3 rounded-xl text-sm cursor-pointer',
                   'text-text-primary bg-bg-elevated hover:bg-bg-hover transition-colors',
-                  collapsed && 'justify-center px-0',
+                  
                 )}
               >
                 <Plus size={16} className="shrink-0" />
-                {!collapsed && <span>New</span>}
+                <span>New</span>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
@@ -489,26 +495,24 @@ export function SideNav() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Row icon={Search} label="Search" collapsed={collapsed} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
+          <Row icon={Search} label="Search" collapsed={false} onClick={() => openSearch()} hint={<Kbd keys={[MOD, 'K']} />} />
           {/* The artifacts' entrance. It sat in the chat header first, right
               under the window's maximize button, where a miss resizes the window.
               Named Artifacts, not Workspace: the agent's scratch folder is already
               called workspace, and one word for two places confused the agent. */}
-          <Row icon={FileBox} label="Artifacts" collapsed={collapsed} onClick={openArtifacts} active={pathname === '/chat' && panelOpen && !browserOpen} />
-          <Row icon={Globe} label="Browser" collapsed={collapsed} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
+          <Row icon={FileBox} label="Artifacts" collapsed={false} onClick={openArtifacts} active={pathname === '/chat' && panelOpen && !browserOpen} />
+          <Row icon={Globe} label="Browser" collapsed={false} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (
-            <Row key={n.to} icon={n.icon} label={n.label} collapsed={collapsed} to={n.to} />
+            <Row key={n.to} icon={n.icon} label={n.label} collapsed={false} to={n.to} />
           ))}
         </div>
 
         <div className="flex-1 min-h-0 px-2 flex flex-col">
-          <Library collapsed={collapsed} />
+          <Library collapsed={false} />
         </div>
         </div>
         )}
       </motion.nav>
-        )}
-      </AnimatePresence>
 
       <NewProjectDialog open={projectOpen} onOpenChange={setProjectOpen} />
     </>
