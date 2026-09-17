@@ -220,3 +220,27 @@ describe("binary artifacts", () => {
     expect(Array.from(s.readBytes(a.id)!)).toEqual(Array.from(v1));
   });
 });
+
+/**
+ * `null` from the wire means "no version", never "version null".
+ *
+ * The Rust host fills every optional field it did not get with JSON null. A
+ * store that read null as a version to look up answered "has no version null"
+ * to the first PDF anyone opened (17 Sep), and refused every "save mine as
+ * newest" as stale, because null is not the current version.
+ */
+describe("a missing version arriving as null", () => {
+  test("reads the current bytes", () => {
+    const s = store();
+    const a = make(s, "one");
+    expect(new TextDecoder().decode(s.readBytes(a.id, null)!)).toBe("one");
+  });
+
+  test("saves without the stale check", () => {
+    const s = store();
+    const a = make(s, "one");
+    s.write(a.id, "agent", "telegram:1:1");
+    expect(s.writeOnto(a.id, "mine", "user", null)).toMatchObject({ ok: true });
+    expect(s.read(a.id)).toBe("mine");
+  });
+});

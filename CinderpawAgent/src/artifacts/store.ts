@@ -349,9 +349,9 @@ export class ArtifactStore {
    * The raw bytes of the current version, or of `version`. For a PDF, where
    * reading as UTF-8 would corrupt the file on the next write.
    */
-  readBytes(id: string, version?: number): Uint8Array | null {
+  readBytes(id: string, version?: number | null): Uint8Array | null {
     const path =
-      version === undefined
+      version == null
         ? this.get(id)?.path
         : (this.#db
             .prepare("SELECT path FROM artifact_version WHERE artifact_id = ? AND version = ?")
@@ -438,12 +438,13 @@ export class ArtifactStore {
     id: string,
     content: string | Uint8Array,
     author: string,
-    baseVersion?: number,
+    baseVersion?: number | null,
     note?: string,
   ): { ok: true; artifact: Artifact } | { ok: false; current: number } | null {
     const current = this.get(id);
     if (!current) return null;
-    if (baseVersion !== undefined && baseVersion !== current.version) {
+    // `null` is what the host sends for "no version given"; it is not a version.
+    if (baseVersion != null && baseVersion !== current.version) {
       return { ok: false, current: current.version };
     }
     const artifact = this.write(id, content, author, note);

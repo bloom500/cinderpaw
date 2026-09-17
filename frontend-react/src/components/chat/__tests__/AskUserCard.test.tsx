@@ -300,6 +300,19 @@ describe('AskUserCard', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it('typing a number into Other does not pick that option (17 Sep: "20 euro" chose option 2)', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(<AskUserCard requestId="req-other" questions={SINGLE_Q} onSubmit={onSubmit} />);
+    await user.click(screen.getByRole('button', { name: /Other/ }));
+    const input = screen.getByPlaceholderText('Type your answer…');
+    await user.type(input, 'fixed 20 euro, 1st of month');
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect((input as HTMLInputElement).value).toBe('fixed 20 euro, 1st of month');
+    await user.click(screen.getByRole('button', { name: /Send/ }));
+    expect(onSubmit).toHaveBeenCalledWith([{ question: 'Pick a database', selected: ['fixed 20 euro, 1st of month'] }]);
+  });
+
   it('does not submit when every question is unanswered (no clicks)', () => {
     const onSubmit = vi.fn();
     render(

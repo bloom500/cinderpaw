@@ -258,6 +258,12 @@ function QuestionBlock({
   // Keyboard nav: 1-9 quick-select, Arrows + Space for single-select; Enter submits multi.
   const handleKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (disabled) return;
+    // Keys typed into a text box belong to the text. Without this, the "2" in
+    // "20 euro" typed into Other picked option 2, and the card sent itself with
+    // an answer the person never chose (17 Sep); the arrows moved focus instead
+    // of the caret for the same reason.
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
     if (e.key === 'Enter' && question.multiSelect) {
       e.preventDefault();
       handleSubmitMulti();

@@ -665,6 +665,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
 
           const wanted = msg.artifactId ?? "";
           const row = artifacts.get(wanted);
+          // The host sends null for a field it was not given. Read once, here,
+          // so no branch below can mistake null for a version number.
+          const version = typeof msg.artifactVersion === "number" ? msg.artifactVersion : undefined;
           if (!row) {
             fail(`No artifact with id ${wanted}.`);
             break;
@@ -680,12 +683,12 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
                 fields: await pdfFields(bytes).catch(() => []),
               });
             if (action === "get") {
-              const bytes = artifacts.readBytes(wanted, msg.artifactVersion);
-              if (!bytes) fail(`Artifact ${wanted} has no version ${String(msg.artifactVersion)}.`);
+              const bytes = artifacts.readBytes(wanted, version);
+              if (!bytes) fail(`Artifact ${wanted} has no version ${String(version)}.`);
               else await reply(row, bytes);
             } else if (action === "restore") {
-              const restored = typeof msg.artifactVersion === "number" ? artifacts.rollback(wanted, msg.artifactVersion, "user") : null;
-              if (!restored) fail(`Artifact ${wanted} has no version ${String(msg.artifactVersion)}.`);
+              const restored = version !== undefined ? artifacts.rollback(wanted, version, "user") : null;
+              if (!restored) fail(`Artifact ${wanted} has no version ${String(version)}.`);
               else await reply(restored, artifacts.readBytes(wanted)!);
             } else {
               const current = artifacts.readBytes(wanted);
@@ -694,7 +697,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
                 break;
               }
               const next = await applyPdfEdits(current, parsePdfEdits(msg.content ?? ""));
-              const res = artifacts.writeOnto(wanted, next, "user", msg.artifactVersion, "edited in the app");
+              const res = artifacts.writeOnto(wanted, next, "user", version, "edited in the app");
               if (!res) {
                 fail(`No artifact with id ${wanted}.`);
               } else if (!res.ok) {
@@ -739,7 +742,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             }
             // "user", like delete: the history has to say a person made this
             // version, which is what lets one document hold both kinds of edit.
-            const res = artifacts.writeOnto(wanted, msg.content, "user", msg.artifactVersion, "edited in the app");
+            const res = artifacts.writeOnto(wanted, msg.content, "user", version, "edited in the app");
             if (!res) {
               fail(`No artifact with id ${wanted}.`);
             } else if (!res.ok) {
