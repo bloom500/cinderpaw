@@ -229,3 +229,30 @@ describe("Telegram sendFile", () => {
     }
   });
 });
+
+/**
+ * Continuity, the part that already works and the part that did not.
+ *
+ * Artifacts belong to the workspace, not to the conversation, so a voice call
+ * (which runs in the desktop chat's session) already lists what Telegram made.
+ * What it could not do was tell WHICH one "the report from Telegram" is: the
+ * listing never said where anything was made.
+ */
+describe("artifact_list across surfaces", () => {
+  test("the desktop sees what a chat app made, and where it was made", async () => {
+    const { createArtifactListTool } = await import("../src/tools/builtin/artifact.ts");
+    const db = openDatabase(":memory:");
+    const store = new ArtifactStore(db.raw, mkdtempSync(join(tmpdir(), "cinderpaw-list-")));
+    const { activeWorkspaceId } = await import("../src/tools/builtin/artifact.ts");
+    const ws = activeWorkspaceId(db.raw);
+    store.create({ kind: "markdown", title: "Cats", content: "x", workspaceId: ws, sessionId: "telegram:7:7" });
+    store.create({ kind: "markdown", title: "Dogs", content: "y", workspaceId: ws, sessionId: "d0b56fa7-6de5-4076-81a5-ef5625b81ac8" });
+    const list = createArtifactListTool({ db: db.raw, store, workspaceRoots: [] });
+
+    // A desktop session id is a bare uuid; the voice call uses the same one.
+    const res = await list.execute({}, { sessionId: "da2c0cdb-1ccf-472f-ae87-8363ce89574d" } as never);
+    const lines = res.content.split("\n");
+    expect(lines.find((l) => l.includes("Cats"))).toContain("made on Telegram");
+    expect(lines.find((l) => l.includes("Dogs"))).toContain("made in the desktop app");
+  });
+});

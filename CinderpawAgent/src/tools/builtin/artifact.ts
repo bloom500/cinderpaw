@@ -42,7 +42,7 @@ import {
 } from "../../artifacts/store.ts";
 import { APP_AUTHORING_BRIEF } from "../../artifacts/app.ts";
 import { ArtifactExporter, artifactFile } from "../../artifacts/export.ts";
-import type { OutboundFile } from "../../transports/registry.ts";
+import { transportFor, type OutboundFile } from "../../transports/registry.ts";
 import {
   ensureWorkspace,
   getActiveWorkspaceId,
@@ -67,9 +67,26 @@ export function activeWorkspaceId(db: Database): string {
   return ensureWorkspace(db, "default").id;
 }
 
+/**
+ * Where an artifact was made, in words, or null when that is not knowable.
+ *
+ * The listing is the only way the model can resolve "the report I made on
+ * Telegram" from a voice call or the desktop. Artifacts are already shared
+ * across every surface (they belong to the workspace, not the conversation),
+ * so what was missing was never access, it was this one fact. A desktop chat
+ * id is a bare uuid, and a voice call runs in that same session.
+ */
+function madeWhere(sessionId: string): string | null {
+  const colon = sessionId.indexOf(":");
+  if (colon === -1) return /^[0-9a-f-]{36}$/i.test(sessionId) ? "in the desktop app" : null;
+  return transportFor(sessionId.slice(0, colon)) ? `on ${platformName(sessionId)}` : null;
+}
+
 /** One line per artifact, the shape every listing uses. */
 function line(a: Artifact): string {
-  return `- ${a.id}  [${a.kind}] ${a.title}  (v${a.version}, ${a.bytes} bytes)`;
+  const where = madeWhere(a.createdBy);
+  const made = `made ${where ? `${where}, ` : ""}${new Date(a.createdAt).toISOString().slice(0, 10)}`;
+  return `- ${a.id}  [${a.kind}] ${a.title}  (v${a.version}, ${a.bytes} bytes, ${made})`;
 }
 
 /**
