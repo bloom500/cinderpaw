@@ -498,6 +498,16 @@ fn open_page(app: &AppHandle) -> Result<Webview, String> {
     page(app).ok_or_else(|| "browser: no page is open. Use action \"open\" with a url first.".to_string())
 }
 
+/// The agent's door. Same code as the panel's, plus a word to the panel about
+/// what the agent is doing, so "Cinderpaw can use this browser too" is
+/// something the person sees happen rather than reads about.
+pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Result<Value, String> {
+    let _ = app.emit("browser://agent", json!({ "op": op, "url": params.get("url"), "ref": params.get("ref"), "busy": true }));
+    let out = handle(app.clone(), op, params).await;
+    let _ = app.emit("browser://agent", json!({ "op": op, "busy": false, "ok": out.is_ok() }));
+    out
+}
+
 /// One entry point for the agent (`browser.<op>` over desktop control) and the
 /// panel (`browser_ui`). The two must never drift, so they share it.
 pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, String> {

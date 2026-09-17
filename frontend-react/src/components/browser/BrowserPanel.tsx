@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Globe, Home, Loader2, Maximize2, MessageSquare, 
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
+import { ENGINE_LOGOS } from '@/lib/engineLogos';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
@@ -51,7 +52,7 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
 export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   const {
     url, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab,
-    wide, setWide, chatOpen, setChatOpen, engine, setEngine,
+    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent,
   } = useBrowser();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const current = tabs.find((t) => t.id === active);
@@ -271,6 +272,12 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         <ChromeButton label="Close browser" icon={X} onClick={close} />
       </form>
       {settingsOpen && <BrowserSettings engine={engine} onEngine={setEngine} />}
+      {agent && (
+        <p role="status" className="flex items-center gap-2 border-y border-brand/30 bg-brand/10 px-3 py-1.5 text-2xs text-text-primary">
+          <span className={cn('size-2 shrink-0 rounded-full bg-brand', agent.busy && 'animate-pulse')} aria-hidden />
+          {agentLine(agent)}
+        </p>
+      )}
       {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
       {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
       <div className="flex min-h-0 flex-1">
@@ -279,7 +286,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           // The new-tab page, until the first address: a search and the usual
           // first stops. After that the native page covers this area.
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-bg-surface px-8">
-            <Globe size={28} className="text-text-muted" />
+            <EngineMark engine={engine} size={44} />
             <form
               className="flex w-full max-w-md items-center gap-2 rounded-full border border-border-default bg-bg-elevated px-4 py-2 focus-within:border-brand"
               onSubmit={(e) => {
@@ -292,12 +299,33 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
                 autoFocus
                 aria-label="Search the web"
                 value={startQuery}
-                placeholder="Search DuckDuckGo or type an address"
+                placeholder={`Search ${SEARCH_ENGINES[engine]?.label ?? 'DuckDuckGo'} or type an address`}
                 spellCheck={false}
                 onChange={(e) => setStartQuery(e.target.value)}
                 className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-hidden"
               />
             </form>
+            {/* The engines, by their marks: pick one here and the bar searches with it. */}
+            <div role="radiogroup" aria-label="Search engine" className="flex flex-wrap justify-center gap-2">
+              {Object.entries(SEARCH_ENGINES).map(([id, e]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={engine === id}
+                  onClick={() => setEngine(id)}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs',
+                    engine === id
+                      ? 'border-brand bg-brand/10 text-text-primary'
+                      : 'border-border-subtle text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                  )}
+                >
+                  <EngineMark engine={id} size={14} />
+                  {e.label}
+                </button>
+              ))}
+            </div>
             <div className="flex flex-wrap justify-center gap-2">
               {SHORTCUTS.map((s) => (
                 <button
@@ -395,6 +423,41 @@ function BrowserSettings({ engine, onEngine }: { engine: string; onEngine: (e: s
         </button>
       )}
     </div>
+  );
+}
+
+/** What the agent is doing, in a few words. */
+function agentLine(a: { op: string; url?: string; ref?: string; busy: boolean }): string {
+  const what: Record<string, string> = {
+    open: a.url ? `Cinderpaw is opening ${a.url}` : 'Cinderpaw is opening a page',
+    snapshot: 'Cinderpaw is reading this page',
+    click: a.ref ? `Cinderpaw clicked control ${a.ref}` : 'Cinderpaw clicked',
+    type: a.ref ? `Cinderpaw typed into control ${a.ref}` : 'Cinderpaw typed',
+    scroll: 'Cinderpaw scrolled', back: 'Cinderpaw went back', forward: 'Cinderpaw went forward',
+    reload: 'Cinderpaw reloaded the page',
+  };
+  const line = what[a.op] ?? `Cinderpaw: ${a.op}`;
+  return a.busy ? `${line}…` : line;
+}
+
+/** A search engine's mark in its own colour; an initial for one without a mark. */
+function EngineMark({ engine, size }: { engine: string; size: number }) {
+  const logo = ENGINE_LOGOS[engine];
+  if (!logo) {
+    return (
+      <span
+        aria-hidden
+        style={{ width: size, height: size, fontSize: Math.max(10, size * 0.45) }}
+        className="inline-flex items-center justify-center rounded-full bg-bg-hover font-semibold uppercase text-text-secondary"
+      >
+        {(SEARCH_ENGINES[engine]?.label ?? engine).charAt(0)}
+      </span>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden style={{ fill: logo.hex }}>
+      <path d={logo.path} />
+    </svg>
   );
 }
 

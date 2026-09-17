@@ -926,7 +926,7 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
                         let browser_app = browser_app.clone();
                         Box::pin(async move {
                             if let Some(op) = action.strip_prefix("browser.") {
-                                return crate::browser::handle(browser_app, op, &params).await;
+                                return crate::browser::handle_from_agent(browser_app, op, &params).await;
                             }
                             crate::desktop_control::handle_request(&action, &params).await
                         })

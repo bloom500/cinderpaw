@@ -129,3 +129,15 @@ describe('toAddress', () => {
     expect(toAddress('cum fac o cerere', 'nope')).toBe('https://duckduckgo.com/?q=cum%20fac%20o%20cerere');
   });
 });
+
+describe('the promise on the start page', () => {
+  it('picks the engine from its mark, and shows what Cinderpaw is doing', () => {
+    render(<BrowserPanel />);
+    fireEvent.click(screen.getByRole('radio', { name: /Brave Search/ }));
+    expect(useBrowser.getState().engine).toBe('brave');
+    expect(screen.getByPlaceholderText('Search Brave Search or type an address')).toBeInTheDocument();
+    expect(screen.getByText(/Cinderpaw can use this browser too/)).toBeInTheDocument();
+    act(() => useBrowser.setState({ agent: { op: 'click', ref: '12', busy: true } }));
+    expect(screen.getByRole('status')).toHaveTextContent('Cinderpaw clicked control 12…');
+  });
+});

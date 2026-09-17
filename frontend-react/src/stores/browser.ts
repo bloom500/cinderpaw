@@ -59,6 +59,8 @@ interface BrowserStore {
   error: string | null;
   /** What happened to the last download, in a sentence. */
   notice: string | null;
+  /** What the agent is doing in the browser right now, or null. */
+  agent: { op: string; url?: string; ref?: string; busy: boolean } | null;
   setPanel: (open: boolean) => void;
   open: (address: string) => Promise<void>;
   go: (op: 'back' | 'forward' | 'reload' | 'home') => Promise<void>;
@@ -94,6 +96,7 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
   loading: false,
   error: null,
   notice: null,
+  agent: null,
 
   setPanel: (open) => set({ panelOpen: open }),
 
@@ -177,6 +180,14 @@ void listen<{ name: string; path?: string; artifact?: boolean; error?: string }>
   } catch (err) {
     useBrowser.setState({ notice: `Could not save ${name}: ${String(err)}` });
   }
+}).catch(() => {});
+// The agent at work: shown while its action runs and for a moment after, so a
+// click by Cinderpaw never looks like the page acting on its own.
+let agentTimer: ReturnType<typeof setTimeout> | null = null;
+void listen<{ op: string; url?: string; ref?: string; busy: boolean }>('browser://agent', (e) => {
+  if (agentTimer) clearTimeout(agentTimer);
+  useBrowser.setState({ agent: e.payload });
+  if (!e.payload.busy) agentTimer = setTimeout(() => useBrowser.setState({ agent: null }), 2500);
 }).catch(() => {});
 void listen<{ url: string }>('browser://open', (e) => {
   useBrowser.setState({ panelOpen: true, url: e.payload.url, error: null });
