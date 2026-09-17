@@ -1,9 +1,30 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Globe, Loader2, RotateCw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Globe, Loader2, RotateCw, Search, X } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import { useBrowser } from '@/stores/browser';
-import { cn } from '@/lib/utils';
+import { cn, readLocal, writeLocal } from '@/lib/utils';
+
+const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
+const DEFAULT_WIDTH = 640;
+const MIN_WIDTH = 360;
+/** The chat column's own minimum (min-w-[28rem] in ChatPage). */
+const CHAT_MIN_WIDTH = 448;
+
+function clampWidth(w: number, rowWidth: number): number {
+  const max = Math.max(MIN_WIDTH, rowWidth - CHAT_MIN_WIDTH);
+  return Math.min(max, Math.max(MIN_WIDTH, Math.round(w)));
+}
+
+/** What a new tab offers: a search, and the places people go first. */
+const SHORTCUTS: Array<{ label: string; url: string }> = [
+  { label: 'DuckDuckGo', url: 'https://duckduckgo.com' },
+  { label: 'Wikipedia', url: 'https://wikipedia.org' },
+  { label: 'YouTube', url: 'https://youtube.com' },
+  { label: 'Gmail', url: 'https://mail.google.com' },
+  { label: 'GitHub', url: 'https://github.com' },
+  { label: 'Reddit', url: 'https://reddit.com' },
+];
 
 /**
  * The built-in browser, beside the chat.
@@ -23,7 +44,15 @@ export function BrowserPanel() {
   const [address, setAddress] = useState(url);
   const [editing, setEditing] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
   const [settled, setSettled] = useState(false);
+  // Resizable from its left edge, the same way the Artifacts panel is. The
+  // page follows through the ResizeObserver on the body.
+  const rowWidth = () => asideRef.current?.parentElement?.clientWidth ?? window.innerWidth;
+  const [width, setWidth] = useState(() => clampWidth(Number(readLocal(WIDTH_KEY)) || DEFAULT_WIDTH, window.innerWidth));
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ x: number; w: number } | null>(null);
+  const [startQuery, setStartQuery] = useState('');
 
   // Follow the page's address unless the person is typing a new one.
   useEffect(() => {
@@ -66,14 +95,51 @@ export function BrowserPanel() {
 
   return (
     <motion.aside
+      ref={asideRef}
       aria-label="Browser"
       initial={{ x: 32, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 32, opacity: 0 }}
-      transition={{ duration: 0.16, ease: 'easeOut' }}
+      style={{ width }}
+      transition={dragging ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
       onAnimationComplete={() => setSettled(true)}
-      className="flex w-[min(640px,55%)] min-w-[360px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface"
+      className={cn(
+        'relative flex min-w-[360px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
+        // A native page on top of the panel would otherwise take the pointer
+        // mid-drag; the page is parked while the edge is held.
+        dragging && 'select-none',
+      )}
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize browser panel"
+        aria-valuenow={width}
+        aria-valuemin={MIN_WIDTH}
+        tabIndex={0}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          drag.current = { x: e.clientX, w: width };
+          setDragging(true);
+        }}
+        onPointerMove={(e) => {
+          if (drag.current) setWidth(clampWidth(drag.current.w + drag.current.x - e.clientX, rowWidth()));
+        }}
+        onPointerUp={() => {
+          drag.current = null;
+          setDragging(false);
+          writeLocal(WIDTH_KEY, String(width));
+        }}
+        onKeyDown={(e) => {
+          const step = e.key === 'ArrowLeft' ? 24 : e.key === 'ArrowRight' ? -24 : 0;
+          if (!step) return;
+          e.preventDefault();
+          const next = clampWidth(width + step, rowWidth());
+          setWidth(next);
+          writeLocal(WIDTH_KEY, String(next));
+        }}
+        className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize hover:bg-brand/40 focus-visible:bg-brand/40 focus-visible:outline-hidden"
+      />
       {/* pt-6 for the window's own buttons at the top-right, like the Artifacts panel. */}
       <form
         className="flex items-center gap-1 px-2 pb-2 pt-6"
@@ -110,13 +176,41 @@ export function BrowserPanel() {
       {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
       <div ref={bodyRef} className="relative flex-1 bg-white">
         {!url && (
-          // Only visible before the first page: after that the page covers it.
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg-surface px-8 text-center">
-            <Globe size={20} className="text-text-muted" />
-            <p className="text-xs text-text-muted">
-              Type an address or a search above. Cinderpaw can use this browser too, and you see
-              what it does here.
-            </p>
+          // The new-tab page, until the first address: a search and the usual
+          // first stops. After that the native page covers this area.
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-bg-surface px-8">
+            <Globe size={28} className="text-text-muted" />
+            <form
+              className="flex w-full max-w-md items-center gap-2 rounded-full border border-border-default bg-bg-elevated px-4 py-2 focus-within:border-brand"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void open(startQuery);
+              }}
+            >
+              <Search size={16} className="shrink-0 text-text-muted" />
+              <input
+                autoFocus
+                aria-label="Search the web"
+                value={startQuery}
+                placeholder="Search DuckDuckGo or type an address"
+                spellCheck={false}
+                onChange={(e) => setStartQuery(e.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-hidden"
+              />
+            </form>
+            <div className="flex flex-wrap justify-center gap-2">
+              {SHORTCUTS.map((s) => (
+                <button
+                  key={s.url}
+                  type="button"
+                  onClick={() => void open(s.url)}
+                  className="rounded-full border border-border-subtle px-3 py-1 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-2xs text-text-muted">Cinderpaw can use this browser too; what it does shows here.</p>
           </div>
         )}
       </div>

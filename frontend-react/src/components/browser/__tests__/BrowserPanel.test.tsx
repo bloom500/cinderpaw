@@ -61,3 +61,23 @@ describe('the browser panel', () => {
     expect(ui).toHaveBeenCalledWith('reload');
   });
 });
+
+describe('the new tab page and the edge', () => {
+  it('searches from the start page', async () => {
+    render(<BrowserPanel />);
+    fireEvent.change(screen.getByLabelText('Search the web'), { target: { value: 'formular rev 3' } });
+    fireEvent.submit(screen.getByLabelText('Search the web').closest('form')!);
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('open', { url: 'formular rev 3' }));
+  });
+
+  it('resizes with the keyboard and never squeezes the chat', () => {
+    const { container } = render(<div><BrowserPanel /></div>);
+    Object.defineProperty(container.firstElementChild!, 'clientWidth', { value: 1200, configurable: true });
+    const edge = screen.getByRole('separator', { name: 'Resize browser panel' });
+    const before = Number(edge.getAttribute('aria-valuenow'));
+    fireEvent.keyDown(edge, { key: 'ArrowLeft' });
+    expect(Number(edge.getAttribute('aria-valuenow'))).toBe(before + 24);
+    for (let i = 0; i < 100; i++) fireEvent.keyDown(edge, { key: 'ArrowLeft' });
+    expect(Number(edge.getAttribute('aria-valuenow'))).toBe(1200 - 448);
+  });
+});
