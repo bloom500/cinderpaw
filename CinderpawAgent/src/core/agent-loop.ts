@@ -2771,6 +2771,21 @@ export class AgentLoop {
           used = [];
         }
       }
+      // A transcript that ends on the user's side is a turn that never got its
+      // answer (the sidecar was restarted, or killed, mid-turn). Left as it is,
+      // the new message lands right behind that old one, providers merge two
+      // consecutive user messages into one, and the model answers the OLD
+      // question: a reply to a prompt the person never sent this session
+      // (17 Sep, "Esti cu mine MiniMax"). Said in the environment's voice, as
+      // the tool notes above are, never as a user or assistant line.
+      const last = memory.turns.findLast((m) => m.role === "user" || m.role === "assistant");
+      if (last?.role === "user") {
+        memory.addToolResult(
+          "earlier_interrupted",
+          "The message above was never answered: Cinderpaw was restarted before it could reply. " +
+            "Answer the NEW message that follows, not this one; mention the interruption only if it matters.",
+        );
+      }
       entry = { memory, lastAccess: Date.now(), noProgress: new Map(), answerToolCalls: 0 };
       this.#sessions.set(sessionId, entry);
     } else {

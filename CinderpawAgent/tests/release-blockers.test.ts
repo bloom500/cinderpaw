@@ -335,6 +335,30 @@ describe("F8 — sessions survive a restart", () => {
     db.close();
   });
 
+  test("a turn cut off by a restart is replayed as interrupted, not as the live prompt", async () => {
+    // The user row is written at turn start and the answer at the end, so a
+    // sidecar restarted mid-turn leaves the transcript ending on the user's
+    // side. Replayed as it was, the new message sits right behind the old one,
+    // providers merge consecutive user messages, and the model answers the
+    // OLD one: a reply to a prompt nobody sent this session (17 Sep).
+    const { prompts } = installPromptRecorder();
+    const db = openDatabase(":memory:");
+    const episodic = new EpisodicMemory(db.raw, new AuditLog(db.raw).logger);
+    episodic.record("s-cut", "user", "hello");
+    episodic.record("s-cut", "assistant", "hi");
+    episodic.record("s-cut", "user", "Esti cu mine MiniMax?");
+
+    await buildAgent(db).handle("s-cut", "what is 2+2?", "m3", () => {});
+
+    const messages = (prompts.at(-1) ?? []) as { role: string; content: string }[];
+    const idx = messages.findIndex((m) => m.content?.includes("[tool:earlier_interrupted]"));
+    expect(idx).toBeGreaterThan(-1);
+    // Between the orphaned question and the live one, in the environment's voice.
+    expect(messages[idx - 1]!.content).toContain("Esti cu mine MiniMax?");
+    expect(messages[idx + 1]!.content).toContain("2+2");
+    db.close();
+  });
+
   test("an answer with tools behind it is not marked unverified", async () => {
     // The false-positive guard. Marking a sourced answer would teach the
     // opposite lesson and make the note meaningless.
