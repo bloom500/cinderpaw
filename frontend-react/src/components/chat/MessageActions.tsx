@@ -78,20 +78,20 @@ export function MessageActions({
             onClick={copy}
           >
             {state === 'copied'
-              ? <span className="flex items-center gap-1 text-success"><Check size={13} /><span className="text-[11px]">Copied</span></span>
+              ? <span className="flex items-center gap-1 text-success"><Check size={14} /><span className="text-micro">Copied</span></span>
               : state === 'failed'
-                ? <span className="flex items-center gap-1 text-error"><X size={13} /><span className="text-[11px]">Failed</span></span>
-                : <Copy size={13} />}
+                ? <span className="flex items-center gap-1 text-error"><X size={14} /><span className="text-micro">Failed</span></span>
+                : <Copy size={14} />}
           </Action>
         )}
         {onEdit && (
           <Action label="Edit" onClick={onEdit}>
-            <Pencil size={13} />
+            <Pencil size={14} />
           </Action>
         )}
         {onRetry && (
           <Action label="Try again" onClick={onRetry}>
-            <RotateCcw size={13} />
+            <RotateCcw size={14} />
           </Action>
         )}
       </div>

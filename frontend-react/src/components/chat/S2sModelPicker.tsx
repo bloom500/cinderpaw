@@ -63,7 +63,7 @@ export function S2sModelPicker({ provider, label }: { provider: string; label: s
           model holding a conversation: gemini-3.5-transcribe-live is in Google's
           own list and only transcribes. Said here rather than learned from a
           call that connects and never speaks. */}
-      <p className="mt-1 text-[11px] leading-snug text-text-muted opacity-70">
+      <p className="mt-1 text-micro leading-snug text-text-muted opacity-70">
         Listed by {label}. A transcription-only model will connect and stay silent.
       </p>
     </div>

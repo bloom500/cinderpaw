@@ -435,6 +435,10 @@ const REALTIME = {
       // most of a long tool call, so "the next pause" is usually immediate.
       toolResponseScheduling: 'WHEN_IDLE',
       realtimeInputConfig: { automaticActivityDetection: endpointing() },
+      // What the person speaks, when the app knows it. Left out, the server
+      // detects it per utterance and gets it wrong on anything that is not
+      // English — which is the whole complaint: Romanian heard as Spanish.
+      ...(languageTag() ? { language: languageTag() } : {}),
       instructions: INSTRUCTIONS,
     });
   },
@@ -491,7 +495,24 @@ const SESSION_ID = `voice-${process.pid}`;
  * The language the app is being used in, so anything this file says out loud is
  * said in it. Two letters, or empty when nothing was chosen.
  */
-const LANGUAGE = (process.env.CINDERPAW_LIVE_LANGUAGE || '').trim().toLowerCase().slice(0, 2);
+const LANGUAGE_TAG = (process.env.CINDERPAW_LIVE_LANGUAGE || '').trim();
+const LANGUAGE = LANGUAGE_TAG.toLowerCase().slice(0, 2);
+
+/**
+ * The spoken language as a vendor wants it: BCP-47, region included.
+ *
+ * Gemini Live takes `language` and, given none, guesses from the audio. It
+ * guesses badly: on 17 Sep Romanian came back transcribed as Spanish and as
+ * German in the same call. Two letters is not what it accepts, so a bare "ro"
+ * is expanded here rather than sent and ignored.
+ */
+function languageTag() {
+  if (!LANGUAGE_TAG) return undefined;
+  if (LANGUAGE_TAG.includes('-')) return LANGUAGE_TAG;
+  const REGION = { en: 'US', ro: 'RO', de: 'DE', es: 'ES', fr: 'FR', it: 'IT', pt: 'BR', nl: 'NL', pl: 'PL', ru: 'RU', uk: 'UA', tr: 'TR', ja: 'JP', ko: 'KR', zh: 'CN', hi: 'IN', ar: 'XA' };
+  const two = LANGUAGE;
+  return REGION[two] ? `${two}-${REGION[two]}` : undefined;
+}
 
 /**
  * What the agent says while a tool call is running.
@@ -810,11 +831,18 @@ async function assistant(ctx, makeSession) {
     if (state === 'listening') greet();
   });
 
+  // Kept so the close can say WHY. A vendor that refuses the session closes it
+  // one event later, and a close with no reason is a call that simply went
+  // quiet: on 17 Sep a Gemini model that accepts a live session but not audio
+  // answered "CONTENT_TYPE_AUDIO is not supported for this model
+  // configuration", and all the person saw was an orb and silence.
+  let lastError = '';
   session.on(AgentSessionEventTypes.Error, (e) => {
     const message = String(e?.error?.message ?? e?.error ?? 'unknown error');
+    lastError = message;
     emit({ kind: 'error', text: message, recoverable: Boolean(e?.recoverable) });
   });
-  session.on(AgentSessionEventTypes.Close, () => emit({ kind: 'closed' }));
+  session.on(AgentSessionEventTypes.Close, () => emit({ kind: 'closed', text: lastError }));
 
   // Commands from the window, over LiveKit's own data channel.
   //

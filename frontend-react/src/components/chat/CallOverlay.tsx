@@ -731,186 +731,157 @@ export function CallOverlay({
             ((ready === false && !noEngine) || (live && !!currentS2s && !currentS2s.pipeline)) &&
             (live || voice?.needsKey);
           const keyMissing = keyField && !currentS2s?.connected;
-          const expanded = settingsOpen || noEngine || ready === false;
+          // The blocking reason, in one sentence, or null when the call can be
+          // made. Only this and the control that fixes it are allowed outside
+          // the settings card: everything else on this screen is a setting, and
+          // a setting on the way to a phone call is clutter (17 Sep: "the first
+          // person who opens it uninstalls the app").
+          const blocker = noEngine
+            ? t('call.noEngine')
+            : keyMissing
+              ? (keyOwner(currentS2s, voice)
+                  ? t('call.keyNeededFor').replace('{provider}', keyOwner(currentS2s, voice)!.label)
+                  : t('call.keyNeeded'))
+              : ready === false && voice?.needsDownload
+                ? t('call.voiceMissing')
+                : !hasTools
+                  ? `${t('call.tools')} ${t('call.toolsOff')}`
+                  : null;
+          // Open when asked, and by itself only when the call cannot be made —
+          // there the settings are the way out, not decoration.
+          const expanded = settingsOpen || noEngine || keyMissing || ready === false;
           return (
-          <div className="relative flex flex-col items-center gap-3">
-            {/* The one line that stays: who answers, and where the audio goes. It
-                has to be read before the microphone opens. The gear beside it
-                opens everything else. */}
-            <div className="flex flex-col items-center gap-1.5 text-sm">
-              <span className="flex items-center gap-2">
-                {!currentS2s?.pipeline ? (
-                  <EngineLine
-                    label=""
-                    name={currentS2s?.label ?? t('call.providerNoneShort')}
-                    local={currentS2s ? false : null}
-                    t={t}
-                  />
-                ) : (
-                  <span className="text-text-secondary">{t('call.groupPipeline')}</span>
-                )}
-                <button
-                  type="button"
-                  aria-label="Call settings"
-                  aria-expanded={expanded}
-                  onClick={() => setSettingsOpen((v) => !v)}
-                  className="rounded-full p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
-                >
-                  <Settings2 size={14} />
-                </button>
-              </span>
-            </div>
-
-            {expanded && (
-            <div className="flex flex-col items-center gap-3">
-            {/* Who answers, chosen before the microphone opens. It runs on the
-                user's own key, so this is a connection they made — not
-                something the call has built into it. */}
-            <ProviderToggle providers={s2sList} effective={effectiveS2s} willEcho={willEcho} onChange={setS2sProvider} t={t} />
-
-            {/* The disclosure, as two quiet lines rather than a boxed table: it has
-                to be read before the microphone opens, not filled in. */}
-            <div className="flex flex-col items-center gap-1.5 text-sm">
-              {/* The hardware first, so nothing below it can be mistaken for it. */}
-              <span className="flex items-center gap-2">
-                <span className="text-text-muted">{t('call.mic')}</span>
-                <span className="text-text-secondary">{mic ?? t('call.micDefault')}</span>
-              </span>
+          <div className="relative flex w-full max-w-md flex-col items-center gap-3">
+            {/* The one line that stays: who answers, where the audio goes, and
+                the way to everything else. Read before the microphone opens. */}
+            <div className="flex items-center gap-2 text-sm">
               {!currentS2s?.pipeline ? (
-                // One line, because a realtime vendor IS the engine. Listing
-                // "speech → text" and "text → speech" here would describe steps
-                // that do not happen inside one session.
                 <EngineLine
-                  label={t('call.provider')}
+                  label=""
                   name={currentS2s?.label ?? t('call.providerNoneShort')}
-                  // This row only renders for a NON-pipeline provider, i.e. a
-                  // cloud realtime vendor. So the honest answer is fixed: when
-                  // this call runs, the audio goes to Google or OpenAI.
-                  //
-                  // `!connected` printed the green "on device" badge for a
-                  // vendor whose key is merely MISSING — which is the state a
-                  // fresh install is in, on the one line of this screen that
-                  // exists to be trusted about exactly that. A privacy promise
-                  // must never be made by a keychain lookup failing.
-                  //
-                  // The echo state is a separate fact and is already disclosed
-                  // twice: "(no key)" on the provider button and the willEcho
-                  // line under it. `null` still hides the badge when no
-                  // provider is known, rather than guessing.
                   local={currentS2s ? false : null}
                   t={t}
                 />
               ) : (
-                // The pipeline is three choices, so it discloses three. These
-                // two rows and their pickers already existed and went dark when
-                // the old `pipeline` engine was retired — the row brings them
-                // back rather than growing a second set.
-                <>
-                  <EngineLine
-                    label={t('call.stt')}
-                    // Not the literal "Whisper". Which on-device engine
-                    // this is depends on what the binary was built with, and
-                    // the name was hard-coded to an engine that has never
-                    // shipped in any installer — this line named Whisper to
-                    // the user's face for a year while the answer underneath
-                    // was "nothing at all". `null` means this build has no
-                    // on-device transcriber, which the row says rather than
-                    // inventing a name for it.
-                    name={
-                      sttProvider && sttProvider !== 'local'
-                        ? CLOUD_STT[sttProvider].name
-                        : (localSttName ?? t('call.engineUnset'))
-                    }
-                    local={sttProvider === 'local' ? true : sttProvider ? false : null}
-                    t={t}
-                    // Both halves of the call are configurable from here. Only the
-                    // speaking half had a way in, so the engine that hears you — and
-                    // its key — could not be reached from the screen that names it.
-                    onChange={onChangeStt}
-                  />
-                  <EngineLine
-                    label={t('call.tts')}
-                    name={voice?.label ?? t('call.engineUnset')}
-                    local={
-                      voice
-                        ? ((voice as unknown as { isLocal?: boolean; is_local?: boolean }).isLocal ??
-                          (voice as unknown as { isLocal?: boolean; is_local?: boolean }).is_local ??
-                          false)
-                        : null
-                    }
-                    t={t}
-                    onChange={onChangeEngine}
-                  />
-                </>
+                <span className="text-text-secondary">{t('call.groupPipeline')}</span>
               )}
+              <button
+                type="button"
+                aria-label={t('call.settings')}
+                aria-expanded={expanded}
+                onClick={() => setSettingsOpen((v) => !v)}
+                className="rounded-full p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
+              >
+                <Settings2 size={14} />
+              </button>
             </div>
 
-            {/* Only the case worth interrupting for. A call that CANNOT act is
-                a different product from one that can, and the tool panel it
-                would normally fill stays empty — which reads as broken rather
-                than as "nothing to do". The opposite line (tools are on, here
-                is what that means) was noise on a screen the user reads once
-                and then never again, and it is gone. */}
-            {!hasTools && (
-              <span className="flex items-center gap-2">
-                <span className="text-text-muted">{t('call.tools')}</span>
-                <span className="text-(--warning)">{t('call.toolsOff')}</span>
-              </span>
+            {/* The one thing standing between them and the call. */}
+            {blocker && !expanded && (
+              <p className="max-w-sm text-center text-xs text-(--warning)">{blocker}</p>
             )}
 
-            {/*
-              Nothing on this machine can speak yet. Said HERE, before the press,
-              rather than after twenty seconds of booting Node, a LiveKit server
-              and an npm install — which is what the person used to sit through
-              before being told to check whether they were online.
-            */}
-            {noEngine && (
-              <p className="max-w-sm text-center text-xs text-(--warning)">
-                {t('call.noEngine')}
-              </p>
-            )}
-            {ready === false && !noEngine && voice?.needsDownload && (
-              <p className="max-w-sm text-center text-xs text-(--warning)">{t('call.voiceMissing')}</p>
-            )}
-            {/* The model this vendor will run on. Shown whenever a realtime
-                vendor is selected, not only when something is broken: it is a
-                setting, not a repair. */}
-            {live && currentS2s && !currentS2s.pipeline && (
-              <S2sModelPicker provider={currentS2s.id} label={currentS2s.label} />
-            )}
-            </div>
-            )}
-            {/* The key field used to appear only when the call could not run,
-                so the one way to replace a key that was wrong, rotated or
-                pasted into the wrong vendor was to delete it somewhere else
-                first. A key is a setting; it is reachable while things work.
-                Outside the settings it shows only when a key is MISSING, which
-                is the one case where nothing else on the screen can help. */}
-            {keyField && (expanded || keyMissing) && (
-              <div className="w-full max-w-sm">
-                <p className="mb-2 text-center text-xs text-text-muted">
-                  {currentS2s?.connected
-                    ? `${keyOwner(currentS2s, voice)?.label ?? ''} key stored. Paste another to replace it.`.trim()
-                    : keyOwner(currentS2s, voice)
-                      ? t('call.keyNeededFor').replace(
-                          '{provider}',
-                          keyOwner(currentS2s, voice)!.label,
-                        )
-                      : t('call.keyNeeded')}
-                </p>
-                <div className="flex gap-2">
-                  <Input
-                    type="password"
-                    autoComplete="off"
-                    value={key}
-                    onChange={(e) => setKey(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') void saveKey(); }}
-                    placeholder={t('call.keyPlaceholder')}
-                    className="h-9 text-sm"
-                  />
-                  <Button size="sm" onClick={() => void saveKey()} disabled={!key.trim() || saving}>
-                    {saving ? <Loader2 size={14} className="animate-spin" /> : t('call.keySave')}
-                  </Button>
+            {expanded && (
+              <div className="w-full rounded-2xl border border-border-default bg-bg-surface/80 p-4 text-left shadow-lg">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wide text-text-muted">
+                    {t('call.settings')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsOpen(false)}
+                    className="rounded-md px-2 py-0.5 text-xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
+                  >
+                    {t('call.settingsDone')}
+                  </button>
+                </div>
+
+                {blocker && (
+                  <p className="mb-3 text-xs text-(--warning)">{blocker}</p>
+                )}
+
+                <div className="flex flex-col gap-3">
+                  {/* Who answers. The row IS the choice, so the engine is named
+                      once on this screen instead of three times. */}
+                  <SettingRow label={t('call.provider')}>
+                    <ProviderToggle
+                      providers={s2sList}
+                      effective={effectiveS2s}
+                      willEcho={willEcho}
+                      onChange={setS2sProvider}
+                      t={t}
+                    />
+                  </SettingRow>
+
+                  {/* The model, for a realtime vendor. A setting, not a repair. */}
+                  {live && currentS2s && !currentS2s.pipeline && (
+                    <SettingRow label={t('call.model')}>
+                      <S2sModelPicker provider={currentS2s.id} label={currentS2s.label} />
+                    </SettingRow>
+                  )}
+
+                  {/* The pipeline is three choices, so it discloses three. */}
+                  {currentS2s?.pipeline && (
+                    <>
+                      <SettingRow label={t('call.stt')}>
+                        <EngineLine
+                          label=""
+                          name={
+                            sttProvider && sttProvider !== 'local'
+                              ? CLOUD_STT[sttProvider].name
+                              : (localSttName ?? t('call.engineUnset'))
+                          }
+                          local={sttProvider === 'local' ? true : sttProvider ? false : null}
+                          t={t}
+                          onChange={onChangeStt}
+                        />
+                      </SettingRow>
+                      <SettingRow label={t('call.tts')}>
+                        <EngineLine
+                          label=""
+                          name={voice?.label ?? t('call.engineUnset')}
+                          local={
+                            voice
+                              ? ((voice as unknown as { isLocal?: boolean; is_local?: boolean }).isLocal ??
+                                (voice as unknown as { isLocal?: boolean; is_local?: boolean }).is_local ??
+                                false)
+                              : null
+                          }
+                          t={t}
+                          onChange={onChangeEngine}
+                        />
+                      </SettingRow>
+                    </>
+                  )}
+
+                  {/* The hardware. Last, because it is the one nobody changes. */}
+                  <SettingRow label={t('call.mic')}>
+                    <span className="truncate text-xs text-text-secondary">{mic ?? t('call.micDefault')}</span>
+                  </SettingRow>
+
+                  {keyField && (
+                    <SettingRow label={t('call.key')}>
+                      <div className="flex w-full flex-col gap-1.5">
+                        <div className="flex gap-2">
+                          <Input
+                            type="password"
+                            autoComplete="off"
+                            value={key}
+                            onChange={(e) => setKey(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') void saveKey(); }}
+                            placeholder={t('call.keyPlaceholder')}
+                            className="h-9 text-sm"
+                          />
+                          <Button size="sm" onClick={() => void saveKey()} disabled={!key.trim() || saving}>
+                            {saving ? <Loader2 size={14} className="animate-spin" /> : t('call.keySave')}
+                          </Button>
+                        </div>
+                        {currentS2s?.connected && (
+                          <span className="text-2xs text-text-muted">{t('call.keyStored')}</span>
+                        )}
+                      </div>
+                    </SettingRow>
+                  )}
                 </div>
               </div>
             )}
@@ -2104,3 +2075,19 @@ function CallChatPanel({ onClose, onSay }: { onClose: () => void; onSay: (text: 
     </aside>
   );
 }
+
+/**
+ * One labelled row of the call settings: the name on the left, the control on
+ * the right. The rows this replaces were a centred stack with no labels, which
+ * on a screen holding an engine, a model, a microphone and an API key read as a
+ * debug dump rather than as settings.
+ */
+function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="shrink-0 pt-1 text-xs text-text-muted">{label}</span>
+      <div className="flex min-w-0 flex-1 items-center justify-end">{children}</div>
+    </div>
+  );
+}
+

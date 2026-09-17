@@ -46,9 +46,45 @@ export function trimNotice(raw: string, max = 120): string {
  * Read at call time rather than captured in a dep: a provider or voice picked
  * while the pre-call screen is open has to apply to THIS call, not the next.
  */
+/**
+ * The language the person SPEAKS on a call, as BCP-47.
+ *
+ * Not the interface language: that is `'en'` on every install until somebody
+ * changes it, the interface is English by decision this release, and sending
+ * `en` told Gemini to expect English from a Romanian speaker. The machine's own
+ * locale is the better statement of what is spoken in the room; an interface
+ * language that was actually chosen (anything but the `'en'` default) beats it,
+ * because that is a person saying so rather than a guess.
+ */
+function spokenLanguage(uiLanguage: string): string {
+  if (uiLanguage && uiLanguage !== 'en') return uiLanguage;
+  const os = typeof navigator !== 'undefined' ? navigator.language : '';
+  return os || uiLanguage || '';
+}
+
+/**
+ * What a vendor's refusal means, in a sentence the person can act on.
+ *
+ * Exported for its test. The two cases here are both measured: the free-tier
+ * cut-off, and a model that opens a live session and then refuses audio —
+ * Google lists it as live-capable, so the picker offers it and only the call
+ * finds out.
+ */
+export function callFailureLine(raw: string): string {
+  const text = raw.trim();
+  if (/429|quota|rate.?limit|RESOURCE_EXHAUSTED/i.test(text)) {
+    return 'Google cut the call off: the free tier limits how much voice you get. Wait a few minutes, or add billing to that key.';
+  }
+  if (/CONTENT_TYPE_AUDIO|not supported for this model/i.test(text)) {
+    return 'That model cannot speak: it accepts a live session but refuses audio. Pick another model in the call settings.';
+  }
+  return text || 'The call reported an error.';
+}
+
 function callArgs() {
   const { s2sProvider, s2sModel, ttsVoice, ttsProvider, sttModel, sttProvider, language } =
     useUI.getState();
+  const spoken = spokenLanguage(language);
   // In pipeline mode the voice belongs to the TTS ENGINE, not to the row — the
   // row has no voices of its own. Filing it under the row would lose the choice
   // the moment somebody switched engine, which is the same bug that made the
@@ -66,7 +102,7 @@ function callArgs() {
     // its own while a tool runs has to be said in the language the app is being
     // used in; a Romanian caller hearing "one moment" in English has been
     // handed a different product mid-sentence.
-    language,
+    language: spoken,
     pipeline: pipeline
       ? {
           ttsEngine: ttsProvider,
@@ -79,7 +115,7 @@ function callArgs() {
           // Whisper treats language as an override, not a hint, and the app
           // already knows which one the user reads the interface in. Left out,
           // two words of Romanian come back as Japanese.
-          sttLanguage: language,
+          sttLanguage: spoken,
         }
       : undefined,
   };
@@ -271,12 +307,14 @@ export function useLiveKitCallSession() {
             p === 'idle' || p === 'ready' || p === 'connecting' || p === 'reconnecting' ? p : next,
           );
       }
+      // A close that carries an error is a refusal, and it must be readable:
+      // the model that cannot speak (17 Sep) closed the session and the screen
+      // showed nothing but the orb.
+      if (e.kind === 'closed' && e.text) {
+        setNotice(callFailureLine(e.text));
+      }
       if (e.kind === 'error') {
-        setNotice(
-          /429|quota|rate.?limit|RESOURCE_EXHAUSTED/i.test(e.text ?? '')
-            ? 'Google cut the call off: the free tier limits how much voice you get. Wait a few minutes, or add billing to that key.'
-            : (e.text ?? 'The call reported an error.'),
-        );
+        setNotice(callFailureLine(e.text ?? ''));
       }
     });
     return () => { void pending.then((un) => un()); };

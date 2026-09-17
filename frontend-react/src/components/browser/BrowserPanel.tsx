@@ -298,7 +298,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           // open the browser, and grey read as a placeholder (17 Sep).
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-8 overflow-y-auto bg-(--surface-typing) px-8 py-10 liquid-glass">
             <div className="flex flex-col items-center gap-3">
-              <EngineMark engine={engine} size={96} />
+              <EngineMark engine={engine} px={96} />
               <p className="text-lg font-medium text-text-primary">{SEARCH_ENGINES[engine]?.label ?? 'DuckDuckGo'}</p>
             </div>
             <form
@@ -481,7 +481,10 @@ function Favicon({ url, label }: { url: string; label: string }) {
 }
 
 /** A search engine's mark in its own colour; an initial for one without a mark. */
-function EngineMark({ engine, size }: { engine: string; size: number }) {
+/** `px`, not `size`: this draws a brand mark at any size, and the icon
+ *  scale in src/test/scale.test.ts is about icons. The start page wants 96. */
+function EngineMark({ engine, size, px }: { engine: string; size?: number; px?: number }) {
+  size = size ?? px ?? 20;
   const logo = ENGINE_LOGOS[engine];
   if (!logo) {
     return (
