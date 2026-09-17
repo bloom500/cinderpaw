@@ -180,6 +180,8 @@ export function ModelPickerPopover() {
     shown = { modelId: cloudModel.modelId, provider: cloudModel.providerId };
     label = modelDisplayName(cloudModel.modelId);
   } else {
+    // A loaded local model: its file name, with the Hugging Face mark.
+    if (loaded?.name) shown = { modelId: loaded.name, provider: 'local' };
     label = loaded?.name ?? unpinnedLabel;
   }
   const route = shown ? providerName(shown.provider) : '';
