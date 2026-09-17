@@ -5,9 +5,9 @@ import { cn } from '@/lib/utils';
 import { parseUserAttachments, type DisplayAttachment } from '@/lib/attachmentDisplay';
 import { Markdown } from '@/lib/markdown';
 import { BubbleTail } from './BubbleTail';
-import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning';
 import { AskUserCard } from './AskUserCard';
 import { MessageToolWidgets } from './MessageToolWidgets';
+import { MessageChain } from './MessageChain';
 import { MessageActions } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
 import { useChat, type ChatMessage } from '@/stores/chat';
@@ -223,6 +223,7 @@ export const MessageItem = memo(function MessageItem({
   }
 
   const showThinking = message.thinking != null && reasoningMode !== 'off';
+  const made = (message.toolActivity ?? []).filter((a) => a.kind === 'artifact');
   const isTruncated = message.truncated === true;
   const askUser = message.askUser;
   const submitAskUser = useAskUser((s) => s.submit);
@@ -230,23 +231,18 @@ export const MessageItem = memo(function MessageItem({
 
   return (
     <div className="group flex flex-col gap-2">
-      {showThinking && (
-        <Reasoning
-          isStreaming={!message.thinkingComplete}
-          // The auto-close signal: the whole turn, not just the thinking part.
-          // See the comment on `messageStreaming` in reasoning.tsx for why.
-          messageStreaming={streaming}
-          // Seconds, or undefined when nobody measured it (a reopened chat has no
-          // duration saved), which the block reads as 'Reasoning' rather than a time.
-          duration={message.thinkingDurationMs ? Math.max(1, Math.ceil(message.thinkingDurationMs / 1000)) : undefined}
-        >
-          <ReasoningTrigger />
-          <ReasoningContent>{message.thinking!}</ReasoningContent>
-        </Reasoning>
-      )}
-      {message.toolActivity && message.toolActivity.length > 0 && (
-        <MessageToolWidgets activity={message.toolActivity} streaming={streaming} />
-      )}
+      <MessageChain
+        thinking={showThinking ? message.thinking! : null}
+        thinkingComplete={message.thinkingComplete === true}
+        // Seconds, or undefined when nobody measured it (a reopened chat has no
+        // duration saved), which the header reads as 'Reasoning' rather than a time.
+        durationSec={message.thinkingDurationMs ? Math.max(1, Math.ceil(message.thinkingDurationMs / 1000)) : undefined}
+        steps={(message.toolActivity ?? []).filter((a) => a.kind !== 'artifact')}
+        streaming={streaming}
+      />
+      {/* What the turn MADE stays outside the steps: folding the steps away must
+          not fold away the report or chart the person asked for. */}
+      {made.length > 0 && <MessageToolWidgets activity={made} streaming={streaming} />}
       <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
         <Markdown animateWords={streaming}>{message.content}</Markdown>
       </div>
