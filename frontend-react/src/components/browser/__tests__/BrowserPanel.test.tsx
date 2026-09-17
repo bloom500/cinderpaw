@@ -45,6 +45,16 @@ describe('the browser panel', () => {
     await waitFor(() => expect(ui.mock.calls.some((c) => c[0] === 'set_bounds' && c[1].visible === true)).toBe(true));
   });
 
+  it('parks the page when the window itself reloads (Ctrl+R)', async () => {
+    // React's cleanup never runs on a reload, and the page is a native view on
+    // top of everything: it floated over the loading screen until something
+    // placed it again (17 Sep).
+    render(<BrowserPanel />);
+    ui.mockClear();
+    window.dispatchEvent(new Event('pagehide'));
+    expect(ui).toHaveBeenCalledWith('set_bounds', { visible: false });
+  });
+
   it('parks the page before the panel closes, so it does not float where the panel was', async () => {
     render(<BrowserPanel />);
     ui.mockClear();

@@ -119,6 +119,27 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   // Leaving by any route (route change, unmount) parks the page.
   useEffect(() => () => void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {}), []);
 
+  // A window reload (Ctrl+R) tears down React without unmounting anything, and
+  // the page is a NATIVE child webview the host placed: it kept floating over
+  // the loading screen, on top, until something placed it again. React's
+  // cleanup never runs here, so the park has to be asked for before the
+  // document goes away.
+  //
+  // ponytail: `pagehide` as well as `beforeunload` — Chromium fires the first
+  // reliably on reload, the second not at all in some teardown paths. If the
+  // webview is ever killed outright (a crash, not a reload) nothing runs and
+  // the page would float again; the fix for that is a heartbeat from the panel
+  // with a host-side watchdog, worth writing only if it actually happens.
+  useEffect(() => {
+    const park = () => void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {});
+    window.addEventListener('beforeunload', park);
+    window.addEventListener('pagehide', park);
+    return () => {
+      window.removeEventListener('beforeunload', park);
+      window.removeEventListener('pagehide', park);
+    };
+  }, []);
+
   const close = () => {
     void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {});
     setPanel(false);
