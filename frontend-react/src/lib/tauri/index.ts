@@ -993,6 +993,10 @@ const raw = {
    *  without asking the main agent to retype what the person already wrote. */
   /** Agent Cowork S6 — replay one chat's teammate traffic. The answer
    *  arrives as a `cowork_history_result` event, paired by thread id. */
+  /** The built-in browser: `open`, `back`, `forward`, `reload`, `state`, and
+   *  `set_bounds` (where the page sits over the panel). See src-tauri/src/browser.rs. */
+  browserUi: (op: string, params: Record<string, unknown> = {}) =>
+    invoke<Record<string, unknown>>('browser_ui', { op, params }),
   /** The workspace panel's one door to the artifact store. The answer arrives
    *  as an `artifact_result` event, paired by the `id` passed in. One command
    *  for five actions: see the Rust side for why. */
@@ -1364,6 +1368,9 @@ export const tauri = {
       action: 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import' | 'rename' | 'archive' | 'unarchive',
       opts: { artifactId?: string; version?: number; dest?: string; content?: string } = {},
     ): Promise<void> => raw.cinderpawArtifactOp(id, action, opts),
+  },
+  browser: {
+    ui: (op: string, params: Record<string, unknown> = {}) => raw.browserUi(op, params),
   },
 };
 

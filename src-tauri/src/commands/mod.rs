@@ -6,6 +6,7 @@
 
 pub mod agents;
 pub mod bootstrap;
+pub mod browser;
 pub mod byok;
 pub mod chat;
 pub mod conversations;
@@ -21,6 +22,7 @@ pub mod system;
 pub mod voice;
 
 pub(crate) use agents::*;
+pub(crate) use browser::*;
 pub(crate) use byok::*;
 pub(crate) use chat::*;
 pub(crate) use conversations::*;
@@ -107,7 +109,10 @@ mod command_count_test {
     // the artifact store: list, get, versions, export, delete behind a single
     // command, because each extra inbound type costs a binding and three
     // allow-list entries to say the same word another way).
-    const EXPECTED_COMMAND_COUNT: usize = 171;
+    // 171 -> 172 = + browser_ui (the browser panel: address bar, back and
+    // forward, and where the page sits; the agent uses the same code through
+    // desktop control).
+    const EXPECTED_COMMAND_COUNT: usize = 172;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

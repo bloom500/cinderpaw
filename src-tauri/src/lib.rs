@@ -1,4 +1,5 @@
 mod agents;
+mod browser;
 mod commands;
 mod connectors;
 mod conversations;
@@ -563,6 +564,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             get_model_size_info,
             get_hf_model_size,
             get_byok_settings,
+            browser_ui,
             provider_catalog,
             setup_detect,
             setup_verify,
@@ -911,9 +913,16 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
             let events: Arc<dyn cinderpaw_core::host::HostEvents> =
                 Arc::new(TauriEvents(app.handle().clone(), runtime.events_tx.clone()));
             let desktop_control: Option<cinderpaw_core::host::DesktopControlHandler> = {
+                // `browser.*` is the built-in browser, which needs the app
+                // handle; everything else is OS desktop control as before.
+                let browser_app = app.handle().clone();
                 let dc: cinderpaw_core::host::DesktopControlHandler =
-                    Arc::new(|action, params| {
+                    Arc::new(move |action, params| {
+                        let browser_app = browser_app.clone();
                         Box::pin(async move {
+                            if let Some(op) = action.strip_prefix("browser.") {
+                                return crate::browser::handle(browser_app, op, &params).await;
+                            }
                             crate::desktop_control::handle_request(&action, &params).await
                         })
                     });

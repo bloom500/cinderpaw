@@ -95,6 +95,7 @@ export const EXTENDED_TOOLS = new Set<string>([
   // capability — hiding the tool in the drawer meant the model had to
   // list_tools → load_tool before it could ever delegate, so it never did.
   "computer_use",
+  "browser",
   // code-quality family (code-quality.ts CodeQualityKind)
   "run_tests",
   "format_code",

@@ -173,6 +173,7 @@ import { createAskUserTool } from "./tools/builtin/ask-user.ts";
 import { DesktopControlBridgeImpl } from "./core/desktop-control-bridge.ts";
 import { RequestBridge } from "./core/request-bridge.ts";
 import { createComputerUseTool } from "./tools/builtin/computer-use.ts";
+import { createBrowserTool } from "./tools/builtin/browser.ts";
 import { LeadDesk } from "./core/lead-desk.ts";
 import { createCaptureLeadTool } from "./tools/builtin/capture-lead.ts";
 import { createEscalateToHumanTool } from "./tools/builtin/escalate-to-human.ts";
@@ -954,6 +955,10 @@ export async function boot(transportOverride?: Transport) {
   // The Rust host ALSO independently gates every call on the same flag plus an
   // app allow/deny policy, so even if this registration is reached the host is
   // the final authority. Default OFF.
+  // browser — the built-in browser. Not behind the desktop-control flag: it
+  // drives one web page inside Cinderpaw's own window, not the machine. Outside
+  // the desktop app it says it is unavailable.
+  registry.register(createBrowserTool());
   if (cfgBool("CINDERPAW_ENABLE_DESKTOP_CONTROL")) {
     registry.register(createComputerUseTool());
     log("computer_use enabled (CINDERPAW_ENABLE_DESKTOP_CONTROL=true) — OS desktop control is active");

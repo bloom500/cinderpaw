@@ -14,6 +14,8 @@ import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput, type ChatInputHandle } from '@/components/chat/ChatInput';
 import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
 import { useArtifacts } from '@/stores/artifacts';
+import { useBrowser } from '@/stores/browser';
+import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
@@ -50,6 +52,7 @@ export function ChatPage() {
   const chatInputRef    = useRef<ChatInputHandle>(null);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
+  const browserOpen     = useBrowser((s) => s.panelOpen);
   const [translateY, setTranslateY] = useState(0);
   // #17: agent-creation onboarding — shown in agent mode when no agent
   // exists, but never while the first-run wizard is still on screen.
@@ -304,7 +307,11 @@ export function ChatPage() {
       </div>
     </div>
       <AnimatePresence>
-        {panelOpen && (
+        {/* One side panel at a time, and the browser wins: when the agent is
+            working in it, an artifact it saves must not cover the page. The
+            artifact is still one click away in the sidebar. */}
+        {browserOpen && <BrowserPanel key="browser-panel" />}
+        {panelOpen && !browserOpen && (
           <ArtifactsPanel
             key="artifacts-panel"
             onClose={togglePanel}

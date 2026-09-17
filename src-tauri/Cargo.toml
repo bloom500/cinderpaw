@@ -16,7 +16,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Tauri
-tauri = { version = "2", features = ["protocol-asset"] }
+# `unstable`: multiwebview (Window::add_child), which the built-in browser needs
+# to put a web page inside the main window. See src/browser.rs.
+tauri = { version = "2", features = ["protocol-asset", "unstable"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 # Native message box for the one failure that happens before a window exists

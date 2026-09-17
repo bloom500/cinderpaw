@@ -18,7 +18,7 @@ cycles (background reflection), and eval-gated on-device LoRA personalization.
 
 ## Surfaces
 
-- **Desktop app** — chat, connectors page, local models, memory, extensions.
+- **Desktop app** — chat, connectors, models, memory, extensions, an agent `browser`.
 - **Terminal chat** — `cinderpaw` or `cinderpaw chat` opens the TUI.
 - **CLI** — `cinderpaw <command>` for admin tasks (see Commands below).
 

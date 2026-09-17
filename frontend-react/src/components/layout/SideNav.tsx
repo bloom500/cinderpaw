@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Plus, Search, MessageSquare, Folder, Box, Settings, FileBox,
+  Plus, Search, MessageSquare, Folder, Box, Settings, FileBox, Globe,
   PanelLeftClose, PanelLeftOpen, Loader2, FolderPlus,
   ChevronDown, ChevronRight,
 } from 'lucide-react';
@@ -16,6 +16,7 @@ import { groupByRecency, type DatedGroup } from '@/lib/chatGroups';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
 import { useProjects } from '@/stores/projects';
 import { useArtifacts } from '@/stores/artifacts';
+import { useBrowser } from '@/stores/browser';
 import { cn } from '@/lib/utils';
 import { Kbd, MOD } from '@/components/ui/kbd';
 import { useMagnetic } from '@/hooks/useMagnetic';
@@ -352,9 +353,19 @@ export function SideNav() {
   // The panel lives on the chat page, so from Models or Settings the row
   // goes there and opens it, rather than toggling something off screen.
   const openArtifacts = () => {
+    useBrowser.getState().setPanel(false);
     if (pathname === '/chat') { useArtifacts.getState().togglePanel(); return; }
     useArtifacts.setState({ panelOpen: true });
     navigate('/chat');
+  };
+  const browserOpen = useBrowser((s) => s.panelOpen);
+  // Same shape as Artifacts: it lives beside the chat, so from elsewhere the
+  // row goes there. The two panels do not share the space.
+  const openBrowser = () => {
+    const next = pathname === '/chat' ? !browserOpen : true;
+    useBrowser.getState().setPanel(next);
+    if (next) useArtifacts.setState({ panelOpen: false });
+    if (pathname !== '/chat') navigate('/chat');
   };
   const [projectOpen, setProjectOpen] = useState(false);
 
@@ -474,7 +485,8 @@ export function SideNav() {
               under the window's maximize button, where a miss resizes the window.
               Named Artifacts, not Workspace: the agent's scratch folder is already
               called workspace, and one word for two places confused the agent. */}
-          <Row icon={FileBox} label="Artifacts" collapsed={collapsed} onClick={openArtifacts} active={pathname === '/chat' && panelOpen} />
+          <Row icon={FileBox} label="Artifacts" collapsed={collapsed} onClick={openArtifacts} active={pathname === '/chat' && panelOpen && !browserOpen} />
+          <Row icon={Globe} label="Browser" collapsed={collapsed} onClick={openBrowser} active={pathname === '/chat' && browserOpen} />
           {NAV.map((n) => (
             <Row key={n.to} icon={n.icon} label={n.label} collapsed={collapsed} to={n.to} />
           ))}
