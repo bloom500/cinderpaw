@@ -88,7 +88,9 @@ export function createBrowserTool(): Tool {
       "(or search words), `snapshot` to read the page and its numbered controls, " +
       "then `click` or `type` by number (`ref`). Prefer this to computer_use for " +
       "anything on the web. If a site ignores a click, computer_use can press the " +
-      "same control, because the page is inside Cinderpaw's window.",
+      "same control, because the page is inside Cinderpaw's window. If the user clicks or " +
+      "types in the page themselves, the next action is refused: they took over. Ask them " +
+      "before acting again.",
     permissions: [],
     // The requests are the page's, made by the webview in the host, not by this
     // process; there is nothing for the egress proxy to see or to allow.

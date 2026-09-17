@@ -451,6 +451,7 @@ function agentLine(a: { op: string; url?: string; ref?: string; busy: boolean })
     type: a.ref ? `Cinderpaw typed into control ${a.ref}` : 'Cinderpaw typed',
     scroll: 'Cinderpaw scrolled', back: 'Cinderpaw went back', forward: 'Cinderpaw went forward',
     reload: 'Cinderpaw reloaded the page',
+    paused: 'You took over; Cinderpaw paused and will ask before continuing',
   };
   const line = what[a.op] ?? `Cinderpaw: ${a.op}`;
   return a.busy ? `${line}…` : line;

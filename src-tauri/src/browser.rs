@@ -155,6 +155,31 @@ fn bounds() -> &'static Mutex<Bounds> {
 /// True between a navigation starting and its page finishing.
 static LOADING: AtomicBool = AtomicBool::new(false);
 
+/// Runs in every page before anything else: notes the last moment a real
+/// person clicked or typed in it. The agent's own clicks are `el.click()` and
+/// dispatched events, which are never trusted, so only the person moves this.
+const TOUCH_SCRIPT: &str = "(() => { const mark = (e) => { if (e.isTrusted) window.__cpTouched = Date.now(); };     addEventListener('pointerdown', mark, true); addEventListener('keydown', mark, true); })()";
+
+/// When the agent last acted in the page (ms since the epoch, the page's clock
+/// too). A person's touch after this hands the page to them.
+static AGENT_LAST_MS: parking_lot::Mutex<f64> = parking_lot::Mutex::new(0.0);
+
+fn now_ms() -> f64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as f64).unwrap_or(0.0)
+}
+
+/// Slice 4 of the browser plan: a click by the person pauses the agent. Before
+/// an action that changes the page, ask the page whether a person touched it
+/// since the agent's last action within the last two minutes; if so, refuse
+/// once (the agent is told to ask) and let the next attempt through.
+async fn person_took_over(app: &AppHandle) -> bool {
+    let last = *AGENT_LAST_MS.lock();
+    if last == 0.0 || now_ms() - last > 120_000.0 { return false; }
+    let Some(wv) = page(app) else { return false };
+    let touched = run(&wv, "window.__cpTouched || 0").await.ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+    touched > last
+}
+
 /// Unpacked Chrome extensions, one folder each. WebView2 loads them for every
 /// tab (Windows only; the other platforms have no extension API in WebView).
 pub fn extensions_dir() -> std::path::PathBuf {
@@ -392,6 +417,7 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
     let events = app.clone();
     let _ = std::fs::create_dir_all(extensions_dir());
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(url))
+        .initialization_script(TOUCH_SCRIPT)
         .data_directory(cinderpaw_core::paths::cinderpaw_dir().join("browser-profile"));
     // Extensions ride the WebView2 environment, which is created with the first
     // tab and shared by the rest, so one installed later shows up after a restart.
@@ -602,8 +628,15 @@ fn open_page(app: &AppHandle) -> Result<Webview, String> {
 /// what the agent is doing, so "Cinderpaw can use this browser too" is
 /// something the person sees happen rather than reads about.
 pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Result<Value, String> {
+    let acts = !matches!(op, "snapshot" | "tabs" | "state");
+    if acts && person_took_over(&app).await {
+        *AGENT_LAST_MS.lock() = now_ms();
+        let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
+        return Err("browser: the user took over this page since your last action (they clicked or typed in it).                     Do not continue on your own: take a snapshot to see where they are, and ask them before acting again.".into());
+    }
     let _ = app.emit("browser://agent", json!({ "op": op, "url": params.get("url"), "ref": params.get("ref"), "busy": true }));
     let out = handle(app.clone(), op, params).await;
+    if acts { *AGENT_LAST_MS.lock() = now_ms(); }
     let _ = app.emit("browser://agent", json!({ "op": op, "busy": false, "ok": out.is_ok() }));
     out
 }
