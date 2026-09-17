@@ -28,6 +28,8 @@ import { MoltenOrb } from './MoltenOrb';
 import { CallToolScreen } from './CallToolScreen';
 import { S2sModelPicker } from './S2sModelPicker';
 import { CallArtifacts } from './CallArtifacts';
+import { AskUserCard } from './AskUserCard';
+import { useAskUser } from '@/stores/askUser';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 import { warmLiveKit } from '@/hooks/useLiveKitCallSession';
 import { speechLevel } from '@/hooks/useSpeechPlayer';
@@ -204,6 +206,7 @@ export function CallOverlay({
   onAnswer,
   onHangUp,
   onInterrupt,
+  onAskAloud,
   onSay,
   onChangeEngine,
   onChangeStt,
@@ -226,6 +229,8 @@ export function CallOverlay({
   onAnswer: () => void;
   onHangUp: () => void;
   onInterrupt: () => void;
+  /** Speak a pending question out loud. Absent on the engines that cannot. */
+  onAskAloud?: (text: string) => void;
   /** Absent when the running engine has no text channel — see the Live hook. */
   onSay?: (text: string) => void;
   onChangeEngine: () => void;
@@ -317,6 +322,22 @@ export function CallOverlay({
    * found nothing, which is what an empty tool panel looks like.
    */
   const inputMode = useUI((s) => s.inputMode);
+  // The pending question, if the agent asked one while this call is up.
+  const ask = useAskUser((s) => s.pending);
+  // Said once per question, when one arrives mid-call. A person on a call is
+  // listening, not watching the screen.
+  const spokenAsk = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ask || !onAskAloud || phase === 'ready' || spokenAsk.current === ask.id) return;
+    spokenAsk.current = ask.id;
+    const q = ask.questions[0];
+    const options = (q?.options ?? []).map((o) => o.label).filter(Boolean);
+    onAskAloud(
+      [q?.question ?? 'I need an answer from you.', options.length ? `Options: ${options.join(', ')}.` : '']
+        .filter(Boolean)
+        .join(' '),
+    );
+  }, [ask, onAskAloud, phase]);
   const toolCount = useUI((s) => s.enabledTools.length);
   const hasTools = live || inputMode === 'agent' || toolCount > 0;
   // Both call modes end up asking the same agent, and the agent reports its
@@ -724,6 +745,21 @@ export function CallOverlay({
           />
           {/* Said out loud on screen when nothing was said out loud in audio. */}
           {notice && <p className="text-sm text-(--warning)">{notice}</p>}
+          {/* A question the agent is waiting on. It used to render only in the
+              chat, which the call covers — so on a call an approval waited out
+              its timeout with nothing on screen and nothing said (Astra's P1,
+              12 Sep). Here it is answerable without leaving the call. */}
+          {ask && (
+            <div className="w-full max-w-md text-left">
+              <AskUserCard
+                key={ask.id}
+                requestId={ask.id}
+                questions={ask.questions}
+                onSubmit={(answers) => useAskUser.getState().submit(answers)}
+                onCancel={() => useAskUser.getState().cancel('answered by hanging up the question')}
+              />
+            </div>
+          )}
         </div>
 
         {phase === 'ready' && (() => {

@@ -680,6 +680,9 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           if (next === 'ready') call.open();
         }}
         onInterrupt={call.interrupt}
+        // Only the LiveKit engine has a channel to speak on demand; the other
+        // two share the shape and pass none.
+        onAskAloud={'askAloud' in call ? (call.askAloud as (text: string) => void) : undefined}
         // Both modes can be typed into now — the pipeline hands the text to its
         // turn loop, the Live session sends it on its own `clientContent`
         // channel. `call` is whichever hook is driving this overlay.

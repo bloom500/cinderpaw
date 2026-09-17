@@ -863,6 +863,17 @@ async function assistant(ctx, makeSession) {
     // loud in its own voice, which is the opposite of what typing into a call
     // means.
     if (msg.type === 'text' && msg.text) session.generateReply({ userInput: String(msg.text) });
+    // A question the agent is waiting on, spoken so a person who is listening
+    // rather than looking knows to answer. `say`, not `generateReply`: the
+    // sentence is already written by the side that asked, and asking the model
+    // to rephrase it would invent options that were never offered.
+    if (msg.type === 'ask' && msg.text) {
+      try {
+        session.say(String(msg.text));
+      } catch {
+        // A session that is closing cannot speak; the card is on screen anyway.
+      }
+    }
   });
 
   await session.start({

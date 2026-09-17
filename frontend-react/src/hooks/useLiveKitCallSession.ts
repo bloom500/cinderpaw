@@ -498,6 +498,20 @@ export function useLiveKitCallSession() {
   }, []);
 
   const interrupt = useCallback(() => command({ type: 'interrupt' }), [command]);
+  /**
+   * Speak a question the agent is waiting on.
+   *
+   * A pending `ask_user` shows a card, and on a call the person is listening
+   * rather than watching: Astra's P1 of 12 Sep was an approval that waited out
+   * its whole timeout in silence. The worker says this verbatim rather than
+   * asking the model to rephrase it, so no option is invented.
+   */
+  const askAloud = useCallback(
+    (text: string) => {
+      if (text.trim()) command({ type: 'ask', text });
+    },
+    [command],
+  );
   const say = useCallback(
     (text: string) => {
       if (text.trim()) command({ type: 'text', text });
@@ -508,7 +522,7 @@ export function useLiveKitCallSession() {
   // `transcribing` exists because the other two engines expose it; here the far
   // end transcribes continuously and never reports a gap, so claiming a moment
   // of it would be invention.
-  return { phase, stage, heard, level, youSpeaking, notice, transcribing: false, open, begin, hangUp, interrupt, say };
+  return { phase, stage, heard, level, youSpeaking, notice, transcribing: false, open, begin, hangUp, interrupt, say, askAloud };
 }
 
 /**

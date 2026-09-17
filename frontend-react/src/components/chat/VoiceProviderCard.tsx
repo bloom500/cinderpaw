@@ -160,7 +160,7 @@ export function VoiceProviderCard({
           <OptionRow
             active={choice === 'openrouter'}
             onClick={() => setChoice('openrouter')}
-            icon={<Cloud size={18} />}
+            icon={<Cloud size={20} />}
             title={t('voice.provider.openrouter.title')}
             desc={t('voice.provider.openrouter.desc')}
           />
