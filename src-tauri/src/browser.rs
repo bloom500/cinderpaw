@@ -93,6 +93,64 @@ fn bounds() -> &'static Mutex<Bounds> {
 /// True between a navigation starting and its page finishing.
 static LOADING: AtomicBool = AtomicBool::new(false);
 
+/// Unpacked Chrome extensions, one folder each. WebView2 loads them for every
+/// tab (Windows only; the other platforms have no extension API in WebView).
+pub fn extensions_dir() -> std::path::PathBuf {
+    cinderpaw_core::paths::cinderpaw_dir().join("browser-extensions")
+}
+
+/// The extensions present: each subfolder with a manifest.json.
+fn extensions_json() -> Value {
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(extensions_dir()) {
+        for e in entries.flatten() {
+            let manifest = e.path().join("manifest.json");
+            let Ok(text) = std::fs::read_to_string(&manifest) else { continue };
+            let m: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            out.push(json!({
+                "folder": e.file_name().to_string_lossy(),
+                "name": m.get("name").and_then(|v| v.as_str()).unwrap_or("extension"),
+                "version": m.get("version").and_then(|v| v.as_str()).unwrap_or(""),
+            }));
+        }
+    }
+    json!({ "ok": true, "path": extensions_dir().to_string_lossy(), "extensions": out })
+}
+
+/// uBlock Origin Lite, from its own GitHub releases, into the extensions
+/// folder. Fetched on the person's press, never bundled: it is GPLv3 and this
+/// app is Apache-2.0, and a download they asked for is not a distribution.
+async fn install_adblock() -> Result<Value, String> {
+    let client = reqwest::Client::builder().user_agent("cinderpaw").build().map_err(|e| e.to_string())?;
+    let release: Value = client
+        .get("https://api.github.com/repos/uBlockOrigin/uBOL-home/releases/latest")
+        .send().await.map_err(|e| format!("could not reach GitHub ({e})"))?
+        .json().await.map_err(|e| e.to_string())?;
+    let asset = release["assets"].as_array().and_then(|a| a.iter().find(|x| {
+        x["name"].as_str().is_some_and(|n| n.ends_with(".chromium.zip"))
+    })).ok_or_else(|| "the uBlock Origin Lite release has no Chromium build".to_string())?;
+    let url = asset["browser_download_url"].as_str().ok_or_else(|| "no download link".to_string())?;
+    let bytes = client.get(url).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+    let dir = extensions_dir().join("ublock-origin-lite");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())).map_err(|e| format!("not a zip: {e}"))?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        // Only paths inside the folder; a zip may carry "../" entries.
+        let Some(rel) = entry.enclosed_name() else { continue };
+        let target = dir.join(rel);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+            continue;
+        }
+        if let Some(parent) = target.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+        let mut out = std::fs::File::create(&target).map_err(|e| e.to_string())?;
+        std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+    }
+    Ok(json!({ "ok": true, "version": release["tag_name"].as_str().unwrap_or("") }))
+}
+
 /// Where downloads land first. Under the profile dir: never a place the
 /// person picked, so nothing arrives on their desktop without them.
 fn downloads_dir() -> std::path::PathBuf {
@@ -235,8 +293,14 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
     };
     LOADING.store(true, Ordering::SeqCst);
     let events = app.clone();
+    let _ = std::fs::create_dir_all(extensions_dir());
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(url))
-        .data_directory(cinderpaw_core::paths::cinderpaw_dir().join("browser-profile"))
+        .data_directory(cinderpaw_core::paths::cinderpaw_dir().join("browser-profile"));
+    // Extensions ride the WebView2 environment, which is created with the first
+    // tab and shared by the rest, so one installed later shows up after a restart.
+    #[cfg(windows)]
+    let builder = builder.browser_extensions_enabled(true).extensions_path(extensions_dir());
+    let builder = builder
         .on_navigation(|url| allowed(url))
         .on_download(|wv, event| {
             match event {
@@ -519,6 +583,8 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             Ok(json!({ "ok": true }))
         }
         "tabs" | "state" => Ok(tabs_json()),
+        "extensions" => Ok(extensions_json()),
+        "install_adblock" => install_adblock().await,
         "new_tab" => {
             // Empty: the panel shows its new-tab page over a parked, blank webview.
             new_tab(&app, Url::parse(HOME).map_err(|e| e.to_string())?)?;

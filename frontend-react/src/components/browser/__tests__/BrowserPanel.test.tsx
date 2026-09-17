@@ -18,6 +18,7 @@ vi.mock('@/lib/tauri', async (orig) => {
 });
 
 import { BrowserPanel } from '../BrowserPanel';
+import { toAddress } from '@/stores/browser';
 import { useBrowser } from '@/stores/browser';
 import { tauri } from '@/lib/tauri';
 
@@ -35,7 +36,7 @@ describe('the browser panel', () => {
     render(<BrowserPanel />);
     fireEvent.change(screen.getByLabelText('Address'), { target: { value: 'rar.ro' } });
     fireEvent.submit(screen.getByLabelText('Address').closest('form')!);
-    await waitFor(() => expect(ui).toHaveBeenCalledWith('open', { url: 'rar.ro' }));
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('open', { url: 'https://rar.ro' }));
     await waitFor(() => expect(useBrowser.getState().url).toBe('https://example.ro/'));
   });
 
@@ -91,7 +92,7 @@ describe('the new tab page and the edge', () => {
     render(<BrowserPanel />);
     fireEvent.change(screen.getByLabelText('Search the web'), { target: { value: 'formular rev 3' } });
     fireEvent.submit(screen.getByLabelText('Search the web').closest('form')!);
-    await waitFor(() => expect(ui).toHaveBeenCalledWith('open', { url: 'formular rev 3' }));
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('open', { url: 'https://duckduckgo.com/?q=formular%20rev%203' }));
   });
 
   it('resizes with the keyboard and never squeezes the chat', () => {
@@ -117,5 +118,14 @@ describe('wide mode', () => {
     expect(screen.getByText('the conversation')).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Back to split view'));
     expect(useBrowser.getState().wide).toBe(false);
+  });
+});
+
+describe('toAddress', () => {
+  it('keeps a URL, completes a domain, and searches words with the chosen engine', () => {
+    expect(toAddress('https://a.b/c', 'duckduckgo')).toBe('https://a.b/c');
+    expect(toAddress('wikipedia.org', 'duckduckgo')).toBe('https://wikipedia.org');
+    expect(toAddress('formular rev 3', 'brave')).toBe('https://search.brave.com/search?q=formular%20rev%203');
+    expect(toAddress('cum fac o cerere', 'nope')).toBe('https://duckduckgo.com/?q=cum%20fac%20o%20cerere');
   });
 });

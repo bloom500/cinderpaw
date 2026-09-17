@@ -1,9 +1,10 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Globe, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Globe, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
+import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
-import { useBrowser } from '@/stores/browser';
+import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
@@ -50,8 +51,9 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
 export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   const {
     url, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab,
-    wide, setWide, chatOpen, setChatOpen,
+    wide, setWide, chatOpen, setChatOpen, engine, setEngine,
   } = useBrowser();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const current = tabs.find((t) => t.id === active);
   const [address, setAddress] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -243,6 +245,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           onChange={(e) => setAddress(e.target.value)}
           className="h-8 min-w-0 flex-1 rounded-full border border-border-default bg-bg-elevated px-3 text-xs text-text-primary outline-hidden focus:border-brand"
         />
+        <ChromeButton label="Browser settings" icon={Settings2} onClick={() => setSettingsOpen((v) => !v)} />
         <ChromeButton
           label={wide ? 'Back to split view' : 'Fill the window'}
           icon={wide ? Minimize2 : Maximize2}
@@ -267,6 +270,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         )}
         <ChromeButton label="Close browser" icon={X} onClick={close} />
       </form>
+      {settingsOpen && <BrowserSettings engine={engine} onEngine={setEngine} />}
       {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
       {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
       <div className="flex min-h-0 flex-1">
@@ -319,6 +323,78 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       )}
       </div>
     </motion.aside>
+  );
+}
+
+/**
+ * The browser's own settings: which engine answers the bar, and the ad
+ * blocker. The blocker is uBlock Origin Lite, fetched from its GitHub release
+ * on the person's press (GPLv3; not bundled with an Apache-2.0 app) into the
+ * extensions folder WebView2 loads. Extensions are Windows only, and a new one
+ * is picked up when Cinderpaw next starts, because the browser environment is
+ * created once with the first tab.
+ */
+function BrowserSettings({ engine, onEngine }: { engine: string; onEngine: (e: string) => void }) {
+  const [ext, setExt] = useState<{ path: string; extensions: Array<{ name: string; version: string }> } | null>(null);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const refresh = () => {
+    void tauri.browser.ui('extensions').then((r) => setExt(r as never)).catch(() => setExt(null));
+  };
+  useEffect(refresh, []);
+  const hasBlocker = ext?.extensions.some((e) => /ublock/i.test(e.name)) ?? false;
+  const isWindows = navigator.userAgent.includes('Windows');
+
+  return (
+    <div className="flex flex-col gap-3 border-b border-border-subtle bg-bg-elevated/40 px-3 py-3 text-xs">
+      <label className="flex items-center gap-2">
+        <span className="w-28 shrink-0 text-text-muted">Search with</span>
+        <select
+          aria-label="Search engine"
+          value={engine}
+          onChange={(e) => onEngine(e.target.value)}
+          className="rounded-md border border-border-default bg-bg-surface px-2 py-1 text-xs text-text-primary"
+        >
+          {Object.entries(SEARCH_ENGINES).map(([id, e]) => <option key={id} value={id}>{e.label}</option>)}
+        </select>
+      </label>
+      <div className="flex items-center gap-2">
+        <span className="w-28 shrink-0 text-text-muted">Ad blocker</span>
+        {!isWindows ? (
+          <span className="text-text-muted">Browser extensions are not available on this system yet.</span>
+        ) : hasBlocker ? (
+          <span className="flex items-center gap-1 text-text-secondary"><ShieldCheck size={14} /> uBlock Origin Lite installed</span>
+        ) : (
+          <button
+            type="button"
+            disabled={installing === 'busy'}
+            onClick={() => {
+              setInstalling('busy');
+              tauri.browser.ui('install_adblock')
+                .then(() => { setInstalling('Installed. It starts blocking when Cinderpaw next opens.'); refresh(); })
+                .catch((e) => setInstalling(`Could not install: ${String(e)}`));
+            }}
+            className="rounded-md border border-border-default px-2 py-1 text-xs text-text-primary hover:bg-bg-hover disabled:opacity-60"
+          >
+            {installing === 'busy' ? 'Downloading…' : 'Install uBlock Origin Lite'}
+          </button>
+        )}
+      </div>
+      {installing && installing !== 'busy' && <p className="text-2xs text-text-muted">{installing}</p>}
+      {ext && ext.extensions.length > 0 && (
+        <p className="text-2xs text-text-muted">
+          {`Extensions: ${ext.extensions.map((e) => `${e.name} ${e.version}`).join(', ')}.`}
+        </p>
+      )}
+      {ext && isWindows && (
+        <button
+          type="button"
+          onClick={() => void shellOpen(ext.path)}
+          className="self-start text-2xs text-text-muted underline-offset-2 hover:underline"
+        >
+          Open the extensions folder (drop an unpacked Chrome extension there)
+        </button>
+      )}
+    </div>
   );
 }
 

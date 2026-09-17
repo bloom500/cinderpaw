@@ -23,6 +23,24 @@ export interface BrowserTab {
 /** The start page: the host parks the tab's page and the panel shows its own. */
 export const HOME = 'about:blank';
 
+/** Where words typed into the bar go. DuckDuckGo by default: no account, no profile. */
+export const SEARCH_ENGINES: Record<string, { label: string; url: string }> = {
+  duckduckgo: { label: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
+  brave: { label: 'Brave Search', url: 'https://search.brave.com/search?q=' },
+  startpage: { label: 'Startpage', url: 'https://www.startpage.com/do/search?q=' },
+  google: { label: 'Google', url: 'https://www.google.com/search?q=' },
+  bing: { label: 'Bing', url: 'https://www.bing.com/search?q=' },
+};
+const ENGINE_KEY = 'cinderpaw.browserSearchEngine';
+
+/** An address as typed: a URL, a bare domain, or words for the search engine. */
+export function toAddress(text: string, engine: string): string {
+  const t = text.trim();
+  if (/^[a-z][a-z0-9+.-]*:/i.test(t)) return t;
+  if (/^[^\s]+\.[^\s]+$/.test(t) || /^localhost(:\d+)?(\/|$)/.test(t)) return `https://${t.replace(/^https?:\/\//, '')}`;
+  return `${(SEARCH_ENGINES[engine] ?? SEARCH_ENGINES.duckduckgo!).url}${encodeURIComponent(t)}`;
+}
+
 interface BrowserStore {
   panelOpen: boolean;
   /** The browser takes the whole canvas up to the sidebar; the chat folds into a bubble. */
@@ -31,6 +49,8 @@ interface BrowserStore {
   chatOpen: boolean;
   setWide: (wide: boolean) => void;
   setChatOpen: (open: boolean) => void;
+  engine: string;
+  setEngine: (engine: string) => void;
   tabs: BrowserTab[];
   active: number | null;
   /** The active tab's address, '' on the start page. */
@@ -57,12 +77,17 @@ function fromState(st: { active: number | null; tabs: BrowserTab[] }) {
   };
 }
 
-export const useBrowser = create<BrowserStore>((set) => ({
+export const useBrowser = create<BrowserStore>((set, get) => ({
   panelOpen: false,
   wide: false,
   chatOpen: false,
   setWide: (wide) => set({ wide }),
   setChatOpen: (chatOpen) => set({ chatOpen }),
+  engine: (() => { try { return localStorage.getItem(ENGINE_KEY) ?? 'duckduckgo'; } catch { return 'duckduckgo'; } })(),
+  setEngine: (engine) => {
+    try { localStorage.setItem(ENGINE_KEY, engine); } catch { /* per-viewer convenience only */ }
+    set({ engine });
+  },
   tabs: [],
   active: null,
   url: '',
@@ -77,7 +102,7 @@ export const useBrowser = create<BrowserStore>((set) => ({
     if (!text) return;
     set({ error: null, loading: true, panelOpen: true });
     try {
-      const res = await tauri.browser.ui('open', { url: text });
+      const res = await tauri.browser.ui('open', { url: toAddress(text, get().engine) });
       const url = typeof res.url === 'string' ? res.url : text;
       set({ url: url === HOME ? '' : url, loading: res.loading === true });
     } catch (e) {
