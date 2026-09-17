@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Download, FileBox, Loader2, MessageSquare, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, Download, FileBox, Loader2, MessageSquare, Pencil, Trash2, X } from 'lucide-react';
 import {
   ArtifactAction,
   ArtifactActions,
@@ -13,6 +13,19 @@ import { Markdown } from '@/lib/markdown';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
+// The editor is ~400 KB (128 KB gzipped) of ProseMirror that most sessions never open. Loaded on
+// the first Edit or What changed, not with the app.
+const DocumentEditor = lazy(() => import('./ArtifactEditor').then((m) => ({ default: m.DocumentEditor })));
+const SourceEditor = lazy(() => import('./ArtifactEditor').then((m) => ({ default: m.SourceEditor })));
+const ChangesView = lazy(() => import('./ArtifactEditor').then((m) => ({ default: m.ChangesView })));
+
+function Loading() {
+  return (
+    <div className="flex flex-1 items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-text-muted" />
+    </div>
+  );
+}
 import { useArtifacts, type ArtifactRow } from '@/stores/artifacts';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
 
@@ -56,7 +69,10 @@ export function ArtifactsPanel({
 }) {
   const {
     rows, loaded, open, busy, error, lastExport, refresh, close, exportArtifact, deleteArtifact,
+    editing, startEdit, cancelEdit, save,
   } = useArtifacts();
+  // Only the newest version is editable; an older one is restored instead.
+  const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version;
 
   // The list is also kept current by `artifact` events, which arrive from every
   // surface. This is only the first read, for the case where the panel is
@@ -130,9 +146,9 @@ export function ArtifactsPanel({
           screen. Without it the panel's close button sat almost on the window's. */}
       <ArtifactHeader className="px-3 pb-2.5 pt-6">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          {open ? (
+          {open && !editing ? (
             <ArtifactAction tooltip="Back to the list" icon={ArrowLeft} onClick={close} />
-          ) : (
+          ) : open ? null : (
             <FileBox className="size-4 shrink-0 text-warning" />
           )}
           <div className="min-w-0 flex-1">
@@ -149,16 +165,28 @@ export function ArtifactsPanel({
           </div>
         </div>
         <ArtifactActions>
-          {open && onAsk && (
+          {/* While editing, the header offers only the two ways out of it.
+              Back, Export and Delete would each act on the saved version and
+              leave the typing behind without saying so. */}
+          {editing && (
+            <ArtifactAction tooltip="Discard changes" icon={X} disabled={busy} onClick={cancelEdit} />
+          )}
+          {editing && (
+            <ArtifactAction tooltip="Save" icon={Check} disabled={busy} onClick={() => void save()} />
+          )}
+          {open && !editing && canEdit && (
+            <ArtifactAction tooltip="Edit" icon={Pencil} disabled={busy} onClick={startEdit} />
+          )}
+          {open && !editing && onAsk && (
             <ArtifactAction tooltip="Ask Cinderpaw" icon={MessageSquare} onClick={() => onAsk(open.row)} />
           )}
-          {open && (
+          {open && !editing && (
             <ArtifactAction
               tooltip="Export" icon={Download} disabled={busy}
               onClick={() => void exportArtifact(open.row.id)}
             />
           )}
-          {open && (
+          {open && !editing && (
             <ArtifactAction
               tooltip="Delete" icon={Trash2} disabled={busy}
               onClick={() => void deleteArtifact(open.row.id)}
@@ -248,17 +276,77 @@ function List({
   );
 }
 
+/** Text the person can change. A pdf, an image or an uploaded file is not. */
+const EDITABLE_KINDS = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html']);
+
 function Viewer() {
-  const { open, lastExport, showVersion } = useArtifacts();
+  const {
+    open, lastExport, showVersion, editing, setDraft, conflict, save, cancelEdit, busy,
+    review, showChanges, hideChanges, restore,
+  } = useArtifacts();
   if (!open) return null;
   const { row, content, showing, versions } = open;
+
+  if (editing) {
+    return (
+      <>
+        {conflict !== null && (
+          // The one moment two editors meet. Nothing is decided for the person:
+          // their text stays in the editor until they pick.
+          <div className="flex flex-col gap-1.5 border-b border-border-subtle bg-bg-elevated/40 px-3 py-2">
+            <p className="text-2xs text-text-primary">
+              {`Cinderpaw saved v${conflict} while you were editing v${editing.base}.`}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button" disabled={busy} onClick={cancelEdit}
+                className="rounded-md px-2 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary disabled:opacity-60"
+              >
+                {`Discard mine, show v${conflict}`}
+              </button>
+              <button
+                type="button" disabled={busy} onClick={() => void save(true)}
+                className="rounded-md border border-border-default px-2 py-1 text-2xs text-text-primary hover:bg-bg-hover disabled:opacity-60"
+              >
+                Save mine as newest
+              </button>
+            </div>
+          </div>
+        )}
+        <Suspense fallback={<Loading />}>
+          {row.kind === 'document' ? (
+            <DocumentEditor value={editing.draft} onChange={setDraft} />
+          ) : (
+            <SourceEditor value={editing.draft} onChange={setDraft} />
+          )}
+        </Suspense>
+      </>
+    );
+  }
+
+  if (review && showing === row.version) {
+    return (
+      <Suspense fallback={<Loading />}>
+      <ChangesView
+        kind={row.kind}
+        before={review.before}
+        after={content}
+        beforeVersion={review.beforeVersion}
+        afterVersion={showing}
+        busy={busy}
+        onClose={hideChanges}
+        onUndo={() => void restore(review.beforeVersion)}
+      />
+      </Suspense>
+    );
+  }
 
   return (
     <>
       {/* Ask, Export and Delete moved up into the header's actions. What stays
           here is the version picker, and only when there is a choice to make. */}
       {versions.length > 1 && (
-        <div className="flex items-center border-b border-border-subtle px-3 py-2">
+        <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
           <SelectMenu
             ariaLabel="Version"
             value={String(showing)}
@@ -272,6 +360,27 @@ function Viewer() {
             onChange={(v) => void showVersion(Number(v))}
             className="h-7 text-2xs"
           />
+          {showing === row.version && showing > 1 && (
+            <button
+              type="button"
+              onClick={() => void showChanges()}
+              className="ml-auto rounded-md px-2 py-1 text-2xs text-text-muted hover:bg-bg-hover hover:text-text-primary"
+            >
+              What changed
+            </button>
+          )}
+          {showing !== row.version && (
+            // Restoring is a new version, never a rewind, so this cannot lose
+            // anything: the version it replaces stays in the list.
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void restore(showing)}
+              className="ml-auto rounded-md border border-border-default px-2 py-1 text-2xs text-text-primary hover:bg-bg-hover disabled:opacity-60"
+            >
+              {`Make v${showing} current`}
+            </button>
+          )}
         </div>
       )}
 

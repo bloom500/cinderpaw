@@ -239,3 +239,130 @@ describe('handing the work over', () => {
     expect(op.mock.calls.every((c) => c[1] === 'list')).toBe(true);
   });
 });
+
+/**
+ * A person's edit and an agent's edit, in one history.
+ *
+ * What these pin is the part nobody notices by clicking once: that a save
+ * carries the version it was typed on, that an agent edit landing mid-typing
+ * neither wipes the typing nor gets buried by it, and that going back is a new
+ * version and never a rewind.
+ */
+describe('editing by hand', () => {
+  const versions = [
+    { version: 2, author: 'telegram:7:7', note: null, createdAt: 2 },
+    { version: 1, author: 'user', note: null, createdAt: 1 },
+  ];
+  beforeEach(() => {
+    useArtifacts.setState({
+      loaded: true, editing: null, conflict: null, review: null,
+      open: { row: row({ kind: 'markdown', version: 2 }), content: '# Q3', showing: 2, versions },
+    });
+  });
+
+  it('saves the text as a new version, on the version it was typed on', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.change(await screen.findByLabelText('Content'), { target: { value: '# Q3, revised' } });
+    op.mockClear();
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(op.mock.calls[0]![1]).toBe('write');
+    expect(op.mock.calls[0]![2]).toEqual({ artifactId: 'a1', content: '# Q3, revised', version: 2 });
+
+    act(() => {
+      useArtifacts.getState().onResult({
+        id: idOfAction('write'), ok: true, content: '# Q3, revised',
+        items: [row({ kind: 'markdown', version: 3, modifiedBy: 'user' })],
+      });
+    });
+    expect(useArtifacts.getState().editing).toBeNull();
+    expect(useArtifacts.getState().open?.showing).toBe(3);
+  });
+
+  it('a refused save keeps the typing and asks, and "mine" saves without the check', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.change(await screen.findByLabelText('Content'), { target: { value: 'my words' } });
+    op.mockClear();
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    act(() => {
+      useArtifacts.getState().onResult({ id: idOfAction('write'), ok: false, conflict: 3, error: 'stale' });
+    });
+
+    expect(await screen.findByText('Cinderpaw saved v3 while you were editing v2.')).toBeInTheDocument();
+    expect((screen.getByLabelText('Content') as HTMLTextAreaElement).value).toBe('my words');
+
+    op.mockClear();
+    fireEvent.click(screen.getByText('Save mine as newest'));
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(op.mock.calls[0]![2]).toEqual({ artifactId: 'a1', content: 'my words' });
+  });
+
+  it('an agent edit mid-typing is announced, not loaded over the typing', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.change(await screen.findByLabelText('Content'), { target: { value: 'half a thought' } });
+    op.mockClear();
+    act(() => useArtifacts.getState().onEvent({ id: 'a1', action: 'updated', version: 3 }));
+
+    expect(await screen.findByText('Cinderpaw saved v3 while you were editing v2.')).toBeInTheDocument();
+    expect((screen.getByLabelText('Content') as HTMLTextAreaElement).value).toBe('half a thought');
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(op.mock.calls.some((c) => c[1] === 'get')).toBe(false);
+  });
+
+  it('an older version is made current as a new version, not edited in place', async () => {
+    useArtifacts.setState({
+      open: { row: row({ kind: 'markdown', version: 2 }), content: 'v1 text', showing: 1, versions },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    expect(screen.queryByText('Edit')).toBeNull();
+    op.mockClear();
+    fireEvent.click(screen.getByText('Make v1 current'));
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(op.mock.calls[0]![1]).toBe('restore');
+    expect(op.mock.calls[0]![2]).toEqual({ artifactId: 'a1', version: 1 });
+  });
+
+  it('shows what the agent changed, and can put the previous version back', async () => {
+    useArtifacts.setState({
+      open: { row: row({ kind: 'markdown', version: 2 }), content: 'intro\nnew line', showing: 2, versions },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    op.mockClear();
+    fireEvent.click(screen.getByText('What changed'));
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(op.mock.calls[0]![2]).toEqual({ artifactId: 'a1', version: 1 });
+    act(() => {
+      useArtifacts.getState().onResult({ id: op.mock.calls[0]![0] as string, ok: true, content: 'intro\nold line' });
+    });
+
+    expect(await screen.findByText('new line')).toBeInTheDocument();
+    expect(screen.getByText('old line')).toBeInTheDocument();
+    op.mockClear();
+    fireEvent.click(screen.getByText('Put v1 back'));
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(op.mock.calls[0]![1]).toBe('restore');
+    expect(op.mock.calls[0]![2]).toEqual({ artifactId: 'a1', version: 1 });
+  });
+
+  it('a document is edited as prose, and what the editor keeps has no script in it', async () => {
+    useArtifacts.setState({
+      open: {
+        row: row({ kind: 'document', version: 2 }),
+        content: '<h2>Plan</h2><p>Ship it</p><script>window.pwned = true</script><img src=x onerror="window.pwned = true">',
+        showing: 2,
+        versions,
+      },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByText('Edit'));
+    const doc = await screen.findByLabelText('Document');
+    expect(doc.textContent).toContain('Ship it');
+    expect(doc.querySelector('script, img, iframe')).toBeNull();
+    expect((window as unknown as { pwned?: boolean }).pwned).toBeUndefined();
+    expect(screen.getByRole('toolbar', { name: 'Formatting' })).toBeInTheDocument();
+  });
+});

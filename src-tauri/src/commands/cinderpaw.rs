@@ -445,6 +445,9 @@ pub(crate) async fn cinderpaw_artifact_op(
     artifact_id: Option<String>,
     version: Option<i64>,
     dest: Option<String>,
+    // `write` only: the person's edited text. Rides the plain `content` field
+    // the sidecar's inbound message already has.
+    content: Option<String>,
 ) -> Result<(), String> {
     let msg = serde_json::json!({
         "type": "artifact_op",
@@ -453,6 +456,7 @@ pub(crate) async fn cinderpaw_artifact_op(
         "artifactId": artifact_id,
         "artifactVersion": version,
         "dest": dest,
+        "content": content,
     })
     .to_string();
     let tx = {

@@ -167,3 +167,43 @@ describe("safeFileName", () => {
     expect(safeFileName("...")).toBe("artifact");
   });
 });
+
+/**
+ * A person's save lands in the same chain as the agent's edits, and never on
+ * top of one they have not seen.
+ *
+ * The case this exists for: the person opens v2 and types for ten minutes;
+ * meanwhile Cinderpaw, asked from Telegram, saves v3. A plain write would make
+ * v4 out of the person's text and silently undo v3. The history would still
+ * hold it, but nobody would know to look.
+ */
+describe("writeOnto", () => {
+  test("a save on the current version is the next version, by the user", () => {
+    const s = store();
+    const a = make(s, "one");
+    const res = s.writeOnto(a.id, "two", "user", 1);
+    expect(res).toMatchObject({ ok: true });
+    expect(s.get(a.id)?.version).toBe(2);
+    expect(s.versions(a.id).find((v) => v.version === 2)?.author).toBe("user");
+    expect(s.read(a.id)).toBe("two");
+  });
+
+  test("a save on a version the agent has since moved past is refused, and nothing is written", () => {
+    const s = store();
+    const a = make(s, "one");
+    s.write(a.id, "agent edit", "telegram:7:7");
+    const res = s.writeOnto(a.id, "person edit", "user", 1);
+    expect(res).toEqual({ ok: false, current: 2 });
+    expect(s.read(a.id)).toBe("agent edit");
+    expect(s.get(a.id)?.version).toBe(2);
+  });
+
+  test("with no base version it writes regardless: the person chose to replace it", () => {
+    const s = store();
+    const a = make(s, "one");
+    s.write(a.id, "agent edit", "telegram:7:7");
+    expect(s.writeOnto(a.id, "person edit", "user")).toMatchObject({ ok: true });
+    expect(s.read(a.id)).toBe("person edit");
+    expect(s.readVersion(a.id, 2)).toBe("agent edit");
+  });
+});

@@ -47,7 +47,22 @@ type Pending =
   | { kind: 'open'; id: string; version?: number }
   | { kind: 'versions'; id: string }
   | { kind: 'export'; id: string }
-  | { kind: 'delete'; id: string };
+  | { kind: 'delete'; id: string }
+  | { kind: 'save'; id: string }
+  | { kind: 'restore'; id: string }
+  | { kind: 'compare'; id: string; version: number };
+
+export type ArtifactAction = 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore';
+
+/**
+ * The person's edit in progress. `base` is the version they started from, kept
+ * apart from `open.row.version` on purpose: the row moves when the agent saves,
+ * and a save checked against the moved row would pass and bury the agent's edit.
+ */
+export interface EditSession {
+  draft: string;
+  base: number;
+}
 
 interface ArtifactsStore {
   /** Whether the panel is showing. Here rather than in the UI store because
@@ -66,6 +81,16 @@ interface ArtifactsStore {
   error: string | null;
   /** Set after an export, so the panel can say where the file went. */
   lastExport: { path: string; note: string } | null;
+  /** Non-null while the person is editing the open artifact. */
+  editing: EditSession | null;
+  /**
+   * A version newer than the one being edited, once we know one exists: from a
+   * refused save, or from an agent edit that landed mid-typing. The panel asks
+   * what to do; nothing is overwritten and no typing is thrown away until then.
+   */
+  conflict: number | null;
+  /** The version before the one shown, loaded to show what changed. */
+  review: { before: string; beforeVersion: number } | null;
 
   togglePanel: () => void;
   refresh: () => Promise<void>;
@@ -73,16 +98,29 @@ interface ArtifactsStore {
   showVersion: (version: number) => Promise<void>;
   exportArtifact: (id: string) => Promise<void>;
   deleteArtifact: (id: string) => Promise<void>;
+  startEdit: () => void;
+  setDraft: (draft: string) => void;
+  cancelEdit: () => void;
+  /** `replace` answers the conflict question with "mine": save without the base check. */
+  save: (replace?: boolean) => Promise<void>;
+  /** Make an older version current again, as a new version. */
+  restore: (version: number) => Promise<void>;
+  /** Load the version before the one shown, to see what changed. */
+  showChanges: () => Promise<void>;
+  hideChanges: () => void;
   close: () => void;
   /** Called by the event stream. */
   /**
    * Called by the event stream. `onScreen` is true when the change came from
    * the conversation currently on screen (the event's session is the chat's).
    */
-  onEvent: (e: { id: string; action: 'created' | 'updated' | 'deleted'; onScreen?: boolean }) => void;
+  onEvent: (e: {
+    id: string; action: 'created' | 'updated' | 'deleted'; onScreen?: boolean; version?: number;
+  }) => void;
   onResult: (e: {
     id: string; ok: boolean; items?: ArtifactRow[]; content?: string;
     versions?: ArtifactVersionRow[]; path?: string; note?: string; error?: string;
+    conflict?: number;
   }) => void;
 }
 
@@ -92,8 +130,8 @@ const nextId = () => `artifact-${Date.now()}-${++seq}`;
 
 async function send(
   p: Pending,
-  action: 'list' | 'get' | 'versions' | 'export' | 'delete',
-  opts: { artifactId?: string; version?: number } = {},
+  action: ArtifactAction,
+  opts: { artifactId?: string; version?: number; content?: string } = {},
 ): Promise<void> {
   const id = nextId();
   pending.set(id, p);
@@ -115,6 +153,9 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   busy: false,
   error: null,
   lastExport: null,
+  editing: null,
+  conflict: null,
+  review: null,
 
   togglePanel: () => set((st) => ({ panelOpen: !st.panelOpen })),
 
@@ -171,7 +212,68 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
   },
 
-  close: () => set({ open: null, lastExport: null, error: null }),
+  startEdit: () => {
+    const open = get().open;
+    // Only the newest version is editable. Editing v2 while v4 is current would
+    // make v5 out of v2 and quietly undo two edits; restoring v2 is the honest
+    // way to ask for that, and it is one button away.
+    if (!open || open.showing !== open.row.version) return;
+    set({ editing: { draft: open.content, base: open.row.version }, conflict: null, review: null });
+  },
+
+  setDraft: (draft) => {
+    const editing = get().editing;
+    if (editing) set({ editing: { ...editing, draft } });
+  },
+
+  cancelEdit: () => {
+    const { open, conflict } = get();
+    set({ editing: null, conflict: null });
+    // Discarding in the middle of a conflict means "show me theirs", which the
+    // viewer does not have yet.
+    if (open && conflict !== null) void get().openArtifact(open.row.id);
+  },
+
+  save: async (replace = false) => {
+    const { open, editing } = get();
+    if (!open || !editing) return;
+    set({ busy: true, error: null });
+    try {
+      await send({ kind: 'save', id: open.row.id }, 'write', {
+        artifactId: open.row.id,
+        content: editing.draft,
+        ...(replace ? {} : { version: editing.base }),
+      });
+    } catch (e) {
+      set({ busy: false, error: String(e) });
+    }
+  },
+
+  restore: async (version) => {
+    const open = get().open;
+    if (!open) return;
+    set({ busy: true, error: null, review: null });
+    try {
+      await send({ kind: 'restore', id: open.row.id }, 'restore', { artifactId: open.row.id, version });
+    } catch (e) {
+      set({ busy: false, error: String(e) });
+    }
+  },
+
+  showChanges: async () => {
+    const open = get().open;
+    if (!open || open.showing < 2) return;
+    const version = open.showing - 1;
+    try {
+      await send({ kind: 'compare', id: open.row.id, version }, 'get', { artifactId: open.row.id, version });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  hideChanges: () => set({ review: null }),
+
+  close: () => set({ open: null, lastExport: null, error: null, editing: null, conflict: null, review: null }),
 
   onEvent: (e) => {
     // Deliberately a refresh rather than a local patch. The event carries
@@ -185,14 +287,21 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // must not pull the panel open over what you are doing here.
     if (e.onScreen && e.action !== 'deleted') {
       set({ panelOpen: true });
-      if (get().open?.row.id !== e.id) {
+      // Never swap the artifact out from under someone typing in another one.
+      if (get().open?.row.id !== e.id && !get().editing) {
         void get().openArtifact(e.id);
         return;
       }
     }
     const open = get().open;
     if (open?.row.id !== e.id) return;
-    if (e.action === 'deleted') set({ open: null });
+    if (e.action === 'deleted') set({ open: null, editing: null, conflict: null, review: null });
+    // Mid-edit, reloading would replace what the person is typing. Say that a
+    // newer version exists instead, and let them choose when they are ready.
+    if (e.action === 'updated' && get().editing) {
+      set({ conflict: e.version ?? open.row.version + 1 });
+      return;
+    }
     // An edit to the artifact on screen jumps the viewer to the newest version,
     // even from an older one: the person is watching the agent work on it, and
     // an edit that lands only in the version picker looks like no edit at all.
@@ -209,6 +318,12 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     pending.delete(e.id);
 
     if (!e.ok) {
+      // A refused save is a question for the person, not an error: the panel
+      // shows it with its two answers, and the draft stays exactly as typed.
+      if (p.kind === 'save' && typeof e.conflict === 'number') {
+        set({ busy: false, conflict: e.conflict });
+        return;
+      }
       set({ busy: false, loaded: true, error: e.error ?? 'Something went wrong.' });
       return;
     }
@@ -254,6 +369,35 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
         set({ busy: false, error: null });
         void get().refresh();
         return;
+      case 'save':
+      case 'restore': {
+        // Both answer with the new current version, so the viewer shows what was
+        // just written without a second round trip; the history is re-read so
+        // the picker has the new entry, labelled "you".
+        const row = e.items?.[0];
+        const prev = get().open;
+        if (!row || typeof e.content !== 'string' || prev?.row.id !== row.id) {
+          set({ busy: false });
+          return;
+        }
+        set({
+          busy: false,
+          error: null,
+          editing: null,
+          conflict: null,
+          review: null,
+          open: { row, content: e.content, showing: row.version, versions: prev.versions },
+        });
+        void send({ kind: 'versions', id: row.id }, 'versions', { artifactId: row.id }).catch(() => {});
+        return;
+      }
+      case 'compare': {
+        const open = get().open;
+        if (open?.row.id === p.id && typeof e.content === 'string') {
+          set({ review: { before: e.content, beforeVersion: p.version } });
+        }
+        return;
+      }
     }
   },
 }));

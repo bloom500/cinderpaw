@@ -635,6 +635,7 @@ export function useCinderpawGlobal() {
           useArtifacts.getState().onEvent({
             id: parsed.id,
             action: parsed.action,
+            version: parsed.version,
             onScreen: typeof parsed.sessionId === 'string' && parsed.sessionId === useChat.getState().sessionId,
           });
         } else if (parsed.type === 'artifact_result') {

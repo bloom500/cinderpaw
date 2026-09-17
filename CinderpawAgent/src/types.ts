@@ -1360,8 +1360,11 @@ export interface InboundMessage {
    *    versions  → the version history of `artifactId`
    *    export    → write a real file; `dest` optional
    *    delete    → hide it (soft; the bytes stay)
+   *    write     → the person's edit, as a new version; `content` is the text and
+   *                `artifactVersion` the version they edited (refused if stale)
+   *    restore   → make `artifactVersion` current again, as a new version
    */
-  artifactAction?: "list" | "get" | "versions" | "export" | "delete";
+  artifactAction?: "list" | "get" | "versions" | "export" | "delete" | "write" | "restore";
   artifactId?: string;
   artifactVersion?: number;
   dest?: string;
@@ -1746,6 +1749,8 @@ export type OutboundEvent =
       path?: string;
       note?: string;
       error?: string;
+      /** `write` refused: the version that is current now, newer than the one edited. */
+      conflict?: number;
     }
   | { type: "cron_fired"; jobId: string; jobName: string; sessionId: string; content: string; traceId?: string }
   // X3: surfaced when a scheduled job throws or times out — previously cron

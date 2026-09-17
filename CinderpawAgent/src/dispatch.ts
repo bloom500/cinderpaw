@@ -663,6 +663,40 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               type: "artifact_result", id: replyId, ok: true,
               items: [toPanelRow(row)], path: res.path, note: res.note.trim(),
             });
+          } else if (action === "write") {
+            if (typeof msg.content !== "string") {
+              fail("Nothing to save.");
+              break;
+            }
+            // "user", like delete: the history has to say a person made this
+            // version, which is what lets one document hold both kinds of edit.
+            const res = artifacts.writeOnto(wanted, msg.content, "user", msg.artifactVersion, "edited in the app");
+            if (!res) {
+              fail(`No artifact with id ${wanted}.`);
+            } else if (!res.ok) {
+              transport.send({
+                type: "artifact_result", id: replyId, ok: false, conflict: res.current,
+                error:
+                  `Cinderpaw saved v${res.current} while you were editing. Your text is still ` +
+                  "in the editor: replace that version with it, or discard your changes to see it.",
+              });
+            } else {
+              transport.send({
+                type: "artifact_result", id: replyId, ok: true,
+                content: msg.content, items: [toPanelRow(res.artifact)],
+              });
+            }
+          } else if (action === "restore") {
+            const v = msg.artifactVersion;
+            const restored = typeof v === "number" ? artifacts.rollback(wanted, v, "user") : null;
+            if (!restored) {
+              fail(`Artifact ${wanted} has no version ${String(v)}.`);
+              break;
+            }
+            transport.send({
+              type: "artifact_result", id: replyId, ok: true,
+              content: artifacts.read(wanted) ?? "", items: [toPanelRow(restored)],
+            });
           } else if (action === "delete") {
             // "user", not a session id: the person clicked it, and the version
             // history should say so rather than blaming whichever chat was open.

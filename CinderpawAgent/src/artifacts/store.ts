@@ -408,6 +408,32 @@ export class ArtifactStore {
    * nobody could audit, and rolling back a rollback would have nothing to
    * return to.
    */
+  /**
+   * `write`, but only onto the version the writer was looking at.
+   *
+   * For a person's save from the panel. They may have been typing for ten
+   * minutes while the agent, asked from somewhere else, saved a newer version;
+   * a plain write would bury that edit under theirs with nobody the wiser. So a
+   * stale base is refused with the version that is current now, and the panel
+   * asks. Without `baseVersion` it writes anyway, which is the answer "replace
+   * it" to that question.
+   */
+  writeOnto(
+    id: string,
+    content: string,
+    author: string,
+    baseVersion?: number,
+    note?: string,
+  ): { ok: true; artifact: Artifact } | { ok: false; current: number } | null {
+    const current = this.get(id);
+    if (!current) return null;
+    if (baseVersion !== undefined && baseVersion !== current.version) {
+      return { ok: false, current: current.version };
+    }
+    const artifact = this.write(id, content, author, note);
+    return artifact ? { ok: true, artifact } : null;
+  }
+
   rollback(id: string, toVersion: number, author: string): Artifact | null {
     const content = this.readVersion(id, toVersion);
     if (content === null) return null;
