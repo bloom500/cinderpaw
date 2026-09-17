@@ -14,6 +14,7 @@ import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useNotifications } from '@/stores/notifications';
 import { useT } from '@/lib/i18n';
 import { modelLabel, refreshCatalog } from '@/lib/modelCatalog';
+import { ModelLogo, modelDisplayName, providerName } from '@/lib/modelLogos';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { BackendBadge } from '@/components/BackendBadge';
 
@@ -159,26 +160,38 @@ export function ModelPickerPopover() {
   const unpinnedLabel = hasLocal || hasCloud ? t('model.automatic') : t('model.add');
 
   let label: string;
+  // The model shown with its maker's mark, and the route only in the tooltip.
+  // It read "openrouter · meta/muse-spark-1.3-contributor": two ids and a dot.
+  let shown: { modelId: string; provider: string } | null = null;
   if (isAgentMode) {
+    if (!cinderpawSwitching && !isLoading && cinderpawConfig?.model) {
+      shown = { modelId: cinderpawConfig.model, provider: cinderpawConfig.provider };
+    }
     label = cinderpawSwitching
       ? 'Switching…'
       : isLoading
         ? `Loading ${progress?.percentage.toFixed(0) ?? 0}%`
-        : cinderpawConfig?.display_name ?? loaded?.name ?? unpinnedLabel;
+        : shown
+          ? modelDisplayName(shown.modelId)
+          : loaded?.name ?? unpinnedLabel;
   } else if (isLoading) {
     label = `Loading ${progress?.percentage.toFixed(0) ?? 0}%`;
   } else if (cloudModel) {
-    // The name, not the address. This pill read `openrouter · ~z-ai/glm-fl…`:
-    // an id, truncated in the middle, where a person expects "GLM 4.6".
-    label = `${modelLabel(cloudModel.modelId)} · ${cloudModel.providerName}`;
+    shown = { modelId: cloudModel.modelId, provider: cloudModel.providerId };
+    label = modelDisplayName(cloudModel.modelId);
   } else {
     label = loaded?.name ?? unpinnedLabel;
   }
+  const route = shown ? providerName(shown.provider) : '';
 
   return (
     <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button className="flex min-w-0 items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-muted hover:text-text-secondary transition-colors outline-hidden">
+        <button
+          className="flex min-w-0 items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-muted hover:text-text-secondary transition-colors outline-hidden"
+          title={shown ? `${label} · via ${route}` : undefined}
+        >
+          {shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
           <span className="truncate max-w-[150px]">{label}</span>
           {/* Only meaningful for a local model — BackendBadge renders nothing
               when none is loaded, so a cloud route stays clean. */}

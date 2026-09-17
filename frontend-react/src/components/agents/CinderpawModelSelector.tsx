@@ -1,3 +1,4 @@
+import { ModelLogo, modelDisplayName } from '@/lib/modelLogos';
 import { useEffect, useState } from 'react';
 import { ChevronDown, Cloud, Cpu, Loader2 } from 'lucide-react';
 import {
@@ -107,7 +108,9 @@ export function CinderpawModelSelector() {
     ? 'Loading model…'
     : switching
       ? 'Switching…'
-      : modelConfig?.display_name ?? 'Select model';
+      : modelConfig?.model
+        ? modelDisplayName(modelConfig.model)
+        : 'Select model';
 
   const hasLocal = localModels.length > 0;
   const hasCloud = cloudProviders.length > 0;
@@ -125,7 +128,9 @@ export function CinderpawModelSelector() {
         >
           {busy
             ? <Loader2 size={12} className="animate-spin shrink-0" />
-            : <Cpu size={12} className="shrink-0 text-text-muted" />
+            : modelConfig?.model
+              ? <ModelLogo modelId={modelConfig.model} provider={modelConfig.provider} className="size-3 text-text-muted" />
+              : <Cpu size={12} className="shrink-0 text-text-muted" />
           }
           <span className="truncate max-w-[180px]">{label}</span>
           <ChevronDown size={12} className="shrink-0 opacity-50" />
