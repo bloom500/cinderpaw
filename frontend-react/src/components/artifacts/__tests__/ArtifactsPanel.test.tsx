@@ -222,3 +222,20 @@ describe('live edits', () => {
     expect(op.mock.calls.every((c) => c[1] === 'list')).toBe(true);
   });
 });
+
+describe('handing the work over', () => {
+  beforeEach(() => useArtifacts.setState({ panelOpen: false }));
+
+  it('an artifact made in the conversation on screen opens the panel on it', async () => {
+    useArtifacts.getState().onEvent({ id: 'new1', action: 'created', onScreen: true });
+    expect(useArtifacts.getState().panelOpen).toBe(true);
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'get' && c[2]?.artifactId === 'new1')).toBe(true));
+  });
+
+  it('one made anywhere else only refreshes the list', async () => {
+    useArtifacts.getState().onEvent({ id: 'tg1', action: 'created', onScreen: false });
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(useArtifacts.getState().panelOpen).toBe(false);
+    expect(op.mock.calls.every((c) => c[1] === 'list')).toBe(true);
+  });
+});

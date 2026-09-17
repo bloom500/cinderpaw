@@ -632,7 +632,11 @@ export function useCinderpawGlobal() {
         } else if (parsed.type === 'artifact') {
           // Unprompted, from any surface: a report written during a voice call
           // or asked for on Telegram reaches the panel without it polling.
-          useArtifacts.getState().onEvent({ id: parsed.id, action: parsed.action });
+          useArtifacts.getState().onEvent({
+            id: parsed.id,
+            action: parsed.action,
+            onScreen: typeof parsed.sessionId === 'string' && parsed.sessionId === useChat.getState().sessionId,
+          });
         } else if (parsed.type === 'artifact_result') {
           useArtifacts.getState().onResult(parsed);
         } else if (parsed.type === 'cron_fired') {

@@ -75,7 +75,11 @@ interface ArtifactsStore {
   deleteArtifact: (id: string) => Promise<void>;
   close: () => void;
   /** Called by the event stream. */
-  onEvent: (e: { id: string; action: 'created' | 'updated' | 'deleted' }) => void;
+  /**
+   * Called by the event stream. `onScreen` is true when the change came from
+   * the conversation currently on screen (the event's session is the chat's).
+   */
+  onEvent: (e: { id: string; action: 'created' | 'updated' | 'deleted'; onScreen?: boolean }) => void;
   onResult: (e: {
     id: string; ok: boolean; items?: ArtifactRow[]; content?: string;
     versions?: ArtifactVersionRow[]; path?: string; note?: string; error?: string;
@@ -175,6 +179,17 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // a list that is right about the row and wrong about the order is harder to
     // trust than one that costs a cheap round trip.
     void get().refresh();
+    // Made or changed by the conversation you are looking at: show it, the way
+    // a finished piece of work is handed over, not left for you to go find.
+    // Only that conversation. A report written on Telegram or in another chat
+    // must not pull the panel open over what you are doing here.
+    if (e.onScreen && e.action !== 'deleted') {
+      set({ panelOpen: true });
+      if (get().open?.row.id !== e.id) {
+        void get().openArtifact(e.id);
+        return;
+      }
+    }
     const open = get().open;
     if (open?.row.id !== e.id) return;
     if (e.action === 'deleted') set({ open: null });
