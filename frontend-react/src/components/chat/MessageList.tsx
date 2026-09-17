@@ -50,7 +50,7 @@ export function MessageList() {
                 key={m.id}
                 messageId={m.id}
                 scrollAnchor={m.role === 'user'}
-                className="animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
+                className="message-row animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
               >
                 <MessageItem
                   message={m}

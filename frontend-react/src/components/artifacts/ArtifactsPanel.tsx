@@ -1,3 +1,4 @@
+import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Archive, ArchiveRestore, ArrowLeft, Check, Download, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X } from 'lucide-react';
@@ -95,6 +96,15 @@ export function ArtifactsPanel({
   const rowWidth = () => asideRef.current?.parentElement?.clientWidth ?? window.innerWidth;
   const [width, setWidth] = useState(() => clampWidth(Number(readLocal(WIDTH_KEY)) || DEFAULT_WIDTH, window.innerWidth));
   const [dragging, setDragging] = useState(false);
+  // The slide in and out both run over the glass; see panelMotion.
+  const entered = useRef(false);
+  useEffect(() => {
+    panelMotionStart();
+    return () => {
+      if (!entered.current) panelMotionEnd();
+      panelMotionExit();
+    };
+  }, []);
   const drag = useRef<{ x: number; w: number } | null>(null);
   const resizeTo = (w: number) => setWidth(clampWidth(w, rowWidth()));
 
@@ -111,6 +121,12 @@ export function ArtifactsPanel({
       exit={{ x: 32, opacity: 0 }}
       style={{ width }}
       transition={{ duration: 0.16, ease: 'easeOut' }}
+      onAnimationComplete={() => {
+        if (!entered.current) {
+          entered.current = true;
+          panelMotionEnd();
+        }
+      }}
       className={cn(
         // shrink, not shrink-0: when the window narrows below a saved width, the
         // panel gives way down to its minimum rather than pushing the chat off.

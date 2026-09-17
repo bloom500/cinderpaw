@@ -1,3 +1,4 @@
+import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, Globe, Loader2, RotateCw, Search, X } from 'lucide-react';
@@ -53,6 +54,17 @@ export function BrowserPanel() {
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; w: number } | null>(null);
   const [startQuery, setStartQuery] = useState('');
+  // The slide in and out both run over the glass; see panelMotion. Started on
+  // mount, ended when the enter animation completes (above); the exit is
+  // marked for the length of the animation after unmount.
+  const entered = useRef(false);
+  useEffect(() => {
+    panelMotionStart();
+    return () => {
+      if (!entered.current) panelMotionEnd();
+      panelMotionExit();
+    };
+  }, []);
 
   // Follow the page's address unless the person is typing a new one.
   useEffect(() => {
@@ -102,7 +114,13 @@ export function BrowserPanel() {
       exit={{ x: 32, opacity: 0 }}
       style={{ width }}
       transition={dragging ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
-      onAnimationComplete={() => setSettled(true)}
+      onAnimationComplete={() => {
+        setSettled(true);
+        if (!entered.current) {
+          entered.current = true;
+          panelMotionEnd();
+        }
+      }}
       className={cn(
         'relative flex min-w-[360px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
         // A native page on top of the panel would otherwise take the pointer
