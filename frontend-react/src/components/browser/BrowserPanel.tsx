@@ -1,7 +1,7 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Globe, Loader2, RotateCw, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Globe, Home, Loader2, Plus, RotateCw, Search, X } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import { useBrowser } from '@/stores/browser';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
@@ -41,7 +41,8 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
  * that area for that reason.
  */
 export function BrowserPanel() {
-  const { url, loading, error, notice, open, go, setPanel } = useBrowser();
+  const { url, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab } = useBrowser();
+  const current = tabs.find((t) => t.id === active);
   const [address, setAddress] = useState(url);
   const [editing, setEditing] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -158,17 +159,60 @@ export function BrowserPanel() {
         }}
         className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize hover:bg-brand/40 focus-visible:bg-brand/40 focus-visible:outline-hidden"
       />
-      {/* pt-6 for the window's own buttons at the top-right, like the Artifacts panel. */}
+      {/* Tabs. pt-6 for the window's own buttons at the top-right, like the
+          Artifacts panel. One row, scrolling sideways when there are many. */}
+      <div role="tablist" aria-label="Tabs" className="flex items-end gap-1 overflow-x-auto px-2 pt-6 thin-scrollbar">
+        {tabs.map((t) => (
+          <div
+            key={t.id}
+            role="tab"
+            aria-selected={t.id === active}
+            tabIndex={0}
+            onClick={() => void switchTab(t.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void switchTab(t.id); }}
+            className={cn(
+              'group flex max-w-[180px] shrink-0 cursor-default items-center gap-1 rounded-t-lg border border-b-0 px-2.5 py-1 text-2xs',
+              t.id === active
+                ? 'border-border-default bg-bg-elevated text-text-primary'
+                : 'border-transparent text-text-muted hover:bg-bg-hover hover:text-text-secondary',
+            )}
+          >
+            {t.loading && <Loader2 size={12} className="shrink-0 animate-spin" />}
+            <span className="truncate">{t.url === 'about:blank' || !t.title ? 'New tab' : t.title}</span>
+            <button
+              type="button"
+              aria-label={`Close tab ${t.title || 'New tab'}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                void closeTab(t.id);
+              }}
+              className="ml-1 rounded-sm p-0.5 opacity-0 hover:bg-bg-hover group-hover:opacity-100 focus-visible:opacity-100"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          aria-label="New tab"
+          title="New tab"
+          onClick={() => void newTab()}
+          className="mb-0.5 flex size-6 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-bg-hover hover:text-text-primary"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
       <form
-        className="flex items-center gap-1 px-2 pb-2 pt-6"
+        className="flex items-center gap-1 border-t border-border-default px-2 py-2"
         onSubmit={(e) => {
           e.preventDefault();
           setEditing(false);
           void open(address);
         }}
       >
-        <ChromeButton label="Back" icon={ArrowLeft} onClick={() => void go('back')} />
-        <ChromeButton label="Forward" icon={ArrowRight} onClick={() => void go('forward')} />
+        <ChromeButton label="Back" icon={ArrowLeft} disabled={!current?.canBack} onClick={() => void go('back')} />
+        <ChromeButton label="Forward" icon={ArrowRight} disabled={!current?.canForward} onClick={() => void go('forward')} />
+        <ChromeButton label="Home" icon={Home} onClick={() => void go('home')} />
         <ChromeButton
           label="Reload"
           icon={loading ? Loader2 : RotateCw}
@@ -237,20 +281,22 @@ export function BrowserPanel() {
 }
 
 function ChromeButton({
-  label, icon: Icon, onClick, spin,
+  label, icon: Icon, onClick, spin, disabled,
 }: {
   label: string;
   icon: typeof Globe;
   onClick: () => void;
   spin?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
+      disabled={disabled}
       onClick={onClick}
-      className="flex size-8 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-bg-hover hover:text-text-primary"
+      className="flex size-8 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-bg-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent"
     >
       <Icon size={16} className={cn(spin && 'animate-spin')} />
     </button>

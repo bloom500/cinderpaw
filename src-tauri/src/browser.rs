@@ -19,10 +19,62 @@ use serde_json::{json, Value};
 use tauri::webview::{DownloadEvent, PageLoadEvent, WebviewBuilder};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Url, Webview, WebviewUrl};
 
-const LABEL: &str = "browser-page";
-/// Where the page waits while the panel is closed. Off screen rather than
-/// closed, so a login or a half-filled form survives closing the panel.
+/// Where a page waits while it is not the one on screen (the panel is closed,
+/// or another tab is in front). Off screen rather than closed, so a login or
+/// a half-filled form survives.
 const PARKED: (f64, f64) = (-20_000.0, -20_000.0);
+
+/// One tab: a child webview and the history Cinderpaw keeps for it.
+///
+/// Our own history, not the page's: `history.back()` run inside the page did
+/// nothing a person could rely on (a first page has no entry, a redirect
+/// leaves two), and the agent needs "back" to mean the page it saw before.
+struct Tab {
+    id: u32,
+    label: String,
+    title: String,
+    history: Vec<String>,
+    cursor: usize,
+    /// A URL this module asked for (back, forward, home), so the page-load
+    /// that reports it is not appended to the history a second time.
+    expecting: Option<String>,
+    loading: bool,
+}
+
+#[derive(Default)]
+struct Tabs {
+    list: Vec<Tab>,
+    active: Option<u32>,
+    next_id: u32,
+}
+
+fn tabs() -> &'static Mutex<Tabs> {
+    static T: OnceLock<Mutex<Tabs>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(Tabs::default()))
+}
+
+/// The start page. Shown by the panel as its own new-tab page; the webview
+/// underneath is parked so the page shows through.
+const HOME: &str = "about:blank";
+
+fn tabs_json() -> Value {
+    let t = tabs().lock();
+    json!({
+        "active": t.active,
+        "tabs": t.list.iter().map(|tab| json!({
+            "id": tab.id,
+            "title": tab.title,
+            "url": tab.history.get(tab.cursor).cloned().unwrap_or_else(|| HOME.into()),
+            "loading": tab.loading,
+            "canBack": tab.cursor > 0,
+            "canForward": tab.cursor + 1 < tab.history.len(),
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn emit_state(app: &AppHandle) {
+    let _ = app.emit("browser://state", tabs_json());
+}
 
 #[derive(Clone, Copy)]
 struct Bounds {
@@ -122,33 +174,68 @@ pub fn parse_address(raw: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+/// The active tab's webview.
 fn page(app: &AppHandle) -> Option<Webview> {
-    app.get_webview(LABEL)
+    let label = {
+        let t = tabs().lock();
+        let id = t.active?;
+        t.list.iter().find(|tab| tab.id == id)?.label.clone()
+    };
+    app.get_webview(&label)
 }
 
-fn place(wv: &Webview) -> Result<(), String> {
+/// Put every tab where it belongs: the active one over the panel body when the
+/// panel is showing and not on the home page, every other one parked.
+fn place_all(app: &AppHandle) -> Result<(), String> {
     let b = *bounds().lock();
-    let (x, y, w, h) = if b.visible {
-        (b.x, b.y, b.w.max(1.0), b.h.max(1.0))
-    } else {
-        (PARKED.0, PARKED.1, b.w.max(1.0), b.h.max(1.0))
+    let (active, labels): (Option<u32>, Vec<(u32, String, bool)>) = {
+        let t = tabs().lock();
+        (t.active, t.list.iter().map(|tab| (tab.id, tab.label.clone(), tab.history.get(tab.cursor).map(|u| u == HOME).unwrap_or(true))).collect())
     };
-    wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
-    wv.set_size(LogicalSize::new(w, h)).map_err(|e| e.to_string())?;
+    for (id, label, at_home) in labels {
+        let Some(wv) = app.get_webview(&label) else { continue };
+        let show = b.visible && active == Some(id) && !at_home;
+        let (x, y) = if show { (b.x, b.y) } else { PARKED };
+        wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+        wv.set_size(LogicalSize::new(b.w.max(1.0), b.h.max(1.0))).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
+/// Open `url` in the active tab, or in a new one when there is none.
 fn open_or_navigate(app: &AppHandle, url: Url) -> Result<Webview, String> {
-    LOADING.store(true, Ordering::SeqCst);
     if let Some(wv) = page(app) {
+        {
+            let mut t = tabs().lock();
+            if let Some(tab) = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id)) {
+                tab.loading = true;
+                tab.expecting = None;
+            }
+        }
+        LOADING.store(true, Ordering::SeqCst);
         wv.navigate(url).map_err(|e| format!("browser: could not open the page ({e})"))?;
         return Ok(wv);
     }
+    new_tab(app, url)
+}
+
+/// A new tab, in front, loading `url`.
+fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
     let window = app
         .get_window("main")
         .ok_or_else(|| "browser: the main window is not open".to_string())?;
+    let (id, label) = {
+        let mut t = tabs().lock();
+        t.next_id += 1;
+        let id = t.next_id;
+        let label = format!("browser-tab-{id}");
+        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true });
+        t.active = Some(id);
+        (id, label)
+    };
+    LOADING.store(true, Ordering::SeqCst);
     let events = app.clone();
-    let builder = WebviewBuilder::new(LABEL, WebviewUrl::External(url))
+    let builder = WebviewBuilder::new(&label, WebviewUrl::External(url))
         .data_directory(cinderpaw_core::paths::cinderpaw_dir().join("browser-profile"))
         .on_navigation(|url| allowed(url))
         .on_download(|wv, event| {
@@ -174,20 +261,68 @@ fn open_or_navigate(app: &AppHandle, url: Url) -> Result<Webview, String> {
             }
             true
         })
-        .on_page_load(move |_wv, payload| {
+        .on_page_load(move |wv, payload| {
             let finished = matches!(payload.event(), PageLoadEvent::Finished);
-            LOADING.store(!finished, Ordering::SeqCst);
-            let _ = events.emit(
-                "browser://state",
-                json!({ "url": payload.url().as_str(), "loading": !finished }),
-            );
+            let url = payload.url().to_string();
+            {
+                let mut t = tabs().lock();
+                if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) {
+                    tab.loading = !finished;
+                    if !finished {
+                        // Started: this is where the tab is now. Our own
+                        // request (back, forward, home) is already in place.
+                        let expected = tab.expecting.take().is_some_and(|e| e == url);
+                        let current = tab.history.get(tab.cursor).cloned();
+                        if !expected && current.as_deref() != Some(url.as_str()) {
+                            tab.history.truncate(tab.cursor + 1);
+                            tab.history.push(url.clone());
+                            tab.cursor = tab.history.len() - 1;
+                        }
+                        tab.title = url.clone();
+                    }
+                }
+            }
+            LOADING.store(tabs().lock().list.iter().any(|t| t.loading), Ordering::SeqCst);
+            emit_state(&events);
+            if finished {
+                // The title arrives from the page itself, once it is there.
+                let events = events.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Ok(Value::String(title)) = run(&wv, "document.title").await {
+                        let mut t = tabs().lock();
+                        if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) {
+                            if !title.trim().is_empty() { tab.title = title; }
+                        }
+                        drop(t);
+                        emit_state(&events);
+                    }
+                });
+            }
         });
     let b = *bounds().lock();
     let wv = window
         .add_child(builder, LogicalPosition::new(PARKED.0, PARKED.1), LogicalSize::new(b.w.max(1.0), b.h.max(1.0)))
         .map_err(|e| format!("browser: could not open the page ({e})"))?;
-    place(&wv)?;
+    place_all(app)?;
+    emit_state(app);
     Ok(wv)
+}
+
+/// Navigate the active tab to a URL from its own history (back/forward/home).
+fn go_to(app: &AppHandle, url: &str) -> Result<(), String> {
+    {
+        let mut t = tabs().lock();
+        if let Some(tab) = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id)) {
+            tab.expecting = Some(url.to_string());
+            tab.loading = url != HOME;
+        }
+    }
+    let wv = open_page(app)?;
+    LOADING.store(true, Ordering::SeqCst);
+    wv.navigate(Url::parse(url).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    place_all(app)?;
+    emit_state(app);
+    Ok(())
 }
 
 /// Wait for the current page to finish loading, up to `limit`.
@@ -305,7 +440,8 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             let url = parse_address(param_str(params, "url")?)?;
             // Ask the panel to show itself: the person should see what the agent opens.
             let _ = app.emit("browser://open", json!({ "url": url.as_str() }));
-            let wv = open_or_navigate(&app, url)?;
+            let new = params.get("newTab").and_then(|v| v.as_bool()).unwrap_or(false);
+            let wv = if new { new_tab(&app, url)? } else { open_or_navigate(&app, url)? };
             settle(Duration::from_secs(20)).await;
             let now = wv.url().map_err(|e| e.to_string())?;
             Ok(json!({ "ok": true, "url": now.as_str(), "loading": LOADING.load(Ordering::SeqCst) }))
@@ -339,20 +475,95 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             wv.eval(&format!("window.scrollBy(0, {dy})")).map_err(|e| e.to_string())?;
             Ok(json!({ "ok": true }))
         }
-        "back" | "forward" | "reload" => {
-            let wv = open_page(&app)?;
-            let js = match op {
-                "back" => "history.back()",
-                "forward" => "history.forward()",
-                _ => "location.reload()",
+        "back" | "forward" => {
+            let target = {
+                let mut t = tabs().lock();
+                let tab = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id))
+                    .ok_or_else(|| "browser: no tab is open".to_string())?;
+                if op == "back" {
+                    if tab.cursor == 0 { return Ok(json!({ "ok": true, "note": "already at the first page" })); }
+                    tab.cursor -= 1;
+                } else {
+                    if tab.cursor + 1 >= tab.history.len() { return Ok(json!({ "ok": true, "note": "already at the last page" })); }
+                    tab.cursor += 1;
+                }
+                tab.history[tab.cursor].clone()
             };
-            wv.eval(js).map_err(|e| e.to_string())?;
+            go_to(&app, &target)?;
+            settle(Duration::from_secs(15)).await;
+            Ok(json!({ "ok": true, "url": target }))
+        }
+        "reload" => {
+            let wv = open_page(&app)?;
+            wv.eval("location.reload()").map_err(|e| e.to_string())?;
             Ok(json!({ "ok": true }))
         }
-        "state" => Ok(match page(&app) {
-            Some(wv) => json!({ "open": true, "url": wv.url().map(|u| u.to_string()).unwrap_or_default(), "loading": LOADING.load(Ordering::SeqCst) }),
-            None => json!({ "open": false }),
-        }),
+        // The start page: the tab keeps its history, its page is parked, and
+        // the panel shows its own new-tab page.
+        "home" => {
+            {
+                let mut t = tabs().lock();
+                if let Some(tab) = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id)) {
+                    if tab.history.get(tab.cursor).map(|u| u != HOME).unwrap_or(false) {
+                        tab.history.truncate(tab.cursor + 1);
+                        tab.history.push(HOME.into());
+                        tab.cursor = tab.history.len() - 1;
+                    }
+                    tab.expecting = Some(HOME.into());
+                    tab.title = String::new();
+                }
+            }
+            if page(&app).is_some() {
+                go_to(&app, HOME)?;
+            }
+            Ok(json!({ "ok": true }))
+        }
+        "tabs" | "state" => Ok(tabs_json()),
+        "new_tab" => {
+            // Empty: the panel shows its new-tab page over a parked, blank webview.
+            new_tab(&app, Url::parse(HOME).map_err(|e| e.to_string())?)?;
+            {
+                let mut t = tabs().lock();
+                if let Some(tab) = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id)) {
+                    tab.history = vec![HOME.into()];
+                    tab.cursor = 0;
+                    tab.expecting = Some(HOME.into());
+                    tab.loading = false;
+                }
+            }
+            place_all(&app)?;
+            emit_state(&app);
+            Ok(tabs_json())
+        }
+        "switch_tab" => {
+            let id = params.get("id").and_then(|v| v.as_u64()).ok_or_else(|| "browser: \"id\" is required".to_string())? as u32;
+            {
+                let mut t = tabs().lock();
+                if !t.list.iter().any(|x| x.id == id) { return Err("browser: no such tab".into()); }
+                t.active = Some(id);
+            }
+            place_all(&app)?;
+            emit_state(&app);
+            Ok(tabs_json())
+        }
+        "close_tab" => {
+            let id = params.get("id").and_then(|v| v.as_u64()).ok_or_else(|| "browser: \"id\" is required".to_string())? as u32;
+            let label = {
+                let mut t = tabs().lock();
+                let Some(pos) = t.list.iter().position(|x| x.id == id) else { return Err("browser: no such tab".into()) };
+                let label = t.list.remove(pos).label;
+                if t.active == Some(id) {
+                    t.active = t.list.get(pos.saturating_sub(1)).or(t.list.first()).map(|x| x.id);
+                }
+                label
+            };
+            if let Some(wv) = app.get_webview(&label) {
+                let _ = wv.close();
+            }
+            place_all(&app)?;
+            emit_state(&app);
+            Ok(tabs_json())
+        }
         // The person chose where a download goes, in the save dialog.
         "save_download" => {
             let from = std::path::PathBuf::from(param_str(params, "path")?);
@@ -387,9 +598,7 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
                 b.h = params.get("height").and_then(|v| v.as_f64()).unwrap_or(b.h);
                 b.visible = params.get("visible").and_then(|v| v.as_bool()).unwrap_or(b.visible);
             }
-            if let Some(wv) = page(&app) {
-                place(&wv)?;
-            }
+            place_all(&app)?;
             Ok(json!({ "ok": true }))
         }
         other => Err(format!("browser: unknown action \"{other}\"")),

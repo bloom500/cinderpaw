@@ -26,7 +26,7 @@ const ui = tauri.browser.ui as unknown as ReturnType<typeof vi.fn>;
 beforeEach(() => {
   ui.mockClear();
   globalThis.ResizeObserver ??= class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
-  useBrowser.setState({ panelOpen: true, url: '', loading: false, error: null });
+  useBrowser.setState({ panelOpen: true, url: '', loading: false, error: null, tabs: [], active: null });
 });
 afterEach(cleanup);
 
@@ -52,13 +52,37 @@ describe('the browser panel', () => {
     expect(useBrowser.getState().panelOpen).toBe(false);
   });
 
-  it('back, forward and reload go to the page', async () => {
+  it('back is off with nothing behind, on once there is, and reload always goes', async () => {
     render(<BrowserPanel />);
-    fireEvent.click(screen.getByLabelText('Back'));
+    expect(screen.getByLabelText('Back')).toBeDisabled();
     fireEvent.click(screen.getByLabelText('Reload'));
     await act(async () => {});
-    expect(ui).toHaveBeenCalledWith('back');
     expect(ui).toHaveBeenCalledWith('reload');
+    act(() => {
+      useBrowser.setState({ tabs: [{ id: 1, title: 'Wiki', url: 'https://wikipedia.org/', loading: false, canBack: true, canForward: false }], active: 1 });
+    });
+    fireEvent.click(screen.getByLabelText('Back'));
+    await act(async () => {});
+    expect(ui).toHaveBeenCalledWith('back');
+  });
+
+  it('tabs: shows each, switches, closes, and opens a new one', async () => {
+    const tabs = [
+      { id: 1, title: 'Wiki', url: 'https://wikipedia.org/', loading: false, canBack: false, canForward: false },
+      { id: 2, title: '', url: 'about:blank', loading: false, canBack: false, canForward: false },
+    ];
+    ui.mockResolvedValue({ active: 2, tabs });
+    useBrowser.setState({ tabs, active: 1 });
+    render(<BrowserPanel />);
+    expect(screen.getByRole('tab', { name: /Wiki/ })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('tab', { name: /New tab/ }));
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('switch_tab', { id: 2 }));
+    fireEvent.click(screen.getByLabelText('Close tab Wiki'));
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('close_tab', { id: 1 }));
+    fireEvent.click(screen.getByLabelText('New tab'));
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('new_tab'));
+    fireEvent.click(screen.getByLabelText('Home'));
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('home'));
   });
 });
 

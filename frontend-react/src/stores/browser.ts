@@ -11,8 +11,23 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog';
  * panel through `browser://open` whenever the agent opens a page, so what the
  * agent does in the browser is always on screen.
  */
+export interface BrowserTab {
+  id: number;
+  title: string;
+  url: string;
+  loading: boolean;
+  canBack: boolean;
+  canForward: boolean;
+}
+
+/** The start page: the host parks the tab's page and the panel shows its own. */
+export const HOME = 'about:blank';
+
 interface BrowserStore {
   panelOpen: boolean;
+  tabs: BrowserTab[];
+  active: number | null;
+  /** The active tab's address, '' on the start page. */
   url: string;
   loading: boolean;
   error: string | null;
@@ -20,11 +35,26 @@ interface BrowserStore {
   notice: string | null;
   setPanel: (open: boolean) => void;
   open: (address: string) => Promise<void>;
-  go: (op: 'back' | 'forward' | 'reload') => Promise<void>;
+  go: (op: 'back' | 'forward' | 'reload' | 'home') => Promise<void>;
+  newTab: () => Promise<void>;
+  switchTab: (id: number) => Promise<void>;
+  closeTab: (id: number) => Promise<void>;
+}
+
+function fromState(st: { active: number | null; tabs: BrowserTab[] }) {
+  const tab = st.tabs.find((t) => t.id === st.active) ?? null;
+  return {
+    tabs: st.tabs,
+    active: st.active,
+    url: tab && tab.url !== HOME ? tab.url : '',
+    loading: tab?.loading ?? false,
+  };
 }
 
 export const useBrowser = create<BrowserStore>((set) => ({
   panelOpen: false,
+  tabs: [],
+  active: null,
   url: '',
   loading: false,
   error: null,
@@ -38,7 +68,8 @@ export const useBrowser = create<BrowserStore>((set) => ({
     set({ error: null, loading: true, panelOpen: true });
     try {
       const res = await tauri.browser.ui('open', { url: text });
-      set({ url: typeof res.url === 'string' ? res.url : text, loading: res.loading === true });
+      const url = typeof res.url === 'string' ? res.url : text;
+      set({ url: url === HOME ? '' : url, loading: res.loading === true });
     } catch (e) {
       set({ error: String(e), loading: false });
     }
@@ -51,13 +82,40 @@ export const useBrowser = create<BrowserStore>((set) => ({
       set({ error: String(e) });
     }
   },
+
+  newTab: async () => {
+    try {
+      const st = await tauri.browser.ui('new_tab');
+      set({ ...fromState(st as never), error: null });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  switchTab: async (id) => {
+    try {
+      const st = await tauri.browser.ui('switch_tab', { id });
+      set({ ...fromState(st as never), error: null });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
+
+  closeTab: async (id) => {
+    try {
+      const st = await tauri.browser.ui('close_tab', { id });
+      set({ ...fromState(st as never), error: null });
+    } catch (e) {
+      set({ error: String(e) });
+    }
+  },
 }));
 
 // Module-level, like the download store: the host can report a page before the
 // panel has ever been mounted. A failed listen (tests, a plain browser) is not
 // an error worth surfacing.
-void listen<{ url: string; loading: boolean }>('browser://state', (e) => {
-  useBrowser.setState({ url: e.payload.url, loading: e.payload.loading });
+void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e) => {
+  useBrowser.setState(fromState(e.payload));
 }).catch(() => {});
 // A download. A PDF or Word file has already gone to Artifacts by the time
 // this arrives; anything else is a file the person is asked where to put.
