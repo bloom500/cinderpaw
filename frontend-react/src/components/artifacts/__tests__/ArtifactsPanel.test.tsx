@@ -169,3 +169,17 @@ describe('the request pairing', () => {
     expect(useArtifacts.getState().loaded).toBe(true);
   });
 });
+
+describe('resizing and the live frame', () => {
+  it('the edge resizes with the keyboard, stays inside its bounds, and is remembered', async () => {
+    const { ArtifactsPanel } = await import('../ArtifactsPanel');
+    render(<ArtifactsPanel onClose={() => {}} />);
+    const edge = screen.getByRole('separator', { name: 'Resize artifacts panel' });
+    const before = Number(edge.getAttribute('aria-valuenow'));
+    fireEvent.keyDown(edge, { key: 'ArrowLeft' });
+    expect(Number(edge.getAttribute('aria-valuenow'))).toBe(before + 24);
+    expect(localStorage.getItem('cinderpaw.artifactsPanelWidth')).toBe(String(before + 24));
+    for (let i = 0; i < 100; i++) fireEvent.keyDown(edge, { key: 'ArrowRight' });
+    expect(Number(edge.getAttribute('aria-valuenow'))).toBe(320);
+  });
+});

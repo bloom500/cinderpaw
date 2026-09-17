@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Download, FileBox, Loader2, MessageSquare, Trash2 } from 'lucide-react';
 import {
@@ -14,7 +14,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 import { useArtifacts, type ArtifactRow } from '@/stores/artifacts';
-import { cn } from '@/lib/utils';
+import { cn, readLocal, writeLocal } from '@/lib/utils';
+
+const WIDTH_KEY = 'cinderpaw.artifactsPanelWidth';
+const DEFAULT_WIDTH = 416;
+const MIN_WIDTH = 320;
+
+/** Never narrower than a readable column, never so wide the chat disappears. */
+function clampWidth(w: number): number {
+  const max = Math.max(MIN_WIDTH, Math.round(window.innerWidth * 0.7));
+  return Math.min(max, Math.max(MIN_WIDTH, Math.round(w)));
+}
 
 /**
  * The workspace: where the work goes when the conversation scrolls away.
@@ -47,17 +57,58 @@ export function ArtifactsPanel({
     void refresh();
   }, [refresh]);
 
+  const [width, setWidth] = useState(() => clampWidth(Number(readLocal(WIDTH_KEY)) || DEFAULT_WIDTH));
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ x: number; w: number } | null>(null);
+  const resizeTo = (w: number) => setWidth(clampWidth(w));
+
   return (
     // Width + opacity animate on mount/unmount (AnimatePresence in ChatPage
     // drives the unmount half). overflow-hidden so the header/list don't wrap
     // and flash mid-slide while the width is still growing.
     <motion.aside
       initial={{ width: 0, opacity: 0 }}
-      animate={{ width: '26rem', opacity: 1 }}
+      animate={{ width, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
-      transition={{ duration: 0.22, ease: 'easeInOut' }}
-      className="flex shrink-0 flex-col overflow-hidden border-l border-border-default bg-bg-surface"
+      // No easing while dragging: the edge has to stay under the pointer.
+      transition={dragging ? { duration: 0 } : { duration: 0.22, ease: 'easeInOut' }}
+      className={cn(
+        'relative flex shrink-0 flex-col overflow-hidden border-l border-border-default bg-bg-surface',
+        // The frame is another document: without this, crossing it mid-drag
+        // hands the pointer to the page inside and the drag stops.
+        dragging && '[&_iframe]:pointer-events-none select-none',
+      )}
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize artifacts panel"
+        aria-valuenow={width}
+        aria-valuemin={MIN_WIDTH}
+        tabIndex={0}
+        onPointerDown={(e) => {
+          e.currentTarget.setPointerCapture(e.pointerId);
+          drag.current = { x: e.clientX, w: width };
+          setDragging(true);
+        }}
+        onPointerMove={(e) => {
+          if (drag.current) resizeTo(drag.current.w + drag.current.x - e.clientX);
+        }}
+        onPointerUp={() => {
+          drag.current = null;
+          setDragging(false);
+          writeLocal(WIDTH_KEY, String(width));
+        }}
+        onKeyDown={(e) => {
+          const step = e.key === 'ArrowLeft' ? 24 : e.key === 'ArrowRight' ? -24 : 0;
+          if (!step) return;
+          e.preventDefault();
+          const next = clampWidth(width + step);
+          setWidth(next);
+          writeLocal(WIDTH_KEY, String(next));
+        }}
+        className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize hover:bg-brand/40 focus-visible:bg-brand/40 focus-visible:outline-hidden"
+      />
       {/* pt-6: the window's own close/maximize/minimize sit fixed at the top-right
           of the whole app (32px tall), and this panel is the rightmost thing on
           screen. Without it the panel's close button sat almost on the window's. */}
@@ -241,14 +292,7 @@ function Viewer() {
  */
 function Preview({ kind, title, content }: { kind: string; title: string; content: string }) {
   if (kind === 'app' || kind === 'html' || kind === 'document') {
-    return (
-      <iframe
-        title={title}
-        srcDoc={content}
-        sandbox={APP_IFRAME_SANDBOX}
-        className="flex-1 border-0 bg-white"
-      />
-    );
+    return <LiveFrame title={title} content={content} />;
   }
   if (kind === 'markdown') {
     return (
@@ -265,6 +309,33 @@ function Preview({ kind, title, content }: { kind: string; title: string; conten
         {content}
       </pre>
     </ScrollArea>
+  );
+}
+
+/**
+ * The sandboxed frame, and the one thing it tells the page while it is mounted.
+ *
+ * `live-frame` on <html> switches the window glass to its no-displacement form
+ * (see globals.css). A counter, not a boolean, so two frames closing in either
+ * order never leave the class set or clear it early.
+ */
+let liveFrames = 0;
+function LiveFrame({ title, content }: { title: string; content: string }) {
+  useEffect(() => {
+    liveFrames += 1;
+    document.documentElement.classList.add('live-frame');
+    return () => {
+      liveFrames -= 1;
+      if (liveFrames === 0) document.documentElement.classList.remove('live-frame');
+    };
+  }, []);
+  return (
+    <iframe
+      title={title}
+      srcDoc={content}
+      sandbox={APP_IFRAME_SANDBOX}
+      className="flex-1 border-0 bg-white"
+    />
   );
 }
 
