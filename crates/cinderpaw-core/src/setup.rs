@@ -653,7 +653,7 @@ pub async fn verify_cloud(
     let provider = Provider::from_id(provider_id);
     let base = base_url
         .map(str::to_string)
-        .unwrap_or_else(|| provider.default_base_url().to_string());
+        .unwrap_or_else(|| crate::byok::default_base_url_for(provider_id));
     let endpoint = format!(
         "{}/{}",
         base.trim_end_matches('/'),

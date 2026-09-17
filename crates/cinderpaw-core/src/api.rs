@@ -2803,9 +2803,11 @@ async fn runtime_set_model(State(state): State<ApiState>, Json(req): Json<SetMod
             // corrected api.minimax.io in byok.rs). Custom has no real
             // default, so unknown ids still surface the 404 below.
             .or_else(|| {
-                let p = crate::byok::Provider::from_id(&provider_id);
-                (p != crate::byok::Provider::Custom)
-                    .then(|| p.default_base_url().to_string())
+                // The catalog knows Custom rows' URLs; only a truly unknown id
+                // (no row) is left without a default and surfaces the 404 below.
+                let url = crate::byok::default_base_url_for(&provider_id);
+                (url != crate::byok::Provider::Custom.default_base_url())
+                    .then(|| url.trim_end_matches('/').trim_end_matches("/v1").to_string())
             });
         let Some(base_url) = base_url else {
             return (
