@@ -350,6 +350,12 @@ export function CallOverlay({
   const [noEngine, setNoEngine] = useState(false);
   const [key, setKey] = useState('');
   const [saving, setSaving] = useState(false);
+  // The ready screen used to show every setting at once: kind of call, mic,
+  // provider, model, key. Read once, then noise on every call (17 Sep, his
+  // screenshot). One line now says who answers and where the audio goes; the
+  // rest opens on request, or by itself when the call cannot start, so a
+  // fresh install still sees what is missing without finding a button.
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [mic, setMic] = useState<string | null>(null);
 
   /**
@@ -720,8 +726,43 @@ export function CallOverlay({
           {notice && <p className="text-sm text-(--warning)">{notice}</p>}
         </div>
 
-        {phase === 'ready' && (
+        {phase === 'ready' && (() => {
+          const keyField =
+            ((ready === false && !noEngine) || (live && !!currentS2s && !currentS2s.pipeline)) &&
+            (live || voice?.needsKey);
+          const keyMissing = keyField && !currentS2s?.connected;
+          const expanded = settingsOpen || noEngine || ready === false;
+          return (
           <div className="relative flex flex-col items-center gap-3">
+            {/* The one line that stays: who answers, and where the audio goes. It
+                has to be read before the microphone opens. The gear beside it
+                opens everything else. */}
+            <div className="flex flex-col items-center gap-1.5 text-sm">
+              <span className="flex items-center gap-2">
+                {!currentS2s?.pipeline ? (
+                  <EngineLine
+                    label=""
+                    name={currentS2s?.label ?? t('call.providerNoneShort')}
+                    local={currentS2s ? false : null}
+                    t={t}
+                  />
+                ) : (
+                  <span className="text-text-secondary">{t('call.groupPipeline')}</span>
+                )}
+                <button
+                  type="button"
+                  aria-label="Call settings"
+                  aria-expanded={expanded}
+                  onClick={() => setSettingsOpen((v) => !v)}
+                  className="rounded-full p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
+                >
+                  <Settings2 size={14} />
+                </button>
+              </span>
+            </div>
+
+            {expanded && (
+            <div className="flex flex-col items-center gap-3">
             {/* Who answers, chosen before the microphone opens. It runs on the
                 user's own key, so this is a connection they made — not
                 something the call has built into it. */}
@@ -837,12 +878,15 @@ export function CallOverlay({
             {live && currentS2s && !currentS2s.pipeline && (
               <S2sModelPicker provider={currentS2s.id} label={currentS2s.label} />
             )}
+            </div>
+            )}
             {/* The key field used to appear only when the call could not run,
                 so the one way to replace a key that was wrong, rotated or
                 pasted into the wrong vendor was to delete it somewhere else
-                first. A key is a setting; it is reachable while things work. */}
-            {((ready === false && !noEngine) || (live && !!currentS2s && !currentS2s.pipeline))
-              && (live || voice?.needsKey) && (
+                first. A key is a setting; it is reachable while things work.
+                Outside the settings it shows only when a key is MISSING, which
+                is the one case where nothing else on the screen can help. */}
+            {keyField && (expanded || keyMissing) && (
               <div className="w-full max-w-sm">
                 <p className="mb-2 text-center text-xs text-text-muted">
                   {currentS2s?.connected
@@ -871,7 +915,8 @@ export function CallOverlay({
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* Controls: one pill, round buttons, nothing labelled. A call is the one
             screen where the two things you can do are obvious from the icons. */}
@@ -1931,7 +1976,7 @@ function EngineLine({
 }) {
   return (
     <span className="flex items-center gap-2">
-      <span className="text-text-muted">{label}</span>
+      {label && <span className="text-text-muted">{label}</span>}
       <span className="text-text-secondary">{name}</span>
       {/* A border as well as a fill, and a foreground picked per theme rather
           than shared with the base palette. This badge is the one line on the
