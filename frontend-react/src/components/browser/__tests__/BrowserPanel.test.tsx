@@ -26,7 +26,7 @@ const ui = tauri.browser.ui as unknown as ReturnType<typeof vi.fn>;
 beforeEach(() => {
   ui.mockClear();
   globalThis.ResizeObserver ??= class { observe() {} disconnect() {} unobserve() {} } as unknown as typeof ResizeObserver;
-  useBrowser.setState({ panelOpen: true, url: '', loading: false, error: null, tabs: [], active: null });
+  useBrowser.setState({ panelOpen: true, url: '', loading: false, error: null, tabs: [], active: null, wide: false, chatOpen: false });
 });
 afterEach(cleanup);
 
@@ -103,5 +103,19 @@ describe('the new tab page and the edge', () => {
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(before + 24);
     for (let i = 0; i < 100; i++) fireEvent.keyDown(edge, { key: 'ArrowLeft' });
     expect(Number(edge.getAttribute('aria-valuenow'))).toBe(1200 - 448);
+  });
+});
+
+describe('wide mode', () => {
+  it('fills the window, and the bubble opens the conversation beside the page', () => {
+    render(<BrowserPanel chat={<div>the conversation</div>} />);
+    expect(screen.queryByText('the conversation')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Fill the window'));
+    expect(useBrowser.getState().wide).toBe(true);
+    expect(screen.queryByRole('separator')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Chat with Cinderpaw'));
+    expect(screen.getByText('the conversation')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Back to split view'));
+    expect(useBrowser.getState().wide).toBe(false);
   });
 });

@@ -25,6 +25,12 @@ export const HOME = 'about:blank';
 
 interface BrowserStore {
   panelOpen: boolean;
+  /** The browser takes the whole canvas up to the sidebar; the chat folds into a bubble. */
+  wide: boolean;
+  /** In wide mode: the chat drawer beside the page is open. */
+  chatOpen: boolean;
+  setWide: (wide: boolean) => void;
+  setChatOpen: (open: boolean) => void;
   tabs: BrowserTab[];
   active: number | null;
   /** The active tab's address, '' on the start page. */
@@ -53,6 +59,10 @@ function fromState(st: { active: number | null; tabs: BrowserTab[] }) {
 
 export const useBrowser = create<BrowserStore>((set) => ({
   panelOpen: false,
+  wide: false,
+  chatOpen: false,
+  setWide: (wide) => set({ wide }),
+  setChatOpen: (chatOpen) => set({ chatOpen }),
   tabs: [],
   active: null,
   url: '',

@@ -1,7 +1,7 @@
 import { panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Globe, Home, Loader2, Plus, RotateCw, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Globe, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, X } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import { useBrowser } from '@/stores/browser';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
@@ -40,8 +40,18 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
  * page: a native view is always on top. The panel keeps its own controls out of
  * that area for that reason.
  */
-export function BrowserPanel() {
-  const { url, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab } = useBrowser();
+/**
+ * `chat` is the conversation column, handed in by ChatPage. In wide mode the
+ * browser takes the whole canvas up to the sidebar and the conversation opens
+ * from a bubble, in a drawer beside the page. Beside, not over: the page is a
+ * native view, and a native view is always on top of anything React draws, so
+ * a chat floating over it would be hidden behind it.
+ */
+export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
+  const {
+    url, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab,
+    wide, setWide, chatOpen, setChatOpen,
+  } = useBrowser();
   const current = tabs.find((t) => t.id === active);
   const [address, setAddress] = useState(url);
   const [editing, setEditing] = useState(false);
@@ -113,7 +123,7 @@ export function BrowserPanel() {
       initial={{ x: 32, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 32, opacity: 0 }}
-      style={{ width }}
+      style={wide ? undefined : { width }}
       transition={dragging ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
       onAnimationComplete={() => {
         setSettled(true);
@@ -124,12 +134,13 @@ export function BrowserPanel() {
       }}
       className={cn(
         'relative flex min-w-[360px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
+        wide && 'w-full flex-1',
         // A native page on top of the panel would otherwise take the pointer
         // mid-drag; the page is parked while the edge is held.
         dragging && 'select-none',
       )}
     >
-      <div
+      {!wide && <div
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize browser panel"
@@ -158,7 +169,7 @@ export function BrowserPanel() {
           writeLocal(WIDTH_KEY, String(next));
         }}
         className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize hover:bg-brand/40 focus-visible:bg-brand/40 focus-visible:outline-hidden"
-      />
+      />}
       {/* Tabs. pt-6 for the window's own buttons at the top-right, like the
           Artifacts panel. One row, scrolling sideways when there are many. */}
       <div role="tablist" aria-label="Tabs" className="flex items-end gap-1 overflow-x-auto px-2 pt-6 thin-scrollbar">
@@ -232,11 +243,34 @@ export function BrowserPanel() {
           onChange={(e) => setAddress(e.target.value)}
           className="h-8 min-w-0 flex-1 rounded-full border border-border-default bg-bg-elevated px-3 text-xs text-text-primary outline-hidden focus:border-brand"
         />
+        <ChromeButton
+          label={wide ? 'Back to split view' : 'Fill the window'}
+          icon={wide ? Minimize2 : Maximize2}
+          onClick={() => setWide(!wide)}
+        />
+        {wide && (
+          // The bubble: the conversation, one press away while the page fills
+          // the window. Brand-coloured so it reads as Cinderpaw, not as chrome.
+          <button
+            type="button"
+            aria-label={chatOpen ? 'Hide chat' : 'Chat with Cinderpaw'}
+            aria-pressed={chatOpen}
+            title={chatOpen ? 'Hide chat' : 'Chat with Cinderpaw'}
+            onClick={() => setChatOpen(!chatOpen)}
+            className={cn(
+              'flex size-8 shrink-0 items-center justify-center rounded-full bg-brand text-on-brand shadow-md hover:bg-brand/90',
+              chatOpen && 'ring-2 ring-brand/40',
+            )}
+          >
+            <MessageSquare size={16} />
+          </button>
+        )}
         <ChromeButton label="Close browser" icon={X} onClick={close} />
       </form>
       {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
       {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
-      <div ref={bodyRef} className="relative flex-1 bg-white">
+      <div className="flex min-h-0 flex-1">
+      <div ref={bodyRef} className="relative min-w-0 flex-1 bg-white">
         {!url && (
           // The new-tab page, until the first address: a search and the usual
           // first stops. After that the native page covers this area.
@@ -275,6 +309,14 @@ export function BrowserPanel() {
             <p className="text-2xs text-text-muted">Cinderpaw can use this browser too; what it does shows here.</p>
           </div>
         )}
+      </div>
+      {wide && chatOpen && chat && (
+        // Beside the page, at the chat column's own minimum width, so the
+        // composer and the transcript are the ones the person already knows.
+        <div className="flex w-[28rem] shrink-0 flex-col border-l border-border-default bg-bg-surface">
+          {chat}
+        </div>
+      )}
       </div>
     </motion.aside>
   );

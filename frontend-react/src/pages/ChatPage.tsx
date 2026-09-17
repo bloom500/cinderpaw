@@ -53,6 +53,7 @@ export function ChatPage() {
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);
+  const browserWide     = useBrowser((s) => s.wide);
   const [translateY, setTranslateY] = useState(0);
   // #17: agent-creation onboarding — shown in agent mode when no agent
   // exists, but never while the first-run wizard is still on screen.
@@ -224,13 +225,10 @@ export function ChatPage() {
     chatInputRef.current?.setText(text);
   };
 
-  return (
-    // A row, so the workspace can sit BESIDE the conversation rather than over
-    // it. `min-w-0` on the column is what stops a long code line in a message
-    // from pushing the panel off the edge instead of wrapping.
-    <div className="flex h-full">
-    {/* min-w-[28rem]: the artifacts panel may widen only until the chat is this
-        wide (CHAT_MIN_WIDTH in ArtifactsPanel). */}
+  // The conversation column is a value so it can be placed either beside the
+  // panels or, in the browser's wide mode, inside the panel's own drawer,
+  // without two copies of it in the tree.
+  const chatColumn = (
     <div className="flex flex-col h-full min-w-[28rem] flex-1">
       {isAgentMode && showAgentOnboarding && !wizardActive && (
         <AgentsOnboarding
@@ -306,11 +304,22 @@ export function ChatPage() {
         </div>
       </div>
     </div>
+  );
+
+  return (
+    // A row, so the workspace can sit BESIDE the conversation rather than over
+    // it. `min-w-0` on the column is what stops a long code line in a message
+    // from pushing the panel off the edge instead of wrapping.
+    <div className="flex h-full">
+    {/* min-w-[28rem]: the artifacts panel may widen only until the chat is this
+        wide (CHAT_MIN_WIDTH in ArtifactsPanel). */}
+    {/* In wide mode the column lives in the browser panel (from `chat`). */}
+    {!(browserOpen && browserWide) && chatColumn}
       <AnimatePresence>
         {/* One side panel at a time, and the browser wins: when the agent is
             working in it, an artifact it saves must not cover the page. The
             artifact is still one click away in the sidebar. */}
-        {browserOpen && <BrowserPanel key="browser-panel" />}
+        {browserOpen && <BrowserPanel key="browser-panel" chat={chatColumn} />}
         {panelOpen && !browserOpen && (
           <ArtifactsPanel
             key="artifacts-panel"
