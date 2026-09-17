@@ -13,7 +13,6 @@ vi.mock('../CinderpawMascot', () => ({
   usePrefersReducedMotion: () => false,
 }));
 
-vi.mock('../ToolCallStack', () => ({ ToolCallStack: () => null }));
 
 const shown = () => screen.getByTestId('mascot').getAttribute('data-state');
 /** A poke is now a press and a release that never moved: the same gesture that

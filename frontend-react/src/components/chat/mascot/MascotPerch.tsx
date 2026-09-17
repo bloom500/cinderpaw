@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
-import { ToolCallStack } from './ToolCallStack';
 import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from './physics';
-import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
 
@@ -364,7 +362,7 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     >
       {/* Only the creature itself takes the pointer. The wrapper stays
           transparent to it so the composer underneath keeps every click it
-          had, and `ToolCallStack` keeps its own buttons. */}
+          had. */}
       <span
         className="pointer-events-auto inline-block touch-none"
         style={{
@@ -390,10 +388,10 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
             scruff is not calmly reading a file. */}
         <CinderpawMascot state={airborne ? 'surprised' : renderState} flip={false} />
       </span>
-      <ToolCallStack
-        events={useChat((s) => s.toolCallStream)}
-        active={renderState !== 'idle'}
-      />
+      {/* The tool-call bubbles the creature used to carry are gone (17 Sep):
+          the chain of thought in the reply lists the same steps, in order,
+          with their results, so the bubbles were the same event told twice.
+          The creature keeps its states (idle, working, done). */}
     </div>
   );
 }
