@@ -1375,7 +1375,9 @@ export interface InboundMessage {
    *    list      → the rows (no other field)
    *    get       → one artifact's content; `artifactVersion` reads an older one
    *    versions  → the version history of `artifactId`
-   *    export    → write a real file; `dest` optional
+   *    export    → write a real file; `dest` is the path the person chose in
+   *                the save dialog (anywhere but Cinderpaw's data folder), or
+   *                absent for the workspace root
    *    delete    → remove it for good (rows and files); the agent's tool only hides
    *    write     → the person's edit, as a new version; `content` is the text and
    *                `artifactVersion` the version they edited (refused if stale)

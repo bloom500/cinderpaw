@@ -16,7 +16,13 @@
 import { join, resolve } from "node:path";
 import { basename } from "node:path";
 import type { ToolManifest } from "../types.ts";
-import { resolveAllowedPath } from "../egress/tool-permissions.ts";
+import {
+  PermissionDeniedError,
+  deniedPaths,
+  pathWithin,
+  realpathBestEffort,
+  resolveAllowedPath,
+} from "../egress/tool-permissions.ts";
 import { ArtifactStore, type Artifact } from "./store.ts";
 import { inlineApp } from "./app.ts";
 
@@ -129,8 +135,30 @@ export class ArtifactExporter {
     const target = requested ? resolve(root ?? "", requested) : join(root!, file.name);
 
     const safe = resolveAllowedPath(this.#manifest, "fs:write", target);
-    await Bun.write(safe, file.content);
+    return this.#write(safe, file);
+  }
+
+  /**
+   * Write where the PERSON pointed, in the OS save dialog.
+   *
+   * Not through the workspace-root check: they chose the folder themselves,
+   * in a dialog the agent cannot drive, and the roots exist to bound the
+   * agent. The private-dir wall stays, for the same reason it exists for
+   * every writer: a file dropped into ~/.cinderpaw can shadow agent state.
+   */
+  async runTo(a: Artifact, chosenPath: string): Promise<ExportResult> {
+    const file = artifactFile(this.#store, a);
+    const target = realpathBestEffort(resolve(chosenPath));
+    const { deny, exempt } = deniedPaths();
+    if (deny.some((d) => pathWithin(target, d)) && !exempt.some((e) => pathWithin(target, e))) {
+      throw new PermissionDeniedError(`"${target}" is inside Cinderpaw's own data folder; pick another place.`);
+    }
+    return this.#write(target, file);
+  }
+
+  async #write(path: string, file: ReturnType<typeof artifactFile>): Promise<ExportResult> {
+    await Bun.write(path, file.content);
     const bytes = typeof file.content === "string" ? Buffer.byteLength(file.content, "utf8") : file.content.byteLength;
-    return { path: safe, bytes, note: file.note };
+    return { path, bytes, note: file.note };
   }
 }

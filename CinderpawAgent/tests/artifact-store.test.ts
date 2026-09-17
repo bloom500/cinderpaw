@@ -284,3 +284,22 @@ describe("rename, archive, delete for good", () => {
     expect(s.read(a.id)).toBe("body");
   });
 });
+
+describe("export to a place the person chose", () => {
+  test("writes outside the workspace roots, because they picked it in a dialog", async () => {
+    const { ArtifactExporter } = await import("../src/artifacts/export.ts");
+    const s = store();
+    const a = make(s, "hello");
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-chosen-"));
+    const res = await new ArtifactExporter(s, []).runTo(a, join(dir, "Notes.md"));
+    expect(readFileSync(res.path, "utf8")).toBe("hello");
+  });
+
+  test("still refuses Cinderpaw's own data folder", async () => {
+    const { ArtifactExporter } = await import("../src/artifacts/export.ts");
+    const { cinderpawHome } = await import("../src/config.ts");
+    const s = store();
+    const a = make(s, "hello");
+    await expect(new ArtifactExporter(s, []).runTo(a, join(cinderpawHome(), "settings.json"))).rejects.toThrow(/own data folder/);
+  });
+});

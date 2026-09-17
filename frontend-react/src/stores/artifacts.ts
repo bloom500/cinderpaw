@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
+import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import type { PdfEdit } from '@/lib/pdfEdits';
 import type { PdfFieldRow } from '@/components/artifacts/PdfEditor';
 
@@ -230,9 +231,24 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   },
 
   exportArtifact: async (id) => {
+    const row = get().rows.find((r) => r.id === id) ?? get().open?.row;
+    // The person picks where it goes, in the OS dialog, for every kind. Export
+    // used to drop the file in the workspace root and print the path; a PDF
+    // to sign usually wants to be on the desktop or in Downloads.
+    let dest: string | undefined;
+    try {
+      const picked = await saveDialog({
+        defaultPath: row ? `${fileName(row.title)}${extensionFor(row.kind)}` : undefined,
+        filters: row ? [{ name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind).slice(1)] }] : undefined,
+      });
+      if (picked === null) return; // the dialog opened and they cancelled
+      dest = picked;
+    } catch {
+      dest = undefined; // no dialog here (tests, a plain browser): the workspace root, as before
+    }
     set({ busy: true, error: null, lastExport: null });
     try {
-      await send({ kind: 'export', id }, 'export', { artifactId: id });
+      await send({ kind: 'export', id }, 'export', { artifactId: id, ...(dest ? { dest } : {}) });
     } catch (e) {
       set({ busy: false, error: String(e) });
     }
@@ -519,6 +535,16 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
   },
 }));
+
+/** Mirrors `EXT` in the sidecar's artifacts/store.ts. */
+function extensionFor(kind: string): string {
+  return ({ document: '.html', markdown: '.md', app: '.html', table: '.json', code: '.txt', json: '.json', html: '.html', pdf: '.pdf', docx: '.docx', image: '.png' } as Record<string, string>)[kind] ?? '.bin';
+}
+
+/** A title as a filename, same rules as the sidecar's safeFileName. */
+function fileName(title: string): string {
+  return title.replace(/[\\/:*?"<>|\x00-\x1f]/g, '-').replace(/\s+/g, ' ').replace(/^[.\s]+|[.\s]+$/g, '').slice(0, 80) || 'artifact';
+}
 
 /** Chunked, because spreading a multi-megabyte array into one call overflows the stack. */
 function bytesToBase64(bytes: Uint8Array): string {

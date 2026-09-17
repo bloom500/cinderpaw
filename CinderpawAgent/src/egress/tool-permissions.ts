@@ -266,7 +266,7 @@ export function pathWithin(child: string, parent: string): boolean {
  * Privileged built-ins that must write inside ~/.cinderpaw (e.g. connectors_manage)
  * do NOT route through resolveAllowedPath — they own their fixed path.
  */
-function deniedPaths(): { deny: string[]; exempt: string[] } {
+export function deniedPaths(): { deny: string[]; exempt: string[] } {
   // BOTH profile dirs, always. The rename migration (migrate_home.rs) copies
   // ~/.feral into ~/.cinderpaw and deliberately NEVER deletes the source — so
   // on every migrated machine the old directory keeps a full copy of the

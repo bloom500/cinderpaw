@@ -753,7 +753,9 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               })),
             });
           } else if (action === "export") {
-            const res = await artifactExporter.run(row, msg.dest);
+            // `dest` from the panel is a path the person picked in the OS save
+            // dialog; the agent's tool never sends one here.
+            const res = msg.dest ? await artifactExporter.runTo(row, msg.dest) : await artifactExporter.run(row);
             transport.send({
               type: "artifact_result", id: replyId, ok: true,
               items: [toPanelRow(row)], path: res.path, note: res.note.trim(),
