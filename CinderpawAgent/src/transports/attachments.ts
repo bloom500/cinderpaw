@@ -17,12 +17,10 @@
  *   - `text` — documents inlined into the user's message. PDFs go through real
  *     extraction (`unpdf`); text and source files are decoded as UTF-8.
  *
- * Wired to Discord, whose CDN URLs are plain authenticated-by-signature GETs.
- * The reading/inlining half here is transport-agnostic, but the other two
- * connectors cannot simply be pointed at it: a Slack file URL needs the bot
- * token as a bearer header, and WhatsApp media is encrypted and has to come
- * through baileys' own `downloadMediaMessage`. Both need a transport-specific
- * fetch feeding `InboundAttachment`; neither needs a second copy of this file.
+ * Wired to Discord and Telegram (plain GETs), Slack (`headers` carries the bot
+ * token as a bearer) and WhatsApp (media is encrypted, baileys fetches it, and
+ * the bytes arrive in `bytes`). One reader for all four; the transport only
+ * describes the file.
  */
 
 import { cfgInt } from "../config.ts";
@@ -37,6 +35,11 @@ export interface InboundAttachment {
   contentType?: string | null;
   /** Declared size in bytes, when the platform reports it. */
   size?: number | null;
+  /** Sent with the download: Slack's private URLs want the bot token as a bearer. */
+  headers?: Record<string, string>;
+  /** The file itself, when the transport already has it (WhatsApp media is
+   *  encrypted and only baileys can fetch it). Then `url` is not fetched. */
+  bytes?: Uint8Array;
 }
 
 /** What a connector splices into its `agent.handle(...)` call. */
@@ -112,7 +115,7 @@ function kindOf(a: InboundAttachment): Kind {
  * 169.254.169.254. https-only plus the private-range check covers that without
  * pretending to a stronger guarantee.
  */
-async function download(url: string, maxBytes: number): Promise<Uint8Array | null> {
+async function download(url: string, maxBytes: number, headers?: Record<string, string>): Promise<Uint8Array | null> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -122,7 +125,7 @@ async function download(url: string, maxBytes: number): Promise<Uint8Array | nul
   if (parsed.protocol !== "https:") return null;
   if (isBlockedHost(parsed.hostname.toLowerCase())) return null;
 
-  const res = await fetch(url, { redirect: "follow" });
+  const res = await fetch(url, { redirect: "follow", ...(headers ? { headers } : {}) });
   if (!res.ok) return null;
   const declared = Number(res.headers.get("content-length") ?? "0");
   if (declared > maxBytes) return null;
@@ -190,7 +193,8 @@ export async function readAttachments(
         continue;
       }
 
-      const bytes = await download(a.url, kind === "image" ? MAX_IMAGE_BYTES : MAX_DOC_BYTES);
+      const max = kind === "image" ? MAX_IMAGE_BYTES : MAX_DOC_BYTES;
+      const bytes = a.bytes ? (a.bytes.byteLength > max ? null : a.bytes) : await download(a.url, max, a.headers);
       if (!bytes) {
         blocks.push(`[Attachment "${a.name}" — could not be downloaded, or is over the size limit.]`);
         log(`attachments: download failed or too large: ${a.name}`);

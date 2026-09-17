@@ -34,6 +34,7 @@ import {
   type ConnectorHealth,
 } from "./connectors.ts";
 import { chatStyleBrief, formatForChat } from "./chat-format.ts";
+import { readAttachments, type InboundAttachment } from "./attachments.ts";
 import {
   registerTransport,
   type ConnectorContext,
@@ -78,6 +79,10 @@ interface TelegramUpdate {
     from?: { id: number; is_bot?: boolean; username?: string };
     chat: { id: number; type: string };
     text?: string;
+    caption?: string;
+    document?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+    /** Sizes of one picture, smallest first. */
+    photo?: Array<{ file_id: string; file_size?: number }>;
   };
 }
 
@@ -256,9 +261,10 @@ export class TelegramConnector implements LiveConnector {
 
   async #onUpdate(update: TelegramUpdate): Promise<void> {
     const msg = update.message;
-    const text = msg?.text?.trim();
+    const text = (msg?.text ?? msg?.caption ?? "").trim();
     const from = msg?.from;
-    if (!msg || !text || !from) return;
+    const files = msg ? await this.#attachmentsOf(msg) : [];
+    if (!msg || (!text && files.length === 0) || !from) return;
     if (from.is_bot || from.id === this.#selfId) return;
 
     const chatId = String(msg.chat.id);
@@ -267,10 +273,35 @@ export class TelegramConnector implements LiveConnector {
     if (msg.chat.type !== "private" && this.#chats.size > 0 && !this.#chats.has(chatId)) return;
     if (msg.chat.type !== "private" && this.#chats.size === 0) return;
 
-    await this.#handle(chatId, String(from.id), text, msg.message_id);
+    await this.#handle(chatId, String(from.id), text, msg.message_id, files);
   }
 
-  async #handle(chatId: string, userId: string, text: string, messageId: number): Promise<void> {
+  /** A document or a photo, as a download the shared reader can fetch. The
+   *  file URL carries the bot token; it is fetched here and never shown. */
+  async #attachmentsOf(msg: NonNullable<TelegramUpdate["message"]>): Promise<InboundAttachment[]> {
+    const doc = msg.document;
+    const photo = msg.photo?.at(-1);
+    const fileId = doc?.file_id ?? photo?.file_id;
+    if (!fileId) return [];
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${this.#token}/getFile?file_id=${encodeURIComponent(fileId)}`, {
+        signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
+      });
+      const path = ((await res.json()) as { result?: { file_path?: string } }).result?.file_path;
+      if (!path) return [];
+      return [{
+        name: doc?.file_name ?? "photo.jpg",
+        url: `https://api.telegram.org/file/bot${this.#token}/${path}`,
+        contentType: doc?.mime_type ?? (photo ? "image/jpeg" : null),
+        size: doc?.file_size ?? photo?.file_size ?? null,
+      }];
+    } catch (e) {
+      this.#ctx?.log(`telegram: could not fetch the attachment (${String(e)})`);
+      return [];
+    }
+  }
+
+  async #handle(chatId: string, userId: string, text: string, messageId: number, files: InboundAttachment[] = []): Promise<void> {
     const ctx = this.#ctx;
     if (!ctx) return;
     if (!this.#allow.has(userId)) {
@@ -290,11 +321,20 @@ export class TelegramConnector implements LiveConnector {
     ctx.agent.setSessionSurface?.(sessionId, chatStyleBrief("Telegram"));
 
     try {
+      let prompt = text;
+      let images: string[] | undefined;
+      if (files.length > 0) {
+        const payload = await readAttachments(files, ctx.log);
+        if (payload.images.length > 0) images = payload.images;
+        prompt = prompt ? `${prompt}\n\n${payload.text}` : payload.text;
+      }
       const { reply } = await runAgent(
         ctx.agent,
         sessionId,
-        `[user:${userId}] ${text}`,
+        `[user:${userId}] ${prompt}`,
         `telegram-${messageId}`,
+        undefined,
+        images,
       );
       await this.send(sessionId, reply || "(no response)");
     } catch (e) {

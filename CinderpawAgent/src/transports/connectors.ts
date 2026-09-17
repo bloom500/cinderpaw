@@ -43,7 +43,7 @@ import {
   type OutboundFile,
 } from "./registry.ts";
 import { ChannelAskRouter } from "../core/ask-user-channel.ts";
-import { readAttachments } from "./attachments.ts";
+import { readAttachments, type InboundAttachment } from "./attachments.ts";
 import { formatForChat, chatStyleBrief, DISCORD_LIMIT } from "./chat-format.ts";
 import {
   runUnattended,
@@ -1048,6 +1048,17 @@ export class SlackConnector {
     if (channel) await this.#web?.chat.postMessage({ channel, text });
   }
 
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const channel = sessionId.split(":")[1] ?? "";
+    if (!channel || !this.#web) throw new Error("Slack is not connected.");
+    await this.#web.files.uploadV2({
+      channel_id: channel,
+      file: Buffer.from(file.data),
+      filename: file.name,
+      initial_comment: file.caption,
+    });
+  }
+
   health(): ConnectorHealth {
     return { live: this.#socket !== null };
   }
@@ -1065,11 +1076,21 @@ export class SlackConnector {
 
   async #onMessage(event: Record<string, unknown>): Promise<void> {
     // Ignore bot messages, edits, joins and other subtypes.
-    if (event.bot_id || event.subtype) return;
+    // "file_share" is the one subtype that is still a person's message.
+    if (event.bot_id || (event.subtype && event.subtype !== "file_share")) return;
     const user = event.user as string | undefined;
     const channel = event.channel as string | undefined;
     const raw = (event.text as string | undefined) ?? "";
     if (!user || !channel) return;
+    const files: InboundAttachment[] = ((event.files as Array<Record<string, unknown>> | undefined) ?? [])
+      .filter((f) => typeof f.url_private_download === "string")
+      .map((f) => ({
+        name: String(f.name ?? "file"),
+        url: f.url_private_download as string,
+        contentType: (f.mimetype as string | undefined) ?? null,
+        size: (f.size as number | undefined) ?? null,
+        headers: { Authorization: `Bearer ${this.#botToken}` },
+      }));
 
     const isIM = event.channel_type === "im";
     const mentioned = !!this.#botUserId && raw.includes(`<@${this.#botUserId}>`);
@@ -1081,7 +1102,7 @@ export class SlackConnector {
       return;
     }
     const text = raw.replace(new RegExp(`<@${this.#botUserId}>`, "g"), "").trim();
-    if (!text) return;
+    if (!text && files.length === 0) return;
 
     const web = this.#web!;
     const threadTs = (event.thread_ts as string | undefined) ?? (event.ts as string | undefined);
@@ -1124,7 +1145,15 @@ export class SlackConnector {
     const setStatus = (s: string) => statusMsg?.set(s);
 
     try {
-      const { reply } = await runAgent(this.#agent, sessionId, `[user:${user}] ${text}`, `slack-${event.ts}`, setStatus);
+      let prompt = text;
+      let images: string[] | undefined;
+      if (files.length > 0) {
+        setStatus(`📎 Reading ${files.length} attachment${files.length === 1 ? "" : "s"}…`);
+        const payload = await readAttachments(files, this.#log);
+        if (payload.images.length > 0) images = payload.images;
+        prompt = prompt ? `${prompt}\n\n${payload.text}` : payload.text;
+      }
+      const { reply } = await runAgent(this.#agent, sessionId, `[user:${user}] ${prompt}`, `slack-${event.ts}`, setStatus, images);
       const parts = formatForChat(reply, SLACK_MAX);
       if (statusMsg) await statusMsg.settle(parts[0] ?? "(no response)");
       else await web.chat.postMessage({ channel, text: parts[0] ?? "(no response)", thread_ts: threadTs });
@@ -1150,6 +1179,16 @@ export class SlackConnector {
 // ---------------------------------------------------------------------------
 
 /** External opt-in dependency. A literal import would embed it in Bun's executable. */
+/** WhatsApp wants a MIME type with a document; the name is all we have. */
+const MIME_BY_EXT: Record<string, string> = {
+  pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", txt: "text/plain", md: "text/markdown",
+  csv: "text/csv", json: "application/json", html: "text/html",
+};
+export function mimeForName(name: string): string {
+  return MIME_BY_EXT[name.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
+}
+
 export async function loadWhatsAppModule(): Promise<typeof import("@whiskeysockets/baileys")> {
   const entry = cfgPath("CINDERPAW_WHATSAPP_MODULE");
   if (!entry || !isAbsolute(entry)) {
@@ -1174,6 +1213,7 @@ export class WhatsAppConnector {
   readonly #ask: ChannelAskRouter | null;
   readonly #profileId: string | null;
   #sock: WASocket | null = null;
+  #wa: typeof import("@whiskeysockets/baileys") | null = null;
   #stopped = false;
 
   constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string }) {
@@ -1285,6 +1325,18 @@ export class WhatsAppConnector {
     await this.#sock?.sendMessage(jid, { text });
   }
 
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const sock = this.#sock;
+    if (!sock) throw new Error("WhatsApp is not linked.");
+    const jid = sessionId.slice("whatsapp:".length);
+    await sock.sendMessage(jid, {
+      document: Buffer.from(file.data),
+      fileName: file.name,
+      mimetype: mimeForName(file.name),
+      caption: file.caption,
+    });
+  }
+
   /** "Live" must mean a phone is on the other end. An unlinked connector
    *  spinning through pairing retries is not up, and not broken either. */
   health(): ConnectorHealth {
@@ -1300,7 +1352,9 @@ export class WhatsAppConnector {
   }
 
   async #connect(): Promise<void> {
-    const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = await loadWhatsAppModule();
+    const wa = await loadWhatsAppModule();
+    this.#wa = wa;
+    const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = wa;
     const authDir = join(cinderpawHome(), "whatsapp-auth");
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     const sock = makeWASocket({ auth: state });
@@ -1366,7 +1420,10 @@ export class WhatsAppConnector {
     const isPrivate = jid.endsWith("@s.whatsapp.net");
     if (!isPrivate && !isGroup) return; // skip status/broadcast
 
-    const text = (msg.message.conversation ?? msg.message.extendedTextMessage?.text ?? "").trim();
+    const m = msg.message;
+    const doc = m.documentMessage ?? m.documentWithCaptionMessage?.message?.documentMessage;
+    const media = doc ?? m.imageMessage;
+    const text = (m.conversation ?? m.extendedTextMessage?.text ?? media?.caption ?? "").trim();
 
     // Messages from the linked account itself (the owner's own phone) are never
     // auto-answered — but an exact control command typed into a chat IS honored,
@@ -1377,7 +1434,7 @@ export class WhatsAppConnector {
       this.#handleOwnerCommand(jid, text, msg);
       return;
     }
-    if (!text) return;
+    if (!text && !media) return;
 
     const sender = isGroup ? (msg.key.participant ?? "") : jid;
     const senderNum = digits(sender);
@@ -1443,7 +1500,26 @@ export class WhatsAppConnector {
     }, 8000);
 
     try {
-      const { reply } = await runAgent(this.#agent, sessionId, text, `wa-${msg.key.id}`);
+      let prompt = text;
+      let images: string[] | undefined;
+      if (media && this.#wa) {
+        // Encrypted on the wire: only baileys can fetch and decrypt it.
+        const bytes = await this.#wa.downloadMediaMessage(msg, "buffer", {}).catch((e: unknown) => {
+          this.#log(`whatsapp: could not download the attachment (${String(e)})`);
+          return null;
+        });
+        const file: InboundAttachment = {
+          name: doc?.fileName ?? "photo.jpg",
+          url: "",
+          contentType: media.mimetype ?? (doc ? null : "image/jpeg"),
+          size: media.fileLength ? Number(media.fileLength) : null,
+          ...(bytes ? { bytes: new Uint8Array(bytes) } : {}),
+        };
+        const payload = await readAttachments([file], this.#log);
+        if (payload.images.length > 0) images = payload.images;
+        prompt = prompt ? `${prompt}\n\n${payload.text}` : payload.text;
+      }
+      const { reply } = await runAgent(this.#agent, sessionId, prompt, `wa-${msg.key.id}`, undefined, images);
       const parts = formatForChat(reply, WHATSAPP_MAX);
       for (const part of parts) {
         await sock.sendMessage(jid, { text: part });
@@ -1611,6 +1687,10 @@ registerTransport("slack", (): LiveConnector => {
     health: () => inner?.health() ?? { live: false },
     async send(sessionId, text) {
       await inner?.send(sessionId, text);
+    },
+    async sendFile(sessionId, file) {
+      if (!inner) throw new Error("Slack is not connected.");
+      await inner.sendFile(sessionId, file);
     },
   };
 });

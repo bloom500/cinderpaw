@@ -75,6 +75,31 @@ describe("readAttachments", () => {
     expect(out.text).toMatch(/do not (describe|guess)/i);
   });
 
+  test("bytes already in hand are read without a fetch (WhatsApp media)", async () => {
+    globalThis.fetch = (async () => { throw new Error("must not fetch"); }) as typeof fetch;
+
+    const out = await readAttachments([
+      { name: "notes.txt", url: "", contentType: "text/plain", bytes: new TextEncoder().encode("from the phone") },
+    ]);
+
+    expect(out.text).toContain("from the phone");
+  });
+
+  test("headers ride along with the download (Slack's bearer token)", async () => {
+    let seen: string | null = null;
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      seen = new Headers(init?.headers).get("authorization");
+      return new Response("private note");
+    }) as typeof fetch;
+
+    const out = await readAttachments([
+      { name: "note.txt", url: `${CDN}/f/note.txt`, contentType: "text/plain", headers: { Authorization: "Bearer xoxb-1" } },
+    ]);
+
+    expect(seen).toBe("Bearer xoxb-1");
+    expect(out.text).toContain("private note");
+  });
+
   test("a text file is inlined, not just named", async () => {
     serve({ [`${CDN}/a/notes.md`]: "# Plan\n\nShip the thing." });
 
