@@ -310,7 +310,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // Refused here too, before a 200 MB file is read into memory and base64'd,
     // with a sentence that names the limit.
     if (file.size > PDF_MAX_BYTES) {
-      set({ error: `That PDF is ${Math.ceil(file.size / 1024 / 1024)} MB; the panel opens PDFs up to 20 MB.` });
+      set({ error: `That file is ${Math.ceil(file.size / 1024 / 1024)} MB; the panel opens files up to 20 MB.` });
       return;
     }
     set({ busy: true, error: null });

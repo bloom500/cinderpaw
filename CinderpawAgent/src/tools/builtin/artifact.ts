@@ -41,7 +41,17 @@ import {
   type ArtifactKind,
 } from "../../artifacts/store.ts";
 import { APP_AUTHORING_BRIEF } from "../../artifacts/app.ts";
-import { pdfFromMarkdown, pdfText } from "../../artifacts/pdf.ts";
+import {
+  applyPdfEdits,
+  isPdf,
+  parsePdfEdits,
+  pdfFields,
+  pdfFromMarkdown,
+  pdfLayout,
+  pdfText,
+  PDF_MAX_BYTES,
+} from "../../artifacts/pdf.ts";
+import { docxReplace, docxText, isDocx } from "../../artifacts/docx.ts";
 import { ArtifactExporter, artifactFile } from "../../artifacts/export.ts";
 import { transportFor, type OutboundFile } from "../../transports/registry.ts";
 import {
@@ -262,7 +272,9 @@ export function createArtifactReadTool(deps: ArtifactToolDeps): Tool {
     name: "artifact_read",
     description:
       "Read an artifact's content by id, so you can answer about it or edit it " +
-      "accurately. Pass `version` to read an older one.",
+      "accurately. Pass `version` to read an older one. A PDF or Word file reads " +
+      "as its text; a PDF also lists its form fields, and with `layout: true` " +
+      "where each line of text sits, which is what artifact_edit `place` needs.",
     permissions: ["fs:read"],
     networkAccess: false,
     allowedPaths: [{ path: deps.store.root, mode: "read" }],
@@ -273,6 +285,11 @@ export function createArtifactReadTool(deps: ArtifactToolDeps): Tool {
     parameters: {
       id: { type: "string", description: "The artifact id.", required: true },
       version: { type: "number", description: "Optional: an older version number.", required: false },
+      layout: {
+        type: "boolean",
+        description: "PDF only: also return each line's position (page, y, x range).",
+        required: false,
+      },
     },
     async execute(args) {
       const id = typeof args.id === "string" ? args.id.trim() : "";
@@ -288,9 +305,31 @@ export function createArtifactReadTool(deps: ArtifactToolDeps): Tool {
           return { ok: false, error: "not_found", content: `Artifact ${id} has no version ${String(version)}.` };
         }
         const text = await pdfText(bytes);
+        const fields = await pdfFields(bytes).catch(() => []);
+        const parts = [text || "(This PDF has no extractable text: it may be a scan.)"];
+        if (fields.length > 0) {
+          parts.push(
+            "Form fields (fill with artifact_edit `fields`):\n" +
+              fields.map((f) => `- ${f.name} (${f.type})${f.value ? ` = ${f.value}` : ""}`).join("\n"),
+          );
+        } else {
+          parts.push("This PDF has no form fields. To write on it, use artifact_read with layout: true, then artifact_edit `place`.");
+        }
+        if (args.layout === true) parts.push(`Layout (y = top of line, x = where its text starts and ends; fractions of the page):\n${await pdfLayout(bytes)}`);
         return {
           ok: true,
-          content: text || "(This PDF has no extractable text: it may be a scan.)",
+          content: parts.join("\n\n"),
+          data: { id, kind: a.kind, title: a.title, version: version ?? a.version, fields },
+        };
+      }
+      if (a.kind === "docx") {
+        const bytes = deps.store.readBytes(id, version);
+        if (bytes === null) {
+          return { ok: false, error: "not_found", content: `Artifact ${id} has no version ${String(version)}.` };
+        }
+        return {
+          ok: true,
+          content: docxText(bytes) || "(This Word document has no text.)",
           data: { id, kind: a.kind, title: a.title, version: version ?? a.version },
         };
       }
@@ -322,7 +361,10 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
       "`replace` (exact string swap, the usual case), or `content` to replace the " +
       "whole thing. Every edit makes a new version and the old ones stay, so this " +
       "is safe to do repeatedly and can be rolled back. Prefer find/replace: it " +
-      "keeps the user's own edits to the rest of the document.",
+      "keeps the user's own edits to the rest of the document. A Word file takes " +
+      "find/replace only, and keeps its layout. A PDF takes `fields` (fill its form) " +
+      "and `place` (write text at a position from artifact_read layout). Never place " +
+      "a signature: signing is the user's, in the Artifacts panel.",
     permissions: ["fs:write", "fs:read"],
     networkAccess: false,
     allowedPaths: [deps.store.root],
@@ -337,6 +379,31 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
       content: { type: "string", description: "Replace the entire content instead.", required: false },
       rollback_to: { type: "number", description: "Restore this version (written forward as a new one).", required: false },
       note: { type: "string", description: "One line on what changed.", required: false },
+      fields: {
+        type: "object",
+        description: "PDF only: form field name -> value. Checkbox values are \"true\"/\"false\".",
+        required: false,
+        schema: { type: "object", additionalProperties: { type: "string" } },
+      },
+      place: {
+        type: "array",
+        description: "PDF only: text to write on a page. y is the TOP of the text, as fractions from artifact_read layout.",
+        required: false,
+        schema: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              page: { type: "number", description: "1-based page number" },
+              x: { type: "number", description: "0-1 from the left" },
+              y: { type: "number", description: "0-1 from the top" },
+              text: { type: "string" },
+              size: { type: "number", description: "Font size in points, default 10" },
+            },
+            required: ["page", "x", "y", "text"],
+          },
+        },
+      },
     },
     async execute(args, ctx) {
       const id = typeof args.id === "string" ? args.id.trim() : "";
@@ -362,6 +429,80 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
 
       const note = typeof args.note === "string" ? args.note : undefined;
 
+      if (existing.kind === "pdf" && (args.fields !== undefined || args.place !== undefined)) {
+        const edits: unknown[] = [];
+        if (args.fields && typeof args.fields === "object" && !Array.isArray(args.fields)) {
+          for (const [name, value] of Object.entries(args.fields as Record<string, unknown>)) {
+            edits.push({ type: "field", name, value: String(value) });
+          }
+        }
+        if (Array.isArray(args.place)) {
+          for (const p of args.place as Array<Record<string, unknown>>) {
+            edits.push({
+              type: "text",
+              page: typeof p.page === "number" ? p.page - 1 : p.page,
+              x: p.x, y: p.y, text: p.text,
+              size: typeof p.size === "number" ? p.size : 10,
+            });
+          }
+        }
+        if (edits.length === 0) {
+          return { ok: false, error: "bad_args", content: "artifact_edit: `fields` or `place` was given but held nothing to apply." };
+        }
+        let parsed;
+        try {
+          parsed = parsePdfEdits(JSON.stringify({ edits }));
+        } catch (e) {
+          return {
+            ok: false,
+            error: "bad_args",
+            content: `artifact_edit: ${e instanceof Error ? e.message : String(e)} Pages are 1-based; x and y are fractions between 0 and 1.`,
+          };
+        }
+        const current = deps.store.readBytes(id);
+        if (!current) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
+        const next = await applyPdfEdits(current, parsed);
+        const updated = deps.store.write(id, next, ctx.sessionId, note ?? "filled");
+        return {
+          ok: true,
+          content:
+            `Filled "${updated!.title}": ${edits.length} change(s), now v${updated!.version}. ` +
+            "Tell the user it is ready to check, date and sign in the Artifacts panel.",
+          data: { id, version: updated!.version, title: updated!.title, kind: updated!.kind },
+        };
+      }
+
+      if (existing.kind === "docx") {
+        const find = typeof args.find === "string" ? args.find : "";
+        if (!find) {
+          return {
+            ok: false,
+            error: "unsupported",
+            content:
+              "artifact_edit changes a Word file with `find` + `replace` only, so its layout " +
+              "survives. Read it first (artifact_read) and replace one blank or phrase at a time.",
+          };
+        }
+        const current = deps.store.readBytes(id);
+        if (!current) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
+        const next = docxReplace(current, find, typeof args.replace === "string" ? args.replace : "");
+        if (!next) {
+          return {
+            ok: false,
+            error: "not_found",
+            content:
+              `artifact_edit: that exact text is not inside one paragraph of "${existing.title}". ` +
+              "Read it again and use a shorter snippet from a single line.",
+          };
+        }
+        const updated = deps.store.write(id, next, ctx.sessionId, note ?? "edited");
+        return {
+          ok: true,
+          content: `Edited "${updated!.title}", now v${updated!.version}.`,
+          data: { id, version: updated!.version, title: updated!.title, kind: updated!.kind },
+        };
+      }
+
       if (existing.kind === "pdf" && typeof args.content !== "string") {
         // A PDF has no editable text runs, only glyphs placed on a page, so a
         // find/replace has nothing to find. Said plainly so the model offers
@@ -370,10 +511,10 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
           ok: false,
           error: "unsupported",
           content:
-            "artifact_edit cannot change words inside a PDF. Either rewrite it whole " +
-            "(pass `content` as markdown, which makes a new version), or tell the user " +
-            "to edit it in the Artifacts panel, where they can add text, sign, fill " +
-            "fields and remove or rotate pages.",
+            "artifact_edit cannot change words already printed in a PDF. Fill it instead " +
+            "(`fields` for its form, `place` to write on a line; artifact_read with " +
+            "layout: true shows where), rewrite it whole (`content` as markdown), or tell " +
+            "the user to edit it in the Artifacts panel.",
         };
       }
 
@@ -501,6 +642,96 @@ export function createArtifactDeleteTool(deps: ArtifactToolDeps): Tool {
       };
     },
   };
+}
+
+/**
+ * A real file from the web, into the store: the official form, not a summary of it.
+ *
+ * `fetch_url` returns text, 32 KB of it, so an agent asked for "the REV 3
+ * forms" could read the page that links them and never hold one. This keeps the
+ * bytes exactly as served, through the same egress proxy (SSRF block, audit,
+ * rate limit), and accepts only what the store can do something with: a PDF or
+ * a Word document, recognised by their bytes, not by a URL ending in .pdf.
+ */
+export function createArtifactDownloadTool(deps: ArtifactToolDeps & { allowedDomains: string[] }): Tool {
+  const manifest: ToolManifest = {
+    name: "artifact_download",
+    description:
+      "Download a PDF or Word (.docx) file from an HTTPS link into the artifacts, " +
+      "byte for byte, so it can be read, filled and signed. Use it for official " +
+      "forms and documents; use fetch_url to read a web page. Find the file's own " +
+      "link first (the page that lists it is not the file).",
+    permissions: ["network:outbound", "fs:write", "fs:read"],
+    networkAccess: true,
+    allowedDomains: deps.allowedDomains,
+    allowedPaths: [deps.store.root],
+  };
+
+  return {
+    manifest,
+    parameters: {
+      url: { type: "string", description: "HTTPS link to the file itself.", required: true },
+      title: { type: "string", description: "Optional name; defaults to the file's own name.", required: false },
+    },
+    async execute(args, ctx) {
+      const url = typeof args.url === "string" ? args.url.trim() : "";
+      if (!url.startsWith("https://")) {
+        return { ok: false, error: "bad_args", content: "artifact_download needs an https:// link." };
+      }
+      const res = await ctx.fetch(url, { method: "GET", timeoutMs: 60_000, maxBytes: PDF_MAX_BYTES + 1 });
+      if (!res.ok) return { ok: false, error: "http_error", content: `The server answered HTTP ${res.status} for ${url}.` };
+      if (!res.bytes) return { ok: false, error: "unsupported", content: "This build cannot download files." };
+      const bytes = await res.bytes();
+      if (res.truncated || bytes.byteLength > PDF_MAX_BYTES) {
+        return { ok: false, error: "too_large", content: "That file is larger than 20 MB, which is the most an artifact can hold." };
+      }
+      const kind = isPdf(bytes) ? "pdf" : isDocx(bytes) ? "docx" : null;
+      if (!kind) {
+        const type = res.headers["content-type"] ?? "unknown content";
+        return {
+          ok: false,
+          error: "not_a_document",
+          content:
+            `That link returned ${type}, not a PDF or Word file. If it is a web page, read ` +
+            "it with fetch_url and look for the document's own link.",
+        };
+      }
+      const a = deps.store.create({
+        kind,
+        title: (typeof args.title === "string" && args.title.trim()) || fileNameOf(url, res.headers["content-disposition"]) || "Downloaded document",
+        content: bytes,
+        workspaceId: activeWorkspaceId(deps.db),
+        sessionId: ctx.sessionId,
+        origin: { session: ctx.sessionId, url },
+      });
+      return {
+        ok: true,
+        content:
+          `Downloaded ${kind === "pdf" ? "PDF" : "Word document"} "${a.title}", id ${a.id} (${a.bytes} bytes). ` +
+          "Read it with artifact_read before filling it.",
+        data: { id: a.id, kind: a.kind, title: a.title, version: a.version, url },
+      };
+    },
+  };
+}
+
+/** The name a person would recognise: Content-Disposition first, then the URL's last segment. */
+export function fileNameOf(url: string, disposition?: string): string {
+  const fromHeader = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition ?? "");
+  let name = fromHeader ? (fromHeader[1] ?? fromHeader[2] ?? "") : "";
+  if (!name) {
+    try {
+      name = new URL(url).pathname.split("/").filter(Boolean).pop() ?? "";
+    } catch {
+      name = "";
+    }
+  }
+  try {
+    name = decodeURIComponent(name);
+  } catch {
+    // A malformed escape is still a better name than none.
+  }
+  return name.replace(/\.(pdf|docx)$/i, "").trim();
 }
 
 /**

@@ -80,6 +80,7 @@ import {
   createArtifactCreateTool,
   createArtifactDeleteTool,
   createArtifactSendTool,
+  createArtifactDownloadTool,
   createArtifactEditTool,
   createArtifactExportTool,
   createArtifactListTool,
@@ -924,6 +925,8 @@ export async function boot(transportOverride?: Transport) {
   registry.register(createArtifactEditTool(artifactDeps));
   registry.register(createArtifactExportTool(artifactDeps));
   registry.register(createArtifactDeleteTool(artifactDeps));
+  // Same egress posture as fetch_url, which this is the byte-for-byte sibling of.
+  registry.register(createArtifactDownloadTool({ ...artifactDeps, allowedDomains: fetchDomains.length > 0 ? fetchDomains : ["*"] }));
   registry.register(createCodeQualityTool("run_tests", config.workspaceRoots));
   registry.register(createCodeQualityTool("format_code", config.workspaceRoots));
   registry.register(createCodeQualityTool("lint_code", config.workspaceRoots));

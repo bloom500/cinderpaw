@@ -47,6 +47,7 @@ function toPanelRow(a: Artifact) {
 import { governanceCheck } from "./rsi/l5-gov/governance.ts";
 import { readChampion, defaultChampionPath } from "./rsi/l1-config/champion.ts";
 import { applyPdfEdits, isPdf, parsePdfEdits, pdfFields, PDF_MAX_BYTES } from "./artifacts/pdf.ts";
+import { docxPreviewHtml, isDocx } from "./artifacts/docx.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { describeScope } from "./memory/fractal/bench/runner.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
@@ -642,18 +643,19 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
               picked = {};
             }
             const bytes = typeof picked.data === "string" ? new Uint8Array(Buffer.from(picked.data, "base64")) : null;
-            if (!bytes || !isPdf(bytes)) {
-              fail("That file is not a PDF.");
+            const kind = bytes && isPdf(bytes) ? "pdf" : bytes && isDocx(bytes) ? "docx" : null;
+            if (!bytes || !kind) {
+              fail("That file is not a PDF or a Word (.docx) document.");
               break;
             }
             if (bytes.byteLength > PDF_MAX_BYTES) {
-              fail(`That PDF is ${Math.ceil(bytes.byteLength / 1024 / 1024)} MB; the panel opens PDFs up to 20 MB.`);
+              fail(`That file is ${Math.ceil(bytes.byteLength / 1024 / 1024)} MB; the panel opens files up to 20 MB.`);
               break;
             }
-            const name = typeof picked.name === "string" ? picked.name.replace(/\.pdf$/i, "") : "";
+            const name = typeof picked.name === "string" ? picked.name.replace(/\.(pdf|docx)$/i, "") : "";
             const created = artifacts.create({
-              kind: "pdf",
-              title: name || "Imported PDF",
+              kind,
+              title: name || (kind === "pdf" ? "Imported PDF" : "Imported document"),
               content: bytes,
               workspaceId: activeWorkspaceId(db.raw),
               sessionId: "user",
@@ -673,7 +675,27 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             break;
           }
 
-          if (row.kind === "pdf" && (action === "get" || action === "write" || action === "restore")) {
+          if (row.kind === "docx" && action === "get") {
+            // Shown, not edited, in the panel: the agent fills a Word form with
+            // find/replace, and the person opens the exported file in Word.
+            // The preview is HTML for the sandboxed frame; the file stays as is.
+            const bytes = artifacts.readBytes(wanted, version);
+            if (!bytes) {
+              fail(`Artifact ${wanted} has no version ${String(version)}.`);
+              break;
+            }
+            let preview: string;
+            try {
+              preview = docxPreviewHtml(bytes);
+            } catch (e) {
+              fail(e instanceof Error ? e.message : String(e));
+              break;
+            }
+            transport.send({
+              type: "artifact_result", id: replyId, ok: true, items: [toPanelRow(row)],
+              content: preview,
+            });
+          } else if (row.kind === "pdf" && (action === "get" || action === "write" || action === "restore")) {
             // A PDF never travels as text: read as UTF-8 it is corrupted on the
             // next save. So it has its own three answers, all base64.
             const reply = async (a: typeof row, bytes: Uint8Array) =>

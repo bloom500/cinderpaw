@@ -276,6 +276,7 @@ describe("artifact tool manifests", () => {
       t.createArtifactCreateTool(deps), t.createArtifactListTool(deps), t.createArtifactReadTool(deps),
       t.createArtifactEditTool(deps), t.createArtifactExportTool(deps), t.createArtifactDeleteTool(deps),
       t.createArtifactSendTool({ store, delivery }),
+      t.createArtifactDownloadTool({ ...deps, allowedDomains: ["*"] }),
     ];
     for (const tool of tools) expect(() => validateManifest(tool.manifest)).not.toThrow();
   });

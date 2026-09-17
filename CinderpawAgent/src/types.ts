@@ -366,6 +366,11 @@ export interface CinderpawFetchInit {
   body?: string;
   /** Abort the request after this many milliseconds. */
   timeoutMs?: number;
+  /**
+   * Read at most this many bytes of the body (default 8 MB, at most 25 MB).
+   * For downloading a real file; `truncated` on the response says it was cut.
+   */
+  maxBytes?: number;
   /** Abort the request when the caller's signal fires. */
   signal?: AbortSignal;
 }
@@ -376,6 +381,10 @@ export interface CinderpawFetchResponse {
   headers: Record<string, string>;
   text(): Promise<string>;
   json(): Promise<unknown>;
+  /** The body exactly as received. Optional so test doubles need not provide it. */
+  bytes?(): Promise<Uint8Array>;
+  /** The body was longer than the ceiling and was cut off. */
+  truncated?: boolean;
 }
 
 // ---------------------------------------------------------------------------

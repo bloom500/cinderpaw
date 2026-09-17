@@ -121,7 +121,7 @@ test("the drawer is sorted by what a task needs to move forward, not by what is 
   for (const known of ["artifact_list", "artifact_read"]) {
     expect(isCoreTool(known)).toBe(true);
   }
-  for (const acts of ["artifact_create", "artifact_edit", "artifact_export", "artifact_delete", "artifact_send"]) {
+  for (const acts of ["artifact_create", "artifact_edit", "artifact_export", "artifact_delete", "artifact_send", "artifact_download"]) {
     expect(isExtendedTool(acts)).toBe(true);
   }
 

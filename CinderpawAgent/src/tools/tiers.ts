@@ -83,6 +83,7 @@ export const EXTENDED_TOOLS = new Set<string>([
   "artifact_export",
   "artifact_delete",
   "artifact_send",
+  "artifact_download",
   // Added 2026-08-26 and immediately drawered, by its own evidence: the boot
   // line went from 41 of 85 tools to 42 of 86 and the per-completion floor
   // from 12,793 to 13,053 — a tool for reading the token bill was costing

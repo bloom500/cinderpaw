@@ -180,13 +180,13 @@ export function ArtifactsPanel({
             // Any PDF, not only ones Cinderpaw made: filling and signing a form
             // someone sent you is the reason most people open a PDF editor.
             <>
-              <ArtifactAction tooltip="Open a PDF" icon={FileUp} disabled={busy} onClick={() => pickRef.current?.click()} />
+              <ArtifactAction tooltip="Open a PDF or Word file" icon={FileUp} disabled={busy} onClick={() => pickRef.current?.click()} />
               <input
                 ref={pickRef}
                 type="file"
-                accept="application/pdf,.pdf"
+                accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
                 className="hidden"
-                aria-label="PDF file"
+                aria-label="PDF or Word file"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   e.target.value = '';
@@ -453,7 +453,9 @@ function Viewer() {
  * wanted.
  */
 function Preview({ kind, title, content }: { kind: string; title: string; content: string }) {
-  if (kind === 'app' || kind === 'html' || kind === 'document') {
+  // A Word file arrives as preview HTML built by the sidecar, and is framed
+  // like any other HTML: it came from a stranger's file.
+  if (kind === 'app' || kind === 'html' || kind === 'document' || kind === 'docx') {
     return <LiveFrame title={title} content={content} />;
   }
   if (kind === 'markdown') {

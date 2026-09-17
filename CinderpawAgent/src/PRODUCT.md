@@ -226,11 +226,11 @@ whatever it did not know was there.
 ## Artifacts
 
 A reply scrolls away; an artifact does not. `artifact_create` stores a document,
-chart, table, code or data file under a stable id; `artifact_list` and
-`artifact_read` find it from any surface; `artifact_edit` changes one span as a
-new version that can be rolled back; `artifact_export` writes a real file;
-`artifact_delete` hides one; `artifact_send` puts one into the Telegram or
-Discord chat you asked from, once you approve.
+chart, table, code or PDF under a stable id; `artifact_download` saves a PDF or
+Word form from the web; `artifact_list`/`artifact_read` find them; `artifact_edit`
+changes a span or fills a form, as a new version; `artifact_export` writes a file;
+`artifact_delete` hides one; `artifact_send` puts one in your Telegram or Discord
+chat once you approve. You sign PDFs in the Artifacts panel.
 
 ## Teammates (Agent Cowork)
 

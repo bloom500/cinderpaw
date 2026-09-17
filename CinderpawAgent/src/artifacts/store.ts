@@ -55,11 +55,13 @@ export type ArtifactKind =
   | "json"
   | "html"
   | "pdf"
+  /** A Word file, kept byte for byte so a form stays the form. See docx.ts. */
+  | "docx"
   | "image"
   | "file";
 
 const KINDS: ReadonlySet<string> = new Set<ArtifactKind>([
-  "document", "markdown", "app", "table", "code", "json", "html", "pdf", "image", "file",
+  "document", "markdown", "app", "table", "code", "json", "html", "pdf", "docx", "image", "file",
 ]);
 
 export function isArtifactKind(v: unknown): v is ArtifactKind {
@@ -86,6 +88,7 @@ const EXT: Record<ArtifactKind, string> = {
   json: ".json",
   html: ".html",
   pdf: ".pdf",
+  docx: ".docx",
   image: ".png",
   file: ".bin",
 };
@@ -99,6 +102,7 @@ const MIME: Record<ArtifactKind, string> = {
   json: "application/json",
   html: "text/html",
   pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   image: "image/png",
   file: "application/octet-stream",
 };

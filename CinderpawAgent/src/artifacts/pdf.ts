@@ -262,6 +262,66 @@ export async function pdfFields(bytes: Uint8Array): Promise<PdfField[]> {
   });
 }
 
+/**
+ * Every line of text with where it sits, for filling a form that has no fields.
+ *
+ * Most official forms are flat: "Nume și prenume: ..........." is printed text,
+ * not a field. To write a name on that line the agent needs to know where the
+ * line is, in the same coordinates `applyPdfEdits` takes (fractions of the page
+ * as shown, from its top-left). Each line reads
+ *
+ *   p1 y=0.312 x=0.118-0.452  Nume și prenume: ...........
+ *
+ * where `y` is the top of the line and the x range is where its text starts and
+ * ends, so the value goes at x = the end of the label, same y.
+ *
+ * ponytail: lines are grouped by baseline within half a line height, one level
+ * of grouping, capped at MAX_LAYOUT_LINES. Enough for forms; not a layout engine.
+ */
+const MAX_LAYOUT_LINES = 400;
+
+export async function pdfLayout(bytes: Uint8Array): Promise<string> {
+  const { getDocumentProxy } = await import("unpdf");
+  const doc = await getDocumentProxy(new Uint8Array(bytes));
+  const out: string[] = [];
+  for (let n = 1; n <= doc.numPages && out.length < MAX_LAYOUT_LINES; n++) {
+    const page = await doc.getPage(n);
+    const vp = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+    const pieces: Array<{ x0: number; x1: number; base: number; h: number; str: string }> = [];
+    for (const raw of content.items as Array<{ str?: string; transform?: number[]; width?: number }>) {
+      const str = raw.str ?? "";
+      const t = raw.transform;
+      if (!str.trim() || !t) continue;
+      const len = Math.hypot(t[0]!, t[1]!) || 1;
+      const h = Math.hypot(t[2]!, t[3]!) || len;
+      const w = raw.width ?? 0;
+      // Start and end of the run along its own direction, then into the page as shown.
+      const [sx, sy] = vp.convertToViewportPoint(t[4]!, t[5]!) as [number, number];
+      const [ex] = vp.convertToViewportPoint(t[4]! + (w * t[0]!) / len, t[5]! + (w * t[1]!) / len) as [number, number];
+      pieces.push({ x0: Math.min(sx, ex), x1: Math.max(sx, ex), base: sy, h, str });
+    }
+    pieces.sort((a, b) => a.base - b.base || a.x0 - b.x0);
+    const lines: typeof pieces[] = [];
+    for (const p of pieces) {
+      const last = lines[lines.length - 1];
+      if (last && Math.abs(last[0]!.base - p.base) < Math.max(2, p.h * 0.5)) last.push(p);
+      else lines.push([p]);
+    }
+    for (const line of lines) {
+      if (out.length >= MAX_LAYOUT_LINES) break;
+      line.sort((a, b) => a.x0 - b.x0);
+      const text = line.map((p) => p.str).join(" ").replace(/\s+/g, " ").trim();
+      const top = (line[0]!.base - Math.max(...line.map((p) => p.h))) / vp.height;
+      const x0 = line[0]!.x0 / vp.width;
+      const x1 = Math.max(...line.map((p) => p.x1)) / vp.width;
+      out.push(`p${n} y=${Math.max(0, top).toFixed(3)} x=${x0.toFixed(3)}-${x1.toFixed(3)}  ${text}`);
+    }
+  }
+  if (out.length >= MAX_LAYOUT_LINES) out.push(`(stopped at ${MAX_LAYOUT_LINES} lines)`);
+  return out.join("\n");
+}
+
 /** What the agent reads when it opens a PDF: its text, not its bytes. */
 export async function pdfText(bytes: Uint8Array): Promise<string> {
   const { extractText, getDocumentProxy } = await import("unpdf");

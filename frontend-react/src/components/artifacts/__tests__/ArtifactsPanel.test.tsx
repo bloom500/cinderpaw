@@ -435,13 +435,13 @@ describe('a PDF', () => {
   it('a PDF picked from disk goes to the sidecar as an import, and nothing bigger than 20 MB is read', async () => {
     useArtifacts.setState({ open: null, rows: [] });
     render(<ArtifactsPanel onClose={() => {}} />);
-    const input = screen.getByLabelText('PDF file') as HTMLInputElement;
+    const input = screen.getByLabelText('PDF or Word file') as HTMLInputElement;
     op.mockClear();
 
     const big = new File(['x'], 'huge.pdf', { type: 'application/pdf' });
     Object.defineProperty(big, 'size', { value: 25 * 1024 * 1024 });
     fireEvent.change(input, { target: { files: [big] } });
-    expect(await screen.findByText(/25 MB; the panel opens PDFs up to 20 MB/)).toBeInTheDocument();
+    expect(await screen.findByText(/25 MB; the panel opens files up to 20 MB/)).toBeInTheDocument();
 
     const small = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'contract.pdf', { type: 'application/pdf' });
     fireEvent.change(input, { target: { files: [small] } });

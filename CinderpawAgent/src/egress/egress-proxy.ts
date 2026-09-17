@@ -33,6 +33,13 @@ import type {
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 /**
+ * The most a caller may raise its own ceiling to, for a download of a real
+ * file (an official PDF form can pass 8 MB). Still a ceiling: the tool that
+ * asks for more has to say how much, and cannot ask for unbounded.
+ */
+const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
+
+/**
  * Read a response body up to `max` bytes, then hang up.
  *
  * The naive `await res.text()` has already downloaded everything by the time
@@ -41,9 +48,13 @@ const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
  * stops pulling instead, and tells the caller it truncated in the only way the
  * body can: the text simply ends.
  */
-async function readBounded(res: Response, max: number): Promise<string> {
+async function readBounded(res: Response, max: number): Promise<{ bytes: Uint8Array; truncated: boolean }> {
   const reader = res.body?.getReader();
-  if (!reader) return await res.text();
+  if (!reader) {
+    const all = new Uint8Array(await res.arrayBuffer());
+    return { bytes: all.subarray(0, max), truncated: all.length > max };
+  }
+  let truncated = false;
   const chunks: Uint8Array[] = [];
   let total = 0;
   for (;;) {
@@ -54,13 +65,14 @@ async function readBounded(res: Response, max: number): Promise<string> {
     if (value.length >= room) {
       chunks.push(value.subarray(0, room));
       total = max;
+      truncated = value.length > room;
       await reader.cancel().catch(() => {});
       break;
     }
     chunks.push(value);
     total += value.length;
   }
-  return new TextDecoder().decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
+  return { bytes: new Uint8Array(Buffer.concat(chunks.map((c) => Buffer.from(c)))), truncated };
 }
 
 export interface EgressProxyConfig {
@@ -487,7 +499,12 @@ export class EgressProxy {
         // applied after the bytes were already in memory: a hostile or broken
         // endpoint streaming gigabytes took the sidecar down with it. Reading
         // through the stream lets us hang up mid-transfer instead.
-        const responseBody = await readBounded(res, MAX_RESPONSE_BYTES);
+        const cap = Math.min(Math.max(init?.maxBytes ?? MAX_RESPONSE_BYTES, 1), MAX_DOWNLOAD_BYTES);
+        const { bytes: bodyBytes, truncated } = await readBounded(res, cap);
+        // Text is decoded once, lazily: a binary download never needs it, and
+        // decoding a PDF as UTF-8 is exactly how its bytes get corrupted.
+        let decoded: string | null = null;
+        const responseBody = () => (decoded ??= new TextDecoder().decode(bodyBytes));
         const respHeaders: Record<string, string> = {};
         res.headers.forEach((value, key) => {
           respHeaders[key] = value;
@@ -518,8 +535,10 @@ export class EgressProxy {
           status: res.status,
           ok: res.ok,
           headers: respHeaders,
-          text: async () => responseBody,
-          json: async () => JSON.parse(responseBody) as unknown,
+          text: async () => responseBody(),
+          json: async () => JSON.parse(responseBody()) as unknown,
+          bytes: async () => bodyBytes,
+          truncated,
         };
       }
     } catch (err) {
