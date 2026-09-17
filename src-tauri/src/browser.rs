@@ -39,6 +39,11 @@ struct Tab {
     /// that reports it is not appended to the history a second time.
     expecting: Option<String>,
     loading: bool,
+    /// Where the webview was last put, so `place_all` skips the ones that do
+    /// not move. Every set_bounds is a native resize the page lays itself out
+    /// for; doing it for parked tabs too, twice each, was the lag when the
+    /// sidebar or the chat drawer opened over a wide browser (17 Sep).
+    placed: Option<(f64, f64, f64, f64)>,
 }
 
 #[derive(Default)]
@@ -51,6 +56,62 @@ struct Tabs {
 fn tabs() -> &'static Mutex<Tabs> {
     static T: OnceLock<Mutex<Tabs>> = OnceLock::new();
     T.get_or_init(|| Mutex::new(Tabs::default()))
+}
+
+/// The open tabs, kept across restarts: a person's tabs are theirs until they
+/// close them, the same as in any browser. Only what is needed to bring a tab
+/// back (its address and title); the page itself is loaded again.
+fn tabs_file() -> std::path::PathBuf {
+    cinderpaw_core::paths::cinderpaw_dir().join("browser-tabs.json")
+}
+
+fn save_tabs() {
+    let t = tabs().lock();
+    let saved = json!({
+        "active": t.active.and_then(|id| t.list.iter().position(|tab| tab.id == id)),
+        "tabs": t.list.iter().map(|tab| json!({
+            "url": tab.history.get(tab.cursor).cloned().unwrap_or_else(|| HOME.into()),
+            "title": tab.title,
+        })).collect::<Vec<_>>(),
+    });
+    drop(t);
+    if let Ok(text) = serde_json::to_string(&saved) {
+        let _ = std::fs::write(tabs_file(), text);
+    }
+}
+
+/// Bring back the saved tabs, once, the first time the browser is touched
+/// after a start. Not at boot: a webview per tab is memory nobody asked for
+/// until the browser is opened.
+fn restore_once(app: &AppHandle) {
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if DONE.swap(true, Ordering::SeqCst) || !tabs().lock().list.is_empty() {
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(tabs_file()) else { return };
+    let saved: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    let Some(list) = saved["tabs"].as_array() else { return };
+    let mut ids = Vec::new();
+    for entry in list {
+        let url = entry["url"].as_str().unwrap_or(HOME);
+        let Ok(url) = Url::parse(url) else { continue };
+        if !allowed(&url) { continue; }
+        let Ok(wv) = new_tab(app, url.clone()) else { continue };
+        let mut t = tabs().lock();
+        if let Some(tab) = t.list.iter_mut().find(|x| x.label == wv.label()) {
+            tab.title = entry["title"].as_str().unwrap_or("").to_string();
+            if url.as_str() == HOME {
+                tab.history = vec![HOME.into()];
+                tab.expecting = Some(HOME.into());
+                tab.loading = false;
+            }
+            ids.push(tab.id);
+        }
+    }
+    let active = saved["active"].as_u64().and_then(|i| ids.get(i as usize).copied()).or_else(|| ids.last().copied());
+    tabs().lock().active = active;
+    let _ = place_all(app);
+    emit_state(app);
 }
 
 /// The start page. Shown by the panel as its own new-tab page; the webview
@@ -74,6 +135,7 @@ fn tabs_json() -> Value {
 
 fn emit_state(app: &AppHandle) {
     let _ = app.emit("browser://state", tabs_json());
+    save_tabs();
 }
 
 #[derive(Clone, Copy)]
@@ -272,16 +334,25 @@ fn page(app: &AppHandle) -> Option<Webview> {
 /// panel is showing and not on the home page, every other one parked.
 fn place_all(app: &AppHandle) -> Result<(), String> {
     let b = *bounds().lock();
-    let (active, labels): (Option<u32>, Vec<(u32, String, bool)>) = {
+    let (active, labels): (Option<u32>, Vec<(u32, String, bool, Option<(f64, f64, f64, f64)>)>) = {
         let t = tabs().lock();
-        (t.active, t.list.iter().map(|tab| (tab.id, tab.label.clone(), tab.history.get(tab.cursor).map(|u| u == HOME).unwrap_or(true))).collect())
+        (t.active, t.list.iter().map(|tab| (tab.id, tab.label.clone(), tab.history.get(tab.cursor).map(|u| u == HOME).unwrap_or(true), tab.placed)).collect())
     };
-    for (id, label, at_home) in labels {
+    for (id, label, at_home, placed) in labels {
         let Some(wv) = app.get_webview(&label) else { continue };
         let show = b.visible && active == Some(id) && !at_home;
-        let (x, y) = if show { (b.x, b.y) } else { PARKED };
-        wv.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
-        wv.set_size(LogicalSize::new(b.w.max(1.0), b.h.max(1.0))).map_err(|e| e.to_string())?;
+        // A parked tab keeps whatever size it had; it is sized when it is shown.
+        let want = if show { (b.x, b.y, b.w.max(1.0), b.h.max(1.0)) } else {
+            let (w, h) = placed.map(|p| (p.2, p.3)).unwrap_or((b.w.max(1.0), b.h.max(1.0)));
+            (PARKED.0, PARKED.1, w, h)
+        };
+        if placed == Some(want) { continue; }
+        // One call: position and size together are one native resize, not two.
+        wv.set_bounds(tauri::Rect {
+            position: LogicalPosition::new(want.0, want.1).into(),
+            size: LogicalSize::new(want.2, want.3).into(),
+        }).map_err(|e| e.to_string())?;
+        if let Some(tab) = tabs().lock().list.iter_mut().find(|x| x.id == id) { tab.placed = Some(want); }
     }
     Ok(())
 }
@@ -313,7 +384,7 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
         t.next_id += 1;
         let id = t.next_id;
         let label = format!("browser-tab-{id}");
-        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true });
+        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None });
         t.active = Some(id);
         (id, label)
     };
@@ -540,6 +611,7 @@ pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Resu
 /// One entry point for the agent (`browser.<op>` over desktop control) and the
 /// panel (`browser_ui`). The two must never drift, so they share it.
 pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, String> {
+    restore_once(&app);
     match op {
         "open" | "navigate" => {
             let url = parse_address(param_str(params, "url")?)?;
