@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Outlet } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { Minus, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useUI, useSystemThemeSync } from '@/stores/ui';
@@ -78,14 +77,16 @@ export function AppShell() {
           over the page by design, but "over" must not mean "on top of the chat
           title": the page starts below it, so what shows through the glass is
           the page's own background rather than text the nav is covering. */}
-      <motion.main
-        // Collapsed leaves only room for the button that brings it back.
-        animate={{ paddingLeft: navCollapsed ? NAV_COLLAPSED_W + 60 : NAV_W + 24 }}
-        transition={{ duration: 0.22, ease: 'easeInOut' }}
+      <main
+        // Collapsed leaves only room for the button that brings it back. The
+        // padding moves in one step, not over 0.22 s: animating it laid the
+        // whole page out on every frame, and the nav's own slide covers the
+        // step. See SideNav for the rest of that fix.
+        style={{ paddingLeft: navCollapsed ? NAV_COLLAPSED_W + 60 : NAV_W + 24 }}
         className="absolute inset-0 flex flex-col overflow-hidden pt-3 pr-4"
       >
         <Outlet />
-      </motion.main>
+      </main>
       {/* The window's drag handle, once, for every page there is and every page
           there will be.
           Each page used to bring its own strip, which meant each page could

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { panelMotionEnd, panelMotionStart } from '@/lib/panelMotion';
 import {
   Plus, Search, MessageSquare, Folder, Box, Settings, FileBox, Globe,
   PanelLeftClose, PanelLeftOpen, Loader2, FolderPlus,
@@ -404,10 +405,18 @@ export function SideNav() {
           <motion.nav
             key="sidenav"
             aria-label="Main"
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: NAV_W, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: 'easeInOut' }}
+            // Slides on transform at its full width, rather than growing its
+            // width from 0: a width animation laid the page out again on every
+            // frame, over glass that re-ran its displacement filter each time,
+            // which was the stutter on open and close (17 Sep). The glass drops
+            // its displacement for the length of the slide (panelMotion).
+            style={{ width: NAV_W }}
+            initial={{ x: -(NAV_W + 12), opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -(NAV_W + 12), opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            onAnimationStart={panelMotionStart}
+            onAnimationComplete={panelMotionEnd}
           className={cn(
             'fixed left-3 top-3 bottom-3 z-30 flex flex-col overflow-hidden',
           // Lifted, not sunken. A panel a shade DARKER than the page reads as a
