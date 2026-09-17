@@ -21,7 +21,6 @@ function clampWidth(w: number, rowWidth: number): number {
 
 /** What a new tab offers: a search, and the places people go first. */
 const SHORTCUTS: Array<{ label: string; url: string }> = [
-  { label: 'DuckDuckGo', url: 'https://duckduckgo.com' },
   { label: 'Wikipedia', url: 'https://wikipedia.org' },
   { label: 'YouTube', url: 'https://youtube.com' },
   { label: 'Gmail', url: 'https://mail.google.com' },
@@ -285,16 +284,22 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         {!url && (
           // The new-tab page, until the first address: a search and the usual
           // first stops. After that the native page covers this area.
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-bg-surface px-8">
-            <EngineMark engine={engine} size={44} />
+          // The new-tab page. The same glass as the rest of the app, not a
+          // flat grey: this is the one screen a person sees every time they
+          // open the browser, and grey read as a placeholder (17 Sep).
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-8 overflow-y-auto bg-(--surface-typing) px-8 py-10 liquid-glass">
+            <div className="flex flex-col items-center gap-3">
+              <EngineMark engine={engine} size={96} />
+              <p className="text-lg font-medium text-text-primary">{SEARCH_ENGINES[engine]?.label ?? 'DuckDuckGo'}</p>
+            </div>
             <form
-              className="flex w-full max-w-md items-center gap-2 rounded-full border border-border-default bg-bg-elevated px-4 py-2 focus-within:border-brand"
+              className="flex w-full max-w-2xl items-center gap-3 rounded-full border border-border-default bg-bg-elevated px-5 py-3 shadow-lg focus-within:border-brand"
               onSubmit={(e) => {
                 e.preventDefault();
                 void open(startQuery);
               }}
             >
-              <Search size={16} className="shrink-0 text-text-muted" />
+              <Search size={20} className="shrink-0 text-text-muted" />
               <input
                 autoFocus
                 aria-label="Search the web"
@@ -302,43 +307,45 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
                 placeholder={`Search ${SEARCH_ENGINES[engine]?.label ?? 'DuckDuckGo'} or type an address`}
                 spellCheck={false}
                 onChange={(e) => setStartQuery(e.target.value)}
-                className="min-w-0 flex-1 bg-transparent text-sm text-text-primary outline-hidden"
+                className="min-w-0 flex-1 bg-transparent text-base text-text-primary outline-hidden placeholder:text-text-muted"
               />
             </form>
-            {/* The engines, by their marks: pick one here and the bar searches with it. */}
-            <div role="radiogroup" aria-label="Search engine" className="flex flex-wrap justify-center gap-2">
+            {/* The engines as marks only: pick one and the box searches with it. */}
+            <div role="radiogroup" aria-label="Search engine" className="flex items-center gap-2">
               {Object.entries(SEARCH_ENGINES).map(([id, e]) => (
                 <button
                   key={id}
                   type="button"
                   role="radio"
                   aria-checked={engine === id}
+                  aria-label={e.label}
+                  title={e.label}
                   onClick={() => setEngine(id)}
                   className={cn(
-                    'flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs',
+                    'flex size-10 items-center justify-center rounded-full border transition-colors',
                     engine === id
-                      ? 'border-brand bg-brand/10 text-text-primary'
-                      : 'border-border-subtle text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                      ? 'border-brand bg-brand/10'
+                      : 'border-transparent opacity-60 hover:border-border-subtle hover:bg-bg-hover hover:opacity-100',
                   )}
                 >
-                  <EngineMark engine={id} size={14} />
-                  {e.label}
+                  <EngineMark engine={id} size={20} />
                 </button>
               ))}
             </div>
-            <div className="flex flex-wrap justify-center gap-2">
+            <div className="grid w-full max-w-2xl grid-cols-5 gap-3">
               {SHORTCUTS.map((s) => (
                 <button
                   key={s.url}
                   type="button"
                   onClick={() => void open(s.url)}
-                  className="rounded-full border border-border-subtle px-3 py-1 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                  className="flex flex-col items-center gap-2 rounded-xl border border-border-subtle bg-bg-elevated/60 px-2 py-3 text-xs text-text-secondary hover:border-border-default hover:bg-bg-hover hover:text-text-primary"
                 >
-                  {s.label}
+                  <Favicon url={s.url} label={s.label} />
+                  <span className="truncate">{s.label}</span>
                 </button>
               ))}
             </div>
-            <p className="text-2xs text-text-muted">Cinderpaw can use this browser too; what it does shows here.</p>
+            <p className="text-xs text-text-secondary">Cinderpaw can use this browser too; what it does shows here.</p>
           </div>
         )}
       </div>
@@ -438,6 +445,29 @@ function agentLine(a: { op: string; url?: string; ref?: string; busy: boolean })
   };
   const line = what[a.op] ?? `Cinderpaw: ${a.op}`;
   return a.busy ? `${line}…` : line;
+}
+
+/** A site's own icon, or its initial while it loads or when it has none. */
+function Favicon({ url, label }: { url: string; label: string }) {
+  const [failed, setFailed] = useState(false);
+  const origin = new URL(url).origin;
+  if (failed) {
+    return (
+      <span className="flex size-8 items-center justify-center rounded-lg bg-bg-hover text-sm font-semibold text-text-secondary" aria-hidden>
+        {label.charAt(0)}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={`${origin}/favicon.ico`}
+      alt=""
+      width={32}
+      height={32}
+      className="size-8 rounded-lg"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 /** A search engine's mark in its own colour; an initial for one without a mark. */
