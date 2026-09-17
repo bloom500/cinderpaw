@@ -207,3 +207,16 @@ describe("writeOnto", () => {
     expect(s.readVersion(a.id, 2)).toBe("agent edit");
   });
 });
+
+describe("binary artifacts", () => {
+  test("a PDF's bytes survive a write, a read and a rollback unchanged", () => {
+    const s = store();
+    const v1 = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0xff, 0x00, 0xc3, 0x28]);
+    const a = s.create({ kind: "pdf", title: "Signed", content: v1, workspaceId: "ws-1", sessionId: "user" });
+    expect(a.bytes).toBe(8);
+    s.write(a.id, new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x01]), "user");
+    s.rollback(a.id, 1, "user");
+    // 0xff and 0xc3 0x28 are invalid UTF-8: a text round trip would replace them.
+    expect(Array.from(s.readBytes(a.id)!)).toEqual(Array.from(v1));
+  });
+});

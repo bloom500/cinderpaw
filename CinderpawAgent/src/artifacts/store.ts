@@ -253,7 +253,8 @@ export class ArtifactStore {
   create(input: {
     kind: ArtifactKind;
     title: string;
-    content: string;
+    /** Text for the text kinds; bytes for a pdf, image or file. */
+    content: string | Uint8Array;
     workspaceId: string;
     sessionId: string;
     origin?: Record<string, unknown> | null;
@@ -344,6 +345,21 @@ export class ArtifactStore {
     return readFileSync(this.#guard(a.path, "read"), "utf8");
   }
 
+  /**
+   * The raw bytes of the current version, or of `version`. For a PDF, where
+   * reading as UTF-8 would corrupt the file on the next write.
+   */
+  readBytes(id: string, version?: number): Uint8Array | null {
+    const path =
+      version === undefined
+        ? this.get(id)?.path
+        : (this.#db
+            .prepare("SELECT path FROM artifact_version WHERE artifact_id = ? AND version = ?")
+            .get(id, version) as { path: string } | undefined)?.path;
+    if (!path) return null;
+    return new Uint8Array(readFileSync(this.#guard(path, "read")));
+  }
+
   readVersion(id: string, version: number): string | null {
     const v = this.#db
       .prepare("SELECT path FROM artifact_version WHERE artifact_id = ? AND version = ?")
@@ -379,7 +395,7 @@ export class ArtifactStore {
    * manual one, so the history can answer "who changed this" — which is the
    * question that makes manual and agent editing able to share one document.
    */
-  write(id: string, content: string, author: string, note?: string): Artifact | null {
+  write(id: string, content: string | Uint8Array, author: string, note?: string): Artifact | null {
     const current = this.get(id);
     if (!current) return null;
     const next = current.version + 1;
@@ -420,7 +436,7 @@ export class ArtifactStore {
    */
   writeOnto(
     id: string,
-    content: string,
+    content: string | Uint8Array,
     author: string,
     baseVersion?: number,
     note?: string,
@@ -435,7 +451,9 @@ export class ArtifactStore {
   }
 
   rollback(id: string, toVersion: number, author: string): Artifact | null {
-    const content = this.readVersion(id, toVersion);
+    // Bytes, not text: the same copy is right for a document and for a PDF,
+    // where a UTF-8 round trip would corrupt the restored file.
+    const content = this.readBytes(id, toVersion);
     if (content === null) return null;
     return this.write(id, content, author, `rolled back to v${toVersion}`);
   }
@@ -466,11 +484,15 @@ export class ArtifactStore {
     return join(this.#root, id, `v${version}${EXT[kind]}`);
   }
 
-  #writeFile(path: string, content: string): number {
+  #writeFile(path: string, content: string | Uint8Array): number {
     const safe = this.#guard(path, "write");
     mkdirSync(join(safe, ".."), { recursive: true });
-    writeFileSync(safe, content, "utf8");
-    return Buffer.byteLength(content, "utf8");
+    if (typeof content === "string") {
+      writeFileSync(safe, content, "utf8");
+      return Buffer.byteLength(content, "utf8");
+    }
+    writeFileSync(safe, content);
+    return content.byteLength;
   }
 
   #recordVersion(

@@ -1363,8 +1363,13 @@ export interface InboundMessage {
    *    write     → the person's edit, as a new version; `content` is the text and
    *                `artifactVersion` the version they edited (refused if stale)
    *    restore   → make `artifactVersion` current again, as a new version
+   *    import    → a PDF the person picked, as a new artifact; `content` is JSON
+   *                `{ name, data }` with `data` in base64
+   *
+   *  For a pdf, `write` carries JSON `{ edits }` (see artifacts/pdf.ts) instead
+   *  of the file, and every reply carrying content sends it as base64.
    */
-  artifactAction?: "list" | "get" | "versions" | "export" | "delete" | "write" | "restore";
+  artifactAction?: "list" | "get" | "versions" | "export" | "delete" | "write" | "restore" | "import";
   artifactId?: string;
   artifactVersion?: number;
   dest?: string;
@@ -1751,6 +1756,10 @@ export type OutboundEvent =
       error?: string;
       /** `write` refused: the version that is current now, newer than the one edited. */
       conflict?: number;
+      /** Set when `content` is a binary file (a pdf) in base64. */
+      encoding?: "base64";
+      /** A pdf's form fields, so the panel can offer to fill them. */
+      fields?: Array<{ name: string; type: string; value: string }>;
     }
   | { type: "cron_fired"; jobId: string; jobName: string; sessionId: string; content: string; traceId?: string }
   // X3: surfaced when a scheduled job throws or times out — previously cron

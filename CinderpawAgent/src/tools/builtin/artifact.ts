@@ -41,6 +41,7 @@ import {
   type ArtifactKind,
 } from "../../artifacts/store.ts";
 import { APP_AUTHORING_BRIEF } from "../../artifacts/app.ts";
+import { pdfFromMarkdown, pdfText } from "../../artifacts/pdf.ts";
 import { ArtifactExporter, artifactFile } from "../../artifacts/export.ts";
 import { transportFor, type OutboundFile } from "../../transports/registry.ts";
 import {
@@ -143,7 +144,8 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       "you can change later by name, from any surface: chat, a voice call, or a " +
       "connected chat app.\n\n" +
       "Kinds: document (prose, as HTML), markdown, app (see below), table (JSON " +
-      "rows), code, json, html, file.\n\n" +
+      "rows), code, json, html, file, pdf (write the content as markdown: # headings, " +
+      "paragraphs, - lists; it becomes a real A4 PDF the user can sign and fill in the panel).\n\n" +
       "app = " + APP_AUTHORING_BRIEF + " Charts are apps: there is no separate " +
       "chart kind, because a chart is an app with no controls.",
     permissions: ["fs:write", "fs:read"],
@@ -157,7 +159,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       kind: {
         type: "string",
         description:
-          "document | markdown | chart | table | code | json | html | file. " +
+          "document | markdown | app | table | code | json | html | file | pdf. " +
           "Pick 'document' for prose the user will read, 'markdown' for notes.",
         required: true,
       },
@@ -173,7 +175,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
           content: `artifact_create: unknown kind "${String(kind)}".`,
         };
       }
-      if (!ArtifactStore.isTextKind(kind)) {
+      if (!ArtifactStore.isTextKind(kind) && kind !== "pdf") {
         return {
           ok: false,
           error: "bad_args",
@@ -194,7 +196,7 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
       const a = deps.store.create({
         kind,
         title,
-        content,
+        content: kind === "pdf" ? await pdfFromMarkdown(content, title) : content,
         workspaceId: activeWorkspaceId(deps.db),
         sessionId: ctx.sessionId,
         // Provenance, so a later "the report I made on WhatsApp" has something
@@ -279,6 +281,19 @@ export function createArtifactReadTool(deps: ArtifactToolDeps): Tool {
       if (!a) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
 
       const version = typeof args.version === "number" ? args.version : undefined;
+      if (a.kind === "pdf") {
+        // The bytes are useless to the model; the words are what it can act on.
+        const bytes = deps.store.readBytes(id, version);
+        if (bytes === null) {
+          return { ok: false, error: "not_found", content: `Artifact ${id} has no version ${String(version)}.` };
+        }
+        const text = await pdfText(bytes);
+        return {
+          ok: true,
+          content: text || "(This PDF has no extractable text: it may be a scan.)",
+          data: { id, kind: a.kind, title: a.title, version: version ?? a.version },
+        };
+      }
       const content =
         version === undefined
           ? deps.store.read(id)
@@ -347,7 +362,30 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
 
       const note = typeof args.note === "string" ? args.note : undefined;
 
+      if (existing.kind === "pdf" && typeof args.content !== "string") {
+        // A PDF has no editable text runs, only glyphs placed on a page, so a
+        // find/replace has nothing to find. Said plainly so the model offers
+        // the two things that do work instead of retrying.
+        return {
+          ok: false,
+          error: "unsupported",
+          content:
+            "artifact_edit cannot change words inside a PDF. Either rewrite it whole " +
+            "(pass `content` as markdown, which makes a new version), or tell the user " +
+            "to edit it in the Artifacts panel, where they can add text, sign, fill " +
+            "fields and remove or rotate pages.",
+        };
+      }
+
       if (typeof args.content === "string") {
+        if (existing.kind === "pdf") {
+          const updated = deps.store.write(id, await pdfFromMarkdown(args.content, existing.title), ctx.sessionId, note ?? "rewrote");
+          return {
+            ok: true,
+            content: `Rewrote "${updated!.title}" as a new PDF, v${updated!.version} (${updated!.bytes} bytes).`,
+            data: { id, version: updated!.version, title: updated!.title, kind: updated!.kind },
+          };
+        }
         const updated = deps.store.write(id, args.content, ctx.sessionId, note ?? "rewrote");
         return {
           ok: true,
@@ -561,7 +599,7 @@ export function createArtifactSendTool(deps: { store: ArtifactStore; delivery: F
       }
 
       const file = artifactFile(deps.store, a);
-      const data = new TextEncoder().encode(file.content);
+      const data = typeof file.content === "string" ? new TextEncoder().encode(file.content) : file.content;
       const size = humanSize(data.byteLength);
 
       if (!canAskAHuman(Boolean(ctx.askUser))) {

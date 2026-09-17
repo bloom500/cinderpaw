@@ -46,6 +46,7 @@ function toPanelRow(a: Artifact) {
 }
 import { governanceCheck } from "./rsi/l5-gov/governance.ts";
 import { readChampion, defaultChampionPath } from "./rsi/l1-config/champion.ts";
+import { applyPdfEdits, isPdf, parsePdfEdits, pdfFields, PDF_MAX_BYTES } from "./artifacts/pdf.ts";
 import { withTimeout } from "./memory/fractal/bench/orchestrator.ts";
 import { describeScope } from "./memory/fractal/bench/runner.ts";
 import { routerInfer } from "./memory/fractal/summarize.ts";
@@ -630,6 +631,38 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             break;
           }
 
+          if (action === "import") {
+            // A PDF from the person's disk becomes an artifact they can sign and
+            // fill. Checked here, where the bytes arrive: a renamed .exe must not
+            // become a "pdf" row the viewer then feeds to a parser.
+            let picked: { name?: unknown; data?: unknown };
+            try {
+              picked = JSON.parse(msg.content ?? "");
+            } catch {
+              picked = {};
+            }
+            const bytes = typeof picked.data === "string" ? new Uint8Array(Buffer.from(picked.data, "base64")) : null;
+            if (!bytes || !isPdf(bytes)) {
+              fail("That file is not a PDF.");
+              break;
+            }
+            if (bytes.byteLength > PDF_MAX_BYTES) {
+              fail(`That PDF is ${Math.ceil(bytes.byteLength / 1024 / 1024)} MB; the panel opens PDFs up to 20 MB.`);
+              break;
+            }
+            const name = typeof picked.name === "string" ? picked.name.replace(/\.pdf$/i, "") : "";
+            const created = artifacts.create({
+              kind: "pdf",
+              title: name || "Imported PDF",
+              content: bytes,
+              workspaceId: activeWorkspaceId(db.raw),
+              sessionId: "user",
+              origin: { imported: true },
+            });
+            transport.send({ type: "artifact_result", id: replyId, ok: true, items: [toPanelRow(created)] });
+            break;
+          }
+
           const wanted = msg.artifactId ?? "";
           const row = artifacts.get(wanted);
           if (!row) {
@@ -637,7 +670,43 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             break;
           }
 
-          if (action === "get") {
+          if (row.kind === "pdf" && (action === "get" || action === "write" || action === "restore")) {
+            // A PDF never travels as text: read as UTF-8 it is corrupted on the
+            // next save. So it has its own three answers, all base64.
+            const reply = async (a: typeof row, bytes: Uint8Array) =>
+              transport.send({
+                type: "artifact_result", id: replyId, ok: true, items: [toPanelRow(a)],
+                content: Buffer.from(bytes).toString("base64"), encoding: "base64",
+                fields: await pdfFields(bytes).catch(() => []),
+              });
+            if (action === "get") {
+              const bytes = artifacts.readBytes(wanted, msg.artifactVersion);
+              if (!bytes) fail(`Artifact ${wanted} has no version ${String(msg.artifactVersion)}.`);
+              else await reply(row, bytes);
+            } else if (action === "restore") {
+              const restored = typeof msg.artifactVersion === "number" ? artifacts.rollback(wanted, msg.artifactVersion, "user") : null;
+              if (!restored) fail(`Artifact ${wanted} has no version ${String(msg.artifactVersion)}.`);
+              else await reply(restored, artifacts.readBytes(wanted)!);
+            } else {
+              const current = artifacts.readBytes(wanted);
+              if (!current) {
+                fail(`No artifact with id ${wanted}.`);
+                break;
+              }
+              const next = await applyPdfEdits(current, parsePdfEdits(msg.content ?? ""));
+              const res = artifacts.writeOnto(wanted, next, "user", msg.artifactVersion, "edited in the app");
+              if (!res) {
+                fail(`No artifact with id ${wanted}.`);
+              } else if (!res.ok) {
+                transport.send({
+                  type: "artifact_result", id: replyId, ok: false, conflict: res.current,
+                  error: `Cinderpaw saved v${res.current} while you were editing.`,
+                });
+              } else {
+                await reply(res.artifact, next);
+              }
+            }
+          } else if (action === "get") {
             const v = msg.artifactVersion;
             const content =
               typeof v === "number" ? artifacts.readVersion(wanted, v) : artifacts.read(wanted);
