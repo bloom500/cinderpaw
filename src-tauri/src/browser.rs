@@ -151,6 +151,19 @@ async fn install_adblock() -> Result<Value, String> {
     Ok(json!({ "ok": true, "version": release["tag_name"].as_str().unwrap_or("") }))
 }
 
+/// Downloads since the agent last heard about them. A click that starts a
+/// download changes nothing on the page, so without this the agent saw "click
+/// done", took a snapshot of the same page and concluded the link was dead
+/// (17 Sep, the RAR form).
+fn pending_downloads() -> &'static Mutex<Vec<String>> {
+    static P: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    P.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn take_downloads() -> Vec<String> {
+    std::mem::take(&mut *pending_downloads().lock())
+}
+
 /// Where downloads land first. Under the profile dir: never a place the
 /// person picked, so nothing arrives on their desktop without them.
 fn downloads_dir() -> std::path::PathBuf {
@@ -185,6 +198,7 @@ fn on_downloaded(app: &AppHandle, url: &Url, path: &std::path::Path) {
         if let Some(tx) = tx {
             let app = app.clone();
             let name2 = name.clone();
+            pending_downloads().lock().push(format!("{name} (a {}, now in Artifacts; artifact_list shows it)", if is_pdf { "PDF" } else { "Word document" }));
             tauri::async_runtime::spawn(async move {
                 let ok = tx.send(msg).await.is_ok();
                 let _ = app.emit("browser://download", json!({ "name": name2, "artifact": ok }));
@@ -193,7 +207,19 @@ fn on_downloaded(app: &AppHandle, url: &Url, path: &std::path::Path) {
             return;
         }
     }
+    pending_downloads().lock().push(format!("{name} (offered to the user in a save dialog; not in Artifacts)"));
     let _ = app.emit("browser://download", json!({ "name": name, "path": path.to_string_lossy(), "url": url.as_str() }));
+}
+
+/// Attach the downloads the agent has not seen to a result.
+fn with_downloads(mut out: Value) -> Value {
+    let d = take_downloads();
+    if !d.is_empty() {
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert("downloads".into(), json!(d));
+        }
+    }
+    out
 }
 
 /// Only the web. `file:` would read the disk, `javascript:` would run in the
@@ -477,8 +503,11 @@ fn type_script(reference: &str, text: &str, submit: bool) -> String {
         &format!(
             "el.focus(); const text = {t}; \
              if (el.isContentEditable) {{ document.execCommand('selectAll'); document.execCommand('insertText', false, text); }} \
-             else {{ const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; \
-                     const setter = Object.getOwnPropertyDescriptor(proto, 'value').set; setter.call(el, text); \
+             else {{ const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype \
+                       : el.tagName === 'SELECT' ? HTMLSelectElement.prototype \
+                       : el.tagName === 'INPUT' ? HTMLInputElement.prototype : null; \
+                     const setter = proto && Object.getOwnPropertyDescriptor(proto, 'value'); \
+                     if (setter && setter.set) setter.set.call(el, text); else el.value = text; \
                      el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); }} \
              if ({submit}) {{ if (el.form && el.form.requestSubmit) el.form.requestSubmit(); \
                      else el.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', bubbles: true }})); }} \
@@ -525,15 +554,16 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
         "snapshot" => {
             let wv = open_page(&app)?;
             settle(Duration::from_secs(10)).await;
-            run(&wv, SNAPSHOT).await
+            run(&wv, SNAPSHOT).await.map(with_downloads)
         }
         "click" => {
             let wv = open_page(&app)?;
             let out = run(&wv, &click_script(param_str(params, "ref")?)).await?;
             // A click often navigates; let the next snapshot see the new page.
-            tokio::time::sleep(Duration::from_millis(300)).await;
+            // A download needs a moment longer to start and be filed.
+            tokio::time::sleep(Duration::from_millis(600)).await;
             settle(Duration::from_secs(15)).await;
-            Ok(out)
+            Ok(with_downloads(out))
         }
         "type" => {
             let wv = open_page(&app)?;
