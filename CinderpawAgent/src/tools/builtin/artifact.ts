@@ -19,16 +19,21 @@
  * Two are core tier (`artifact_list`, `artifact_read`) because a task cannot
  * move forward without knowing what exists. The other four live in the drawer.
  *
- * SECURITY. Nothing here opens a new hole: every write goes through
- * `resolveAllowedPath`, the same choke point `write_file` uses, so `read_only`
- * mode blocks an artifact edit for free and a path cannot escape the artifact
- * root. `artifact_export` is the only tool that writes outside it, and it can
+ * SECURITY. Nothing here opens a new hole: every store write goes through
+ * `artifactStoreGuard`, so `read_only` mode blocks an artifact edit and a path
+ * cannot escape the artifact root. `artifact_export` is the only tool that writes outside it, and it can
  * only reach the workspace roots the user already granted.
  */
 
 import type { Database } from "bun:sqlite";
 import type { Tool, ToolManifest } from "../../types.ts";
-import { resolveAllowedPath } from "../../egress/tool-permissions.ts";
+import { resolve } from "node:path";
+import {
+  PermissionDeniedError,
+  pathWithin,
+  realpathBestEffort,
+} from "../../egress/tool-permissions.ts";
+import { permissionMode } from "../../core/permission-mode.ts";
 import {
   ArtifactStore,
   isArtifactKind,
@@ -74,22 +79,30 @@ function line(a: Artifact): string {
  * would be enforced by whichever tools remembered to ask, which is the kind of
  * promise that has exactly as many holes as there are callers.
  *
- * One synthetic manifest, built once in boot, hands the store the same choke
- * point `write_file` uses: `resolveAllowedPath` refuses a write in `read_only`
- * mode and refuses any path outside the artifact root, including one reached
- * through a symlink. It throws, and the registry turns a throw into a
- * structured tool error, so there is nothing to catch here.
+ * It does NOT go through `resolveAllowedPath`. That function's deny wall
+ * refuses the whole profile dir, and the artifact root lives inside it, so the
+ * first version of this guard refused every write on every install (17 Sep:
+ * `artifact_create` failed twice with PermissionDeniedError). The wall is right
+ * to stay whole for the agent's own fs tools, which pick their paths; exempting
+ * `artifacts/` there would let `write_file` rewrite version bytes behind the
+ * store's back. The store picks its own paths from a uuid, so it keeps the two
+ * checks that still mean something here: `read_only` refuses a write, and the
+ * realpath of the target must stay inside the root. It throws, and the registry
+ * turns a throw into a structured tool error, so there is nothing to catch here.
  */
 export function artifactStoreGuard(root: string): (path: string, mode: "read" | "write") => string {
-  const manifest: ToolManifest = {
-    name: "artifact_store",
-    description: "internal: the artifact store's own file access",
-    permissions: ["fs:read", "fs:write"],
-    networkAccess: false,
-    allowedPaths: [root],
+  return (path, mode) => {
+    if (mode === "write" && permissionMode() === "read_only") {
+      throw new PermissionDeniedError(
+        `read-only mode: the artifact store may not write "${path}".`,
+      );
+    }
+    const target = realpathBestEffort(resolve(path));
+    if (!pathWithin(target, realpathBestEffort(resolve(root)))) {
+      throw new PermissionDeniedError(`path "${target}" is outside the artifact store`);
+    }
+    return path;
   };
-  return (path, mode) =>
-    resolveAllowedPath(manifest, mode === "write" ? "fs:write" : "fs:read", path);
 }
 
 export interface ArtifactToolDeps {
