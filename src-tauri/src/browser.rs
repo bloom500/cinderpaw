@@ -322,6 +322,8 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
                         let _ = wv.app_handle().emit("browser://download", json!({ "name": url.as_str(), "error": "the download failed" }));
                     }
                 }
+                // The enum is non-exhaustive: a kind Tauri adds later is allowed through.
+                _ => {}
             }
             true
         })
