@@ -271,12 +271,21 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         <ChromeButton label="Close browser" icon={X} onClick={close} />
       </form>
       {settingsOpen && <BrowserSettings engine={engine} onEngine={setEngine} />}
-      {agent && (
-        <p role="status" className="flex items-center gap-2 border-y border-brand/30 bg-brand/10 px-3 py-1.5 text-2xs text-text-primary">
-          <span className={cn('size-2 shrink-0 rounded-full bg-brand', agent.busy && 'animate-pulse')} aria-hidden />
-          {agentLine(agent)}
-        </p>
-      )}
+      {/* Floating over the toolbar, never in the flow: as a row of its own it
+          pushed the whole page down and back up on every agent action, which
+          read as the browser resizing (17 Sep). The page is a native view and
+          always paints above this, so it sits over the chrome, not the page. */}
+      <div className="relative h-0">
+        {agent && (
+          <p
+            role="status"
+            className="absolute left-1/2 top-0 z-10 flex -translate-x-1/2 -translate-y-full items-center gap-2 whitespace-nowrap rounded-full border border-brand/30 bg-bg-elevated px-3 py-1 text-2xs text-text-primary shadow-md"
+          >
+            <span className={cn('size-2 shrink-0 rounded-full bg-brand', agent.busy && 'animate-pulse')} aria-hidden />
+            {agentLine(agent)}
+          </p>
+        )}
+      </div>
       {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
       {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
       <div className="flex min-h-0 flex-1">
