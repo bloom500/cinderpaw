@@ -201,7 +201,11 @@ export class ZaloConnector implements LiveConnector {
           // Advance BEFORE handling: a message that makes the agent throw must
           // not be redelivered forever.
           if (Number.isFinite(id)) this.#offset = Math.max(this.#offset, id + 1);
-          await this.#onUpdate(update);
+          // Not awaited: a turn can be waiting on this person's NEXT message (an
+          // ask_user question, an approval), and that message only arrives through
+          // the next poll. Awaiting here left every such question unanswered until it
+          // timed out. Turns in one session still run in order: AgentLoop queues them.
+          void this.#onUpdate(update).catch((e) => this.#ctx?.log(`zalo: message error: ${String(e)}`));
         }
       } catch (e) {
         if (!this.#running) return;

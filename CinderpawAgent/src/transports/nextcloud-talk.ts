@@ -294,7 +294,13 @@ export class NextcloudTalkConnector implements LiveConnector {
         }
 
         for (const message of messages) {
-          await this.#onMessage(roomToken, message);
+          // Not awaited: a turn can be waiting on this person's NEXT message (an
+          // ask_user question, an approval), and that message only arrives through
+          // the next poll. Awaiting here left every such question unanswered until it
+          // timed out. Turns in one session still run in order: AgentLoop queues them.
+          void this.#onMessage(roomToken, message).catch((e) =>
+            this.#ctx?.log(`nextcloud-talk: message error: ${String(e)}`),
+          );
         }
       } catch (e) {
         if (!this.#running) return;

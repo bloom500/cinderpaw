@@ -90,3 +90,66 @@ describe("start() refuses to come up half-configured", () => {
     ).rejects.toThrow(/TELEGRAM_BOT_TOKEN.*BotFather/s);
   });
 });
+
+/**
+ * The long-poll loop must keep reading while a turn is waiting on the person.
+ *
+ * `ask_user` over Telegram is answered by the NEXT message in the chat, and
+ * that message only arrives through another `getUpdates`. A loop that awaits
+ * the turn before polling again never fetches the answer: the question sat
+ * unanswered until its five-minute timeout, on every approval, every time.
+ */
+describe("a question asked mid-turn can be answered", () => {
+  test("the reply that answers it is read while the turn is still running", async () => {
+    const { ChannelAskRouter } = await import("../src/core/ask-user-channel.ts");
+    const router = new ChannelAskRouter(5_000);
+    const sent: string[] = [];
+    const updates = [
+      { update_id: 1, message: { message_id: 10, from: { id: 7 }, chat: { id: 7, type: "private" }, text: "send it" } },
+      { update_id: 2, message: { message_id: 11, from: { id: 7 }, chat: { id: 7, type: "private" }, text: "1" } },
+    ];
+    const realFetch = globalThis.fetch;
+    const c = new TelegramConnector();
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      const method = String(url).split("/").pop();
+      if (method === "getMe") return Response.json({ ok: true, result: { id: 99 } });
+      if (method === "sendMessage") {
+        sent.push((JSON.parse(String(init?.body)) as { text: string }).text);
+        return Response.json({ ok: true });
+      }
+      // getUpdates: one update per poll, then an idle wait like a real long poll.
+      const next = updates.shift();
+      if (!next) await new Promise((r) => setTimeout(r, 20));
+      return Response.json({ ok: true, result: next ? [next] : [] });
+    }) as typeof fetch;
+
+    try {
+      const agent = {
+        async handle(sessionId: string) {
+          const [a] = await router.ask(
+            [{ question: "Send it?", header: "Send", multiSelect: false, options: [{ label: "Yes" }, { label: "No" }] }],
+            sessionId,
+          );
+          return `picked ${a?.selected[0]}`;
+        },
+      };
+      await c.start({
+        row: { id: "telegram", enabled: true, allowlist: ["7"] },
+        secrets: { TELEGRAM_BOT_TOKEN: "t" },
+        log: () => {},
+        agent,
+        askRouter: router,
+        runs: null,
+      } as unknown as Parameters<TelegramConnector["start"]>[0]);
+
+      const deadline = Date.now() + 2_000;
+      while (!sent.includes("picked Yes") && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(sent).toContain("picked Yes");
+    } finally {
+      await c.stop();
+      globalThis.fetch = realFetch;
+    }
+  });
+});

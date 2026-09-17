@@ -209,7 +209,13 @@ export class MatrixConnector implements LiveConnector {
         if (!sender || sender === this.#selfId) continue;
         const text = (ev.content.body ?? "").trim();
         if (!text) continue;
-        await this.#handle(roomId, sender, text, ev.event_id ?? "");
+        // Not awaited: a turn can be waiting on this person's NEXT message (an
+        // ask_user question, an approval), and that message only arrives through
+        // the next poll. Awaiting here left every such question unanswered until it
+        // timed out. Turns in one session still run in order: AgentLoop queues them.
+        void this.#handle(roomId, sender, text, ev.event_id ?? "").catch((e) =>
+          this.#ctx?.log(`matrix: message error: ${String(e)}`),
+        );
       }
     }
   }
