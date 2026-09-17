@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Check, Download, FileBox, Loader2, MessageSquare, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, Download, FileBox, FileUp, Loader2, MessageSquare, Pencil, Trash2, X } from 'lucide-react';
 import {
   ArtifactAction,
   ArtifactActions,
@@ -18,6 +18,7 @@ import { APP_IFRAME_SANDBOX } from '@/lib/artifactSandbox';
 const DocumentEditor = lazy(() => import('./ArtifactEditor').then((m) => ({ default: m.DocumentEditor })));
 const SourceEditor = lazy(() => import('./ArtifactEditor').then((m) => ({ default: m.SourceEditor })));
 const ChangesView = lazy(() => import('./ArtifactEditor').then((m) => ({ default: m.ChangesView })));
+const PdfEditor = lazy(() => import('./PdfEditor').then((m) => ({ default: m.PdfEditor })));
 
 function Loading() {
   return (
@@ -69,8 +70,9 @@ export function ArtifactsPanel({
 }) {
   const {
     rows, loaded, open, busy, error, lastExport, refresh, close, exportArtifact, deleteArtifact,
-    editing, startEdit, cancelEdit, save,
+    editing, startEdit, cancelEdit, save, importPdf,
   } = useArtifacts();
+  const pickRef = useRef<HTMLInputElement>(null);
   // Only the newest version is editable; an older one is restored instead.
   const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version;
 
@@ -173,6 +175,25 @@ export function ArtifactsPanel({
           )}
           {editing && (
             <ArtifactAction tooltip="Save" icon={Check} disabled={busy} onClick={() => void save()} />
+          )}
+          {!open && (
+            // Any PDF, not only ones Cinderpaw made: filling and signing a form
+            // someone sent you is the reason most people open a PDF editor.
+            <>
+              <ArtifactAction tooltip="Open a PDF" icon={FileUp} disabled={busy} onClick={() => pickRef.current?.click()} />
+              <input
+                ref={pickRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                aria-label="PDF file"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) void importPdf(file);
+                }}
+              />
+            </>
           )}
           {open && !editing && canEdit && (
             <ArtifactAction tooltip="Edit" icon={Pencil} disabled={busy} onClick={startEdit} />
@@ -277,12 +298,12 @@ function List({
 }
 
 /** Text the person can change. A pdf, an image or an uploaded file is not. */
-const EDITABLE_KINDS = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html']);
+const EDITABLE_KINDS = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html', 'pdf']);
 
 function Viewer() {
   const {
     open, lastExport, showVersion, editing, setDraft, conflict, save, cancelEdit, busy,
-    review, showChanges, hideChanges, restore,
+    review, showChanges, hideChanges, restore, applyPdf,
   } = useArtifacts();
   if (!open) return null;
   const { row, content, showing, versions } = open;
@@ -314,7 +335,9 @@ function Viewer() {
           </div>
         )}
         <Suspense fallback={<Loading />}>
-          {row.kind === 'document' ? (
+          {row.kind === 'pdf' ? (
+            <PdfEditor base64={content} fields={open.fields ?? []} editing busy={busy} onDraft={setDraft} />
+          ) : row.kind === 'document' ? (
             <DocumentEditor value={editing.draft} onChange={setDraft} />
           ) : (
             <SourceEditor value={editing.draft} onChange={setDraft} />
@@ -360,7 +383,7 @@ function Viewer() {
             onChange={(v) => void showVersion(Number(v))}
             className="h-7 text-2xs"
           />
-          {showing === row.version && showing > 1 && (
+          {showing === row.version && showing > 1 && row.kind !== 'pdf' && (
             <button
               type="button"
               onClick={() => void showChanges()}
@@ -396,7 +419,21 @@ function Viewer() {
         </p>
       )}
 
-      <Preview kind={row.kind} title={row.title} content={content} />
+      {row.kind === 'pdf' ? (
+        <Suspense fallback={<Loading />}>
+          <PdfEditor
+            base64={content}
+            fields={open.fields ?? []}
+            editing={false}
+            busy={busy}
+            // Turning or removing an old version's page would save on top of the
+            // newest one; restore it first.
+            {...(showing === row.version ? { onPageAction: (edit) => void applyPdf(edit) } : {})}
+          />
+        </Suspense>
+      ) : (
+        <Preview kind={row.kind} title={row.title} content={content} />
+      )}
     </>
   );
 }

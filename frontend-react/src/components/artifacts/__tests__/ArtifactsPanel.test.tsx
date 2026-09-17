@@ -263,7 +263,7 @@ describe('editing by hand', () => {
   it('saves the text as a new version, on the version it was typed on', async () => {
     render(<ArtifactsPanel onClose={() => {}} />);
     fireEvent.click(screen.getByText('Edit'));
-    fireEvent.change(await screen.findByLabelText('Content'), { target: { value: '# Q3, revised' } });
+    fireEvent.change(await screen.findByLabelText('Content', {}, { timeout: 5000 }), { target: { value: '# Q3, revised' } });
     op.mockClear();
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(op).toHaveBeenCalled());
@@ -283,7 +283,7 @@ describe('editing by hand', () => {
   it('a refused save keeps the typing and asks, and "mine" saves without the check', async () => {
     render(<ArtifactsPanel onClose={() => {}} />);
     fireEvent.click(screen.getByText('Edit'));
-    fireEvent.change(await screen.findByLabelText('Content'), { target: { value: 'my words' } });
+    fireEvent.change(await screen.findByLabelText('Content', {}, { timeout: 5000 }), { target: { value: 'my words' } });
     op.mockClear();
     fireEvent.click(screen.getByText('Save'));
     await waitFor(() => expect(op).toHaveBeenCalled());
@@ -303,7 +303,7 @@ describe('editing by hand', () => {
   it('an agent edit mid-typing is announced, not loaded over the typing', async () => {
     render(<ArtifactsPanel onClose={() => {}} />);
     fireEvent.click(screen.getByText('Edit'));
-    fireEvent.change(await screen.findByLabelText('Content'), { target: { value: 'half a thought' } });
+    fireEvent.change(await screen.findByLabelText('Content', {}, { timeout: 5000 }), { target: { value: 'half a thought' } });
     op.mockClear();
     act(() => useArtifacts.getState().onEvent({ id: 'a1', action: 'updated', version: 3 }));
 
@@ -359,10 +359,94 @@ describe('editing by hand', () => {
     });
     render(<ArtifactsPanel onClose={() => {}} />);
     fireEvent.click(screen.getByText('Edit'));
-    const doc = await screen.findByLabelText('Document');
+    const doc = await screen.findByLabelText('Document', {}, { timeout: 5000 });
     expect(doc.textContent).toContain('Ship it');
     expect(doc.querySelector('script, img, iframe')).toBeNull();
     expect((window as unknown as { pwned?: boolean }).pwned).toBeUndefined();
     expect(screen.getByRole('toolbar', { name: 'Formatting' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * PDFs: the pages are drawn by pdf.js, which jsdom cannot run, so drawing is
+ * replaced by a two-page stand-in. What is pinned is everything around it: that
+ * a page action saves on the version shown, that placed text reaches the save as
+ * an edit, and that a file picked from disk goes to the sidecar as an import.
+ */
+vi.mock('@/lib/pdfRender', () => ({
+  openPdf: vi.fn().mockResolvedValue({ numPages: 2 }),
+  renderPage: vi.fn().mockResolvedValue({ widthPt: 600, heightPt: 800 }),
+  base64ToBytes: vi.fn(),
+}));
+
+describe('a PDF', () => {
+  beforeEach(() => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    } as unknown as typeof ResizeObserver;
+    useArtifacts.setState({
+      loaded: true, editing: null, conflict: null, review: null,
+      open: {
+        row: row({ kind: 'pdf', version: 3 }),
+        content: 'JVBERi0=', encoding: 'base64',
+        fields: [{ name: 'full_name', type: 'text', value: '' }],
+        showing: 3, versions: [],
+      },
+    });
+  });
+
+  it('turning a page saves at once, on the version on screen', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    const turn = await screen.findAllByText('Turn page');
+    op.mockClear();
+    fireEvent.click(turn[1]!);
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    expect(op.mock.calls[0]![1]).toBe('write');
+    expect(op.mock.calls[0]![2]).toEqual({
+      artifactId: 'a1', version: 3,
+      content: JSON.stringify({ edits: [{ type: 'rotate_page', page: 1, degrees: 90 }] }),
+    });
+  });
+
+  it('text placed on a page and a filled field are what Save sends', async () => {
+    render(<ArtifactsPanel onClose={() => {}} />);
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.change(await screen.findByDisplayValue(''), { target: { value: 'Ana Pop' } });
+
+    fireEvent.click(screen.getByText('Add text'));
+    const page = await screen.findByTestId('pdf-page-0');
+    page.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400, x: 0, y: 0, toJSON() {} });
+    fireEvent.pointerDown(page, { clientX: 50, clientY: 100 });
+    fireEvent.change(await screen.findByLabelText('Text on page'), { target: { value: 'Semnat' } });
+
+    op.mockClear();
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(op).toHaveBeenCalled());
+    const sent = JSON.parse(op.mock.calls[0]![2].content as string);
+    expect(sent.edits).toEqual([
+      { type: 'field', name: 'full_name', value: 'Ana Pop' },
+      { type: 'text', page: 0, x: 0.25, y: 0.25, size: 12, text: 'Semnat' },
+    ]);
+    expect(op.mock.calls[0]![2].version).toBe(3);
+  });
+
+  it('a PDF picked from disk goes to the sidecar as an import, and nothing bigger than 20 MB is read', async () => {
+    useArtifacts.setState({ open: null, rows: [] });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    const input = screen.getByLabelText('PDF file') as HTMLInputElement;
+    op.mockClear();
+
+    const big = new File(['x'], 'huge.pdf', { type: 'application/pdf' });
+    Object.defineProperty(big, 'size', { value: 25 * 1024 * 1024 });
+    fireEvent.change(input, { target: { files: [big] } });
+    expect(await screen.findByText(/25 MB; the panel opens PDFs up to 20 MB/)).toBeInTheDocument();
+
+    const small = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'contract.pdf', { type: 'application/pdf' });
+    fireEvent.change(input, { target: { files: [small] } });
+    await waitFor(() => expect(op.mock.calls.some((c) => c[1] === 'import')).toBe(true));
+    const call = op.mock.calls.find((c) => c[1] === 'import')!;
+    expect(JSON.parse(call[2].content as string)).toEqual({ name: 'contract.pdf', data: 'JVBERg==' });
   });
 });

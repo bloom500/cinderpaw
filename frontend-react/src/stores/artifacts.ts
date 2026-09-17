@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { tauri } from '@/lib/tauri';
+import type { PdfEdit } from '@/lib/pdfEdits';
+import type { PdfFieldRow } from '@/components/artifacts/PdfEditor';
 
 /**
  * The workspace: everything the agent made that outlived its conversation.
@@ -36,7 +38,11 @@ export interface ArtifactVersionRow {
 /** What the viewer is showing, including which version of it. */
 export interface OpenArtifact {
   row: ArtifactRow;
+  /** Text, or for a pdf the file in base64 (see `encoding`). */
   content: string;
+  encoding?: 'base64';
+  /** A pdf's form fields. */
+  fields?: PdfFieldRow[];
   /** The version being shown, which is not always the newest one. */
   showing: number;
   versions: ArtifactVersionRow[];
@@ -50,9 +56,16 @@ type Pending =
   | { kind: 'delete'; id: string }
   | { kind: 'save'; id: string }
   | { kind: 'restore'; id: string }
-  | { kind: 'compare'; id: string; version: number };
+  | { kind: 'compare'; id: string; version: number }
+  | { kind: 'import' };
 
-export type ArtifactAction = 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore';
+export type ArtifactAction = 'list' | 'get' | 'versions' | 'export' | 'delete' | 'write' | 'restore' | 'import';
+
+/** A draft with nothing in it yet, for a pdf. */
+export const EMPTY_PDF_DRAFT = JSON.stringify({ edits: [] });
+
+/** The panel opens PDFs up to this size; the sidecar enforces the same number. */
+const PDF_MAX_BYTES = 20 * 1024 * 1024;
 
 /**
  * The person's edit in progress. `base` is the version they started from, kept
@@ -108,6 +121,10 @@ interface ArtifactsStore {
   /** Load the version before the one shown, to see what changed. */
   showChanges: () => Promise<void>;
   hideChanges: () => void;
+  /** Turn or remove a page of the open pdf: saved at once, as a new version. */
+  applyPdf: (edit: PdfEdit) => Promise<void>;
+  /** A PDF from the person's disk, as a new artifact that then opens. */
+  importPdf: (file: File) => Promise<void>;
   close: () => void;
   /** Called by the event stream. */
   /**
@@ -120,7 +137,7 @@ interface ArtifactsStore {
   onResult: (e: {
     id: string; ok: boolean; items?: ArtifactRow[]; content?: string;
     versions?: ArtifactVersionRow[]; path?: string; note?: string; error?: string;
-    conflict?: number;
+    conflict?: number; encoding?: 'base64'; fields?: PdfFieldRow[];
   }) => void;
 }
 
@@ -218,7 +235,8 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     // make v5 out of v2 and quietly undo two edits; restoring v2 is the honest
     // way to ask for that, and it is one button away.
     if (!open || open.showing !== open.row.version) return;
-    set({ editing: { draft: open.content, base: open.row.version }, conflict: null, review: null });
+    const draft = open.row.kind === 'pdf' ? EMPTY_PDF_DRAFT : open.content;
+    set({ editing: { draft, base: open.row.version }, conflict: null, review: null });
   },
 
   setDraft: (draft) => {
@@ -272,6 +290,37 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   },
 
   hideChanges: () => set({ review: null }),
+
+  applyPdf: async (edit) => {
+    const open = get().open;
+    if (!open || open.row.kind !== 'pdf') return;
+    set({ busy: true, error: null });
+    try {
+      await send({ kind: 'save', id: open.row.id }, 'write', {
+        artifactId: open.row.id,
+        content: JSON.stringify({ edits: [edit] }),
+        version: open.row.version,
+      });
+    } catch (e) {
+      set({ busy: false, error: String(e) });
+    }
+  },
+
+  importPdf: async (file) => {
+    // Refused here too, before a 200 MB file is read into memory and base64'd,
+    // with a sentence that names the limit.
+    if (file.size > PDF_MAX_BYTES) {
+      set({ error: `That PDF is ${Math.ceil(file.size / 1024 / 1024)} MB; the panel opens PDFs up to 20 MB.` });
+      return;
+    }
+    set({ busy: true, error: null });
+    try {
+      const data = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+      await send({ kind: 'import' }, 'import', { content: JSON.stringify({ name: file.name, data }) });
+    } catch (e) {
+      set({ busy: false, error: String(e) });
+    }
+  },
 
   close: () => set({ open: null, lastExport: null, error: null, editing: null, conflict: null, review: null }),
 
@@ -345,6 +394,8 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
           open: {
             row,
             content: e.content,
+            encoding: e.encoding,
+            fields: e.fields,
             showing: p.version ?? row.version,
             // Versions arrive in their own reply, which may land first or
             // second. Keeping what we already have means neither order loses.
@@ -386,9 +437,19 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
           editing: null,
           conflict: null,
           review: null,
-          open: { row, content: e.content, showing: row.version, versions: prev.versions },
+          open: {
+            row, content: e.content, encoding: e.encoding, fields: e.fields,
+            showing: row.version, versions: prev.versions,
+          },
         });
         void send({ kind: 'versions', id: row.id }, 'versions', { artifactId: row.id }).catch(() => {});
+        return;
+      }
+      case 'import': {
+        set({ busy: false, error: null });
+        const row = e.items?.[0];
+        void get().refresh();
+        if (row) void get().openArtifact(row.id);
         return;
       }
       case 'compare': {
@@ -401,6 +462,15 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
   },
 }));
+
+/** Chunked, because spreading a multi-megabyte array into one call overflows the stack. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
 
 /** Test seam: forget every in-flight request between cases. */
 export function resetArtifactRequests(): void {

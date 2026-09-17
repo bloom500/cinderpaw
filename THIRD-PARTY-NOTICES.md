@@ -115,6 +115,28 @@ paid once inside an exported file, by the people who asked for a chart.
 
 ---
 
+## Noto Sans — the letters inside a PDF artifact
+
+**Copied verbatim into:** `CinderpawAgent/src/artifacts/vendor/fonts/NotoSans-Regular.ttf`
+and `NotoSans-Bold.ttf`
+
+- **Source:** Google Fonts' static builds of Noto Sans v42 (weights 400 and 700)
+- **License:** SIL Open Font License 1.1, full text in
+  `CinderpawAgent/src/artifacts/vendor/fonts/OFL.txt`
+- **Copyright:** The Noto Project Authors
+- **Modifications:** none. Regular 556,328 bytes (sha256 starting `5be701a9`), Bold
+  558,012 bytes (sha256 starting `9f0ce911`).
+
+Bundled because the 14 standard PDF fonts only cover Windows-1252: without an
+embedded font, the first PDF anyone makes in Romanian either fails or prints
+boxes where "ă", "ș" and "ț" should be. It is embedded into each generated PDF as
+a subset, which the OFL permits; the font is never sold on its own.
+
+It IS in the sidecar binary (about 1.1 MB), which is why the licence file sits
+beside it rather than only in this note.
+
+---
+
 ## grapheme_to_phoneme and arpabet — pronouncing words the dictionary lacks
 
 **Used in:** `crates/cinderpaw-core/src/tts/g2p.rs` (the `kokoro` feature)
