@@ -173,3 +173,7 @@ docs/specs/2026-*.md
 nul
 # Process memory dumps. Never in a public repo: they can carry live keys.
 *.dmp
+
+# Google OAuth client for the Google Docs button: developer-side, never committed.
+google-oauth-client/
+google-oauth-client.json
