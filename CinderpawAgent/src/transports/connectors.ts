@@ -27,6 +27,7 @@ import {
   ChannelType,
   Partials,
   type Message,
+  type MessageCreateOptions,
 } from "discord.js";
 import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
@@ -39,6 +40,7 @@ import {
   transportFor,
   type ConnectorContext,
   type LiveConnector,
+  type OutboundFile,
 } from "./registry.ts";
 import { ChannelAskRouter } from "../core/ask-user-channel.ts";
 import { readAttachments } from "./attachments.ts";
@@ -670,6 +672,9 @@ export function allowSummary(size: number): string {
     : `${size} allowed`;
 }
 
+/** Discord's upload limit for a bot in a server without boosts. */
+const DISCORD_FILE_MAX_BYTES = 10 * 1024 * 1024;
+
 export class DiscordConnector {
   readonly #token: string;
   readonly #allow: Set<string>;
@@ -740,6 +745,25 @@ export class DiscordConnector {
     if (ch && "send" in ch) await ch.send(text);
   }
 
+  /** A file into the same channel `send` would use. */
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    if (file.data.byteLength > DISCORD_FILE_MAX_BYTES) {
+      throw new Error(
+        `"${file.name}" is ${Math.ceil(file.data.byteLength / 1024 / 1024)} MB and Discord lets a bot upload at most 10 MB.`,
+      );
+    }
+    const ch = await this.#discordTarget(sessionId);
+    if (!ch) {
+      // `send` stays quiet here because its caller is an ask that will time
+      // out anyway. A file somebody approved sending must not vanish the same way.
+      throw new Error("Discord could not open that channel or DM (the bot may have lost access to it).");
+    }
+    await ch.send({
+      content: file.caption.slice(0, 2000),
+      files: [{ attachment: Buffer.from(file.data), name: file.name }],
+    });
+  }
+
   health(): ConnectorHealth {
     return { live: this.#client !== null };
   }
@@ -762,7 +786,7 @@ export class DiscordConnector {
    * the user id (the DM channel id is not stable enough to key a session on),
    * so we re-open the DM; channel sessions carry the channel id.
    */
-  async #discordTarget(sessionId: string): Promise<{ send(text: string): unknown } | null> {
+  async #discordTarget(sessionId: string): Promise<{ send(message: string | MessageCreateOptions): unknown } | null> {
     const parsed = parseDiscordSession(sessionId);
     if (!parsed) return null;
     try {
@@ -771,7 +795,7 @@ export class DiscordConnector {
         return (await user?.createDM()) ?? null;
       }
       const ch = await this.#client?.channels.fetch(parsed.target);
-      return ch && "send" in ch ? (ch as unknown as { send(text: string): unknown }) : null;
+      return ch && "send" in ch ? (ch as unknown as { send(message: string | MessageCreateOptions): unknown }) : null;
     } catch {
       return null; // channel/user gone — the ask just times out
     }
@@ -1540,6 +1564,10 @@ registerTransport("discord", (): LiveConnector => {
     async send(sessionId, text) {
       await inner?.send(sessionId, text);
     },
+    async sendFile(sessionId, file) {
+      if (!inner) throw new Error("Discord is not connected.");
+      await inner.sendFile(sessionId, file);
+    },
   };
 });
 
@@ -1806,6 +1834,27 @@ export class ConnectorManager {
   async send(sessionId: string, text: string): Promise<void> {
     const id = sessionId.split(":", 1)[0] ?? "";
     await this.#live.get(id)?.send(sessionId, text);
+  }
+
+  /**
+   * Can the chat behind `sessionId` take a file right now?
+   *
+   * Two refusals, because they are different sentences for the person:
+   * `not_connected` means this conversation is not in a running chat app at all
+   * (the desktop, a voice call, a connector that is off); `no_file_channel`
+   * means the app is there but cannot carry a file.
+   */
+  fileChannel(sessionId: string): "ready" | "not_connected" | "no_file_channel" {
+    const live = this.#live.get(sessionId.split(":", 1)[0] ?? "");
+    if (!live) return "not_connected";
+    return live.sendFile ? "ready" : "no_file_channel";
+  }
+
+  /** Put a file in the channel behind `sessionId`. Throws the platform's reason. */
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const live = this.#live.get(sessionId.split(":", 1)[0] ?? "");
+    if (!live?.sendFile) throw new Error("That chat app is not connected, or cannot carry a file.");
+    await live.sendFile(sessionId, file);
   }
 
   /** Record what a reconcile actually achieved. */

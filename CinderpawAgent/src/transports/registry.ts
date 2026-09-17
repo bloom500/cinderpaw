@@ -52,6 +52,27 @@ export interface LiveConnector {
   /** What actually connected, as opposed to what the config asks for. */
   health(): ConnectorHealth;
   send(sessionId: string, text: string): Promise<void>;
+  /**
+   * Put a file in the chat behind `sessionId`. Optional on purpose: a platform
+   * that cannot carry a file (IRC, SMS, Nostr) simply does not have it, and
+   * whether a connector can deliver is then a fact read off the object, not a
+   * flag somebody has to remember to keep true.
+   *
+   * Bytes, not a path: the file comes out of the artifact store, which lives in
+   * the private profile dir, and writing a temporary copy just so a transport
+   * can read it back would put that copy somewhere the deny wall does not cover.
+   *
+   * Throws a sentence the person can act on (too large, bot lacks permission).
+   */
+  sendFile?(sessionId: string, file: OutboundFile): Promise<void>;
+}
+
+export interface OutboundFile {
+  /** The name the recipient sees, extension included. */
+  name: string;
+  data: Uint8Array;
+  /** One short line sent with the file. */
+  caption: string;
 }
 
 export type ConnectorFactory = () => LiveConnector;

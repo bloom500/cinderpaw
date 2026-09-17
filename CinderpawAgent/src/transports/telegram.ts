@@ -21,8 +21,9 @@
  * protocol details worth stealing from them are the ones below — the offset
  * discipline, the 409, the 4096 limit — not the framework around them.
  *
- * ponytail: no media, no inline keyboards, no edited-message handling. Text
- * both ways, which is what every other connector here does. Add a piece the
+ * ponytail: no inbound media, no inline keyboards, no edited-message handling.
+ * Text both ways, plus one outbound file (`sendDocument`) because an artifact
+ * made from Telegram has to be able to come back to Telegram. Add a piece the
  * day someone asks for that piece.
  */
 
@@ -33,10 +34,19 @@ import {
   type ConnectorHealth,
 } from "./connectors.ts";
 import { chatStyleBrief, formatForChat } from "./chat-format.ts";
-import { registerTransport, type ConnectorContext, type LiveConnector } from "./registry.ts";
+import {
+  registerTransport,
+  type ConnectorContext,
+  type LiveConnector,
+  type OutboundFile,
+} from "./registry.ts";
 
 /** Telegram rejects a sendMessage body over 4096 characters. */
 const TELEGRAM_MAX = 4000;
+
+/** A bot may upload at most 50 MB; a document caption is capped at 1024. */
+const TELEGRAM_FILE_MAX_BYTES = 50 * 1024 * 1024;
+const TELEGRAM_CAPTION_MAX = 1024;
 
 /**
  * How long Telegram holds an empty `getUpdates` open before answering.
@@ -148,6 +158,33 @@ export class TelegramConnector implements LiveConnector {
     if (!target) return;
     for (const part of formatForChat(text, TELEGRAM_MAX)) {
       await this.#api("sendMessage", { chat_id: target.chatId, text: part });
+    }
+  }
+
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const target = parseTelegramSession(sessionId);
+    if (!target) return;
+    if (file.data.byteLength > TELEGRAM_FILE_MAX_BYTES) {
+      throw new Error(
+        `"${file.name}" is ${Math.ceil(file.data.byteLength / 1024 / 1024)} MB and Telegram lets a bot send at most 50 MB.`,
+      );
+    }
+    // sendDocument, not sendPhoto: a document arrives as the file itself, with
+    // its name, instead of being recompressed into a picture.
+    const form = new FormData();
+    form.append("chat_id", target.chatId);
+    form.append("caption", file.caption.slice(0, TELEGRAM_CAPTION_MAX));
+    form.append("document", new Blob([file.data]), file.name);
+    const res = await fetch(`https://api.telegram.org/bot${this.#token}/sendDocument`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      // Telegram says why in `description` ("chat not found", "bot was blocked
+      // by the user"). That sentence is the useful part, so it is passed on.
+      const why = ((await res.json().catch(() => ({}))) as { description?: string }).description;
+      throw new Error(`Telegram refused the file: ${why ?? `HTTP ${res.status}`}`);
     }
   }
 

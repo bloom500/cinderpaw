@@ -72,7 +72,7 @@ export const EXTENDED_TOOLS = new Set<string>([
   "time_date",
   "http_request",
   "tool_health",
-  // Four of the six artifact tools. `artifact_list` and `artifact_read` stay
+  // Five of the seven artifact tools. `artifact_list` and `artifact_read` stay
   // core, by the rule this file is built on: a task cannot move forward without
   // knowing what already exists, and making the model spend a drawer round trip
   // to find that out is how it ends up writing a second copy of a document the
@@ -82,6 +82,7 @@ export const EXTENDED_TOOLS = new Set<string>([
   "artifact_edit",
   "artifact_export",
   "artifact_delete",
+  "artifact_send",
   // Added 2026-08-26 and immediately drawered, by its own evidence: the boot
   // line went from 41 of 85 tools to 42 of 86 and the per-completion floor
   // from 12,793 to 13,053 — a tool for reading the token bill was costing

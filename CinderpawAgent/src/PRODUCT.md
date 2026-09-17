@@ -227,10 +227,10 @@ whatever it did not know was there.
 
 A reply scrolls away; an artifact does not. `artifact_create` stores a document,
 chart, table, code or data file under a stable id; `artifact_list` and
-`artifact_read` find it again from any surface, so one made on WhatsApp is the
-one the desktop opens; `artifact_edit` changes one span and leaves the rest,
-each edit a new version that can be rolled back; `artifact_export` writes a real
-file; `artifact_delete` hides one without destroying it.
+`artifact_read` find it from any surface; `artifact_edit` changes one span as a
+new version that can be rolled back; `artifact_export` writes a real file;
+`artifact_delete` hides one; `artifact_send` puts one into the Telegram or
+Discord chat you asked from, once you approve.
 
 ## Teammates (Agent Cowork)
 

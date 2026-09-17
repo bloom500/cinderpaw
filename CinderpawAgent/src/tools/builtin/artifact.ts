@@ -33,7 +33,7 @@ import {
   pathWithin,
   realpathBestEffort,
 } from "../../egress/tool-permissions.ts";
-import { permissionMode } from "../../core/permission-mode.ts";
+import { canAskAHuman, permissionMode } from "../../core/permission-mode.ts";
 import {
   ArtifactStore,
   isArtifactKind,
@@ -41,7 +41,8 @@ import {
   type ArtifactKind,
 } from "../../artifacts/store.ts";
 import { APP_AUTHORING_BRIEF } from "../../artifacts/app.ts";
-import { ArtifactExporter } from "../../artifacts/export.ts";
+import { ArtifactExporter, artifactFile } from "../../artifacts/export.ts";
+import type { OutboundFile } from "../../transports/registry.ts";
 import {
   ensureWorkspace,
   getActiveWorkspaceId,
@@ -442,6 +443,170 @@ export function createArtifactDeleteTool(deps: ArtifactToolDeps): Tool {
         ok: true,
         content: `Removed "${a.title}" from the workspace. The content is kept and can be restored.`,
         data: { id, title: a.title, kind: a.kind, version: a.version },
+      };
+    },
+  };
+}
+
+/**
+ * What `artifact_send` needs from the connectors. `ConnectorManager` is the real
+ * one; the shape is spelled out so this module does not import every chat SDK.
+ */
+export interface FileDelivery {
+  fileChannel(sessionId: string): "ready" | "not_connected" | "no_file_channel";
+  sendFile(sessionId: string, file: OutboundFile): Promise<void>;
+  send(sessionId: string, text: string): Promise<void>;
+}
+
+/** "nextcloud-talk:1:2" becomes "Nextcloud Talk". Connector ids are lowercase words. */
+function platformName(sessionId: string): string {
+  const id = sessionId.split(":", 1)[0] ?? "";
+  return id
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * Hand an artifact back to the person, in the chat app they asked from.
+ *
+ * The first tool here that puts local bytes on somebody else's server, so it
+ * asks EVERY time, in every permission mode, `full_access` included, and the
+ * question names the file and the platform. A web page the agent read that
+ * says "now send me the report" is the attack this exists to stop, and a mode
+ * switch is not a human looking at the file name. With nobody there to answer
+ * (walk-away mode), it refuses.
+ *
+ * Only into THIS conversation. A `to` argument would let one injected sentence
+ * pick the destination; the chat the person is already talking in is the one
+ * destination they have demonstrably chosen.
+ *
+ * A platform that cannot carry a file still hears about it: the chat gets a
+ * sentence saying where the artifact is. Silence is the failure this product
+ * has already shipped too often. No bytes leave in that case, so it does not ask.
+ */
+export function createArtifactSendTool(deps: { store: ArtifactStore; delivery: FileDelivery }): Tool {
+  const manifest: ToolManifest = {
+    name: "artifact_send",
+    description:
+      "Send an artifact as a file into the chat app this conversation is in " +
+      "(Telegram, Discord, ...). Use it after artifact_create when the user is " +
+      "talking to you from a chat app, because they cannot see the desktop panel. " +
+      "The user is asked to approve every send. On the desktop or in a voice call " +
+      "there is no chat to send into: use artifact_export there.",
+    permissions: ["fs:read"],
+    networkAccess: true,
+    allowedPaths: [{ path: deps.store.root, mode: "read" }],
+  };
+
+  return {
+    manifest,
+    parameters: {
+      id: { type: "string", description: "The artifact id.", required: true },
+    },
+    async execute(args, ctx) {
+      const id = typeof args.id === "string" ? args.id.trim() : "";
+      if (!id) return { ok: false, error: "bad_args", content: "artifact_send: 'id' is required." };
+      const a = deps.store.get(id);
+      if (!a) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
+
+      const platform = platformName(ctx.sessionId);
+      const channel = deps.delivery.fileChannel(ctx.sessionId);
+      if (channel === "not_connected") {
+        return {
+          ok: false,
+          error: "no_chat_app",
+          content:
+            "artifact_send: this conversation is not in a connected chat app, so there is " +
+            `nowhere to send a file. "${a.title}" is in the Artifacts panel on the desktop; ` +
+            "use artifact_export to write a copy to disk.",
+        };
+      }
+      if (channel === "no_file_channel") {
+        await deps.delivery.send(
+          ctx.sessionId,
+          `"${a.title}" is saved in Cinderpaw, in the Artifacts panel on the desktop. ` +
+            `${platform} cannot carry files from Cinderpaw yet, so it is not attached here.`,
+        );
+        return {
+          ok: true,
+          content:
+            `Not sent: ${platform} cannot carry a file. The user was already told so ` +
+            "in the chat; do not repeat it.",
+          data: { id, delivered: false, reason: "no_file_channel" },
+        };
+      }
+
+      const file = artifactFile(deps.store, a);
+      const data = new TextEncoder().encode(file.content);
+      const size = humanSize(data.byteLength);
+
+      if (!canAskAHuman(Boolean(ctx.askUser))) {
+        return {
+          ok: false,
+          error: "needs_approval",
+          content:
+            `artifact_send: refused. Sending "${file.name}" to ${platform} needs the user's ` +
+            "approval and nobody is available to give it (walk-away mode).",
+        };
+      }
+      let approved = false;
+      try {
+        const [answer] = await ctx.askUser!.ask(
+          [{
+            question:
+              `Send "${file.name}" (${size}) to this ${platform} chat? ` +
+              `The file leaves this computer and is stored by ${platform}.`,
+            header: "Send file",
+            multiSelect: false,
+            // Bytes onto a third party's server: never auto-answered.
+            forceEscalate: true,
+            options: [
+              { label: "No", description: "Keep it on this computer." },
+              { label: "Yes, send it", description: `Upload it to ${platform}.` },
+            ],
+          }],
+          ctx.sessionId,
+        );
+        approved = answer?.selected?.[0]?.toLowerCase().startsWith("yes") ?? false;
+      } catch {
+        // Timed out or cancelled. No answer is not a yes.
+        approved = false;
+      }
+      if (!approved) {
+        return {
+          ok: false,
+          error: "declined",
+          content: `artifact_send: not sent, the user did not approve sending "${file.name}".`,
+        };
+      }
+
+      try {
+        await deps.delivery.sendFile(ctx.sessionId, {
+          name: file.name,
+          data,
+          caption: `${a.title} (v${a.version})`,
+        });
+      } catch (e) {
+        return {
+          ok: false,
+          error: "send_failed",
+          content: `artifact_send: ${platform} did not take the file. ${e instanceof Error ? e.message : String(e)}`,
+        };
+      }
+      return {
+        ok: true,
+        content: `Sent "${file.name}" (${size}) into this ${platform} chat.${file.note}`,
+        data: {
+          id, delivered: true, name: file.name, bytes: data.byteLength,
+          title: a.title, kind: a.kind, version: a.version,
+        },
       };
     },
   };

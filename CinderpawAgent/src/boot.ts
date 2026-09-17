@@ -79,6 +79,7 @@ import {
   artifactStoreGuard,
   createArtifactCreateTool,
   createArtifactDeleteTool,
+  createArtifactSendTool,
   createArtifactEditTool,
   createArtifactExportTool,
   createArtifactListTool,
@@ -2317,6 +2318,10 @@ export async function boot(transportOverride?: Transport) {
   // to Discord/Slack/WhatsApp on user request. Writes ~/.cinderpaw/connectors.json
   // (the one deliberate exception to the deny wall) and hot-reloads the manager.
   registry.register(createConnectorsManageTool(connectors));
+  // artifact_send hands an artifact back through a connector, so it is the one
+  // artifact tool that cannot be registered with the other six above: the
+  // connectors do not exist yet at that point in boot.
+  registry.register(createArtifactSendTool({ store: artifactStore, delivery: connectors }));
 
   // F6 — self.* runtime introspection tools (the agent's mental model of
   // its own substrate). Registered after `connectors` so the connector
