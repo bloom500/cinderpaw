@@ -57,6 +57,7 @@ import { resolveExecutables } from "../../core/executables.ts";
 import { cinderpawHome, readEnv } from "../../config.ts";
 import { classifyCommand, recordIntent } from "../../core/command-intent.ts";
 import { readMaxTimeoutMs } from "../../egress/process-sandbox.ts";
+import { snapshottable } from "../../core/safety-point.ts";
 import {
   canAskAHuman,
   decideIntent,
@@ -195,7 +196,12 @@ export function destructiveOutsideRoots(argv: string[], roots: string[]): string
   // Scratch space the agent is expected to churn through. Its own temp files
   // are not the user's work, and refusing to clean them up teaches the agent
   // to leave litter.
-  const allowed = [...roots, tmpdir(), cinderpawHome()];
+  //
+  // A root only excuses destruction because the safety point can undo it, so
+  // a root the safety point refuses to snapshot (the home directory, a drive)
+  // excuses nothing. Home is a root on every default install; without this,
+  // `rm -rf ~/Documents` was "inside the workspace" and ran with no question.
+  const allowed = [...roots.filter((r) => snapshottable(r) === null), tmpdir(), cinderpawHome()];
   for (const match of line.match(ABSOLUTE_PATH) ?? []) {
     // "/" and "C:\" alone are the catastrophic case the denylist already owns;
     // leaving them here too costs nothing and closes the ordering question.

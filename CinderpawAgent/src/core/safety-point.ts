@@ -143,7 +143,7 @@ function shadowDirFor(root: string): string {
  * mean indexing everything the user owns, which is slow, enormous, and not what
  * anyone means by "protect my project".
  */
-function snapshottable(root: string): string | null {
+export function snapshottable(root: string): string | null {
   const r = resolve(root);
   if (r === resolve(homedir())) return "workspace root is the home directory";
   // "C:\\", "/", "D:/" and friends.

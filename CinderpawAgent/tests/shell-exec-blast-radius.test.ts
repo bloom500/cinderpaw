@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { destructiveOutsideRoots } from "../src/tools/builtin/shell-exec.ts";
 
@@ -52,6 +52,14 @@ describe("destructive commands outside the workspace", () => {
   test("reading outside the workspace is not destruction", () => {
     expect(destructiveOutsideRoots(["cat", outside], ROOTS)).toBeNull();
     expect(destructiveOutsideRoots(["grep", "-r", "token", outside], ROOTS)).toBeNull();
+  });
+
+  test("the home directory as a root protects nothing: nothing can undo it", () => {
+    // Home is a default root (boot.ts). The safety point refuses to snapshot
+    // it, so a delete under it has no undo and must go to the human.
+    const doc = join(homedir(), "Documents", "thesis");
+    expect(destructiveOutsideRoots(["rm", "-rf", doc], [homedir(), ...ROOTS])).toBe(doc);
+    expect(destructiveOutsideRoots(["rm", "-rf", join(ROOTS[0]!, "build")], [homedir(), ...ROOTS])).toBeNull();
   });
 
   test("the system temp dir is scratch space, not somebody's work", () => {
