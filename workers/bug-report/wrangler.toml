@@ -9,6 +9,6 @@ compatibility_date = "2026-09-01"
 # Until the id is filled in and deployed, /install answers 204 and counts
 # nothing — the app is never told, because a person's install being counted or
 # not is not their problem to see an error about.
-# [[kv_namespaces]]
-# binding = "INSTALLS"
-# id = "<paste the id wrangler prints>"
+[[kv_namespaces]]
+binding = "INSTALLS"
+id = "29e93ff872f940cab07db4faf3720e14"
