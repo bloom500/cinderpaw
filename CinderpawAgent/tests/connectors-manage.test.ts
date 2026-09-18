@@ -9,7 +9,6 @@
  * the previous file content afterward.
  */
 import "../src/boot.ts";
-import { registeredTransports } from "../src/transports/registry.ts";
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -56,8 +55,14 @@ test("list returns the catalog with secrets redacted to present/absent", async (
   const discord = parsed.find((c) => c.id === "discord")!;
   expect(discord.enabled).toBe(true);
   expect(discord.configured[0]!.present).toBe(true);
-  // Every transport this build can run, and nothing it cannot.
-  expect(parsed.map((c) => c.id).sort()).toEqual(registeredTransports().sort());
+  // "Every transport this build can run, and nothing it cannot" used to be
+  // asserted here against the LIVE registry, which any other test file in the
+  // same process can add a double to — `connector-manager-registry.test.ts`
+  // registers "steady", and this test failed whenever the two ran together,
+  // i.e. only in a full-suite run. The rule is worth keeping and is now in
+  // `connector-catalog-transports.test.ts`, checked against the committed
+  // catalog golden, which no test double can reach.
+  expect(parsed.length).toBeGreaterThan(0);
 });
 
 test("configure upserts a row, persists it, and pokes reload()", async () => {

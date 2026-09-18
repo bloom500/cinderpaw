@@ -47,7 +47,9 @@ interface CatalogEntry {
   steps?: string[];
 }
 
-const CATALOG: Record<string, CatalogEntry> = {
+/** Exported for `tests/connector-catalog-transports.test.ts`: what the agent
+ *  can talk a user through has to be what the build can actually start. */
+export const CATALOG: Record<string, CatalogEntry> = {
   discord: {
     secrets: ["DISCORD_TOKEN"],
     note: "Bot token from the Discord Developer Portal (Bot → Reset Token). The bot must be invited to the server with the Message Content intent enabled.",
@@ -199,6 +201,47 @@ const CATALOG: Record<string, CatalogEntry> = {
       "Create a bot and copy its token.",
       "Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
       "Put your own Zalo user id in the allowlist.",
+    ],
+  },
+  // The three ported from OpenClaw last, and the only ones no one has run
+  // against the real thing yet. Their steps say that out loud: a user who
+  // hits a wall should know whether they mistyped something or found our bug.
+  imessage: {
+    secrets: [],
+    note: "macOS only. Talks to Messages.app through the `imsg` bridge; nothing leaves the Mac. Needs Full Disk Access (to read chat.db) and Automation permission (to send). Optional IMESSAGE_CLI_PATH if `imsg` is not on PATH.",
+    consoleUrl: "https://github.com/steipete/imsg",
+    steps: [
+      "This one needs a Mac that stays awake and signed in to iMessage. It cannot run from Windows or Linux: Apple has no bot API, so I read the local database.",
+      "On that Mac install the bridge: `brew install steipete/tap/imsg` (what it is: https://github.com/steipete/imsg).",
+      "Give the terminal (or the Cinderpaw app) Full Disk Access in System Settings, Privacy & Security, or I can see that messages exist but not what they say.",
+      "The first send asks for permission to control Messages.app. Allow it, once.",
+      "If `imsg` is not on PATH, send me its full path and I will store it as IMESSAGE_CLI_PATH.",
+      "Put your own phone number or Apple ID in the allowlist, in the form it appears in Messages.",
+      "Say honestly what happens when you enable it: this connector was written against the documented protocol and has never been run against a real Mac. If it complains, the message it prints is the bug report.",
+    ],
+  },
+  tlon: {
+    secrets: ["TLON_SHIP", "TLON_URL", "TLON_CODE"],
+    note: "Direct messages on Urbit through your own ship. No public address needed, we connect out to the ship.",
+    consoleUrl: "https://tlon.io",
+    steps: [
+      "You need a running Urbit ship, your own or one hosted by Tlon (https://tlon.io).",
+      "Send me its name, the ~sampel-palnet form, and the URL where Landscape opens in your browser.",
+      "In the ship's dojo type +code and copy what it prints. That is the access code, NOT the master ticket, and it is the one thing here you must never paste anywhere else. Paste it in this chat; it goes to your OS keychain and is redacted from memory.",
+      "Put the ships allowed to DM me in the allowlist, ~sampel-palnet form. A DM from a ship nobody listed arrives as an invite and I leave it unanswered, so a stranger cannot open a conversation.",
+      "Say honestly what happens when you enable it: written against Urbit's documented channel protocol, never run against a real ship. A wrong code shows up as a login failure the moment you enable, not later.",
+    ],
+  },
+  zalouser: {
+    secrets: [],
+    note: "Your PERSONAL Zalo account, paired by QR like WhatsApp. Unofficial protocol (zca-js): Zalo may suspend an account it decides is automated.",
+    consoleUrl: "https://chat.zalo.me",
+    steps: [
+      "Read this first: this connects your own Zalo account, not a bot, through a community re-implementation Zalo does not sanction. Zalo can suspend an account it decides is automated, and that is not something I can undo for you. If the account matters, use the Zalo bot connector instead.",
+      "If you still want it: enable it and I write a QR code to a file, opening it in your image viewer where I can.",
+      "Scan that QR with Zalo on your phone: Settings, Linked devices. The session is saved, so a restart does not ask again.",
+      "Put the user ids I may answer in the allowlist, and the named groups in channels.",
+      "Say honestly what happens: this one has never been paired against a real account by us.",
     ],
   },
   // The five that arrive over a webhook. Their `steps` end with the public

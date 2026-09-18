@@ -21,23 +21,12 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { registeredTransports } from "../src/transports/registry.ts";
-// Side-effect imports: each module registers its transports on load.
-import "../src/transports/connectors.ts";
-import "../src/transports/matrix.ts";
-import "../src/transports/mattermost.ts";
-import "../src/transports/twitch.ts";
-import "../src/transports/telegram.ts";
-import "../src/transports/irc.ts";
-import "../src/transports/signal.ts";
-import "../src/transports/nostr.ts";
-import "../src/transports/nextcloud-talk.ts";
-import "../src/transports/zalo.ts";
-import "../src/transports/feishu.ts";
-import "../src/transports/line.ts";
-import "../src/transports/sms.ts";
-import "../src/transports/synology-chat.ts";
-import "../src/transports/googlechat.ts";
-import "../src/transports/msteams.ts";
+// The SAME barrel `boot.ts` loads, on purpose: a second list here could only
+// catch a drift the two lists did not make together, and the drift they did
+// make together (imessage, tlon, zalouser registered by nobody) is the one
+// that shipped.
+import "../src/transports/all.ts";
+import { CATALOG as GUIDE } from "../src/tools/builtin/connectors-manage.ts";
 
 interface CatalogEntry {
   id: string;
@@ -101,6 +90,46 @@ describe("the imported platforms arrived intact", () => {
       e.pairing_fields
         .filter((f) => looksSecret.test(f.key) && !f.secret)
         .map((f) => `${e.id}.${f.key}`),
+    );
+    expect({ wrong }).toEqual({ wrong: [] });
+  });
+});
+
+describe("the agent knows what the build ships", () => {
+  // The catalog is what a HUMAN sees on the Connectors page. `GUIDE` is what
+  // the AGENT sees when someone says "connect yourself to X" — a different
+  // list, in a different language, kept by hand. It drifted: for four days
+  // the agent's `list` answered with 18 connectors while 21 were wired, so
+  // asked about the other three it said, confidently, that it could not.
+  //
+  // A user does not open the settings page to find that out. They ask.
+  test("every connector the user can enable, the agent can also explain", () => {
+    const wireable = catalog().filter((e) => !e.coming_soon).map((e) => e.id);
+    const missing = wireable.filter((id) => !(id in GUIDE));
+    expect({ missing }).toEqual({ missing: [] });
+  });
+
+  test("the agent does not offer to set up something this build cannot start", () => {
+    const known = new Set(catalog().map((e) => e.id));
+    const invented = Object.keys(GUIDE).filter((id) => !known.has(id));
+    expect({ invented }).toEqual({ invented: [] });
+  });
+
+  test("every secret the guide asks for is one the catalog actually wants", () => {
+    // A guide that asks for TLON_TOKEN when the transport reads TLON_CODE
+    // walks the user through a setup that ends in silence.
+    // Only for the connectors whose credentials the USER types. An OAuth or
+    // QR connector is granted its secrets by the flow itself and declares no
+    // pairing fields, so there is nothing here to compare against.
+    const fields = new Map(
+      catalog()
+        .filter((e) => e.pairing_fields.length > 0)
+        .map((e) => [e.id, new Set(e.pairing_fields.map((f) => f.key))]),
+    );
+    const wrong = Object.entries(GUIDE).flatMap(([id, entry]) =>
+      entry.secrets
+        .filter((k) => !(fields.get(id)?.has(k) ?? true))
+        .map((k) => `${id}.${k}`),
     );
     expect({ wrong }).toEqual({ wrong: [] });
   });

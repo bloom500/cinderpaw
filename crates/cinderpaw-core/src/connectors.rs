@@ -438,11 +438,12 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: InstanceToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Ported: src/transports/imessage.ts, live in the build since
+            // src/transports/all.ts. Written against the documented `imsg rpc`
+            // protocol, not yet run against a real Mac — `start()` says so on
+            // the user's screen rather than in a log, so an enabled card that
+            // cannot reach the bridge reads as a setup step, not as silence.
+            coming_soon: false,
             console_url: None,
             free_tier_note: None,
             validate_endpoint: None,
@@ -794,11 +795,11 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
                 },
             ],
             pairing_method: InstanceToken,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Ported: src/transports/tlon.ts, live in the build since
+            // src/transports/all.ts. Written against Urbit's documented channel
+            // protocol, not yet run against a real ship — `start()` reports what
+            // the ship answered, so a wrong +code reads as a wrong +code.
+            coming_soon: false,
             console_url: None,
             free_tier_note: None,
             validate_endpoint: None,
@@ -847,11 +848,11 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             logo_url: None,
             pairing_fields: Vec::new(),
             pairing_method: Qr,
-            // No sidecar transport yet. `coming_soon` is not decoration:
-            // the card renders disabled, so it cannot promise a connection
-            // the sidecar has no code to make. Flipped by the port, and
-            // pinned by tests/connector-catalog-transports.test.ts.
-            coming_soon: true,
+            // Ported: src/transports/zalouser.ts, live in the build since
+            // src/transports/all.ts. Unofficial client protocol (zca-js): the
+            // description warns the account may be suspended before the first
+            // QR scan, which is the part a user cannot undo.
+            coming_soon: false,
             console_url: None,
             free_tier_note: None,
             validate_endpoint: None,

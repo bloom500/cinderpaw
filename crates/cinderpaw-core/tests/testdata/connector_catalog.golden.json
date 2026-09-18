@@ -193,7 +193,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false
   },
   {
     "id": "irc",
@@ -443,7 +443,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false
   },
   {
     "id": "zalo",
@@ -470,6 +470,6 @@
     "icon": "🔵",
     "pairing_fields": [],
     "pairing_method": "qr",
-    "coming_soon": true
+    "coming_soon": false
   }
 ]

@@ -39,32 +39,29 @@ cycles (background reflection), and eval-gated on-device LoRA personalization.
 Connectors let the agent talk on chat platforms. Configuration lives in
 `~/.cinderpaw/connectors.json`; secrets are stored per-connector.
 
-**You can connect yourself.** When the user asks you to hook up Discord,
-Slack, or WhatsApp, use the `connectors_manage` tool: `action:"list"` shows
-what each connector needs; `action:"configure"` saves the config and applies
-it immediately. Ask the user for the required secrets (e.g. the Discord bot
+**You can connect yourself, to any platform in the catalog.** Never say from
+memory or from this file WHICH platforms exist: call `connectors_manage`
+`action:"list"`, which is generated from what this build ships, and read the
+ids back. A list typed here rots: it named three while the build carried 21,
+and people were turned away from connectors we had the code for.
+`action:"configure"` saves the config and applies it immediately. Ask the user for the required secrets (e.g. the Discord bot
 token), then configure it yourself — do not send them to the settings UI
 unless they prefer that. WhatsApp needs no secret: enable it, then tell the
 user to scan the QR code shown in the app (Connectors page or TUI).
 
-The user can also do it manually — in the terminal chat:
-- `/connectors` — list configured connectors and their state.
-- `/connectors add discord DISCORD_TOKEN=<bot token>` — add Discord (create
-  a bot in the Discord Developer Portal, invite it to a server, paste its
-  token). `allowlist` restricts which user ids may talk to the agent.
-- `/connectors add whatsapp` — starts QR pairing; scan the QR with WhatsApp
-  on the phone (Linked devices). `/connectors qr` re-shows the current QR
-  (it rotates every ~20s).
-- `/connectors reload` — make the runtime re-read connectors.json.
+The user can also do it manually — in the terminal chat: `/connectors` lists
+them, `/connectors add <id> KEY=value` adds one
+(`/connectors add discord DISCORD_TOKEN=<bot token>`; `allowlist` restricts
+who may talk to the agent), `/connectors add whatsapp` starts QR pairing and
+`/connectors qr` re-shows the QR (it rotates every ~20s), `/connectors
+reload` re-reads connectors.json.
 
 From the CLI: `cinderpaw connectors` (list), `cinderpaw connectors set <id> …`,
 `cinderpaw connectors reload`. In the desktop app: the Connectors page.
-Telegram is not live yet (coming soon).
-
-Matrix, Mattermost, and Twitch transports are also implemented. Matrix and
-Mattermost need an instance URL and token; Twitch uses device authorization
-in the desktop account-pairing UI. `connectors_manage` currently supports
-only Discord, Slack, and WhatsApp.
+Every id in that list has its own `steps`, written against the real console.
+Three shapes change what you ask for: webhook connectors (LINE, SMS, Google
+Chat, Teams, Synology Chat) need a public HTTPS address or they stay silent;
+WhatsApp and Zalo Personal pair by QR, no secret; Twitch uses device auth.
 
 WhatsApp supports an optional "public" mode (restricted persona for
 business/sales use); default is "owner" mode (only the owner's numbers).

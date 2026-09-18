@@ -129,25 +129,10 @@ import {
 } from "./cowork/approval.ts";
 import { TauriTransport } from "./transports/tauri.ts";
 import { ConnectorManager } from "./transports/connectors.ts";
-// Imported for the side effect: each transport module registers itself with
-// the registry at load. Without the import the catalog offers a connector
-// this build cannot start — which is exactly what the registry exists to
-// make visible, but it should never happen for one we ship.
-import "./transports/matrix.ts";
-import "./transports/mattermost.ts";
-import "./transports/twitch.ts";
-import "./transports/telegram.ts";
-import "./transports/irc.ts";
-import "./transports/signal.ts";
-import "./transports/nostr.ts";
-import "./transports/nextcloud-talk.ts";
-import "./transports/zalo.ts";
-import "./transports/feishu.ts";
-import "./transports/line.ts";
-import "./transports/sms.ts";
-import "./transports/synology-chat.ts";
-import "./transports/googlechat.ts";
-import "./transports/msteams.ts";
+// Imported for the side effect: loading the barrel runs every transport's
+// `registerTransport(...)`. Listing them here instead cost us three shipped
+// connectors nobody could reach — see src/transports/all.ts.
+import "./transports/all.ts";
 import { bootstrapOnce } from "./rsi/mod.ts";
 import { RsiBridge } from "./rsi/infra/bridge.ts";
 import { setEmbedInvoker, rsiBridgeEmbed, embed } from "./memory/fractal/embed.ts";
