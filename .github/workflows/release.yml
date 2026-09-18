@@ -180,13 +180,21 @@ jobs:
         shell: pwsh
         run: echo "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
 
-      # The image's CMake 3.31 fails llama.cpp's vulkan-shaders-gen sub-build
-      # in its own compiler test (rc.exe: "RC2136 missing '=' in EXSTYLE" on
-      # manifest.rc) since llama-cpp-sys-2 0.1.154. The same crate, SDK and
-      # generator build with a current CMake, so the job gets one.
-      - name: Current CMake (Windows)
+      # llama.cpp's vulkan-shaders-gen sub-build fails its own compiler test
+      # on the runner (rc.exe: "RC2136 missing '=' in EXSTYLE" on manifest.rc)
+      # since llama-cpp-sys-2 0.1.154, with CMake 3.31 and 4.4 alike. The same
+      # crate, SDK and generator build on a developer machine with long paths
+      # enabled; the sub-build's scratch dir sits ~220 characters deep under
+      # target/, and rc.exe is not long-path aware. So: a short target dir,
+      # and long paths on for everything else.
+      - name: Short target dir and long paths (Windows)
         if: runner.os == 'Windows'
-        uses: lukka/get-cmake@latest
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force D:\tgt | Out-Null
+          echo "CARGO_TARGET_DIR=D:\tgt" >> $env:GITHUB_ENV
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1
+          git config --system core.longpaths true
 
       # macOS runners ship Xcode CLT (clang) but no `libclang.dylib`, and
       # bindgen (used by llama-cpp-sys-2 to generate Rust bindings for the
@@ -335,7 +343,7 @@ jobs:
         run: |
           $dir = "signpath-in"
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          Get-ChildItem -Recurse -Path src-tauri/target -Include *-setup.exe,*.msi |
+          Get-ChildItem -Recurse -Path $env:CARGO_TARGET_DIR -Include *-setup.exe,*.msi |
             Where-Object { $_.FullName -match 'bundle' } |
             ForEach-Object { Copy-Item $_.FullName $dir }
           if (-not (Get-ChildItem $dir)) { Write-Error "no installers found to sign"; exit 1 }
@@ -492,9 +500,14 @@ jobs:
           arch: x64
 
       # Same reason as the release job above.
-      - name: Current CMake (Windows)
+      - name: Short target dir and long paths (Windows)
         if: runner.os == 'Windows'
-        uses: lukka/get-cmake@latest
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force D:\tgt | Out-Null
+          echo "CARGO_TARGET_DIR=D:\tgt" >> $env:GITHUB_ENV
+          Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1
+          git config --system core.longpaths true
 
       # llama-cpp-sys-2's build.rs forwards every CMAKE_* env var to CMake, so
       # this pins the GPU architectures the fat binary is compiled for. Without
@@ -548,7 +561,7 @@ jobs:
           tag="${{ inputs.tag || github.ref_name }}"
           shopt -s globstar nullglob
           found=0
-          for f in src-tauri/target/**/bundle/**/${{ matrix.asset_glob }}; do
+          for f in ${CARGO_TARGET_DIR:-src-tauri/target}/**/bundle/**/${{ matrix.asset_glob }}; do
             base="$(basename "$f")"
             ext="${base##*.}"
             stem="${base%.*}"
