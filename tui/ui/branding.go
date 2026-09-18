@@ -73,7 +73,7 @@ const BearCompact = `(=-._.=) ` + AppName + ` v` + AppVersion + ` | Own your age
 // without being noisy.
 var Taglines = []string{
 	"Own your models. Own your agent.",
-	"Local-first. BYOK. No lock-in.",
+	"It practices while you sleep.",
 	"Run AI on your machine. Keep your keys.",
 	"Private by default. Powerful on demand.",
 	"Your models. Your data. Your rules.",
