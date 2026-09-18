@@ -180,6 +180,14 @@ jobs:
         shell: pwsh
         run: echo "CMAKE_GENERATOR=Ninja" >> $env:GITHUB_ENV
 
+      # The image's CMake 3.31 fails llama.cpp's vulkan-shaders-gen sub-build
+      # in its own compiler test (rc.exe: "RC2136 missing '=' in EXSTYLE" on
+      # manifest.rc) since llama-cpp-sys-2 0.1.154. The same crate, SDK and
+      # generator build with a current CMake, so the job gets one.
+      - name: Current CMake (Windows)
+        if: runner.os == 'Windows'
+        uses: lukka/get-cmake@latest
+
       # macOS runners ship Xcode CLT (clang) but no `libclang.dylib`, and
       # bindgen (used by llama-cpp-sys-2 to generate Rust bindings for the
       # llama.cpp C API) panics at startup if it can't find libclang. Install
@@ -482,6 +490,11 @@ jobs:
         uses: TheMrMilchmann/setup-msvc-dev@v3.0.2
         with:
           arch: x64
+
+      # Same reason as the release job above.
+      - name: Current CMake (Windows)
+        if: runner.os == 'Windows'
+        uses: lukka/get-cmake@latest
 
       # llama-cpp-sys-2's build.rs forwards every CMAKE_* env var to CMake, so
       # this pins the GPU architectures the fat binary is compiled for. Without
