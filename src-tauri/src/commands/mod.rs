@@ -115,7 +115,8 @@ mod command_count_test {
     // forward, and where the page sits; the agent uses the same code through
     // desktop control).
     // 172 -> 176 = + google_status/connect/disconnect/upload (Send to Google Docs).
-    const EXPECTED_COMMAND_COUNT: usize = 176;
+    // 176 -> 177 = + count_install (the one-time install ping, PROMISES.md 4).
+    const EXPECTED_COMMAND_COUNT: usize = 177;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

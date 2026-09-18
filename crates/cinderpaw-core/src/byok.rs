@@ -1360,12 +1360,17 @@ mod tests {
                 "catalog id {:?} does not resolve to its own provider",
                 entry.id
             );
-            assert_ne!(
-                entry.provider,
-                Provider::Custom,
-                "catalog must not list Custom (id {:?})",
-                entry.id
-            );
+            // A `Custom` row is legitimate since b1ef0fe (the OpenClaw
+            // providers): it is an OpenAI-compatible endpoint that nothing in
+            // the code matches on by id, so the only thing that can make it
+            // work is its base URL. A Custom row without one is a dead entry.
+            if entry.provider == Provider::Custom {
+                assert!(
+                    !entry.default_base_url.is_empty() && entry.supports_custom_base_url,
+                    "Custom catalog row {:?} has no usable base URL",
+                    entry.id
+                );
+            }
         }
         assert_eq!(Provider::from_id("no-such-provider"), Provider::Custom);
     }
