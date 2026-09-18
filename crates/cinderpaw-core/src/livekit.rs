@@ -744,6 +744,27 @@ impl Drop for Session {
 ///
 /// ponytail: install on first use. Vendor it into the bundle when voice ships
 /// as a product feature rather than a self-test.
+/// The exact versions the voice agent runs, installed and checked by version.
+///
+/// They used to be installed unversioned on first use and never looked at
+/// again: a machine set up in August stayed on 1.7.0 forever, while a machine
+/// set up today got whatever npm called latest, a combination nobody had ever
+/// run. 1.7.0 did not know the Gemini 3.8 Live models at all, which is why
+/// they searched and never said the answer (18 Sep). Bumping a version here is
+/// now the whole upgrade: an install whose version differs is reinstalled.
+/// `rtc-node` stays on 0.13: the 1.9 agents declare `^0.13.34` as their peer.
+const AGENT_PINS: &[(&str, &str)] = &[
+    ("@livekit/agents", "1.9.0"),
+    ("@livekit/rtc-node", "0.13.35"),
+    ("@livekit/agents-plugin-google", "1.9.0"),
+    ("@livekit/agents-plugin-openai", "1.9.0"),
+    ("@livekit/agents-plugin-silero", "1.9.0"),
+];
+
+fn pinned(pkg: &str) -> Option<&'static str> {
+    AGENT_PINS.iter().find(|(name, _)| *name == pkg).map(|(_, v)| *v)
+}
+
 pub(crate) async fn ensure_agent(
     node: &Path,
     provider: Option<&S2sProvider>,
@@ -768,10 +789,20 @@ pub(crate) async fn ensure_agent(
     if let Some(p) = provider {
         want.push(p.plugin);
     }
+    // Installed means installed AT THE PINNED VERSION, not merely present.
     let installed = |pkg: &str| {
-        pkg.split('/')
+        let manifest = pkg
+            .split('/')
             .fold(root.join("node_modules"), |acc, seg| acc.join(seg))
-            .exists()
+            .join("package.json");
+        let Ok(text) = std::fs::read_to_string(manifest) else { return false };
+        let have = serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .and_then(|v| v["version"].as_str().map(str::to_owned));
+        match pinned(pkg) {
+            Some(want) => have.as_deref() == Some(want),
+            None => have.is_some(),
+        }
     };
     if want.iter().all(|pkg| installed(pkg)) {
         return Ok(script);
@@ -783,13 +814,20 @@ pub(crate) async fn ensure_agent(
     .map_err(|e| format!("cannot write the agent manifest: {e}"))?;
 
     tracing::info!(
-        "livekit: installing the agent's dependencies for {} (first run for this provider)",
+        "livekit: installing the agent's dependencies for {} (first run for this provider, or a pinned version changed)",
         provider.map(|p| p.label).unwrap_or("echo"),
     );
     let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    let specs: Vec<String> = want
+        .iter()
+        .map(|pkg| match pinned(pkg) {
+            Some(v) => format!("{pkg}@{v}"),
+            None => pkg.to_string(),
+        })
+        .collect();
     let out = Command::new(npm)
         .args(["install", "--no-audit", "--no-fund"])
-        .args(&want)
+        .args(&specs)
         .current_dir(&root)
         .env("PATH", augmented_path(node))
         .output()
