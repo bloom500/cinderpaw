@@ -78,9 +78,15 @@ jobs:
           # default CPU feature — real inference, just not GPU-accelerated, which
           # is what these machines were going to fall back to anyway. It also
           # keeps the cross-compile down to one C++ toolchain instead of two.
+          #
+          # No `kokoro` on Intel either: `ort` 2.0.0-rc.12 ships no prebuilt
+          # ONNX Runtime for x86_64-apple-darwin, so the feature cannot build
+          # (rc1 of 2026.9.18 died in ort-sys on exactly this). Same rule as
+          # Linux: no on-device TTS, hosted voices still work, the picker says
+          # which is which.
           - name: macOS Intel
             os: macos-latest
-            features: inference,kokoro
+            features: inference
             target: x86_64-apple-darwin
           # `piper` is on NO job in this file, and that is a licence bound
           # rather than a platform one: `piper-rs` compiles espeak-ng (GPLv3)
