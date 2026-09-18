@@ -67,7 +67,11 @@ export const EXTENDED_TOOLS = new Set<string>([
   "git_branch",
   "git_commit",
   "git_log",
-  "fetch_url",
+  // `read_webpage`, not `fetch_url`, since 18 Sep. Both read a page as text,
+  // and two doors to one room made the model pick at random. fetch_url reads
+  // it on this machine; read_webpage sends every address to Jina's service.
+  // The local one is advertised, the third-party one is the fallback.
+  "read_webpage",
   "calculator",
   "time_date",
   "http_request",

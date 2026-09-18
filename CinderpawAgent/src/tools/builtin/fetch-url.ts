@@ -51,10 +51,13 @@ export function createFetchUrlTool(allowedDomains: string[]): Tool {
   const manifest: ToolManifest = {
     name: "fetch_url",
     description:
-      "Fetch the content of a URL (HTTP GET). Any public HTTPS URL works " +
-      "(internal/private addresses are blocked). Returns a web page's visible text, " +
-      "or any other response body as it came. For a page that needs a login, a form, " +
-      "clicks or JavaScript, use the `browser` tool instead.",
+      "Read a web page for its INFORMATION (HTTP GET, on this machine): a " +
+      "web_search result, or any public HTTPS address (private addresses are " +
+      "blocked). Returns the page's visible text, or any other response body as " +
+      "it came. Nothing shows on the user's screen. If it comes back empty or " +
+      "nearly so (a site built in JavaScript), open the page in `browser`; for a " +
+      "page that needs a login, a form or clicks, or when the user asked for the " +
+      "browser, use `browser` from the start.",
     permissions: ["network:outbound"],
     networkAccess: true,
     allowedDomains,

@@ -80,9 +80,11 @@ export function createBrowserTool(): Tool {
   const manifest: ToolManifest = {
     name: "browser",
     description:
-      "Use the built-in browser, which the user sees beside the chat, whenever a web " +
-      "page has to be USED rather than read: a form, a login, a search on a site, a " +
-      "download, or a page fetch_url returned empty. Do it without being asked. The panel is " +
+      "Use the built-in browser, which the user sees beside the chat, when the user " +
+      "names the browser or wants to watch, and whenever a web page has to be USED " +
+      "rather than read: a form, a login, a search on a site, a download, or a page " +
+      "fetch_url returned empty. Do it without being asked. To only LOOK SOMETHING UP, " +
+      "web_search and fetch_url are faster and do not take over the screen. The panel is " +
       "shared with the user: `snapshot` reads whatever tab is on screen, including a page " +
       "THEY opened, so when asked what they are looking at, take a snapshot. `open` a url " +
       "(or search words), `snapshot` to read the page and its numbered controls, " +

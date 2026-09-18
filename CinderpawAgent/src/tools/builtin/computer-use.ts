@@ -136,7 +136,8 @@ export function createComputerUseTool(): Tool {
     manifest: {
       name: "computer_use",
       description:
-        "Drive a native desktop application through the OS accessibility tree " +
+        "Drive a native desktop application (not a web page: that is the `browser` " +
+        "tool) through the OS accessibility tree " +
         "(structural control — no screenshots/OCR). Use `list_windows` to find " +
         "an app's pid, `get_tree`/`find_elements` to discover elements, then " +
         "`click`/`type`/`send_keys`/`perform_action` to act on an element by its `element_id`. " +

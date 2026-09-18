@@ -17,9 +17,9 @@ export function createReadWebpageTool(jinaApiKey?: string): Tool {
   const manifest: ToolManifest = {
     name: "read_webpage",
     description:
-      "Read and extract clean text content from any public webpage. " +
-      "Returns the page content as markdown. Use this to read articles, " +
-      "documentation, or any URL returned from web_search.",
+      "Read a public web page as markdown through Jina's reader service, which " +
+      "sees the address. Prefer fetch_url, which reads the page on this machine; " +
+      "use this only when fetch_url could not extract the text.",
     permissions: ["network:outbound"],
     networkAccess: true,
     allowedDomains: ["r.jina.ai"],

@@ -44,10 +44,12 @@ export function createWebSearchTool(opts: WebSearchOpts = {}): Tool {
   const manifest: ToolManifest = {
     name: "web_search",
     description:
-      "Search the web and return ranked results (title, URL, snippet). Use for " +
-      "anything current, factual, or outside your training data. Follow up with " +
-      "read_webpage on a result URL when you need the full page, or open it in the " +
-      "`browser` tool when the page has to be used (a form, a login, a download).",
+      "Search the web and return ranked results (title, URL, snippet). For " +
+      "INFORMATION: a fact, a price, the weather, the news, anything current or " +
+      "outside your training data. Nothing shows on the user's screen. Read a result " +
+      "with fetch_url. Use the `browser` tool instead when the user names the browser " +
+      "or wants to watch, or when a page has to be USED (a form, a login, a click, a " +
+      "download, a search inside one site).",
     permissions: ["network:outbound"],
     networkAccess: true,
     // Only the configured SearXNG host is whitelisted — plus DDG for the
