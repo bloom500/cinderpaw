@@ -601,6 +601,40 @@ function keepLineWarm(session) {
 }
 let nextCallId = 0;
 
+/**
+ * Who is talking, kept for the tool-reply nudge below. Written by the session
+ * event handlers in `assistant`.
+ */
+const talk = { agent: '', user: '', agentSpokeAt: 0 };
+
+/**
+ * Gemini is trusted to speak a tool's result on its own (the plugin declares
+ * `autoToolReplyGeneration`), so LiveKit never asks for that reply. 2.5 native
+ * audio does speak it; the 3.8 Live models, measured 18 Sep, found the answer
+ * and said nothing, call after call. So if nobody has started speaking a few
+ * seconds after the result landed, it is asked for, with an instruction: the
+ * plugin sends an EMPTY turn list for a bare `generateReply()` on 3.x models,
+ * which Google's SDK rejects ("Failed to parse client content turns").
+ * On a model that already answered, the agent spoke first and this does nothing.
+ */
+const TOOL_REPLY_GRACE_MS = 4000;
+const TOOL_REPLY_NUDGE =
+  'The result of the request you passed to Cinderpaw has just arrived in the conversation. ' +
+  'Tell the user what it says now, briefly, in the language they are speaking.';
+
+function nudgeToolReply(session, answeredAt) {
+  setTimeout(() => {
+    if (talk.agentSpokeAt >= answeredAt || talk.agent === 'speaking' || talk.user === 'speaking') return;
+    try {
+      Promise.resolve(session.generateReply({ instructions: TOOL_REPLY_NUDGE })).catch((e) => {
+        console.error(`tool reply nudge failed: ${String(e?.message ?? e)}`);
+      });
+    } catch (e) {
+      console.error(`tool reply nudge could not start: ${String(e?.message ?? e)}`);
+    }
+  }, TOOL_REPLY_GRACE_MS);
+}
+
 async function askRust(name, args) {
   if (!API_URL) return { ok: false, output: 'Cinderpaw is not reachable from here' };
   try {
@@ -687,6 +721,7 @@ function toolsFromDeclarations(session) {
         try {
           const out = await askRust(decl.name, args);
           emit({ kind: 'toolResult', text: out?.ok === false ? String(out.output ?? 'failed') : '' });
+          if (PROVIDER === 'google' && subject) nudgeToolReply(session, Date.now());
           return out;
         } finally {
           // On every path. Left running after a failure, the call would go on
@@ -817,7 +852,12 @@ async function assistant(ctx, makeSession) {
       // Not awaited: the greeting plays while the call gets on with listening.
       // The `catch` is not optional though — an unhandled rejection here would
       // take the process down and the call with it.
-      Promise.resolve(session.generateReply()).catch((e) => {
+      // With an instruction, never bare: on the Gemini 3.x models the plugin
+      // turns a bare generateReply() into an empty turn list, which Google's
+      // SDK rejects, and the call opened with an error instead of a hello.
+      Promise.resolve(session.generateReply({
+        instructions: 'Greet the user in one short sentence, in their language, and say you are listening.',
+      })).catch((e) => {
         console.error(`greeting failed (the call continues): ${String(e?.message ?? e)}`);
       });
     } catch (e) {
@@ -830,10 +870,16 @@ async function assistant(ctx, makeSession) {
 
   session.on(AgentSessionEventTypes.AgentStateChanged, (e) => {
     const state = String(e.newState ?? '');
+    talk.agent = state;
+    if (state === 'speaking') talk.agentSpokeAt = Date.now();
     emit({ kind: 'state', text: state });
     // The greeting waits for this rather than firing right after `start()`.
     // See `greet` below for why.
     if (state === 'listening') greet();
+  });
+
+  session.on(AgentSessionEventTypes.UserStateChanged, (e) => {
+    talk.user = String(e.newState ?? '');
   });
 
   // Kept so the close can say WHY. A vendor that refuses the session closes it
