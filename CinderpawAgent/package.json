@@ -1,6 +1,6 @@
 {
   "name": "cinderpaw-agent",
-  "version": "2026.8.11",
+  "version": "2026.9.18",
   "description": "Cinderpaw Agent — proactive, portable AI agent with a native security sandbox",
   "type": "module",
   "module": "src/index.ts",

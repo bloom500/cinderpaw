@@ -26,9 +26,28 @@ can also call providers; requests are not limited to pressing Send. The
 September 6 audit found recipient-boundary gaps in fallback and redirect paths.
 An exclusive chosen-provider guarantee is not yet established across all paths.
 
-**4. No automatic analytics or crash-report uploads in the audited runtime.**
-Local logs and user memory do exist. Online features make their own requests;
-public-journal publication requires explicit configuration and invocation.
+**4. Cinderpaw reports on itself exactly once, and shows you that first.**
+This promise used to read "no automatic analytics or crash-report uploads".
+That is no longer true, and pretending otherwise would be the worse thing to
+ship. On the last screen of first-run setup there is a ticked box explaining
+that Cinderpaw will send, once, its version number and your operating system —
+two short strings, with no identifier, no timestamp of yours, nothing about
+you and nothing about what you do here. Untick it and nothing is sent at all.
+Either way the file `~/.cinderpaw/.install-counted` is written with exactly
+what happened, so the claim on this page is checkable on your own disk.
+
+Why it exists: the download count on our releases is not an install count.
+v2026.08.11 read 519 downloads, of which 449 were the updater fetching
+`latest.json` from machines that already had Cinderpaw. We would rather count
+honestly once than quote a number we know is wrong.
+
+Nothing else reports on its own. Bug reports are sent only when you write one
+and press the button, and they show you the log lines first. Local logs and
+memory stay local. Public-journal publication requires explicit configuration
+and invocation. Online features make their own requests, as they always have,
+and the startup update check is its own thing with its own switch — promise 8.
+This promise is about Cinderpaw telling us something, not about every packet
+that leaves the machine.
 
 **5. Your keys are yours.**
 Supported credential paths use the operating system's key store. This is not
@@ -94,6 +113,8 @@ This half of the page matters as much as the other half.
 - **Cut the network.** Turn off your wifi, load a local model, and keep
   using local inference. Features that require external services will be unavailable.
 - **Read the log.** It records audited operations; write failures can leave gaps.
+- **Check what the install counter did**: `cat ~/.cinderpaw/.install-counted`.
+  It says `declined`, or it says `sent` with the two values that were sent.
 
 ## If we break one
 

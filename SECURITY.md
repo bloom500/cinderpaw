@@ -100,7 +100,11 @@ Every tool call passes a security layer before execution:
   background/provider routes can still transmit data.
 - Complete `<private>…</private>` blocks are stripped from the agent loop's
   episodic text, not every memory or transcript writer. The model sees the input.
-- No automatic analytics or crash-report uploads in the audited runtime.
+- One automatic message in the runtime's life: an install count sent at the
+  end of first-run setup, carrying the version and the OS and nothing else,
+  refusable on the screen that describes it, recorded in
+  `~/.cinderpaw/.install-counted`. No other automatic analytics; crash and bug
+  reports are sent only when a person writes and submits one.
 
 ### Known limits
 

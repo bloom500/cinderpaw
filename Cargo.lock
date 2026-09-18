@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "cinderpaw-cli"
-version = "2026.8.11"
+version = "2026.9.18"
 dependencies = [
  "cinderpaw-core",
  "clap",
@@ -1048,7 +1048,7 @@ dependencies = [
 
 [[package]]
 name = "cinderpaw-core"
-version = "2026.8.11"
+version = "2026.9.18"
 dependencies = [
  "aes-gcm",
  "anyhow",

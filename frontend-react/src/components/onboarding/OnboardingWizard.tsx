@@ -861,12 +861,51 @@ function DoneStep() {
         Ask me anything and we'll see what I can do.
       </p>
       <DiskEncryptionNotice />
+      <InstallCountNotice />
 
       <div className="flex items-center justify-center gap-1.5 text-xs text-text-muted">
         <Sparkles size={12} />
         <span>You can change names anytime in Settings</span>
       </div>
     </div>
+  );
+}
+
+/**
+ * The one thing Cinderpaw ever sends about itself, said before it is sent.
+ *
+ * The count exists because the GitHub download number is not an install
+ * number: v2026.08.11 read 519, of which 449 were the updater fetching
+ * `latest.json` from installs we already had. About 60 were real.
+ *
+ * The rules this notice has to keep, and the reason it lives HERE rather than
+ * in Settings: nothing is sent until the person has read this, so it sits on
+ * the screen they are on when the ping fires, with the switch beside it. An
+ * opt-out you find the day after is not an opt-out. The full contents are
+ * spelled out because "anonymous usage data" is what everybody writes and
+ * nobody believes.
+ */
+function InstallCountNotice() {
+  const on = useOnboarding((s) => s.countInstall);
+  const setOn = useOnboarding((s) => s.setCountInstall);
+  return (
+    <label className="flex items-start gap-3 text-left mx-auto max-w-md rounded-xl border border-border-subtle bg-bg-primary/50 px-4 py-3 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => setOn(e.target.checked)}
+        className="mt-0.5 size-4 accent-brand"
+      />
+      <span className="text-xs text-text-muted leading-relaxed">
+        <span className="text-text-primary font-medium">Count this install, once.</span>{' '}
+        When you open chat, Cinderpaw sends one message containing its version
+        number and your operating system — nothing else, never again, and
+        nothing about you or what you do here. It is how we know how many
+        people actually run it. Untick and nothing is sent at all. Either way,{' '}
+        <code className="text-[11px]">~/.cinderpaw/.install-counted</code> is
+        written with exactly what happened, so you can check.
+      </span>
+    </label>
   );
 }
 

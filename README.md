@@ -4,7 +4,12 @@
 
 # Cinderpaw
 
-**Your local-first AI workspace. No subscription. No telemetry. No middleman.**
+**Your local-first AI workspace. No subscription. No account. No middleman.**
+
+<sub>One exception, stated plainly: at the end of first-run setup Cinderpaw
+offers to count the install once — its version and your OS, nothing else,
+and you can untick it on that screen. See
+[PROMISES.md](PROMISES.md#the-promises).</sub>
 
 <p align="center">
   <a href="https://github.com/bloom500/cinderpaw/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/cinderpaw?style=for-the-badge&color=blue&label=version" alt="Version" /></a>

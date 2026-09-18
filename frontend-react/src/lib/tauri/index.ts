@@ -811,6 +811,7 @@ const raw = {
   bugReportLogPreview:   ()    => invoke<string>('bug_report_log_preview'),
   submitBugReport:       (description: string, includeLog: boolean) =>
     invoke<void>('submit_bug_report', { description, includeLog }),
+  countInstall:          (send: boolean) => invoke<void>('count_install', { send }),
   saveAgent:             (cfg: AgentConfig) => invoke<AgentConfig>('save_agent', { cfg }),
   getAgents:             ()    => invoke<AgentConfig[]>('get_agents'),
   deleteAgent:           (id: string) => invoke<void>('delete_agent', { id }),
@@ -1240,6 +1241,8 @@ export const tauri = {
     bugReportLogPreview: async () => raw.bugReportLogPreview(),
     submitBugReport: async (description: string, includeLog: boolean) =>
       raw.submitBugReport(description, includeLog),
+    /** Once, from the last step of onboarding, where the notice lives. */
+    countInstall: async (send: boolean) => raw.countInstall(send),
   },
 
   files: {

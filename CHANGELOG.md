@@ -7,7 +7,32 @@
 
 ## Unreleased
 
+> Version numbers in the build now read `2026.09.18`. The release itself is cut
+> by pushing a `v*` tag, which has not happened: the last published release is
+> still **v2026.08.11**. The two sections below it, `2026.08.15` and
+> `2026.08.21`, were written but never tagged, so their entries have not
+> reached anybody either — whoever updates next receives all three at once.
+
 ### Changed
+
+- **Cinderpaw counts installs now, once, and says so before it does.** Promise 4
+  used to read "no automatic analytics or crash-report uploads". It no longer
+  does, and the honest thing is to say that in the same release rather than
+  quietly stop being true. On the last screen of first-run setup there is a
+  ticked box: Cinderpaw sends one message containing its version number and
+  your operating system. No identifier, no timestamp of yours, nothing about
+  you and nothing about what you do. Untick it and nothing is sent. Either way
+  `~/.cinderpaw/.install-counted` is written with exactly what happened, so the
+  claim is checkable on your own disk.
+
+  Why: the GitHub download count is not an install count. v2026.08.11 showed
+  519 downloads, of which 449 were the updater fetching `latest.json` from
+  machines that already had Cinderpaw. Around 60 were real installers. We would
+  rather count honestly once than keep quoting a number we know is wrong.
+
+  If you already run Cinderpaw, you are never counted: the box only exists
+  during first-run setup, and an update does not run it. So the number counts
+  people who install from this release onwards, and it is a floor, not a total.
 
 - **Cinderpaw is now open source under the Apache License 2.0.** It was
   source-available under BSL 1.1, which is not OSI-approved: that meant a

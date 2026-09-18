@@ -154,6 +154,90 @@ pub(crate) async fn submit_bug_report(description: String, include_log: bool) ->
     }
 }
 
+// ---------- Install counter (first run only) ----------
+
+/// Where the install ping goes — the same worker as bug reports, one route
+/// along. See `workers/bug-report/worker.js`.
+const INSTALL_COUNT_URL: &str = "https://cinderpaw-bug-report.bloommediacorporation.workers.dev/install";
+
+/// Written once, and never again, whatever the answer was.
+///
+/// Its CONTENTS are the point: it holds the exact line that was sent, or the
+/// word `declined`. "We only send a version and an OS" is a claim; a file on
+/// the person's own disk saying what left is a thing they can check. Promise 4
+/// in PROMISES.md points at this path.
+fn install_marker() -> std::path::PathBuf {
+    cinderpaw_core::paths::cinderpaw_dir().join(".install-counted")
+}
+
+/// Count this install, once, if the person left the box ticked.
+///
+/// Called by the last step of the onboarding wizard, and ONLY from there: the
+/// notice explaining it is on that same screen, so the ping cannot happen
+/// before the sentence describing it has been in front of them. An app that
+/// pings at first launch and offers a switch afterwards has already sent it.
+///
+/// Errors are swallowed on purpose. A counter is our problem, not the user's:
+/// there is nothing they could do with "the count failed", and a red toast on
+/// the last screen of onboarding would be the first thing Cinderpaw ever said
+/// to them.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn count_install(send: bool) -> Result<(), String> {
+    let marker = install_marker();
+    if marker.exists() {
+        return Ok(()); // counted (or declined) on a previous first run
+    }
+    let version = env!("CARGO_PKG_VERSION");
+    let os = format!("{} {}", std::env::consts::OS, std::env::consts::ARCH);
+    let line = if send {
+        format!("sent {}\nversion={version}\nos={os}\n", chrono::Utc::now().to_rfc3339())
+    } else {
+        "declined\n".to_string()
+    };
+    if let Some(dir) = marker.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    // Written BEFORE the request, so a network failure can never turn into a
+    // second ping on the next launch. The count undercounts rather than
+    // double-counts, which is the direction an honest number should miss in.
+    let _ = std::fs::write(&marker, &line);
+    if !send {
+        return Ok(());
+    }
+    let body = serde_json::json!({ "version": version, "os": os });
+    let _ = reqwest::Client::new()
+        .post(INSTALL_COUNT_URL)
+        .timeout(std::time::Duration::from_secs(10))
+        .json(&body)
+        .send()
+        .await;
+    Ok(())
+}
+
+#[cfg(test)]
+mod install_counter_tests {
+    /// The body is built in `count_install` from two constants; what matters is
+    /// that it carries nothing else. Pinned as a test because the failure mode
+    /// is somebody helpfully adding a machine id to "make the number better",
+    /// which is the exact promise this is allowed to exist under.
+    #[test]
+    fn the_ping_carries_only_a_version_and_an_os() {
+        let body = serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+        });
+        let object = body.as_object().unwrap();
+        let mut keys: Vec<&String> = object.keys().collect();
+        keys.sort();
+        assert_eq!(keys, vec!["os", "version"]);
+        // And no field is long enough to be smuggling anything.
+        for (_, v) in object {
+            assert!(v.as_str().unwrap().len() < 64);
+        }
+    }
+}
+
 #[cfg(test)]
 mod bug_report_tests {
     use super::tail_lines;

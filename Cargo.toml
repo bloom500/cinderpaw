@@ -12,7 +12,7 @@ members = ["src-tauri", "crates/cinderpaw-core", "crates/cinderpaw-cli"]
 resolver = "2"
 
 [workspace.package]
-version = "2026.8.11"
+version = "2026.9.18"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Cinderpaw Contributors"]

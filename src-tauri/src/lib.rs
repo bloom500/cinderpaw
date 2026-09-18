@@ -511,6 +511,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             disk_encryption::disk_encryption_status,
             bug_report_log_preview,
             submit_bug_report,
+            count_install,
             save_agent,
             get_agents,
             delete_agent,

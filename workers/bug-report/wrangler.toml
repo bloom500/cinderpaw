@@ -2,3 +2,13 @@ name = "cinderpaw-bug-report"
 main = "worker.js"
 compatibility_date = "2026-09-01"
 # Secret, set once with: npx wrangler secret put DISCORD_WEBHOOK
+
+# The install counter (POST /install). Two commands, once:
+#   npx wrangler kv namespace create INSTALLS
+#   paste the printed id below, then: npx wrangler deploy
+# Until the id is filled in and deployed, /install answers 204 and counts
+# nothing — the app is never told, because a person's install being counted or
+# not is not their problem to see an error about.
+# [[kv_namespaces]]
+# binding = "INSTALLS"
+# id = "<paste the id wrangler prints>"

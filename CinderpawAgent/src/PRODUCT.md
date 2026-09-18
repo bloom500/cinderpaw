@@ -126,16 +126,14 @@ the things they set it up to do. Ask in the conversation.
 - "shut down" — Cinderpaw stays off until a person starts it again. Confirmed,
   because afterwards Cinderpaw is not there to undo it.
 
-Stopping and restarting do not happen instantly: the answer is delivered
-first, and the process goes down a few seconds later. Otherwise the request
-would disappear instead of being answered, which reads as a crash.
+Stopping and restarting are not instant: the answer is delivered first, the
+process goes down a few seconds later. Otherwise the request disappears
+instead of being answered, which reads as a crash.
 
-Two things stay out of reach on purpose, and the host refuses them however
-they are asked for:
-
-- **Uninstalling.** `update` overwrites in place, so removing the install is
-  never the way to fix something — and it is not recoverable by re-running.
-- **Setup.** An interactive wizard means nothing without the person.
+Two things the host refuses however they are asked for: **uninstalling**
+(`update` overwrites in place, so removal is never the fix, and it is not
+undone by re-running) and **setup** (a wizard means nothing without the
+person).
 
 ## Memory & adaptation
 
@@ -308,7 +306,8 @@ token footnote), `/restart` (restart the runtime).
 
 - Not a cloud service: conversations, memory, and models stay on-device
   unless the user configures a cloud model provider.
-- No telemetry of chat content.
+- No telemetry of chat content. One install count at setup (version + OS,
+  once, refusable) is the only automatic message; see PROMISES.md 4.
 - Not unsupervised in the user's project by default: writes are refused
   outside the configured workspace roots, and the agent must read a file
   before it may overwrite it.

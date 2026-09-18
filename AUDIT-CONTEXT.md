@@ -49,10 +49,14 @@ a known ceiling and, where relevant, the upgrade path. Reporting them as
 "incomplete implementation" is noise. Reporting that a specific one has now
 hit its stated ceiling in production is useful.
 
-**No telemetry anywhere, by design.**
-See `PROMISES.md`. There is no analytics, no crash reporting, no phone-home,
-and no counting of users. A finding that says "add observability" or "there is
-no error reporting pipeline" is arguing against the product's central promise.
+**No telemetry, with one counted exception.**
+See `PROMISES.md` promise 4. There is no analytics, no crash reporting and no
+phone-home, and exactly one install count: version + OS, once, offered with a
+tick box on the last screen of setup and recorded in
+`~/.cinderpaw/.install-counted`. A finding that says "add observability" or
+"there is no error reporting pipeline" is arguing against the product's
+central promise. A finding that the install count sends more than those two
+values, fires before the notice, or fires twice, is a real one.
 A finding that says "this code path silently swallows an error the user needs
 to see on screen" is exactly right and we want it.
 

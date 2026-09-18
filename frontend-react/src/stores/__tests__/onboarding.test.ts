@@ -1,18 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useOnboarding } from '@/stores/onboarding';
+import { useOnboarding, DEFAULTS } from '@/stores/onboarding';
 import { persistAsync } from '@/stores/onboardingPersistence';
+import { tauri } from '@/lib/tauri';
 
-const reset = () =>
-  useOnboarding.setState({
-    active: false,
-    step: 0,
-    userName: '',
-    agentName: 'Cinderpaw',
-    skipped: false,
-    completedAt: null,
-    hasOnboardedBefore: false,
-    persistFailed: false,
-  });
+// The store's OWN defaults, not a copy of them: a copy drifts silently and
+// then the suite tests the copy.
+const reset = () => useOnboarding.setState({ ...DEFAULTS });
 
 describe('useOnboarding', () => {
   beforeEach(reset);
@@ -236,5 +229,51 @@ describe('a completion that reached no storage is not treated as saved', () => {
     useOnboarding.setState({ userName: 'Darius', persistFailed: true });
     await useOnboarding.getState().finish();
     await vi.waitFor(() => expect(useOnboarding.getState().persistFailed).toBe(false));
+  });
+});
+
+/**
+ * The install count is the only thing Cinderpaw ever sends about itself, and
+ * the whole basis on which it is allowed to exist is WHEN it happens: on the
+ * last screen of setup, after the notice, once, and never if the box is
+ * unticked. A move of this call to a launch hook would keep every test above
+ * green while breaking the promise the release makes in writing.
+ */
+describe('the install count fires from the end of onboarding, and nowhere else', () => {
+  beforeEach(reset);
+
+  it('is sent when the box is left ticked', async () => {
+    const spy = vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
+    useOnboarding.setState({ userName: 'Darius', countInstall: true });
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenCalledWith(true);
+    spy.mockRestore();
+  });
+
+  it('is told NOT to send when the box is unticked', async () => {
+    // Still called, still with the answer: the host writes the marker either
+    // way, so a "no" is recorded on disk rather than left to be asked again.
+    const spy = vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
+    useOnboarding.setState({ userName: 'Darius', countInstall: false });
+    await useOnboarding.getState().finish();
+    expect(spy).toHaveBeenCalledWith(false);
+    spy.mockRestore();
+  });
+
+  it('does not fire when the wizard is skipped', async () => {
+    // Skipping means the person never saw the notice.
+    const spy = vi.spyOn(tauri.system, 'countInstall').mockResolvedValue(undefined);
+    useOnboarding.getState().start();
+    useOnboarding.getState().skip();
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('defaults to ticked', () => {
+    // The ruling this shipped under is opt-OUT. If this ever flips to false by
+    // accident the counter silently stops counting, which reads as "nobody
+    // installed it" rather than as a bug.
+    reset();
+    expect(useOnboarding.getState().countInstall).toBe(true);
   });
 });

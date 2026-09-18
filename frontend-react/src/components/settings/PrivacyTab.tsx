@@ -7,10 +7,16 @@
  * things onboarding offers. A privacy screen that overstates is worse than no
  * privacy screen: it is the page a person quotes back at you.
  *
- * So the claims below are split by what is unconditional (no telemetry, no
- * account, no background upload) and what depends on the route the person
- * chose. The one setting here is the one place Cinderpaw could send a
- * conversation somewhere they did not pick, and it is off until they say so.
+ * So the claims below are split by what is unconditional (no account, no
+ * background upload of anything the person wrote) and what depends on the
+ * route they chose. The one setting here is the one place Cinderpaw could send
+ * a conversation somewhere they did not pick, and it is off until they say so.
+ *
+ * "No telemetry" left this list on 2026-09-18: there is now one install count,
+ * offered with a tick box on the last screen of setup. It is named in the Data
+ * collection block below rather than left for someone to discover, for the
+ * same reason the opening line was rewritten — this is the page a person
+ * quotes back at you.
  */
 
 import { useEffect } from 'react';
@@ -48,7 +54,12 @@ export function PrivacyTab() {
 
       <div>
         <p className="text-sm font-medium text-text-primary">Data collection</p>
-        <p className="text-xs text-text-muted mt-0.5">No automatic analytics or crash-report uploads. Online features still transmit the data they need.</p>
+        <p className="text-xs text-text-muted mt-0.5">
+          One install count was offered during setup: the version and your OS, once,
+          refusable, recorded in <code>~/.cinderpaw/.install-counted</code>. Nothing else
+          reports on its own; bug reports are sent only when you write one. Online
+          features still transmit the data they need.
+        </p>
       </div>
 
       <ul className="space-y-1.5 text-sm text-text-secondary">

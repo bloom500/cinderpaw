@@ -35,6 +35,7 @@
  */
 
 import { create } from 'zustand';
+import { tauri } from '@/lib/tauri';
 
 /**
  * Wizard steps in render order. The provider step currently branches
@@ -58,6 +59,14 @@ export interface OnboardingState {
   skipped: boolean;
   /** Epoch ms when the wizard finished or was skipped. Null = still pending. */
   completedAt: number | null;
+  /**
+   * Whether this install may be counted, once, when the wizard finishes.
+   * Default on, which is the ruling this was built under, and the reason the
+   * notice sits on the same screen as the switch rather than in Settings: an
+   * opt-out somebody finds afterwards is not one.
+   */
+  countInstall: boolean;
+  setCountInstall: (on: boolean) => void;
   /** True when the persisted record says "this user has already onboarded". */
   hasOnboardedBefore: boolean;
   /**
@@ -92,13 +101,21 @@ export interface OnboardingState {
   loadPersisted: () => Promise<boolean>;
 }
 
-const DEFAULTS = {
+/**
+ * Exported for the store's tests, which used to keep their own hand-written
+ * copy of this object in a `reset()` helper. A field added here and forgotten
+ * there does not fail: the tests just keep resetting to a state the product no
+ * longer has, which is how `countInstall` was asserted as `false` by a suite
+ * that was testing its own helper.
+ */
+export const DEFAULTS = {
   userName: '',
   agentName: 'Cinderpaw',
   hasOnboardedBefore: false,
   persistFailed: false,
   skipped: false,
   completedAt: null,
+  countInstall: true,
   active: false,
   step: FIRST_STEP,
   totalSteps: TOTAL_STEPS,
@@ -197,7 +214,15 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
     // record we have to say so, or the person's name is gone and the wizard
     // simply reappears next launch with no explanation.
     void persistAsync(record).then((stored) => set({ persistFailed: !stored }));
+    // The one and only moment this install is counted, and only because the
+    // notice explaining it is on the screen the person is looking at right
+    // now. Anything that pinged earlier — at launch, at install — would have
+    // sent it before they could say no. Failures are the counter's problem:
+    // nothing about it belongs in front of the user.
+    void tauri.system.countInstall(get().countInstall).catch(() => {});
   },
+
+  setCountInstall: (on: boolean) => set({ countInstall: on }),
 
   loadPersisted: async () => {
     // Try the layered persistence: localStorage first (sync, no I/O,
