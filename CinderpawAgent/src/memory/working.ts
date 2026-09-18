@@ -46,6 +46,17 @@ const SUMMARY_RESERVE_TOKENS = 1_200;
  */
 const SUMMARY_PREFIX = "Summary of earlier conversation:";
 
+/**
+ * A `<tool_call>` tag inside a tool RESULT is never a call, it is content: a
+ * web page, an email, a file that happens to carry the tag. `parseResponse`
+ * executes any such tag the model emits, and a model summarising a page will
+ * quote it. Breaking the tag on the way in means a copy is inert. Angle
+ * brackets are replaced, not the word, so the model can still talk about it.
+ */
+export function defangToolCallTags(content: string): string {
+  return content.replace(/<(\/?)tool_call>/gi, "‹$1tool_call›");
+}
+
 /** Tokens the objective drawer may occupy. One request, not an essay. */
 const OBJECTIVE_MAX_TOKENS = 200;
 
@@ -273,7 +284,7 @@ export class WorkingMemory {
     this.add({
       role: "tool",
       name: toolName,
-      content,
+      content: defangToolCallTags(content),
       ...(images && images.length > 0 ? { images } : {}),
     });
   }
