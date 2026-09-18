@@ -489,6 +489,12 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
                 }
             }
             LOADING.store(tabs().lock().list.iter().any(|t| t.loading), Ordering::SeqCst);
+            // Leaving the start page is decided HERE, when the new address lands
+            // in history: nothing placed the page after a search from the new-tab
+            // page, so the panel hid its own page and showed the white body
+            // behind a webview still parked off-screen, until a resize. A no-op
+            // when nothing moved: place_all skips tabs already where they belong.
+            let _ = place_all(&events);
             emit_state(&events);
             if finished {
                 // The title arrives from the page itself, once it is there.
