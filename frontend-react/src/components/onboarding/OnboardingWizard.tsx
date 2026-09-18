@@ -431,20 +431,23 @@ export function ProviderStep() {
 
       <DetectedSection />
 
+      {/* Cloud first, on purpose. Cinderpaw's tools fumble on anything under
+          ~27B, and most machines cannot run 27B, so "local" is the right
+          first day only for a big machine; the LocalBranch says so per tier. */}
       <div className="grid grid-cols-2 gap-3">
-        <ForkCard
-          icon={<HardDrive size={20} />}
-          title="Run locally"
-          subtitle="Private · free · on your machine"
-          selected={choice === 'local'}
-          onClick={() => setChoice('local')}
-        />
         <ForkCard
           icon={<Cloud size={20} />}
           title="Use a cloud key"
-          subtitle="Instant · stronger · some free tiers"
+          subtitle="Instant · strongest · some free tiers"
           selected={choice === 'cloud'}
           onClick={() => setChoice('cloud')}
+        />
+        <ForkCard
+          icon={<HardDrive size={20} />}
+          title="Run locally"
+          subtitle="Private · free · needs a big machine"
+          selected={choice === 'local'}
+          onClick={() => setChoice('local')}
         />
       </div>
 

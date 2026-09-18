@@ -26,7 +26,7 @@ export function AboutTab() {
 
       <div className="space-y-1">
         <p className="text-sm font-semibold text-text-primary">Cinderpaw {version ?? '…'}</p>
-        <p className="text-xs text-text-muted">Local-first AI desktop, built with Tauri + React</p>
+        <p className="text-xs text-text-muted">An AI that practices while you sleep. Built with Tauri + React</p>
         {/* A licence line is something people act on: it decides whether they can
             use Cinderpaw at work, so it states the real terms rather than a
             friendly summary. Keep it in step with LICENSE and with `license` in

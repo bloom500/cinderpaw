@@ -10,8 +10,8 @@
 //! lives inside `verify` (`persist: true` is honored only on success) — no
 //! client can write an unverified route through this surface.
 //!
-//! Ladder order (local-first — Cinderpaw's differentiator; OpenClaw has no
-//! local-model story at all):
+//! Ladder order (what is already on the machine first, then what it could
+//! download, then what it could rent; OpenClaw has no local-model story at all):
 //!   a. existing config — enabled BYOK provider with a keychain key
 //!   b. local GGUF models already on disk
 //!   c. hardware tier → recommended one-click download (Cinderpaw-specific rung)
@@ -58,6 +58,9 @@ pub struct DownloadSpec {
     pub filename: String,
     pub label: String,
     pub approx_size: String,
+    /// False for every tier below 27B: the model runs, but Cinderpaw's tool
+    /// calls fumble on it. Surfaces say so instead of calling it recommended.
+    pub enough_for_tools: bool,
 }
 
 /// One rung result. Everything a client needs to render the row and to POST
@@ -153,8 +156,9 @@ const ENV_KEY_PROVIDERS: &[(&str, &str)] = &[
 ];
 
 /// Run the full ladder. Network rung (Ollama) uses a 1.5s probe so a cold
-/// machine answers fast. `recommended` is stamped on the first candidate —
-/// ladder order IS the recommendation order (local-first).
+/// machine answers fast. `recommended` is stamped on the first candidate that
+/// is not a too-small download — a 4B on a fresh laptop must never be the
+/// thing we point at, because the user blames the product, not the model.
 pub async fn detect() -> Vec<Candidate> {
     let mut out = Vec::new();
 
@@ -219,10 +223,14 @@ pub async fn detect() -> Vec<Candidate> {
                 kind: CandidateKind::HardwareDownload,
                 id: format!("download:{}", spec.repo_id),
                 label: format!("{} — your machine can run this", spec.label),
-                detail: format!(
-                    "one-time download {}, then 100% local and private",
-                    spec.approx_size
-                ),
+                detail: if spec.enough_for_tools {
+                    format!("one-time download {}, then 100% local and private", spec.approx_size)
+                } else {
+                    format!(
+                        "one-time download {}. Runs, but Cinderpaw's tools fumble on a model this small; a cloud key (free tiers exist) is the better first day",
+                        spec.approx_size
+                    )
+                },
                 provider_id: None,
                 model: Some(spec.filename.clone()),
                 base_url: None,
@@ -245,7 +253,10 @@ pub async fn detect() -> Vec<Candidate> {
     // already covered by an env key or existing config.
     out.extend(openclaw_candidates(&out));
 
-    if let Some(first) = out.first_mut() {
+    if let Some(first) = out
+        .iter_mut()
+        .find(|c| c.download.as_ref().is_none_or(|d| d.enough_for_tools))
+    {
         first.recommended = true;
     }
     out
@@ -399,20 +410,24 @@ pub fn recommend_download(info: &crate::sysinfo_mod::SystemInfo) -> DownloadSpec
     } else {
         info.ram_total_mb / 2
     };
-    let (repo, file, label, size) = if budget_mb >= 18_000 {
-        ("bartowski/Qwen_Qwen3.5-27B-GGUF", "Qwen_Qwen3.5-27B-Q4_K_M.gguf", "Qwen3.5 27B", "~16.5 GB")
+    // Only the 27B tier runs Cinderpaw's tools well (measured, Sep 2026);
+    // the smaller tiers are offered so a machine that cannot do better still
+    // gets a model, but they are never the recommendation.
+    let (repo, file, label, size, enough) = if budget_mb >= 18_000 {
+        ("bartowski/Qwen_Qwen3.5-27B-GGUF", "Qwen_Qwen3.5-27B-Q4_K_M.gguf", "Qwen3.5 27B", "~16.5 GB", true)
     } else if budget_mb >= 9_000 {
-        ("bartowski/Qwen_Qwen3.5-9B-GGUF", "Qwen_Qwen3.5-9B-Q4_K_M.gguf", "Qwen3.5 9B", "~5.5 GB")
+        ("bartowski/Qwen_Qwen3.5-9B-GGUF", "Qwen_Qwen3.5-9B-Q4_K_M.gguf", "Qwen3.5 9B", "~5.5 GB", false)
     } else if budget_mb >= 4_500 {
-        ("bartowski/Qwen_Qwen3.5-4B-GGUF", "Qwen_Qwen3.5-4B-Q4_K_M.gguf", "Qwen3.5 4B", "~2.5 GB")
+        ("bartowski/Qwen_Qwen3.5-4B-GGUF", "Qwen_Qwen3.5-4B-Q4_K_M.gguf", "Qwen3.5 4B", "~2.5 GB", false)
     } else {
-        ("bartowski/Qwen_Qwen3.5-2B-GGUF", "Qwen_Qwen3.5-2B-Q4_K_M.gguf", "Qwen3.5 2B", "~1.5 GB")
+        ("bartowski/Qwen_Qwen3.5-2B-GGUF", "Qwen_Qwen3.5-2B-Q4_K_M.gguf", "Qwen3.5 2B", "~1.5 GB", false)
     };
     DownloadSpec {
         repo_id: repo.into(),
         filename: file.into(),
         label: label.into(),
         approx_size: size.into(),
+        enough_for_tools: enough,
     }
 }
 
@@ -836,6 +851,9 @@ mod tests {
         assert_eq!(recommend_download(&sysinfo(0, 16_384, false)).label, "Qwen3.5 4B");
         // No GPU, 8 GB RAM → 2B tier.
         assert_eq!(recommend_download(&sysinfo(0, 8_192, false)).label, "Qwen3.5 2B");
+        // Only the 27B tier is enough for the tools; the rest are offered, not recommended.
+        assert!(recommend_download(&sysinfo(24_576, 32_768, true)).enough_for_tools);
+        assert!(!recommend_download(&sysinfo(0, 16_384, false)).enough_for_tools);
     }
 
     #[test]

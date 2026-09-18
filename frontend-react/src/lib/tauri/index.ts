@@ -395,6 +395,8 @@ export interface SetupCandidate {
     filename: string;
     label: string;
     approx_size: string;
+    /** False below 27B: it runs, but Cinderpaw's tools fumble on it. */
+    enough_for_tools: boolean;
   } | null;
 }
 

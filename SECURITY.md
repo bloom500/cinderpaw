@@ -32,7 +32,7 @@ otherwise.
 
 ## Threat model (what protects what)
 
-Cinderpaw is a local-first desktop app: a Tauri (Rust) shell, a bundled llama.cpp
+Cinderpaw is a desktop app that keeps its data on your machine: a Tauri (Rust) shell, a bundled llama.cpp
 engine behind a loopback HTTP API, and a Bun/TypeScript agent sidecar.
 
 ### Local inference API (port 11435)

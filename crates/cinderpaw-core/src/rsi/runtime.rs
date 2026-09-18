@@ -687,6 +687,7 @@ mod tests {
             settings: crate::settings::Settings::default(),
             cinderpaw_agent_process: StdArc::new(PlMutex::new(None)),
             agent_ready: StdArc::new(std::sync::atomic::AtomicBool::new(false)),
+            api_port_actual: StdArc::new(std::sync::atomic::AtomicU16::new(0)),
             cinderpaw_agent_tx: StdArc::new(PlMutex::new(None)),
             local_api_token: StdArc::from("test-token-not-used"),
             cinderpaw_agent_planned_exit: StdArc::new(PlMutex::new(None)),

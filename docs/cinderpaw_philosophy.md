@@ -86,23 +86,26 @@ Bounded means: the user defines the autonomy boundary. The engine
 respects it. If a change would breach the boundary, the change is
 rejected — not negotiated.
 
-## Why local-first?
+## Why does everything live on your machine?
 
 Three reasons that compound.
 
 First, **privacy**. Personal Fitness (BRSI §2.10) is the sixth
 component of the fitness vector. It depends on what the user accepts,
 rejects, edits, and how often their workflows succeed. Cloud sync
-makes this a privacy problem; local-first makes it a personal
-dataset.
+would make this a privacy problem; keeping it on disk makes it a
+personal dataset. (The model itself may be a cloud one; the memory,
+the journal and the evals never are.)
 
 Second, **ownership**. The model is the user's. The engine is the
 user's. The journal is the user's. Nothing rented, nothing revoked
 on a vendor's terms-of-service change.
 
-Third, **trust**. The code is auditable. No remote telemetry. No
-"phone home". The user can read the entire codebase and see exactly
-what Cinderpaw is doing with their data.
+Third, **trust**. The code is auditable. The only thing that ever
+leaves unasked is a one-time install count (`{version, os}`, opt-out
+on the last setup screen, see PROMISES.md 4). The user can read the
+entire codebase and see exactly what Cinderpaw is doing with their
+data.
 
 ## Why append-only journals?
 
