@@ -177,7 +177,10 @@ async fn person_took_over(app: &AppHandle) -> bool {
     if last == 0.0 || now_ms() - last > 120_000.0 { return false; }
     let Some(wv) = page(app) else { return false };
     let touched = run(&wv, "window.__cpTouched || 0").await.ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
-    touched > last
+    // A touch the person made before their latest request is not a take-over:
+    // the request itself is them handing the page back.
+    let asked = cinderpaw_core::api::LAST_PERSON_REQUEST_MS.load(Ordering::SeqCst) as f64;
+    touched > last && touched > asked
 }
 
 /// Unpacked Chrome extensions, one folder each. WebView2 loads them for every

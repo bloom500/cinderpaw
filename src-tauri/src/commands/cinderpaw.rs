@@ -90,6 +90,7 @@ pub(crate) async fn cinderpaw_send_message(
     // from the chat bubble inside the browser must carry it too. The sidecar
     // turns it into a per-turn brief that points the agent at the `browser`
     // tool instead of web_search on a page the person is already looking at.
+    cinderpaw_core::api::person_asked();
     if let Some((url, title)) = crate::browser::visible_page() {
         payload["browserPage"] = serde_json::json!({ "url": url, "title": title });
     }

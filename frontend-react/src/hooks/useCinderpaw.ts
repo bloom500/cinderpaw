@@ -542,6 +542,11 @@ export function useCinderpawGlobal() {
     let unlistenRevert: (() => void) | null = null;
 
     const setup = async () => {
+      // The stream listener is where ask_user questions are received, and it
+      // used to be installed by the first chat SEND. A person whose first act
+      // after launch was a voice call never had one: the agent asked, nothing
+      // heard it, and the call waited out the question's timeout (18 Sep).
+      void ensureCinderpawListener().catch(() => {});
       unlistenReady = await listen('cinderpaw://agent-ready', () => {
         setReady(true);
         void fetchConfig();

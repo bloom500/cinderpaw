@@ -1172,6 +1172,7 @@ async fn runtime_voice_tool(
     // at all, so "did it even try to search?" had no answer anywhere — and that
     // is the first question when a spoken answer sounds invented.
     tracing::info!(tool = %call.name, request = %request, "voice tool: asked");
+    person_asked();
 
     // Already running? Wait on that one rather than starting another.
     //
@@ -3646,4 +3647,20 @@ async fn runtime_setup_verify(
         Err(VerifyError::BadRequest(m)) => (StatusCode::BAD_REQUEST, m).into_response(),
         Err(VerifyError::Internal(m)) => (StatusCode::INTERNAL_SERVER_ERROR, m).into_response(),
     }
+}
+
+/// When the person last asked for something, on any surface (ms since the
+/// epoch). The browser's take-over guard reads it: a click in the page BEFORE
+/// a new request is not a reason to refuse that request. Without it, 18 Sep,
+/// "open cinderpaw.dev" said on a call was refused because he had clicked the
+/// weather page a minute earlier, and the agent stopped to ask permission for
+/// the thing he had just asked for.
+pub static LAST_PERSON_REQUEST_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn person_asked() {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    LAST_PERSON_REQUEST_MS.store(now, std::sync::atomic::Ordering::SeqCst);
 }
