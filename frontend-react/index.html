@@ -184,41 +184,57 @@
       by CSS has to exist before the first paint that uses it, or the surfaces
       flash unfiltered on every cold start.
 
-      Kept small on purpose. A large displacement makes the edges undulate,
-      which reads as liquid; thick glass bends what is behind it only slightly,
-      and what makes it look ICY is the blur, not the wave. `scale` is the dial:
-      up for liquid, down for a windowpane, 0 for plain frost.
+      The map is STATIC, and that is the whole performance story. It used to be
+      an `feTurbulence` with `repeatCount="indefinite"` on its baseFrequency:
+      a full Perlin field regenerated every frame, for ever, behind whatever
+      surface referenced it. A filter that never changes is rasterized once and
+      cached by the compositor; an animated one can never be, so the backdrop
+      was re-filtered at 60fps whether anything moved or not. That was the
+      2-3 s any panel took to open on 17 Sep. The crawl it bought was a 26-second
+      cycle nobody could see.
 
-      ponytail: the displacement re-filters the backdrop on every frame it
-      changes, so it is applied to the PANELS and never to anything small and
-      repeated. If it ever costs frames, `scale` is also the dial and 0 is
-      free.
+      Noise also buys the wrong picture. Turbulence smears the backdrop evenly,
+      which reads as a dirty window. Real glass bends most at its EDGES and not
+      at all in the middle, so the map is two gradients: red carries the
+      horizontal shift, green the vertical, both flat at 128 (no displacement)
+      across the middle and running to the extremes in the last eighth. That is
+      the lens edge, and it is why `feDisplacementMap` can draw a bevel that
+      `blur()` cannot.
+
+      Inline in the document rather than rendered by React: a filter referenced
+      by CSS has to exist before the first paint that uses it, or the surfaces
+      flash unfiltered on every cold start.
+
+      `scale` is the dial: up for a thicker edge, 0 for plain frost.
+
+      ponytail: applied only to the small floating surfaces (dialogs, menus,
+      popovers, the composer, the nav) — never to `.app-pane`, which is the
+      whole window. Every published implementation of this effect says the same
+      thing, and the version that ignored it cost the frame budget of the
+      entire app.
     -->
     <svg width="0" height="0" aria-hidden="true" focusable="false"
          style="position:absolute;pointer-events:none">
       <defs>
-        <filter id="liquid-glass" x="-25%" y="-25%" width="150%" height="150%"
+        <!-- The two halves of the map are separate images and joined with
+             `screen` rather than drawn as one: `mix-blend-mode` inside an
+             feImage is not something every engine honours, while a filter
+             primitive is. Screen over (r,0,0) and (0,g,0) is exactly (r,g,0),
+             which is the map feDisplacementMap wants.
+
+             `preserveAspectRatio="none"` matters: the filter region is the
+             element, and these surfaces run from a 128px menu to a full
+             dialog. Without it the map would keep its own square shape and the
+             bevel would land somewhere inside a wide popover instead of on its
+             edge. -->
+        <filter id="liquid-glass" x="0%" y="0%" width="100%" height="100%"
                 color-interpolation-filters="sRGB">
-          <feTurbulence type="fractalNoise" baseFrequency="0.006 0.010"
-                        numOctaves="2" seed="9" result="warp">
-            <animate attributeName="baseFrequency"
-                     dur="18s" repeatCount="indefinite"
-                     values="0.006 0.010;0.011 0.006;0.006 0.010" />
-          </feTurbulence>
-          <feDisplacementMap in="SourceGraphic" in2="warp" scale="7"
-                             xChannelSelector="R" yChannelSelector="G" />
-        </filter>
-        <!-- A gentler one for the large pane, where a strong bend reads as a
-             smear rather than as thickness. -->
-        <filter id="liquid-glass-soft" x="-15%" y="-15%" width="130%" height="130%"
-                color-interpolation-filters="sRGB">
-          <feTurbulence type="fractalNoise" baseFrequency="0.004 0.007"
-                        numOctaves="2" seed="3" result="warp">
-            <animate attributeName="baseFrequency"
-                     dur="26s" repeatCount="indefinite"
-                     values="0.004 0.007;0.008 0.004;0.004 0.007" />
-          </feTurbulence>
-          <feDisplacementMap in="SourceGraphic" in2="warp" scale="4"
+          <feImage result="mx" width="100%" height="100%" preserveAspectRatio="none"
+                   href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' preserveAspectRatio='none'%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='rgb(0,0,0)'/%3E%3Cstop offset='0.12' stop-color='rgb(128,0,0)'/%3E%3Cstop offset='0.88' stop-color='rgb(128,0,0)'/%3E%3Cstop offset='1' stop-color='rgb(255,0,0)'/%3E%3C/linearGradient%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3C/svg%3E" />
+          <feImage result="my" width="100%" height="100%" preserveAspectRatio="none"
+                   href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' preserveAspectRatio='none'%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='rgb(0,0,0)'/%3E%3Cstop offset='0.12' stop-color='rgb(0,128,0)'/%3E%3Cstop offset='0.88' stop-color='rgb(0,128,0)'/%3E%3Cstop offset='1' stop-color='rgb(0,255,0)'/%3E%3C/linearGradient%3E%3Crect width='64' height='64' fill='url(%23g)'/%3E%3C/svg%3E" />
+          <feBlend in="mx" in2="my" mode="screen" result="warp" />
+          <feDisplacementMap in="SourceGraphic" in2="warp" scale="10"
                              xChannelSelector="R" yChannelSelector="G" />
         </filter>
       </defs>

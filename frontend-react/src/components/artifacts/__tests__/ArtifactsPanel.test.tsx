@@ -399,7 +399,8 @@ describe('a PDF', () => {
 
   it('turning a page saves at once, on the version on screen', async () => {
     render(<ArtifactsPanel onClose={() => {}} />);
-    const turn = await screen.findAllByText('Turn page');
+    // First touch of the lazy PdfEditor chunk: the default 1s is not enough.
+    const turn = await screen.findAllByText('Turn page', {}, { timeout: 5000 });
     op.mockClear();
     fireEvent.click(turn[1]!);
     await waitFor(() => expect(op).toHaveBeenCalled());
