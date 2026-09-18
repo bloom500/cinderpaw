@@ -902,10 +902,10 @@ function InstallCountNotice() {
       <span className="text-xs text-text-muted leading-relaxed">
         <span className="text-text-primary font-medium">Count this install, once.</span>{' '}
         When you open chat, Cinderpaw sends one message containing its version
-        number and your operating system — nothing else, never again, and
+        number and your operating system, nothing else, never again, and
         nothing about you or what you do here. It is how we know how many
         people actually run it. Untick and nothing is sent at all. Either way,{' '}
-        <code className="text-[11px]">~/.cinderpaw/.install-counted</code> is
+        <code className="text-micro">~/.cinderpaw/.install-counted</code> is
         written with exactly what happened, so you can check.
       </span>
     </label>

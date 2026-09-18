@@ -209,7 +209,7 @@ Grab the latest installer from [Releases](https://github.com/bloom500/cinderpaw/
 | **macOS** (Apple Silicon, Intel) | `.dmg` | 🟡 Beta — CI-built, lightly tested on real hardware. [Report issues](https://github.com/bloom500/cinderpaw/issues). |
 | **Linux** (Ubuntu/Debian) | `.deb` / `.rpm` | 🟡 Beta — CI-built, lightly tested. [Report issues](https://github.com/bloom500/cinderpaw/issues). |
 
-> **Windows first launch:** the installer isn't code-signed yet (certificates cost real money and Cinderpaw is free), so SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway**. The installer is built by public GitHub Actions CI from this repository — you can audit exactly what went into it.
+> **Windows first launch:** the installer isn't code-signed yet (free open-source signing through SignPath is applied for, not granted), so SmartScreen may show *"Windows protected your PC"*. Click **More info → Run anyway**. The installer is built by public GitHub Actions CI from this repository — you can audit exactly what went into it.
 
 > **macOS first launch:** Cinderpaw isn't notarized by Apple (yet), so macOS will warn you on first open. If you see *"Cinderpaw.app is damaged"* or *"can't be opened"*, run this once in Terminal and you're set:
 > ```bash

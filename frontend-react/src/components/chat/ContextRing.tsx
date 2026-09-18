@@ -153,7 +153,7 @@ export function ContextRing() {
 
           <span className="text-text-muted">Free</span>
           <span className="text-text-primary text-right">
-            {known ? `${isLive ? '' : '~'}${remaining.freeTokens.toLocaleString()} tokens` : '—'}
+            {known ? `${isLive ? '' : '~'}${remaining.freeTokens.toLocaleString()} tokens` : 'unknown'}
           </span>
 
           <span className="text-text-muted">Messages</span>

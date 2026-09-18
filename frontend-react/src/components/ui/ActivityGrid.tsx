@@ -121,7 +121,7 @@ export function ActivityGrid({
               key={key}
               // `title` rather than a tooltip component: this is 371 elements,
               // and 371 mounted tooltips is a scroll that stutters.
-              title={`${date.toLocaleDateString()} — ${n === 0 ? 'nothing' : `${n} conversation${n === 1 ? '' : 's'}`}`}
+              title={`${date.toLocaleDateString()}: ${n === 0 ? 'nothing' : `${n} conversation${n === 1 ? '' : 's'}`}`}
               className={cn('size-[9px] rounded-[2px]', TINT[levelOf(n)])}
             />
           );
