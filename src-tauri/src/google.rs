@@ -30,7 +30,10 @@ struct Client {
 }
 
 fn client() -> Result<Client, String> {
-    if let (Some(id), Some(secret)) = (option_env!("CINDERPAW_GOOGLE_CLIENT_ID"), option_env!("CINDERPAW_GOOGLE_CLIENT_SECRET")) {
+    // A CI secret that was never added arrives as "" rather than absent, and an
+    // empty client id would put a button on screen that Google then rejects.
+    let baked = |v: Option<&'static str>| v.filter(|s| !s.trim().is_empty());
+    if let (Some(id), Some(secret)) = (baked(option_env!("CINDERPAW_GOOGLE_CLIENT_ID")), baked(option_env!("CINDERPAW_GOOGLE_CLIENT_SECRET"))) {
         return Ok(Client { id: id.into(), secret: secret.into() });
     }
     let path = cinderpaw_core::paths::cinderpaw_dir().join("google-oauth-client.json");
@@ -41,6 +44,13 @@ fn client() -> Result<Client, String> {
     struct File { client_id: String, client_secret: String }
     let f: File = serde_json::from_str(&text).map_err(|e| format!("google-oauth-client.json is not readable: {e}"))?;
     Ok(Client { id: f.client_id, secret: f.client_secret })
+}
+
+/// Whether this build can talk to Google at all. A build made without the
+/// client (a fork, a local build, a release whose CI secret is missing) hides
+/// the button instead of offering one that can only fail.
+pub fn is_registered() -> bool {
+    client().is_ok()
 }
 
 pub fn is_connected() -> bool {

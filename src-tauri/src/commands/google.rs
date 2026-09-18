@@ -2,8 +2,10 @@
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn google_status() -> bool {
-    crate::google::is_connected()
+/// `null` when this build is not registered with Google (the button is hidden),
+/// otherwise whether the person is logged in.
+pub(crate) async fn google_status() -> Option<bool> {
+    crate::google::is_registered().then(crate::google::is_connected)
 }
 
 #[tauri::command]

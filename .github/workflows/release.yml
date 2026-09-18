@@ -277,6 +277,11 @@ jobs:
           # Add them in Settings → Secrets and variables → Actions.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Cinderpaw's OAuth client for Send to Google Docs, baked in by
+          # src-tauri/src/google.rs. Missing secrets are safe: the build hides
+          # the button rather than offering one Google will refuse.
+          CINDERPAW_GOOGLE_CLIENT_ID: ${{ secrets.CINDERPAW_GOOGLE_CLIENT_ID }}
+          CINDERPAW_GOOGLE_CLIENT_SECRET: ${{ secrets.CINDERPAW_GOOGLE_CLIENT_SECRET }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Cinderpaw ${{ github.ref_name }}"

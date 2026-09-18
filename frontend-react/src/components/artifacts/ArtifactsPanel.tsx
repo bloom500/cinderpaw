@@ -31,6 +31,7 @@ function Loading() {
 import { useArtifacts, googlePlan, type ArtifactRow } from '@/stores/artifacts';
 import { ExternalLink } from '@/components/chat/ExternalLink';
 import { cn, readLocal, writeLocal } from '@/lib/utils';
+import { tauri } from '@/lib/tauri';
 
 const WIDTH_KEY = 'cinderpaw.artifactsPanelWidth';
 const DEFAULT_WIDTH = 416;
@@ -81,6 +82,12 @@ export function ArtifactsPanel({
   const pickRef = useRef<HTMLInputElement>(null);
   // Only the newest version is editable; an older one is restored instead.
   const canEdit = !!open && EDITABLE_KINDS.has(open.row.kind) && open.showing === open.row.version;
+  // A build without Cinderpaw's Google registration (a fork, a local build, a
+  // release whose CI secret is missing) gets no button, not one that only fails.
+  const [googleRegistered, setGoogleRegistered] = useState(false);
+  useEffect(() => {
+    tauri.google.status().then((s) => setGoogleRegistered(s !== null), () => setGoogleRegistered(false));
+  }, []);
 
   // The list is also kept current by `artifact` events, which arrive from every
   // surface. This is only the first read, for the case where the panel is
@@ -229,7 +236,7 @@ export function ArtifactsPanel({
           {open && !editing && canEdit && (
             <ArtifactAction tooltip="Edit" icon={Pencil} disabled={busy} onClick={startEdit} />
           )}
-          {open && !editing && googlePlan(open.row.kind) && (
+          {open && !editing && googleRegistered && googlePlan(open.row.kind) && (
             <ArtifactAction
               tooltip="Send to Google Docs"
               disabled={busy || google?.busy === true}

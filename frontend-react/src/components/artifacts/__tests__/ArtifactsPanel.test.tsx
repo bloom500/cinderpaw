@@ -519,11 +519,26 @@ describe('Send to Google Docs', () => {
       open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
     });
     render(<ArtifactsPanel onClose={() => {}} />);
-    fireEvent.click(screen.getByLabelText('Send to Google Docs'));
+    fireEvent.click(await screen.findByLabelText('Send to Google Docs'));
     await waitFor(() => expect(g.upload).toHaveBeenCalled());
     expect(g.connect).toHaveBeenCalledTimes(1);
     expect(g.upload).toHaveBeenCalledWith('Q3- report', 'text/html', '<p>hi</p>', null, true);
     expect(await screen.findByText('open it')).toHaveAttribute('href', 'https://docs.google.com/document/d/abc/edit');
+  });
+
+  it('a build not registered with Google shows no button at all', async () => {
+    const { tauri: t } = await import('@/lib/tauri');
+    const g = t.google as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    g.status = vi.fn().mockResolvedValue(null);
+    useArtifacts.setState({
+      loaded: true, editing: null, google: null,
+      open: { row: row({ kind: 'document', title: 'Q3: report' }), content: '<p>hi</p>', showing: 2, versions: [] },
+    });
+    render(<ArtifactsPanel onClose={() => {}} />);
+    await waitFor(() => expect(g.status).toHaveBeenCalled());
+    // Let the answer land: before it, the button is hidden whatever it says.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(screen.queryByLabelText('Send to Google Docs')).toBeNull();
   });
 
   it('a PDF goes as a PDF, and a Word file has no button', () => {

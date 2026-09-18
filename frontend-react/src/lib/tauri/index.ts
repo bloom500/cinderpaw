@@ -996,7 +996,8 @@ const raw = {
   /** The built-in browser: `open`, `back`, `forward`, `reload`, `state`, and
    *  `set_bounds` (where the page sits over the panel). See src-tauri/src/browser.rs. */
   /** Send to Google Docs. See src-tauri/src/google.rs. */
-  googleStatus: () => invoke<boolean>('google_status'),
+  /** `null`: this build is not registered with Google, so there is no button. */
+  googleStatus: () => invoke<boolean | null>('google_status'),
   googleConnect: () => invoke<void>('google_connect'),
   googleDisconnect: () => invoke<void>('google_disconnect'),
   googleUpload: (name: string, mime: string, data: string, encoding: 'base64' | null, convert: boolean) =>
