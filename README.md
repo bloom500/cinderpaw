@@ -1,19 +1,14 @@
 <p align="center">
-  <img src="frontend-react/public/README%20banner.jpeg" alt="Cinderpaw — your local-first AI workspace" width="100%" />
+  <img src="frontend-react/public/README%20banner.jpeg" alt="Cinderpaw — it practices while you sleep" width="100%" />
 </p>
 
 # Cinderpaw
 
-**Your local-first AI workspace. No subscription. No account. No middleman.**
-
-<sub>One exception, stated plainly: at the end of first-run setup Cinderpaw
-offers to count the install once — its version and your OS, nothing else,
-and you can untick it on that screen. See
-[PROMISES.md](PROMISES.md#the-promises).</sub>
+**It practices while you sleep.**
 
 <p align="center">
   <a href="https://github.com/bloom500/cinderpaw/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/cinderpaw?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
-  <img src="https://img.shields.io/badge/license-BSL%201.1-green?style=for-the-badge" alt="License" />
+  <img src="https://img.shields.io/badge/license-Apache%202.0-green?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge" alt="Platform" />
   <img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=for-the-badge&logo=tauri" alt="Tauri" />
 </p>
@@ -29,24 +24,44 @@ and you can untick it on that screen. See
 
 ---
 
-Cinderpaw is a desktop app that runs AI on your own computer.
+Cinderpaw is a little AI that lives on your computer and helps you get things
+done. You talk to it like you would talk to a person.
 
-Download a model onto your disk and it works with the wifi switched off. Nothing
-you type leaves the machine. No monthly bill, and absolutely zero VC-funded
-"alignment" teams reading your conversations at 3am.
+It opens your files, reads web pages for you, answers messages on WhatsApp or
+Discord, writes the document, and then actually sends it. You can call it on the
+phone and just say the thing out loud.
 
-Want one of the big cloud models instead? Paste in your own key from OpenAI,
-Anthropic, Google or a dozen others. Your key, your bill, and your messages go
-straight to them. We are never in the middle, because we do not own a single
-server.
+Here is the part that is different. When you stop working, Cinderpaw goes back
+over what happened and tries to find a better way to do it next time. It keeps
+what worked and throws away what did not. So the Cinderpaw you have in March is
+not the one you installed in January. It has been practising.
 
-Either way you get the same three things: a chat, an agent that can use tools
-and remember things, and deep research that reads the web and writes you a
-report with its sources.
+It also remembers you. Tell it once how you like your emails written, and you do
+not have to say it again in six weeks.
 
-It's your computer. Do whatever you want.
+The creature on the screen is a bear cub called Cubby. It arrives knowing
+nothing about you, chews the furniture a bit, and grows into yours. We got quite
+attached to it. You will too.
+
+### Two honest things before you download
+
+**It needs a good brain.** Cinderpaw is the body: the hands, the memory, the
+habits. The thinking comes from a model, and a small one will fumble. Bring a
+key from OpenAI, Anthropic, Google or a dozen others and it flies. Run a big
+model on your own machine and it flies without the internet. Run a tiny local
+model and it will stumble, and that is us being honest rather than you doing
+something wrong.
+
+**Practising costs something on a cloud model.** Thinking about its own work is
+still thinking, and on a paid model that is your money, so it is OFF until you
+say yes. Flip it on in **Settings → Dreams**, where you can also cap what it may
+spend. On a model running on your own machine it is free, so it just does it.
 
 **New here?** [What we promise](PROMISES.md) · [How to use it](docs/USER_GUIDE.md) · [Install it](#quick-install)
+
+<sub>One thing Cinderpaw sends about itself: at the end of setup it offers to
+count the install once — its version and your operating system, nothing else,
+and you can untick it right there. See [PROMISES.md](PROMISES.md#the-promises).</sub>
 
 ![Chat](frontend-react/public/READMEdemo1.png)
 
@@ -243,6 +258,7 @@ terminal client and [docs/API.md](docs/API.md) for the local HTTP API.
 - **Cloud models (BYOK):** Cinderpaw calls provider APIs directly with your key. Configured background work, verification, and fallback routes can also make provider requests. The receiving provider's privacy policy applies.
 - **Web tools:** agent tools like `web_search`, `deep_research`, and `fetch_url` make outbound requests (DuckDuckGo or your own SearXNG instance, Jina Reader, or any public site the agent needs) when the agent uses them — through an egress proxy with SSRF protection, rate limiting, and an audit log.
 - **Update check:** the desktop can check GitHub Releases at launch. **Settings → General** disables that automatic check; it does not disable model/toolchain downloads or other network activity.
+- **The one thing Cinderpaw says about itself:** at the end of first-run setup it offers to count the install once — its version and your operating system, nothing else, never again, and untickable on that screen. `~/.cinderpaw/.install-counted` records exactly what happened, so you can check rather than take our word.
 
 The full list of what we promise, what we deliberately do not promise, and how to check each one yourself is in [PROMISES.md](PROMISES.md).
 

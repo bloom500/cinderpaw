@@ -8,7 +8,7 @@
 
 ## What is Cinderpaw
 
-Cinderpaw is a local-first personal AI agent by Bloom Media. It runs on the
+Cinderpaw is a personal AI agent by Bloom Media. It runs on the
 user's own machine: a desktop app, a terminal chat (TUI), and a `cinderpaw` CLI
 all talk to the same local runtime (the "gateway", port 11435 on 127.0.0.1).
 The model can be a fully local GGUF model (llama.cpp, GPU via Vulkan/Metal
