@@ -43,6 +43,12 @@ export function toAddress(text: string, engine: string): string {
 
 interface BrowserStore {
   panelOpen: boolean;
+  /**
+   * A voice call is showing the page in its own frame. The panel behind the
+   * call must not place the page too: two places reporting bounds is a page
+   * that jumps between them.
+   */
+  inCall: boolean;
   /** The browser takes the whole canvas up to the sidebar; the chat folds into a bubble. */
   wide: boolean;
   /** In wide mode: the chat drawer beside the page is open. */
@@ -81,6 +87,7 @@ function fromState(st: { active: number | null; tabs: BrowserTab[] }) {
 
 export const useBrowser = create<BrowserStore>((set, get) => ({
   panelOpen: false,
+  inCall: false,
   wide: false,
   chatOpen: false,
   setWide: (wide) => set({ wide }),

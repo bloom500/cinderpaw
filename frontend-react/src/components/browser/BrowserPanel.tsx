@@ -51,7 +51,7 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
 export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   const {
     url, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab,
-    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent,
+    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall,
   } = useBrowser();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const current = tabs.find((t) => t.id === active);
@@ -88,7 +88,8 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   // time the body changes size. One frame at a time: a resize fires in bursts.
   useLayoutEffect(() => {
     const el = bodyRef.current;
-    if (!el || !settled) return;
+    // A call frames the page itself; this re-runs and places it back here when the call ends.
+    if (!el || !settled || inCall) return;
     let frame = 0;
     const report = () => {
       cancelAnimationFrame(frame);
@@ -114,7 +115,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       ro.disconnect();
       window.removeEventListener('resize', report);
     };
-  }, [settled]);
+  }, [settled, inCall]);
 
   // Leaving by any route (route change, unmount) parks the page.
   useEffect(() => () => void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {}), []);

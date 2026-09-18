@@ -30,6 +30,7 @@ import { S2sModelPicker } from './S2sModelPicker';
 import { CallArtifacts } from './CallArtifacts';
 import { AskUserCard } from './AskUserCard';
 import { useAskUser } from '@/stores/askUser';
+import { useBrowser } from '@/stores/browser';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 import { warmLiveKit } from '@/hooks/useLiveKitCallSession';
 import { speechLevel } from '@/hooks/useSpeechPlayer';
@@ -324,6 +325,10 @@ export function CallOverlay({
   const inputMode = useUI((s) => s.inputMode);
   // The pending question, if the agent asked one while this call is up.
   const ask = useAskUser((s) => s.pending);
+  // The page the agent opened, framed beside the call rather than floating
+  // over it: see CallBrowserPanel.
+  const browserOpen = useBrowser((s) => s.panelOpen);
+  const browserUrl = useBrowser((s) => s.url);
   // Said once per question, when one arrives mid-call. A person on a call is
   // listening, not watching the screen.
   const spokenAsk = useRef<string | null>(null);
@@ -1022,6 +1027,7 @@ export function CallOverlay({
 
       {artifactsOpen && <CallArtifacts onClose={() => setArtifactsOpen(false)} />}
       {chatOpen && onSay && <CallChatPanel onClose={() => setChatOpen(false)} onSay={onSay} />}
+      {browserOpen && browserUrl && <CallBrowserPanel />}
     </div>,
     document.body,
   );
@@ -2127,3 +2133,69 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
   );
 }
 
+
+/**
+ * The built-in browser, during a call.
+ *
+ * The page is a native webview and always paints above the page's DOM, so it
+ * cannot be covered by the call: it sat wherever the chat layout had put it,
+ * frameless, over the orb and the question card, with nothing to close it by
+ * (18 Sep). Here the call gives it a frame of its own, a column beside the
+ * stage with a header and a close button, and the page is placed under that
+ * header. The panel behind the call stops placing it while this is up.
+ */
+function CallBrowserPanel() {
+  const url = useBrowser((s) => s.url);
+  const loading = useBrowser((s) => s.loading);
+  const title = useBrowser((s) => s.tabs.find((x) => x.id === s.active)?.title);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    useBrowser.setState({ inCall: true });
+    const el = bodyRef.current;
+    let frame = 0;
+    const report = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        void tauri.browser
+          .ui('set_bounds', { x: r.left, y: r.top, width: r.width, height: r.height, visible: true })
+          .catch(() => {});
+      });
+    };
+    report();
+    const ro = new ResizeObserver(report);
+    if (el) ro.observe(el);
+    window.addEventListener('resize', report);
+    return () => {
+      cancelAnimationFrame(frame);
+      ro.disconnect();
+      window.removeEventListener('resize', report);
+      useBrowser.setState({ inCall: false });
+    };
+  }, []);
+
+  return (
+    <aside className="flex w-[min(48vw,760px)] shrink-0 flex-col border-l border-border-default bg-bg-surface pt-8">
+      <header className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
+        <button
+          type="button"
+          onClick={() => useBrowser.getState().setPanel(false)}
+          aria-label="Close the browser"
+          title="Close the browser"
+          className="rounded p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
+        >
+          <X size={16} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-text-primary">{title && title !== url ? title : 'Browser'}</p>
+          <p className="truncate text-2xs text-text-muted">{url}</p>
+        </div>
+        {loading && <Loader2 size={14} className="shrink-0 animate-spin text-text-muted" />}
+      </header>
+      {/* The native page is placed over exactly this box. */}
+      <div ref={bodyRef} className="relative min-h-0 flex-1 bg-white" />
+    </aside>
+  );
+}
