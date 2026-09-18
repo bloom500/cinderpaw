@@ -22,7 +22,13 @@ import { CONNECTOR_TOOLS, EXTENDED_TOOLS, isCoreTool } from "../src/tools/tiers.
 const CORE = [
   "read_file", "write_file", "edit_file", "list_directory", "file_search", "grep",
   "scan_workspace", "git_status", "git_diff", "git_log", "git_commit", "git_branch",
-  "shell_exec", "web_search", "read_webpage", "recall", "remember", "self_describe",
+  // `fetch_url` joined this list on 2026-09-18 (c5df143), when it stopped being
+  // an EXTENDED tool and became the advertised way to read a page — the local
+  // one, with `read_webpage` (Jina) drawered behind it. The list below is
+  // hand-written, so a promotion like that has to be copied here by hand; the
+  // "map cannot rot" test at the bottom is what makes the copy non-optional,
+  // and it is what caught this one.
+  "shell_exec", "web_search", "fetch_url", "read_webpage", "recall", "remember", "self_describe",
   "self_status", "self_health", "self_tools", "self_subsystem", "product_info",
   "delegate_task", "cowork_team", "cowork_send", "list_tools", "load_tool", "ask_user",
   "todo_write", "cinderpaw_admin", "notebook",

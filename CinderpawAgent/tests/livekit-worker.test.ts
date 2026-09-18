@@ -10,6 +10,7 @@ const source = readFileSync(new URL("../../crates/cinderpaw-core/src/livekit_age
 
 function worker(provider: string, tuning?: string) {
   const timers: Array<() => void> = [];
+  const delays: number[] = [];
   const warnings: string[] = [];
   const deadlines: number[] = [];
   const sessions: any[] = [];
@@ -31,8 +32,11 @@ function worker(provider: string, tuning?: string) {
     voice: { AgentSession: Session, Agent: Base },
     AgentSessionEventTypes: {}, RoomEvent: {},
     console: { log() {}, error: (text: string) => warnings.push(text) },
-    setTimeout: (fn: () => void) => { timers.push(fn); return timers.length; },
-    setInterval: (fn: () => void) => { timers.push(fn); return timers.length; },
+    // The delay is recorded next to the callback because two different timers
+    // now exist on this path and "a timer was armed" no longer says which:
+    // the filler voice (OpenAI) and the tool-reply nudge (Google).
+    setTimeout: (fn: () => void, ms?: number) => { timers.push(fn); delays.push(ms ?? 0); return timers.length; },
+    setInterval: (fn: () => void, ms?: number) => { timers.push(fn); delays.push(ms ?? 0); return timers.length; },
     clearTimeout() {}, clearInterval() {},
     AbortSignal: { timeout: (ms: number) => { deadlines.push(ms); return undefined; } },
     fetch: async () => ({ ok: true, json: async () => ({ response: { ok: true } }) }),
@@ -43,7 +47,7 @@ function worker(provider: string, tuning?: string) {
     PLUGIN.google = async () => ({ beta: { realtime: { RealtimeModel: class { constructor(options) { this.options = options; } } } } });
     PLUGIN.openai = async () => ({ realtime: { RealtimeModel: class { constructor(options) { this.options = options; } } } });
     ({ REALTIME, toolsFromDeclarations, assistant, askRust, LocalTTS });`, context);
-  return { ...api, timers, warnings, deadlines, sessions, context };
+  return { ...api, timers, delays, warnings, deadlines, sessions, context };
 }
 
 test("Google keeps realtime input available while a tool is pending", async () => {
@@ -52,10 +56,28 @@ test("Google keeps realtime input available while a tool is pending", async () =
   expect(model.options.toolBehavior).toBe("NON_BLOCKING");
 });
 
-test("Google tool execution does not start a competing filler voice", async () => {
+test("Google tool execution asks for the reply and starts no competing filler voice", async () => {
   const w = worker("google");
-  await w.toolsFromDeclarations({ say() {} }).ask_cinder.execute({ request: "search" });
-  expect(w.timers).toHaveLength(0);
+  const spoken: string[] = [];
+  const replies: Array<{ instructions?: string }> = [];
+  const session = {
+    say: (text: string) => spoken.push(text),
+    generateReply: (o: { instructions?: string }) => replies.push(o),
+  };
+  await w.toolsFromDeclarations(session).ask_cinder.execute({ request: "search" });
+
+  // This test used to say "no timer at all", which was the right assertion
+  // while the only timer on this path was the filler. Since 2026-09-18 there
+  // is a second one: Gemini 3.x finds a tool's answer and says nothing, so the
+  // reply is asked for four seconds later if nobody has started speaking. The
+  // filler is still never armed on Google — the distinction is the delay.
+  expect(w.delays).toEqual([4000]);
+  expect(spoken).toEqual([]);
+
+  // Fire it: what it does is ask for the answer to be spoken, not speak.
+  w.timers[0]!();
+  expect(replies).toHaveLength(1);
+  expect(replies[0]!.instructions).toContain("Cinderpaw");
 });
 
 test("OpenAI realtime filler has a TTS without passing the vendor voice to it", async () => {
@@ -91,8 +113,15 @@ test("local synthesis sends the engine voice rather than the realtime vendor voi
 
 test("Google uses patient endpointing without a tuning file", async () => {
   const w = worker("google");
+  // 1500, not 700, since 2026-09-18 (a0102bf). The pause between two spoken
+  // sentences is routinely longer than 700 ms, so a three-sentence request was
+  // cut after the first one: the model began answering, sentence two arrived as
+  // an interruption, and the answer was cancelled. On a real call that produced
+  // no reply at all. The number is the product decision, so it is asserted here
+  // rather than read out of the worker - a test that reads the value it checks
+  // cannot catch the value changing.
   expect((await w.REALTIME.google()).options.realtimeInputConfig?.automaticActivityDetection).toEqual({
-    endOfSpeechSensitivity: "END_SENSITIVITY_LOW", silenceDurationMs: 700, prefixPaddingMs: 300,
+    endOfSpeechSensitivity: "END_SENSITIVITY_LOW", silenceDurationMs: 1500, prefixPaddingMs: 300,
   });
   expect(w.warnings).toEqual([]);
 });
@@ -103,6 +132,8 @@ test("Google tuning accepts valid overrides and rejects malformed settings", asy
   expect(config).toEqual({ endOfSpeechSensitivity: "END_SENSITIVITY_LOW", silenceDurationMs: 900, prefixPaddingMs: 300 });
   expect(w.warnings.length).toBeGreaterThan(0);
   const broken = worker("google", "{");
-  expect((await broken.REALTIME.google()).options.realtimeInputConfig.automaticActivityDetection.silenceDurationMs).toBe(700);
+  // A tuning file that will not parse falls back to the shipped default, which
+  // is the patient one. See the test above for why it is 1500.
+  expect((await broken.REALTIME.google()).options.realtimeInputConfig.automaticActivityDetection.silenceDurationMs).toBe(1500);
   expect(broken.warnings.length).toBeGreaterThan(0);
 });
