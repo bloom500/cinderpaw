@@ -9,6 +9,7 @@
 
 import type { Database } from "bun:sqlite";
 import type { AuditLogger, ChatMessage, EpisodicEvent } from "../types.ts";
+import { memoryTokens } from "./semantic.ts";
 
 /**
  * Marker row written by `AgentLoop.resetSession` (`/new`). Everything a session
@@ -291,17 +292,33 @@ export class EpisodicMemory {
     // common words like "where" and "is" down on its own. No stopword list,
     // which would have to be per-language and would quietly fail for anyone
     // not working in English.
-    return this.#searchWith(toFtsQuery(query, "or"), limit);
+    // The OR pass is graded, the AND pass is not. Anything matching every word
+    // of the question is on topic by construction; a row that matched ONE word
+    // may be about something else entirely, and the caller takes the top five
+    // whatever they score. Measured over a ten-subject corpus, that made this
+    // layer 55% relevant. Cutting at half the best score in the same result
+    // set keeps the question's own bar, rather than a constant that means
+    // different things in a corpus of 50 rows and one of 50 000.
+    return this.#searchWith(toFtsQuery(query, "or"), limit, 0.5);
   }
 
-  /** Run one FTS match. A null match or a malformed query yields no rows
-   *  rather than throwing — recall must never cost a turn. */
-  #searchWith(match: string | null, limit: number): EpisodicEvent[] {
+  /**
+   * Run one FTS match. A null match or a malformed query yields no rows rather
+   * than throwing — recall must never cost a turn.
+   *
+   * `minScoreRatio`, when given, drops hits more than that much worse than the
+   * best hit. bm25 is negative and lower is better, so "half as good as the
+   * best" is `score <= best * ratio`. Relative, never absolute: bm25 depends on
+   * corpus size and term frequency, so a fixed number would be a different
+   * filter on every machine and on every week of the same machine.
+   */
+  #searchWith(match: string | null, limit: number, minScoreRatio = 0): EpisodicEvent[] {
     if (!match) return [];
     try {
       const rows = this.#db
-        .query<EpisodicRow, [string, number]>(
-          `SELECT e.id, e.session_id, e.timestamp, e.role, e.content
+        .query<EpisodicRow & { score: number }, [string, number]>(
+          `SELECT e.id, e.session_id, e.timestamp, e.role, e.content,
+                  bm25(episodic_fts) AS score
            FROM episodic_fts f
            JOIN episodic e ON e.id = f.rowid
            WHERE episodic_fts MATCH ?
@@ -310,7 +327,12 @@ export class EpisodicMemory {
            LIMIT ?`,
         )
         .all(match, limit);
-      return rows.map(fromRow);
+      const best = rows[0]?.score ?? 0;
+      const kept =
+        minScoreRatio > 0 && best < 0
+          ? rows.filter((r) => r.score <= best * minScoreRatio)
+          : rows;
+      return kept.map(fromRow);
     } catch {
       // A malformed match should never crash recall.
       return [];
@@ -377,12 +399,25 @@ function fromRow(row: EpisodicRow): EpisodicEvent {
  * AND join while its docstring claimed an OR fallback that was never written.
  */
 function toFtsQuery(text: string, mode: "and" | "or" = "and"): string | null {
-  const tokens = text
+  const raw = text
     .normalize("NFKC")
     .toLowerCase()
     .split(/[\s\p{P}\p{S}]+/u)
     .flatMap((t) => t.split(/[^\p{L}\p{N}_]+/u))
-    .filter((t) => t.length > 1)
+    .filter((t) => t.length > 1);
+
+  // Content words only, and the reason is measurable. This file used to argue
+  // against a stopword list because it "would have to be per-language". It is
+  // per-language, and it is worth it: on "what temperature do I bake at", every
+  // one of the top hits was a sentence containing the word "at", scoring
+  // identically, so no ranking or threshold downstream could separate them.
+  // bm25's IDF is supposed to handle this and does not on a small corpus, which
+  // is every corpus on day one.
+  //
+  // The full token list is the fallback, so a question made ENTIRELY of common
+  // words still searches instead of returning nothing.
+  const content = memoryTokens(raw.join(" "));
+  const tokens = (content.length > 0 ? content : raw)
     .map((t) => `"${t.replace(/"/g, "")}"`);  // quote each token, strip embedded quotes
 
   if (tokens.length === 0) return null;

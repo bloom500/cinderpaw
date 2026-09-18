@@ -446,18 +446,165 @@ export class SemanticMemory {
   }
 
   /**
-   * Render the N most-recently-updated facts as a compact block for prompt
-   * injection. Capped so that a long-running agent with hundreds of
-   * accumulated facts never silently burns thousands of tokens on context.
-   * The facts are already returned by `all()` in updated_at DESC order, so
-   * slicing to MAX_PROMPT_FACTS gives the most relevant recent knowledge.
+   * Render facts as a compact block for prompt injection.
+   *
+   * This used to be "the 30 most recently updated facts", full stop, with a
+   * comment claiming recency "gives the most relevant recent knowledge".
+   * Measured with `scripts/memory-intrusion.ts` over 300 facts on ten
+   * unrelated subjects, it was 10% relevant: one subject in ten, which is
+   * chance. Twenty-seven of the thirty lines in front of the model were about
+   * a car while the person asked about bread, and the fact that DID answer was
+   * usually absent, because it was not recent. Recency is not a relevance
+   * signal, and it was the only signal.
+   *
+   * What it does now, in order:
+   *   - Under the cap, everything is injected, exactly as before. A fresh
+   *     install with nine facts loses nothing and behaves identically.
+   *   - Over the cap with a query, facts are ranked by how much of the query
+   *     they contain, and anything scoring zero is left out rather than padded
+   *     back in by recency.
+   *   - Over the cap with no query (a caller with no user message), recency,
+   *     as before.
+   *
+   * Identity facts are pinned regardless: "call me Alex" matches no question
+   * about tyres, and an agent that forgets a name whenever the subject changes
+   * is worse than one that spends five lines.
+   *
+   * ponytail: word overlap, not embeddings. The embedding path exists
+   * (FractalMemory) and is better, but it needs a model on disk and a built
+   * tree, and it is absent on first run and after any failed rebuild, which is
+   * exactly when this code runs. KNOWN CEILING: overlap is per-language, so a
+   * Romanian question does not match an English fact; cross-language recall
+   * needs the embedding path. This only stops the block being random.
    */
   static readonly MAX_PROMPT_FACTS = 30;
 
-  renderForPrompt(scope = ""): string {
-    const facts = this.all(scope).slice(0, SemanticMemory.MAX_PROMPT_FACTS);
+  /**
+   * The facts `renderForPrompt` would render, as data.
+   *
+   * Exists because the knowledge-graph block is built from the same extracted
+   * facts (`extractor.ts` mirrors every fact into the graph as
+   * `key —has→ value`), so without knowing what this block already said, the
+   * graph spends twenty more lines repeating it. The caller needs the list, not
+   * the string.
+   */
+  selectForPrompt(scope = "", query = ""): SemanticFact[] {
+    const all = this.all(scope);
+    if (all.length === 0) return [];
+
+    const facts =
+      all.length <= SemanticMemory.MAX_PROMPT_FACTS
+        ? all
+        : query.trim()
+          ? rankByQuery(all, query).slice(0, SemanticMemory.MAX_PROMPT_FACTS)
+          : all.slice(0, SemanticMemory.MAX_PROMPT_FACTS);
+
+    return dedupeByValue(facts);
+  }
+
+  renderForPrompt(scope = "", query = ""): string {
+    const facts = this.selectForPrompt(scope, query);
     if (facts.length === 0) return "";
     const lines = facts.map((f) => `- ${f.key}: ${f.value}`).join("\n");
     return `Known facts about the user:\n${lines}`;
   }
+}
+
+/**
+ * Drop facts that say the same thing under a different name.
+ *
+ * `upsert` dedupes on the key, and the extractor's alias table catches the
+ * families that recur ("user name" → "name"), but the extractor is a language
+ * model: it writes `preferred_daw` one week and `daw_choice` the next, and both
+ * rows survive, both are current, and both are rendered. The model then reads
+ * the same fact twice and has no way to tell that it is one fact.
+ *
+ * Done here, at render time, rather than by deleting a row: two keys holding
+ * the same value today may hold different values next month, and a write-time
+ * merge would have thrown one of them away for good. This costs one pass over
+ * at most thirty facts and is undone by simply not calling it.
+ *
+ * The SHORTER key wins, because `daw` survives the rewrite that `preferred_daw`
+ * does not, and because the first one written is usually the plainer one.
+ */
+function dedupeByValue(facts: SemanticFact[]): SemanticFact[] {
+  const byValue = new Map<string, SemanticFact>();
+  const order: string[] = [];
+  for (const f of facts) {
+    const norm = f.value.trim().toLowerCase().replace(/\s+/g, " ");
+    const seen = byValue.get(norm);
+    if (!seen) {
+      byValue.set(norm, f);
+      order.push(norm);
+    } else if (f.key.length < seen.key.length) {
+      byValue.set(norm, f);
+    }
+  }
+  return order.map((v) => byValue.get(v)!);
+}
+
+/**
+ * Facts that answer every question because they are about the person rather
+ * than about a subject. Deliberately short: each one is a line spent on every
+ * turn, and the canonical key table in the extractor already collapses
+ * "user name", "users name" and "user's name" onto `name`.
+ */
+const ALWAYS_RELEVANT = new Set([
+  "name", "language", "pronouns", "occupation", "location", "timezone",
+]);
+
+/**
+ * Words too common to carry a subject. Two languages, because he types to it
+ * in Romanian while the stored facts are usually English: one stopword left in
+ * makes "care este" match every fact containing "este".
+ */
+const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "at", "is", "are",
+  "do", "does", "did", "my", "me", "what", "which", "when", "how", "who", "with",
+  "that", "this", "it", "be", "have", "has", "was", "were", "should", "about",
+  "care", "este", "sunt", "cum", "cand", "unde", "meu", "mea", "mele", "mei",
+  "din", "pe", "si", "sau", "cu", "ce", "imi", "mi", "lui", "ei",
+]);
+
+/** Lowercase words of three letters or more, minus the stopwords. */
+export function memoryTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+}
+
+/**
+ * Rank facts by how much of the question they contain.
+ *
+ * A fact scores for every query word it holds, the key counting double: the
+ * key is what the extractor named the thing ("oil_type"), so a hit there is a
+ * hit on the subject, while a hit in the value can be a word that merely
+ * appears in a sentence. Length-normalised, or a long chatty value outranks
+ * the short fact that actually answers.
+ *
+ * Recency survives as the tiebreak, not as the ranking: between two facts that
+ * match equally well, the one restated last week is the one they meant.
+ */
+function rankByQuery(facts: SemanticFact[], query: string): SemanticFact[] {
+  const want = new Set(memoryTokens(query));
+  if (want.size === 0) return facts;
+
+  return facts
+    .map((f) => {
+      const keyWords = memoryTokens(f.key);
+      const valueWords = memoryTokens(f.value);
+      let score = 0;
+      for (const w of keyWords) if (want.has(w)) score += 2;
+      for (const w of valueWords) if (want.has(w)) score += 1;
+      const size = Math.sqrt(keyWords.length + valueWords.length + 1);
+      return { fact: f, score: score / size, pinned: ALWAYS_RELEVANT.has(f.key) };
+    })
+    .filter((s) => s.pinned || s.score > 0)
+    .sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      if (b.score !== a.score) return b.score - a.score;
+      return b.fact.updatedAt - a.fact.updatedAt;
+    })
+    .map((s) => s.fact);
 }

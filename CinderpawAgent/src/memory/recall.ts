@@ -18,7 +18,7 @@
  */
 
 import type { EpisodicMemory } from "./episodic.ts";
-import { memoryScope, type SemanticMemory } from "./semantic.ts";
+import { memoryScope, memoryTokens, type SemanticMemory } from "./semantic.ts";
 import type { MemoryGraph } from "./graph.ts";
 import type { EpisodicEvent } from "../types.ts";
 
@@ -79,9 +79,17 @@ export class RecallEngine {
     // the owner's global ones — never another speaker's. Empty for every
     // single-user surface, i.e. unchanged there. See `memoryScope`.
     const scope = memoryScope(sessionId);
-    const semanticBlock = this.#semantic.renderForPrompt(scope);
+    // The query is passed down on purpose: both blocks below used to be built
+    // without ever looking at what was asked. See `renderForPrompt`.
+    const chosen = this.#semantic.selectForPrompt(scope, query);
+    const semanticBlock = this.#semantic.renderForPrompt(scope, query);
     const semanticFacts = this.#semantic.all(scope).length;
-    const graphBlock = this.#recallGraph();
+    // Every extracted fact is ALSO mirrored into the graph as `key —has→
+    // value` (extractor.ts), so without this the graph block is a second copy
+    // of the block directly above it, in a different notation, at twenty lines
+    // a turn. Only what the facts block did not already say gets through.
+    const alreadySaid = new Set(chosen.map((f) => f.value.trim().toLowerCase()));
+    const graphBlock = this.#recallGraph(query, alreadySaid);
 
     const parts: string[] = [];
     if (semanticBlock) parts.push(semanticBlock);
@@ -103,21 +111,49 @@ export class RecallEngine {
   static readonly MAX_GRAPH_FACTS = 20;
 
   /**
-   * Render the most recently touched knowledge-graph triples as
-   * "subject —relation→ object" lines. This is what gives the agent a
-   * picture of the user from the FIRST message of a brand-new session —
-   * semantic facts cover identity, the graph covers everything learned
-   * across past conversations.
+   * Render knowledge-graph triples as "subject —relation→ object" lines, the
+   * ones that have something to do with the question.
+   *
+   * It used to be the twenty most recently created edges, whatever they were.
+   * Measured over a corpus spanning ten subjects that was 10% relevant, the
+   * same as chance, and it cost twenty lines of every prompt to be so. With
+   * nothing matching, the block is now omitted rather than filled: an empty
+   * section says "nothing on this" honestly, where twenty wrong triples say
+   * something false confidently.
+   *
+   * Recency still decides between equally matching edges, and still orders the
+   * block when the turn has no query at all.
    */
-  #recallGraph(): string {
+  #recallGraph(query = "", alreadySaid: ReadonlySet<string> = new Set()): string {
     if (!this.#graph) return "";
     const snapshot = this.#graph.snapshot();
-    const edges = snapshot.edges;
+    const edges = snapshot.edges.filter(
+      (e) => !alreadySaid.has((snapshot.nodes[e.to]?.label ?? "").trim().toLowerCase()),
+    );
     if (edges.length === 0) return "";
 
-    const lines = edges
-      .slice()
-      .sort((a, b) => b.createdAt - a.createdAt)
+    const want = new Set(memoryTokens(query));
+    const textOf = (e: (typeof edges)[number]) =>
+      `${snapshot.nodes[e.from]?.label ?? ""} ${e.relation} ${snapshot.nodes[e.to]?.label ?? ""}`;
+    const scoreOf = (e: (typeof edges)[number]) =>
+      want.size === 0 ? 0 : memoryTokens(textOf(e)).filter((w) => want.has(w)).length;
+
+    const ranked = edges.slice();
+    if (want.size > 0) {
+      const scored = ranked
+        .map((e) => ({ e, score: scoreOf(e) }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score || b.e.createdAt - a.e.createdAt);
+      // Nothing matched: say nothing. The whole point of the measurement was
+      // that the alternative is twenty confident irrelevant lines.
+      if (scored.length === 0) return "";
+      ranked.length = 0;
+      ranked.push(...scored.map((x) => x.e));
+    } else {
+      ranked.sort((a, b) => b.createdAt - a.createdAt);
+    }
+
+    const lines = ranked
       .slice(0, RecallEngine.MAX_GRAPH_FACTS)
       .flatMap((e) => {
         const from = snapshot.nodes[e.from];
