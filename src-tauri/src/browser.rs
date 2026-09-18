@@ -555,6 +555,14 @@ async fn settle(limit: Duration) {
 /// `eval` returns nothing, so the script writes its result into the URL
 /// fragment with `history.replaceState` (no navigation, no reload), tagged
 /// with a nonce; this reads it back through `url()` and restores the address.
+///
+/// The address is put back on EVERY path, which it was not: the restore used to
+/// sit on the success path only, so a page that never answered — the timeout,
+/// which is the common case on a slow load, exactly when a snapshot is retried —
+/// kept `#cp-<uuid>=<json>` in its address for as long as it stayed open. That
+/// address is what the address bar shows and what a later search re-submits,
+/// which is how `%23cp-…` ended up inside DuckDuckGo's own `q=`: the marker was
+/// never a leak out of the browser, it was one we left behind in the page.
 async fn run(wv: &Webview, expression: &str) -> Result<Value, String> {
     let before = wv.url().map_err(|e| e.to_string())?;
     let marker = format!("cp-{}=", uuid::Uuid::new_v4().simple());
@@ -563,15 +571,29 @@ async fn run(wv: &Webview, expression: &str) -> Result<Value, String> {
          try {{ history.replaceState(history.state, '', location.pathname + location.search + '#{marker}' + encodeURIComponent(JSON.stringify(r))); }} catch (e) {{}} }})()"
     );
     wv.eval(&script).map_err(|e| e.to_string())?;
+
+    // Put the address back exactly as it was, and only if OUR marker is still
+    // the one on it: a page the user navigated in the meantime must not be
+    // yanked back to where it started.
+    let restore = |wv: &Webview| {
+        let to = serde_json::to_string(before.as_str()).unwrap_or_else(|_| "location.href".into());
+        let _ = wv.eval(&format!(
+            "try {{ if (location.hash.indexOf('#{marker}') === 0) history.replaceState(history.state, '', {to}); }} catch (e) {{}}"
+        ));
+    };
+
     for _ in 0..100 {
         tokio::time::sleep(Duration::from_millis(50)).await;
         let now = wv.url().map_err(|e| e.to_string())?;
         let Some(encoded) = now.fragment().and_then(|f| f.strip_prefix(marker.as_str())) else { continue };
         let text = urlencoding::decode(encoded).map_err(|e| e.to_string())?.into_owned();
-        let restore = serde_json::to_string(before.as_str()).unwrap_or_else(|_| "location.href".into());
-        let _ = wv.eval(&format!("try {{ history.replaceState(history.state, '', {restore}); }} catch (e) {{}}"));
+        restore(wv);
         return serde_json::from_str(&text).map_err(|e| format!("browser: the page's answer was unreadable ({e})"));
     }
+    // The answer never came. Clean up anyway: the script may have landed after
+    // the last poll, and a fragment nobody reads is still an address the user
+    // sees and searches with.
+    restore(wv);
     Err("browser: the page did not answer. It may still be loading; take a snapshot again.".into())
 }
 
