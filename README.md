@@ -10,6 +10,7 @@
   <a href="https://github.com/bloom500/cinderpaw/releases/latest"><img src="https://img.shields.io/github/v/release/bloom500/cinderpaw?style=for-the-badge&color=blue&label=version" alt="Version" /></a>
   <img src="https://img.shields.io/badge/license-Apache%202.0-green?style=for-the-badge" alt="License" />
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=for-the-badge" alt="Platform" />
+  <a href="PROMISES.md"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcinderpaw-bug-report.bloommediacorporation.workers.dev%2Finstall&query=%24.total&label=installs&style=for-the-badge&color=e07a3f" alt="Installs (a floor: counted once per fresh setup, opt-out)" /></a>
   <img src="https://img.shields.io/badge/built%20with-Tauri%202-orange?style=for-the-badge&logo=tauri" alt="Tauri" />
 </p>
 
