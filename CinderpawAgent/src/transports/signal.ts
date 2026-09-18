@@ -26,12 +26,18 @@
 
 import {
   connectorErrorMessage,
+  mimeForName,
   runAgent,
   runChatCommand,
   type ConnectorHealth,
 } from "./connectors.ts";
 import { chatStyleBrief, formatForChat } from "./chat-format.ts";
-import { registerTransport, type ConnectorContext, type LiveConnector } from "./registry.ts";
+import {
+  registerTransport,
+  type ConnectorContext,
+  type LiveConnector,
+  type OutboundFile,
+} from "./registry.ts";
 
 /** Signal has no hard limit near chat length; this keeps replies readable. */
 const SIGNAL_MAX = 4000;
@@ -165,6 +171,40 @@ export class SignalConnector implements LiveConnector {
         }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
+    }
+  }
+
+  /**
+   * A file to the number behind `sessionId`.
+   *
+   * The bridge takes attachments inline, base64, on the same `/v2/send` call
+   * as the text — but only in its extended form
+   * (`data:<mime>;filename=<name>;base64,…`). Plain base64 arrives as
+   * `attachment.bin`, which is a photo the person cannot tell from a
+   * spreadsheet, so the name and type are always spelled out.
+   */
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const target = parseSignalSession(sessionId);
+    if (!target) throw new Error("Signal: that conversation has no number I can send to.");
+    const b64 = Buffer.from(file.data).toString("base64");
+    const res = await fetch(`${this.#base}/v2/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: file.caption.slice(0, SIGNAL_MAX),
+        number: this.#number,
+        recipients: [target.number],
+        base64_attachments: [
+          `data:${mimeForName(file.name)};filename=${file.name};base64,${b64}`,
+        ],
+      }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      // The bridge puts signal-cli's own complaint in `error`, and that is the
+      // part worth repeating ("Failed to send message", "Unregistered user").
+      const why = ((await res.json().catch(() => ({}))) as { error?: string }).error;
+      throw new Error(`Signal refused the file: ${why ?? `HTTP ${res.status}`}`);
     }
   }
 

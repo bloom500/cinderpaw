@@ -17,12 +17,18 @@
 
 import {
   connectorErrorMessage,
+  mimeForName,
   runAgent,
   runChatCommand,
   type ConnectorHealth,
 } from "./connectors.ts";
 import { chatStyleBrief, formatForChat } from "./chat-format.ts";
-import { registerTransport, type ConnectorContext, type LiveConnector } from "./registry.ts";
+import {
+  registerTransport,
+  type ConnectorContext,
+  type LiveConnector,
+  type OutboundFile,
+} from "./registry.ts";
 
 /** Matrix caps an event at 64 KiB; stay well under it. */
 const MATRIX_MAX = 4000;
@@ -133,6 +139,69 @@ export class MatrixConnector implements LiveConnector {
         `/_matrix/client/v3/rooms/${encodeURIComponent(target.roomId)}/send/m.room.message/${txn}`,
         { msgtype: "m.text", body: part },
       );
+    }
+  }
+
+  /**
+   * A file into the room behind `sessionId`.
+   *
+   * Two steps, both Matrix's: the bytes go to the media repository, which
+   * answers with an `mxc://` URI, and then an ordinary room event points at
+   * it. The event carries `msgtype: m.image`/`m.video`/`m.audio` when the MIME
+   * type says so, because a client shows those inline and shows `m.file` as a
+   * grey download row — same bytes, and the difference is whether the person
+   * sees the picture they asked for.
+   *
+   * No size check here: a homeserver's limit is its own (`m.upload.size`),
+   * admins change it, and guessing 50 MB would refuse files a server would
+   * have taken. The upload answers with its own refusal and that sentence is
+   * what the person gets.
+   */
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const target = parseMatrixSession(sessionId);
+    if (!target) throw new Error("Matrix: that conversation is not a room I can post in.");
+    const mime = mimeForName(file.name);
+
+    const upload = await fetch(
+      `${this.#homeserver}/_matrix/media/v3/upload?filename=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${this.#token}`, "Content-Type": mime },
+        body: Buffer.from(file.data),
+      },
+    );
+    if (!upload.ok) {
+      const why = ((await upload.json().catch(() => ({}))) as { error?: string }).error;
+      throw new Error(
+        upload.status === 413
+          ? `"${file.name}" is larger than this homeserver accepts.`
+          : `Matrix refused the upload: ${why ?? `HTTP ${upload.status}`}`,
+      );
+    }
+    const { content_uri: url } = (await upload.json()) as { content_uri?: string };
+    if (!url) throw new Error("Matrix accepted the upload but returned no media URI.");
+
+    const kind = mime.split("/")[0];
+    const msgtype =
+      kind === "image" ? "m.image" : kind === "video" ? "m.video" : kind === "audio" ? "m.audio" : "m.file";
+    const txn = `cinderpaw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const res = await this.#api(
+      "PUT",
+      `/_matrix/client/v3/rooms/${encodeURIComponent(target.roomId)}/send/m.room.message/${txn}`,
+      {
+        msgtype,
+        // `body` is what a client without rendering shows, `filename` is the
+        // name it saves under. Same string when there is no caption, so the
+        // file never arrives nameless.
+        body: file.caption.trim() || file.name,
+        filename: file.name,
+        url,
+        info: { mimetype: mime, size: file.data.byteLength },
+      },
+    );
+    if (!res.ok) {
+      const why = ((await res.json().catch(() => ({}))) as { error?: string }).error;
+      throw new Error(`Matrix took the file but would not post it: ${why ?? `HTTP ${res.status}`}`);
     }
   }
 

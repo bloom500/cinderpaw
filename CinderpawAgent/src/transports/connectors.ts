@@ -1180,11 +1180,34 @@ export class SlackConnector {
 // ---------------------------------------------------------------------------
 
 /** External opt-in dependency. A literal import would embed it in Bun's executable. */
-/** WhatsApp wants a MIME type with a document; the name is all we have. */
+/**
+ * Every transport that uploads needs a MIME type and the name is all we have.
+ *
+ * Audio, video and images were missing until a photo sent to Matrix arrived as
+ * `application/octet-stream`: a file to download by hand instead of a picture
+ * in the timeline. The type is not decoration on these platforms, it is
+ * whether the thing plays.
+ */
 const MIME_BY_EXT: Record<string, string> = {
-  pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", txt: "text/plain", md: "text/markdown",
-  csv: "text/csv", json: "application/json", html: "text/html",
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  doc: "application/msword", xls: "application/vnd.ms-excel", ppt: "application/vnd.ms-powerpoint",
+  odt: "application/vnd.oasis.opendocument.text",
+  rtf: "application/rtf", epub: "application/epub+zip",
+  txt: "text/plain", md: "text/markdown", csv: "text/csv", tsv: "text/tab-separated-values",
+  json: "application/json", xml: "application/xml", yaml: "application/yaml", yml: "application/yaml",
+  html: "text/html", css: "text/css", js: "text/javascript", ts: "text/plain",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", svg: "image/svg+xml", bmp: "image/bmp", tiff: "image/tiff",
+  heic: "image/heic", avif: "image/avif", ico: "image/vnd.microsoft.icon",
+  mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", wav: "audio/wav",
+  ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/opus", flac: "audio/flac", weba: "audio/webm",
+  mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm",
+  mkv: "video/x-matroska", avi: "video/x-msvideo", mpeg: "video/mpeg", mpg: "video/mpeg",
+  zip: "application/zip", gz: "application/gzip", tar: "application/x-tar",
+  "7z": "application/x-7z-compressed", rar: "application/vnd.rar",
 };
 export function mimeForName(name: string): string {
   return MIME_BY_EXT[name.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";

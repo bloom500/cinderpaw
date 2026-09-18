@@ -40,12 +40,18 @@ import { Client, Domain, EventDispatcher, LoggerLevel, WSClient } from "@larksui
 
 import {
   connectorErrorMessage,
+  mimeForName,
   runAgent,
   runChatCommand,
   type ConnectorHealth,
 } from "./connectors.ts";
 import { chatStyleBrief, formatForChat } from "./chat-format.ts";
-import { registerTransport, type ConnectorContext, type LiveConnector } from "./registry.ts";
+import {
+  registerTransport,
+  type ConnectorContext,
+  type LiveConnector,
+  type OutboundFile,
+} from "./registry.ts";
 
 /** The two clouds, in probe order. `host` is used by the probe; the SDK takes
  *  the enum. */
@@ -59,6 +65,22 @@ type Cloud = (typeof CLOUDS)[number];
 /** Feishu's own cap is far higher, but a wall of text is unreadable in a chat
  *  client and every other transport here splits at roughly this. */
 const FEISHU_MAX = 4000;
+
+/** Feishu's own limits, and they differ by door: 10 MB image, 30 MB file. */
+const FEISHU_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const FEISHU_FILE_MAX_BYTES = 30 * 1024 * 1024;
+
+/** The platform's short list of file types; everything else is `stream`. */
+export function feishuFileType(name: string): "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream" {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "pdf") return "pdf";
+  if (ext === "opus") return "opus";
+  if (ext === "mp4") return "mp4";
+  if (ext === "doc" || ext === "docx") return "doc";
+  if (ext === "xls" || ext === "xlsx") return "xls";
+  if (ext === "ppt" || ext === "pptx") return "ppt";
+  return "stream";
+}
 
 const PROBE_TIMEOUT_MS = 15_000;
 
@@ -277,6 +299,58 @@ export class FeishuConnector implements LiveConnector {
         },
       });
     }
+  }
+
+  /**
+   * A file into the chat behind `sessionId`.
+   *
+   * Feishu has two upload doors and picking the wrong one is visible to the
+   * person: an image uploaded as a FILE arrives as an attachment to download,
+   * and the same bytes uploaded as an IMAGE appear in the conversation. So a
+   * picture goes through `im.image` and everything else through `im.file`,
+   * which is also where the two different size limits come from (10 MB for
+   * an image, 30 MB for a file) - checked here, because the SDK surfaces the
+   * platform's refusal as a bare code.
+   *
+   * `file_type` is the platform's own short list; anything not on it is
+   * `stream`, which is the documented catch-all and keeps the extension in
+   * the file name.
+   */
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const target = parseFeishuSession(sessionId);
+    const client = this.#client;
+    if (!target || !client) throw new Error("Feishu: that conversation is not a chat I can post in.");
+
+    const mime = mimeForName(file.name);
+    const isImage = mime.startsWith("image/") && !mime.includes("svg");
+    const megabytes = Math.ceil(file.data.byteLength / 1024 / 1024);
+    const cap = isImage ? FEISHU_IMAGE_MAX_BYTES : FEISHU_FILE_MAX_BYTES;
+    if (file.data.byteLength > cap) {
+      throw new Error(
+        `"${file.name}" is ${megabytes} MB and Feishu accepts at most ${cap / 1024 / 1024} MB ${isImage ? "for an image" : "for a file"}.`,
+      );
+    }
+
+    const buffer = Buffer.from(file.data);
+    let content: string;
+    if (isImage) {
+      const up = await client.im.image.create({ data: { image_type: "message", image: buffer } });
+      if (!up?.image_key) throw new Error("Feishu accepted the image but returned no image key.");
+      content = JSON.stringify({ image_key: up.image_key });
+    } else {
+      const up = await client.im.file.create({
+        data: { file_type: feishuFileType(file.name), file_name: file.name, file: buffer },
+      });
+      if (!up?.file_key) throw new Error("Feishu accepted the file but returned no file key.");
+      content = JSON.stringify({ file_key: up.file_key });
+    }
+
+    await client.im.message.create({
+      params: { receive_id_type: "chat_id" },
+      data: { receive_id: target.chatId, msg_type: isImage ? "image" : "file", content },
+    });
+    // The caption is a second message: Feishu's file message carries no text.
+    if (file.caption.trim()) await this.send(sessionId, file.caption);
   }
 
   async #onMessage(data: {

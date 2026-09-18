@@ -26,19 +26,27 @@
 import { createPublicKey, createSign, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
 import {
   connectorErrorMessage,
+  mimeForName,
   runAgent,
   runChatCommand,
   type ConnectorHealth,
 } from "./connectors.ts";
 import { chatStyleBrief, formatForChat } from "./chat-format.ts";
 import { inboundAddress, inboundPath, serveInbound, type InboundRequest } from "./inbound.ts";
-import { registerTransport, type ConnectorContext, type LiveConnector } from "./registry.ts";
+import {
+  registerTransport,
+  type ConnectorContext,
+  type LiveConnector,
+  type OutboundFile,
+} from "./registry.ts";
 
 const CHAT_MAX = 4000;
 const CHAT_ISSUER = "chat@system.gserviceaccount.com";
 const CERTS_URL = `https://www.googleapis.com/service_accounts/v1/metadata/x509/${CHAT_ISSUER}`;
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CHAT_API = "https://chat.googleapis.com/v1";
+/** Uploads go to the media prefix; the same path under /v1 answers 404. */
+const CHAT_UPLOAD_API = "https://chat.googleapis.com/upload/v1";
 
 export function googleChatSessionId(space: string, userId: string): string {
   // `spaces/AAAA` and `users/123`: the slash is kept, the colon is ours.
@@ -223,6 +231,59 @@ export class GoogleChatConnector implements LiveConnector {
         signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) throw new Error(`googlechat: the Chat API answered HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    }
+  }
+
+  /**
+   * A file into the space behind `sessionId`.
+   *
+   * Google Chat wants the bytes on a different host prefix than the messages
+   * (`/upload/v1/...`, not `/v1/...`), and answers with a reference token
+   * rather than a URL; the message that follows carries that token in
+   * `attachment`. The upload is `uploadType=media`, the raw body, which is
+   * the one form that needs no multipart boundary to get right.
+   *
+   * A Chat app can only attach to a space it is a member of, and the API says
+   * so with 403 rather than with silence, so that answer is passed through.
+   */
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const target = parseGoogleChatSession(sessionId);
+    if (!target) throw new Error("Google Chat: that conversation is not a space I can post in.");
+    const token = await this.#accessToken();
+
+    const up = await fetch(
+      `${CHAT_UPLOAD_API}/${target.space}/attachments:upload?uploadType=media`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": mimeForName(file.name) },
+        body: Buffer.from(file.data),
+        signal: AbortSignal.timeout(60_000),
+      },
+    );
+    if (!up.ok) {
+      throw new Error(
+        `googlechat: the upload was refused (HTTP ${up.status}): ${(await up.text()).slice(0, 200)}`,
+      );
+    }
+    const ref = ((await up.json()) as { attachmentDataRef?: { resourceName?: string } })
+      .attachmentDataRef;
+    if (!ref?.resourceName) {
+      throw new Error("googlechat: the upload succeeded but returned no attachment reference.");
+    }
+
+    const res = await fetch(`${CHAT_API}/${target.space}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: file.caption.slice(0, CHAT_MAX),
+        attachment: [{ name: file.name, attachmentDataRef: ref }],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `googlechat: the file was uploaded but the message was refused (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`,
+      );
     }
   }
 

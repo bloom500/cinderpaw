@@ -20,7 +20,12 @@ import {
   type ConnectorHealth,
 } from "./connectors.ts";
 import { chatStyleBrief, formatForChat } from "./chat-format.ts";
-import { registerTransport, type ConnectorContext, type LiveConnector } from "./registry.ts";
+import {
+  registerTransport,
+  type ConnectorContext,
+  type LiveConnector,
+  type OutboundFile,
+} from "./registry.ts";
 
 /** Mattermost's own limit on a post is 16383 characters. */
 const MATTERMOST_MAX = 15_000;
@@ -116,6 +121,53 @@ export class MattermostConnector implements LiveConnector {
     if (!target) return;
     for (const part of formatForChat(text, MATTERMOST_MAX)) {
       await this.#api("POST", "/api/v4/posts", { channel_id: target.channelId, message: part });
+    }
+  }
+
+  /**
+   * A file into the channel behind `sessionId`.
+   *
+   * Mattermost takes it in two calls and the order matters: the bytes are
+   * uploaded against the channel first, and the post that follows only
+   * references the id. A post with `file_ids` that names an upload nobody
+   * made is rejected, so there is nothing to clean up if the first call
+   * fails — the file simply never appears.
+   *
+   * The server's own maximum (`MaxFileSize`, 100 MB out of the box, and
+   * admins change it) is left to the server: it answers 413 and that is a
+   * better sentence than a guess made here.
+   */
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const target = parseMattermostSession(sessionId);
+    if (!target) throw new Error("Mattermost: that conversation is not a channel I can post in.");
+
+    const form = new FormData();
+    form.append("channel_id", target.channelId);
+    form.append("files", new Blob([Buffer.from(file.data)]), file.name);
+    const up = await fetch(`${this.#base}/api/v4/files`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.#token}` },
+      body: form,
+    });
+    if (!up.ok) {
+      const why = ((await up.json().catch(() => ({}))) as { message?: string }).message;
+      throw new Error(
+        up.status === 413
+          ? `"${file.name}" is larger than this Mattermost server accepts.`
+          : `Mattermost refused the upload: ${why ?? `HTTP ${up.status}`}`,
+      );
+    }
+    const id = ((await up.json()) as { file_infos?: Array<{ id?: string }> }).file_infos?.[0]?.id;
+    if (!id) throw new Error("Mattermost accepted the upload but returned no file id.");
+
+    const res = await this.#api("POST", "/api/v4/posts", {
+      channel_id: target.channelId,
+      message: file.caption.slice(0, MATTERMOST_MAX),
+      file_ids: [id],
+    });
+    if (!res.ok) {
+      const why = ((await res.json().catch(() => ({}))) as { message?: string }).message;
+      throw new Error(`Mattermost took the file but would not post it: ${why ?? `HTTP ${res.status}`}`);
     }
   }
 

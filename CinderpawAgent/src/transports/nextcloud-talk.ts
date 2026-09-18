@@ -27,7 +27,12 @@ import {
   type ConnectorHealth,
 } from "./connectors.ts";
 import { chatStyleBrief, formatForChat } from "./chat-format.ts";
-import { registerTransport, type ConnectorContext, type LiveConnector } from "./registry.ts";
+import {
+  registerTransport,
+  type ConnectorContext,
+  type LiveConnector,
+  type OutboundFile,
+} from "./registry.ts";
 
 /**
  * Talk stores a chat message as a Nextcloud comment, and comments are capped
@@ -198,6 +203,74 @@ export class NextcloudTalkConnector implements LiveConnector {
         message: part,
       });
     }
+  }
+
+  /**
+   * A file into the room behind `sessionId`.
+   *
+   * Talk has no "post these bytes" call. A file in a Nextcloud chat is a
+   * SHARE of a file that lives in the sender's own Files: it is uploaded over
+   * WebDAV into the bot user's `Talk/` folder (the same folder the web client
+   * uses, created on demand), and then shared to the room. So the file stays
+   * in the bot account afterwards, visible to whoever can see that account -
+   * that is how the platform works, not something we can hide, and it is why
+   * the setup steps ask for a SEPARATE Nextcloud user.
+   *
+   * The name is made unique with a timestamp: a second upload of `report.pdf`
+   * would otherwise overwrite the first, and the older share in the chat
+   * would silently start pointing at the newer file.
+   */
+  async sendFile(sessionId: string, file: OutboundFile): Promise<void> {
+    const target = parseNextcloudTalkSession(sessionId);
+    if (!target) throw new Error("Nextcloud Talk: that conversation is not a room I can post in.");
+
+    const dav = `${this.#base}/remote.php/dav/files/${encodeURIComponent(this.#self)}`;
+    // MKCOL is 405 when the folder is already there, which is the normal case.
+    await fetch(`${dav}/Talk`, {
+      method: "MKCOL",
+      headers: { Authorization: this.#auth },
+      signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
+    }).catch(() => undefined);
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const dot = file.name.lastIndexOf(".");
+    const unique = dot > 0 ? `${file.name.slice(0, dot)}-${stamp}${file.name.slice(dot)}` : `${file.name}-${stamp}`;
+
+    const put = await fetch(`${dav}/Talk/${encodeURIComponent(unique)}`, {
+      method: "PUT",
+      headers: { Authorization: this.#auth },
+      body: Buffer.from(file.data),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!put.ok) {
+      throw new Error(
+        put.status === 413
+          ? `"${file.name}" is larger than this Nextcloud accepts.`
+          : put.status === 507
+            ? `Nextcloud has no space left in the ${this.#self} account for "${file.name}".`
+            : `Nextcloud refused the upload (HTTP ${put.status}).`,
+      );
+    }
+
+    // shareType 10 is "Talk conversation"; shareWith is the room token.
+    const share = await fetch(`${this.#base}/ocs/v2.php/apps/files_sharing/api/v1/shares`, {
+      method: "POST",
+      headers: {
+        Authorization: this.#auth,
+        "OCS-APIRequest": "true",
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ shareType: 10, shareWith: target.roomToken, path: `/Talk/${unique}` }),
+      signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
+    });
+    if (!share.ok) {
+      throw new Error(
+        `Nextcloud took the file but would not put it in the conversation (HTTP ${share.status}). ` +
+          `It is in ${this.#self}'s Talk folder as "${unique}".`,
+      );
+    }
+    if (file.caption.trim()) await this.send(sessionId, file.caption);
   }
 
   #api(method: string, path: string, body?: unknown): Promise<Response> {
