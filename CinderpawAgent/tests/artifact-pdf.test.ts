@@ -36,6 +36,38 @@ describe("pdfFromMarkdown", () => {
     expect(await textOf(pdf)).toContain("Paragraph 199");
   });
 
+  /**
+   * Every test above this one passed while the file was unreadable on screen.
+   * They all ask what the text EXTRACTS as, and the text was never the problem:
+   * pdf-lib's subsetter kept the characters and threw away half their outlines,
+   * so Acrobat drew "Co    o  bo" for "Contract de colaborare". So this one
+   * asks the only question that catches it: does every glyph have a shape.
+   */
+  test("every embedded glyph has an outline, not just a code point", async () => {
+    const { default: fontkit } = await import("@pdf-lib/fontkit");
+    const { inflateSync } = await import("node:zlib");
+    const pl = await import("pdf-lib");
+
+    const pdf = await pdfFromMarkdown("# Contract de colaborare\n\nPărțile convin.", "Contract");
+    const doc = await PDFDocument.load(pdf);
+
+    let fontsChecked = 0;
+    for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+      const dict = (obj as { dict?: pl.PDFDict }).dict ?? (obj instanceof pl.PDFDict ? obj : null);
+      const file = dict?.get(pl.PDFName.of("FontFile2"));
+      if (!file) continue;
+      const stream = doc.context.lookup(file) as { getContents(): Uint8Array };
+      const font = fontkit.create(Buffer.from(inflateSync(Buffer.from(stream.getContents()))));
+      // Space has no outline and is the only glyph allowed none.
+      const blank = [...("Contract de colaborare Părțile convin")]
+        .filter((ch) => ch !== " ")
+        .filter((ch) => font.glyphForCodePoint(ch.codePointAt(0)!).path.commands.length === 0);
+      expect(blank).toEqual([]);
+      fontsChecked += 1;
+    }
+    expect(fontsChecked).toBeGreaterThan(0);
+  });
+
   test("an empty body still makes a valid one-page PDF", async () => {
     const pdf = await pdfFromMarkdown("", "Blank");
     expect((await PDFDocument.load(pdf)).getPageCount()).toBe(1);

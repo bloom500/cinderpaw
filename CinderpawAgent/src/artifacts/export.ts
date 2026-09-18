@@ -25,6 +25,8 @@ import {
 } from "../egress/tool-permissions.ts";
 import { ArtifactStore, type Artifact } from "./store.ts";
 import { inlineApp } from "./app.ts";
+import { pdfFromMarkdown } from "./pdf.ts";
+import { htmlToText } from "../tools/builtin/fetch-url.ts";
 
 /**
  * A title turned into something a filesystem accepts, on every OS.
@@ -44,6 +46,47 @@ export function safeFileName(title: string): string {
   return cleaned.slice(0, 80) || "artifact";
 }
 
+/**
+ * Whether this copy should be turned into a PDF on the way out.
+ *
+ * A text artifact already written cannot become a PDF any other way: the store
+ * keeps one kind per artifact, so without this the only route from "write me
+ * the plan" to "now as a PDF" is to throw the artifact away and author it
+ * again. That dead end is what makes an agent answer "I cannot make PDFs",
+ * which is not true and cost a user an evening on 17 Sep.
+ *
+ * Asked for either by name (`format: "pdf"`) or, and this is the one that
+ * matters for a person who never reads a tool description, by the destination
+ * they typed or picked in the save dialog ending in `.pdf`. Before this, that
+ * picked name wrote HTML bytes into a file called `.pdf`, which no reader opens.
+ */
+export type ExportAs = "pdf" | undefined;
+
+export function exportAs(a: Artifact, dest: string | undefined, asked: ExportAs): ExportAs {
+  // Already a PDF: it goes out byte for byte, as it always did.
+  if (a.kind === "pdf" || !ArtifactStore.isTextKind(a.kind)) return undefined;
+  if (asked === "pdf") return "pdf";
+  return dest !== undefined && /\.pdf$/i.test(dest.trim()) ? "pdf" : undefined;
+}
+
+/**
+ * Enough of an HTML document to survive the trip through markdown: headings
+ * and bullets, which are the only structure `pdfFromMarkdown` renders anyway.
+ *
+ * ponytail: a regex pass over four tags, reusing `htmlToText` for the rest.
+ * A real HTML-to-PDF renderer is a headless browser; reach for one only if
+ * someone asks for a PDF where the styling, not the words, is the point.
+ */
+function htmlToMarkdown(html: string): string {
+  return htmlToText(
+    html
+      .replace(/<h1\b[^>]*>/gi, "\n\n# ")
+      .replace(/<h2\b[^>]*>/gi, "\n\n## ")
+      .replace(/<h3\b[^>]*>/gi, "\n\n### ")
+      .replace(/<li\b[^>]*>/gi, "\n- "),
+  );
+}
+
 export interface ExportResult {
   path: string;
   bytes: number;
@@ -59,10 +102,21 @@ export interface ExportResult {
  * its chart library still a CDN link would be a blank page on a phone with
  * patchy data, and it would be the same bug as a blank export, fixed twice.
  */
-export function artifactFile(
+export async function artifactFile(
   store: ArtifactStore,
   a: Artifact,
-): { name: string; content: string | Uint8Array; note: string } {
+  as?: ExportAs,
+): Promise<{ name: string; content: string | Uint8Array; note: string }> {
+  if (as === "pdf") {
+    const text = store.read(a.id);
+    if (text === null) throw new Error(`Artifact ${a.id} has no readable content.`);
+    const md = a.kind === "document" || a.kind === "html" || a.kind === "app" ? htmlToMarkdown(text) : text;
+    return {
+      name: `${safeFileName(a.title)}.pdf`,
+      content: await pdfFromMarkdown(md, a.title),
+      note: a.kind === "app" ? " A PDF is paper: the app's controls do not work in it." : "",
+    };
+  }
   const name = `${safeFileName(a.title)}${ArtifactStore.extensionFor(a.kind)}`;
   // Everything but an app goes out byte for byte: identical for text, and the
   // only correct way for a PDF, which read as UTF-8 arrives as a file no reader
@@ -118,8 +172,8 @@ export class ArtifactExporter {
    *   (`resolveAllowedPath` throws `PermissionDeniedError`, which the tool
    *   registry turns into a structured error and dispatch reports as text).
    */
-  async run(a: Artifact, dest?: string): Promise<ExportResult> {
-    const file = artifactFile(this.#store, a);
+  async run(a: Artifact, dest?: string, as?: ExportAs): Promise<ExportResult> {
+    const file = await artifactFile(this.#store, a, exportAs(a, dest, as));
 
     const root = this.defaultRoot;
     const requested = dest?.trim() ?? "";
@@ -146,8 +200,8 @@ export class ArtifactExporter {
    * agent. The private-dir wall stays, for the same reason it exists for
    * every writer: a file dropped into ~/.cinderpaw can shadow agent state.
    */
-  async runTo(a: Artifact, chosenPath: string): Promise<ExportResult> {
-    const file = artifactFile(this.#store, a);
+  async runTo(a: Artifact, chosenPath: string, as?: ExportAs): Promise<ExportResult> {
+    const file = await artifactFile(this.#store, a, exportAs(a, chosenPath, as));
     const target = realpathBestEffort(resolve(chosenPath));
     const { deny, exempt } = deniedPaths();
     if (deny.some((d) => pathWithin(target, d)) && !exempt.some((e) => pathWithin(target, e))) {
@@ -156,7 +210,7 @@ export class ArtifactExporter {
     return this.#write(target, file);
   }
 
-  async #write(path: string, file: ReturnType<typeof artifactFile>): Promise<ExportResult> {
+  async #write(path: string, file: Awaited<ReturnType<typeof artifactFile>>): Promise<ExportResult> {
     await Bun.write(path, file.content);
     const bytes = typeof file.content === "string" ? Buffer.byteLength(file.content, "utf8") : file.content.byteLength;
     return { path, bytes, note: file.note };

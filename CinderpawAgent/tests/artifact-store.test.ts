@@ -295,6 +295,28 @@ describe("export to a place the person chose", () => {
     expect(readFileSync(res.path, "utf8")).toBe("hello");
   });
 
+  // The bug this pins: the agent told a user it "cannot generate PDF files",
+  // because a document already written had no route to one. A .pdf the person
+  // typed used to write the markup straight into it, and no reader opened it.
+  test("a .pdf destination gets a real PDF, not the markup renamed", async () => {
+    const { ArtifactExporter } = await import("../src/artifacts/export.ts");
+    const s = store();
+    const a = make(s, "# Plan\n\nFirst line.");
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-chosen-"));
+    const res = await new ArtifactExporter(s, []).runTo(a, join(dir, "Plan.pdf"));
+    expect(readFileSync(res.path).subarray(0, 5).toString("latin1")).toBe("%PDF-");
+  });
+
+  test("format:pdf names the file itself when nobody picked a path", async () => {
+    const { ArtifactExporter } = await import("../src/artifacts/export.ts");
+    const s = store();
+    const a = make(s, "# Plan\n\nFirst line.");
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-root-"));
+    const res = await new ArtifactExporter(s, [dir]).run(a, undefined, "pdf");
+    expect(res.path.endsWith("Notes.pdf")).toBe(true);
+    expect(readFileSync(res.path).subarray(0, 5).toString("latin1")).toBe("%PDF-");
+  });
+
   test("still refuses Cinderpaw's own data folder", async () => {
     const { ArtifactExporter } = await import("../src/artifacts/export.ts");
     const { cinderpawHome } = await import("../src/config.ts");

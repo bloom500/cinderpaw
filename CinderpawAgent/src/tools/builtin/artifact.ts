@@ -47,6 +47,7 @@ import {
   parsePdfEdits,
   pdfFields,
   pdfFromMarkdown,
+  unsupportedChars,
   pdfLayout,
   pdfText,
   PDF_MAX_BYTES,
@@ -213,9 +214,16 @@ export function createArtifactCreateTool(deps: ArtifactToolDeps): Tool {
         // to match on. The session id already encodes the surface.
         origin: { session: ctx.sessionId },
       });
+      // A PDF whose alphabet the bundled face cannot draw comes out blank on
+      // the page while the text still copies out of it. Said here, once, so the
+      // agent can tell the person rather than handing over an empty sheet.
+      const blank = kind === "pdf" ? await unsupportedChars(content) : [];
+      const warning = blank.length > 0
+        ? ` WARNING: these characters have no glyph in the bundled font and will be BLANK on the page: ${blank.slice(0, 20).join("")}. Tell the user, and offer a markdown or document artifact instead, which has no such limit.`
+        : "";
       return {
         ok: true,
-        content: `Created ${a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).`,
+        content: `Created ${a.kind} "${a.title}" — id ${a.id} (v1, ${a.bytes} bytes).${warning}`,
         data: { id: a.id, kind: a.kind, title: a.title, version: a.version },
       };
     },
@@ -576,7 +584,10 @@ export function createArtifactExportTool(deps: ArtifactToolDeps): Tool {
     description:
       "Write a copy of an artifact to a real file the user can open or attach. " +
       "Without `dest` it lands in the workspace root under its own name. An " +
-      "`app` gets its chart library inlined, so the file works offline.",
+      "`app` gets its chart library inlined, so the file works offline. " +
+      "Asked for a PDF of something already written? Pass format:\"pdf\" here " +
+      "instead of saying you cannot: any text artifact is rendered to a real " +
+      "PDF on the way out, and the artifact itself is left as it is.",
     // The real file access happens inside ArtifactExporter, which owns the
     // manifest that guards it. Declaring the permissions twice would let the
     // two drift, and the one that matters is the one at the write.
@@ -594,6 +605,11 @@ export function createArtifactExportTool(deps: ArtifactToolDeps): Tool {
         description: "Optional absolute path (or filename) to write to.",
         required: false,
       },
+      format: {
+        type: "string",
+        description: "Optional: \"pdf\" to render a text artifact as a PDF. A dest ending in .pdf does the same.",
+        required: false,
+      },
     },
     async execute(args) {
       const id = typeof args.id === "string" ? args.id.trim() : "";
@@ -601,7 +617,8 @@ export function createArtifactExportTool(deps: ArtifactToolDeps): Tool {
       const a = deps.store.get(id);
       if (!a) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
       const dest = typeof args.dest === "string" ? args.dest : undefined;
-      const res = await exporter.run(a, dest);
+      const format = args.format === "pdf" ? ("pdf" as const) : undefined;
+      const res = await exporter.run(a, dest, format);
       return {
         ok: true,
         content: `Exported "${a.title}" to ${res.path}.${res.note}`,
@@ -833,7 +850,7 @@ export function createArtifactSendTool(deps: { store: ArtifactStore; delivery: F
         };
       }
 
-      const file = artifactFile(deps.store, a);
+      const file = await artifactFile(deps.store, a);
       const data = typeof file.content === "string" ? new TextEncoder().encode(file.content) : file.content;
       const size = humanSize(data.byteLength);
 

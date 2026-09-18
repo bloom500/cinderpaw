@@ -43,12 +43,55 @@ export interface PdfField {
   value: string;
 }
 
+/** The two faces, read from disk once: the bytes are the same for every PDF. */
+let faces: Promise<{ r: ArrayBuffer; b: ArrayBuffer }> | null = null;
+function fontBytes(): Promise<{ r: ArrayBuffer; b: ArrayBuffer }> {
+  faces ??= Promise.all([Bun.file(regularFontPath).arrayBuffer(), Bun.file(boldFontPath).arrayBuffer()])
+    .then(([r, b]) => ({ r, b }));
+  return faces;
+}
+
+/**
+ * The characters in `text` that Noto Sans cannot draw.
+ *
+ * Nothing throws on them: `drawText` writes the code point, the page shows
+ * nothing, and the text still copies out of the file perfectly. That is how the
+ * subsetting bug stayed invisible for a whole day, and it is exactly what a
+ * Chinese or Japanese user would get today, because Noto Sans is Latin, Greek
+ * and Cyrillic — CJK lives in a separate 16 MB face we do not bundle.
+ *
+ * So the file is still made, and whoever asked for it is TOLD which characters
+ * will be blank. A silent blank page is the one outcome nobody can act on.
+ */
+let probe: ReturnType<typeof fontkit.create> | null = null;
+export async function unsupportedChars(text: string): Promise<string[]> {
+  probe ??= fontkit.create(Buffer.from(new Uint8Array((await fontBytes()).r)));
+  const missing = new Set<string>();
+  for (const ch of text) {
+    if (ch <= " ") continue;
+    if (!probe.hasGlyphForCodePoint(ch.codePointAt(0)!)) missing.add(ch);
+  }
+  return [...missing];
+}
+
 async function fonts(doc: PDFDocument): Promise<{ regular: PDFFont; bold: PDFFont }> {
   doc.registerFontkit(fontkit);
-  const [r, b] = await Promise.all([Bun.file(regularFontPath).arrayBuffer(), Bun.file(boldFontPath).arrayBuffer()]);
+  const { r, b } = await fontBytes();
+  // NOT subset, and this is measured, not cautious. pdf-lib's subsetter drops
+  // the outline of about half the glyphs it keeps: the first contract anyone
+  // generated came out of Acrobat as "Co    o  bo" — the text is all there and
+  // copies out correctly, the shapes are simply gone. Counted on that file: 64
+  // glyphs embedded, 32 with no path at all. Our own panel uses pdf.js, which
+  // renders it anyway, so the app looked right and every file sent to a real
+  // person was broken.
+  //
+  // ponytail: the whole face goes in, ~280 KB per weight after compression.
+  // The cheap half of that back is embedding bold only when a heading exists;
+  // the real fix is vendoring a latin+latin-ext cut of Noto Sans, which is a
+  // build step nobody has needed yet.
   return {
-    regular: await doc.embedFont(r, { subset: true }),
-    bold: await doc.embedFont(b, { subset: true }),
+    regular: await doc.embedFont(r),
+    bold: await doc.embedFont(b),
   };
 }
 
