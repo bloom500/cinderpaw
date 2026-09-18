@@ -366,8 +366,13 @@ const PLUGIN = {
 
 // Read per call. Missing file is normal; invalid overrides are reported and
 // ignored. These bounds are product safeguards, not claimed vendor limits.
+// 1500 ms, not 700: the pause between two spoken sentences is often longer
+// than 700, so a two- or three-sentence request was cut after the first, the
+// model started answering, the second sentence interrupted it, and the answer
+// was cancelled: on gemini-2.5-flash-native-audio a long request got nothing
+// back at all (18 Sep, fixed on his call by exactly this value).
 function endpointing() {
-  const defaults = { endOfSpeechSensitivity: 'END_SENSITIVITY_LOW', silenceDurationMs: 700, prefixPaddingMs: 300 };
+  const defaults = { endOfSpeechSensitivity: 'END_SENSITIVITY_LOW', silenceDurationMs: 1500, prefixPaddingMs: 300 };
   const rules = {
     endOfSpeechSensitivity: (v) => v === 'END_SENSITIVITY_LOW' || v === 'END_SENSITIVITY_HIGH',
     silenceDurationMs: (v) => Number.isInteger(v) && v >= 0 && v <= 30_000,

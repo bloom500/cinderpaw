@@ -91,7 +91,12 @@ pub fn declarations() -> Vec<FunctionDeclaration> {
         // only reached when the user named it out loud.
         //
         // So the description states the absence of the capability as fact and
-        // lists the words that mean "call me". A model that believes it can
+        // lists the words that mean "call me".
+        //
+        // It also used to say "state the request in one sentence", and the
+        // model summarised the HOW away: 18 Sep, "deschide browserul si cauta
+        // vremea" arrived as "Search for the current weather in Bucharest",
+        // the agent ran a background web_search, and the browser never opened. A model that believes it can
         // already search will never reach a door labelled "for things you
         // cannot do".
         description: "The ONLY way you can reach the internet, this computer, or \
@@ -104,10 +109,13 @@ pub fn declarations() -> Vec<FunctionDeclaration> {
             Call it too when they mention anything from an earlier conversation, \
             anything on their machine, or any fact that could have changed since \
             you were trained.\n\n\
-            Cinderpaw is the local agent and has real tools: web search, files, \
-            shell, memory. State the request in one sentence, the way you would \
-            to a colleague. It may take a while; keep talking to the user while \
-            you wait."
+            Cinderpaw is the local agent and has real tools: web search, a \
+            built-in browser the user can watch, files, shell, memory. Pass the \
+            request on in the user's own terms: if they named a place or a tool \
+            (the browser, a site, a file, an app), that name goes in the request, \
+            because it decides HOW the work is done. \"Open the browser and look \
+            up the weather\" is not \"search for the weather\". It may take a \
+            while; keep talking to the user while you wait."
             .to_string(),
         parameters: serde_json::json!({
             "type": "object",
