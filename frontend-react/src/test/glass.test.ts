@@ -511,7 +511,11 @@ describe('Tailwind 4 cascade layers', () => {
   // `.scrollbar-hide`, `:where(...)` squared `rounded-xl` and doubled focus
   // rings. `html` and `body` stay bare on purpose: nothing puts utilities there.
   test('no bare universal, :where() or element-only rule outside a layer', () => {
-    const src = CSS.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+    // Strings are matched first so a `/*` inside one is not a comment: the
+    // `@source '.../dist/*.js'` glob opened a "comment" that swallowed
+    // `@theme {`, and every keyframe step after it read as a bare rule.
+    const src = CSS.replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\/\*[\s\S]*?\*\//g, (m) =>
+      m.startsWith('/*') ? m.replace(/[^\n]/g, ' ') : m);
     const offenders: string[] = [];
     let depth = 0, buf = '';
     for (const ch of src) {
