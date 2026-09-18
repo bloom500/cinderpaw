@@ -18,6 +18,7 @@
   <a href="https://x.com/BloomMedia66730"><img src="https://img.shields.io/badge/Follow-%40BloomMedia66730-black?style=for-the-badge&logo=x" alt="X/Twitter" /></a>
   <a href="https://github.com/bloom500/cinderpaw"><img src="https://img.shields.io/badge/Source-GitHub-181717?style=for-the-badge&logo=github" alt="GitHub" /></a>
   <a href="https://github.com/bloom500/cinderpaw/discussions"><img src="https://img.shields.io/badge/Community-Discussions-purple?style=for-the-badge&logo=github" alt="Discussions" /></a>
+  <a href="https://discord.gg/eqvfVRD6y7"><img src="https://img.shields.io/badge/Chat-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
 [Website](https://cinderpaw.dev) · [Download](https://github.com/bloom500/cinderpaw/releases/latest) · [Report an issue](https://github.com/bloom500/cinderpaw/issues) · [Discussions](https://github.com/bloom500/cinderpaw/discussions) · [What we promise](PROMISES.md) · [Discord](https://discord.gg/eqvfVRD6y7)
