@@ -31,6 +31,30 @@ describe('voice tool activity', () => {
     expect(result.current).toEqual([]);
   });
 
+  it('closes the row a result belongs to, and ignores tools from another conversation', async () => {
+    let worker: (e: unknown) => void = () => {};
+    vi.mocked(events.liveKitEvent.listen).mockImplementation((cb) => {
+      worker = cb as (e: unknown) => void;
+      return Promise.resolve(vi.fn());
+    });
+    const { result } = renderHook(() => useLiveToolActivity(true, 'chat-1'));
+    await act(async () => {});
+    // Astra, 19 Sep 2026: rows matched results by tool NAME, and the panel
+    // showed every tool the sidecar ran for anyone.
+    act(() => worker({ kind: 'toolCall', id: 'v-1', session: 'v', text: 'weather' }));
+    act(() => worker({ kind: 'toolResult', id: 'v-0', session: 'v', text: '' }));
+    expect(result.current[0]).toMatchObject({ id: 'v-1', status: 'running' });
+    act(() => worker({ kind: 'toolResult', id: 'v-1', session: 'v', pending: true, text: '' }));
+    expect(result.current[0]).toMatchObject({ status: 'running', note: 'taking longer than usual' });
+    act(() => worker({ kind: 'toolLate', id: 'v-1', session: 'v', text: 'sunny' }));
+    expect(result.current[0]).toMatchObject({ id: 'v-1', status: 'done' });
+
+    act(() => emit({ type: 'tool_start', tool: 'shell', sessionId: 'cron-9' }));
+    expect(result.current.some((a) => a.tool === 'shell')).toBe(false);
+    act(() => emit({ type: 'tool_start', tool: 'shell', sessionId: 'chat-1' }));
+    expect(result.current.some((a) => a.tool === 'shell')).toBe(true);
+  });
+
   it('caps rows at six and releases a subscription that resolves after unmount', async () => {
     const { result, unmount } = renderHook(() => useLiveToolActivity(true));
     act(() => {

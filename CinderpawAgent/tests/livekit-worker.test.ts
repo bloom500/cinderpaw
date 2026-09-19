@@ -12,6 +12,7 @@ function worker(provider: string, tuning?: string) {
   const timers: Array<() => void> = [];
   const delays: number[] = [];
   const warnings: string[] = [];
+  const logs: string[] = [];
   const deadlines: number[] = [];
   const sessions: any[] = [];
   class Base {}
@@ -31,7 +32,7 @@ function worker(provider: string, tuning?: string) {
     stt: { STT: Base }, tts: { TTS: Base, ChunkedStream: Base },
     voice: { AgentSession: Session, Agent: Base },
     AgentSessionEventTypes: {}, RoomEvent: {},
-    console: { log() {}, error: (text: string) => warnings.push(text) },
+    console: { log: (text: string) => logs.push(String(text)), error: (text: string) => warnings.push(text) },
     // The delay is recorded next to the callback because two different timers
     // now exist on this path and "a timer was armed" no longer says which:
     // the filler voice (OpenAI) and the tool-reply nudge (Google).
@@ -47,7 +48,12 @@ function worker(provider: string, tuning?: string) {
     PLUGIN.google = async () => ({ beta: { realtime: { RealtimeModel: class { constructor(options) { this.options = options; } } } } });
     PLUGIN.openai = async () => ({ realtime: { RealtimeModel: class { constructor(options) { this.options = options; } } } });
     ({ REALTIME, toolsFromDeclarations, assistant, askRust, LocalTTS });`, context);
-  return { ...api, timers, delays, warnings, deadlines, sessions, context };
+  return { ...api, timers, delays, warnings, deadlines, sessions, context, logs };
+}
+
+/** The CINDERPAW_EVENT lines the worker printed for Rust to forward. */
+function eventsOf(w: { logs: string[] }) {
+  return w.logs.filter((l) => l.startsWith("CINDERPAW_EVENT ")).map((l) => JSON.parse(l.slice("CINDERPAW_EVENT ".length)));
 }
 
 test("Google keeps realtime input available while a tool is pending", async () => {
@@ -93,7 +99,7 @@ test("worker request remains alive until after Rust can send its holding reply",
   const rust = readFileSync(new URL("../../crates/cinderpaw-core/src/api.rs", import.meta.url), "utf8");
   const seconds = Number(rust.match(/VOICE_TOOL_DEADLINE[^=]*=\s*std::time::Duration::from_secs\((\d+)\)/)![1]);
   const w = worker("openai");
-  await w.askRust("ask_cinder", { request: "search" });
+  await w.askRust("voice-42-1", "ask_cinder", { request: "search" });
   expect(w.deadlines[0]).toBeGreaterThan(seconds * 1000);
 });
 
@@ -136,4 +142,23 @@ test("Google tuning accepts valid overrides and rejects malformed settings", asy
   // is the patient one. See the test above for why it is 1500.
   expect((await broken.REALTIME.google()).options.realtimeInputConfig.automaticActivityDetection.silenceDurationMs).toBe(1500);
   expect(broken.warnings.length).toBeGreaterThan(0);
+});
+
+test("every tool event names its call and its session, and a held answer is marked pending", async () => {
+  const w = worker("google");
+  // Rust answered "still working": ok:false and pending:true, the row must
+  // stay open (Astra, 19 Sep 2026: rows were matched by tool NAME, and a
+  // result closed whichever ask_cinder row was newest).
+  w.context.fetch = async () => ({ ok: true, json: async () => ({ response: { ok: false, pending: true, output: "Still working" } }) });
+  const session = { say() {}, generateReply() {} };
+  await w.toolsFromDeclarations(session).ask_cinder.execute({ request: "search" });
+  const events = eventsOf(w);
+  expect(events.map((e) => e.kind)).toEqual(["toolCall", "toolResult"]);
+  expect(events[0]).toMatchObject({ id: "voice-42-1", session: "voice-42", tool: "ask_cinder", text: "search" });
+  expect(events[1]).toMatchObject({ id: "voice-42-1", session: "voice-42", pending: true });
+  // And the greppable line with the same id.
+  expect(w.logs.some((l) => l.startsWith("voice_tool_call id=voice-42-1 "))).toBe(true);
+  // A second call is a second id.
+  await w.toolsFromDeclarations(session).ask_cinder.execute({ request: "again" });
+  expect(eventsOf(w)[2].id).toBe("voice-42-2");
 });

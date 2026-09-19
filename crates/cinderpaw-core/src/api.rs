@@ -822,7 +822,20 @@ pub(crate) const VOICE_TOOL_DEADLINE: std::time::Duration = std::time::Duration:
 /// only the first one's sentence ever said out loud. Three minutes is longer
 /// than any call spends on one question, and holding a string that long costs
 /// nothing.
-const VOICE_TOOL_ANSWER_KEPT: std::time::Duration = std::time::Duration::from_secs(180);
+///
+/// Down from three minutes on 19 Sep 2026, because a late answer is now PUSHED
+/// to the call (`toolLate`) rather than waiting to be asked for, so the long
+/// hold no longer buys anything and cost something real: a person who said
+/// "send it again" inside three minutes got the first send's sentence and no
+/// second send. Twenty seconds still covers a model that re-asks on reflex.
+const VOICE_TOOL_ANSWER_KEPT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// How long a `stop_cinder` waits for the work it stopped to actually settle
+/// before answering. "Stopped." used to mean "the stop line was written",
+/// which let the model tell the caller the agent had stopped while it was still
+/// running. Now it means the in-flight request for this call came back, or the
+/// answer says it did not.
+const VOICE_STOP_CONFIRM: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Work that outlived its deadline, keyed by the request that started it.
 ///
@@ -838,6 +851,37 @@ static VOICE_IN_FLIGHT: std::sync::OnceLock<
 fn voice_in_flight(
 ) -> &'static parking_lot::Mutex<std::collections::HashMap<String, tokio::sync::watch::Receiver<Option<String>>>> {
     VOICE_IN_FLIGHT.get_or_init(|| parking_lot::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// The unfinished work of one call. Keys start with the session followed by
+/// the unit separator, see `voice_dedupe_key`.
+fn running_voice_work(session: &str) -> Vec<tokio::sync::watch::Receiver<Option<String>>> {
+    let prefix = format!("{session}\u{1f}");
+    voice_in_flight()
+        .lock()
+        .iter()
+        .filter(|(k, rx)| k.starts_with(&prefix) && rx.borrow().is_none())
+        .map(|(_, rx)| rx.clone())
+        .collect()
+}
+
+/// Wait until every receiver has an answer, or the budget runs out. Nothing
+/// to wait on counts as settled.
+async fn await_settled(
+    mut running: Vec<tokio::sync::watch::Receiver<Option<String>>>,
+    budget: std::time::Duration,
+) -> bool {
+    tokio::time::timeout(budget, async {
+        for rx in running.iter_mut() {
+            while rx.borrow_and_update().is_none() {
+                if rx.changed().await.is_err() {
+                    break;
+                }
+            }
+        }
+    })
+    .await
+    .is_ok()
 }
 
 #[derive(serde::Deserialize)]
@@ -1162,17 +1206,43 @@ async fn runtime_voice_tool(
     // model told the caller it had. The map exists to stop work being done
     // twice; a stop done twice costs nothing and is what was asked for.
     if call.name == crate::live::bridge::STOP_CINDER {
-        let answered =
+        let stop_requested = std::time::Instant::now();
+        // Snapshot BEFORE the stop goes out, so what is waited on is the work
+        // that existed when the person asked, not whatever starts next.
+        let running = running_voice_work(&session);
+        let mut answered =
             crate::live::bridge::answer(&call, Some(&state.runtime), &agent_session).await;
-        tracing::info!(ok = %answered.response["ok"], "voice tool: stop issued");
+        let issued = answered.response["ok"].as_bool().unwrap_or(false);
+        let confirmed = if issued { await_settled(running, VOICE_STOP_CONFIRM).await } else { false };
+        if issued && !confirmed {
+            answered.response = json!({
+                "ok": true,
+                "output": "Stop requested. The task has not confirmed it stopped yet; say so, and do not claim it is stopped."
+            });
+        }
+        // The line Astra asked for on 19 Sep: a stop leaves a record of whether
+        // anything actually stopped, with the ids to tie it to the tool rows.
+        tracing::info!(
+            call_id = %call.id,
+            session = %session,
+            issued,
+            confirmed,
+            stop_ack_ms = stop_requested.elapsed().as_millis() as u64,
+            "voice_cancel"
+        );
         return Json(json!({ "id": call.id, "response": answered.response })).into_response();
     }
     let started = std::time::Instant::now();
     // Logged on the way in as well as out. A tool call used to leave no trace
     // at all, so "did it even try to search?" had no answer anywhere — and that
     // is the first question when a spoken answer sounds invented.
-    tracing::info!(tool = %call.name, request = %request, "voice tool: asked");
+    tracing::info!(call_id = %call.id, session = %session, tool = %call.name, request = %request, "voice tool: asked");
     person_asked();
+    // Set by the waiter below the moment it gives up and sends the holding
+    // reply; read by the worker task when the answer finally lands. Whoever
+    // is second sees the other's mark (both sides write before they read), so
+    // an answer is either returned in time or pushed late, never dropped.
+    let held = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Already running? Wait on that one rather than starting another.
     //
@@ -1196,10 +1266,28 @@ async fn runtime_voice_tool(
             let call = call.clone();
             let key = dedupe_key.clone();
             let session = agent_session.clone();
+            let held = held.clone();
+            let voice_session = voice_session_id(&call);
             tokio::spawn(async move {
                 let answered =
                     crate::live::bridge::answer(&call, Some(&runtime), &session).await;
                 let _ = tx.send(Some(answered.response.to_string()));
+                // The waiter already answered "still working": deliver this
+                // ourselves, or the work was for nothing. The window relays it
+                // to the worker, which has the model say it.
+                if held.load(std::sync::atomic::Ordering::SeqCst) {
+                    let output = answered.response["output"].as_str().unwrap_or_default().to_string();
+                    let ok = answered.response["ok"].as_bool().unwrap_or(false);
+                    let delivered = crate::live::bridge::emit_to_call(json!({
+                        "kind": "toolLate",
+                        "id": call.id,
+                        "session": voice_session,
+                        "tool": call.name,
+                        "ok": ok,
+                        "text": if ok { output } else { format!("That did not work: {output}") },
+                    }));
+                    tracing::info!(call_id = %call.id, ok, delivered, "voice tool: late answer");
+                }
                 // Kept after finishing so a model that asks again gets the
                 // answer instead of restarting work that may have side effects.
                 tokio::time::sleep(VOICE_TOOL_ANSWER_KEPT).await;
@@ -1220,24 +1308,36 @@ async fn runtime_voice_tool(
     })
     .await;
 
-    let response = match waited {
-        Ok(body) if !body.is_empty() => {
-            tracing::info!(ms = started.elapsed().as_millis() as u64, "voice tool: answered");
-            serde_json::from_str::<serde_json::Value>(&body)
-                .unwrap_or_else(|_| json!({ "ok": true, "output": body }))
+    // Mark first, then look once more: an answer sent between the timeout
+    // and this line is taken here, one sent after it is pushed by the task.
+    let body = match waited {
+        Ok(body) => body,
+        Err(_) => {
+            held.store(true, std::sync::atomic::Ordering::SeqCst);
+            rx.borrow().clone().unwrap_or_default()
         }
-        _ => {
-            // Not an error: the work is still running, and the model needs a
-            // sentence it can say out loud rather than a silence.
-            tracing::info!(
-                ms = started.elapsed().as_millis() as u64,
-                "voice tool: still running past the deadline, holding reply sent"
-            );
-            json!({
-                "ok": false,
-                "output": "Still working on that one — it is taking longer than usual.                            Tell the user you are still on it, and ask again in a moment."
-            })
-        }
+    };
+    let response = if !body.is_empty() {
+        held.store(false, std::sync::atomic::Ordering::SeqCst);
+        tracing::info!(call_id = %call.id, ms = started.elapsed().as_millis() as u64, "voice tool: answered");
+        serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| json!({ "ok": true, "output": body }))
+    } else {
+        // Not an error: the work is still running, and the model needs a
+        // sentence it can say out loud rather than a silence. The answer
+        // follows on its own as `toolLate`; the model is told NOT to re-ask,
+        // because a re-ask with one word changed used to start the work over.
+        tracing::info!(
+            call_id = %call.id,
+            ms = started.elapsed().as_millis() as u64,
+            "voice tool: still running past the deadline, holding reply sent"
+        );
+        json!({
+            "ok": false,
+            "pending": true,
+            "output": "Still working on that one, it is taking longer than usual. \
+                       Tell the user you are still on it. The result will be handed to you \
+                       automatically when it is ready; do not repeat the request."
+        })
     };
 
     Json(json!({ "id": call.id, "response": response })).into_response()
@@ -3350,6 +3450,40 @@ mod tests {
 
         let same = voice_dedupe_key("voice-11", "ask_cinder", "what is on my calendar");
         assert_eq!(a, same, "the same call asking twice must still wait on the first");
+    }
+
+    /// "Stopped." must mean the work came back, not that a line was written.
+    ///
+    /// Astra, 19 Sep 2026: the model told the caller the agent had stopped
+    /// while the search was still running, because the stop reply was sent the
+    /// moment the stop command was. The stop now waits for the call's own
+    /// in-flight work to settle, and says so when it does not.
+    #[tokio::test]
+    async fn a_stop_is_confirmed_only_when_the_calls_work_settles() {
+        let (tx, rx) = tokio::sync::watch::channel::<Option<String>>(None);
+        {
+            let mut map = voice_in_flight().lock();
+            map.insert(voice_dedupe_key("voice-stop-test", "ask_cinder", "search"), rx);
+            // Another call's work is not this call's business.
+            let (_keep, other) = tokio::sync::watch::channel::<Option<String>>(None);
+            map.insert(voice_dedupe_key("voice-other", "ask_cinder", "search"), other);
+        }
+        let running = running_voice_work("voice-stop-test");
+        assert_eq!(running.len(), 1, "only this call's unfinished work is waited on");
+
+        // Still running: the stop is not confirmed within the budget.
+        let confirmed = await_settled(running.clone(), std::time::Duration::from_millis(30)).await;
+        assert!(!confirmed, "work that has not come back must not be reported as stopped");
+
+        // The work answers (the agent loop's `done` with stopped:true reaches
+        // the waiting request): now it is confirmed.
+        tx.send(Some(r#"{"ok":true,"output":"stopped"}"#.into())).unwrap();
+        let confirmed = await_settled(running, std::time::Duration::from_millis(30)).await;
+        assert!(confirmed);
+        assert!(await_settled(Vec::new(), std::time::Duration::from_millis(1)).await, "nothing running is settled");
+
+        let mut map = voice_in_flight().lock();
+        map.retain(|k, _| !k.starts_with("voice-stop-test") && !k.starts_with("voice-other"));
     }
 
     /// The session is the CALL, not the tool call inside it.

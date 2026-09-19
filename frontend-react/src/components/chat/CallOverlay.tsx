@@ -29,13 +29,14 @@ import { CallToolScreen } from './CallToolScreen';
 import { S2sModelPicker } from './S2sModelPicker';
 import { CallArtifacts } from './CallArtifacts';
 import { AskUserCard } from './AskUserCard';
-import { useAskUser } from '@/stores/askUser';
+import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useBrowser } from '@/stores/browser';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 import { warmLiveKit } from '@/hooks/useLiveKitCallSession';
 import { speechLevel } from '@/hooks/useSpeechPlayer';
 import { subscribeArtifacts, artifactsSnapshot } from '@/lib/callArtifacts';
 import { tauri, type S2sProviderInfo, type TtsProviderInfo, type TtsVoice } from '@/lib/tauri';
+import { events } from '@/lib/tauri/events';
 import { CLOUD_STT, useUI } from '@/stores/ui';
 import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
@@ -298,7 +299,7 @@ export function CallOverlay({
   // when nothing is picked, so the screen has to resolve it the same way or it
   // describes a call that is not the one about to happen.
   const effectiveS2s = s2sProvider ?? s2sList.find((p) => p.connected)?.id ?? null;
-  const currentS2s = s2sList.find((p) => p.id === effectiveS2s) ?? null;
+  const currentS2s = shownS2sProvider(s2sList, effectiveS2s);
   // What THIS call will do. Picking a vendor with no key is an echo even when
   // another vendor is connected, because the host refuses to quietly run the
   // other one — so this cannot be "is anything connected".
@@ -332,9 +333,13 @@ export function CallOverlay({
   // Said once per question, when one arrives mid-call. A person on a call is
   // listening, not watching the screen.
   const spokenAsk = useRef<string | null>(null);
+  /** When the question went out loud; a transcript from before it is the
+   *  person's previous sentence, not their answer. */
+  const askSpokenAt = useRef(0);
   useEffect(() => {
     if (!ask || !onAskAloud || phase === 'ready' || spokenAsk.current === ask.id) return;
     spokenAsk.current = ask.id;
+    askSpokenAt.current = Date.now();
     const q = ask.questions[0];
     const options = (q?.options ?? []).map((o) => o.label).filter(Boolean);
     onAskAloud(
@@ -343,13 +348,36 @@ export function CallOverlay({
         .join(' '),
     );
   }, [ask, onAskAloud, phase]);
+  // The spoken answer IS the answer. The question was read out; a person on
+  // a call replies by talking, and until 19 Sep 2026 that reply went to the
+  // model while the card waited out its timeout in silence (Astra, A10). The
+  // first settled transcript after the question was asked answers the card:
+  // an option when the words name one, the words themselves otherwise. Only
+  // single-question cards; a form is a thing to look at.
+  useEffect(() => {
+    if (!ask || phase === 'ready' || phase === 'idle' || ask.questions.length !== 1) return;
+    const askId = ask.id;
+    const question = ask.questions[0];
+    const pending = events.liveKitEvent.listen((e) => {
+      if (e.kind !== 'heard' || e.partial || !e.text) return;
+      if (spokenAsk.current !== askId || Date.now() - askSpokenAt.current < 500) return;
+      if (useAskUser.getState().pending?.id !== askId) return;
+      const answer = voiceAnswerFor(question, e.text);
+      console.info(`[call] ask ${askId} answered by voice: ${answer.selected.length ? 'option' : 'free text'}`);
+      useAskUser.getState().submit([answer]);
+    });
+    return () => { void pending.then((un) => un()); };
+  }, [ask, phase]);
   const toolCount = useUI((s) => s.enabledTools.length);
   const hasTools = live || inputMode === 'agent' || toolCount > 0;
   // Both call modes end up asking the same agent, and the agent reports its
   // tools on one channel, so one listener serves both. Only while the call is
   // actually up — a listener attached at `idle` would collect the tool calls of
   // whatever the user is doing in the chat behind the overlay.
-  const toolActivity = useLiveToolActivity(phase !== 'idle' && phase !== 'ready');
+  // Filtered to the conversation the call works in, so a cron job or a
+  // connector's tool does not show up as this call's activity.
+  const chatSessionId = useChat((s) => s.sessionId);
+  const toolActivity = useLiveToolActivity(phase !== 'idle' && phase !== 'ready', chatSessionId);
   /** A tool is running right now. Its own signal rather than a sixth phase,
    *  because it is orthogonal: Cinderpaw can be answering out loud WHILE a search
    *  is still running, and the sphere should be able to say both at once. */
@@ -1871,6 +1899,42 @@ function RoundButton({
  * the agent cannot load, and that failure lands inside a forked job process
  * where nobody sees it.
  */
+/**
+ * The vendor the pre-call screen describes.
+ *
+ * The picked one, or the first with a key, when there is one. On a machine
+ * with no key for anyone and no pick yet it is the FIRST vendor, so the same
+ * sentence and the same disabled button a person sees after picking a keyless
+ * vendor appear before they pick anything. Without this the fresh install had
+ * no vendor to name: the blocker line stayed empty and the button let the call
+ * through to an echo (Astra, 19 Sep 2026, A1). The caller's `effective` stays
+ * null, so nothing is written back as a choice the person did not make.
+ */
+/**
+ * Turn what the person said into the card's answer.
+ *
+ * An option is chosen when the sentence contains its label, or the label
+ * contains the whole sentence ("approve" for "Approve the change"). With
+ * `multiSelect` every named option is taken. Nothing named means the words
+ * themselves are the answer, in `customText`, so the agent still reads what
+ * was said rather than waiting for a click that will not come on a call.
+ */
+export function voiceAnswerFor(question: AskUserQuestion, said: string): AskUserAnswer {
+  const words = said.trim().toLowerCase();
+  const named = question.options.filter((o) => {
+    const label = o.label.trim().toLowerCase();
+    return label.length > 0 && (words.includes(label) || label.includes(words));
+  });
+  const selected = (question.multiSelect ? named : named.slice(0, 1)).map((o) => o.label);
+  return selected.length
+    ? { question: question.question, selected }
+    : { question: question.question, selected: [], customText: said.trim() };
+}
+
+export function shownS2sProvider<P extends { id: string }>(list: P[], effective: string | null): P | null {
+  return list.find((p) => p.id === effective) ?? list[0] ?? null;
+}
+
 export function ProviderToggle({
   providers,
   effective,

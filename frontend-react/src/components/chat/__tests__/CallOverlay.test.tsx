@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { CallTranscript, ProviderToggle, chooseSpeechEngine, compactCallTranscript, keyOwner } from '../CallOverlay';
+import { CallTranscript, ProviderToggle, chooseSpeechEngine, compactCallTranscript, keyOwner, shownS2sProvider, voiceAnswerFor } from '../CallOverlay';
 import type { TtsProviderInfo } from '@/lib/tauri';
 
 describe('compactCallTranscript', () => {
@@ -195,5 +195,39 @@ describe('ProviderToggle', () => {
     expect(screen.queryByRole('button', { name: 'STT + TTS' })).toBeNull();
     expect(screen.getByText('Gemini Realtime')).toBeInTheDocument();
     expect(screen.getByText('OpenAI Realtime')).toBeInTheDocument();
+  });
+});
+
+describe('shownS2sProvider', () => {
+  const list = [
+    { id: 'google', connected: false },
+    { id: 'openai', connected: false },
+  ];
+  it('names the first vendor when nothing is picked and nobody has a key', () => {
+    // A fresh install. The screen must block with "a key for Gemini is needed"
+    // exactly as it does after picking Gemini, not let the call echo.
+    expect(shownS2sProvider(list, null)?.id).toBe('google');
+  });
+  it('shows the picked vendor when there is one', () => {
+    expect(shownS2sProvider(list, 'openai')?.id).toBe('openai');
+  });
+  it('is null only when there is no vendor at all', () => {
+    expect(shownS2sProvider([], null)).toBeNull();
+  });
+});
+
+describe('voiceAnswerFor', () => {
+  const q = { question: 'Delete the folder?', options: [{ label: 'Delete' }, { label: 'Keep it' }], multiSelect: false };
+  it('picks the option the sentence names', () => {
+    expect(voiceAnswerFor(q, 'yes, delete it').selected).toEqual(['Delete']);
+    expect(voiceAnswerFor(q, 'Keep').selected).toEqual(['Keep it']);
+  });
+  it('hands over the words when no option is named, rather than guessing', () => {
+    const a = voiceAnswerFor(q, 'wait, which folder?');
+    expect(a.selected).toEqual([]);
+    expect(a.customText).toBe('wait, which folder?');
+  });
+  it('takes every named option on a multi-select', () => {
+    expect(voiceAnswerFor({ ...q, multiSelect: true }, 'delete, no wait, keep it').selected).toEqual(['Delete', 'Keep it']);
   });
 });

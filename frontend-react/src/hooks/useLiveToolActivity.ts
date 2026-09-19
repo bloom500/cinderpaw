@@ -514,11 +514,29 @@ export function hitsOf(result: unknown): ToolHit[] {
   return out;
 }
 
-export function useLiveToolActivity(enabled: boolean) {
-  /** Rows are keyed by tool name: the sidecar's tool events carry the message
-   *  id, not a per-call id, so two calls to the same tool in one turn would
-   *  otherwise be indistinguishable. Last one wins, which is what a live
-   *  indicator wants anyway. */
+/** What the voice worker puts on the wire for one tool event. `id` and
+ *  `session` are absent from a worker older than 19 Sep 2026. */
+interface WorkerToolEvent {
+  kind: string;
+  text?: string;
+  id?: string;
+  session?: string;
+  pending?: boolean;
+  /** `toolLate` only: whether the late answer is a result or a failure. */
+  ok?: boolean;
+}
+
+export function useLiveToolActivity(enabled: boolean, sessionId?: string | null) {
+  /** Rows from the sidecar are keyed by tool name: its tool events carry the
+   *  message id, not a per-call id, so two calls to the same tool in one turn
+   *  would otherwise be indistinguishable. Last one wins, which is what a live
+   *  indicator wants anyway. The voice worker's own `ask_cinder` rows carry the
+   *  worker's call id, so a result closes the row it belongs to.
+   *
+   *  `sessionId` is the conversation the call works in. A sidecar event that
+   *  names another session (a cron job, a connector, a cowork agent) is not
+   *  this call's activity and is dropped; one that names no session is an
+   *  older sidecar and is kept. */
   const [activity, setActivity] = useState<ToolActivity[]>([]);
 
   useEffect(() => {
@@ -530,10 +548,11 @@ export function useLiveToolActivity(enabled: boolean) {
     let cancelled = false;
 
     /** Add or replace a row, newest of that tool wins. */
-    const begin = (tool: string, args?: Record<string, unknown>, subject?: string) =>
+    const begin = (tool: string, args?: Record<string, unknown>, subject?: string, id?: string) =>
       setActivity((prev) => {
         const a = startActivity(tool, args);
         if (subject !== undefined) a.subject = subject;
+        if (id) a.id = id;
         return [...prev.filter((r) => r.tool !== tool), a].slice(-MAX);
       });
 
@@ -546,8 +565,14 @@ export function useLiveToolActivity(enabled: boolean) {
      * and the panel simply went blank for every call — the tool was working and
      * looked broken because nothing was listening where it now speaks.
      */
-    const onTool = (kind: string, text: string) => {
+    const onTool = (ev: WorkerToolEvent) => {
       if (cancelled) return;
+      const kind = ev.kind;
+      const text = ev.text ?? '';
+      // The row this event is about: its own call id when the worker sent
+      // one, otherwise (older worker) whichever ask_cinder row is running.
+      const mine = (a: ToolActivity) =>
+        a.tool === AGENT_TOOL && a.status === 'running' && (!ev.id || a.id === ev.id);
       // The call is over. Whatever was running is not running any more, and a
       // row still spinning after the room closed is the panel describing a
       // process that no longer exists.
@@ -561,32 +586,31 @@ export function useLiveToolActivity(enabled: boolean) {
         );
         return;
       }
-      if (kind === 'toolCall') begin(AGENT_TOOL, undefined, text);
-      else if (kind === 'toolResult') {
+      if (kind === 'toolCall') begin(AGENT_TOOL, undefined, text, ev.id);
+      else if (kind === 'toolResult' || kind === 'toolLate') {
         // A slow answer is not a failed one. Past its deadline the runtime
-        // returns `ok:false` carrying "Still working on that one" so the model
-        // has a sentence to say instead of a silence — but the work continues
-        // and the answer usually lands seconds later. Reading that as a
-        // failure put a red row on screen for the one case where the honest
-        // display is "still going": a web search, which is most of them.
-        if (/still working/i.test(text)) {
+        // returns `ok:false, pending:true` carrying "Still working on that one"
+        // so the model has a sentence to say instead of a silence — but the
+        // work continues and the answer arrives later as `toolLate`. Reading
+        // that as a failure put a red row on screen for the one case where the
+        // honest display is "still going": a web search, which is most of them.
+        if (kind === 'toolResult' && (ev.pending || /still working/i.test(text))) {
           setActivity((prev) =>
-            prev.map((a) =>
-              a.tool === AGENT_TOOL && a.status === 'running'
-                ? { ...a, note: 'taking longer than usual' }
-                : a,
-            ),
+            prev.map((a) => (mine(a) ? { ...a, note: 'taking longer than usual' } : a)),
           );
           return;
         }
+        // A `toolResult` carries text only when it failed; a `toolLate`
+        // carries the answer itself and says `ok` separately.
+        const failed = kind === 'toolLate' ? ev.ok === false : Boolean(text);
         setActivity((prev) =>
           prev.map((a) =>
-            a.tool === AGENT_TOOL && a.status === 'running'
+            mine(a)
               ? {
                   ...a,
-                  status: text ? ('failed' as const) : ('done' as const),
+                  status: failed ? ('failed' as const) : ('done' as const),
                   endedAt: Date.now(),
-                  error: text || null,
+                  error: failed ? text || 'failed' : null,
                 }
               : a,
           ),
@@ -601,9 +625,9 @@ export function useLiveToolActivity(enabled: boolean) {
         else liveOff.push(fn);
       });
 
-    attach(events.liveStatusEvent.listen((e) => onTool(e.payload.kind, e.payload.text ?? '')));
+    attach(events.liveStatusEvent.listen((e) => onTool(e.payload as WorkerToolEvent)));
     // The LiveKit channel hands the payload over directly, not wrapped.
-    attach(events.liveKitEvent.listen((e) => onTool(e.kind, e.text ?? '')));
+    attach(events.liveKitEvent.listen((e) => onTool(e as WorkerToolEvent)));
 
     void events.cinderpawAgentOutputEvent
       .listen((event) => {
@@ -617,6 +641,9 @@ export function useLiveToolActivity(enabled: boolean) {
         if (!line || typeof line !== 'object') return;
         const tool = typeof line.tool === 'string' ? line.tool : '';
         if (!tool) return;
+        // Another conversation's work is not this call's. Astra, 19 Sep 2026:
+        // the panel showed every tool the sidecar ran, whoever asked for it.
+        if (sessionId && typeof line.sessionId === 'string' && line.sessionId !== sessionId) return;
 
         if (line.type === 'tool_start') {
           begin(tool, line.args);
@@ -676,7 +703,7 @@ export function useLiveToolActivity(enabled: boolean) {
       for (const off of liveOff) off();
       clearInterval(sweep);
     };
-  }, [enabled]);
+  }, [enabled, sessionId]);
 
   return activity;
 }

@@ -608,6 +608,33 @@ let nextCallId = 0;
 const talk = { agent: '', user: '', agentSpokeAt: 0 };
 
 /**
+ * One line per turn: how long from the person's last word to the agent's
+ * first sound, and whether a tool ran in between. This is the measurement
+ * every latency complaint needs and no log had (Astra, 19 Sep 2026, B4):
+ * `voice_turn turn=3 reply_ms=1840 tools=1 tool_ms=1200`. Ids and counts,
+ * never a word of what was said. `turnMark` is called from the session's
+ * state handlers and from the tool wrapper.
+ */
+const turn = { n: 0, userEndAt: 0, tools: 0, toolMs: 0, open: false };
+function turnMark(what, ms = 0) {
+  if (what === 'user_end') {
+    turn.n += 1;
+    turn.userEndAt = Date.now();
+    turn.tools = 0;
+    turn.toolMs = 0;
+    turn.open = true;
+  } else if (what === 'tool' && turn.open) {
+    turn.tools += 1;
+    turn.toolMs += ms;
+  } else if (what === 'agent_speaks' && turn.open) {
+    turn.open = false;
+    console.log(
+      `voice_turn turn=${turn.n} reply_ms=${Date.now() - turn.userEndAt} tools=${turn.tools} tool_ms=${turn.toolMs} provider=${PROVIDER}`,
+    );
+  }
+}
+
+/**
  * Gemini is trusted to speak a tool's result on its own (the plugin declares
  * `autoToolReplyGeneration`), so LiveKit never asks for that reply. 2.5 native
  * audio does speak it; the 3.8 Live models, measured 18 Sep, found the answer
@@ -635,18 +662,24 @@ function nudgeToolReply(session, answeredAt) {
   }, TOOL_REPLY_GRACE_MS);
 }
 
-async function askRust(name, args) {
+/** The id of one tool call: the call's session plus a counter, so two calls
+ *  cannot both be "1". Minted by the caller and handed to Rust AND to the
+ *  window, so the row on screen, the log line and the server's work all name
+ *  the same thing. */
+const newCallId = () => `${SESSION_ID}-${++nextCallId}`;
+
+async function askRust(id, name, args) {
   if (!API_URL) return { ok: false, output: 'Cinderpaw is not reachable from here' };
   try {
     const res = await fetch(`${API_URL}/runtime/voice/tool`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${API_TOKEN}` },
       // `session` is this call, stable from first tool to hang-up. `id` is this
-      // TOOL CALL, and carries the session so two calls cannot both be "1".
-      // Without them the server keyed work by the spoken text alone, so one
-      // person's answer could be handed to another call asking the same thing.
+      // TOOL CALL. Without them the server keyed work by the spoken text alone,
+      // so one person's answer could be handed to another call asking the same
+      // thing.
       body: JSON.stringify({
-        id: `${SESSION_ID}-${++nextCallId}`,
+        id,
         session: SESSION_ID,
         name,
         args,
@@ -685,6 +718,9 @@ async function askRust(name, args) {
  */
 const emit = (obj) => console.log('CINDERPAW_EVENT ' + JSON.stringify(obj));
 
+/** Two newlines, spelled out because a `\n` inside a string in this file has been mangled by tooling once. */
+const BLANK_LINE = String.fromCharCode(10, 10);
+
 /** Build the LiveKit tool set from what Rust declared. */
 function toolsFromDeclarations(session) {
   const out = {};
@@ -710,7 +746,13 @@ function toolsFromDeclarations(session) {
         // `toolResult` below close it, which is what the caller asked for: the
         // thing they stopped, shown as stopped.
         const subject = String(args?.request ?? '').trim();
-        if (subject) emit({ kind: 'toolCall', text: subject });
+        const id = newCallId();
+        const startedAt = Date.now();
+        // `id` and `session` on every tool event. Without them the window
+        // matched results to rows by tool NAME, so a result from an earlier
+        // call closed whichever row was newest, and a tool run by a chat
+        // task in another session showed up as this call's activity.
+        if (subject) emit({ kind: 'toolCall', id, session: SESSION_ID, tool: decl.name, text: subject });
         // The panel says what is running; this says it out loud, which is the
         // half a person on a phone call actually receives.
         // Gemini can speak in its own voice during a nonblocking tool call.
@@ -719,8 +761,26 @@ function toolsFromDeclarations(session) {
         // confirmation it is waiting for.
         const done = PROVIDER === 'google' || !subject ? () => {} : keepLineWarm(session);
         try {
-          const out = await askRust(decl.name, args);
-          emit({ kind: 'toolResult', text: out?.ok === false ? String(out.output ?? 'failed') : '' });
+          const out = await askRust(id, decl.name, args);
+          const failed = out?.ok === false;
+          emit({
+            kind: 'toolResult',
+            id,
+            session: SESSION_ID,
+            tool: decl.name,
+            text: failed ? String(out.output ?? 'failed') : '',
+            // The server says so when the work is still running past its
+            // deadline; the answer will arrive later as a `toolLate` command.
+            pending: Boolean(out?.pending),
+            ms: Date.now() - startedAt,
+          });
+          // One line per tool call, greppable, with the ids the log needs to
+          // tie a spoken sentence to the work behind it (voice_tool in Rust
+          // carries the same id).
+          console.log(
+            `voice_tool_call id=${id} tool=${decl.name} ms=${Date.now() - startedAt} ok=${!failed} pending=${Boolean(out?.pending)}`,
+          );
+          turnMark('tool', Date.now() - startedAt);
           if (PROVIDER === 'google' && subject) nudgeToolReply(session, Date.now());
           return out;
         } finally {
@@ -871,7 +931,10 @@ async function assistant(ctx, makeSession) {
   session.on(AgentSessionEventTypes.AgentStateChanged, (e) => {
     const state = String(e.newState ?? '');
     talk.agent = state;
-    if (state === 'speaking') talk.agentSpokeAt = Date.now();
+    if (state === 'speaking') {
+      talk.agentSpokeAt = Date.now();
+      turnMark('agent_speaks');
+    }
     emit({ kind: 'state', text: state });
     // The greeting waits for this rather than firing right after `start()`.
     // See `greet` below for why.
@@ -879,7 +942,13 @@ async function assistant(ctx, makeSession) {
   });
 
   session.on(AgentSessionEventTypes.UserStateChanged, (e) => {
-    talk.user = String(e.newState ?? '');
+    const next = String(e.newState ?? '');
+    // Logged, with the previous state: the 18 Sep mute began with an
+    // "input speech started" ~20 ms after a tool call, and nothing recorded
+    // who was speaking when. Two words per transition; no content.
+    console.log(`voice_user_state ${talk.user || 'none'}->${next}`);
+    if (talk.user === 'speaking' && next !== 'speaking') turnMark('user_end');
+    talk.user = next;
   });
 
   // Kept so the close can say WHY. A vendor that refuses the session closes it
@@ -919,10 +988,47 @@ async function assistant(ctx, makeSession) {
     // sentence is already written by the side that asked, and asking the model
     // to rephrase it would invent options that were never offered.
     if (msg.type === 'ask' && msg.text) {
+      const text = String(msg.text);
+      console.log(`voice_ask chars=${text.length} provider=${PROVIDER}`);
       try {
-        session.say(String(msg.text));
-      } catch {
+        // Gemini speaks for itself: `say` would go through the null local
+        // TTS and produce nothing, which is how an approval waited out its
+        // timeout in silence. The model is asked to read the question word
+        // for word, so no option is invented. OpenAI keeps `say`, where the
+        // filler TTS exists to carry it.
+        const spoken =
+          PROVIDER === 'google'
+            ? session.generateReply({
+                instructions:
+                  'Read the following question to the user word for word, including the options, then stop and wait for their answer. Do not add options of your own: ' +
+                  text,
+              })
+            : session.say(text);
+        Promise.resolve(spoken).catch((e) => console.error(`ask could not be spoken: ${String(e?.message ?? e)}`));
+      } catch (e) {
         // A session that is closing cannot speak; the card is on screen anyway.
+        console.error(`ask could not be spoken: ${String(e?.message ?? e)}`);
+      }
+    }
+    // The result of a tool call that outlived its deadline, relayed by the
+    // window from Rust. `generateReply` with the result as an instruction, not
+    // `say`: the text is the agent's full answer and the model should tell the
+    // person what matters in it, in their language, the way it would have had
+    // the result arrived in time.
+    if (msg.type === 'toolLate' && msg.text) {
+      console.log(`voice_tool_late id=${String(msg.id ?? '')} chars=${String(msg.text).length}`);
+      try {
+        Promise.resolve(
+          session.generateReply({
+            instructions:
+              'The request you passed to Cinderpaw earlier, the one you told the user was still running, has finished. ' +
+              'Here is the result. Tell the user what it says now, briefly, in the language they are speaking.' +
+              BLANK_LINE +
+              String(msg.text),
+          }),
+        ).catch((e) => console.error(`late tool reply failed: ${String(e?.message ?? e)}`));
+      } catch (e) {
+        console.error(`late tool reply could not start: ${String(e?.message ?? e)}`);
       }
     }
   });

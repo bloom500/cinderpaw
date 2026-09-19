@@ -157,6 +157,17 @@ export function turnMark(stage: TurnStage): { turn: number; spans: Record<string
     if (stage === 'answering' || (stage === 'answered' && answeringAt === null)) {
       answeringAt = p.now();
     }
+    // A vendor that sends no partials (Gemini 3.8 Live does not; nor does a
+    // short utterance on 2.5) delivers the FINAL transcript first. The turn
+    // used to be refused then, and every span for the whole call printed
+    // `null` (Astra, 19 Sep 2026, A8). The final arrives just after the
+    // person stopped, so it is the anchor for `reply` when no partial came.
+    if (stage === 'transcribed' && !turnStarted) {
+      turnNo += 1;
+      turnStarted = true;
+      p.mark(`${TURN}${turnNo}/start`);
+      if (lastPartialAt === null) lastPartialAt = p.now();
+    }
     if (!turnStarted) return null; // a stage with no turn behind it
     const from = `${TURN}${turnNo}/start`;
     if (p.getEntriesByName(from, 'mark').length === 0) return null;

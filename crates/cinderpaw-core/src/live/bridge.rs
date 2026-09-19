@@ -56,6 +56,43 @@ fn chat_session_cell() -> &'static parking_lot::RwLock<Option<String>> {
     CHAT_SESSION.get_or_init(|| parking_lot::RwLock::new(None))
 }
 
+/// Where an event for the RUNNING call goes, on the same channel the worker's
+/// own events take to the window.
+///
+/// Exists for one message: the answer to a tool call that outlived its
+/// deadline. The API handler that finally has it is an HTTP handler with no
+/// route to the worker or the window; the worker's stdout reader in
+/// `livekit::start` has exactly that route and lends it here for the life of
+/// the call. `None` between calls, and an event with nowhere to go is logged,
+/// not lost silently.
+type CallSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
+static CALL_SINK: std::sync::OnceLock<parking_lot::RwLock<Option<CallSink>>> = std::sync::OnceLock::new();
+
+fn call_sink_cell() -> &'static parking_lot::RwLock<Option<CallSink>> {
+    CALL_SINK.get_or_init(|| parking_lot::RwLock::new(None))
+}
+
+/// Lend (or withdraw) the running call's event channel.
+pub fn set_call_sink(sink: Option<CallSink>) {
+    *call_sink_cell().write() = sink;
+}
+
+/// Send an event to the running call's window. Returns whether anyone was
+/// there to take it.
+pub fn emit_to_call(event: serde_json::Value) -> bool {
+    let sink = call_sink_cell().read().clone();
+    match sink {
+        Some(f) => {
+            f(event);
+            true
+        }
+        None => {
+            tracing::warn!(kind = %event["kind"], "voice: an event for the call arrived after it ended");
+            false
+        }
+    }
+}
+
 /// Point voice tool calls at this conversation. `None` sends them back to their
 /// own session.
 pub fn set_chat_session(id: Option<String>) {

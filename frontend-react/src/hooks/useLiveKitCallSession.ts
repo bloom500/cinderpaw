@@ -310,17 +310,59 @@ export function useLiveKitCallSession() {
       // A close that carries an error is a refusal, and it must be readable:
       // the model that cannot speak (17 Sep) closed the session and the screen
       // showed nothing but the orb.
-      if (e.kind === 'closed' && e.text) {
-        setNotice(callFailureLine(e.text));
+      if (e.kind === 'closed') {
+        if (e.text) setNotice(callFailureLine(e.text));
+        // The agent's session is over, whatever the reason. The window used
+        // to stay in the room with a live microphone and a listening orb in
+        // front of an agent that no longer existed (Astra, 19 Sep 2026, P5).
+        // Back to the pre-call screen when there is a reason to read, closed
+        // outright when there is not. A close after our own hang-up finds no
+        // room and does nothing.
+        if (room.current) {
+          generation.current += 1;
+          void room.current.disconnect();
+          room.current = null;
+          cleanup();
+          void tauri.raw.endLivekitCall().catch(() => {});
+          setStage(null);
+          setLevel(0);
+          setYouSpeaking(false);
+          setPhase(e.text ? 'ready' : 'idle');
+        }
       }
       if (e.kind === 'error') {
         setNotice(callFailureLine(e.text ?? ''));
+      }
+      // The answer to a request that outlived its 45 s deadline. Rust cannot
+      // reach the worker directly, but the window is in the room, so it is
+      // relayed over the same data channel `interrupt` and `ask` use, and the
+      // worker has the model say it. Before this, a slow search's answer was
+      // never delivered: the model had been told "still working", and the
+      // result waited for a re-ask that rarely came.
+      if (e.kind === 'toolLate' && e.text) {
+        void room.current?.localParticipant.publishData(
+          new TextEncoder().encode(JSON.stringify({ type: 'toolLate', id: e.id ?? '', text: e.text })),
+          { reliable: true },
+        );
       }
     });
     return () => { void pending.then((un) => un()); };
   }, []);
 
-  useEffect(() => cleanup, [cleanup]);
+  // Unmount ends the call, not just the meter. A route change mid-call left
+  // the room connected and the host's chain up with nobody looking at it.
+  useEffect(
+    () => () => {
+      const live = room.current;
+      room.current = null;
+      cleanup();
+      if (live) {
+        void live.disconnect();
+        void tauri.raw.endLivekitCall().catch(() => {});
+      }
+    },
+    [cleanup],
+  );
 
   /** The pre-call screen. No microphone, no server, nothing started. */
   const open = useCallback(() => {

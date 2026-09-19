@@ -96,6 +96,21 @@ describe('per-turn timing', () => {
     expect(done!.spans.reply).toBeTypeOf('number');
   });
 
+  it('a vendor that sends no partials still gets a measured turn', () => {
+    // Gemini 3.8 Live delivers only the final transcript. The turn used to be
+    // refused for lack of a `heard`, and a whole call printed [null,null,null]
+    // (Astra, 19 Sep 2026). The final is the anchor when no partial came.
+    turnMark('transcribed');
+    turnMark('answering');
+    const done = turnMark('answered');
+    expect(done).not.toBeNull();
+    expect(done!.spans.transcribed).toBeTypeOf('number');
+    expect(done!.spans.reply).toBeTypeOf('number');
+    // And the next turn is a new turn, not a continuation.
+    turnMark('transcribed');
+    expect(turnMark('answered')!.turn).toBe(done!.turn + 1);
+  });
+
   it('the reply wait does not grow with how long the person spoke', async () => {
     // The three spans above all start at the FIRST partial, so a longer
     // question makes every one of them bigger — which is why two real turns

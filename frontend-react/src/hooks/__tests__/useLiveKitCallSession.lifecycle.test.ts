@@ -143,6 +143,37 @@ describe('old rooms cannot control a replacement call', () => {
   });
 });
 
+describe('a session the agent closed is over for the window too', () => {
+  it('leaves the room, ends the host call and shows the reason', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    await connectFully(result);
+    const r = lk.__lastRoom();
+    const disconnect = vi.spyOn(r, 'disconnect');
+    const ends = vi.mocked(tauri.raw.endLivekitCall).mock.calls.length;
+    // The 17 Sep shape: the vendor refused audio, the session closed, and the
+    // orb kept listening in front of nothing (Astra, 19 Sep 2026, P5).
+    act(() => emit!({ kind: 'closed', text: 'CONTENT_TYPE_AUDIO is not supported' }));
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(tauri.raw.endLivekitCall).toHaveBeenCalledTimes(ends + 1);
+    expect(result.current.phase).toBe('ready');
+    expect(result.current.notice).toBeTruthy();
+    // A second close (the worker dying after our hang-up) is not a second end.
+    act(() => emit!({ kind: 'closed', text: '' }));
+    expect(tauri.raw.endLivekitCall).toHaveBeenCalledTimes(ends + 1);
+  });
+
+  it('relays a late tool answer to the worker over the data channel', async () => {
+    const { result } = renderHook(() => useLiveKitCallSession());
+    await connectFully(result);
+    const r = lk.__lastRoom();
+    act(() => emit!({ kind: 'toolLate', id: 'v-3', text: 'sunny, 21 degrees' }));
+    const sent = r.localParticipant.publishData.mock.calls.map((c: unknown[]) =>
+      JSON.parse(new TextDecoder().decode(c[0] as Uint8Array)),
+    );
+    expect(sent).toContainEqual({ type: 'toolLate', id: 'v-3', text: 'sunny, 21 degrees' });
+  });
+});
+
 /** Press Call and let the boot and the room join both complete. */
 async function connectFully(result: { current: ReturnType<typeof useLiveKitCallSession> }) {
   act(() => { void result.current.begin(); });

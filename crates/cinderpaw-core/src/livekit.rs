@@ -93,6 +93,10 @@ fn pick_ports() -> Result<Ports, String> {
     Ok(Ports { http, rtc_tcp, rtc_udp: (base, base + 10), worker })
 }
 
+/// How long the one-time `npm install` of the voice worker may take before it
+/// is given up on and the person is told why. See `install_agent`.
+const NPM_INSTALL_BUDGET: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
 /// Where the running server's pid is recorded, so a leaked one can be found.
 fn pid_file() -> PathBuf {
     dir().join("server.pid")
@@ -691,8 +695,10 @@ where
 /// and a voice server that outlives the window it belongs to is a microphone
 /// nobody can see.
 pub struct Session {
-    server: Child,
-    agent: Child,
+    /// `Option` only so `Drop` can move them into the task that waits for
+    /// them; both are `Some` for the whole life of the session.
+    server: Option<Child>,
+    agent: Option<Child>,
     /// Kept so a second call can be admitted without restarting anything —
     /// see `rejoin`. The chain takes about fourteen seconds to come up, and
     /// paying that on every call is the difference between a feature and a
@@ -730,9 +736,39 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        let _ = self.server.start_kill();
-        let _ = self.agent.start_kill();
-        tracing::info!("livekit: call ended, server and agent stopped");
+        // Nothing after this point may reach the window through this call.
+        crate::live::bridge::set_call_sink(None);
+        let (Some(mut server), Some(mut agent)) = (self.server.take(), self.agent.take()) else {
+            return;
+        };
+        let _ = server.start_kill();
+        let _ = agent.start_kill();
+        // Killed AND waited for, and the pid file removed only once the server
+        // is really gone. `start_kill` alone left the exit unobserved and the
+        // pid file behind, so the next boot found a stale pid and "a server
+        // left behind by an earlier run" was the normal state of the world.
+        // (Astra, 19 Sep 2026, A11.)
+        let reap = async move {
+            let agent_status = agent.wait().await.ok();
+            let server_status = server.wait().await.ok();
+            let _ = std::fs::remove_file(pid_file());
+            tracing::info!(
+                agent = ?agent_status,
+                server = ?server_status,
+                "livekit: call ended, server and agent stopped and reaped"
+            );
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn(reap);
+            }
+            // Dropped outside the runtime (process exit): the kill was sent,
+            // and there is nobody left to wait.
+            Err(_) => {
+                let _ = std::fs::remove_file(pid_file());
+                tracing::info!("livekit: call ended, server and agent stopped");
+            }
+        }
     }
 }
 
@@ -825,14 +861,29 @@ pub(crate) async fn ensure_agent(
             None => pkg.to_string(),
         })
         .collect();
-    let out = Command::new(npm)
+    // Bounded. An npm that hangs (a proxy that never answers, a registry that
+    // accepts the connection and sends nothing) is not an npm that failed: it
+    // left the person on the call screen with a spinner and no sentence,
+    // for as long as they cared to wait. Five minutes is generous for four
+    // packages on a slow line, and the message says what to check.
+    let child = Command::new(npm)
         .args(["install", "--no-audit", "--no-fund"])
         .args(&specs)
         .current_dir(&root)
         .env("PATH", augmented_path(node))
-        .output()
-        .await
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| format!("npm is needed once to set up voice, and could not be run: {e}"))?;
+    let out = match tokio::time::timeout(NPM_INSTALL_BUDGET, child.wait_with_output()).await {
+        Ok(out) => out.map_err(|e| format!("npm is needed once to set up voice, and stopped answering: {e}"))?,
+        Err(_) => {
+            return Err(format!(
+                "setting up the voice agent is taking more than {} minutes.                  Check the network connection (npm needs to reach registry.npmjs.org once), then try the call again.",
+                NPM_INSTALL_BUDGET.as_secs() / 60
+            ));
+        }
+    };
     if !out.status.success() {
         let why = String::from_utf8_lossy(&out.stderr);
         return Err(format!(
@@ -899,7 +950,7 @@ pub async fn start(
     // the errors worth a sentence on screen. Taken as a callback rather than
     // returned, because these arrive for as long as the call lasts and the
     // caller is a Tauri command that returned long ago.
-    on_event: impl Fn(serde_json::Value) + Send + 'static,
+    on_event: impl Fn(serde_json::Value) + Send + Sync + 'static,
     // The host's runtime, which is what makes the one tool work: `ask_cinder`
     // is a door to the local agent, and only a host that owns a sidecar can
     // open it. `None` is honest rather than fatal — the call still happens, the
@@ -1160,6 +1211,10 @@ pub async fn start(
     // Draining stdout is mandatory regardless of who is listening, for the same
     // reason: let the pipe fill and Node blocks on its next log line, which
     // reads as a call that works for a minute and then freezes.
+    // Shared with the API handler through `bridge::set_call_sink`, so an
+    // answer that lands after a tool's deadline can still reach the window.
+    let on_event: std::sync::Arc<dyn Fn(serde_json::Value) + Send + Sync> = std::sync::Arc::new(on_event);
+    crate::live::bridge::set_call_sink(Some(on_event.clone()));
     if let Some(stdout) = agent.stdout.take() {
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
@@ -1229,8 +1284,8 @@ pub async fn start(
 
     tracing::info!("livekit: call up on {http}");
     Ok(Session {
-        server,
-        agent,
+        server: Some(server),
+        agent: Some(agent),
         key: key.to_string(),
         secret: secret.clone(),
         url: format!("ws://127.0.0.1:{}", ports.http),

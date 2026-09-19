@@ -53,12 +53,26 @@ export interface LiveKitAgentEvent {
    *  wait of up to a hundred seconds with a still screen. `text` is the request
    *  on the way in, and on the way out is the failure reason, or empty when it
    *  worked. */
-  kind: 'heard' | 'said' | 'state' | 'error' | 'closed' | 'toolCall' | 'toolResult';
+  /** `toolLate` is the answer to a request that outlived its deadline: the
+   *  model was handed "still working" at the time, and this is the result
+   *  arriving afterwards, to be spoken and to close the row. */
+  kind: 'heard' | 'said' | 'state' | 'error' | 'closed' | 'toolCall' | 'toolResult' | 'toolLate';
   text?: string;
   /** `heard` only: this transcript is still changing. Show it, but do not
    *  persist it — the final one carries the same sentence, settled. */
   partial?: boolean;
   recoverable?: boolean;
+  /** `toolCall`/`toolResult`/`toolLate`: the worker's id for that one tool
+   *  call, and the call it belongs to. The same id is in the Rust log line. */
+  id?: string;
+  session?: string;
+  tool?: string;
+  /** `toolResult`: the server answered "still working"; the real answer
+   *  follows as `toolLate`. */
+  pending?: boolean;
+  ms?: number;
+  /** `toolLate`: whether the late answer is a result or a failure. */
+  ok?: boolean;
 }
 
 /** Emitted right before generation starts with the real prompt token count (local models only). */
