@@ -113,8 +113,9 @@ export function ConnectorsPage() {
           {!loading && !error && (
             <div className="grid grid-cols-2 gap-3">
               {/* coming_soon connectors stay out of the grid — shelf space
-                  advertising an absence (audit 2026-07-10, Part 2). The
-                  "More connectors coming" line below covers the promise. */}
+                  advertising an absence (audit 2026-07-10, Part 2). As of
+                  19 Sep 2026 all 21 are live, so nothing is filtered and the
+                  "More connectors coming" line is gone with it. */}
               {catalog.filter((entry) => !entry.coming_soon).map((entry) => (
                 <ConnectorCard
                   key={entry.id}
@@ -125,10 +126,6 @@ export function ConnectorsPage() {
               ))}
             </div>
           )}
-
-          <p className="text-xs text-text-muted text-center mt-8">
-            More connectors coming in future updates ✨
-          </p>
         </div>
       </div>
     </div>
