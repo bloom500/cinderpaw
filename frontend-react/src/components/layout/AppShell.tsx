@@ -11,6 +11,7 @@ import { DownloadStatus } from './DownloadStatus';
 import { SideNav, NAV_W, NAV_COLLAPSED_W } from './SideNav';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { UpdateToast } from '@/components/UpdateToast';
+import { AlphaNotice } from '@/components/AlphaNotice';
 import { Toasts } from '@/components/Toasts';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { OnboardingOrchestrator } from '@/components/onboarding/OnboardingWizard';
@@ -147,6 +148,7 @@ export function AppShell() {
           exactly when they were needed. */}
       {createPortal(
         <div className="fixed top-11 right-4 z-200 w-80 flex flex-col gap-2 pointer-events-none">
+          <AlphaNotice />
           <UpdateToast />
           <Toasts />
         </div>,
