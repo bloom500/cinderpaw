@@ -77,6 +77,14 @@ export function AlphaNotice() {
             >
               Become a contributor
             </a>
+            <a
+              href="https://discord.gg/eqvfVRD6y7"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs font-medium text-brand hover:underline"
+            >
+              Discord
+            </a>
             <button
               type="button"
               onClick={never}

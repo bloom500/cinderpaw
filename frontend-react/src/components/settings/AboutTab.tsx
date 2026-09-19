@@ -94,6 +94,14 @@ export function AboutTab() {
         >
           Open an issue on GitHub →
         </a>
+        <a
+          href="https://discord.gg/eqvfVRD6y7"
+          target="_blank"
+          rel="noreferrer"
+          className="block text-sm text-info hover:underline"
+        >
+          Join the Discord →
+        </a>
       </div>
     </div>
   );

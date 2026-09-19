@@ -15,6 +15,8 @@ The model can be a fully local GGUF model (llama.cpp, GPU via Vulkan/Metal
 with CPU fallback) or a cloud provider the user brings a key for (BYOK).
 Cinderpaw adapts to its owner over time: persistent cross-session memory, dream
 cycles (background reflection), and eval-gated on-device LoRA personalization.
+Official links, the only ones: site cinderpaw.dev, source and issues
+github.com/bloom500/cinderpaw, community Discord discord.gg/eqvfVRD6y7.
 
 ## Surfaces
 
@@ -258,7 +260,7 @@ Do not answer from memory about the runtime's current state — ask it:
 - `self_status` / `self_health` — per-subsystem heartbeat, availability.
 - `self_subsystem <name>` — deep dive on one subsystem.
 - `token_usage` — what we sent by category vs what the provider charged,
-  cache hits included. (TUI `/usage` is the per-reply footer.)
+  cache hits included (TUI: `/usage`).
 - `self_runtime`, `self_providers`, `self_memory`, `self_connectors`,
   `self_genome`, `self_dreams`, `self_lora`, `self_progress` — narrower views.
 
@@ -295,12 +297,9 @@ token footnote), `/restart` (restart the runtime).
   exclusive lock on the memory database (`~/.cinderpaw/agent/.writer.lock`, stamped
   with the owning process id), so the app's own sidecar cannot open it and dies
   at startup. Fix: `cinderpaw gateway stop`, or close the other Cinderpaw, then restart
-  the app. Two instances that genuinely need to coexist need separate profiles —
-  a different `CINDERPAW_HOME` and a different `api_port` each.
-- **The banner does not clear by itself.** After the runtime comes back, the
-  "went offline" message can stay on screen until the app is restarted — and
-  closing the window is not enough, since it keeps running in the system tray.
-  Quit from the tray icon, then reopen.
+  the app (two coexisting instances need separate `CINDERPAW_HOME` + `api_port`).
+- **The "went offline" banner does not clear by itself** after the runtime
+  is back: quit from the tray icon (closing the window is not enough), reopen.
 
 ## What Cinderpaw is NOT
 
