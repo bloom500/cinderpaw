@@ -94,17 +94,25 @@ describe("start() fails loudly, not silently", () => {
   });
 
   test("a bridge that is not running produces the install message", async () => {
-    // Port 1 is reserved and nothing listens there, so this exercises the
-    // real connection failure rather than a mocked one.
-    const c = new SignalConnector();
-    await expect(
-      c.start(
-        ctx({
-          SIGNAL_NUMBER: "+40712345678",
-          SIGNAL_BRIDGE_URL: "http://127.0.0.1:1",
-        }) as unknown as Parameters<SignalConnector["start"]>[0],
-      ),
-    ).rejects.toThrow(/signal-cli-rest-api/);
+    // A refused connection, without the network: the earlier version dialled
+    // 127.0.0.1:1 and the macOS CI runner answered it (something there
+    // accepts the connection), so start() resolved and the test failed for a
+    // reason that had nothing to do with Signal.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (() => Promise.reject(new Error("ECONNREFUSED"))) as typeof fetch;
+    try {
+      const c = new SignalConnector();
+      await expect(
+        c.start(
+          ctx({
+            SIGNAL_NUMBER: "+40712345678",
+            SIGNAL_BRIDGE_URL: "http://127.0.0.1:1",
+          }) as unknown as Parameters<SignalConnector["start"]>[0],
+        ),
+      ).rejects.toThrow(/signal-cli-rest-api/);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   test("it reports not-live before start and after stop", async () => {

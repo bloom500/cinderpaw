@@ -85,6 +85,13 @@ export function registerTransport(id: string, make: ConnectorFactory): void {
   transports.set(id, make);
 }
 
+/** For tests only: a double registered in one file must not survive into the
+ *  next one, or the catalog/transport parity test sees an orphan it did not
+ *  create. Nothing in the app unregisters a transport. */
+export function unregisterTransport(id: string): void {
+  transports.delete(id);
+}
+
 export function transportFor(id: string): ConnectorFactory | undefined {
   return transports.get(id);
 }

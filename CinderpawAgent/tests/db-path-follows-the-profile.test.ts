@@ -13,7 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, isAbsolute, resolve } from "node:path";
 import { defaultDbPath } from "../src/config.ts";
@@ -25,7 +25,9 @@ let originalHome: string | undefined;
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "cinderpaw-dbpath-home-"));
-  elsewhere = mkdtempSync(join(tmpdir(), "cinderpaw-dbpath-cwd-"));
+  // realpath, because the cwd-relative test compares against process.cwd(),
+  // and on macOS tmpdir() is /var/... while cwd() reports /private/var/...
+  elsewhere = realpathSync(mkdtempSync(join(tmpdir(), "cinderpaw-dbpath-cwd-")));
   originalCwd = process.cwd();
   originalHome = process.env.CINDERPAW_HOME;
   process.env.CINDERPAW_HOME = home;

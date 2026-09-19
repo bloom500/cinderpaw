@@ -1,8 +1,9 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import {
   registerTransport,
   registeredTransports,
   transportFor,
+  unregisterTransport,
   type LiveConnector,
 } from "../src/transports/registry.ts";
 
@@ -14,6 +15,14 @@ const stub = (): LiveConnector => ({
 });
 
 describe("transport registry", () => {
+  // The registry is process-global and bun runs every test file in one
+  // process: leave the doubles behind and connector-catalog-transports.test.ts
+  // reports them as orphans (CI, 19 Sep 2026).
+  afterAll(() => {
+    unregisterTransport("fake");
+    unregisterTransport("lazy");
+  });
+
   it("hands back the factory it was given", () => {
     const made: string[] = [];
     registerTransport("fake", () => {
