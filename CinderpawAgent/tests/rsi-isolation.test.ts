@@ -159,8 +159,14 @@ describe("DockerIsolation over a fake exec", () => {
 // no dependencies, and a hand-written one fails `--frozen-lockfile`.
 
 async function dockerUp(): Promise<boolean> {
-  const r = await bunExec(["docker", "version", "--format", "{{.Server.Os}}"], { cwd: tmpdir(), timeoutMs: 15_000 });
-  return r.exitCode === 0 && r.stdout.trim() === "linux";
+  try {
+    const r = await bunExec(["docker", "version", "--format", "{{.Server.Os}}"], { cwd: tmpdir(), timeoutMs: 15_000 });
+    return r.exitCode === 0 && r.stdout.trim() === "linux";
+  } catch {
+    // No `docker` binary at all (the macOS CI runner): bun's spawn throws
+    // instead of returning an exit code, and that is still "not up".
+    return false;
+  }
 }
 
 const up = await dockerUp();
