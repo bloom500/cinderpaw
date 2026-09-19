@@ -222,9 +222,21 @@ impl ByokSettings {
     /// A field trimmed to nothing becomes `None`, not `Some("")`: an empty box
     /// is the user saying "use the normal one", and storing the empty string
     /// makes every later reader build a request against nothing.
+    ///
+    /// A provider saved with no model gets the catalogue's default, and it is
+    /// STORED, not just displayed: the picker disabled a keyed provider that
+    /// had no `default_model`, and the chat answered "no model" to a person
+    /// who had just pasted a working key (Astra, 19 Sep 2026, P1). Every
+    /// reader of `byok.json`, including the sidecar, now finds a model there.
     pub fn update_provider(&mut self, id: &str, mut config: ProviderConfig) {
         config.base_url = config.base_url.and_then(clean);
-        config.default_model = config.default_model.and_then(clean);
+        config.default_model = config
+            .default_model
+            .and_then(clean)
+            // A save that names no model (the picker's "turn on" sends none)
+            // keeps the one already chosen rather than wiping it.
+            .or_else(|| self.providers.get(id).and_then(|c| c.default_model.clone()))
+            .or_else(|| provider_catalog().into_iter().find(|e| e.id == id).map(|e| e.default_model));
         self.providers.insert(id.to_string(), config);
     }
 
@@ -1278,6 +1290,33 @@ mod tests {
         assert!(!may_remove_legacy_file(true, &["openai".to_string()]));
         // And a pass where nothing moved and something failed keeps it too.
         assert!(!may_remove_legacy_file(false, &["openai".to_string()]));
+    }
+
+    /// A key saved from the wizard with no model must still be a provider
+    /// the chat can use. Astra, 19 Sep 2026: `defaultModel: null` was stored
+    /// as-is, and the first message after onboarding got "no model".
+    #[test]
+    fn a_provider_saved_without_a_model_gets_the_catalogue_default() {
+        let mut settings = ByokSettings::default();
+        settings.update_provider(
+            "openrouter",
+            ProviderConfig { enabled: true, api_key: "sk-or-x".into(), base_url: None, default_model: None },
+        );
+        assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("openai/gpt-4o"));
+
+        // A model the person chose is kept, whitespace and all trimmed.
+        settings.update_provider(
+            "openrouter",
+            ProviderConfig { enabled: true, api_key: String::new(), base_url: None, default_model: Some("  z-ai/glm-5 ".into()) },
+        );
+        assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("z-ai/glm-5"));
+
+        // Turning the provider on again, with no model named, keeps the choice.
+        settings.update_provider(
+            "openrouter",
+            ProviderConfig { enabled: true, api_key: String::new(), base_url: None, default_model: None },
+        );
+        assert_eq!(settings.get_provider("openrouter").unwrap().default_model.as_deref(), Some("z-ai/glm-5"));
     }
 
     #[test]

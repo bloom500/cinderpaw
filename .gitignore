@@ -177,3 +177,6 @@ nul
 # Google OAuth client for the Google Docs button: developer-side, never committed.
 google-oauth-client/
 google-oauth-client.json
+
+# The Vulkan loader CI copies next to the exe for the Windows bundle (release.yml); never committed.
+src-tauri/vulkan-1*.dll

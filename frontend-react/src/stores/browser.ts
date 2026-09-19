@@ -162,10 +162,12 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
 void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e) => {
   useBrowser.setState(fromState(e.payload));
 }).catch(() => {});
-// A download. A PDF or Word file has already gone to Artifacts by the time
-// this arrives; anything else is a file the person is asked where to put.
-void listen<{ name: string; path?: string; artifact?: boolean; error?: string }>('browser://download', async (e) => {
-  const { name, path, artifact, error } = e.payload;
+// A download. A PDF or Word file goes to Artifacts, and `artifact: true`
+// arrives once the agent has CONFIRMED it is there; anything else, and a
+// document the agent refused (`reason`), is a file the person is asked where
+// to put, with the reason on screen first.
+void listen<{ name: string; path?: string; artifact?: boolean; error?: string; reason?: string }>('browser://download', async (e) => {
+  const { name, path, artifact, error, reason } = e.payload;
   if (error) {
     useBrowser.setState({ notice: `Could not download ${name}: ${error}` });
     return;
@@ -175,6 +177,7 @@ void listen<{ name: string; path?: string; artifact?: boolean; error?: string }>
     return;
   }
   if (!path) return;
+  if (reason) useBrowser.setState({ notice: `${name}: ${reason}. Choose where to save it.` });
   try {
     const dest = await saveDialog({ defaultPath: name });
     if (dest) {

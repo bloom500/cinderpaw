@@ -260,9 +260,25 @@ fn downloads_dir() -> std::path::PathBuf {
     cinderpaw_core::paths::cinderpaw_dir().join("browser-downloads")
 }
 
+/// The largest file the panel opens, in bytes. The sidecar refuses anything
+/// bigger (`PDF_MAX_BYTES` in `CinderpawAgent/src/dispatch.ts`); a test there
+/// reads this number so the two cannot drift. Checked here BEFORE the import
+/// is attempted, because a refusal after the download was deleted lost the
+/// file (Astra, 19 Sep 2026, P1).
+pub const ARTIFACT_IMPORT_MAX_BYTES: usize = 20 * 1024 * 1024;
+
+/// How long the sidecar gets to say whether an import worked before the file
+/// is treated as not imported and offered to the person instead.
+const ARTIFACT_IMPORT_CONFIRM: Duration = Duration::from_secs(60);
+
 /// A downloaded file: a PDF or a Word document goes to Artifacts, where the
 /// agent can read and fill it; anything else is offered to the person in the
 /// save dialog. Either way the panel is told.
+///
+/// The downloaded copy is deleted only once the sidecar has CONFIRMED the
+/// import. It used to go the moment the message was on the channel, so a
+/// file the sidecar then refused (too big, not a real PDF, sidecar down) was
+/// gone from disk while the panel said "now in Artifacts".
 fn on_downloaded(app: &AppHandle, url: &Url, path: &std::path::Path) {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("download").to_string();
     let bytes = match std::fs::read(path) {
@@ -274,6 +290,20 @@ fn on_downloaded(app: &AppHandle, url: &Url, path: &std::path::Path) {
     };
     let is_pdf = bytes.starts_with(b"%PDF");
     let is_docx = bytes.starts_with(b"PK") && name.to_lowercase().ends_with(".docx");
+    if (is_pdf || is_docx) && bytes.len() > ARTIFACT_IMPORT_MAX_BYTES {
+        // Known in advance: do not even try, hand it to the person with the reason.
+        let reason = format!(
+            "{} MB is more than the {} MB Artifacts opens, so it is offered as a file instead",
+            bytes.len().div_ceil(1024 * 1024),
+            ARTIFACT_IMPORT_MAX_BYTES / 1024 / 1024
+        );
+        pending_downloads().lock().push(format!("{name} ({reason})"));
+        let _ = app.emit(
+            "browser://download",
+            json!({ "name": name, "path": path.to_string_lossy(), "url": url.as_str(), "reason": reason }),
+        );
+        return;
+    }
     if is_pdf || is_docx {
         use base64::Engine as _;
         let content = json!({ "name": name, "data": base64::engine::general_purpose::STANDARD.encode(&bytes) }).to_string();
@@ -282,23 +312,86 @@ fn on_downloaded(app: &AppHandle, url: &Url, path: &std::path::Path) {
             "id": format!("browser-download-{}", uuid::Uuid::new_v4().simple()),
             "artifactAction": "import",
             "content": content,
-        })
-        .to_string();
-        let tx = app.state::<crate::AppState>().cinderpaw_agent_tx.lock().clone();
+        });
+        let id = msg["id"].as_str().unwrap_or_default().to_string();
+        let state = app.state::<crate::AppState>();
+        let tx = state.cinderpaw_agent_tx.lock().clone();
         if let Some(tx) = tx {
+            // Subscribed BEFORE the send, or a fast answer is missed.
+            let events = state.runtime.events_tx.subscribe();
             let app = app.clone();
             let name2 = name.clone();
-            pending_downloads().lock().push(format!("{name} (a {}, now in Artifacts; artifact_list shows it)", if is_pdf { "PDF" } else { "Word document" }));
+            let url2 = url.as_str().to_string();
+            let path2 = path.to_path_buf();
+            let what = if is_pdf { "PDF" } else { "Word document" };
+            pending_downloads().lock().push(format!("{name} (a {what}, sent to Artifacts; artifact_list shows it once imported)"));
             tauri::async_runtime::spawn(async move {
-                let ok = tx.send(msg).await.is_ok();
-                let _ = app.emit("browser://download", json!({ "name": name2, "artifact": ok }));
+                let outcome = if tx.send(msg.to_string()).await.is_err() {
+                    Err("Cinderpaw's agent is not running".to_string())
+                } else {
+                    await_import(events, &id).await
+                };
+                match outcome {
+                    Ok(()) => {
+                        let _ = std::fs::remove_file(&path2);
+                        let _ = app.emit("browser://download", json!({ "name": name2, "artifact": true }));
+                    }
+                    Err(reason) => {
+                        // The file stays where it is and the person is asked
+                        // where to put it, with the reason on screen.
+                        pending_downloads().lock().push(format!("{name2} (NOT imported into Artifacts: {reason}; offered to the user as a file)"));
+                        let _ = app.emit(
+                            "browser://download",
+                            json!({ "name": name2, "path": path2.to_string_lossy(), "url": url2, "reason": reason }),
+                        );
+                    }
+                }
             });
-            let _ = std::fs::remove_file(path);
             return;
         }
     }
     pending_downloads().lock().push(format!("{name} (offered to the user in a save dialog; not in Artifacts)"));
     let _ = app.emit("browser://download", json!({ "name": name, "path": path.to_string_lossy(), "url": url.as_str() }));
+}
+
+/// Wait for the sidecar's `artifact_result` for one import.
+///
+/// `Ok` when it says the artifact exists, `Err(reason)` when it refused, when
+/// the bus closed, or when nothing came back in time. Silence is a failure
+/// here on purpose: the only thing that may delete the download is a
+/// confirmed import.
+async fn await_import(
+    mut events: tokio::sync::broadcast::Receiver<cinderpaw_core::host::HostEvent>,
+    id: &str,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + ARTIFACT_IMPORT_CONFIRM;
+    loop {
+        let ev = match tokio::time::timeout_at(deadline, events.recv()).await {
+            Ok(Ok(ev)) => ev,
+            Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(_)) => return Err("the agent stopped before confirming the import".into()),
+            Err(_) => return Err("the agent did not confirm the import in time".into()),
+        };
+        if let Some(verdict) = import_verdict(&ev, id) {
+            return verdict;
+        }
+    }
+}
+
+/// The verdict a host event carries for import `id`, if it is about it.
+fn import_verdict(ev: &cinderpaw_core::host::HostEvent, id: &str) -> Option<Result<(), String>> {
+    if ev.event != "cinderpaw://agent-output" {
+        return None;
+    }
+    let line: Value = serde_json::from_str(ev.payload.get("data")?.as_str()?).ok()?;
+    if line["type"] != "artifact_result" || line["id"] != id {
+        return None;
+    }
+    Some(if line["ok"].as_bool().unwrap_or(false) {
+        Ok(())
+    } else {
+        Err(line["error"].as_str().unwrap_or("the agent refused the file").to_string())
+    })
 }
 
 /// Attach the downloads the agent has not seen to a result.
@@ -884,6 +977,38 @@ mod tests {
         assert!(parse_address("tauri://localhost").is_err());
         assert!(parse_address("   ").is_err());
         assert!(parse_address("mailto:someone@example.com").is_err());
+    }
+
+    /// Only a confirmed import may delete the download (Astra, 19 Sep 2026).
+    #[test]
+    fn an_import_is_confirmed_only_by_its_own_ok_result() {
+        let ev = |data: &str| cinderpaw_core::host::HostEvent {
+            event: "cinderpaw://agent-output".into(),
+            payload: json!({ "data": data }),
+        };
+        assert_eq!(import_verdict(&ev(r#"{"type":"artifact_result","id":"dl-1","ok":true}"#), "dl-1"), Some(Ok(())));
+        assert_eq!(
+            import_verdict(&ev(r#"{"type":"artifact_result","id":"dl-1","ok":false,"error":"That file is 21 MB"}"#), "dl-1"),
+            Some(Err("That file is 21 MB".into()))
+        );
+        // Somebody else's result, another kind of line, another channel: not a verdict.
+        assert_eq!(import_verdict(&ev(r#"{"type":"artifact_result","id":"dl-2","ok":true}"#), "dl-1"), None);
+        assert_eq!(import_verdict(&ev(r#"{"type":"done","id":"dl-1"}"#), "dl-1"), None);
+        let other = cinderpaw_core::host::HostEvent { event: "cinderpaw://livekit-event".into(), payload: json!({ "data": "x" }) };
+        assert_eq!(import_verdict(&other, "dl-1"), None);
+    }
+
+    /// Silence is not a confirmation either.
+    #[tokio::test]
+    async fn an_unanswered_import_keeps_the_file() {
+        let (tx, rx) = tokio::sync::broadcast::channel(4);
+        let waited = tokio::time::timeout(Duration::from_millis(200), async {
+            drop(tx); // the bus closes without a word
+            await_import(rx, "dl-1").await
+        })
+        .await
+        .expect("returns when the bus closes");
+        assert!(waited.is_err());
     }
 
     #[test]

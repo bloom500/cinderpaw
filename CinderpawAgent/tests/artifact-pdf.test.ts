@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { PDFDocument } from "pdf-lib";
 import { extractText, getDocumentProxy } from "unpdf";
-import { applyPdfEdits, isPdf, pdfFields, pdfFromMarkdown, pdfText } from "../src/artifacts/pdf.ts";
+import { applyPdfEdits, isPdf, pdfFields, pdfFromMarkdown, pdfText, PDF_MAX_BYTES } from "../src/artifacts/pdf.ts";
 
 async function textOf(bytes: Uint8Array): Promise<string> {
   const doc = await getDocumentProxy(new Uint8Array(bytes));
@@ -213,4 +213,15 @@ describe("displayToPdf", () => {
     const out = await applyPdfEdits(turned, [{ type: "text", page: 0, x: 0.2, y: 0.2, size: 12, text: "Semnat" }]);
     expect(await textOf(out)).toContain("Semnat");
   });
+});
+
+test("the host refuses oversized downloads at the same size the panel does", () => {
+  // The browser host checks the size BEFORE importing, so a refusal can never
+  // arrive after the download was deleted (Astra, 19 Sep 2026). Two copies of
+  // one number, read against each other so they cannot drift.
+  const { readFileSync } = require("node:fs") as typeof import("node:fs");
+  const rust = readFileSync(new URL("../../src-tauri/src/browser.rs", import.meta.url), "utf8");
+  const m = rust.match(/ARTIFACT_IMPORT_MAX_BYTES:\s*usize\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024/);
+  expect(m).not.toBeNull();
+  expect(Number(m![1]) * 1024 * 1024).toBe(PDF_MAX_BYTES);
 });

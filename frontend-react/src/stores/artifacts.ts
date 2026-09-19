@@ -161,13 +161,20 @@ interface ArtifactsStore {
 }
 
 const pending = new Map<string, Pending>();
+/** The artifact the viewer wants open, or null after `close()`. A reply for
+ *  anything else is stale: `close()` used to leave an in-flight `get` free to
+ *  reopen the document a moment later (Astra, 19 Sep 2026, P2). */
+let wanted: string | null = null;
+/** A `versions` reply that landed before its `get` (a PDF's `get` waits for
+ *  field parsing; `versions` does not). Kept until the document opens. */
+let earlyVersions: { id: string; versions: ArtifactVersionRow[] } | null = null;
 let seq = 0;
 const nextId = () => `artifact-${Date.now()}-${++seq}`;
 
 async function send(
   p: Pending,
   action: ArtifactAction,
-  opts: { artifactId?: string; version?: number; content?: string } = {},
+  opts: { artifactId?: string; version?: number; dest?: string; content?: string } = {},
 ): Promise<void> {
   const id = nextId();
   pending.set(id, p);
@@ -236,6 +243,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
   },
 
   openArtifact: async (id) => {
+    wanted = id;
     set({ busy: true, error: null, lastExport: null });
     try {
       await send({ kind: 'open', id }, 'get', { artifactId: id });
@@ -261,6 +269,10 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
 
   exportArtifact: async (id) => {
     const row = get().rows.find((r) => r.id === id) ?? get().open?.row;
+    // The version on screen, when it is not the newest: the file that leaves
+    // must be the one the person is looking at.
+    const open = get().open;
+    const version = open && open.row.id === id && open.showing !== open.row.version ? open.showing : undefined;
     // The person picks where it goes, in the OS dialog, for every kind. Export
     // used to drop the file in the workspace root and print the path; a PDF
     // to sign usually wants to be on the desktop or in Downloads.
@@ -277,7 +289,11 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
     set({ busy: true, error: null, lastExport: null });
     try {
-      await send({ kind: 'export', id }, 'export', { artifactId: id, ...(dest ? { dest } : {}) });
+      await send({ kind: 'export', id }, 'export', {
+        artifactId: id,
+        ...(version !== undefined ? { version } : {}),
+        ...(dest ? { dest } : {}),
+      });
     } catch (e) {
       set({ busy: false, error: String(e) });
     }
@@ -411,7 +427,11 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     }
   },
 
-  close: () => set({ open: null, lastExport: null, error: null, editing: null, conflict: null, review: null, google: null }),
+  close: () => {
+    wanted = null;
+    earlyVersions = null;
+    set({ open: null, lastExport: null, error: null, editing: null, conflict: null, review: null, google: null });
+  },
 
   onEvent: (e) => {
     // Deliberately a refresh rather than a local patch. The event carries
@@ -489,7 +509,14 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
           set({ busy: false, error: 'That artifact came back empty.' });
           return;
         }
+        // Closed, or moved on to another document, while this was in flight.
+        if (wanted !== row.id) {
+          set({ busy: false });
+          return;
+        }
         const prev = get().open;
+        const early = earlyVersions?.id === row.id ? earlyVersions.versions : null;
+        earlyVersions = null;
         set({
           busy: false,
           error: null,
@@ -500,8 +527,9 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
             fields: e.fields,
             showing: p.version ?? row.version,
             // Versions arrive in their own reply, which may land first or
-            // second. Keeping what we already have means neither order loses.
-            versions: prev && prev.row.id === row.id ? prev.versions : [],
+            // second. Keeping what we already have, or what arrived early,
+            // means neither order loses.
+            versions: prev && prev.row.id === row.id ? prev.versions : (early ?? []),
           },
         });
         return;
@@ -509,6 +537,7 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
       case 'versions': {
         const open = get().open;
         if (open && open.row.id === p.id) set({ open: { ...open, versions: e.versions ?? [] } });
+        else if (wanted === p.id) earlyVersions = { id: p.id, versions: e.versions ?? [] };
         return;
       }
       case 'export':
@@ -599,4 +628,6 @@ function bytesToBase64(bytes: Uint8Array): string {
 /** Test seam: forget every in-flight request between cases. */
 export function resetArtifactRequests(): void {
   pending.clear();
+  wanted = null;
+  earlyVersions = null;
 }

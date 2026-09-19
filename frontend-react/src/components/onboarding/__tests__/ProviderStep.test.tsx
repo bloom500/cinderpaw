@@ -8,6 +8,7 @@ import { useDownload } from '@/stores/download';
 import { useSettings } from '@/stores/settings';
 import { useOnboarding } from '@/stores/onboarding';
 import { useCatalog } from '@/stores/catalog';
+import { useModel } from '@/stores/model';
 
 vi.mock('@/stores/systemInfo', () => ({ useSystemInfo: vi.fn() }));
 vi.mock('@/stores/download', () => ({ useDownload: vi.fn() }));
@@ -30,6 +31,9 @@ beforeEach(() => {
   vi.mocked(useSettings).mockImplementation((sel: any) =>
     sel({ saveByokProvider: mockSave, testByokProvider: vi.fn() }),
   );
+  // After a save the wizard reads the refreshed provider list off the store
+  // to learn which model Rust filled in.
+  (useSettings as any).getState = () => ({ byok: [{ id: 'openai', name: 'OpenAI', default_model: 'gpt-4o' }] });
   vi.mocked(useOnboarding).mockImplementation((sel: any) => sel({ finish: vi.fn() }));
   // Phase 1 — CloudBranch now reads from the catalog store instead of
   // calling tauri.raw.providerCatalog() inline. Pretend the gateway was
@@ -77,5 +81,10 @@ describe('ProviderStep', () => {
     expect(mockSave).toHaveBeenCalledWith(
       expect.objectContaining({ providerId: 'openai', enabled: true }),
     );
+    // And the provider just saved is the one that answers: a fresh profile
+    // used to reach the chat with `cloudModel` empty and get "no model"
+    // (Astra, 19 Sep 2026, P1).
+    expect(useModel.getState().cloudModel).toEqual({ providerId: 'openai', providerName: 'OpenAI', modelId: 'gpt-4o' });
+    expect(await screen.findByText(/gpt-4o will answer/)).toBeInTheDocument();
   });
 });

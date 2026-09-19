@@ -106,9 +106,15 @@ export async function artifactFile(
   store: ArtifactStore,
   a: Artifact,
   as?: ExportAs,
+  // Which version leaves. Undefined is the current one. The panel passes the
+  // version it is SHOWING: export used to read the current content while the
+  // screen said "v1 of 2", so the file that went out was not the one the
+  // person was looking at (Astra, 19 Sep 2026, P2).
+  version?: number,
 ): Promise<{ name: string; content: string | Uint8Array; note: string }> {
+  const readText = () => (version == null ? store.read(a.id) : store.readVersion(a.id, version));
   if (as === "pdf") {
-    const text = store.read(a.id);
+    const text = readText();
     if (text === null) throw new Error(`Artifact ${a.id} has no readable content.`);
     const md = a.kind === "document" || a.kind === "html" || a.kind === "app" ? htmlToMarkdown(text) : text;
     return {
@@ -122,11 +128,11 @@ export async function artifactFile(
   // only correct way for a PDF, which read as UTF-8 arrives as a file no reader
   // can open.
   if (a.kind !== "app") {
-    const bytes = store.readBytes(a.id);
+    const bytes = store.readBytes(a.id, version);
     if (bytes === null) throw new Error(`Artifact ${a.id} has no readable content.`);
     return { name, content: bytes, note: "" };
   }
-  const content = store.read(a.id);
+  const content = readText();
   if (content === null) throw new Error(`Artifact ${a.id} has no readable content.`);
 
   // An app is only useful as a file if it still works once it is one. The
@@ -172,8 +178,8 @@ export class ArtifactExporter {
    *   (`resolveAllowedPath` throws `PermissionDeniedError`, which the tool
    *   registry turns into a structured error and dispatch reports as text).
    */
-  async run(a: Artifact, dest?: string, as?: ExportAs): Promise<ExportResult> {
-    const file = await artifactFile(this.#store, a, exportAs(a, dest, as));
+  async run(a: Artifact, dest?: string, as?: ExportAs, version?: number): Promise<ExportResult> {
+    const file = await artifactFile(this.#store, a, exportAs(a, dest, as), version);
 
     const root = this.defaultRoot;
     const requested = dest?.trim() ?? "";
@@ -200,8 +206,8 @@ export class ArtifactExporter {
    * agent. The private-dir wall stays, for the same reason it exists for
    * every writer: a file dropped into ~/.cinderpaw can shadow agent state.
    */
-  async runTo(a: Artifact, chosenPath: string, as?: ExportAs): Promise<ExportResult> {
-    const file = await artifactFile(this.#store, a, exportAs(a, chosenPath, as));
+  async runTo(a: Artifact, chosenPath: string, as?: ExportAs, version?: number): Promise<ExportResult> {
+    const file = await artifactFile(this.#store, a, exportAs(a, chosenPath, as), version);
     const target = realpathBestEffort(resolve(chosenPath));
     const { deny, exempt } = deniedPaths();
     if (deny.some((d) => pathWithin(target, d)) && !exempt.some((e) => pathWithin(target, e))) {

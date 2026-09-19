@@ -161,6 +161,22 @@ jobs:
           install_runtime: true
           cache: true
 
+      # Ship the Vulkan LOADER next to the exe. `inference-vulkan` links
+      # vulkan-1.dll at load time, and a Windows with no GPU driver (a VM, a
+      # machine on the basic display adapter) has no vulkan-1.dll: the app
+      # then fails to start with a system dialog, before any CPU fallback
+      # could run (Astra, 19 Sep 2026). The loader is the LunarG runtime the
+      # step above installed (Apache-2.0, see THIRD-PARTY-NOTICES.md); with
+      # no driver behind it, it reports zero devices and the app runs on CPU.
+      # `vulkan-1*.dll` in tauri.conf.json's resources picks it up from the
+      # src-tauri root, which lands next to the exe in the install folder.
+      - name: Bundle the Vulkan loader (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item "$env:SystemRoot/System32/vulkan-1.dll" src-tauri/vulkan-1.dll
+          Get-Item src-tauri/vulkan-1.dll | Format-List Name, Length, VersionInfo
+
       # Build the Vulkan backend with Ninja instead of the Visual Studio
       # generator (which breaks llama.cpp's vulkan-shaders-gen ExternalProject —
       # see the matrix comment). setup-msvc-dev loads the MSVC toolchain
@@ -191,8 +207,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force D:\tgt | Out-Null
-          echo "CARGO_TARGET_DIR=D:\tgt" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force D:/tgt | Out-Null
+          echo "CARGO_TARGET_DIR=D:/tgt" >> $env:GITHUB_ENV
           Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1
           git config --system core.longpaths true
 
@@ -454,9 +470,12 @@ jobs:
             os: windows-2022
             asset_glob: "*-setup.exe"
             cuda_subpackages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
+          # deb and rpm, because those are the Linux targets tauri.conf.json
+          # builds; this said `*.AppImage` and matched nothing, so a green
+          # Linux CUDA build still uploaded no asset (Astra, 19 Sep 2026).
           - name: Linux x64
             os: ubuntu-22.04
-            asset_glob: "*.AppImage"
+            asset_glob: "*.deb *.rpm"
             cuda_subpackages: "[]"
 
     steps:
@@ -504,8 +523,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force D:\tgt | Out-Null
-          echo "CARGO_TARGET_DIR=D:\tgt" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force D:/tgt | Out-Null
+          echo "CARGO_TARGET_DIR=D:/tgt" >> $env:GITHUB_ENV
           Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -Value 1
           git config --system core.longpaths true
 
@@ -542,6 +561,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NO_STRIP: "true"
+          # tauri.conf.json turns updater artifacts on for every bundle, and
+          # the bundler refuses to finish without the key to sign them. The
+          # main job had these; this one did not, so the CUDA build could not
+          # complete (Astra, 19 Sep 2026). The .sig files it produces are never
+          # uploaded: only `asset_glob` below is.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           # kokoro on Windows only — see the Linux note in the matrix above;
           # the same ONNX Runtime glibc floor applies to this job. `piper` is
@@ -561,7 +587,11 @@ jobs:
           tag="${{ inputs.tag || github.ref_name }}"
           shopt -s globstar nullglob
           found=0
-          for f in ${CARGO_TARGET_DIR:-src-tauri/target}/**/bundle/**/${{ matrix.asset_glob }}; do
+          # The workspace builds into `target` at the repo root (Windows sets
+          # CARGO_TARGET_DIR to a short dir above); `src-tauri/target` was the
+          # pre-workspace layout and holds nothing now.
+          for glob in ${{ matrix.asset_glob }}; do
+          for f in ${CARGO_TARGET_DIR:-target}/**/bundle/**/$glob; do
             base="$(basename "$f")"
             ext="${base##*.}"
             stem="${base%.*}"
@@ -570,6 +600,7 @@ jobs:
             echo "uploading $(basename "$out")"
             gh release upload "$tag" "$out" --clobber
             found=1
+          done
           done
           if [ "$found" -eq 0 ]; then
             echo "::error::no CUDA bundle matched ${{ matrix.asset_glob }}"

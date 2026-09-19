@@ -779,7 +779,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
           } else if (action === "export") {
             // `dest` from the panel is a path the person picked in the OS save
             // dialog; the agent's tool never sends one here.
-            const res = msg.dest ? await artifactExporter.runTo(row, msg.dest) : await artifactExporter.run(row);
+            // `version` is the one the panel is showing; absent means current.
+            const res = msg.dest
+              ? await artifactExporter.runTo(row, msg.dest, undefined, version)
+              : await artifactExporter.run(row, undefined, undefined, version);
             transport.send({
               type: "artifact_result", id: replyId, ok: true,
               items: [toPanelRow(row)], path: res.path, note: res.note.trim(),

@@ -31,6 +31,8 @@ import { useOnboarding } from '@/stores/onboarding';
 import { useSystemInfo } from '@/stores/systemInfo';
 import { useDownload } from '@/stores/download';
 import { useSettings } from '@/stores/settings';
+import { useModel } from '@/stores/model';
+import { useCinderpawStore } from '@/stores/cinderpaw';
 import { useCatalog } from '@/stores/catalog';
 import { useNotifications } from '@/stores/notifications';
 import { recommendModel } from '@/lib/hardwareRecommendation';
@@ -416,6 +418,22 @@ const CURATED_PROVIDERS: {
   },
 ];
 
+/**
+ * Make a freshly keyed provider the model that answers.
+ *
+ * Chat mode reads `cloudModel`; agent mode asks the sidecar. Both are set,
+ * so whichever composer the person lands in, the provider they configured is
+ * the one on the line. The sidecar half is best effort: during onboarding it
+ * may still be booting, and the chat half does not depend on it. Returns the
+ * model id that was pinned, or null when the provider has none to pin.
+ */
+export function pointChatAt(providerId: string, providerName: string, modelId: string | null): string | null {
+  if (!modelId) return null;
+  useModel.getState().setCloudModel({ providerId, providerName, modelId });
+  void useCinderpawStore.getState().setModel({ source: 'byok', providerId, model: modelId }).catch(() => {});
+  return modelId;
+}
+
 export function ProviderStep() {
   const [choice, setChoice] = useState<'local' | 'cloud' | null>(null);
 
@@ -768,7 +786,14 @@ function CloudProviderForm({ def }: { def: typeof CURATED_PROVIDERS[number] }) {
     setBusy(true); setMsg(null);
     try {
       await saveByokProvider({ providerId: def.id, enabled: true, apiKey: key, baseUrl: null, defaultModel: null });
-      setMsg({ ok: true, text: `✓ ${def.name} saved` });
+      // The provider just configured is the one that answers, in both modes,
+      // from the very next message. Saving alone left `cloudModel` empty and
+      // the sidecar on its old route, so the first thing a new person typed
+      // after pasting a working key was answered with "no model" (Astra,
+      // 19 Sep 2026, P1). Rust filled the catalogue's default model on save.
+      const modelId = useSettings.getState().byok.find((p) => p.id === def.id)?.default_model ?? null;
+      const picked = pointChatAt(def.id, def.name, modelId);
+      setMsg({ ok: true, text: picked ? `✓ ${def.name} saved, ${picked} will answer` : `✓ ${def.name} saved` });
     } catch (e) {
       // Surface the Rust error verbatim — bare `catch {}` swallowed the real
       // reason (keychain locked, disk full, permission denied on
