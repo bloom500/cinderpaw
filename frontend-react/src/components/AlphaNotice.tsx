@@ -89,7 +89,7 @@ export function AlphaNotice() {
         <button
           type="button"
           onClick={() => setShown(false)}
-          aria-label="Close"
+          aria-label="Dismiss notice"
           className="shrink-0 rounded-md p-1 text-text-muted hover:bg-white/5 hover:text-text-primary"
         >
           <X size={14} />

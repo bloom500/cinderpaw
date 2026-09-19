@@ -23,7 +23,7 @@ describe('the alpha notice', () => {
 
   it('the X closes it for this launch only', () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notice' }));
     expect(screen.queryByText('Cinderpaw is in alpha')).toBeNull();
     expect(alphaNoticeWanted()).toBe(true);
   });
