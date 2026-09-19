@@ -697,6 +697,59 @@ async fn connectors_decision_d_rich_fields_present() {
                     "irc names a server, and a server address is configuration, not a credential"
                 );
             }
+            "imessage" => {
+                // Landed 2026-09-14: `CinderpawAgent/src/transports/imessage.ts`,
+                // against the documented `imsg rpc` protocol, on a Mac only.
+                // No account and no token: two local paths, neither a secret.
+                assert!(!entry.coming_soon, "imessage's transport has landed — the card must not still say soon");
+                assert!(
+                    entry.description.contains("Mac") && entry.description.contains("never leaves"),
+                    "the card must say it needs a Mac and that the messages stay on it"
+                );
+                for key in ["IMESSAGE_CLI_PATH", "IMESSAGE_DB_PATH"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("imessage declares {key}"));
+                    assert!(!field.secret, "{key} is a local path the person must be able to read back");
+                }
+                assert!(entry.validate_endpoint.is_none(), "the bridge is reached by start(), not by a probe");
+            }
+            "tlon" => {
+                // Landed 2026-09-14: `CinderpawAgent/src/transports/tlon.ts`,
+                // against Urbit's documented channel protocol. Your own ship:
+                // its name and URL are configuration, the +code is the login.
+                assert!(!entry.coming_soon, "tlon's transport has landed — the card must not still say soon");
+                let code = entry
+                    .pairing_fields
+                    .iter()
+                    .find(|f| f.key == "TLON_CODE")
+                    .expect("tlon declares the +code");
+                assert!(code.secret, "the +code logs into the ship; it is a credential");
+                for key in ["TLON_SHIP", "TLON_URL"] {
+                    let field = entry
+                        .pairing_fields
+                        .iter()
+                        .find(|f| f.key == key)
+                        .unwrap_or_else(|| panic!("tlon declares {key}"));
+                    assert!(!field.secret, "{key} is an address the person must be able to read back");
+                }
+                assert!(entry.validate_endpoint.is_none(), "start() reports what the ship answered; there is no probe");
+            }
+            "zalouser" => {
+                // Landed 2026-09-14: `CinderpawAgent/src/transports/zalouser.ts`,
+                // on the unofficial zca-js client. Paired by QR like WhatsApp,
+                // no fields. The one thing the card MUST say: the account can
+                // be suspended, and that is the part a person cannot undo.
+                assert!(!entry.coming_soon, "zalouser's transport has landed — the card must not still say soon");
+                assert!(entry.pairing_fields.is_empty(), "a QR pairing asks for nothing typed");
+                assert!(
+                    entry.description.contains("suspend"),
+                    "the suspension risk has to be on the card, before the first scan"
+                );
+                assert!(entry.validate_endpoint.is_none(), "the QR flow is the validation");
+            }
             "signal" => {
                 // Landed 2026-09-12: `CinderpawAgent/src/transports/signal.ts`.
                 // Signal has no bot API, so this one talks to a signal-cli

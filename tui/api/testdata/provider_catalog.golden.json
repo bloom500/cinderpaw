@@ -123,5 +123,221 @@
     "free_tier_note": "Free tier: 1000 req/month on most hosted models.",
     "supports_custom_base_url": true,
     "auth_style": "bearer"
+  },
+  {
+    "id": "baseten",
+    "name": "Baseten",
+    "provider": "custom",
+    "default_base_url": "https://inference.baseten.co/v1",
+    "default_model": "thinkingmachines/inkling",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "byteplus",
+    "name": "BytePlus",
+    "provider": "custom",
+    "default_base_url": "https://ark.ap-southeast.bytepluses.com/api/v3",
+    "default_model": "dola-seed-2-1-turbo-260628",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "cerebras",
+    "name": "Cerebras",
+    "provider": "custom",
+    "default_base_url": "https://api.cerebras.ai/v1",
+    "default_model": "gemma-4-31b",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "chutes",
+    "name": "Chutes",
+    "provider": "custom",
+    "default_base_url": "https://llm.chutes.ai/v1",
+    "default_model": "zai-org/GLM-5.2-TEE",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "cohere",
+    "name": "Cohere",
+    "provider": "custom",
+    "default_base_url": "https://api.cohere.ai/compatibility/v1",
+    "default_model": "command-a-plus-05-2026",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "deepinfra",
+    "name": "DeepInfra",
+    "provider": "custom",
+    "default_base_url": "https://api.deepinfra.com/v1/openai",
+    "default_model": "deepseek-ai/DeepSeek-V4-Flash",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "featherless",
+    "name": "Featherless",
+    "provider": "custom",
+    "default_base_url": "https://api.featherless.ai/v1",
+    "default_model": "Qwen/Qwen3-32B",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "fireworks",
+    "name": "Fireworks",
+    "provider": "custom",
+    "default_base_url": "https://api.fireworks.ai/inference/v1",
+    "default_model": "accounts/fireworks/routers/glm-5p2-fast",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "gmi",
+    "name": "GMI Cloud",
+    "provider": "custom",
+    "default_base_url": "https://api.gmi-serving.com/v1",
+    "default_model": "openai/gpt-5.6-sol",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "huggingface",
+    "name": "Hugging Face",
+    "provider": "custom",
+    "default_base_url": "https://router.huggingface.co/v1",
+    "default_model": "deepseek-ai/DeepSeek-R1",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "kilocode",
+    "name": "Kilo Code",
+    "provider": "custom",
+    "default_base_url": "https://api.kilo.ai/api/gateway",
+    "default_model": "kilo-auto/balanced",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "longcat",
+    "name": "LongCat",
+    "provider": "custom",
+    "default_base_url": "https://api.longcat.chat/openai",
+    "default_model": "LongCat-2.0",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "moonshot",
+    "name": "Moonshot AI",
+    "provider": "custom",
+    "default_base_url": "https://api.moonshot.ai/v1",
+    "default_model": "kimi-k3",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "novita",
+    "name": "Novita",
+    "provider": "custom",
+    "default_base_url": "https://api.novita.ai/openai/v1",
+    "default_model": "deepseek/deepseek-v4-pro",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "opencode",
+    "name": "OpenCode Zen",
+    "provider": "custom",
+    "default_base_url": "https://opencode.ai/zen/v1",
+    "default_model": "claude-opus-5",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "qianfan",
+    "name": "Baidu Qianfan",
+    "provider": "custom",
+    "default_base_url": "https://qianfan.baidubce.com/v2",
+    "default_model": "deepseek-v4-pro",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "qwen",
+    "name": "Alibaba Qwen",
+    "provider": "custom",
+    "default_base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "default_model": "qwen3.5-plus",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "stepfun",
+    "name": "StepFun",
+    "provider": "custom",
+    "default_base_url": "https://api.stepfun.ai/v1",
+    "default_model": "step-3.7-flash",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "tencent-tokenhub",
+    "name": "Tencent Hunyuan",
+    "provider": "custom",
+    "default_base_url": "https://tokenhub.tencentmaas.com/v1",
+    "default_model": "hy4-preview",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "together",
+    "name": "Together AI",
+    "provider": "custom",
+    "default_base_url": "https://api.together.xyz/v1",
+    "default_model": "moonshotai/Kimi-K2.6",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "venice",
+    "name": "Venice",
+    "provider": "custom",
+    "default_base_url": "https://api.venice.ai/api/v1",
+    "default_model": "zai-org-glm-4.7",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "volcengine",
+    "name": "Volcengine",
+    "provider": "custom",
+    "default_base_url": "https://ark.cn-beijing.volces.com/api/v3",
+    "default_model": "doubao-seed-evolving",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "xai",
+    "name": "xAI",
+    "provider": "custom",
+    "default_base_url": "https://api.x.ai/v1",
+    "default_model": "grok-4.6",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
+  },
+  {
+    "id": "xiaomi",
+    "name": "Xiaomi MiMo",
+    "provider": "custom",
+    "default_base_url": "https://api.xiaomimimo.com/v1",
+    "default_model": "mimo-v2.5",
+    "supports_custom_base_url": true,
+    "auth_style": "bearer"
   }
 ]

@@ -843,7 +843,7 @@ pub fn connectors_catalog() -> Vec<ConnectorCatalogEntry> {
             transport: "zalouser".into(),
             device_flow: None,
             name: "Zalo Personal".into(),
-            description: "Your personal Zalo account, paired by scanning a QR code — like WhatsApp.".into(),
+            description: "Your personal Zalo account, paired by scanning a QR code — like WhatsApp. Unofficial: Zalo may suspend an account it sees automated.".into(),
             icon: "🔵".into(),
             logo_url: None,
             pairing_fields: Vec::new(),

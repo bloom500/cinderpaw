@@ -193,7 +193,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false
   },
   {
     "id": "irc",
@@ -443,7 +443,7 @@
       }
     ],
     "pairing_method": "instance_token",
-    "coming_soon": true
+    "coming_soon": false
   },
   {
     "id": "zalo",
@@ -466,10 +466,10 @@
     "id": "zalouser",
     "transport": "zalouser",
     "name": "Zalo Personal",
-    "description": "Your personal Zalo account, paired by scanning a QR code — like WhatsApp.",
+    "description": "Your personal Zalo account, paired by scanning a QR code — like WhatsApp. Unofficial: Zalo may suspend an account it sees automated.",
     "icon": "🔵",
     "pairing_fields": [],
     "pairing_method": "qr",
-    "coming_soon": true
+    "coming_soon": false
   }
 ]
