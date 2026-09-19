@@ -8,9 +8,9 @@
  * need one too, and making that visible in review is the point.
  */
 
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import { ConnectorManager } from "../src/transports/connectors.ts";
-import { registerTransport } from "../src/transports/registry.ts";
+import { registerTransport, unregisterTransport } from "../src/transports/registry.ts";
 import type { AgentLike } from "../src/transports/connectors.ts";
 
 const fakeAgent = (): AgentLike =>
@@ -20,6 +20,13 @@ const fakeAgent = (): AgentLike =>
   }) as unknown as AgentLike;
 
 describe("adding a connector without touching the manager", () => {
+  // Same reason as connector-registry.test.ts: the registry is process-global,
+  // and a double left behind is an orphan to the catalog parity test.
+  afterAll(() => {
+    unregisterTransport("acme");
+    unregisterTransport("steady");
+  });
+
   it("starts, reports health, sends and stops", async () => {
     const events: string[] = [];
     let live = false;
