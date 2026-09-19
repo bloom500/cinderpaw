@@ -310,10 +310,12 @@ pub fn referenced_audio_names_in_dir(dir: &Path) -> Result<std::collections::Has
             .with_context(|| format!("parsing {}", path.display()))?;
         for m in &conv.messages {
             if let Some(v) = &m.voice {
-                if let Some(name) = Path::new(&v.audio_path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                {
+                // Split on BOTH separators by hand: `Path::file_name` only
+                // knows the host's, so on Linux a path written by a Windows
+                // install (`C:\Users\..\x.ogg`) came back whole and the blob
+                // it named looked unreferenced.
+                let name = v.audio_path.rsplit(['/', '\\']).next().unwrap_or("");
+                if !name.is_empty() {
                     names.insert(name.to_string());
                 }
             }
