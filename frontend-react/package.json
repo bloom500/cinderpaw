@@ -43,7 +43,7 @@
     "livekit-client": "^2.22.0",
     "lucide-react": "^1.17.0",
     "mermaid": "^12.0.0",
-    "pdfjs-dist": "^5.7.284",
+    "pdfjs-dist": "^6.2.108",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
@@ -75,5 +75,8 @@
     "typescript": "^7.0.0",
     "vite": "^5.4.0",
     "vitest": "^4.1.7"
+  },
+  "overrides": {
+    "lodash-es": "^4.18.0"
   }
 }
