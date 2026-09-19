@@ -180,3 +180,4 @@ google-oauth-client.json
 
 # The Vulkan loader CI copies next to the exe for the Windows bundle (release.yml); never committed.
 src-tauri/vulkan-1*.dll
+src-tauri/tauri.vulkan.conf.json

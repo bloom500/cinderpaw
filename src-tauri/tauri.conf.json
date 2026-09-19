@@ -57,7 +57,6 @@
       "binaries/cinderpaw-agent"
     ],
     "resources": [
-      "vulkan-1*.dll",
       "../CinderpawAgent/src/**/*",
       "../CinderpawAgent/tests/**/*",
       "../CinderpawAgent/package.json",

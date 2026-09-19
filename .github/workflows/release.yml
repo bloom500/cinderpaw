@@ -168,14 +168,22 @@ jobs:
       # could run (Astra, 19 Sep 2026). The loader is the LunarG runtime the
       # step above installed (Apache-2.0, see THIRD-PARTY-NOTICES.md); with
       # no driver behind it, it reports zero devices and the app runs on CPU.
-      # `vulkan-1*.dll` in tauri.conf.json's resources picks it up from the
-      # src-tauri root, which lands next to the exe in the install folder.
+      # The dll is added to the bundle through a generated overlay config
+      # (`--config` below), NOT through tauri.conf.json: a resource glob that
+      # matches nothing is a build error in tauri-build, so listing it in the
+      # main config broke every `cargo build` on a machine without the file,
+      # CI and fresh clones included (19 Sep 2026). The overlay copies the
+      # main resources list and prepends the dll, which lands next to the exe.
       - name: Bundle the Vulkan loader (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Copy-Item "$env:SystemRoot/System32/vulkan-1.dll" src-tauri/vulkan-1.dll
           Get-Item src-tauri/vulkan-1.dll | Format-List Name, Length, VersionInfo
+          $main = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $overlay = @{ bundle = @{ resources = @('vulkan-1.dll') + $main.bundle.resources } }
+          $overlay | ConvertTo-Json -Depth 5 | Set-Content src-tauri/tauri.vulkan.conf.json
+          Get-Content src-tauri/tauri.vulkan.conf.json
 
       # Build the Vulkan backend with Ninja instead of the Visual Studio
       # generator (which breaks llama.cpp's vulkan-shaders-gen ExternalProject —
@@ -336,6 +344,7 @@ jobs:
           args: >-
             --features ${{ matrix.features }}
             ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+            ${{ runner.os == 'Windows' && '--config src-tauri/tauri.vulkan.conf.json' || '' }}
           # Uploads the bundles AND latest.json (updater manifest) to the
           # release. With a matrix, tauri-action merges each platform into
           # the same latest.json on the shared release.
