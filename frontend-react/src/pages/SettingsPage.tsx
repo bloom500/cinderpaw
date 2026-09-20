@@ -1,5 +1,6 @@
 import { useEffect, lazy, Suspense } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CATS, type Category } from '@/lib/settingsCategories';
 import { useSettings } from '@/stores/settings';
@@ -44,6 +45,7 @@ export function SettingsPage() {
    * is the right one — it is what the redirects, deep links and the agent's own
    * navigation already speak.
    */
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const raw = searchParams.get('cat');
   const cat: Category = isCategory(raw) ? raw : 'general';
@@ -67,6 +69,18 @@ export function SettingsPage() {
           token disappeared and Settings read as one undivided blob. The next
           step up is still a hairline — it just survives the material. */}
       <aside className="w-44 shrink-0 border-r border-border-default flex flex-col py-2 overflow-y-auto">
+        {/* Back to wherever Settings was opened from. `-1` is right because
+            switching categories replaces the entry instead of pushing one, so
+            the previous entry is always the page before Settings, whatever
+            it was: a chat, a project, Models. */}
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="mb-2 flex items-center gap-2 px-4 py-2 text-sm text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+        >
+          <ArrowLeft className="size-4 shrink-0" aria-hidden />
+          <span>Back</span>
+        </button>
         {CATS.map((c) => (
           <button
             key={c.id}
