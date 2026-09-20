@@ -55,6 +55,16 @@ export function ChatPage() {
   const browserOpen     = useBrowser((s) => s.panelOpen);
   const browserWide     = useBrowser((s) => s.wide);
   const browserChatOpen = useBrowser((s) => s.chatOpen);
+  // True from the moment the browser is closed until its slide-out has
+  // finished. In wide mode the panel is `flex-1`, and putting the chat column
+  // back the instant the store flipped made the panel share the row with it
+  // for the length of the exit: it halved, then faded (20 Sep).
+  const [browserLeaving, setBrowserLeaving] = useState(false);
+  const wasBrowserOpen = useRef(browserOpen);
+  useEffect(() => {
+    if (wasBrowserOpen.current && !browserOpen) setBrowserLeaving(true);
+    wasBrowserOpen.current = browserOpen;
+  }, [browserOpen]);
   const [translateY, setTranslateY] = useState(0);
   // #17: agent-creation onboarding — shown in agent mode when no agent
   // exists, but never while the first-run wizard is still on screen.
@@ -117,8 +127,8 @@ export function ChatPage() {
     // The column moves between the page and the browser's drawer, which
     // remounts it under a new container; measured only on first mount, the
     // drawer's container had no value and "Jump to bottom" sat under the
-    // composer there.
-  }, [browserWide, browserChatOpen]);
+    // composer there. `browserLeaving` is the moment it comes back.
+  }, [browserWide, browserChatOpen, browserLeaving]);
 
   // The offset above is measured once per state change, so resizing the
   // window left the composer parked at the offset of a window size that
@@ -139,7 +149,10 @@ export function ChatPage() {
     ro.observe(container);
     ro.observe(wrapper);
     return () => ro.disconnect();
-  }, [isEmpty, showAgentOnboarding]);
+    // The same remounts as above: the column coming back from the browser's
+    // drawer is a new container, and an observer left on the old one kept the
+    // composer parked at the drawer's bottom (20 Sep).
+  }, [isEmpty, showAgentOnboarding, browserWide, browserChatOpen, browserLeaving]);
 
   // Initial data hydration
   useEffect(() => {
@@ -319,8 +332,8 @@ export function ChatPage() {
     {/* min-w-[28rem]: the artifacts panel may widen only until the chat is this
         wide (CHAT_MIN_WIDTH in ArtifactsPanel). */}
     {/* In wide mode the column lives in the browser panel (from `chat`). */}
-    {!(browserOpen && browserWide) && chatColumn}
-      <AnimatePresence>
+    {!((browserOpen || browserLeaving) && browserWide) && chatColumn}
+      <AnimatePresence onExitComplete={() => setBrowserLeaving(false)}>
         {/* One side panel at a time, and the browser wins: when the agent is
             working in it, an artifact it saves must not cover the page. The
             artifact is still one click away in the sidebar. */}

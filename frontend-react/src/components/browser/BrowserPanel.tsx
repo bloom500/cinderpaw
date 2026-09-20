@@ -316,7 +316,11 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       </div>
       {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
       {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
-      <div className="flex min-h-0 flex-1">
+      {/* The page is a native webview and paints over everything React draws,
+          the resize handle included: it could only be grabbed in the header,
+          where no page is (20 Sep). The body starts after the handle's 6 px,
+          so the page's rectangle, reported from this element, never covers it. */}
+      <div className={cn('flex min-h-0 flex-1', !wide && 'pl-1.5')}>
       <div ref={bodyRef} className="relative min-w-0 flex-1 bg-white">
         {!url && (
           // The new-tab page, until the first address: a search and the usual
