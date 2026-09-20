@@ -6,7 +6,10 @@
 // POST /install   {version, os}                    ->  204  (counts one install)
 // GET  /install                                    ->  200 {total, byVersion, byOs, counting}
 
-const MAX_BODY = 8 * 1024;
+// 64 KB, not 8: the app sends up to LOG_TAIL_BYTES (48 KB) of log plus the
+// description, and at 8 KB every report that kept the log ticked came back
+// 413 and was shown as "could not reach the server" (20 Sep).
+const MAX_BODY = 64 * 1024;
 const PER_HOUR = 5;
 
 /**

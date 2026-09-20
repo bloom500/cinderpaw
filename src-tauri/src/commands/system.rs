@@ -105,6 +105,10 @@ const BUG_REPORT_URL: &str = "https://cinderpaw-bug-report.bloommediacorporation
 /// How much of the log travels with a report. Enough to see the last turn
 /// fail, small enough that the person can read what leaves their machine.
 const LOG_TAIL_LINES: usize = 200;
+/// ...and a ceiling in bytes, because lines are not a size: 200 lines of this
+/// log measured 40 KB on one machine, and the worker refuses anything over
+/// its `MAX_BODY` (64 KB). Kept under it with room for the rest of the body.
+const LOG_TAIL_BYTES: usize = 48 * 1024;
 
 /// Last `n` lines of the file, or an empty string when it does not exist.
 /// A missing log is not an error: a fresh install that crashed before the
@@ -113,7 +117,16 @@ fn tail_lines(path: &std::path::Path, n: usize) -> String {
     let text = std::fs::read_to_string(path).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
     let start = lines.len().saturating_sub(n);
-    lines[start..].join("\n")
+    let mut tail = lines[start..].join("\n");
+    // Drop whole lines from the front until it fits: a cut mid-line is a
+    // line nobody can read, and the newest lines are the ones that matter.
+    while tail.len() > LOG_TAIL_BYTES {
+        match tail.find('\n') {
+            Some(i) => tail.drain(..=i),
+            None => break,
+        };
+    }
+    tail
 }
 
 fn log_path() -> std::path::PathBuf {
@@ -149,6 +162,7 @@ pub(crate) async fn submit_bug_report(description: String, include_log: bool) ->
         .map_err(|_| "network".to_string())?;
     match resp.status().as_u16() {
         204 => Ok(()),
+        413 => Err("too_large".into()),
         429 => Err("rate_limited".into()),
         _ => Err("network".into()),
     }
@@ -254,5 +268,19 @@ mod bug_report_tests {
 
         std::fs::write(&p, "1\n2\n3\n4\n5\n").unwrap();
         assert_eq!(tail_lines(&p, 3), "3\n4\n5", "longer than n keeps the last n");
+    }
+
+    #[test]
+    fn tail_lines_is_capped_in_bytes_on_whole_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("cinderpaw.log");
+        // 100 lines of 1 KB each: well under 200 lines, well over 48 KB.
+        let line = "x".repeat(1023);
+        let text = (0..100).map(|_| line.as_str()).collect::<Vec<_>>().join("\n");
+        std::fs::write(&p, &text).unwrap();
+        let tail = tail_lines(&p, 200);
+        assert!(tail.len() <= super::LOG_TAIL_BYTES, "fits the worker's limit");
+        assert!(tail.starts_with('x'), "starts on a whole line");
+        assert_eq!(tail.matches('\n').count() + 1, 48, "whole lines only, newest kept");
     }
 }

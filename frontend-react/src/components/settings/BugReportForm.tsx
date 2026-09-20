@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 const OUTCOME: Record<string, string> = {
   sent:         'Sent. Thank you, we read every one.',
   rate_limited: 'Too many reports from this address. Try again in an hour.',
+  too_large:    'The report was too large for the server. Untick the log and send again.',
   network:      'Could not reach the report server. Check your connection and try again.',
 };
 
