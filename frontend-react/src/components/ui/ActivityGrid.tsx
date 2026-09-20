@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 
 /**
  * A year of days, shaded by how much happened on each.
  *
- * Built from the conversation list the sidebar already holds, so it costs no
+ * The calendar year, January to December, Monday to Sunday, from the
+ * conversation list the sidebar already holds, so it costs no
  * request and no new table: a day is "active" if a conversation was touched on
  * it. That is a real limit and it is stated here rather than felt later — a
  * conversation carries one `updated_at`, so a week of work in one long thread
@@ -16,8 +17,6 @@ import { cn } from '@/lib/utils';
  * grid is for, and this file is the whole feature.
  */
 
-/** How many weeks fit the width we give it. A year, like the original. */
-const WEEKS = 53;
 const DAY_MS = 86_400_000;
 
 /** Midnight local time for a timestamp, as the key a day is counted under. */
@@ -89,43 +88,108 @@ export function ActivityGrid({
 }) {
   const { counts, streak, total } = useMemo(() => activityByDay(timestamps), [timestamps]);
 
-  // Columns are weeks, oldest first, each ending on the same weekday as today,
-  // so the last square is always today wherever today falls.
-  const days = useMemo(() => {
-    const out: { key: string; date: Date }[] = [];
-    const end = new Date();
-    end.setHours(12, 0, 0, 0); // midday, so a DST shift cannot skip a day
-    for (let i = WEEKS * 7 - 1; i >= 0; i--) {
-      const d = new Date(end.getTime() - i * DAY_MS);
-      out.push({ key: dayKey(d), date: d });
+  // The calendar year, January on the left, rows Monday to Sunday: the year
+  // people mean when they say "this year", not the 53 weeks behind today.
+  // Columns run from the Monday on or before 1 January to the Sunday on or
+  // after 31 December; the days outside the year and the days still to come
+  // are drawn blank so the shape of the grid never changes mid-year.
+  const { year, weeks, todayKey } = useMemo(() => {
+    const today = new Date();
+    today.setHours(12, 0, 0, 0); // midday, so a DST shift cannot skip a day
+    const year = today.getFullYear();
+    const first = new Date(year, 0, 1, 12);
+    const last = new Date(year, 11, 31, 12);
+    // getDay() is Sunday-first; (d + 6) % 7 makes Monday 0.
+    const start = new Date(first.getTime() - ((first.getDay() + 6) % 7) * DAY_MS);
+    const stop = new Date(last.getTime() + (6 - ((last.getDay() + 6) % 7)) * DAY_MS);
+    const weeks: { key: string; date: Date; inYear: boolean; future: boolean }[][] = [];
+    for (let t = start.getTime(); t <= stop.getTime(); t += 7 * DAY_MS) {
+      const week = [];
+      for (let r = 0; r < 7; r++) {
+        const d = new Date(t + r * DAY_MS);
+        week.push({
+          key: dayKey(d),
+          date: d,
+          inYear: d.getFullYear() === year,
+          future: d.getTime() > today.getTime(),
+        });
+      }
+      weeks.push(week);
     }
-    return out;
+    return { year, weeks, todayKey: dayKey(today) };
   }, []);
+
+  // A month label over the column that holds its first day.
+  const months = useMemo(
+    () =>
+      weeks.map((week) => {
+        const firstOfMonth = week.find((d) => d.inYear && d.date.getDate() === 1);
+        return firstOfMonth ? firstOfMonth.date.toLocaleDateString(undefined, { month: 'short' }) : null;
+      }),
+    [weeks],
+  );
+
+  const weekdays = useMemo(
+    () => weeks[0]!.map((d) => d.date.toLocaleDateString(undefined, { weekday: 'short' })),
+    [weeks],
+  );
+
+  // What happened THIS year, for the line under the grid: the streak is
+  // still counted across the year boundary, a run of days is a run of days.
+  const yearTotal = useMemo(() => {
+    let n = 0;
+    for (const [k, c] of counts) if (k.startsWith(`${year}-`)) n += c;
+    return n;
+  }, [counts, year]);
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
+      {/* One grid for labels and cells, so they cannot drift apart: the first
+          column is the weekday, the first row is the month, and the cells
+          share the remaining columns equally. Equal shares rather than fixed
+          pixels is what keeps the year inside whatever width it is given,
+          instead of running under the scrollbar (20 Sep). */}
       <div
-        className="grid grid-flow-col gap-[3px]"
-        style={{ gridTemplateRows: 'repeat(7, minmax(0, 1fr))' }}
+        className="grid gap-[3px] text-micro leading-none text-text-muted"
+        style={{ gridTemplateColumns: `auto repeat(${weeks.length}, minmax(0, 1fr))` }}
         role="img"
         aria-label={
           total === 0
             ? 'No conversations yet'
-            : `${total} conversations over the past year, ${streak} day streak`
+            : `${yearTotal} conversations in ${year}, ${streak} day streak`
         }
       >
-        {days.map(({ key, date }) => {
-          const n = counts.get(key) ?? 0;
-          return (
-            <span
-              key={key}
-              // `title` rather than a tooltip component: this is 371 elements,
-              // and 371 mounted tooltips is a scroll that stutters.
-              title={`${date.toLocaleDateString()}: ${n === 0 ? 'nothing' : `${n} conversation${n === 1 ? '' : 's'}`}`}
-              className={cn('size-[9px] rounded-[2px]', TINT[levelOf(n)])}
-            />
-          );
-        })}
+        <span />
+        {months.map((m, w) => (
+          <span key={w} className="overflow-visible whitespace-nowrap">{m}</span>
+        ))}
+        {weekdays.map((name, r) => (
+          // A fragment per row: the label, then one cell per week.
+          <Fragment key={r}>
+            <span className="self-center pr-1">{name}</span>
+            {weeks.map((week) => {
+              const { key, date, inYear, future } = week[r]!;
+              const n = counts.get(key) ?? 0;
+              if (!inYear) return <span key={key} className="aspect-square" />;
+              // Still to come: drawn, so the year reads as a year and not as
+              // "it ends today", but dimmer and with nothing to say on hover.
+              if (future) return <span key={key} className={cn('aspect-square rounded-[2px] opacity-40', TINT[0])} />;
+              return (
+                <span
+                  key={key}
+                  // `title` rather than a tooltip component: this is 365 elements,
+                  // and 365 mounted tooltips is a scroll that stutters.
+                  title={`${date.toLocaleDateString()}: ${n === 0 ? 'nothing' : `${n} conversation${n === 1 ? '' : 's'}`}`}
+                  className={cn(
+                    'aspect-square rounded-[2px]',
+                    TINT[levelOf(n)],
+                    key === todayKey && 'ring-1 ring-text-muted/60',
+                  )}
+                />
+              );
+            })}
+          </Fragment>
+        ))}
       </div>
 
       <div className="flex items-center gap-3 text-xs text-text-muted">
@@ -138,7 +202,7 @@ export function ActivityGrid({
           <span>
             <span className="font-medium text-text-secondary">{streak}</span>
             {streak === 1 ? ' day' : ' days'} in a row ·{' '}
-            <span className="font-medium text-text-secondary">{total}</span> conversations
+            <span className="font-medium text-text-secondary">{yearTotal}</span> conversations in {year}
           </span>
         )}
         <span className="ml-auto flex items-center gap-1">
