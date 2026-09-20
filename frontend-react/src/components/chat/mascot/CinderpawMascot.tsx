@@ -1,22 +1,30 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { VARIANTS, PALETTE, BODY_SHADE, BODY_CHAR, FRAME_W, FRAME_H, type MascotState, type Frame } from './frames';
-import { EFFECTS, FX_MARGIN_X, FX_MARGIN_TOP } from './effects';
+import { VARIANTS, FRAME_W, FRAME_H, SHEET_COLS, type MascotState, type Frame } from './frames';
+import sheetUrl from './sheet.png';
 
 const FRAME_MS = 160;
 const SPRITE_H = FRAME_H + 2; // body rows + 1px bob headroom
-// 3× integer scale: big enough that every state/effect reads clearly, small
-// enough to perch on the input without stealing space. Integer scale keeps
-// the pixel-art crisp (non-integer scales smear pixel boundaries).
-const DISPLAY = 48;
+// 2×: the drawn frame is 64px with the creature filling 48 of them, so on
+// screen the creature is 96px tall and the 8px margin around it, where props
+// and Z's live, is 16px. 1:1 (64) was tried first and read as "super mica";
+// keep the scale an integer or the pixel-art smears at pixel boundaries.
+const DISPLAY = 128;
 const SCALE = DISPLAY / FRAME_W;
 
-// The canvas is larger than the sprite so per-state pixel effects (confetti,
-// sparkles, hearts, Z's — see effects.ts) can play AROUND the body. The
-// component's layout footprint stays exactly DISPLAY×(sprite height): the
-// canvas is absolutely positioned with negative offsets inside a fixed-size
-// wrapper, so MascotPerch travel math and the input layout are unaffected.
-const CANVAS_W = FRAME_W + FX_MARGIN_X * 2;
-const CANVAS_H = SPRITE_H + FX_MARGIN_TOP;
+// Every frame in sheet.png already carries its own props and effects (the
+// sparkles, the Z's, the magnifier), so the canvas is exactly one frame plus
+// the bob headroom. The old procedural effects layer (effects.ts) is not drawn.
+const CANVAS_W = FRAME_W;
+const CANVAS_H = SPRITE_H;
+
+// One shared sheet for every instance. Frames drawn before it has loaded are
+// simply skipped; the next tick paints them.
+const SHEET = typeof Image !== 'undefined' ? new Image() : null;
+let sheetReady = false;
+if (SHEET) {
+  SHEET.onload = () => { sheetReady = true; };
+  SHEET.src = sheetUrl;
+}
 
 /** Exported because the perch needs it too — the sprite freezing while the
  *  creature still runs the width of the composer trailing dust is the setting
@@ -77,18 +85,7 @@ export function CinderpawMascot({ state, flip = false }: { state: MascotState; f
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-
-    // Effects are drawn unflipped (their compositions are tuned per side);
-    // only the body mirrors when running back across the input.
-    if (!reduced) {
-      const fx = EFFECTS[state];
-      if (fx) {
-        for (const p of fx(tick)) {
-          ctx.fillStyle = p.color;
-          ctx.fillRect(p.x, p.y, 1, 1);
-        }
-      }
-    }
+    if (!SHEET || !sheetReady) return;
 
     if (flip) {
       ctx.translate(CANVAS_W, 0);
@@ -96,18 +93,11 @@ export function CinderpawMascot({ state, flip = false }: { state: MascotState; f
     }
 
     const frames = variantRef.current;
-    const frame = frames[frameIdx % frames.length];
-    const y0 = FX_MARGIN_TOP + 1 + (reduced ? 0 : bobOffset(state, tick));
-    for (let r = 0; r < frame.length; r++) {
-      const row = frame[r];
-      for (let c = 0; c < row.length; c++) {
-        const ch = row[c];
-        const color = ch === BODY_CHAR ? BODY_SHADE[r] : PALETTE[ch];
-        if (!color) continue;
-        ctx.fillStyle = color;
-        ctx.fillRect(FX_MARGIN_X + c, y0 + r, 1, 1);
-      }
-    }
+    const frame: Frame = frames[frameIdx % frames.length] ?? 0;
+    const y0 = 1 + (reduced ? 0 : bobOffset(state, tick));
+    const sx = (frame % SHEET_COLS) * FRAME_W;
+    const sy = Math.floor(frame / SHEET_COLS) * FRAME_H;
+    ctx.drawImage(SHEET, sx, sy, FRAME_W, FRAME_H, 0, y0, FRAME_W, FRAME_H);
   }, [state, reduced, flip]);
 
   useEffect(() => {
@@ -140,8 +130,8 @@ export function CinderpawMascot({ state, flip = false }: { state: MascotState; f
         height={CANVAS_H}
         style={{
           position: 'absolute',
-          left: -Math.round(FX_MARGIN_X * SCALE),
-          top: -Math.round(FX_MARGIN_TOP * SCALE),
+          left: 0,
+          top: 0,
           width: Math.round(CANVAS_W * SCALE),
           height: Math.round(CANVAS_H * SCALE),
           imageRendering: 'pixelated',

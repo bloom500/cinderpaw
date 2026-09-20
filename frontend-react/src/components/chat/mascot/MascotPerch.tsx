@@ -48,7 +48,7 @@ const DRAG_SLOP_PX = 4;
 /** The creature's own width, so it cannot be dropped off the left of the
  *  composer or dragged out past the right of it. Keep in sync with `DISPLAY`
  *  in CinderpawMascot. */
-const MASCOT_W = 48;
+const MASCOT_W = 128;
 /** Only a fallback for the moment before the element has been measured. The
  *  real ceiling is the top of the window — see `boundsNow`. */
 const LIFT_LIMIT_PX = 220;
@@ -354,7 +354,11 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
   return (
     <div
       ref={wrapRef}
-      className="pointer-events-none absolute top-[-43px] left-5 z-10"
+      // The feet: the drawn frame has the creature's soles at canvas row 54 of 66
+      // (8px prop margin above, 1px bob headroom), which at 2× is 110px from the
+      // top of this element. -104 sinks the soles 6px into the composer's edge,
+      // so it perches on the bar instead of floating above it.
+      className="pointer-events-none absolute top-[-104px] left-5 z-10"
       // Position only. The lean and the squash go on the creature inside, so
       // the tool-call stack it carries stays upright and readable while the
       // creature itself is being swung around.
