@@ -5,6 +5,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   Mic, MicOff, Phone, X, Loader2, MessageSquare, ArrowUp, Laptop, Cloud, Settings2,
   AudioLines, ChevronDown, Archive,
@@ -850,8 +851,33 @@ export function CallOverlay({
               <p className="max-w-sm text-center text-xs text-(--warning)">{blocker}</p>
             )}
 
+            {/* A dialog over the call, not a card in the column: in flow it
+                pushed the sphere up and the call buttons off the bottom, and
+                anchored under the engine line it ran past the window and the
+                buttons showed through its glass (20 Sep). Centred on a scrim,
+                opening it moves nothing, and the panel scrolls itself when
+                the window is short. `role="dialog"` also keeps Escape from
+                hanging up while it is open (see the keydown effect above). */}
+            <AnimatePresence>
             {expanded && (
-              <div className="w-full rounded-2xl border border-border-default bg-bg-surface/80 p-4 text-left shadow-lg">
+              <motion.div
+                role="dialog"
+                aria-label={t('call.settings')}
+                className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }}
+                onClick={() => setSettingsOpen(false)}
+              >
+              <motion.div
+                onClick={(e) => e.stopPropagation()}
+                className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl border border-border-default bg-bg-primary p-4 text-left shadow-lg"
+                initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-xs font-medium uppercase tracking-wide text-text-muted">
                     {t('call.settings')}
@@ -869,7 +895,7 @@ export function CallOverlay({
                   <p className="mb-3 text-xs text-(--warning)">{blocker}</p>
                 )}
 
-                <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-[5.5rem_1fr] items-center gap-x-3 gap-y-3">
                   {/* Who answers. The row IS the choice, so the engine is named
                       once on this screen instead of three times. */}
                   <SettingRow label={t('call.provider')}>
@@ -952,8 +978,10 @@ export function CallOverlay({
                     </SettingRow>
                   )}
                 </div>
-              </div>
+              </motion.div>
+              </motion.div>
             )}
+            </AnimatePresence>
           </div>
           );
         })()}
@@ -2189,11 +2217,14 @@ function CallChatPanel({ onClose, onSay }: { onClose: () => void; onSay: (text: 
  * debug dump rather than as settings.
  */
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
+  // Two cells of the parent's grid, so every label sits in one column and
+  // every control starts at the same x: a mix of right- and left-aligned
+  // controls read as a form nobody finished (20 Sep).
   return (
-    <div className="flex items-start justify-between gap-3">
-      <span className="shrink-0 pt-1 text-xs text-text-muted">{label}</span>
-      <div className="flex min-w-0 flex-1 items-center justify-end">{children}</div>
-    </div>
+    <>
+      <span className="text-xs text-text-muted">{label}</span>
+      <div className="flex min-w-0 items-center">{children}</div>
+    </>
   );
 }
 

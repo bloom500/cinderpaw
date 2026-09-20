@@ -19,31 +19,50 @@ import { useUI } from '@/stores/ui';
  * by hand, which is the point: a live model id that is one character wrong does
  * not produce an error, it drops the socket and reads as a network fault.
  */
+type Model = { id: string; label: string };
+// Per vendor, for the life of the window. A model list changes when the vendor
+// ships a model, not between two openings of the same card.
+const cache = new Map<string, Model[]>();
+
 export function S2sModelPicker({ provider, label }: { provider: string; label: string }) {
   const chosen = useUI((s) => s.s2sModel[provider] ?? '');
   const setS2sModel = useUI((s) => s.setS2sModel);
-  const [models, setModels] = useState<{ id: string; label: string }[] | null>(null);
+  const [models, setModels] = useState<Model[] | null>(() => cache.get(provider) ?? null);
   const [loading, setLoading] = useState(false);
 
   const load = () => {
     setLoading(true);
     tauri.raw
       .listS2sModels(provider)
-      .then(setModels)
+      .then((m) => { cache.set(provider, m); setModels(m); })
       .catch(() => setModels([]))
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [provider]);
+  // Ask the vendor once per app run, not once per opening of the settings:
+  // the round trip to Google's model list is what made the card feel slow to
+  // open (20 Sep). The refresh button is the way to ask again.
+  useEffect(() => {
+    const cached = cache.get(provider);
+    if (cached) setModels(cached);
+    else load();
+  }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Nothing to choose between: one model, or a build whose Rust side does not
   // have this command yet. A picker with a single fixed option is furniture.
   if (!models || models.length <= 1) return null;
 
   return (
-    <div className="w-full max-w-sm">
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs text-text-muted">{label} model</span>
+    <div className="w-full">
+      {/* The row's label already says "Model"; a second heading inside the
+          control said it again. The refresh sits beside the menu instead. */}
+      <div className="flex items-center gap-2">
+        <SelectMenu
+          ariaLabel={`${label} realtime model`}
+          value={chosen || models[0]!.id}
+          onChange={(v) => setS2sModel(provider, v)}
+          options={models.map((m) => ({ value: m.id, label: m.label }))}
+        />
         <button
           type="button"
           onClick={load}
@@ -53,12 +72,6 @@ export function S2sModelPicker({ provider, label }: { provider: string; label: s
           <RefreshCw size={12} className={loading ? 'animate-spin' : undefined} />
         </button>
       </div>
-      <SelectMenu
-        ariaLabel={`${label} realtime model`}
-        value={chosen || models[0]!.id}
-        onChange={(v) => setS2sModel(provider, v)}
-        options={models.map((m) => ({ value: m.id, label: m.label }))}
-      />
       {/* The vendor answering "yes I will open a session" is not the same as the
           model holding a conversation: gemini-3.5-transcribe-live is in Google's
           own list and only transcribes. Said here rather than learned from a
