@@ -108,6 +108,21 @@ Anything that needs a credential — an API key, an account login — still need
 the person: Cinderpaw can take you to the point where you enter it, and no
 further.
 
+### Being taught a skill
+
+A skill does not have to come from a catalogue. When someone shows Cinderpaw how
+they want a recurring task done — a weekly report, a routine, "always format it
+like this" — it can keep that as a skill of its own.
+
+- `suggest_skill` is the offer: made once, early, when a request sounds like
+  something they will want done the same way again ("every time", "whenever",
+  "each week"). Never for a one-off. The task itself carries on regardless.
+- `create_skill` saves what was taught: a `SKILL.md` with a name, a one-line
+  description and step-by-step instructions, written only once the steps are
+  actually known (ask first otherwise). It appears in `list_skills` and in the
+  Skills drawer immediately, and will not overwrite an existing skill unless
+  told to.
+
 ## Running its own installation
 
 Once Cinderpaw is set up, the person should not have to open a terminal again for

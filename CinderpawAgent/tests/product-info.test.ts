@@ -34,9 +34,11 @@ describe("product_info", () => {
     // Bounded: PRODUCT.md must stay a cheap on-demand load, not a book.
     // 17 KiB, not 16: the rename added four characters to every occurrence of
     // the product's name and of every CINDERPAW_* variable, which pushed a file
-    // whose CONTENT did not grow past the old cap. Raised once, deliberately —
-    // if this needs raising again, something was actually added and the right
-    // answer is to cut, not to raise.
-    expect(content.length).toBeLessThan(17 * 1024);
+    // whose CONTENT did not grow past the old cap.
+    // 20 KiB, not 17 (2026-09-20, Darius's call): "being taught a skill"
+    // (suggest_skill / create_skill) is a real new capability, and the file is
+    // loaded only when a product question is detected, so the cost is paid
+    // rarely. Next time, cut before raising.
+    expect(content.length).toBeLessThan(20 * 1024);
   });
 });

@@ -102,6 +102,8 @@ import { createToolHealthTool } from "./tools/builtin/tool-health.ts";
 import { createScanWorkspaceTool } from "./tools/builtin/scan-workspace.ts";
 import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { createListSkillsTool } from "./tools/builtin/list-skills.ts";
+import { createCreateSkillTool } from "./tools/builtin/create-skill.ts";
+import { createSuggestSkillTool } from "./tools/builtin/suggest-skill.ts";
 import { createCapabilityTools } from "./tools/builtin/capability.ts";
 import { createCinderpawAdminTools } from "./tools/builtin/cinderpaw-admin.ts";
 import { createProductInfoTool } from "./tools/builtin/product-info.ts";
@@ -869,6 +871,12 @@ export async function boot(transportOverride?: Transport) {
   // something.
   const learnedSkills = new SkillLibrary(defaultSkillLibraryPath());
   registry.register(createListSkillsTool(join(CINDERPAW_HOME, "skills"), () => learnedSkills.list()));
+  // create_skill: the write half, for "teach Cinderpaw a task". Writes next to
+  // the installed ones, in the same shape, with the same content guard.
+  registry.register(createCreateSkillTool(join(CINDERPAW_HOME, "skills")));
+  // suggest_skill: the model decides when a task is worth teaching; the
+  // desktop shows the offer when it sees this tool on the stream.
+  registry.register(createSuggestSkillTool());
   // Capability acquisition. Registered unconditionally: the tools check for
   // the host bridge themselves and report "not available on this transport"
   // rather than vanishing, so a model that reasonably expects to be able to
@@ -2411,7 +2419,7 @@ export async function boot(transportOverride?: Transport) {
   // artifact_send hands an artifact back through a connector, so it is the one
   // artifact tool that cannot be registered with the other six above: the
   // connectors do not exist yet at that point in boot.
-  registry.register(createArtifactSendTool({ store: artifactStore, delivery: connectors }));
+  registry.register(createArtifactSendTool({ db: db.raw, store: artifactStore, delivery: connectors }));
 
   // F6 — self.* runtime introspection tools (the agent's mental model of
   // its own substrate). Registered after `connectors` so the connector

@@ -19,6 +19,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { CinderpawAgentEvent } from '@/lib/tauri';
 import { tauri } from '@/lib/tauri';
 import { useChat } from '@/stores/chat';
+import { useUI } from '@/stores/ui';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 
@@ -140,6 +141,9 @@ _${parsed.diagnostic}_`
         break;
       case 'tool_done':
         if (parsed.id) inflight.get(parsed.id)?.onToolDone?.(parsed.callId, parsed.tool, parsed.result);
+        // The agent judged this task worth teaching as a skill. The tool
+        // itself does nothing; seeing it on the stream is the signal.
+        if (parsed.tool === 'suggest_skill') useUI.getState().setSkillTip(true);
         useCoworkTranscript.getState().ingestTool({
           sessionId: parsed.sessionId,
           tool: parsed.tool,

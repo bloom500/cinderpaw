@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { useChat } from '@/stores/chat';
 import { useConversations } from '@/stores/conversations';
@@ -19,6 +19,7 @@ import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
+import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
 import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
 import { useOnboarding } from '@/stores/onboarding';
@@ -30,6 +31,7 @@ import { readLocal } from '@/lib/utils';
 
 export function ChatPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const loaded      = useModel((s) => s.loaded);
   const messages    = useChat((s) => s.messages);
   const loadingConversation = useConversations((s) => s.loadingConversation);
@@ -160,6 +162,11 @@ export function ChatPage() {
     void useProjects.getState().refresh();
     void useModel.getState().refresh();
   }, []);
+
+  // The teach offer belongs to the task it was made on: a different
+  // conversation starts without it.
+  const setSkillTip = useUI((s) => s.setSkillTip);
+  useEffect(() => { setSkillTip(false); }, [id, setSkillTip]);
 
   // Open conversation when route changes; auto-switch to agent mode
   // if the conversation was created under a Cinderpaw Agent.
@@ -307,6 +314,19 @@ export function ChatPage() {
           {isEmpty && !showAgentOnboarding && <HomeGreeting />}
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
+          <ComposerTip
+            isEmpty={isEmpty}
+            // A new chat, in agent mode (create_skill is a tool, and only the
+            // agent has tools), with the request typed in and the caret after
+            // it. Not sent: sending is theirs, and it costs money.
+            onTry={() => {
+              useConversations.getState().newChat();
+              navigate('/chat');
+              setInputMode('agent');
+              chatInputRef.current?.setText(TEACH_PROMPT);
+              chatInputRef.current?.focus();
+            }}
+          />
           <ChatInput
             ref={chatInputRef}
             isEmpty={isEmpty}

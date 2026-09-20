@@ -253,8 +253,11 @@ export function SkillHubDrawer() {
             transition={{ duration: 0.22, ease: 'easeInOut' }}
             className="fixed right-0 top-0 bottom-0 w-[400px] z-40 bg-bg-surface border-l border-border-subtle flex flex-col shadow-2xl"
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3.5 border-b border-border-subtle shrink-0">
+            {/* Header. pt-8, not py-3.5: the window's own minimise/close buttons
+                sit in the top-right corner over everything, and the drawer's X
+                was directly under them (20 Sep). Same clearance as the
+                Artifacts and Browser panels. */}
+            <div className="flex items-center justify-between px-4 pt-8 pb-3 border-b border-border-subtle shrink-0">
               <span className="font-semibold text-sm text-text-primary">Skills</span>
               <button
                 type="button"

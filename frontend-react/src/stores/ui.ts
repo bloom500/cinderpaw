@@ -82,6 +82,10 @@ interface UIStore {
   skillsOpen:  boolean;
   openSkills:  () => void;
   closeSkills: () => void;
+  /** The agent called `suggest_skill` on the current task: show the teach
+   *  offer above the composer. Not persisted: it belongs to this task. */
+  skillTip: boolean;
+  setSkillTip: (v: boolean) => void;
   inputMode: InputMode;
   setInputMode: (m: InputMode) => void;
   /** #24: pixel-art mascot on the typing bar. Some users want it off. */
@@ -181,6 +185,8 @@ export const useUI = create<UIStore>()(
       skillsOpen:  false,
       openSkills:  () => set({ skillsOpen: true }),
       closeSkills: () => set({ skillsOpen: false }),
+      skillTip: false,
+      setSkillTip: (skillTip) => set({ skillTip }),
       inputMode: 'chat',
       setInputMode: (inputMode) => set({ inputMode }),
       mascotEnabled: true,
