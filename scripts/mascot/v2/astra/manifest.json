@@ -1,0 +1,735 @@
+{
+  "idle": {
+    "fps": 6,
+    "durations_ms": [
+      500,
+      167,
+      167,
+      333,
+      167,
+      167,
+      167,
+      333
+    ]
+  },
+  "typing": {
+    "fps": 8,
+    "durations_ms": [
+      250,
+      125,
+      250,
+      125
+    ]
+  },
+  "thinking": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      500,
+      500
+    ]
+  },
+  "done": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      333,
+      333
+    ]
+  },
+  "error": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      750
+    ]
+  },
+  "sleep": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      333,
+      333,
+      333,
+      667
+    ]
+  },
+  "celebrate": {
+    "fps": 8,
+    "durations_ms": [
+      250,
+      125,
+      250,
+      125
+    ]
+  },
+  "idle-look-around": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      750,
+      250,
+      750,
+      500
+    ],
+    "loop": true
+  },
+  "stretching": {
+    "fps": 5,
+    "durations_ms": [
+      400,
+      200,
+      200,
+      800,
+      600
+    ],
+    "loop": false
+  },
+  "excited": {
+    "fps": 8,
+    "durations_ms": [
+      250,
+      125,
+      250,
+      125
+    ],
+    "loop": true
+  },
+  "idle-scratch": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      167,
+      167,
+      167,
+      500
+    ],
+    "loop": false
+  },
+  "idle-yawn": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      1000,
+      750
+    ],
+    "loop": false
+  },
+  "idle-sit": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      750,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "wake-up": {
+    "fps": 8,
+    "durations_ms": [
+      375,
+      125,
+      125,
+      375
+    ],
+    "loop": false
+  },
+  "streaming": {
+    "fps": 8,
+    "durations_ms": [
+      250,
+      125,
+      250,
+      125
+    ],
+    "loop": true
+  },
+  "thinking-deep": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      333,
+      1000,
+      333,
+      667
+    ],
+    "loop": true
+  },
+  "thinking-scratch-head": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      500,
+      250
+    ],
+    "loop": true
+  },
+  "planning": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      333,
+      1333
+    ],
+    "loop": false
+  },
+  "remembering": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      500,
+      250
+    ],
+    "loop": true
+  },
+  "deciding": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      333,
+      167
+    ],
+    "loop": true
+  },
+  "searching": {
+    "fps": 5,
+    "durations_ms": [
+      400,
+      200,
+      200,
+      400
+    ],
+    "loop": true
+  },
+  "reading": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      333,
+      667
+    ],
+    "loop": true
+  },
+  "browsing": {
+    "fps": 5,
+    "durations_ms": [
+      400,
+      200,
+      200,
+      400
+    ],
+    "loop": true
+  },
+  "writing": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      167,
+      333
+    ],
+    "loop": true
+  },
+  "building": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      167,
+      333
+    ],
+    "loop": true
+  },
+  "calling": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      167,
+      667
+    ],
+    "loop": false
+  },
+  "delegating": {
+    "fps": 5,
+    "durations_ms": [
+      400,
+      200,
+      200,
+      800
+    ],
+    "loop": false
+  },
+  "speaking": {
+    "fps": 8,
+    "durations_ms": [
+      250,
+      125,
+      125,
+      250
+    ],
+    "loop": true
+  },
+  "searching-deep": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "fetching-url": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "reading-pdf": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      333,
+      667
+    ],
+    "loop": true
+  },
+  "writing-code": {
+    "fps": 8,
+    "durations_ms": [
+      250,
+      125,
+      125,
+      250
+    ],
+    "loop": true
+  },
+  "running-shell": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "testing": {
+    "fps": 5,
+    "durations_ms": [
+      400,
+      200,
+      200,
+      400
+    ],
+    "loop": true
+  },
+  "tests-green": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      667
+    ],
+    "loop": false
+  },
+  "committing": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      1000
+    ],
+    "loop": false
+  },
+  "calling-phone": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      167,
+      333
+    ],
+    "loop": true
+  },
+  "receiving-message": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      167,
+      667
+    ],
+    "loop": false
+  },
+  "remembering-store": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      1000
+    ],
+    "loop": false
+  },
+  "handoff": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      1000
+    ],
+    "loop": false
+  },
+  "image-generating": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      250,
+      1000
+    ],
+    "loop": false
+  },
+  "exporting": {
+    "fps": 5,
+    "durations_ms": [
+      400,
+      200,
+      200,
+      800
+    ],
+    "loop": false
+  },
+  "sending-file": {
+    "fps": 8,
+    "durations_ms": [
+      250,
+      125,
+      125,
+      500
+    ],
+    "loop": false
+  },
+  "installing-skill": {
+    "fps": 5,
+    "durations_ms": [
+      400,
+      200,
+      200,
+      800
+    ],
+    "loop": false
+  },
+  "downloading": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "scheduling": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      333,
+      667
+    ],
+    "loop": true
+  },
+  "asking": {
+    "fps": 4,
+    "durations_ms": [
+      750,
+      250,
+      500,
+      250
+    ],
+    "loop": true
+  },
+  "waiting-approval": {
+    "fps": 3,
+    "durations_ms": [
+      1667,
+      667,
+      333,
+      333
+    ],
+    "loop": true
+  },
+  "waiting-long": {
+    "fps": 2,
+    "durations_ms": [
+      1500,
+      500,
+      500,
+      1500,
+      500,
+      1000
+    ],
+    "loop": true
+  },
+  "waiting-network": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "rate-limited": {
+    "fps": 2,
+    "durations_ms": [
+      1500,
+      500,
+      1000
+    ],
+    "loop": true
+  },
+  "no-key": {
+    "fps": 3,
+    "durations_ms": [
+      1000,
+      333,
+      667
+    ],
+    "loop": true
+  },
+  "offline": {
+    "fps": 2,
+    "durations_ms": [
+      1500,
+      500,
+      1000
+    ],
+    "loop": true
+  },
+  "locked": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      1333
+    ],
+    "loop": false
+  },
+  "listening": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "listening-headset": {
+    "fps": 6,
+    "durations_ms": [
+      333,
+      167,
+      167,
+      167,
+      167,
+      333
+    ],
+    "loop": true
+  },
+  "reading-attachment": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "paste": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      1333
+    ],
+    "loop": false
+  },
+  "drag-drop": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      1333
+    ],
+    "loop": false
+  },
+  "done-nod": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      1333
+    ],
+    "loop": false
+  },
+  "error-crash": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "interrupted": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      1000
+    ],
+    "loop": false
+  },
+  "confused": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "retrying": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "timeout": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      1333
+    ],
+    "loop": false
+  },
+  "partial": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      1333
+    ],
+    "loop": false
+  },
+  "wave": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "goodbye": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      1000
+    ],
+    "loop": false
+  },
+  "love": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "cool": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      1333
+    ],
+    "loop": false
+  },
+  "gaming": {
+    "fps": 4,
+    "durations_ms": [
+      500,
+      250,
+      250,
+      500
+    ],
+    "loop": true
+  },
+  "surprised": {
+    "fps": 3,
+    "durations_ms": [
+      667,
+      333,
+      1333
+    ],
+    "loop": false
+  },
+  "dreaming": {
+    "fps": 2,
+    "durations_ms": [
+      1000,
+      500,
+      500,
+      500,
+      500,
+      1000
+    ],
+    "loop": true
+  }
+}
