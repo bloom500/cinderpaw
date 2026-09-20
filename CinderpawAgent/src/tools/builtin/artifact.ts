@@ -27,7 +27,7 @@
 
 import type { Database } from "bun:sqlite";
 import type { Tool, ToolManifest } from "../../types.ts";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import {
   PermissionDeniedError,
   pathWithin,
@@ -53,7 +53,7 @@ import {
   PDF_MAX_BYTES,
 } from "../../artifacts/pdf.ts";
 import { docxReplace, docxText, isDocx } from "../../artifacts/docx.ts";
-import { ArtifactExporter, artifactFile } from "../../artifacts/export.ts";
+import { ArtifactExporter, EXPORT_FORMATS, artifactFile, isExportAs } from "../../artifacts/export.ts";
 import { transportFor, type OutboundFile } from "../../transports/registry.ts";
 import {
   ensureWorkspace,
@@ -77,6 +77,22 @@ export function activeWorkspaceId(db: Database): string {
   // pointer at all, so check the row actually exists rather than trusting the id.
   if (active && getWorkspace(db, active)) return active;
   return ensureWorkspace(db, "default").id;
+}
+
+/**
+ * An artifact by id, but only from the active workspace.
+ *
+ * `artifact_list` filters by workspace; the by-id tools did not, so a model
+ * holding an id from workspace A could read, edit, export, delete or send it
+ * from B (Astra, D2, 20 Sep). The workspace is the isolation boundary the
+ * brief promises, so it is checked once here, for all of them. "Not found"
+ * rather than "belongs elsewhere": the other workspace's existence is not
+ * this one's business.
+ */
+function artifactInScope(deps: Pick<ArtifactToolDeps, "db" | "store">, id: string): Artifact | null {
+  const a = deps.store.get(id);
+  if (!a || a.workspaceId !== activeWorkspaceId(deps.db)) return null;
+  return a;
 }
 
 /**
@@ -302,7 +318,7 @@ export function createArtifactReadTool(deps: ArtifactToolDeps): Tool {
     async execute(args) {
       const id = typeof args.id === "string" ? args.id.trim() : "";
       if (!id) return { ok: false, error: "bad_args", content: "artifact_read: 'id' is required." };
-      const a = deps.store.get(id);
+      const a = artifactInScope(deps, id);
       if (!a) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
 
       const version = typeof args.version === "number" ? args.version : undefined;
@@ -416,7 +432,7 @@ export function createArtifactEditTool(deps: ArtifactToolDeps): Tool {
     async execute(args, ctx) {
       const id = typeof args.id === "string" ? args.id.trim() : "";
       if (!id) return { ok: false, error: "bad_args", content: "artifact_edit: 'id' is required." };
-      const existing = deps.store.get(id);
+      const existing = artifactInScope(deps, id);
       if (!existing) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
 
       if (typeof args.rollback_to === "number") {
@@ -607,17 +623,38 @@ export function createArtifactExportTool(deps: ArtifactToolDeps): Tool {
       },
       format: {
         type: "string",
-        description: "Optional: \"pdf\" to render a text artifact as a PDF. A dest ending in .pdf does the same.",
+        description:
+          "Optional: \"pdf\" (any text artifact), \"docx\" (Word, from the same markdown), " +
+          "\"xlsx\" (Excel, from a table artifact or a markdown table). A dest ending in " +
+          ".pdf/.docx/.xlsx does the same. Nothing else is written: pptx and the rest are refused.",
         required: false,
       },
     },
     async execute(args) {
       const id = typeof args.id === "string" ? args.id.trim() : "";
       if (!id) return { ok: false, error: "bad_args", content: "artifact_export: 'id' is required." };
-      const a = deps.store.get(id);
+      const a = artifactInScope(deps, id);
       if (!a) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
       const dest = typeof args.dest === "string" ? args.dest : undefined;
-      const format = args.format === "pdf" ? ("pdf" as const) : undefined;
+      // What was asked for: the explicit format, else the destination's
+      // extension. Anything but a PDF or the artifact's own format used to
+      // go through as the source bytes under that name: a "wrong.xlsx" that
+      // was markdown inside, reported as exported (Astra, D1, 20 Sep).
+      const native = ArtifactStore.extensionFor(a.kind).slice(1);
+      const asked = (typeof args.format === "string" ? args.format : extname(dest ?? "").slice(1))
+        .trim().toLowerCase();
+      const convertible = ArtifactStore.isTextKind(a.kind) && a.kind !== "pdf";
+      if (asked && asked !== native && !(convertible && isExportAs(asked))) {
+        return {
+          ok: false,
+          error: "unsupported_format",
+          content:
+            `Cinderpaw cannot write .${asked}. This artifact exports as .${native}` +
+            (convertible ? ` or as ${EXPORT_FORMATS.map((f) => "." + f).join(", ")}` : "") +
+            ". Tell the user which of those you can give them.",
+        };
+      }
+      const format = convertible && isExportAs(asked) ? asked : undefined;
       const res = await exporter.run(a, dest, format);
       return {
         ok: true,
@@ -649,7 +686,7 @@ export function createArtifactDeleteTool(deps: ArtifactToolDeps): Tool {
     async execute(args, ctx) {
       const id = typeof args.id === "string" ? args.id.trim() : "";
       if (!id) return { ok: false, error: "bad_args", content: "artifact_delete: 'id' is required." };
-      const a = deps.store.get(id);
+      const a = artifactInScope(deps, id);
       if (!a) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
       deps.store.remove(id, ctx.sessionId);
       return {
@@ -794,7 +831,7 @@ function humanSize(bytes: number): string {
  * sentence saying where the artifact is. Silence is the failure this product
  * has already shipped too often. No bytes leave in that case, so it does not ask.
  */
-export function createArtifactSendTool(deps: { store: ArtifactStore; delivery: FileDelivery }): Tool {
+export function createArtifactSendTool(deps: { db: Database; store: ArtifactStore; delivery: FileDelivery }): Tool {
   const manifest: ToolManifest = {
     name: "artifact_send",
     description:
@@ -820,7 +857,7 @@ export function createArtifactSendTool(deps: { store: ArtifactStore; delivery: F
     async execute(args, ctx) {
       const id = typeof args.id === "string" ? args.id.trim() : "";
       if (!id) return { ok: false, error: "bad_args", content: "artifact_send: 'id' is required." };
-      const a = deps.store.get(id);
+      const a = artifactInScope(deps, id);
       if (!a) return { ok: false, error: "not_found", content: `No artifact with id ${id}.` };
 
       const platform = platformName(ctx.sessionId);

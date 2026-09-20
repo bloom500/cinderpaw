@@ -280,7 +280,22 @@ export const useArtifacts = create<ArtifactsStore>((set, get) => ({
     try {
       const picked = await saveDialog({
         defaultPath: row ? `${fileName(row.title)}${extensionFor(row.kind)}` : undefined,
-        filters: row ? [{ name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind).slice(1)] }] : undefined,
+        // The native format first, then what the sidecar can convert a text
+        // artifact into: it picks the conversion from the extension of the
+        // path chosen here (export.ts `exportAs`), so a name ending in .docx
+        // is a Word file, not the source bytes renamed.
+        filters: row
+          ? [
+              { name: row.kind.toUpperCase(), extensions: [extensionFor(row.kind).slice(1)] },
+              ...(CONVERTIBLE.has(row.kind)
+                ? [
+                    { name: 'PDF', extensions: ['pdf'] },
+                    { name: 'Word', extensions: ['docx'] },
+                    { name: 'Excel', extensions: ['xlsx'] },
+                  ]
+                : []),
+            ]
+          : undefined,
       });
       if (picked === null) return; // the dialog opened and they cancelled
       dest = picked;
@@ -605,6 +620,9 @@ export function googlePlan(kind: string): { mime: string; convert: boolean } | n
     default: return null;
   }
 }
+
+/** The text kinds the sidecar can turn into a PDF, a Word or an Excel file. */
+const CONVERTIBLE = new Set(['document', 'markdown', 'app', 'table', 'code', 'json', 'html']);
 
 /** Mirrors `EXT` in the sidecar's artifacts/store.ts. */
 function extensionFor(kind: string): string {

@@ -29,7 +29,9 @@ function setup(serve?: (url: string) => CinderpawFetchResponse) {
     fetch: async (url: string) => serve!(url),
   } as never;
   return {
-    store, ctx,
+    // The tools only see the active workspace now (Astra D2, 20 Sep), so a
+    // test that seeds the store directly has to seed it there.
+    store, ctx, ws: tools.activeWorkspaceId(db.raw),
     download: tools.createArtifactDownloadTool({ ...deps, allowedDomains: ["*"] }),
     read: tools.createArtifactReadTool(deps),
     edit: tools.createArtifactEditTool(deps),
@@ -91,7 +93,7 @@ function truncatedPdfStub(): Uint8Array {
 describe("reading and filling a PDF form", () => {
   test("read lists the form's fields, and `fields` fills them", async () => {
     const t = setup();
-    const a = t.store.create({ kind: "pdf", title: "F", content: await formPdf(), workspaceId: "w", sessionId: "s" });
+    const a = t.store.create({ kind: "pdf", title: "F", content: await formPdf(), workspaceId: t.ws, sessionId: "s" });
     const read = await t.read.execute({ id: a.id }, t.ctx);
     expect(read.content).toContain("- nume (text)");
     const res = await t.edit.execute({ id: a.id, fields: { nume: "Darius Popescu" } }, t.ctx);
@@ -102,7 +104,7 @@ describe("reading and filling a PDF form", () => {
   test("a flat form: layout finds the blank, and text placed there lands on that line", async () => {
     const t = setup();
     const pdf = await pdfFromMarkdown("# Cerere\n\nNume și prenume: ....................\n\nData: ..........", "C");
-    const a = t.store.create({ kind: "pdf", title: "C", content: pdf, workspaceId: "w", sessionId: "s" });
+    const a = t.store.create({ kind: "pdf", title: "C", content: pdf, workspaceId: t.ws, sessionId: "s" });
 
     const read = await t.read.execute({ id: a.id, layout: true }, t.ctx);
     const line = read.content.split("\n").find((l) => l.startsWith("p") && l.includes("Nume și prenume"))!;
@@ -122,7 +124,7 @@ describe("reading and filling a PDF form", () => {
 
   test("a bad position is refused with the rules, not written off the page", async () => {
     const t = setup();
-    const a = t.store.create({ kind: "pdf", title: "C", content: await pdfFromMarkdown("x", "x"), workspaceId: "w", sessionId: "s" });
+    const a = t.store.create({ kind: "pdf", title: "C", content: await pdfFromMarkdown("x", "x"), workspaceId: t.ws, sessionId: "s" });
     const res = await t.edit.execute({ id: a.id, place: [{ page: 1, x: 40, y: 0.5, text: "oops" }] }, t.ctx);
     expect(res.ok).toBe(false);
     expect(res.content).toContain("fractions between 0 and 1");
@@ -140,7 +142,7 @@ describe("a Word form", () => {
 
   test("reads as text and fills by find/replace", async () => {
     const t = setup();
-    const a = t.store.create({ kind: "docx", title: "Anexa", content: docx, workspaceId: "w", sessionId: "s" });
+    const a = t.store.create({ kind: "docx", title: "Anexa", content: docx, workspaceId: t.ws, sessionId: "s" });
     expect((await t.read.execute({ id: a.id }, t.ctx)).content).toBe("Nume: ..........");
     const res = await t.edit.execute({ id: a.id, find: "..........", replace: "Darius Popescu" }, t.ctx);
     expect(res.ok).toBe(true);
@@ -149,7 +151,7 @@ describe("a Word form", () => {
 
   test("a whole rewrite is refused, because it would lose the layout", async () => {
     const t = setup();
-    const a = t.store.create({ kind: "docx", title: "Anexa", content: docx, workspaceId: "w", sessionId: "s" });
+    const a = t.store.create({ kind: "docx", title: "Anexa", content: docx, workspaceId: t.ws, sessionId: "s" });
     const res = await t.edit.execute({ id: a.id, content: "new text" }, t.ctx);
     expect(res.ok).toBe(false);
     expect(docxText(t.store.readBytes(a.id)!)).toBe("Nume: ..........");

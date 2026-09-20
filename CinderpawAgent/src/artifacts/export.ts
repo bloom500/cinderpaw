@@ -26,6 +26,7 @@ import {
 import { ArtifactStore, type Artifact } from "./store.ts";
 import { inlineApp } from "./app.ts";
 import { pdfFromMarkdown } from "./pdf.ts";
+import { docxFromMarkdown, tableRows, xlsxFromRows } from "./office.ts";
 import { htmlToText } from "../tools/builtin/fetch-url.ts";
 
 /**
@@ -60,13 +61,21 @@ export function safeFileName(title: string): string {
  * they typed or picked in the save dialog ending in `.pdf`. Before this, that
  * picked name wrote HTML bytes into a file called `.pdf`, which no reader opens.
  */
-export type ExportAs = "pdf" | undefined;
+export type ExportAs = "pdf" | "docx" | "xlsx" | undefined;
+
+/** The conversions that exist. Anything else asked for is refused by name. */
+export const EXPORT_FORMATS: ReadonlyArray<Exclude<ExportAs, undefined>> = ["pdf", "docx", "xlsx"];
+
+export function isExportAs(s: string): s is Exclude<ExportAs, undefined> {
+  return (EXPORT_FORMATS as readonly string[]).includes(s);
+}
 
 export function exportAs(a: Artifact, dest: string | undefined, asked: ExportAs): ExportAs {
   // Already a PDF: it goes out byte for byte, as it always did.
   if (a.kind === "pdf" || !ArtifactStore.isTextKind(a.kind)) return undefined;
-  if (asked === "pdf") return "pdf";
-  return dest !== undefined && /\.pdf$/i.test(dest.trim()) ? "pdf" : undefined;
+  if (asked) return asked;
+  const ext = /\.(pdf|docx|xlsx)$/i.exec(dest?.trim() ?? "");
+  return ext ? (ext[1]!.toLowerCase() as ExportAs) : undefined;
 }
 
 /**
@@ -113,14 +122,24 @@ export async function artifactFile(
   version?: number,
 ): Promise<{ name: string; content: string | Uint8Array; note: string }> {
   const readText = () => (version == null ? store.read(a.id) : store.readVersion(a.id, version));
-  if (as === "pdf") {
+  if (as === "pdf" || as === "docx") {
     const text = readText();
     if (text === null) throw new Error(`Artifact ${a.id} has no readable content.`);
     const md = a.kind === "document" || a.kind === "html" || a.kind === "app" ? htmlToMarkdown(text) : text;
     return {
-      name: `${safeFileName(a.title)}.pdf`,
-      content: await pdfFromMarkdown(md, a.title),
-      note: a.kind === "app" ? " A PDF is paper: the app's controls do not work in it." : "",
+      name: `${safeFileName(a.title)}.${as}`,
+      content: as === "pdf" ? await pdfFromMarkdown(md, a.title) : await docxFromMarkdown(md, a.title),
+      note: a.kind === "app" ? ` A ${as === "pdf" ? "PDF" : "Word file"} is paper: the app's controls do not work in it.` : "",
+    };
+  }
+  if (as === "xlsx") {
+    const text = readText();
+    if (text === null) throw new Error(`Artifact ${a.id} has no readable content.`);
+    const { header, rows } = tableRows(text);
+    return {
+      name: `${safeFileName(a.title)}.xlsx`,
+      content: await xlsxFromRows(header, rows, a.title),
+      note: a.kind === "table" || rows.length > 0 ? "" : " No table was found in it, so the sheet holds the text as one cell.",
     };
   }
   const name = `${safeFileName(a.title)}${ArtifactStore.extensionFor(a.kind)}`;

@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase } from "../src/db.ts";
 import { ArtifactStore } from "../src/artifacts/store.ts";
-import { createArtifactSendTool, type FileDelivery } from "../src/tools/builtin/artifact.ts";
+import { activeWorkspaceId, createArtifactSendTool, type FileDelivery } from "../src/tools/builtin/artifact.ts";
 import { ConnectorManager, type AgentLike } from "../src/transports/connectors.ts";
 import { registerTransport, transportFor, type OutboundFile } from "../src/transports/registry.ts";
 import { TelegramConnector } from "../src/transports/telegram.ts";
@@ -27,7 +27,7 @@ function setup(channel: ReturnType<FileDelivery["fileChannel"]>) {
     kind: "markdown",
     title: "Q3: report",
     content: "# Q3",
-    workspaceId: "ws-1",
+    workspaceId: activeWorkspaceId(db.raw),
     sessionId: "telegram:7:7",
   });
   const files: OutboundFile[] = [];
@@ -41,7 +41,7 @@ function setup(channel: ReturnType<FileDelivery["fileChannel"]>) {
       texts.push(t);
     },
   };
-  const tool = createArtifactSendTool({ store, delivery });
+  const tool = createArtifactSendTool({ db: db.raw, store, delivery });
   const questions: string[] = [];
   const run = (answer: (() => Promise<string>) | null) =>
     tool.execute({ id: artifact.id }, {
@@ -275,7 +275,7 @@ describe("artifact tool manifests", () => {
     const tools = [
       t.createArtifactCreateTool(deps), t.createArtifactListTool(deps), t.createArtifactReadTool(deps),
       t.createArtifactEditTool(deps), t.createArtifactExportTool(deps), t.createArtifactDeleteTool(deps),
-      t.createArtifactSendTool({ store, delivery }),
+      t.createArtifactSendTool({ db: db.raw, store, delivery }),
       t.createArtifactDownloadTool({ ...deps, allowedDomains: ["*"] }),
     ];
     for (const tool of tools) expect(() => validateManifest(tool.manifest)).not.toThrow();
