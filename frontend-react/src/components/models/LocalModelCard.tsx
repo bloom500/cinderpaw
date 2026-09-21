@@ -82,6 +82,12 @@ export function LocalModelCard({ model, onDelete }: Props) {
   const isLoadingThis = isLoading && loadProgress !== null && !isActive;
 
   const displayName = cleanModelName(model.name);
+  // The host's verdict (the same rule behind refuse_if_embedding): an
+  // embedding model turns text into vectors for memory and search, and cannot
+  // hold a conversation. It used to sit in this list with a quality label, a
+  // tok/s estimate and a Load button, like a chat model that happened to be
+  // small (20 Sep).
+  const isEmbedding = model.is_embedding;
   const sizeStr     = sizeGb(model.size_bytes);
   const quality     = quantToQuality(model.quant ?? '');
   const { label: badgeLabel, variant } = quantToBadge(model.quant ?? '');
@@ -134,14 +140,14 @@ export function LocalModelCard({ model, onDelete }: Props) {
       <div className="flex items-center gap-2 text-xs text-text-muted">
         <span>{sizeStr}</span>
         <span>·</span>
-        <span>{quality}</span>
+        <span>{isEmbedding ? 'Embedding model: used for memory and search, not for chat' : quality}</span>
         <span className={cn('ml-auto text-micro px-1.5 py-0.5 rounded', badgeClass[variant])}>
           {badgeLabel}
         </span>
       </div>
 
       {/* ── Fit score row ── */}
-      {fit && fitStyle && (
+      {fit && fitStyle && !isEmbedding && (
         <TooltipProvider delayDuration={200}>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -246,12 +252,14 @@ export function LocalModelCard({ model, onDelete }: Props) {
             </>
           ) : (
             <>
-              <button
-                type="button" onClick={() => { void handleLoad(); }} disabled={isDeleting || isLoading} aria-label="Load"
-                className="flex-1 text-xs py-1.5 rounded bg-bg-elevated text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-60"
-              >
-                Load
-              </button>
+              {!isEmbedding && (
+                <button
+                  type="button" onClick={() => { void handleLoad(); }} disabled={isDeleting || isLoading} aria-label="Load"
+                  className="flex-1 text-xs py-1.5 rounded bg-bg-elevated text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-60"
+                >
+                  Load
+                </button>
+              )}
               <button
                 type="button" onClick={() => setConfirmOpen(true)} disabled={isDeleting} aria-label="Delete"
                 className="flex-1 text-xs py-1.5 rounded border border-border-default text-text-muted hover:bg-bg-hover transition-colors disabled:opacity-60"

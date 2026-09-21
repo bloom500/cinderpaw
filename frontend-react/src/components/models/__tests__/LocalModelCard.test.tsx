@@ -87,3 +87,15 @@ describe('LocalModelCard', () => {
     expect(within(dialog).getByRole('button', { name: /deleting/i })).toBeDisabled();
   });
 });
+
+describe('an embedding model', () => {
+  it('says what it is for and offers no Load button', () => {
+    mockUseModel.mockImplementation((sel: any) =>
+      sel({ loaded: null, isLoading: false, loadProgress: null, load: vi.fn(), unload: vi.fn() })
+    );
+    render(<LocalModelCard model={{ ...model, id: 'bge', name: 'bge-m3-Q8_0.gguf', is_embedding: true }} onDelete={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /load/i })).toBeNull();
+    expect(screen.getByText(/used for memory and search, not for chat/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument();
+  });
+});

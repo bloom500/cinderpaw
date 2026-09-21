@@ -16,6 +16,7 @@ import { useT } from '@/lib/i18n';
 import { modelLabel, refreshCatalog } from '@/lib/modelCatalog';
 import { ModelLogo, modelDisplayName, providerName } from '@/lib/modelLogos';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
+import { router } from '@/router';
 import { BackendBadge } from '@/components/BackendBadge';
 
 // Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
@@ -190,7 +191,9 @@ export function ModelPickerPopover() {
     <DropdownMenu onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
-          className="flex min-w-0 items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-muted hover:text-text-secondary transition-colors outline-hidden"
+          // text-secondary, not muted: this is the name of the model that will answer,
+          // and muted on the light typing bar read as a placeholder (20 Sep).
+          className="flex min-w-0 items-center gap-1.5 h-full pl-2.5 pr-2 text-xs text-text-secondary hover:text-text-primary transition-colors outline-hidden"
           title={shown ? `${label} · via ${route}` : undefined}
         >
           {shown && <ModelLogo modelId={shown.modelId} provider={shown.provider} />}
@@ -288,9 +291,12 @@ export function ModelPickerPopover() {
               return (
                 <DropdownMenuItem
                   key={p.id}
-                  disabled={!modelId}
+                  // Not `disabled`: a disabled row is drawn at half opacity, and
+                  // the one line on it is an instruction ("set a default model in
+                  // Cloud Keys") that measured 2.7:1 in the light theme (20 Sep).
+                  // The instruction is the action, so the row performs it.
                   onClick={() => {
-                    if (!modelId) return;
+                    if (!modelId) { void router.navigate('/settings?cat=byok'); return; }
                     if (isAgentMode) {
                       void selectCloudAgent(p.id, modelId);
                     } else {

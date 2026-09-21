@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, Folder, MessageSquarePlus, Box, Sun, Moon, Bot, MessageSquare, type LucideIcon } from 'lucide-react';
+import { Search, X, Folder, Globe, MessageSquarePlus, Box, Sun, Moon, Bot, MessageSquare, type LucideIcon } from 'lucide-react';
+import { useBrowser, type BrowserTab } from '@/stores/browser';
+import { fuzzyScore } from '@/lib/browserHistory';
 import { useNavigate } from 'react-router-dom';
 import { useUI } from '@/stores/ui';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
@@ -20,7 +22,10 @@ import { CATS, type Category } from '@/lib/settingsCategories';
 type SearchResult =
   | { kind: 'action'; action: PaletteAction }
   | { kind: 'project'; project: Project; chatCount: number }
-  | { kind: 'conversation'; conv: ConversationSummary; snippet: string | null };
+  | { kind: 'conversation'; conv: ConversationSummary; snippet: string | null }
+  /** An open browser tab: "ope" finds openrouter without scrolling the strip. */
+  | { kind: 'tab'; tab: BrowserTab };
+
 
 /**
  * Something the app can DO, found by typing its name. The field that finds a
@@ -203,6 +208,16 @@ export function SearchOverlay() {
       .map((action) => ({ kind: 'action', action }));
   };
 
+  const browserTabs = useBrowser((b) => b.tabs);
+  const matchedTabs = (q: string): SearchResult[] =>
+    browserTabs
+      .filter((t) => t.url !== 'about:blank')
+      .map((tab) => ({ tab, score: Math.max(fuzzyScore(q, tab.title), fuzzyScore(q, tab.url.replace(/^https?:\/\/(www\.)?/, ''))) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+      .map(({ tab }) => ({ kind: 'tab' as const, tab }));
+
   /**
    * Results actually rendered. Inside a project scope only its conversations
    * survive, and project rows are dropped — you are already in one.
@@ -226,7 +241,7 @@ export function SearchOverlay() {
         .map((conv): SearchResult => ({ kind: 'conversation', conv, snippet: null }));
       return [...projects, ...convs];
     }
-    if (!scope) return [...matchedActions(query), ...results];
+    if (!scope) return [...matchedActions(query), ...matchedTabs(query), ...results];
     // Inside a project with nothing typed yet, the answer is what the project
     // CONTAINS. Filtering an empty search would report "nothing matches" about
     // a question the user never asked — which is how opening a project from
@@ -267,6 +282,13 @@ export function SearchOverlay() {
       inputRef.current?.focus();
       return;
     }
+    if (r.kind === 'tab') {
+      closeSearch();
+      const b = useBrowser.getState();
+      b.setPanel(true);
+      await b.switchTab(r.tab.id);
+      return;
+    }
     closeSearch();
     navigate('/chat');
     await convOpen(r.conv.id);
@@ -285,7 +307,7 @@ export function SearchOverlay() {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Pill input */}
-        <div className="flex items-center gap-3 bg-bg-surface border border-bg-hover rounded-3xl px-4 h-[52px] shadow-xl">
+        <div className="flex items-center gap-3 bg-popover border border-bg-hover rounded-3xl px-4 h-[52px] shadow-xl">
           <Search size={20} className="text-text-muted shrink-0" />
           <input
             ref={inputRef}
@@ -352,7 +374,9 @@ export function SearchOverlay() {
           <div
             id="search-results"
             role="listbox"
-            className="mt-2 bg-bg-surface border border-bg-hover rounded-2xl overflow-hidden shadow-xl max-h-[60vh] overflow-y-auto"
+            // bg-popover, not bg-surface: the surface is 34% ink and the conversation
+            // underneath read straight through the result list (light theme, 20 Sep).
+            className="mt-2 bg-popover border border-bg-hover rounded-2xl overflow-hidden shadow-xl max-h-[60vh] overflow-y-auto"
           >
             {!scope && !query.trim() && visible.length > 0 && (
               <div className="px-4 pt-3 pb-1 text-2xs uppercase tracking-wide text-text-disabled">
@@ -374,7 +398,7 @@ export function SearchOverlay() {
             ) : (
               visible.map((r, i) => (
                 <div
-                  key={r.kind === 'action' ? `a:${r.action.id}` : r.kind === 'project' ? `p:${r.project.id}` : `c:${r.conv.id}`}
+                  key={r.kind === 'action' ? `a:${r.action.id}` : r.kind === 'project' ? `p:${r.project.id}` : r.kind === 'tab' ? `t:${r.tab.id}` : `c:${r.conv.id}`}
                   // Presentational so the option stays the listbox's child as
                   // far as assistive tech is concerned; the row is only layout.
                   role="presentation"
@@ -397,6 +421,16 @@ export function SearchOverlay() {
                       </div>
                       {r.action.keys && <Kbd keys={r.action.keys} />}
                     </div>
+                  ) : r.kind === 'tab' ? (
+                    <>
+                      <div className="flex items-center gap-2 text-sm font-medium text-text-primary truncate">
+                        <Globe size={14} className="shrink-0 text-text-muted" aria-hidden />
+                        {highlight(r.tab.title || r.tab.url, query)}
+                      </div>
+                      <div className="text-2xs text-text-disabled mt-0.5 truncate">
+                        Open tab · {r.tab.url.replace(/^https?:\/\/(www\.)?/, '')}
+                      </div>
+                    </>
                   ) : r.kind === 'project' ? (
                     <>
                       <div className="flex items-center gap-2 text-sm font-medium text-text-primary truncate">

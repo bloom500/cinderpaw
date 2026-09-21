@@ -599,7 +599,11 @@ export function CallOverlay({
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-10 h-8" />
 
       <div
-        className="call-stage relative flex flex-1 flex-col items-center justify-center gap-10 overflow-hidden px-6"
+        // `justify-center-safe` + a vertical scroll: with a plain centre, a tall
+        // ask_user card grew the column both ways and pushed the sphere out of
+        // the top of a clipped stage (20 Sep). Safe centring keeps the stack
+        // centred while it fits and top-aligned, scrollable, once it does not.
+        className="call-stage relative flex flex-1 flex-col items-center justify-center-safe gap-10 overflow-x-hidden overflow-y-auto px-6"
         style={{
           // The overlay carries its own text scale, and it has to.
           //

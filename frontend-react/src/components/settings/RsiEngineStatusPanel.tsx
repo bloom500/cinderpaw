@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Activity, AlertTriangle, Pause, RefreshCw, Square, Zap } from 'lucide-react';
 import { tauri, type RsiStatus } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
+import { useSettings } from '@/stores/settings';
 
 /** Polling cadence for the engine status panel. Two seconds is the smallest
  *  interval that feels live without flooding the IPC channel; the engine
@@ -29,6 +30,7 @@ export function RsiEngineStatusPanel() {
   const [error, setError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
+  const budget = useSettings((st) => st.settings?.rsi_max_cost_usd ?? 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,10 +98,14 @@ export function RsiEngineStatusPanel() {
 
   const e = status.engine;
   const running = e?.running === true;
-  const capped = (status.max_total_cost_usd ?? null) !== null;
-  const capDisplay = capped
+  // Two different numbers used to share the word "cap": the person's cloud
+  // budget from the selector above ($1) and the engine's own hard safety
+  // ceiling ($25 by default), so the card contradicted the control next to it
+  // (20 Sep). Both are shown, each by its name.
+  const hardLimit = (status.max_total_cost_usd ?? null) !== null
     ? `$${(status.max_total_cost_usd as number).toFixed(2)}`
-    : 'unbounded';
+    : 'none';
+  const spendLine = `${budget > 0 ? `budget $${budget.toFixed(2)}` : 'local only'} · hard limit ${hardLimit}`;
 
   return (
     <div className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-3 space-y-3">
@@ -134,7 +140,7 @@ export function RsiEngineStatusPanel() {
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-2xs sm:grid-cols-4">
         <Stat label="Iteration" value={e ? e.iteration.toLocaleString() : '-'} />
         <Stat label="Best score" value={e?.best_score != null ? e.best_score.toFixed(3) : '-'} />
-        <Stat label="Spent" value={`$${(e?.cost_so_far_usd ?? 0).toFixed(4)}`} sub={capped ? `cap ${capDisplay}` : 'no cap'} />
+        <Stat label="Spent" value={`$${(e?.cost_so_far_usd ?? 0).toFixed(4)}`} sub={spendLine} />
         <Stat label="Main tip" value={status.main_tip ? status.main_tip.slice(0, 7) : '-'} sub={status.main_tip_score != null ? status.main_tip_score.toFixed(3) : 'no score'} />
       </div>
 

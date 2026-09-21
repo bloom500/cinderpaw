@@ -100,3 +100,23 @@ describe('a send that fails', () => {
     expect(useNotifications.getState().toasts).toHaveLength(0);
   });
 });
+
+// Files dropped from the OS arrive as HTML5 drop events: with `dragDropEnabled`
+// off in tauri.conf.json Tauri emits nothing, and the browser app never had
+// Tauri events. Without an HTML5 handler a drop did nothing at all (20 Sep).
+describe('a file dropped on the composer', () => {
+  it('is attached through the same helper as a paste', async () => {
+    const attachments = await import('@/lib/attachments');
+    const spy = vi.spyOn(attachments, 'attachmentsFromClipboard').mockResolvedValue([]);
+    render(<ChatInput alwaysEnabled />);
+    const composer = screen.getByRole('textbox').closest('[class*="rounded-[28px]"]') as HTMLElement;
+    expect(composer).not.toBeNull();
+    const dataTransfer = { types: ['Files'], items: [], files: [] } as unknown as DataTransfer;
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.dragOver(composer, { dataTransfer });
+    expect(screen.getByText('Drop to attach')).toBeInTheDocument();
+    fireEvent.drop(composer, { dataTransfer });
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(dataTransfer));
+    expect(screen.queryByText('Drop to attach')).toBeNull();
+  });
+});

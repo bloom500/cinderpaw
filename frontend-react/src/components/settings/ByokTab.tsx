@@ -121,7 +121,8 @@ function ProviderRow({ def, state }: { def: ProviderDef; state?: ByokProvider })
           'text-xs px-2 py-0.5 rounded-full shrink-0 border',
           isActive
             ? 'bg-success/25 border-success/40 text-success-text'
-            : 'bg-black/40 border-white/10 text-text-secondary',
+            // Ink on ink in the light theme: dark chip, dark text, 3.0:1 (20 Sep).
+            : 'bg-bg-elevated border-border-default text-text-secondary',
         )}>
           {isActive ? 'Active' : 'Not configured'}
         </span>

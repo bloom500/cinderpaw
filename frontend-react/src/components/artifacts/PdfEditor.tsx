@@ -69,10 +69,14 @@ export function PdfEditor({
   }, [base64]);
 
   // Pages are drawn at the panel's width, and redrawn when it is resized.
+  // Measured on the component root, not on the page column inside the scroll
+  // area: Radix lays that column out as a table, so it grows to the widest
+  // page and never shrinks back, and pages drawn wide once stayed wide after
+  // the panel was narrowed (20 Sep). The root follows the panel both ways.
   useEffect(() => {
     const el = boxRef.current;
     if (!el) return;
-    const measure = () => setWidth(Math.max(200, el.clientWidth - 24));
+    const measure = () => setWidth(Math.max(200, el.clientWidth - 32)); // side padding + the scroll bar
     // Measured once now, so the first pages draw without waiting a frame.
     measure();
     const ro = new ResizeObserver(measure);
@@ -121,7 +125,7 @@ export function PdfEditor({
   if (failed) return <p className="px-3 py-3 text-2xs text-(--warning)">{failed}</p>;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={boxRef} className="flex min-h-0 flex-1 flex-col">
       {editing && (
         <div role="toolbar" aria-label="PDF tools" className="flex items-center gap-1 border-b border-border-subtle px-2 py-1">
           <ArtifactAction
@@ -184,7 +188,7 @@ export function PdfEditor({
       )}
 
       <ScrollArea className="flex-1">
-        <div ref={boxRef} className="flex flex-col items-center gap-3 px-3 py-3">
+        <div className="flex flex-col items-center gap-3 px-3 py-3">
           {!doc || width === 0 ? (
             <Loader2 size={16} className="my-6 animate-spin text-text-muted" />
           ) : (

@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import { useUI } from '@/stores/ui';
 
 /**
  * A year of days, shaded by how much happened on each.
@@ -86,6 +87,9 @@ export function ActivityGrid({
   timestamps: string[];
   className?: string;
 }) {
+  // The interface language, not the OS locale: the rest of the page is
+  // English while these labels came out Romanian on a Romanian Windows (20 Sep).
+  const locale = useUI((u) => u.language);
   const { counts, streak, total } = useMemo(() => activityByDay(timestamps), [timestamps]);
 
   // The calendar year, January on the left, rows Monday to Sunday: the year
@@ -124,14 +128,14 @@ export function ActivityGrid({
     () =>
       weeks.map((week) => {
         const firstOfMonth = week.find((d) => d.inYear && d.date.getDate() === 1);
-        return firstOfMonth ? firstOfMonth.date.toLocaleDateString(undefined, { month: 'short' }) : null;
+        return firstOfMonth ? firstOfMonth.date.toLocaleDateString(locale, { month: 'short' }) : null;
       }),
-    [weeks],
+    [weeks, locale],
   );
 
   const weekdays = useMemo(
-    () => weeks[0]!.map((d) => d.date.toLocaleDateString(undefined, { weekday: 'short' })),
-    [weeks],
+    () => weeks[0]!.map((d) => d.date.toLocaleDateString(locale, { weekday: 'short' })),
+    [weeks, locale],
   );
 
   // What happened THIS year, for the line under the grid: the streak is
@@ -179,7 +183,7 @@ export function ActivityGrid({
                   key={key}
                   // `title` rather than a tooltip component: this is 365 elements,
                   // and 365 mounted tooltips is a scroll that stutters.
-                  title={`${date.toLocaleDateString()}: ${n === 0 ? 'nothing' : `${n} conversation${n === 1 ? '' : 's'}`}`}
+                  title={`${date.toLocaleDateString(locale)}: ${n === 0 ? 'nothing' : `${n} conversation${n === 1 ? '' : 's'}`}`}
                   className={cn(
                     'aspect-square rounded-[2px]',
                     TINT[levelOf(n)],

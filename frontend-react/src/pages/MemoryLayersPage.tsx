@@ -227,6 +227,35 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
   );
 }
 
+
+/**
+ * A memory is a fact, and a fact is an EDGE of the graph: `language —is→ Romanian`.
+ * The page used to list the graph's nodes, so the same fact showed up as two
+ * bare rows, "language" and "Romanian", with the relation nowhere (20 Sep).
+ * Each edge becomes one row in the shape the tiers already understand; a node
+ * with no edge at all (there should be none) is kept as it was.
+ */
+export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: string; to: string; relation: string }[] }): MemoryGraphNodeView[] {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const linked = new Set<string>();
+  const rows: MemoryGraphNodeView[] = [];
+  for (const e of graph.edges) {
+    const from = byId.get(e.from);
+    const to = byId.get(e.to);
+    if (!from || !to) continue;
+    linked.add(from.id);
+    linked.add(to.id);
+    rows.push({
+      id: `${e.from} ${e.relation} ${e.to}`,
+      label: `${from.label} ${e.relation.replace(/_/g, ' ')} ${to.label}`,
+      type: e.relation,
+      touched_at: Math.max(from.touched_at, to.touched_at),
+    });
+  }
+  for (const n of graph.nodes) if (!linked.has(n.id)) rows.push(n);
+  return rows;
+}
+
 export default function MemoryLayersPage() {
   const [nodes, setNodes] = useState<MemoryGraphNodeView[]>([]);
   const [dreamLast, setDreamLast] = useState<DreamEpisode[]>([]);
@@ -268,7 +297,7 @@ export default function MemoryLayersPage() {
         tauri.rsi.dreamTelemetry(20).catch(() => ({ episodes: 0, ratchets: 0, tokens: 0, iterations: 0, last: [] })),
         tauri.rsi.status().catch(() => null),
       ]);
-      setNodes(graph.nodes);
+      setNodes(factsOf(graph));
       setDreamLast(telemetry.last ?? []);
       const status = (rsi as { best_score?: number } | null);
       if (status && typeof status.best_score === 'number') setBestScore(status.best_score);

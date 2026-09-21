@@ -251,7 +251,9 @@ export function SkillHubDrawer() {
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ duration: 0.22, ease: 'easeInOut' }}
-            className="fixed right-0 top-0 bottom-0 w-[400px] z-40 bg-bg-surface border-l border-border-subtle flex flex-col shadow-2xl"
+            // bg-popover: paper, like every other panel that floats over the chat; on
+            // the 34%-ink surface the conversation read through it in the light theme.
+            className="fixed right-0 top-0 bottom-0 w-[400px] z-40 bg-popover border-l border-border-subtle flex flex-col shadow-2xl"
           >
             {/* Header. pt-8, not py-3.5: the window's own minimise/close buttons
                 sit in the top-right corner over everything, and the drawer's X

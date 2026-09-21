@@ -77,7 +77,7 @@ export function HardwareTab() {
           type="range" min={0} max={100} step={1}
           value={gpuPct}
           onChange={(e) => update({ default_gpu_layers: Number(e.target.value) })}
-          className="w-full accent-blue-500"
+          className="w-full"
         />
         <div className="flex justify-between text-xs text-text-muted">
           <span>CPU</span>

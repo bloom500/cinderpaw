@@ -176,8 +176,11 @@ export function ArtifactsPanel({
       {/* pt-6: the window's own close/maximize/minimize sit fixed at the top-right
           of the whole app (32px tall), and this panel is the rightmost thing on
           screen. Without it the panel's close button sat almost on the window's. */}
-      <ArtifactHeader className="px-3 pb-2.5 pt-6">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+      {/* flex-wrap: at the panel's narrowest (320px) six 32px actions left the
+          title two characters ("Rap…", 20 Sep). Wrapped, the actions drop
+          under the title instead of eating it; wide, nothing changes. */}
+      <ArtifactHeader className="flex-wrap px-3 pb-2.5 pt-6">
+        <div className="flex min-w-[10rem] flex-1 items-center gap-2">
           {open && !editing ? (
             <ArtifactAction tooltip="Back to the list" icon={ArrowLeft} onClick={close} />
           ) : open ? null : (

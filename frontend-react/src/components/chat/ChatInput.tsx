@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { ArrowUp, Square, Mic, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -262,6 +262,30 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     };
   }, []);
 
+  // HTML5 drop, the path that actually fires: `dragDropEnabled` is off in
+  // tauri.conf.json (25 Aug, so chats can be dragged in the rail), and with it
+  // off Tauri never emits the drag-drop events above, so a file dropped from
+  // the OS did nothing (20 Sep). The browser app has no Tauri events at all,
+  // so this is the one handler that works on every surface. A DataTransfer
+  // is what the paste helper already takes.
+  const hasFiles = (e: DragEvent<HTMLElement>) => Array.from(e.dataTransfer.types).includes('Files');
+  const onDragOver = (e: DragEvent<HTMLElement>) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const onDragLeave = (e: DragEvent<HTMLElement>) => {
+    // Leaving a child fires too; only a real exit of the composer clears it.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDragOver(false);
+  };
+  const onDrop = (e: DragEvent<HTMLElement>) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    setDragOver(false);
+    void attachmentsFromClipboard(e.dataTransfer).then(addFiles);
+  };
+
   // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Keep text.
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
@@ -460,6 +484,9 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           ref={composerRef}
           onFocusCapture={() => setEngaged(true)}
           onPointerDownCapture={() => setEngaged(true)}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
           className={cn(
             // A pill, from the HextaUI AI chat input: 28px is half the collapsed
             // height, so the ends are round, and the corners stay soft once it

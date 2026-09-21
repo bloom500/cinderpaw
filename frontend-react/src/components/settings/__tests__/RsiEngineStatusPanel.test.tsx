@@ -71,14 +71,18 @@ describe('RsiEngineStatusPanel', () => {
     expect(screen.queryByRole('button', { name: /stop/i })).not.toBeInTheDocument();
   });
 
-  it('shows the cap subline when max_total_cost_usd is set', async () => {
+  it("names the engine's hard limit and the person's budget separately, never one word 'cap' for both", async () => {
+    // Two numbers used to share the word "cap" and the card contradicted the
+    // $1 budget selector next to it (20 Sep).
     vi.spyOn(tauri.rsi, 'status').mockResolvedValue(makeStatus({
       max_total_cost_usd: 5.0,
     }) as any);
 
     render(<RsiEngineStatusPanel />);
 
-    expect(await screen.findByText(/cap \$5\.00/)).toBeInTheDocument();
+    expect(await screen.findByText(/hard limit \$5\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/local only|budget \$/)).toBeInTheDocument();
+    expect(screen.queryByText(/cap \$/)).toBeNull();
   });
 
   it('fires rsi_set_concurrency when a concurrency chip is clicked', async () => {

@@ -22,6 +22,7 @@ import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { notifyIfBackground, preview } from '@/lib/systemNotify';
 
 export interface CinderpawStreamHandlers {
   onChunk: (content: string) => void;
@@ -106,6 +107,9 @@ _${parsed.diagnostic}_`
               else h.onDone(shown, true);
             } else {
               h.onDone(shown, false);
+              // The person who left for another window is the one a long
+              // task is for; in the foreground the answer is already visible.
+              void notifyIfBackground('Cinderpaw finished', preview(parsed.content) || 'Your task is done.');
             }
           }
         }
@@ -251,6 +255,10 @@ _${parsed.diagnostic}_`
         // when ask_user events arrive outside an active generation (e.g. a
         // proactive ask from the inner-thoughts loop).
         routeAskUser(parsed.id, parsed.sessionId, parsed.questions);
+        void notifyIfBackground(
+          'Cinderpaw has a question',
+          preview(parsed.questions?.[0]?.question ?? '') || 'It is waiting for your answer.',
+        );
         break;
       case 'ask_user_cancelled':
         // Sidecar reports a cancel/timeout for ONE request (carries its id).
