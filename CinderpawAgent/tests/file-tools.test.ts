@@ -315,6 +315,36 @@ describe("file_search", () => {
     } finally { cleanup(); }
   });
 
+  it("never enters node_modules or a build tree", async () => {
+    // 20 Sep: one search walked a Downloads tree for 169 s and froze the
+    // sidecar. Dependency and build trees are where such walks go to die.
+    mkdirSync(join(tmp, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(tmp, "node_modules", "left-pad", "index.ts"), "// dep\n");
+    mkdirSync(join(tmp, "target", "debug"), { recursive: true });
+    writeFileSync(join(tmp, "target", "debug", "out.ts"), "// build\n");
+    const tool = createFileSearchTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const result = await tool.execute({ pattern: "**/*.ts", path: tmp }, ctx);
+      expect(result.ok).toBe(true);
+      const data = result.data as { results: { path: string }[] };
+      const names = data.results.map((r) => r.path.split(/[\\/]/).pop());
+      expect(names.sort()).toEqual(["index.ts", "list.ts", "loop.ts", "registry.ts"]);
+    } finally { cleanup(); }
+  });
+
+  it("stops with 'cancelled' when the call's signal aborts", async () => {
+    const tool = createFileSearchTool([tmp]);
+    const { ctx, cleanup } = makeCtx([tmp]);
+    try {
+      const ac = new AbortController();
+      ac.abort("user stop");
+      const result = await tool.execute({ pattern: "**/*.ts", path: tmp }, { ...ctx, signal: ac.signal });
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("cancelled");
+    } finally { cleanup(); }
+  });
+
   it("returns an empty list when nothing matches", async () => {
     const tool = createFileSearchTool([tmp]);
     const { ctx, cleanup } = makeCtx([tmp]);

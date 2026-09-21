@@ -281,7 +281,15 @@ export function deniedPaths(): { deny: string[]; exempt: string[] } {
     realpathBestEffort(resolve(homedir(), ".ssh")),
     ...cfgList("CINDERPAW_FS_DENY").map((p) => realpathBestEffort(p)),
   ];
-  return { deny, exempt: homes.map((h) => join(h, "workspace")) };
+  // Two doors in the wall, both by design: the agent's own workspace, and
+  // the skills folder. A skill is instructions the agent is meant to read and
+  // (when taught) write; nothing in there is a credential. Without this door
+  // every installed skill answered `read_skill` with "path is protected"
+  // (20 Sep) and the teach flow could not save what it was taught.
+  return {
+    deny,
+    exempt: homes.flatMap((h) => [join(h, "workspace"), join(h, "skills")]),
+  };
 }
 
 /**

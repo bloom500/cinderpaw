@@ -39,7 +39,8 @@ type Action =
   | "model_list"
   | "model_switch"
   | "gateway_restart"
-  | "gateway_stop";
+  | "gateway_stop"
+  | "report_bug";
 
 const ACTIONS: readonly Action[] = [
   "update_check",
@@ -48,6 +49,7 @@ const ACTIONS: readonly Action[] = [
   "model_switch",
   "gateway_restart",
   "gateway_stop",
+  "report_bug",
 ];
 
 export const cinderpawAdminTool: Tool = {
@@ -60,8 +62,13 @@ export const cinderpawAdminTool: Tool = {
       "set up; `model_switch` changes which one answers. `gateway_restart` " +
       "restarts you — useful after a change that needs a fresh start; it also " +
       "interrupts anything running in the background. `gateway_stop` shuts you " +
-      "down until a person starts you again. Use these instead of telling the " +
-      "person to open a terminal or a settings screen.",
+      "down until a person starts you again. `report_bug` sends a bug report to " +
+      "the Cinderpaw team through the same channel as Settings > About, with the " +
+      "app log attached: use it when the person tells you something in Cinderpaw " +
+      "is broken, and write the `description` yourself, in English, with what " +
+      "they saw, what you did (tools, errors, model), and what should have " +
+      "happened; the person is asked before anything is sent. Use these instead " +
+      "of telling the person to open a terminal or a settings screen.",
     // No sandbox permissions: this tool performs no fs, network or process
     // work. It only round-trips to the host, where the actions actually run.
     permissions: [],
@@ -72,7 +79,7 @@ export const cinderpawAdminTool: Tool = {
       type: "string",
       description:
           "One of: 'update_check', 'update_apply', 'model_list', 'model_switch', " +
-        "'gateway_restart', 'gateway_stop'.",
+        "'gateway_restart', 'gateway_stop', 'report_bug'.",
       required: true,
     },
     source: {
@@ -95,6 +102,14 @@ export const cinderpawAdminTool: Tool = {
     base_url: {
       type: "string",
       description: "model_switch only — optional override for the endpoint.",
+      required: false,
+    },
+    description: {
+      type: "string",
+      description:
+        "report_bug only — the report, in English: what the person saw, the exact " +
+        "steps, what you did and which tool or model failed with what error, and " +
+        "what should have happened. Facts you observed, not guesses.",
       required: false,
     },
   },
@@ -211,12 +226,34 @@ export const cinderpawAdminTool: Tool = {
       }
     }
 
+    // A bug report leaves the machine, with the app log in it. Settings > About
+    // sends nothing until the person presses the button; this is the same
+    // button, so the person presses it here too.
+    let description = "";
+    if (action === "report_bug") {
+      description = String(args.description ?? "").trim();
+      if (description.length < 20) {
+        return { ok: false, content: "report_bug needs a real description (what happened, steps, what you saw).", error: "bad_args" };
+      }
+      const refused = await confirm(
+        `Send this bug report to the Cinderpaw team, with the last lines of the app log attached?
+
+${description.slice(0, 600)}`,
+        "Send report",
+        "Goes to the team's Discord through the bug-report service, like the button in Settings > About.",
+        "Nothing is sent.",
+      );
+      if (refused) return refused;
+    }
+
     try {
       const data = await bridge.request(action, {
         source: args.source,
         model: args.model,
         provider_id: args.provider_id,
         base_url: args.base_url,
+        description,
+        include_log: true,
       });
       return { ok: true, content: summarize(action, data), data: data as never };
     } catch (err) {
@@ -255,6 +292,8 @@ function summarize(action: Action, data: unknown): string {
       return `Restarting in about ${String(d.in_seconds ?? 6)} seconds. Anything running in the background stops; I will be back on my own.`;
     case "gateway_stop":
       return `Shutting down in about ${String(d.in_seconds ?? 6)} seconds. I will not come back until you start Cinderpaw again.`;
+    case "report_bug":
+      return "Bug report sent to the Cinderpaw team, with the app log attached. Thank you.";
   }
 }
 

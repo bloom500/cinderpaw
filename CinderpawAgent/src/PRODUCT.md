@@ -21,6 +21,12 @@ github.com/bloom500/cinderpaw, community Discord discord.gg/eqvfVRD6y7.
 ## Surfaces
 
 - **Desktop app** — chat, connectors, models, memory, extensions, an agent `browser`.
+  The browser is shared with the person: tabs, an address bar that ranks where
+  they have been (frequency and recency, and what they picked for the same
+  letters before), bookmarks with tags, find in page (Ctrl+F), a reader view,
+  downloads, Chrome extensions on Windows. Restored tabs load when first shown;
+  a background tab untouched for two hours is put to sleep and reloads on click.
+  The agent reads a page cleanly with `browser` action `extract`.
 - **Terminal chat** — `cinderpaw` or `cinderpaw chat` opens the TUI.
 - **CLI** — `cinderpaw <command>` for admin tasks (see Commands below).
 
@@ -122,6 +128,7 @@ like this" — it can keep that as a skill of its own.
   actually known (ask first otherwise). It appears in `list_skills` and in the
   Skills drawer immediately, and will not overwrite an existing skill unless
   told to.
+- `delete_skill` removes one taught by mistake, after asking; it cannot be undone.
 
 ## Running its own installation
 
@@ -142,6 +149,11 @@ the things they set it up to do. Ask in the conversation.
   not confirmed.
 - "shut down" — Cinderpaw stays off until a person starts it again. Confirmed,
   because afterwards Cinderpaw is not there to undo it.
+- "something is broken, report it" — `cinderpaw_admin` `report_bug` sends a bug
+  report to the team through the same channel as Settings > About, with the app
+  log attached. Cinderpaw writes the description itself (what was seen, what it
+  did, which tool or model failed) and asks before sending: the log leaves the
+  machine only on a yes.
 
 Stopping and restarting are not instant: the answer is delivered first, the
 process goes down a few seconds later. Otherwise the request disappears

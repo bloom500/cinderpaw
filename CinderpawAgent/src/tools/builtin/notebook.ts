@@ -28,6 +28,12 @@ import type { ToolRegistry } from "../../tools/registry.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { hostToolNames } from "../tiers.ts";
 
+/** Tools that put a card in front of the person (ctx.askUser) before acting. */
+const ASKS_THE_PERSON = [
+  "ask_user", "cinderpaw_admin", "shell_exec", "install_capability", "computer_use",
+  "tool_forge", "artifact_send", "delete_skill",
+];
+
 export const NOTEBOOK_TOOL_NAME = "notebook";
 
 /**
@@ -212,13 +218,28 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
           // defined`, which reads as "that tool is missing" and sends it
           // hunting for a replacement. Two of 21 completions, on every task.
           // The message turns a dead completion into a corrected one.
-          unavailable: hostToolNames().map((name) => ({
-            name,
-            reason:
-              `${name} is provided by the host and cannot be called from a notebook cell. ` +
-              `A host tool suspends until the host answers, which cannot happen while this ` +
-              `cell is still running. Call ${name} directly as a tool instead.`,
-          })),
+          unavailable: [
+            ...hostToolNames().map((name) => ({
+              name,
+              reason:
+                `${name} is provided by the host and cannot be called from a notebook cell. ` +
+                `A host tool suspends until the host answers, which cannot happen while this ` +
+                `cell is still running. Call ${name} directly as a tool instead.`,
+            })),
+            // The same trap, one class over: a tool that asks the PERSON a
+            // question (ask_user, and everything that confirms before acting)
+            // waits on a card the window can only show once the loop yields.
+            // Called from a cell, the card never appears and the cell dies at
+            // the timeout: "report this bug" spent eight cells and twelve steps
+            // that way and never asked (20 Sep).
+            ...ASKS_THE_PERSON.map((name) => ({
+              name,
+              reason:
+                `${name} asks the person a question before it acts, and that question ` +
+                `cannot be shown while this cell is running. Call ${name} directly as a ` +
+                `tool instead.`,
+            })),
+          ],
           // One registry per session, so `list_subagents()` only ever shows a
           // parent its own direct children — upstream's rule.
           children: deps.runChild ? childrenFor(sessionId) : undefined,

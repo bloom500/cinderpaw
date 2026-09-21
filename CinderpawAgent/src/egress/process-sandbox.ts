@@ -265,12 +265,12 @@ export class RealProcessSandbox implements ProcessSandbox {
     //    each stream and abort the proc when the cap is reached so a
     //    runaway child cannot fill the host's memory.
     const cap = this.#config.maxOutputBytes;
-    const { stdout, stderr, truncated } = await this.#readWithCap(proc, cap, timeoutMs);
+    const { stdout, stderr, truncated, cancelled } = await this.#readWithCap(proc, cap, timeoutMs, options.signal);
 
     const durationMs = Date.now() - start;
     const exitCode = await proc.exited;
-    const timedOut = stdout.timedOut || stderr.timedOut;
-    const finalExit = timedOut ? -2 : exitCode;
+    const timedOut = !cancelled && (stdout.timedOut || stderr.timedOut);
+    const finalExit = cancelled ? -1 : timedOut ? -2 : exitCode;
 
     const result: ProcessRunResult = {
       exitCode: finalExit,
@@ -278,6 +278,7 @@ export class RealProcessSandbox implements ProcessSandbox {
       stderr: stderr.text,
       durationMs,
       timedOut,
+      cancelled,
       outputTruncated: truncated,
     };
 
@@ -293,7 +294,9 @@ export class RealProcessSandbox implements ProcessSandbox {
         timeoutMs,
       }),
       result: timedOut || finalExit !== 0 ? "error" : "success",
-      blockedReason: timedOut
+      blockedReason: cancelled
+        ? "process killed: stopped by the user"
+        : timedOut
         ? `process killed after ${timeoutMs}ms`
         : finalExit !== 0
           ? `exit code ${finalExit}`
@@ -452,12 +455,15 @@ export class RealProcessSandbox implements ProcessSandbox {
     proc: ReturnType<typeof Bun.spawn>,
     cap: number,
     timeoutMs: number,
+    signal?: AbortSignal,
   ): Promise<{
     stdout: { text: string; timedOut: boolean };
     stderr: { text: string; timedOut: boolean };
     truncated: boolean;
+    cancelled: boolean;
   }> {
     let truncated = false;
+    let cancelled = false;
     let stdoutTimedOut = false;
     let stderrTimedOut = false;
 
@@ -470,15 +476,20 @@ export class RealProcessSandbox implements ProcessSandbox {
     // platforms' lib definitions, but all expose cancel().
     const activeReaders: Array<{ cancel(reason?: unknown): Promise<void> }> = [];
 
-    // Timer that aborts the process if the overall timeout is reached.
-    const killTimer = setTimeout(() => {
+    const killNow = () => {
       stdoutTimedOut = true;
       stderrTimedOut = true;
       try { proc.kill("SIGKILL"); } catch { /* already dead */ }
       for (const r of activeReaders) {
         void r.cancel().catch(() => { /* stream already closed */ });
       }
-    }, timeoutMs);
+    };
+    // Timer that aborts the process if the overall timeout is reached.
+    const killTimer = setTimeout(killNow, timeoutMs);
+    // The user's Stop: same kill, different name on the result.
+    const onAbort = () => { cancelled = true; killNow(); };
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
 
     const readStream = async (
       stream: unknown,
@@ -534,9 +545,10 @@ export class RealProcessSandbox implements ProcessSandbox {
         readStream(proc.stdout, "stdout"),
         readStream(proc.stderr, "stderr"),
       ]);
-      return { stdout, stderr, truncated };
+      return { stdout, stderr, truncated, cancelled };
     } finally {
       clearTimeout(killTimer);
+      signal?.removeEventListener("abort", onAbort);
     }
   }
 }

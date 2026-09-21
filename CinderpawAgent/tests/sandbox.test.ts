@@ -152,6 +152,18 @@ describe("call-time deny wall (~/.cinderpaw, ~/.ssh, CINDERPAW_FS_DENY)", () => 
     expect(p.endsWith("notes.txt")).toBe(true);
   });
 
+  test("the skills subtree ~/.cinderpaw/skills stays readable and writable", () => {
+    // Every installed skill answered read_skill with "path is protected" until
+    // 20 Sep: instructions the agent is meant to read sat behind the credential
+    // wall. Keys stay denied one directory up.
+    const skill = join(CINDERPAW_HOME, "skills", "github", "SKILL.md");
+    expect(resolveAllowedPath(homeManifest, "fs:read", skill).endsWith("SKILL.md")).toBe(true);
+    expect(resolveAllowedPath(homeManifest, "fs:write", skill).endsWith("SKILL.md")).toBe(true);
+    expect(() =>
+      resolveAllowedPath(homeManifest, "fs:read", join(CINDERPAW_HOME, "byok.json")),
+    ).toThrow(/protected/);
+  });
+
   test("~/.ssh is denied", () => {
     expect(() =>
       resolveAllowedPath(homeManifest, "fs:read", join(homedir(), ".ssh", "id_rsa")),

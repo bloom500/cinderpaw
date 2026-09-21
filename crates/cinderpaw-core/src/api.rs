@@ -777,6 +777,9 @@ fn default_true() -> bool { true }
 /// inference plus a tool call can be slow; 120s idle is generous without
 /// hanging a dead sidecar's socket open forever.
 const CHAT_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+/// The absolute ceiling on one reply, silence or not: the unattended-run tool
+/// ceiling, so a task the desktop would let run is not cut short over the API.
+const CHAT_REPLY_CEILING: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 /// D3: forward a chat turn to the supervised sidecar and stream the reply.
 ///
@@ -1452,6 +1455,7 @@ pub(crate) async fn await_agent_reply(
     mut rx: broadcast::Receiver<crate::host::HostEvent>,
     msg_id: &str,
 ) -> Result<String, String> {
+    let started = std::time::Instant::now();
     loop {
         match tokio::time::timeout(CHAT_IDLE_TIMEOUT, rx.recv()).await {
             Ok(Ok(ev)) => {
@@ -1469,7 +1473,22 @@ pub(crate) async fn await_agent_reply(
             Ok(Err(broadcast::error::RecvError::Closed)) => {
                 return Err("runtime event bus closed before reply completed".into())
             }
-            Err(_) => return Err("timed out waiting for sidecar reply".into()),
+            // Silence is not failure. On 20 Sep a file search froze the sidecar
+            // for 169 s; this returned "timed out" at 120 s, the caller was told
+            // the work had failed, and the agent then finished it (the PDF was
+            // written). A tool that emits no progress (a long shell command, a
+            // large search) looks exactly the same. So the wait goes on until
+            // the reply arrives or the bus closes (a dead sidecar), with one
+            // absolute ceiling so a hung sidecar cannot hold a caller for ever.
+            Err(_) => {
+                if started.elapsed() >= CHAT_REPLY_CEILING {
+                    return Err(format!(
+                        "no reply from the sidecar after {} minutes",
+                        CHAT_REPLY_CEILING.as_secs() / 60
+                    ));
+                }
+                tracing::info!(msg_id, waited_s = started.elapsed().as_secs(), "chat reply: still waiting through sidecar silence");
+            }
         }
     }
 }
@@ -1490,6 +1509,7 @@ fn sse_from_agent_reply(
     use async_stream::stream;
     let s = stream! {
         let mut rx = rx;
+        let started = std::time::Instant::now();
         loop {
             let recv = tokio::time::timeout(CHAT_IDLE_TIMEOUT, rx.recv()).await;
             match recv {
@@ -1569,8 +1589,14 @@ fn sse_from_agent_reply(
                 }
                 Ok(Err(broadcast::error::RecvError::Closed)) => break,
                 Err(_) => {
-                    // Idle timeout — close the stream rather than hang.
-                    tracing::warn!(msg_id = %msg_id, "/runtime/chat idle timeout");
+                    // Silence is not the end of the turn (see await_agent_reply):
+                    // a tool without progress events looks like this for minutes
+                    // and the work is still happening. Only the ceiling closes it.
+                    if started.elapsed() < CHAT_REPLY_CEILING {
+                        tracing::info!(msg_id = %msg_id, waited_s = started.elapsed().as_secs(), "/runtime/chat: still waiting through sidecar silence");
+                        continue;
+                    }
+                    tracing::warn!(msg_id = %msg_id, "/runtime/chat reply ceiling reached");
                     yield Ok(Event::default().data("[DONE]"));
                     break;
                 }

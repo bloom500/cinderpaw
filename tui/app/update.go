@@ -597,10 +597,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.State = StateReady
 		if msg.ProbeOnly {
 			// Silent "is this provider already configured?" probe. Success
-			// means the gateway holds a working key: drop the key screen
-			// and go straight to the model list it just handed us.
-			// Failure means no usable stored key — say nothing and let the
-			// key screen render exactly as it always did.
+			// means the gateway holds a working key. The key screen STAYS,
+			// pre-filled with that fact: Enter keeps the stored key and goes
+			// on to the model list the probe just handed us; typing a key
+			// replaces it. It used to be skipped outright, which left no
+			// door for "I want to change my key" anywhere in the wizard
+			// (20 Sep). Failure means no usable stored key — say nothing
+			// and let the key screen render exactly as it always did.
 			w := &a.Wizard
 			if msg.Success {
 				w.ProviderHasKey = true
@@ -608,9 +611,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				w.KeyValidMsg = msg.Msg
 				w.ModelList = msg.Models
 				w.ModelIdx = indexOfModel(msg.Models, w.ModelID)
-				w.Path = dropStep(w.Path, WizCloudKey)
-				w.Step = WizCloudModel
-				w.PathIndex = pathIndexOf(w, WizCloudModel)
 			}
 			a.rebuildViewport()
 			return a, nil
@@ -2608,6 +2608,20 @@ func (a *App) wizardHandleKey(key tea.KeyMsg) tea.Cmd {
 				return nil
 			}
 			if w.APIKey == "" {
+				if !w.ProviderHasKey {
+					return nil
+				}
+				// Enter on the empty field keeps the stored key: the probe
+				// already proved it and fetched the models, so this is the
+				// same landing as a freshly validated key, minus the test.
+				w.lastCompleted = WizCloudKey
+				saveWizardProgress(WizCloudKey, w.SetupMode, w.Choice)
+				if err := a.saveCloudProvider(); err != nil {
+					w.KeyValidMsg = "saved config failed: " + err.Error()
+				}
+				w.pushStepHistory()
+				w.Step = nextPathStep(w)
+				a.rebuildViewport()
 				return nil
 			}
 			// Sprint 2 / audit C-2 — real key validation. Triggers a
@@ -2640,6 +2654,13 @@ func (a *App) wizardHandleKey(key tea.KeyMsg) tea.Cmd {
 			if w.ModelEditing {
 				w.ModelID += s
 			} else {
+				// A new key replaces the stored one: from the first character
+				// it is unproven again, so Enter validates it instead of
+				// keeping what was there.
+				if w.APIKey == "" && w.ProviderHasKey {
+					w.KeyValid = false
+					w.KeyValidMsg = ""
+				}
 				w.APIKey += s
 			}
 		}

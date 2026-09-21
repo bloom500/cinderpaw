@@ -140,6 +140,10 @@ export function createDelegateTaskTool(deps: {
         budget: { maxTokens, maxIterations },
         parentSessionId: deps.parentSessionIdFor(ctx.sessionId),
         onEvent,
+        // The parent's Stop reaches the child: the runner already turns this
+        // into a clean `cancelled` run, it was simply never handed over, so a
+        // stopped parent left its subagent working on (20 Sep).
+        signal: ctx.signal,
       };
 
       let r = await subagent.run({ ...base, task });

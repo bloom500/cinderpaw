@@ -645,15 +645,23 @@ function turnMark(what, ms = 0) {
  * On a model that already answered, the agent spoke first and this does nothing.
  */
 const TOOL_REPLY_GRACE_MS = 4000;
-const TOOL_REPLY_NUDGE =
-  'The result of the request you passed to Cinderpaw has just arrived in the conversation. ' +
-  'Tell the user what it says now, briefly, in the language they are speaking.';
-
-function nudgeToolReply(session, answeredAt) {
+// What `instructions` IS on a Gemini Live model, measured 20 Sep: the plugin
+// sends it as a turn with role "model", and a 3.8 model continues from "its
+// own" words, so the text is roughly what gets SPOKEN. An instruction about
+// the answer was read aloud in English ("The search is done, tell the user in
+// Romanian…") and the answer itself never came. `userInput` is no way out:
+// on 3.x the plugin then sends an empty turn list, which Google rejects
+// ("Failed to parse client content turns") and the call goes mute. So the
+// text handed over is the answer itself, which the sidecar already wrote in
+// the caller's language, and the model reads it. Same rule for `toolLate`
+// and for the spoken `ask_user` question below.
+function nudgeToolReply(session, answeredAt, answer) {
   setTimeout(() => {
     if (talk.agentSpokeAt >= answeredAt || talk.agent === 'speaking' || talk.user === 'speaking') return;
+    const text = String(answer ?? '').trim();
+    if (!text) return;
     try {
-      Promise.resolve(session.generateReply({ instructions: TOOL_REPLY_NUDGE })).catch((e) => {
+      Promise.resolve(session.generateReply({ instructions: text })).catch((e) => {
         console.error(`tool reply nudge failed: ${String(e?.message ?? e)}`);
       });
     } catch (e) {
@@ -781,7 +789,7 @@ function toolsFromDeclarations(session) {
             `voice_tool_call id=${id} tool=${decl.name} ms=${Date.now() - startedAt} ok=${!failed} pending=${Boolean(out?.pending)}`,
           );
           turnMark('tool', Date.now() - startedAt);
-          if (PROVIDER === 'google' && subject) nudgeToolReply(session, Date.now());
+          if (PROVIDER === 'google' && subject && !out?.pending) nudgeToolReply(session, Date.now(), out?.output);
           return out;
         } finally {
           // On every path. Left running after a failure, the call would go on
@@ -998,11 +1006,9 @@ async function assistant(ctx, makeSession) {
         // filler TTS exists to carry it.
         const spoken =
           PROVIDER === 'google'
-            ? session.generateReply({
-                instructions:
-                  'Read the following question to the user word for word, including the options, then stop and wait for their answer. Do not add options of your own: ' +
-                  text,
-              })
+            // `instructions` is what gets spoken (see nudgeToolReply): the
+            // question itself, word for word, options included.
+            ? session.generateReply({ instructions: text })
             : session.say(text);
         Promise.resolve(spoken).catch((e) => console.error(`ask could not be spoken: ${String(e?.message ?? e)}`));
       } catch (e) {
@@ -1018,14 +1024,9 @@ async function assistant(ctx, makeSession) {
     if (msg.type === 'toolLate' && msg.text) {
       console.log(`voice_tool_late id=${String(msg.id ?? '')} chars=${String(msg.text).length}`);
       try {
+        // The answer itself, in the caller's language: see nudgeToolReply.
         Promise.resolve(
-          session.generateReply({
-            instructions:
-              'The request you passed to Cinderpaw earlier, the one you told the user was still running, has finished. ' +
-              'Here is the result. Tell the user what it says now, briefly, in the language they are speaking.' +
-              BLANK_LINE +
-              String(msg.text),
-          }),
+          session.generateReply({ instructions: String(msg.text) }),
         ).catch((e) => console.error(`late tool reply failed: ${String(e?.message ?? e)}`));
       } catch (e) {
         console.error(`late tool reply could not start: ${String(e?.message ?? e)}`);

@@ -104,6 +104,7 @@ import { createReadSkillTool } from "./tools/builtin/read-skill.ts";
 import { createListSkillsTool } from "./tools/builtin/list-skills.ts";
 import { createCreateSkillTool } from "./tools/builtin/create-skill.ts";
 import { createSuggestSkillTool } from "./tools/builtin/suggest-skill.ts";
+import { createDeleteSkillTool } from "./tools/builtin/delete-skill.ts";
 import { createCapabilityTools } from "./tools/builtin/capability.ts";
 import { createCinderpawAdminTools } from "./tools/builtin/cinderpaw-admin.ts";
 import { createProductInfoTool } from "./tools/builtin/product-info.ts";
@@ -874,6 +875,8 @@ export async function boot(transportOverride?: Transport) {
   // create_skill: the write half, for "teach Cinderpaw a task". Writes next to
   // the installed ones, in the same shape, with the same content guard.
   registry.register(createCreateSkillTool(join(CINDERPAW_HOME, "skills")));
+  // delete_skill: its undo, for a skill taught by mistake (asks first).
+  registry.register(createDeleteSkillTool(join(CINDERPAW_HOME, "skills")));
   // suggest_skill: the model decides when a task is worth teaching; the
   // desktop shows the offer when it sees this tool on the stream.
   registry.register(createSuggestSkillTool());

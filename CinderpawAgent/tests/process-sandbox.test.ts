@@ -216,6 +216,33 @@ describe("RealProcessSandbox", () => {
     expect(result.exitCode).toBe(-2);
   });
 
+  it("kills the process when the signal aborts, before the timeout (the user's Stop)", async () => {
+    const manifest = makeEchoManifest([tmpDir]);
+    // Registry.call binds every spawning tool's sandbox to the call's signal;
+    // until 20 Sep the tool result said "cancelled" while the child ran on to
+    // its own timeout. Timeout is 10s here; the abort lands at 300ms.
+    const ac = new AbortController();
+    setTimeout(() => ac.abort("user stop"), 300);
+    const started = Date.now();
+    const result = isWin
+      ? await sandbox.run(manifest, "sess-stop", {
+          executable: "cmd",
+          args: ["/c", "ping", "-n", "10", "127.0.0.1", ">", "nul"],
+          timeoutMs: 10_000,
+          signal: ac.signal,
+        })
+      : await sandbox.run(manifest, "sess-stop", {
+          executable: "sh",
+          args: ["-c", "sleep 10"],
+          timeoutMs: 10_000,
+          signal: ac.signal,
+        });
+    expect(result.cancelled).toBe(true);
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(-1);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
   it("clamps timeoutMs to the configured ceiling", async () => {
     const sb = new RealProcessSandbox(noopAudit(), {
       maxTimeoutMs: 5_000,

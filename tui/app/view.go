@@ -1894,7 +1894,14 @@ func renderWizCloudKey(w *WizardState, width int) string {
 		}
 	}
 	keyLabel := "  key: "
-	b.WriteString(wizLine(keyLabel) + ui.AccentStyle.Render(masked))
+	if w.ProviderHasKey && w.APIKey == "" {
+		// The stored key, said out loud: without this a kept key and a
+		// forgotten one look the same, and the person has no idea that
+		// typing here replaces it.
+		b.WriteString(wizLine(keyLabel) + ui.AccentStyle.Render(masked) + wizLine("  ·  saved on this machine"))
+	} else {
+		b.WriteString(wizLine(keyLabel) + ui.AccentStyle.Render(masked))
+	}
 	if !w.ModelEditing {
 		b.WriteString(ui.AccentStyle.Render(ui.G.Cursor))
 	}
@@ -1911,7 +1918,9 @@ func renderWizCloudKey(w *WizardState, width int) string {
 	b.WriteByte('\n')
 	b.WriteByte('\n')
 
-	if w.KeyValid {
+	if w.ProviderHasKey && w.APIKey == "" {
+		b.WriteString(wizLine("  " + ui.AccentStyle.Render("Enter") + "  keep the saved key  ·  or type a new one to replace it"))
+	} else if w.KeyValid {
 		b.WriteString(ui.OkStyle.Render("  " + ui.G.OK + " connected"))
 	} else if a := w.KeyValidMsg; a != "" && w.APIKey != "" {
 		b.WriteString(ui.WarnStyle.Render("  " + ui.G.Err + " " + a))

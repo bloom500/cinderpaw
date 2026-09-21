@@ -221,3 +221,49 @@ describe("cinderpaw_admin — models", () => {
     expect(res.content).toContain("No models are set up yet");
   });
 });
+
+describe("cinderpaw_admin — report_bug", () => {
+  const DESCRIPTION =
+    "Export to PDF timed out: file_search walked Downloads for 169 s, the host reported the turn as failed, the PDF was still written.";
+
+  test("sends through the host only after the person says yes, with the log", async () => {
+    const { bridge, calls } = bridgeWith({ report_bug: { sent: true } });
+    const seen: AskUserQuestion[] = [];
+    const ask = asker("Send report", seen);
+    const res = await cinderpawAdminTool.execute(
+      { action: "report_bug", description: DESCRIPTION },
+      { admin: bridge, askUser: ask.bridge } as never,
+    );
+    expect(res.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.forceEscalate).toBe(true);
+    expect(seen[0]!.question).toContain("169 s");
+    const sent = calls.find((c) => c.action === "report_bug");
+    expect(sent?.params).toMatchObject({ description: DESCRIPTION, include_log: true });
+    expect(res.content).toContain("sent");
+  });
+
+  test("declining sends nothing", async () => {
+    const { bridge, calls } = bridgeWith({ report_bug: { sent: true } });
+    const ask = asker("Not now");
+    const res = await cinderpawAdminTool.execute(
+      { action: "report_bug", description: DESCRIPTION },
+      { admin: bridge, askUser: ask.bridge } as never,
+    );
+    expect(res.ok).toBe(false);
+    expect(calls.some((c) => c.action === "report_bug")).toBe(false);
+  });
+
+  test("an empty description is refused before anyone is asked", async () => {
+    const { bridge, calls } = bridgeWith({});
+    const seen: AskUserQuestion[] = [];
+    const res = await cinderpawAdminTool.execute(
+      { action: "report_bug", description: "broken" },
+      { admin: bridge, askUser: asker("Send report", seen).bridge } as never,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("bad_args");
+    expect(seen).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+  });
+});

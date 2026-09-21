@@ -121,11 +121,39 @@ impl Default for Settings {
     }
 }
 
+/// `models_dir` still pointing into the old `~/.feral` home after the rename.
+///
+/// The home migration copies the files and leaves the old folder in place, and
+/// a settings file written before the rename keeps naming it. Everything then
+/// keeps working out of a folder the person believes is dead, until the day
+/// they delete it and every model is gone (seen on 20 Sep: Settings showed
+/// `C:/Users/…/.feral/models` on a migrated install). Only the exact legacy
+/// home is rewritten; a folder the person chose elsewhere is theirs.
+fn repair_legacy_models_dir(mut s: Settings) -> Settings {
+    let Some(home) = dirs::home_dir() else { return s };
+    let legacy = home.join(crate::brand::LEGACY_HOME_DIR_NAME);
+    if let Ok(rest) = s.models_dir.strip_prefix(&legacy) {
+        let repaired = paths::cinderpaw_dir().join(rest);
+        // Settings are re-read constantly; the line is worth one look, not a
+        // scroll of identical ones.
+        static SAID: std::sync::Once = std::sync::Once::new();
+        SAID.call_once(|| {
+            eprintln!(
+                "[cinderpaw] settings: models_dir pointed at the old home ({}); using {} instead",
+                s.models_dir.display(),
+                repaired.display()
+            );
+        });
+        s.models_dir = repaired;
+    }
+    s
+}
+
 pub fn load() -> Settings {
     let path = paths::settings_path();
     match std::fs::read(&path) {
         Ok(bytes) => match serde_json::from_slice::<Settings>(&bytes) {
-            Ok(s) => s,
+            Ok(s) => repair_legacy_models_dir(s),
             // A file that exists and does not parse used to fall through to the
             // defaults without a word. Every field here is required, so one
             // hand-written `{"api_port": 11466}` — a reasonable thing to write —
@@ -172,6 +200,23 @@ pub fn save(s: &Settings) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A migrated install kept `models_dir` under the old `~/.feral`; the day
+    /// that folder is deleted, every model is gone. Repaired on load, and only
+    /// for the legacy home: a folder chosen elsewhere is left alone.
+    #[test]
+    fn a_models_dir_inside_the_legacy_home_is_moved_to_the_new_one() {
+        let Some(home) = dirs::home_dir() else { return };
+        let mut s = Settings::default();
+        s.models_dir = home.join(crate::brand::LEGACY_HOME_DIR_NAME).join("models");
+        let repaired = repair_legacy_models_dir(s);
+        assert!(repaired.models_dir.starts_with(paths::cinderpaw_dir()));
+        assert!(repaired.models_dir.ends_with("models"));
+
+        let mut chosen = Settings::default();
+        chosen.models_dir = PathBuf::from("/somewhere/else/models");
+        assert_eq!(repair_legacy_models_dir(chosen).models_dir, PathBuf::from("/somewhere/else/models"));
+    }
 
     #[test]
     fn default_rsi_budget_is_local_only_zero() {

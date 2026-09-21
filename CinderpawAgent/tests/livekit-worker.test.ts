@@ -64,11 +64,12 @@ test("Google keeps realtime input available while a tool is pending", async () =
 
 test("Google tool execution asks for the reply and starts no competing filler voice", async () => {
   const w = worker("google");
+  w.context.fetch = async () => ({ ok: true, json: async () => ({ response: { ok: true, output: "Cinderpaw a gasit trei articole." } }) });
   const spoken: string[] = [];
   const replies: Array<{ instructions?: string }> = [];
   const session = {
     say: (text: string) => spoken.push(text),
-    generateReply: (o: { instructions?: string }) => replies.push(o),
+    generateReply: (o: { instructions?: string; userInput?: string }) => replies.push(o),
   };
   await w.toolsFromDeclarations(session).ask_cinder.execute({ request: "search" });
 
@@ -83,7 +84,14 @@ test("Google tool execution asks for the reply and starts no competing filler vo
   // Fire it: what it does is ask for the answer to be spoken, not speak.
   w.timers[0]!();
   expect(replies).toHaveLength(1);
-  expect(replies[0]!.instructions).toContain("Cinderpaw");
+  // `instructions` is roughly what a 3.8 Live model SAYS (the plugin sends it
+  // as a "model" turn), so it carries the answer itself, in the caller's
+  // language, and never a sentence about the answer: on 20 Sep "tell the user
+  // in Romanian…" was read aloud in English and the result never came.
+  // `userInput` is not an option either: on 3.x it ends in an empty turn list
+  // that Google rejects and the call goes mute.
+  expect(replies[0]!.instructions).toBe("Cinderpaw a gasit trei articole.");
+  expect(replies[0]!.userInput).toBeUndefined();
 });
 
 test("OpenAI realtime filler has a TTS without passing the vendor voice to it", async () => {

@@ -38,8 +38,27 @@ pub async fn handle(app: AppHandle, action: &str, params: &Value) -> Result<Valu
         "model_switch" => model_switch(&app, params).await,
         "gateway_restart" => gateway_exit(&app, cinderpaw_core::runtime::PlannedExit::Restart),
         "gateway_stop" => gateway_exit(&app, cinderpaw_core::runtime::PlannedExit::Shutdown),
+        "report_bug" => report_bug(params).await,
         other => Err(format!("unknown admin action '{other}'")),
     }
+}
+
+// ── bug report ──────────────────────────────────────────────────────────────
+
+/// The same send as the button in Settings > About, reached from the chat: the
+/// agent writes the description (it saw the tool errors and the model the
+/// person did not), the person confirms on the sidecar side, and the log tail
+/// goes along exactly as it does from the form (20 Sep).
+async fn report_bug(params: &Value) -> Result<Value, String> {
+    let description = params
+        .get("description")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .ok_or_else(|| "report_bug needs a description".to_string())?;
+    let include_log = params.get("include_log").and_then(Value::as_bool).unwrap_or(true);
+    crate::commands::system::submit_bug_report(description.to_string(), include_log).await?;
+    Ok(serde_json::json!({ "sent": true }))
 }
 
 // ── update ──────────────────────────────────────────────────────────────────

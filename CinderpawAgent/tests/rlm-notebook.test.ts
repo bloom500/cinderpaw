@@ -959,3 +959,26 @@ describe("host tools inside a cell", () => {
     expect(r.value).toBe("undefined");
   });
 });
+
+describe("tools that ask the person, inside a cell", () => {
+  it("refuse with the reason and the way out, instead of hanging until the timeout", async () => {
+    // "Report this bug" on 20 Sep: the model called cinderpaw_admin from a
+    // cell, the confirmation card can only be shown once the loop yields, so
+    // no card, eight cells, twelve steps, nothing sent. Same trap as the host
+    // tools, one class over, same cure: bound to a refusal that redirects.
+    const calls: Array<{ name: string; args: unknown }> = [];
+    const registry = {
+      ...fakeRegistry(calls),
+      list: () => [{ manifest: { name: "cinderpaw_admin" } }, { manifest: { name: "read_file" } }] as unknown as Tool[],
+    } as unknown as ToolRegistry;
+    const tool = createNotebookTool({ registry: () => registry });
+    const r = await tool.execute(
+      { code: "await cinderpaw_admin({ action: 'report_bug', description: 'x'.repeat(30) })" },
+      { sessionId: "s-ask", signal: new AbortController().signal } as never,
+    );
+    const text = JSON.stringify(r);
+    expect(text).toMatch(/asks the person a question/);
+    expect(text).toMatch(/directly as a tool/);
+    expect(calls.some((c) => c.name === "cinderpaw_admin")).toBe(false);
+  });
+});

@@ -464,7 +464,15 @@ export class WorkingMemory {
     if (open.length > 0) {
       blocks.push(
         "## Your task list (persists across sessions — `todo_write` to update)\n" +
-          "These are still OPEN. Do not redo anything absent from this list.\n\n" +
+          "These are still OPEN. Do not redo anything absent from this list.\n" +
+          // The same hijack the notebook had, one drawer over: this list persists
+          // across sessions, so a month-old `in_progress` item arrived with every
+          // message, and "Saluuuuut" came back as ten tool calls resuming a
+          // marketing task the user had not mentioned (20 Sep). Open items are
+          // context for when the user returns to them, not standing orders.
+          "They are reference, not an agenda: resume an item only when the user's " +
+          "message is about it or asks you to continue. A greeting, a question, or an " +
+          "unrelated task gets answered as itself, without touching this list.\n\n" +
           open.map((t) => `- [${t.status}] \`${t.id}\` — ${t.content}`).join("\n"),
       );
     }
@@ -650,11 +658,20 @@ export class WorkingMemory {
 
     if (lastUserIdx >= 0) {
       const prev = messages[lastUserIdx]!;
+      // Labelled, because it lives inside the user turn: without the label the
+      // model read its own task list, notebook and recall as text the user had
+      // pasted, called it an injection, and refused to trust its own memory
+      // ("ce ai lipit tu cu task list + notebook + memory context", 20 Sep).
+      const framed =
+        "[Runtime context — appended by Cinderpaw's runtime for this turn, not written " +
+        "by the user. The user's message ends above the rule.]\n\n" +
+        dynamic +
+        "\n\n[End runtime context]";
       messages[lastUserIdx] = {
         ...prev,
         content: prev.content
-          ? `${prev.content}\n\n---\n\n${dynamic}`
-          : dynamic,
+          ? `${prev.content}\n\n---\n\n${framed}`
+          : framed,
       };
     } else {
       // Degenerate: no user message in the transcript. The agent loop

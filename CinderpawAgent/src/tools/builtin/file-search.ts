@@ -22,6 +22,19 @@ import type { Tool, ToolManifest } from "../../types.ts";
 const DEFAULT_MAX_RESULTS = 200;
 const ABSOLUTE_MAX_RESULTS = 5_000;
 const MAX_DEPTH = 8; // bound recursion like scan_workspace does
+/**
+ * A search that walked Downloads for 169 s (20 Sep) froze the whole sidecar:
+ * the walk was synchronous, so no other turn, no Stop and no heartbeat ran,
+ * and the host's 120 s idle timeout reported the turn as failed while the
+ * agent went on to finish the work. Two bounds and a breath fix that: the
+ * usual dependency/build trees are never entered, the walk gives up after a
+ * wall-clock budget with what it has, and it yields to the event loop every
+ * few directories so a Stop can land.
+ */
+const SKIP_DIRS = new Set(["node_modules", "target", "dist", "build", "__pycache__", "venv", ".venv", "AppData"]);
+const TIME_BUDGET_MS = 10_000;
+const DIRS_PER_BREATH = 50;
+const breathe = () => new Promise<void>((r) => setImmediate(r));
 
 export function createFileSearchTool(allowedPaths: string[]): Tool {
   const manifest: ToolManifest = {
@@ -101,15 +114,21 @@ export function createFileSearchTool(allowedPaths: string[]): Tool {
       }
 
       const hits: { path: string; type: "file" | "dir"; size?: number }[] = [];
-      const truncated = false;
+      let truncated = false;
+      let outOfTime = false;
+      const startedAt = Date.now();
+      let dirsSinceBreath = 0;
 
-      const visit = (dir: string, depth: number): void => {
+      const visit = async (dir: string, depth: number): Promise<void> => {
         if (depth > MAX_DEPTH) return;
-        if (hits.length >= max) return;
+        if (hits.length >= max || outOfTime || ctx.signal?.aborted) return;
+        if (++dirsSinceBreath >= DIRS_PER_BREATH) { dirsSinceBreath = 0; await breathe(); }
+        if (Date.now() - startedAt > TIME_BUDGET_MS) { outOfTime = true; return; }
         let entries: string[];
         try { entries = readdirSync(dir); } catch { return; }
         for (const name of entries) {
-          if (hits.length >= max) return;
+          if (hits.length >= max) { truncated = true; return; }
+          if (outOfTime || ctx.signal?.aborted) return;
           // Skip dot-dirs and the usual noise. Hidden files inside a
           // searched dir can still be matched explicitly via ".*".
           if (name.startsWith(".") && !pattern.startsWith(".")) continue;
@@ -127,14 +146,17 @@ export function createFileSearchTool(allowedPaths: string[]): Tool {
               });
             }
           }
-          if (isDir) visit(full, depth + 1);
+          if (isDir && !SKIP_DIRS.has(name)) await visit(full, depth + 1);
         }
       };
 
       try {
-        visit(root, 0);
+        await visit(root, 0);
       } catch (err) {
         return { ok: false, content: `Search failed: ${String(err)}`, error: "io_error" };
+      }
+      if (ctx.signal?.aborted) {
+        return { ok: false, content: "file_search stopped by the user.", error: "cancelled" };
       }
 
       const lines = hits.map((h) =>
@@ -142,14 +164,17 @@ export function createFileSearchTool(allowedPaths: string[]): Tool {
           ? `  ${relative(root, h.path) || "."}/`
           : `  ${relative(root, h.path) || "."} (${h.size ?? "?"}b)`,
       );
-      const summary = truncated
+      const summary = outOfTime
+        ? `${root} — search stopped after ${TIME_BUDGET_MS / 1000}s with ${hits.length} match(es) for "${pattern}" ` +
+          `(the tree is large; narrow 'path' or the pattern to see the rest):\n${lines.join("\n")}`
+        : truncated
         ? `${root} — showing first ${max} of (more available):\n${lines.join("\n")}`
         : `${root} — ${hits.length} match(es) for "${pattern}":\n${lines.join("\n")}`;
 
       return {
         ok: true,
         content: summary,
-        data: { results: hits, truncated: hits.length >= max, root },
+        data: { results: hits, truncated: truncated || outOfTime, root },
       };
     },
   };
