@@ -14,6 +14,7 @@ import { resolveSttModelRow } from '@/lib/voiceModel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { JevKeyRow, JEV_PROVIDER_ID, jevKeyStored } from './JevKeyRow';
+import { greetingKey } from '@/components/shell/HomeGreeting';
 import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
@@ -31,7 +32,9 @@ import { CallToolScreen } from './CallToolScreen';
 import { S2sModelPicker } from './S2sModelPicker';
 import { CallArtifacts } from './CallArtifacts';
 import { AskUserCard } from './AskUserCard';
-import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
+import { useAskUser, voiceAnswerFor } from '@/stores/askUser';
+import { useSettings } from '@/stores/settings';
+export { voiceAnswerFor };
 import { useBrowser } from '@/stores/browser';
 import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 import { warmLiveKit } from '@/hooks/useLiveKitCallSession';
@@ -207,6 +210,7 @@ export function CallOverlay({
   level,
   youSpeaking = false,
   notice,
+  said,
   onAnswer,
   onHangUp,
   onInterrupt,
@@ -232,6 +236,13 @@ export function CallOverlay({
   youSpeaking?: boolean;
   /** Why the last turn said nothing, when it said nothing. */
   notice: string | null;
+  /**
+   * What the call answered, as text: a Jev call's result ("Cinder is on it.",
+   * why a click found nothing, Cinder's reply). Without it the line lived only
+   * on the pill, and with the app in front and no voice engine, a failed
+   * command was silence.
+   */
+  said?: string;
   onAnswer: () => void;
   onHangUp: () => void;
   onInterrupt: () => void;
@@ -316,6 +327,9 @@ export function CallOverlay({
   const [jevStored, setJevStored] = useState(false);
   useEffect(() => { if (phase === 'ready') void jevKeyStored().then(setJevStored); }, [phase]);
   const jevSelected = effectiveS2s === JEV_PROVIDER_ID;
+  // A Jev call cannot be made without its key or without a transcriber (a
+  // fresh install has neither); the blocker text below says which.
+  const jevBlocked = jevSelected && (!jevStored || (sttProvider === null && localSttName === null));
   const jevRow: S2sProviderInfo = { id: JEV_PROVIDER_ID, label: 'Jev', voices: [], default_voice: '', pipeline: false, connected: jevStored };
   // What THIS call will do. Picking a vendor with no key is an echo even when
   // another vendor is connected, because the host refuses to quietly run the
@@ -787,7 +801,8 @@ export function CallOverlay({
           {/* What it heard, or the invitation when it has heard nothing yet. */}
           <CallTranscript
             text={phase !== 'ready' ? heard : ''}
-            fallback={t('call.prompt')}
+            // The hour is the caller's own clock: the same key the home screen uses.
+            fallback={`${t(greetingKey())}${t(greetingKey()).endsWith('?') ? '' : '.'} ${t('call.prompt')}`}
             // The caller's microphone, not the agent's turn — `speaking` a few
             // lines up is the other party. It arrives as a prop rather than
             // being derived from `level` here: derived, it was recomputed every
@@ -797,6 +812,7 @@ export function CallOverlay({
             // because the hook is where the raw frames are.
             speaking={phase === 'listening' && youSpeaking}
           />
+          {said && <p className="max-w-md text-sm text-text-secondary">{said}</p>}
           {/* Said out loud on screen when nothing was said out loud in audio. */}
           {notice && <p className="text-sm text-(--warning)">{notice}</p>}
           {/* A question the agent is waiting on. It used to render only in the
@@ -826,10 +842,13 @@ export function CallOverlay({
           // the settings card: everything else on this screen is a setting, and
           // a setting on the way to a phone call is clutter (17 Sep: "the first
           // person who opens it uninstalls the app").
+          // A Jev call is STT -> Jev -> action: with no transcriber it hears
+          // nothing, and a fresh install has none chosen. Said here, with the
+          // row that fixes it below, not after the first sentence is lost.
           const blocker = jevSelected
-            ? (jevStored
-                ? 'Jev calls are being wired in: the key is saved, and the button opens once Jev can take a call. Pick Gemini or OpenAI to call now.'
-                : 'Jev needs a key before it can hear you. Paste it below, or pick Gemini or OpenAI to call now.')
+            ? (!jevStored ? 'Jev needs a key before it can act. Paste it below, or pick Gemini or OpenAI.'
+              : sttProvider === null && localSttName === null ? 'Jev needs a transcriber to hear you. Choose one below.'
+              : null)
             : noEngine
             ? t('call.noEngine')
             : keyMissing
@@ -843,7 +862,7 @@ export function CallOverlay({
                   : null;
           // Open when asked, and by itself only when the call cannot be made —
           // there the settings are the way out, not decoration.
-          const expanded = settingsOpen || noEngine || keyMissing || ready === false;
+          const expanded = settingsOpen || noEngine || keyMissing || ready === false || jevBlocked;
           return (
           <div className="relative flex w-full max-w-xl flex-col items-center gap-3">
             {/* The one line that stays: who answers, where the audio goes, and
@@ -852,8 +871,8 @@ export function CallOverlay({
               {!currentS2s?.pipeline ? (
                 <EngineLine
                   label=""
-                  name={currentS2s?.label ?? t('call.providerNoneShort')}
-                  local={currentS2s ? false : null}
+                  name={jevSelected ? (jevStored ? 'Jev' : 'Jev (no key)') : (currentS2s?.label ?? t('call.providerNoneShort'))}
+                  local={jevSelected ? false : currentS2s ? false : null}
                   t={t}
                 />
               ) : (
@@ -948,6 +967,12 @@ export function CallOverlay({
                       <SettingRow label={t('call.key')}>
                         <JevKeyRow stored={jevStored} onStored={setJevStored} />
                       </SettingRow>
+                      {/* Jev acts on the computer, and that switch is off on a
+                          fresh install. Without it every command outside
+                          Cinderpaw is refused, and a new person's first two
+                          tries fail (21 Sep). The switch is here, on the way
+                          to the call, not three screens away. */}
+                      {jevStored && <DesktopControlRow />}
                     </>
                   )}
 
@@ -1071,7 +1096,7 @@ export function CallOverlay({
               // words someone already said. `null` (the check failed) still allows
               // it: refusing on an unknown is worse than letting the engine report
               // the truth.
-              disabled={ready === false || jevSelected}
+              disabled={ready === false || jevBlocked}
             >
               <Phone size={20} />
             </RoundButton>
@@ -1988,26 +2013,6 @@ function RoundButton({
  * through to an echo (Astra, 19 Sep 2026, A1). The caller's `effective` stays
  * null, so nothing is written back as a choice the person did not make.
  */
-/**
- * Turn what the person said into the card's answer.
- *
- * An option is chosen when the sentence contains its label, or the label
- * contains the whole sentence ("approve" for "Approve the change"). With
- * `multiSelect` every named option is taken. Nothing named means the words
- * themselves are the answer, in `customText`, so the agent still reads what
- * was said rather than waiting for a click that will not come on a call.
- */
-export function voiceAnswerFor(question: AskUserQuestion, said: string): AskUserAnswer {
-  const words = said.trim().toLowerCase();
-  const named = question.options.filter((o) => {
-    const label = o.label.trim().toLowerCase();
-    return label.length > 0 && (words.includes(label) || label.includes(words));
-  });
-  const selected = (question.multiSelect ? named : named.slice(0, 1)).map((o) => o.label);
-  return selected.length
-    ? { question: question.question, selected }
-    : { question: question.question, selected: [], customText: said.trim() };
-}
 
 export function shownS2sProvider<P extends { id: string }>(list: P[], effective: string | null): P | null {
   return list.find((p) => p.id === effective) ?? list[0] ?? null;
@@ -2266,6 +2271,31 @@ function CallChatPanel({ onClose, onSay }: { onClose: () => void; onSay: (text: 
  * on a screen holding an engine, a model, a microphone and an API key read as a
  * debug dump rather than as settings.
  */
+/** The desktop-control switch, where a Jev caller meets it: one press, no trip to Settings. */
+function DesktopControlRow() {
+  const settings = useSettings((s) => s.settings);
+  const fetchSettings = useSettings((s) => s.fetchSettings);
+  const setDesktopControl = useSettings((s) => s.setDesktopControl);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!settings) void fetchSettings(); }, [settings, fetchSettings]);
+  const enabled = settings?.desktop_control_enabled ?? false;
+  if (enabled) return null;
+  return (
+    <SettingRow label="Computer">
+      <div className="flex flex-col items-end gap-1">
+        <Button
+          size="sm"
+          disabled={busy || !settings}
+          onClick={() => { setBusy(true); void setDesktopControl(true).finally(() => setBusy(false)); }}
+        >
+          Turn on desktop control
+        </Button>
+        <span className="text-[11px] text-text-muted">Off, so Jev can only work inside Cinderpaw. On, it can open apps, press keys and click in your other windows.</span>
+      </div>
+    </SettingRow>
+  );
+}
+
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
   // Two cells of the parent's grid, so every label sits in one column and
   // every control starts at the same x: a mix of right- and left-aligned

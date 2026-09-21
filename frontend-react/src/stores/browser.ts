@@ -69,6 +69,9 @@ interface BrowserStore {
   /** What the agent is doing in the browser right now, or null. */
   agent: { op: string; url?: string; ref?: string; busy: boolean } | null;
   setPanel: (open: boolean) => void;
+  /** Modal dialogs open right now. Above zero, the panel parks the native page: a dialog cannot draw over it. */
+  covered: number;
+  cover: (delta: 1 | -1) => void;
   open: (address: string) => Promise<void>;
   go: (op: 'back' | 'forward' | 'reload' | 'home') => Promise<void>;
   newTab: () => Promise<void>;
@@ -111,6 +114,8 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
   notice: null,
   agent: null,
 
+  covered: 0,
+  cover: (delta) => set((s) => ({ covered: Math.max(0, s.covered + delta) })),
   setPanel: (open) => {
     set({ panelOpen: open });
     // The host restored last session's tabs at its first call, which may have

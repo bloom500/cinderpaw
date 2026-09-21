@@ -11,8 +11,14 @@ import { useT } from '@/lib/i18n';
  * through the top of the field.
  */
 
-/** Local wall-clock hour, so the greeting matches the room the user is in. */
-export function greetingKey(hour = new Date().getHours()) {
+/**
+ * Local wall-clock hour, so the greeting matches the room the user is in.
+ * Past 23:00 and before 5:00 it is the night owl's hour, in any locale, and
+ * the line says so instead of a stiff "Good evening"; two variants, picked
+ * by the day of the month so it changes from night to night, not per render.
+ */
+export function greetingKey(hour = new Date().getHours(), day = new Date().getDate()) {
+  if (hour >= 23 || hour < 5) return day % 2 === 0 ? 'home.night.1' : 'home.night.2';
   if (hour < 12) return 'home.morning';
   if (hour < 18) return 'home.afternoon';
   return 'home.evening';

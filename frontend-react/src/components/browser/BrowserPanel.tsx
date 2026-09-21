@@ -56,7 +56,7 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
 export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   const {
     url: rawUrl, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab, reopenTab,
-    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall,
+    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered,
   } = useBrowser();
   // Reader view is a page of our own; the chrome keeps showing the article's
   // original address (bookmarks, history and the star all take that one).
@@ -229,6 +229,8 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
     const el = bodyRef.current;
     // A call frames the page itself; this re-runs and places it back here when the call ends.
     if (!el || !settled || inCall) return;
+    // A modal is open: the page is parked until it closes, then placed again.
+    if (covered > 0) { void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {}); return; }
     let frame = 0;
     const report = () => {
       cancelAnimationFrame(frame);
@@ -254,7 +256,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       ro.disconnect();
       window.removeEventListener('resize', report);
     };
-  }, [settled, inCall]);
+  }, [settled, inCall, covered]);
 
   // Leaving by any route (route change, unmount) parks the page.
   useEffect(() => () => void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {}), []);

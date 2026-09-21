@@ -847,6 +847,10 @@ body {
 html.has-window-effect body { background-color: transparent; }
 /* The call pill window: nothing behind the pill itself. */
 html.call-pill body { background: transparent; }
+/* The three radial lights and the grain paint at full strength wherever
+   `has-window-effect` is absent, and the pill window never gets the effect:
+   over a transparent window they were the milky rectangle around it (21 Sep). */
+html.call-pill body::before, html.call-pill body::after { display: none; }
 
 /* ── …and the scene actually gets out of the way ───────────────────────────
    The comment above has said this for three commits. The CSS only ever did

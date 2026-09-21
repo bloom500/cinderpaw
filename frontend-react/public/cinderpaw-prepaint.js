@@ -146,3 +146,7 @@
     document.addEventListener('DOMContentLoaded', watchForMount);
   }
 })();
+
+// The call pill window (see main.tsx): mark it before the first paint, so the
+// inline base colours above never show as a rectangle around the pill.
+if (location.hash === '#call-pill') document.documentElement.classList.add('call-pill');

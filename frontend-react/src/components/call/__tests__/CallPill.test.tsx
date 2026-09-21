@@ -14,7 +14,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 const state = (over: Partial<CallPillState> = {}): CallPillState => ({
-  phase: 'listening', heard: '', said: '', muted: false, canMute: true, ...over,
+  phase: 'listening', heard: '', said: '', muted: false, canMute: true, ask: null, ...over,
 });
 
 describe('CallPill', () => {

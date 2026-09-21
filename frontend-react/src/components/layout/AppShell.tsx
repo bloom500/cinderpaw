@@ -16,6 +16,7 @@ import { Toasts } from '@/components/Toasts';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { OnboardingOrchestrator } from '@/components/onboarding/OnboardingWizard';
 import { cn, readLocal } from '@/lib/utils';
+import { useBrowser } from '@/stores/browser';
 
 // The `/40` these three carried never actually rendered: an opacity modifier on
 // a hex-in-a-var compiled to an unparseable colour, the declaration was dropped,
@@ -62,6 +63,7 @@ export function AppShell() {
   useDreamCycle();
 
   const navCollapsed = useUI((s) => s.navCollapsed);
+  const browserOpen = useBrowser((s) => s.panelOpen && !s.wide);
   const searchOpen   = useUI((s) => s.searchOpen);
 
   // Silent update check once on startup; the toast appears only if one is available.
@@ -146,8 +148,14 @@ export function AppShell() {
           `#root`'s z-index-1 stacking context lost to the call overlay's z-40
           outside it, so the errors that explain a failed call were invisible
           exactly when they were needed. */}
+      {/* The browser panel is a native page on the right, and a native page is
+          on top of anything React draws: a toast in that corner went under it
+          (21 Sep). With the panel open the stack moves to the chat side. */}
       {createPortal(
-        <div className="fixed top-11 right-4 z-200 w-80 flex flex-col gap-2 pointer-events-none">
+        <div
+          className={cn('fixed top-11 z-200 w-80 flex flex-col gap-2 pointer-events-none', browserOpen ? 'left-0' : 'right-4')}
+          style={browserOpen ? { left: (navCollapsed ? NAV_COLLAPSED_W : NAV_W) + 16 } : undefined}
+        >
           <AlphaNotice />
           <UpdateToast />
           <Toasts />

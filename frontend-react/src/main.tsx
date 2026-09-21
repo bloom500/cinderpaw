@@ -37,7 +37,12 @@ import './styles/globals.css';
 // alone, over a transparent page, and talks to the app through events (see
 // `lib/callPill.ts`).
 const pill = window.location.hash === '#call-pill';
-if (pill) document.documentElement.classList.add('call-pill');
+if (pill) {
+  document.documentElement.classList.add('call-pill');
+  // The startup surface is an opaque sheet held until the app mounts; over a
+  // transparent window it is the rectangle around the pill (21 Sep).
+  document.getElementById('cinderpaw-startup')?.remove();
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

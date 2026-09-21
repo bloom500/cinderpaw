@@ -24,7 +24,9 @@ import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useCallSession } from '@/hooks/useCallSession';
 import { useLiveCallSession } from '@/hooks/useLiveCallSession';
 import { useLiveKitCallSession } from '@/hooks/useLiveKitCallSession';
-import { useCallPill } from '@/lib/callPill';
+import { useCallPill, hangUpLandsOn } from '@/lib/callPill';
+import { useJevCallSession } from '@/hooks/useJevCallSession';
+import { JEV_PROVIDER_ID } from './JevKeyRow';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
 import { ensureSttModel } from '@/lib/voiceModel';
@@ -64,16 +66,6 @@ export interface ChatInputProps {
 }
 
 // Mobile UX (deferred): swap to Enter=newline + explicit send button.
-/**
- * Where the red X takes you. During a call it ends the call and leaves you on
- * the call screen, one press from calling again; only on that screen does it
- * leave for the chat. It used to drop you in the chat from the middle of a call,
- * so hanging up and calling back cost a trip through the composer (17 Sep).
- */
-export function hangUpLandsOn(phase: string): 'ready' | 'idle' {
-  return phase === 'ready' || phase === 'idle' ? 'idle' : 'ready';
-}
-
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const [text, setText] = useState('');
@@ -134,13 +126,23 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const liveCall = useLiveCallSession();
   const liveKitCall = useLiveKitCallSession();
   const callEngine = useUI((s) => s.callEngine);
+  // Jev: the command call. Picked through the voice provider row, not the
+  // engine, because on the call screen it sits beside Gemini and OpenAI. What
+  // Jev does not recognise goes to the agent, and its reply is spoken back on
+  // the call (see `handOff`), so the agent is told to answer for the ear.
+  const jevCall = useJevCallSession(async (text: string) => {
+    if (sendFn) await sendFn(text, undefined, { surface: 'voice' });
+    else await send(text, [], { surface: 'voice' });
+  });
+  const s2sProvider = useUI((s) => s.s2sProvider);
   // Three engines, one overlay. LiveKit is the only one offered now; the other
   // two are retired rather than deleted and still run if something selects
   // them, which is what keeps the rollback a config change instead of a revert.
   // See `RETIRED_CALL_ENGINES` — a machine that had picked one is moved over on
   // rehydrate, so this branch resolves to LiveKit everywhere in practice.
   const call =
-    callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
+    s2sProvider === JEV_PROVIDER_ID ? jevCall
+      : callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
   // X and minimise park a live call in the top-of-screen pill instead of ending it.
   useCallPill(call);
   const ttsProvider = useUI((s) => s.ttsProvider);
@@ -164,9 +166,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     // machine.
     const pipelineCallChosen =
       callEngine === 'livekit' && useUI.getState().s2sProvider === 'pipeline';
-    if ((callEngine === 'live' || callEngine === 'livekit') && !pipelineCallChosen) call.open();
+    // A Jev call hears a transcript, so it needs the transcriber chosen, like
+    // the pipeline; it never speaks, so the voice question is not asked.
+    const jevChosen = useUI.getState().s2sProvider === JEV_PROVIDER_ID;
+    if ((callEngine === 'live' || callEngine === 'livekit') && !pipelineCallChosen && !jevChosen) call.open();
     else if (sttProvider === null) setProviderCardOpen(true);
-    else if (ttsProvider === null) setEngineCardOpen(true);
+    else if (ttsProvider === null && !jevChosen) setEngineCardOpen(true);
     else call.open();
   };
 
@@ -703,6 +708,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         youSpeaking={'youSpeaking' in call ? Boolean(call.youSpeaking) : false}
         level={call.level}
         notice={call.notice}
+        // Only a Jev call answers in lines of text; the others speak theirs.
+        said={s2sProvider === JEV_PROVIDER_ID ? jevCall.said : undefined}
         onAnswer={() => void call.begin()}
         onHangUp={() => {
           const next = hangUpLandsOn(call.phase);

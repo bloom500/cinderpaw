@@ -18,11 +18,11 @@ import { tauri } from '@/lib/tauri';
 export const JEV_PROVIDER_ID = 'jev';
 export const JEV_PRICE = '$0.042 / M input tokens, output free';
 
-/** Where a key of this shape is honoured. `sk-or-` is OpenRouter; anything else is TypeSafe's own console. */
+/** Where a key of this shape is honoured; the host appends `/v1/systemone`. `sk-or-` is OpenRouter; anything else is TypeSafe's own console. */
 export function jevRoute(key: string): { baseUrl: string; model: string; via: 'OpenRouter' | 'TypeSafe' } {
   return key.trim().startsWith('sk-or-')
-    ? { baseUrl: 'https://openrouter.ai/api/v1', model: 'typesafe/jev-1.13', via: 'OpenRouter' }
-    : { baseUrl: 'https://api.typesafe.ai/v1/systemone', model: 'jev-latest', via: 'TypeSafe' };
+    ? { baseUrl: 'https://openrouter.ai/api', model: 'typesafe/jev-1.13', via: 'OpenRouter' }
+    : { baseUrl: 'https://api.typesafe.ai', model: 'jev-latest', via: 'TypeSafe' };
 }
 
 /** Whether a Jev key is in the keychain. The secret itself never comes back. */

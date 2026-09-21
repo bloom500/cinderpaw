@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useBrowser } from "@/stores/browser"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { X } from "lucide-react"
 
@@ -27,11 +28,23 @@ const DialogOverlay = React.forwardRef<
 ))
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
+/**
+ * While a dialog is up, the built-in browser's native page is parked: a native
+ * view is on top of everything React draws, so a confirm over it was invisible
+ * (21 Sep). Mounting and unmounting with the content is the whole contract.
+ */
+function CoverBrowser() {
+  const cover = useBrowser((s) => s.cover);
+  React.useEffect(() => { cover(1); return () => cover(-1); }, [cover]);
+  return null;
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
 >(({ className, children, ...props }, ref) => (
   <DialogPortal>
+    <CoverBrowser />
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}

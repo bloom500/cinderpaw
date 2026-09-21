@@ -21,6 +21,9 @@
       html[data-theme="light"] { background-color: #FFF5EE; }
       body { margin: 0; background-color: #100E09; }
       html[data-theme="light"] body { background-color: #FFF5EE; }
+      /* The call pill window: nothing behind the pill, from the first frame. */
+      html.call-pill, html.call-pill body { background: transparent !important; }
+      html.call-pill #cinderpaw-startup { display: none !important; }
       /* Added by the host once it knows the OS is really blurring what is
          behind the window (Mica on Windows 11, vibrancy on macOS). Until then
          these stay opaque, so a platform without the effect gets a normal

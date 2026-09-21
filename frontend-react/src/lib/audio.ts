@@ -88,3 +88,46 @@ export function computePeaks(samples: Float32Array, buckets = 48): number[] {
   const norm = Math.max(...peaks, 1e-6);
   return peaks.map((p) => p / norm);
 }
+
+/**
+ * A short chime instead of a spoken line: the Jev call confirms in ~50 ms and
+ * never waits on a voice engine (jev-voice's `FEEDBACK=ding`). Without a
+ * voice engine (the dev build has no Kokoro) every confirmation was silence,
+ * and "not sure what to press" was said four times to nobody (21 Sep).
+ *
+ * The sound: `ok` is a soft major third rising (C6 to E6), `fail` the same
+ * interval falling and lower (E5 to C5). Each note is a sine with a quiet
+ * octave above it for shimmer, a 15 ms attack so it never clicks, and a
+ * 350 ms exponential tail so it rings instead of stopping. Bare square-wave
+ * beeps read as an alarm clock; this reads as a notification.
+ */
+let chimeCtx: AudioContext | null = null;
+export function chime(kind: 'ok' | 'fail'): void {
+  try {
+    chimeCtx ??= new AudioContext();
+    const ctx = chimeCtx;
+    if (ctx.state === 'suspended') void ctx.resume();
+    const at = ctx.currentTime;
+    const notes: Array<[number, number]> = kind === 'ok' ? [[1046.5, 0], [1318.5, 0.11]] : [[659.3, 0], [523.3, 0.13]];
+    const master = ctx.createGain();
+    master.gain.value = kind === 'ok' ? 0.16 : 0.12;
+    master.connect(ctx.destination);
+    for (const [hz, delay] of notes) {
+      for (const [mult, level] of [[1, 1], [2, 0.18]] as const) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = hz * mult;
+        const t = at + delay;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.linearRampToValueAtTime(level, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+        osc.connect(gain).connect(master);
+        osc.start(t);
+        osc.stop(t + 0.4);
+      }
+    }
+  } catch {
+    // No audio output: the line is still on screen.
+  }
+}

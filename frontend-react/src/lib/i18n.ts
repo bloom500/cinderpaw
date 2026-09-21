@@ -51,6 +51,8 @@ const en = {
   'home.morning': 'Good morning',
   'home.afternoon': 'Good afternoon',
   'home.evening': 'Good evening',
+  'home.night.1': 'Hello, night owl',
+  'home.night.2': 'Staying up late again, night owl?',
   'home.ask': 'What can I help you with?',
   // The four intents. A statement about what the product is, so they are fixed
   // and in this order — they are not suggestions and they are not shuffled.
@@ -253,6 +255,8 @@ const ro: Strings = {
   'home.morning': 'Bună dimineața',
   'home.afternoon': 'Bună ziua',
   'home.evening': 'Bună seara',
+  'home.night.1': 'Hello, night owl',
+  'home.night.2': 'Staying up late again, night owl?',
   'home.ask': 'Cu ce te pot ajuta?',
   'home.intent.research': 'Caută',
   'home.intent.create': 'Creează',

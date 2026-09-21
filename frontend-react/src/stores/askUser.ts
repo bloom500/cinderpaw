@@ -186,3 +186,24 @@ export const useAskUser = create<AskUserStore>((set, get) => ({
 
   isPending: () => get().pending !== null,
 }));
+
+/**
+ * Turn what the person said into the card's answer.
+ *
+ * An option is chosen when the sentence contains its label, or the label
+ * contains the whole sentence ("approve" for "Approve the change"). With
+ * `multiSelect` every named option is taken. Nothing named means the words
+ * themselves are the answer, in `customText`, so the agent still reads what
+ * was said rather than waiting for a click that will not come on a call.
+ */
+export function voiceAnswerFor(question: AskUserQuestion, said: string): AskUserAnswer {
+  const words = said.trim().toLowerCase();
+  const named = question.options.filter((o) => {
+    const label = o.label.trim().toLowerCase();
+    return label.length > 0 && (words.includes(label) || label.includes(words));
+  });
+  const selected = (question.multiSelect ? named : named.slice(0, 1)).map((o) => o.label);
+  return selected.length
+    ? { question: question.question, selected }
+    : { question: question.question, selected: [], customText: said.trim() };
+}

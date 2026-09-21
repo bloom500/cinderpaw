@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hangUpLandsOn } from '../ChatInput';
+import { hangUpLandsOn } from '@/lib/callPill';
 
 describe('the red X in a call', () => {
   it('ends a live call and stays on the call screen', () => {
