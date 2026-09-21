@@ -186,6 +186,10 @@ export function useLiveKitCallSession() {
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [stage, setStage] = useState<CallStage>(null);
   const [heard, setHeard] = useState('');
+  /** The agent's last spoken line, for the call pill (the overlay reads the chat). */
+  const [said, setSaid] = useState('');
+  /** The microphone, switched off by the person: the room keeps the track, muted. */
+  const [muted, setMutedState] = useState(false);
   const [level, setLevel] = useState(0);
   /**
    * True once the vendor has settled the last thing it heard.
@@ -244,6 +248,8 @@ export function useLiveKitCallSession() {
     setPhase('idle');
     setStage(null);
     setHeard('');
+    setSaid('');
+    setMutedState(false);
     setLevel(0);
     setYouSpeaking(false);
     setNotice(null);
@@ -293,6 +299,7 @@ export function useLiveKitCallSession() {
               `answer started ${done.spans.answering ?? '?'}ms, complete ${done.spans.answered ?? '?'}ms`,
           );
         }
+        setSaid(e.text);
         writeToChat('assistant', e.text);
       }
       if (e.kind === 'state') {
@@ -540,6 +547,11 @@ export function useLiveKitCallSession() {
   }, []);
 
   const interrupt = useCallback(() => command({ type: 'interrupt' }), [command]);
+  /** Mute or unmute the microphone mid-call. A no-op before the room exists. */
+  const setMuted = useCallback((m: boolean) => {
+    setMutedState(m);
+    void room.current?.localParticipant.setMicrophoneEnabled(!m).catch(() => {});
+  }, []);
   /**
    * Speak a question the agent is waiting on.
    *
@@ -564,7 +576,7 @@ export function useLiveKitCallSession() {
   // `transcribing` exists because the other two engines expose it; here the far
   // end transcribes continuously and never reports a gap, so claiming a moment
   // of it would be invention.
-  return { phase, stage, heard, level, youSpeaking, notice, transcribing: false, open, begin, hangUp, interrupt, say, askAloud };
+  return { phase, stage, heard, said, level, youSpeaking, notice, transcribing: false, open, begin, hangUp, interrupt, say, askAloud, muted, setMuted };
 }
 
 /**

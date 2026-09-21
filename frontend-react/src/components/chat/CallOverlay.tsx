@@ -7,12 +7,13 @@ import {
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Mic, MicOff, Phone, X, Loader2, MessageSquare, ArrowUp, Laptop, Cloud, Settings2,
+  Mic, MicOff, Phone, Square, X, Loader2, MessageSquare, ArrowUp, Laptop, Cloud, Settings2,
   AudioLines, ChevronDown, Archive,
 } from 'lucide-react';
 import { resolveSttModelRow } from '@/lib/voiceModel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { JevKeyRow, JEV_PROVIDER_ID, jevKeyStored } from './JevKeyRow';
 import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
@@ -209,6 +210,8 @@ export function CallOverlay({
   onAnswer,
   onHangUp,
   onInterrupt,
+  muted,
+  onMute,
   onAskAloud,
   onSay,
   onChangeEngine,
@@ -232,6 +235,9 @@ export function CallOverlay({
   onAnswer: () => void;
   onHangUp: () => void;
   onInterrupt: () => void;
+  /** The microphone switch; absent on engines without one. */
+  muted?: boolean;
+  onMute?: (muted: boolean) => void;
   /** Speak a pending question out loud. Absent on the engines that cannot. */
   onAskAloud?: (text: string) => void;
   /** Absent when the running engine has no text channel — see the Live hook. */
@@ -300,11 +306,21 @@ export function CallOverlay({
   // when nothing is picked, so the screen has to resolve it the same way or it
   // describes a call that is not the one about to happen.
   const effectiveS2s = s2sProvider ?? s2sList.find((p) => p.connected)?.id ?? null;
-  const currentS2s = shownS2sProvider(s2sList, effectiveS2s);
+  // Jev is not in the host list; falling to `list[0]` there would dress the
+  // screen as a Gemini call (model row, Gemini key) while Jev is the pick.
+  const currentS2s = effectiveS2s === JEV_PROVIDER_ID ? null : shownS2sProvider(s2sList, effectiveS2s);
+  // Jev: the third provider, beside the two realtime vendors. It is not in the
+  // host's S2S table because it does not speak: a Jev call is STT -> Jev ->
+  // action. The row lives here until the host can run that call; until then
+  // the answer button says so instead of echoing (see `blocker`).
+  const [jevStored, setJevStored] = useState(false);
+  useEffect(() => { if (phase === 'ready') void jevKeyStored().then(setJevStored); }, [phase]);
+  const jevSelected = effectiveS2s === JEV_PROVIDER_ID;
+  const jevRow: S2sProviderInfo = { id: JEV_PROVIDER_ID, label: 'Jev', voices: [], default_voice: '', pipeline: false, connected: jevStored };
   // What THIS call will do. Picking a vendor with no key is an echo even when
   // another vendor is connected, because the host refuses to quietly run the
   // other one — so this cannot be "is anything connected".
-  const willEcho = s2sList.length > 0 && !currentS2s?.connected;
+  const willEcho = !jevSelected && s2sList.length > 0 && !currentS2s?.connected;
   useEffect(() => {
     // Write the resolved default back once it is known. Without this the voice
     // picker below has no provider to file a choice under, and the choice is
@@ -810,7 +826,11 @@ export function CallOverlay({
           // the settings card: everything else on this screen is a setting, and
           // a setting on the way to a phone call is clutter (17 Sep: "the first
           // person who opens it uninstalls the app").
-          const blocker = noEngine
+          const blocker = jevSelected
+            ? (jevStored
+                ? 'Jev calls are being wired in: the key is saved, and the button opens once Jev can take a call. Pick Gemini or OpenAI to call now.'
+                : 'Jev needs a key before it can hear you. Paste it below, or pick Gemini or OpenAI to call now.')
+            : noEngine
             ? t('call.noEngine')
             : keyMissing
               ? (keyOwner(currentS2s, voice)
@@ -825,7 +845,7 @@ export function CallOverlay({
           // there the settings are the way out, not decoration.
           const expanded = settingsOpen || noEngine || keyMissing || ready === false;
           return (
-          <div className="relative flex w-full max-w-md flex-col items-center gap-3">
+          <div className="relative flex w-full max-w-xl flex-col items-center gap-3">
             {/* The one line that stays: who answers, where the audio goes, and
                 the way to everything else. Read before the microphone opens. */}
             <div className="flex items-center gap-2 text-sm">
@@ -876,7 +896,7 @@ export function CallOverlay({
               >
               <motion.div
                 onClick={(e) => e.stopPropagation()}
-                className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl border border-border-default bg-bg-primary p-4 text-left shadow-lg"
+                className="max-h-full w-full max-w-xl overflow-y-auto rounded-2xl border border-border-default bg-bg-primary p-4 text-left shadow-lg"
                 initial={{ opacity: 0, scale: 0.96, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.96, y: 8 }}
@@ -904,13 +924,32 @@ export function CallOverlay({
                       once on this screen instead of three times. */}
                   <SettingRow label={t('call.provider')}>
                     <ProviderToggle
-                      providers={s2sList}
+                      providers={[...s2sList, jevRow]}
                       effective={effectiveS2s}
                       willEcho={willEcho}
                       onChange={setS2sProvider}
                       t={t}
                     />
                   </SettingRow>
+
+                  {/* Jev hears a transcript, so its first setting is who
+                      transcribes: the app's STT choice, on device or cloud. */}
+                  {jevSelected && (
+                    <>
+                      <SettingRow label={t('call.stt')}>
+                        <EngineLine
+                          label=""
+                          name={sttProvider && sttProvider !== 'local' ? CLOUD_STT[sttProvider].name : (localSttName ?? t('call.engineUnset'))}
+                          local={sttProvider === 'local' ? true : sttProvider ? false : null}
+                          t={t}
+                          onChange={onChangeStt}
+                        />
+                      </SettingRow>
+                      <SettingRow label={t('call.key')}>
+                        <JevKeyRow stored={jevStored} onStored={setJevStored} />
+                      </SettingRow>
+                    </>
+                  )}
 
                   {/* The model, for a realtime vendor. A setting, not a repair. */}
                   {live && currentS2s && !currentS2s.pipeline && (
@@ -1032,7 +1071,7 @@ export function CallOverlay({
               // words someone already said. `null` (the check failed) still allows
               // it: refusing on an unknown is worse than letting the engine report
               // the truth.
-              disabled={ready === false}
+              disabled={ready === false || jevSelected}
             >
               <Phone size={20} />
             </RoundButton>
@@ -1045,7 +1084,14 @@ export function CallOverlay({
               disabled={!speaking}
               active={listening}
             >
-              {speaking ? <MicOff size={20} /> : <Mic size={20} />}
+              <Square size={18} />
+            </RoundButton>
+          )}
+          {onMute && phase !== 'ready' && (
+            // The same switch the call pill has: the person stops being heard
+            // without ending the call.
+            <RoundButton onClick={() => onMute(!muted)} label={muted ? 'Unmute microphone' : 'Mute microphone'} active={muted}>
+              {muted ? <MicOff size={20} /> : <Mic size={20} />}
             </RoundButton>
           )}
         </div>
@@ -2038,7 +2084,7 @@ export function ProviderToggle({
               type="button"
               onClick={() => { if (p.id !== effective) onChange(p.id); }}
               aria-pressed={p.id === effective}
-              className={pill(p.id === effective)}
+              className={pill(p.id === effective, 'whitespace-nowrap')}
             >
               {p.label}
               {/* Said on the button itself, not only in a tooltip or a log: a

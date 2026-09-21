@@ -9,6 +9,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'framer-motion';
 import App from './App';
+import { CallPill } from './components/call/CallPill';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/globals.css';
 
@@ -32,6 +33,12 @@ import './styles/globals.css';
   }
 })();
 
+// The call pill is a second window on the same bundle: it renders the pill
+// alone, over a transparent page, and talks to the app through events (see
+// `lib/callPill.ts`).
+const pill = window.location.hash === '#call-pill';
+if (pill) document.documentElement.classList.add('call-pill');
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
@@ -44,7 +51,7 @@ createRoot(document.getElementById('root')!).render(
           theirs to make, which is the point: it is a default nobody sets in
           this app and it has to be right without being found. */}
       <MotionConfig reducedMotion="user">
-        <App />
+        {pill ? <CallPill /> : <App />}
       </MotionConfig>
     </ErrorBoundary>
   </StrictMode>,

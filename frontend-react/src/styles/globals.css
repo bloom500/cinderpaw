@@ -845,6 +845,8 @@ body {
    of it, which is what the first attempt did, meant that if the class never
    arrived nothing changed at all and the app looked untouched. */
 html.has-window-effect body { background-color: transparent; }
+/* The call pill window: nothing behind the pill itself. */
+html.call-pill body { background: transparent; }
 
 /* ── …and the scene actually gets out of the way ───────────────────────────
    The comment above has said this for three commits. The CSS only ever did

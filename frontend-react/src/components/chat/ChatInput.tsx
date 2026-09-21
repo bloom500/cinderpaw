@@ -24,6 +24,7 @@ import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useCallSession } from '@/hooks/useCallSession';
 import { useLiveCallSession } from '@/hooks/useLiveCallSession';
 import { useLiveKitCallSession } from '@/hooks/useLiveKitCallSession';
+import { useCallPill } from '@/lib/callPill';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
 import { decodeToPcm16k, computePeaks } from '@/lib/audio';
 import { ensureSttModel } from '@/lib/voiceModel';
@@ -140,6 +141,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // rehydrate, so this branch resolves to LiveKit everywhere in practice.
   const call =
     callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
+  // X and minimise park a live call in the top-of-screen pill instead of ending it.
+  useCallPill(call);
   const ttsProvider = useUI((s) => s.ttsProvider);
   const [engineCardOpen, setEngineCardOpen] = useState(false);
 
@@ -707,6 +710,9 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
           if (next === 'ready') call.open();
         }}
         onInterrupt={call.interrupt}
+        // The microphone switch, LiveKit only; the retired engines share the shape and pass none.
+        muted={'muted' in call ? Boolean(call.muted) : undefined}
+        onMute={'setMuted' in call ? (call.setMuted as (m: boolean) => void) : undefined}
         // Only the LiveKit engine has a channel to speak on demand; the other
         // two share the shape and pass none.
         onAskAloud={'askAloud' in call ? (call.askAloud as (text: string) => void) : undefined}
