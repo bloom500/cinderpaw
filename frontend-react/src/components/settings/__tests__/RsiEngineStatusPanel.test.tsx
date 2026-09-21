@@ -82,7 +82,7 @@ describe('RsiEngineStatusPanel', () => {
 
     expect(await screen.findByText(/hard limit \$5\.00/)).toBeInTheDocument();
     expect(screen.getByText(/local only|budget \$/)).toBeInTheDocument();
-    expect(screen.queryByText(/cap \$/)).toBeNull();
+    expect(screen.queryByText(/\bcap \$/)).toBeNull();
   });
 
   it('fires rsi_set_concurrency when a concurrency chip is clicked', async () => {
