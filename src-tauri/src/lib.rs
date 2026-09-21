@@ -577,6 +577,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             setup_verify,
             save_byok_provider,
             remove_byok_provider,
+            byok_has_key,
             test_byok_provider,
             chat_cloud_stream,
             chat_complete_local,

@@ -856,6 +856,7 @@ const raw = {
     invoke<void>('save_byok_provider', { providerId, enabled, apiKey, baseUrl, defaultModel }),
   removeByokProvider:    (providerId: string) =>
     invoke<void>('remove_byok_provider', { providerId }),
+  byokHasKey:            (providerId: string) => invoke<boolean>('byok_has_key', { providerId }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
     invoke<object>('test_byok_provider', { providerId, apiKey, baseUrl }),
   chatCloudStream:       (providerId: string, model: string, messages: Message[], params: InferParams, sessionId: string) =>

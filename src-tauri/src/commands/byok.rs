@@ -121,3 +121,13 @@ pub(crate) async fn test_byok_provider(provider_id: String, api_key: String, bas
     // chat-completion probe). See `crates/cinderpaw-core/src/byok.rs`.
     Ok(byok::test_provider(&provider_id, &api_key, base_url.as_deref()).await)
 }
+
+/// Whether a key is stored for this provider id. The secret never leaves the
+/// keychain; a row that only needs "saved or not" (the call screen's Jev
+/// field, which is not in the chat catalog and so not in `get_byok_settings`)
+/// asks this instead of reading the key.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn byok_has_key(provider_id: String) -> bool {
+    byok::byok_get(&provider_id).is_some_and(|k| !k.trim().is_empty())
+}
