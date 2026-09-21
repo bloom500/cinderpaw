@@ -17,8 +17,9 @@
  */
 
 import type { Tool, ToolManifest, ToolResult } from "../../types.ts";
+import { guardWebText } from "../../security/injection.ts";
 
-const ACTIONS = ["open", "snapshot", "click", "type", "scroll", "back", "forward", "reload"] as const;
+const ACTIONS = ["open", "snapshot", "click", "type", "scroll", "back", "forward", "reload", "extract"] as const;
 type Action = (typeof ACTIONS)[number];
 
 interface PageElement {
@@ -88,7 +89,10 @@ export function createBrowserTool(): Tool {
       "shared with the user: `snapshot` reads whatever tab is on screen, including a page " +
       "THEY opened, so when asked what they are looking at, take a snapshot. `open` a url " +
       "(or search words), `snapshot` to read the page and its numbered controls, " +
-      "then `click` or `type` by number (`ref`). Prefer this to computer_use for " +
+      "then `click` or `type` by number (`ref`). `extract` returns the page's article as " +
+      "clean text (title, byline, body; Mozilla's Readability, the Firefox reader), the " +
+      "right call when the page is to be READ rather than used: no controls, no menus, " +
+      "no cookie banners. Prefer this to computer_use for " +
       "anything on the web. If a site ignores a click, computer_use can press the " +
       "same control, because the page is inside Cinderpaw's window. If the user clicks or " +
       "types in the page themselves, the next action is refused: they took over. Ask them " +
@@ -104,7 +108,7 @@ export function createBrowserTool(): Tool {
     parameters: {
       action: {
         type: "string",
-        description: "open | snapshot | click | type | scroll | back | forward | reload",
+        description: "open | snapshot | click | type | scroll | back | forward | reload | extract",
         required: true,
       },
       url: { type: "string", description: "open: an address, a domain, or words to search for.", required: false },
@@ -150,7 +154,20 @@ export function createBrowserTool(): Tool {
       const result = (data ?? {}) as Snapshot & { loading?: boolean };
       if (result.ok === false) return fail(`browser: ${result.error ?? "the page refused that action"}`);
 
-      if (action === "snapshot") return { ok: true, content: renderSnapshot(result), data: { url: result.url, title: result.title } };
+      if (action === "snapshot") {
+        // Controls and text are the page's: framed, scanned, and the session
+        // tainted if the page addressed the agent (see security/injection).
+        return { ok: true, content: guardWebText(renderSnapshot(result), `page ${result.url ?? ""}`, ctx?.sessionId), data: { url: result.url, title: result.title } };
+      }
+      if (action === "extract") {
+        const a = result as unknown as { title?: string; byline?: string; text?: string; excerpt?: string; length?: number };
+        const text = (a.text ?? "").replace(/\n{3,}/g, "\n\n").trim();
+        if (!text) return fail("browser: nothing readable on this page; take a snapshot instead.");
+        const head = [a.title, a.byline].filter(Boolean).join(" — ");
+        // Bounded like every other page read: the rest is there on request.
+        const body = text.length > 60_000 ? `${text.slice(0, 60_000)}\n\n[… ${text.length - 60_000} more characters]` : text;
+        return { ok: true, content: guardWebText(`${head ? head + "\n\n" : ""}${body}`, "article", ctx?.sessionId), data: { title: a.title, length: a.length } };
+      }
       if (action === "open") {
         return {
           ok: true,

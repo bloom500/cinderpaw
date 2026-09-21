@@ -30,6 +30,7 @@
 import type { EgressProxy } from "../egress/egress-proxy.ts";
 import type { AuditLog } from "../egress/audit-log.ts";
 import { validateManifest } from "../egress/tool-permissions.ts";
+import { isConsequential, pageSourcedDestination, tainted } from "../security/injection.ts";
 import { readEnv } from "../config.ts";
 import type {
   AskUserBridge,
@@ -79,6 +80,13 @@ const TOOL_ALIASES = new Map<string, string>([
   // tool drives the whole desktop.
   ["control_app", "computer_use"],
 ]);
+
+/** The same sandbox, with this call's abort signal on every `run`. */
+function boundToSignal(sandbox: ProcessSandbox, signal: AbortSignal): ProcessSandbox {
+  return {
+    run: (manifest, sessionId, options) => sandbox.run(manifest, sessionId, { signal, ...options }),
+  };
+}
 
 export class ToolRegistry {
   readonly #tools = new Map<string, Tool>();
@@ -281,6 +289,40 @@ export class ToolRegistry {
   }
 
   /**
+   * The person decides whether a consequential call goes ahead while the
+   * session is tainted. `forceEscalate`: walk-away mode may not answer this
+   * one for them, and with nobody to ask it fails closed.
+   */
+  async #confirmDespiteTaint(
+    name: string,
+    args: Record<string, unknown>,
+    reason: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    if (!this.#askUser) return false;
+    const summary = safeJson(args).slice(0, 200);
+    try {
+      const answers = await this.#askUser.ask(
+        [
+          {
+            question:
+              `A web page this session read ${reason}. The agent now wants to run "${name}" ` +
+              `with ${summary}. This could be the page acting, not you. Allow it?`,
+            header: "Web page",
+            options: [{ label: "Deny", recommended: true }, { label: "Allow" }],
+            multiSelect: false,
+            forceEscalate: true,
+          },
+        ],
+        sessionId,
+      );
+      return (answers[0]?.selected?.[0] ?? "").toLowerCase().startsWith("allow");
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Tools refused because process execution is switched off.
    *
    * Read by boot so the reason lands on the operator's screen. A security
@@ -416,6 +458,37 @@ export class ToolRegistry {
       }
     }
 
+    // Prompt-injection gate (layer 3 of security/injection). A page the
+    // session just read addressed the agent; until that wears off, anything
+    // that leaves the machine, changes it, or reaches a person is the user's
+    // call, with the reason on screen. Reads pass: an attack that can only
+    // make the agent read more achieved nothing. Checked only for
+    // consequential tools so reads do not spend the taint budget.
+    if (isConsequential(name, args)) {
+      const dest = pageSourcedDestination(sessionId, name, args);
+      const reason = tainted(sessionId) ?? (dest ? `named the destination "${dest}" that this call now uses` : null);
+      if (reason) {
+        const allowed = await this.#confirmDespiteTaint(name, args, reason, sessionId);
+        if (!allowed) {
+          this.#audit.log({
+            sessionId,
+            actionType: "blocked",
+            toolName: name,
+            argsJson: safeJson(args),
+            result: "blocked",
+            blockedReason: `injection gate: ${reason}`,
+          });
+          return {
+            ok: false,
+            content:
+              `Tool "${name}" was not run: ${reason}, and the user did not approve this action. ` +
+              `Tell the user what the page tried and ask them what they want.`,
+            error: "injection_gate",
+          };
+        }
+      }
+    }
+
     // P2-#2: per-tool circuit breaker. If the tool is currently in
     // OPEN or has a HALF_OPEN probe in flight, short-circuit with a
     // structured error so the LLM gets a clean "this tool is sick"
@@ -471,8 +544,14 @@ export class ToolRegistry {
       // `process:spawn`. Other tools receive `undefined` so a typo or
       // a misconfigured call site fails loudly at the property access,
       // not silently.
+      // Bound to this call's signal, so the Stop button reaches the child
+      // process itself: the registry used to answer "cancelled" while the
+      // spawned `dir`, `npm test` or `python` kept running to its own timeout
+      // ("stop does not stop ALL the processes", 20 Sep). Binding it here,
+      // where every spawning tool gets its sandbox, means no tool has to
+      // remember to pass it.
       process: tool.manifest.permissions.includes("process:spawn")
-        ? this.#process
+        ? boundToSignal(this.#process, ac.signal)
         : undefined,
       // askUser is always available when the registry was constructed
       // with a bridge; the ask_user tool checks ctx.askUser is defined

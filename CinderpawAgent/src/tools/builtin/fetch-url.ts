@@ -9,6 +9,7 @@
  * window bounded. The caller (agent) decides what to do with the content.
  */
 
+import { guardWebText } from "../../security/injection.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { decodeEntities } from "./ddg-lite.ts";
 
@@ -101,7 +102,7 @@ export function createFetchUrlTool(allowedDomains: string[]): Tool {
 
       return {
         ok: true,
-        content: body,
+        content: guardWebText(body, `fetch ${url}`, ctx?.sessionId),
         data: {
           url,
           status: res.status,

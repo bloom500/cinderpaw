@@ -467,6 +467,12 @@ export interface ProcessRunOptions {
   env?: Record<string, string>;
   /** Hard timeout in milliseconds. Default 30_000, max 300_000. */
   timeoutMs?: number;
+  /**
+   * Aborting it kills the child exactly like the timeout does (SIGKILL, readers
+   * cancelled). The registry binds every spawning tool's sandbox to the call's
+   * signal, so the user's Stop reaches the process, not just the tool result.
+   */
+  signal?: AbortSignal;
   /** Optional stdin payload (e.g. piped to `git commit -F -`). */
   stdin?: string;
   /**
@@ -488,6 +494,8 @@ export interface ProcessRunResult {
   durationMs: number;
   /** True when the process was killed because it exceeded `timeoutMs`. */
   timedOut: boolean;
+  /** True when the process was killed because `signal` aborted (the user's Stop). */
+  cancelled: boolean;
   /** True when the process was killed because stdout/stderr exceeded the cap. */
   outputTruncated: boolean;
 }

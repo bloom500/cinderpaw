@@ -9,6 +9,7 @@
  * the domain allowlist, blocks SSRF, and audits every request.
  */
 
+import { guardWebText } from "../../security/injection.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 
 const MAX_CHARS = 50_000;
@@ -74,7 +75,7 @@ export function createReadWebpageTool(jinaApiKey?: string): Tool {
 
       return {
         ok: true,
-        content,
+        content: guardWebText(content, `page ${url}`, ctx?.sessionId),
         data: { url, truncated, chars: text.length },
       };
     },
