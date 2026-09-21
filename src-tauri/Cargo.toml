@@ -18,7 +18,8 @@ tauri-build = { version = "2", features = [] }
 # Tauri
 # `unstable`: multiwebview (Window::add_child), which the built-in browser needs
 # to put a web page inside the main window. See src/browser.rs.
-tauri = { version = "2", features = ["protocol-asset", "unstable"] }
+# `devtools`: the built-in browser has an Inspect button, like every browser.
+tauri = { version = "2", features = ["protocol-asset", "unstable", "devtools"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 # Native message box for the one failure that happens before a window exists
@@ -41,6 +42,8 @@ tauri-plugin-process = "2"
 # capabilities/default.json. The JS package was installed, so the code compiled,
 # the call failed at runtime and the catch beside it swallowed the error.
 tauri-plugin-clipboard-manager = "2"
+# System notifications: "your task finished" while the window is in the background (20 Sep).
+tauri-plugin-notification = "2"
 # `serde_json`: so a `serde_json::Value` field can cross to TypeScript as `unknown`.
 specta = { version = "=2.0.0-rc.25", features = ["serde_json"] }
 specta-typescript = "0.0.12"
@@ -94,6 +97,9 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 log = "0.4"
 once_cell = "1"
 parking_lot = "0.12"
+# Brave's ad/tracker blocker (MPL-2.0). Default features include `single-thread`,
+# which drops Send/Sync on Engine; we keep the engine in a static, so opt out.
+adblock = { version = "0.13", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
 chrono = { version = "0.4", features = ["serde"] }
 bytes = "1"
 encoding_rs = "0.8"
@@ -175,6 +181,10 @@ kokoro           = ["cinderpaw-core/kokoro"]
 # Desktop control (OS accessibility tree). Windows-only for now — UIA via the
 # `windows` crate. macOS (AX) and Linux are compiled stubs in desktop_control.
 [target.'cfg(windows)'.dependencies]
+# WebView2 request interception for the ad blocker: the same versions wry
+# already pulls in, so nothing new is downloaded.
+webview2-com = "0.38"
+windows-core = "0.61"
 windows = { version = "0.58", features = [
   "Win32_Foundation",
   "Win32_System_Com",

@@ -1,4 +1,5 @@
 mod agents;
+mod adblock;
 mod browser;
 mod google;
 mod commands;
@@ -893,10 +894,17 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
+        // The built-in browser's reader view lives on a page of our own.
+        .register_uri_scheme_protocol("cinderpaw-reader", browser::reader_protocol)
         .manage(state)
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
+
+            // The browser's ad blocker loads its lists in the background from
+            // the start, so the first page opened is already covered.
+            adblock::start(app.handle());
 
             // (The window effect used to be applied here, a second time and in
             // a second place. It now lives in `on_page_load` alongside the class

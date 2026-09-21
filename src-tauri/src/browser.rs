@@ -44,6 +44,16 @@ struct Tab {
     /// for; doing it for parked tabs too, twice each, was the lag when the
     /// sidebar or the chat drawer opened over a wide browser (17 Sep).
     placed: Option<(f64, f64, f64, f64)>,
+    /// Restored with its address but not loaded yet: the webview sits on
+    /// `about:blank` until the tab is first shown, and loads then, visible.
+    /// What every real browser does with a restored session (Firefox calls it
+    /// lazy restore): a page loaded hidden defers its work and does not
+    /// always resume, so YouTube's home came back as a grey skeleton and
+    /// OpenRouter as its landing page (20 Sep), and a webview per tab at boot
+    /// is memory nobody asked for.
+    dormant: bool,
+    /// When this tab was last the active one, for discarding.
+    last_active: std::time::Instant,
 }
 
 #[derive(Default)]
@@ -92,19 +102,22 @@ fn restore_once(app: &AppHandle) {
     let saved: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     let Some(list) = saved["tabs"].as_array() else { return };
     let mut ids = Vec::new();
+    let Ok(blank) = Url::parse(HOME) else { return };
     for entry in list {
         let url = entry["url"].as_str().unwrap_or(HOME);
         let Ok(url) = Url::parse(url) else { continue };
         if !allowed(&url) { continue; }
-        let Ok(wv) = new_tab(app, url.clone()) else { continue };
+        // Every restored tab starts blank and remembers where it was; the
+        // page itself loads on first showing (see `Tab::dormant`).
+        let Ok(wv) = new_tab(app, blank.clone()) else { continue };
         let mut t = tabs().lock();
         if let Some(tab) = t.list.iter_mut().find(|x| x.label == wv.label()) {
             tab.title = entry["title"].as_str().unwrap_or("").to_string();
-            if url.as_str() == HOME {
-                tab.history = vec![HOME.into()];
-                tab.expecting = Some(HOME.into());
-                tab.loading = false;
-            }
+            tab.history = vec![url.to_string()];
+            tab.cursor = 0;
+            tab.expecting = Some(HOME.into());
+            tab.loading = false;
+            tab.dormant = url.as_str() != HOME;
             ids.push(tab.id);
         }
     }
@@ -129,6 +142,7 @@ fn tabs_json() -> Value {
             "loading": tab.loading,
             "canBack": tab.cursor > 0,
             "canForward": tab.cursor + 1 < tab.history.len(),
+            "blocked": crate::adblock::blocked_on(&tab.label),
         })).collect::<Vec<_>>(),
     })
 }
@@ -159,6 +173,25 @@ static LOADING: AtomicBool = AtomicBool::new(false);
 /// person clicked or typed in it. The agent's own clicks are `el.click()` and
 /// dispatched events, which are never trusted, so only the person moves this.
 const TOUCH_SCRIPT: &str = "(() => { const mark = (e) => { if (e.isTrusted) window.__cpTouched = Date.now(); };     addEventListener('pointerdown', mark, true); addEventListener('keydown', mark, true); })()";
+
+/// Pages have no second window here, so everything that asks for one goes to
+/// this tab instead: `window.open(url)` and `<a target=\"_blank\">`. Without
+/// it the request died in silence, which is what \"Add another account\" at
+/// Google looked like (20 Sep): a click, and nothing. The platform hook
+/// (`on_new_window`) never fired for it; the page's own API always does.
+///
+/// The TOP window, not the frame: the script runs in every frame, Google's
+/// account menu is an iframe, and navigating the iframe put AddSession inside
+/// a box Google refuses to be framed in (a bare 403). A click carries the user
+/// activation a cross-origin frame needs to navigate the top.
+const NEW_WINDOW_SCRIPT: &str = "(() => {   const here = (u) => { try { const url = new URL(String(u), location.href); if (!/^https?:$/.test(url.protocol)) return; let w = window; try { w = window.top || window; } catch {} w.location.href = url.href; } catch {} };   window.open = (u) => { if (u) here(u); return null; };   addEventListener('click', (e) => {     const a = e.target && e.target.closest ? e.target.closest('a[target=\"_blank\"]') : null;     if (a && a.href && !e.defaultPrevented) { e.preventDefault(); here(a.href); }   }, true); })()";
+
+/// Browser shortcuts pressed while the PAGE has the focus. Its key events
+/// never reach the panel (a native view), and a page cannot call the host, so
+/// the key rides the one channel a page has: its own address fragment, which
+/// `watch_active_url` reads and puts back. Only the listed keys, so a page
+/// cannot forge anything worse than "close me".
+const KEY_SCRIPT: &str = "(() => { addEventListener('keydown', (e) => { if (!e.isTrusted || !(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key.toLowerCase(); if (!['=', '+', '-', '0', 't', 'w', 'l', 'f'].includes(k)) return; e.preventDefault(); e.stopPropagation(); try { history.replaceState(history.state, '', location.pathname + location.search + '#cp-key=' + encodeURIComponent(k) + '&s=' + (e.shiftKey ? 1 : 0) + '&h=' + encodeURIComponent(location.hash.slice(1))); } catch {} }, true); })()";
 
 /// When the agent last acted in the page (ms since the epoch, the page's clock
 /// too). A person's touch after this hands the page to them.
@@ -279,33 +312,71 @@ const ARTIFACT_IMPORT_CONFIRM: Duration = Duration::from_secs(60);
 /// import. It used to go the moment the message was on the channel, so a
 /// file the sidecar then refused (too big, not a real PDF, sidecar down) was
 /// gone from disk while the panel said "now in Artifacts".
+/// The person's Downloads folder, with a name no file there has yet:
+/// "clip.mp4", then "clip (2).mp4". The download itself waits in our own
+/// folder under a uuid prefix; this is where it goes to live.
+fn deliver(from: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let dir = dirs::download_dir().or_else(dirs::home_dir).ok_or("no Downloads folder on this system")?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let raw = from.file_name().and_then(|n| n.to_str()).unwrap_or("download");
+    // Strip the uuid prefix we added when the download was requested.
+    let name = raw.split_once('-').filter(|(p, _)| p.len() == 32).map(|(_, n)| n).unwrap_or(raw);
+    let (stem, ext) = match name.rsplit_once('.') { Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")), _ => (name.to_string(), String::new()) };
+    let mut to = dir.join(name);
+    let mut n = 2;
+    while to.exists() { to = dir.join(format!("{stem} ({n}){ext}")); n += 1; }
+    if std::fs::rename(from, &to).is_err() {
+        std::fs::copy(from, &to).map_err(|e| format!("could not save the file ({e})"))?;
+        let _ = std::fs::remove_file(from);
+    }
+    Ok(to)
+}
+
+/// The file goes to Downloads and the panel hears where; the reason, when
+/// there is one, says why it did not go to Artifacts.
+fn deliver_and_tell(app: &AppHandle, name: &str, path: &std::path::Path, reason: Option<String>) {
+    match deliver(path) {
+        Ok(dest) => {
+            pending_downloads().lock().push(format!("{name} (saved to {})", dest.to_string_lossy()));
+            let _ = app.emit("browser://download", json!({ "name": name, "dest": dest.to_string_lossy(), "reason": reason }));
+        }
+        Err(e) => {
+            let _ = app.emit("browser://download", json!({ "name": name, "error": e }));
+        }
+    }
+}
+
 fn on_downloaded(app: &AppHandle, url: &Url, path: &std::path::Path) {
+    use std::io::Read as _;
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("download").to_string();
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
+    // The first bytes say what it is; a 2 GB video is not read to find out.
+    let mut head = [0u8; 8];
+    let (head_len, size) = match std::fs::File::open(path).and_then(|mut f| { let n = f.read(&mut head)?; Ok((n, f.metadata()?.len() as usize)) }) {
+        Ok(v) => v,
         Err(e) => {
             let _ = app.emit("browser://download", json!({ "name": name, "error": e.to_string() }));
             return;
         }
     };
-    let is_pdf = bytes.starts_with(b"%PDF");
-    let is_docx = bytes.starts_with(b"PK") && name.to_lowercase().ends_with(".docx");
-    if (is_pdf || is_docx) && bytes.len() > ARTIFACT_IMPORT_MAX_BYTES {
+    let head = &head[..head_len];
+    let is_pdf = head.starts_with(b"%PDF");
+    let is_docx = head.starts_with(b"PK") && name.to_lowercase().ends_with(".docx");
+    if (is_pdf || is_docx) && size > ARTIFACT_IMPORT_MAX_BYTES {
         // Known in advance: do not even try, hand it to the person with the reason.
         let reason = format!(
-            "{} MB is more than the {} MB Artifacts opens, so it is offered as a file instead",
-            bytes.len().div_ceil(1024 * 1024),
+            "{} MB is more than the {} MB Artifacts opens, so it was saved as a file",
+            size.div_ceil(1024 * 1024),
             ARTIFACT_IMPORT_MAX_BYTES / 1024 / 1024
         );
-        pending_downloads().lock().push(format!("{name} ({reason})"));
-        let _ = app.emit(
-            "browser://download",
-            json!({ "name": name, "path": path.to_string_lossy(), "url": url.as_str(), "reason": reason }),
-        );
+        deliver_and_tell(app, &name, path, Some(reason));
         return;
     }
     if is_pdf || is_docx {
         use base64::Engine as _;
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) => { let _ = app.emit("browser://download", json!({ "name": name, "error": e.to_string() })); return; }
+        };
         let content = json!({ "name": name, "data": base64::engine::general_purpose::STANDARD.encode(&bytes) }).to_string();
         let msg = json!({
             "type": "artifact_op",
@@ -337,21 +408,17 @@ fn on_downloaded(app: &AppHandle, url: &Url, path: &std::path::Path) {
                         let _ = app.emit("browser://download", json!({ "name": name2, "artifact": true }));
                     }
                     Err(reason) => {
-                        // The file stays where it is and the person is asked
-                        // where to put it, with the reason on screen.
-                        pending_downloads().lock().push(format!("{name2} (NOT imported into Artifacts: {reason}; offered to the user as a file)"));
-                        let _ = app.emit(
-                            "browser://download",
-                            json!({ "name": name2, "path": path2.to_string_lossy(), "url": url2, "reason": reason }),
-                        );
+                        // Not in Artifacts, so in Downloads, with the reason on screen.
+                        let _ = url2;
+                        deliver_and_tell(&app, &name2, &path2, Some(format!("not imported into Artifacts: {reason}")));
                     }
                 }
             });
             return;
         }
     }
-    pending_downloads().lock().push(format!("{name} (offered to the user in a save dialog; not in Artifacts)"));
-    let _ = app.emit("browser://download", json!({ "name": name, "path": path.to_string_lossy(), "url": url.as_str() }));
+    let _ = url;
+    deliver_and_tell(app, &name, path, None);
 }
 
 /// Wait for the sidecar's `artifact_result` for one import.
@@ -408,7 +475,7 @@ fn with_downloads(mut out: Value) -> Value {
 /// Only the web. `file:` would read the disk, `javascript:` would run in the
 /// page, and the app's own schemes would load the app inside itself.
 pub fn allowed(url: &Url) -> bool {
-    matches!(url.scheme(), "http" | "https") || url.as_str() == "about:blank"
+    matches!(url.scheme(), "http" | "https") || url.as_str() == "about:blank" || is_reader_url(url.as_str())
 }
 
 /// What a person types into an address bar, as a URL: a full address, a bare
@@ -459,6 +526,84 @@ pub fn visible_page() -> Option<(String, String)> {
 }
 
 /// The active tab's webview.
+/// Follow the active tab through navigations the engine never reports as a
+/// page load: `history.pushState` on a single-page app (YouTube's videos,
+/// OpenRouter's panels). Without this the saved tab kept the address the page
+/// FIRST loaded at, and a restart brought back the home page instead of where
+/// the person was (20 Sep). `Webview::url` reflects same-document changes, so
+/// a poll of the active tab is enough; two seconds is well under a person's
+/// time between reading one panel and the next.
+/// A background tab untouched this long is discarded: its page goes back to
+/// `about:blank` and it becomes dormant, exactly like a restored tab, with its
+/// title and address kept in the strip and a reload on the next click. What
+/// Chrome's Memory Saver does (2 to 6 hours by setting); two here, since the
+/// engine's memory is shared with a model that may be running next to it.
+const DISCARD_AFTER: std::time::Duration = std::time::Duration::from_secs(2 * 3600);
+
+fn discard_stale(app: &AppHandle) {
+    let stale: Vec<String> = {
+        let mut t = tabs().lock();
+        let active = t.active;
+        t.list.iter_mut()
+            .filter(|tab| Some(tab.id) != active && !tab.dormant && !tab.loading
+                && tab.history.get(tab.cursor).map(|u| u != HOME).unwrap_or(false)
+                && tab.last_active.elapsed() > DISCARD_AFTER)
+            .map(|tab| { tab.dormant = true; tab.expecting = Some(HOME.into()); tab.label.clone() })
+            .collect()
+    };
+    for label in stale {
+        if let (Some(wv), Ok(blank)) = (app.get_webview(&label), Url::parse(HOME)) {
+            let _ = wv.navigate(blank);
+        }
+    }
+}
+
+fn watch_active_url(app: &AppHandle) {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    if STARTED.set(()).is_err() { return; }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut ticks: u64 = 0;
+        loop {
+            // 250 ms: fast enough for a shortcut to feel like one. Reading the
+            // address is a property read on the platform view, not a script.
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            ticks += 1;
+            if ticks % 240 == 0 { discard_stale(&app); }
+            let Some(wv) = page(&app) else { continue };
+            let Ok(now) = wv.url() else { continue };
+            if now.fragment().is_some_and(|f| f.starts_with("cp-key=")) {
+                let mut key = String::new();
+                let mut shift = false;
+                let mut hash = String::new();
+                for (k, v) in url::form_urlencoded::parse(now.fragment().unwrap_or("").as_bytes()) {
+                    match &*k { "cp-key" => key = v.into_owned(), "s" => shift = v == "1", "h" => hash = v.into_owned(), _ => {} }
+                }
+                // The page's own fragment goes back (a "#/route" app must keep its route).
+                let back = serde_json::to_string(&hash).unwrap_or_else(|_| "\"\"".into());
+                let _ = wv.eval(&format!("try {{ const h = {back}; history.replaceState(history.state, '', location.pathname + location.search + (h ? '#' + h : '')); }} catch (e) {{}}"));
+                let _ = app.emit("browser://key", json!({ "key": key, "shift": shift }));
+                continue;
+            }
+            let now = now.to_string();
+            if now == HOME || now == "about:blank" || now.contains("#cp-") { continue; }
+            let changed = {
+                let mut t = tabs().lock();
+                let Some(tab) = t.active.and_then(|id| t.list.iter_mut().find(|x| x.id == id)) else { continue };
+                if tab.loading || tab.history.get(tab.cursor).map(|u| u == &now).unwrap_or(false) {
+                    false
+                } else {
+                    tab.history.truncate(tab.cursor + 1);
+                    tab.history.push(now);
+                    tab.cursor = tab.history.len() - 1;
+                    true
+                }
+            };
+            if changed { emit_state(&app); }
+        }
+    });
+}
+
 fn page(app: &AppHandle) -> Option<Webview> {
     let label = {
         let t = tabs().lock();
@@ -472,11 +617,16 @@ fn page(app: &AppHandle) -> Option<Webview> {
 /// panel is showing and not on the home page, every other one parked.
 fn place_all(app: &AppHandle) -> Result<(), String> {
     let b = *bounds().lock();
-    let (active, labels): (Option<u32>, Vec<(u32, String, bool, Option<(f64, f64, f64, f64)>)>) = {
+    let (active, labels): (Option<u32>, Vec<(u32, String, bool, Option<(f64, f64, f64, f64)>, Option<String>)>) = {
         let t = tabs().lock();
-        (t.active, t.list.iter().map(|tab| (tab.id, tab.label.clone(), tab.history.get(tab.cursor).map(|u| u == HOME).unwrap_or(true), tab.placed)).collect())
+        (t.active, t.list.iter().map(|tab| (
+            tab.id, tab.label.clone(),
+            tab.history.get(tab.cursor).map(|u| u == HOME).unwrap_or(true),
+            tab.placed,
+            if tab.dormant { tab.history.get(tab.cursor).cloned() } else { None },
+        )).collect())
     };
-    for (id, label, at_home, placed) in labels {
+    for (id, label, at_home, placed, wake) in labels {
         let Some(wv) = app.get_webview(&label) else { continue };
         let show = b.visible && active == Some(id) && !at_home;
         // A parked tab keeps whatever size it had; it is sized when it is shown.
@@ -484,13 +634,39 @@ fn place_all(app: &AppHandle) -> Result<(), String> {
             let (w, h) = placed.map(|p| (p.2, p.3)).unwrap_or((b.w.max(1.0), b.h.max(1.0)));
             (PARKED.0, PARKED.1, w, h)
         };
-        if placed == Some(want) { continue; }
-        // One call: position and size together are one native resize, not two.
-        wv.set_bounds(tauri::Rect {
-            position: LogicalPosition::new(want.0, want.1).into(),
-            size: LogicalSize::new(want.2, want.3).into(),
-        }).map_err(|e| e.to_string())?;
-        if let Some(tab) = tabs().lock().list.iter_mut().find(|x| x.id == id) { tab.placed = Some(want); }
+        // Shown and hidden explicitly, not only moved. Parking by position alone
+        // left WebView2 to notice on its own that the page had gone off-screen,
+        // and it suspends rendering when it does; brought back at the SAME size
+        // it sometimes never resumed, and the panel showed a white page that a
+        // reload painted into the same dead surface (20 Sep, intermittent).
+        // `hide`/`show` is the signal the engine actually listens to. Best
+        // effort: a platform without them still gets the move.
+        if !show { let _ = wv.hide(); }
+        if placed != Some(want) {
+            // One call: position and size together are one native resize, not two.
+            wv.set_bounds(tauri::Rect {
+                position: LogicalPosition::new(want.0, want.1).into(),
+                size: LogicalSize::new(want.2, want.3).into(),
+            }).map_err(|e| e.to_string())?;
+            if let Some(tab) = tabs().lock().list.iter_mut().find(|x| x.id == id) { tab.placed = Some(want); }
+        }
+        if show {
+            let _ = wv.show();
+            // First showing of a restored tab: load it now, visible. After
+            // `show`, never before, or the page defers its work again.
+            if let Some(url) = wake.as_deref().and_then(|u| Url::parse(u).ok()) {
+                {
+                    let mut t = tabs().lock();
+                    if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) {
+                        tab.dormant = false;
+                        tab.expecting = Some(url.to_string());
+                        tab.loading = true;
+                    }
+                }
+                LOADING.store(true, Ordering::SeqCst);
+                let _ = wv.navigate(url);
+            }
+        }
     }
     Ok(())
 }
@@ -522,22 +698,42 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
         t.next_id += 1;
         let id = t.next_id;
         let label = format!("browser-tab-{id}");
-        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None });
+        t.list.push(Tab { id, label: label.clone(), title: String::new(), history: Vec::new(), cursor: 0, expecting: None, loading: true, placed: None, dormant: false, last_active: std::time::Instant::now() });
         t.active = Some(id);
         (id, label)
     };
     LOADING.store(true, Ordering::SeqCst);
     let events = app.clone();
     let _ = std::fs::create_dir_all(extensions_dir());
+    let at_home = url.as_str() == HOME;
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(url))
         .initialization_script(TOUCH_SCRIPT)
+        .initialization_script(NEW_WINDOW_SCRIPT)
+        .initialization_script(KEY_SCRIPT)
         .data_directory(cinderpaw_core::paths::cinderpaw_dir().join("browser-profile"));
     // Extensions ride the WebView2 environment, which is created with the first
     // tab and shared by the rest, so one installed later shows up after a restart.
     #[cfg(windows)]
     let builder = builder.browser_extensions_enabled(true).extensions_path(extensions_dir());
+    let popup_app = app.clone();
     let builder = builder
         .on_navigation(|url| allowed(url))
+        // `window.open` and `target="_blank"`: without a handler the page's
+        // request went nowhere, silently, which is what "add another Google
+        // account" (a popup) and every new-window link looked like (20 Sep).
+        // Every such request becomes a tab of ours, in the same profile, so
+        // the login it carries lands where the person is.
+        .on_new_window(move |url, _features| {
+            if allowed(&url) {
+                let app = popup_app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = new_tab(&app, url) {
+                        tracing::warn!(error = %e, "browser: popup could not open as a tab");
+                    }
+                });
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
         .on_download(|wv, event| {
             match event {
                 DownloadEvent::Requested { url, destination } => {
@@ -571,6 +767,8 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
                 if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) {
                     tab.loading = !finished;
                     if !finished {
+                        // A new page: the "Blocked N" count starts over with it.
+                        crate::adblock::reset(&tab.label);
                         // Started: this is where the tab is now. Our own
                         // request (back, forward, home) is already in place.
                         let expected = tab.expecting.take().is_some_and(|e| e == url);
@@ -593,6 +791,14 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
             let _ = place_all(&events);
             emit_state(&events);
             if finished {
+                // What the lists say to hide on this page (ad slots, cookie
+                // walls): one stylesheet, appended once the document exists.
+                if let Some(css) = crate::adblock::cosmetic_css(&url) {
+                    let _ = wv.eval(format!(
+                        "(()=>{{const s=document.createElement('style');s.textContent={};document.documentElement.appendChild(s)}})()",
+                        serde_json::to_string(&css).unwrap_or_default()
+                    ));
+                }
                 // The title arrives from the page itself, once it is there.
                 let events = events.clone();
                 tauri::async_runtime::spawn(async move {
@@ -611,7 +817,19 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
     let wv = window
         .add_child(builder, LogicalPosition::new(PARKED.0, PARKED.1), LogicalSize::new(b.w.max(1.0), b.h.max(1.0)))
         .map_err(|e| format!("browser: could not open the page ({e})"))?;
+    // Ads and trackers are answered before they leave the machine (Windows).
+    crate::adblock::hook_requests(&wv, label.clone());
     place_all(app)?;
+    watch_active_url(app);
+    if at_home {
+        // A new tab is for typing into. The child takes the keyboard focus the
+        // moment it is created, parked or not, and the panel's search box kept
+        // losing it (20 Sep); the main webview gets it back here, and the
+        // document's focused element comes back with it.
+        if let Some(main) = window.webviews().into_iter().find(|w| w.label() == "main") {
+            let _ = main.set_focus();
+        }
+    }
     emit_state(app);
     Ok(wv)
 }
@@ -692,6 +910,56 @@ async fn run(wv: &Webview, expression: &str) -> Result<Value, String> {
 
 /// The page as the agent reads it: text, and every visible control numbered.
 /// A password field's value is never included.
+/// What a person can actually see. Everything else is where a page hides
+/// instructions for an agent: white-on-white text, a 0px font, a div parked
+/// off-screen, an `aria-hidden` block, a comment, a `<template>`. Neither
+/// the snapshot nor the reader text ever contains them, so the model cannot
+/// be reached through them. Injected as functions; both readers call them.
+const VISIBLE_TEXT: &str = r#"
+  const cpHidden = (el) => {
+    const s = getComputedStyle(el);
+    if (s.display === 'none' || s.visibility === 'hidden' || s.visibility === 'collapse') return true;
+    if (parseFloat(s.opacity) < 0.1) return true;
+    if (parseFloat(s.fontSize) <= 4) return true;
+    if (el.getAttribute('aria-hidden') === 'true') return true;
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return true;
+    if (r.right < -200 || r.bottom < -200 || r.left > innerWidth + 4000 || r.top > document.documentElement.scrollHeight + 4000) return true;
+    if (s.color && s.backgroundColor && s.color === s.backgroundColor) return true;
+    return false;
+  };
+  const cpVisibleText = (root) => {
+    const out = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => {
+      const p = n.parentElement; if (!p) return NodeFilter.FILTER_REJECT;
+      const tag = p.tagName; if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEMPLATE' || tag === 'TITLE') return NodeFilter.FILTER_REJECT;
+      if (!n.nodeValue || !n.nodeValue.trim()) return NodeFilter.FILTER_SKIP;
+      for (let e = p; e && e !== root; e = e.parentElement) { if (cpHidden(e)) return NodeFilter.FILTER_REJECT; }
+      return NodeFilter.FILTER_ACCEPT; } });
+    let node; while ((node = walker.nextNode())) {
+      const t = node.nodeValue.replace(/\s+/g, ' ');
+      const p = node.parentElement; const block = /^(P|DIV|LI|TR|H[1-6]|SECTION|ARTICLE|BR|TD|TH|PRE|BLOCKQUOTE)$/.test(p.tagName);
+      out.push(block ? '\n' + t : t);
+    }
+    return out.join('').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  };
+  // A clone of the document with every hidden element gone. Styles are only
+  // computable on the live tree, so the live tree is marked, the clone is
+  // pruned by the marks, and the marks are removed again: the page is left
+  // exactly as it was.
+  const cpVisibleClone = () => {
+    const marked = [];
+    for (const el of document.querySelectorAll('body *')) { if (cpHidden(el)) { el.setAttribute('data-cp-hidden', '1'); marked.push(el); } }
+    // Parsed, not cloned: a DOMParser document has no CSP, so Readability's
+    // own innerHTML writes work on sites that require TrustedHTML (GitHub,
+    // Google). A cloneNode of the document kept the site's policy.
+    const clone = new DOMParser().parseFromString('<!doctype html>' + document.documentElement.outerHTML, 'text/html');
+    for (const el of marked) el.removeAttribute('data-cp-hidden');
+    clone.querySelectorAll('[data-cp-hidden], script, style, noscript, template').forEach((el) => el.remove());
+    return clone;
+  };
+"#;
+
 const SNAPSHOT: &str = r#"(() => {
   const sel = 'a[href],button,input:not([type=hidden]),select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[contenteditable=""],[contenteditable=true]';
   document.querySelectorAll('[data-cp-ref]').forEach((e) => e.removeAttribute('data-cp-ref'));
@@ -717,7 +985,7 @@ const SNAPSHOT: &str = r#"(() => {
       inView: r.bottom > 0 && r.top < innerHeight,
     });
   }
-  const text = (document.body ? document.body.innerText : '').replace(/\n{3,}/g, '\n\n').slice(0, 6000);
+  const text = (document.body ? cpVisibleText(document.body) : '').slice(0, 6000);
   return { ok: true, url: location.href, title: document.title, elements, text };
 })()"#;
 
@@ -730,6 +998,128 @@ fn element_script(reference: &str, body: &str) -> String {
     )
 }
 
+/// Mozilla's Readability, unmodified. See vendor/readability/README.md.
+const READABILITY: &str = include_str!("../vendor/readability/Readability.js");
+
+/// The article, extracted in the page and handed to the host as data.
+const READER_EXTRACT: &str = r#"
+  const a = new Readability(cpVisibleClone()).parse();
+  return a ? { title: a.title, byline: a.byline || a.siteName || '', content: a.content, length: a.length } : null;
+"#;
+
+// ── Reader view ───────────────────────────────────────────────────────────
+//
+// The article is shown on a page of OUR OWN (the `cinderpaw-reader` scheme),
+// not written into the site's document. It used to be `document.write` in
+// place, which died on every site with a strict CSP: "This document requires
+// 'TrustedHTML' assignment" on GitHub and Google, and a style-src that would
+// have stripped our stylesheet anyway. A navigation also makes it a real
+// toggle: Back is the original page, and the address bar knows which is which.
+
+/// Reader pages waiting to be served, by id. Kept for the app's lifetime so
+/// Back/Forward can land on one again; an article is a few hundred KB at
+/// most. ponytail: evict by tab if someone reads a thousand articles a day.
+fn reader_pages() -> &'static Mutex<std::collections::HashMap<String, String>> {
+    static PAGES: OnceLock<Mutex<std::collections::HashMap<String, String>>> = OnceLock::new();
+    PAGES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Where a custom scheme lives on this platform.
+fn reader_url(id: &str, original: &str) -> Url {
+    let q = urlencoding::encode(original);
+    #[cfg(windows)]
+    let s = format!("http://cinderpaw-reader.localhost/{id}?u={q}");
+    #[cfg(not(windows))]
+    let s = format!("cinderpaw-reader://localhost/{id}?u={q}");
+    Url::parse(&s).expect("reader url")
+}
+
+pub fn is_reader_url(u: &str) -> bool {
+    u.starts_with("http://cinderpaw-reader.localhost/") || u.starts_with("cinderpaw-reader://localhost/")
+}
+
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// Our reader page. The CSP meta means no script can ever run in it: the
+/// article body is the site's markup, and this origin is ours.
+fn reader_html(title: &str, byline: &str, content: &str) -> String {
+    format!(
+        r#"<!doctype html><html><head><meta charset="utf-8"><title>{t}</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src * data: blob:; media-src * data: blob:; style-src 'unsafe-inline'; font-src *">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {{ color-scheme: light dark; }}
+  body {{ margin: 0; background: #faf7f2; color: #1d1a16; font: 19px/1.6 Georgia, "Times New Roman", serif; }}
+  @media (prefers-color-scheme: dark) {{ body {{ background: #1c1a17; color: #ece6dc; }} a {{ color: #f0a868; }} }}
+  main {{ max-width: 42rem; margin: 0 auto; padding: 3rem 1.5rem 6rem; }}
+  h1 {{ font-size: 2rem; line-height: 1.2; margin: 0 0 .5rem; }}
+  .byline {{ opacity: .65; font-size: .9rem; margin-bottom: 2rem; }}
+  img, video {{ max-width: 100%; height: auto; }}
+  pre {{ overflow: auto; font-size: .85rem; }}
+  a {{ color: #925e22; }}
+</style></head><body><main>
+<h1>{t}</h1>
+<div class="byline">{b}</div>
+{c}
+</main></body></html>"#,
+        t = esc(title),
+        b = esc(byline),
+        c = content,
+    )
+}
+
+/// Serves `cinderpaw-reader://localhost/<id>`. Registered in lib.rs.
+pub fn reader_protocol<R: tauri::Runtime>(
+    _ctx: tauri::UriSchemeContext<'_, R>,
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<std::borrow::Cow<'static, [u8]>> {
+    let id = request.uri().path().trim_start_matches('/');
+    let body = reader_pages()
+        .lock()
+        .get(id)
+        .cloned()
+        .unwrap_or_else(|| reader_html("This reader page is gone", "", "<p>Go back, and open the reader again.</p>"));
+    tauri::http::Response::builder()
+        .header("content-type", "text/html; charset=utf-8")
+        .body(std::borrow::Cow::Owned(body.into_bytes()))
+        .expect("reader response")
+}
+
+fn find_script(query_json: &str, direction_json: &str) -> String {
+    format!(r#"(() => {{
+  const q = {query_json}; const dir = {direction_json};
+  const S = (window.__cpFind ||= {{ ranges: [], i: -1, q: '' }});
+  const clear = () => {{ try {{ CSS.highlights.delete('cp-find'); CSS.highlights.delete('cp-find-current'); }} catch {{}} S.ranges = []; S.i = -1; S.q = ''; }};
+  if (!q) {{ clear(); return {{ index: 0, total: 0 }}; }}
+  if (!('highlights' in CSS)) return {{ index: 0, total: 0, error: 'no highlight api' }};
+  if (S.q !== q || dir === 'first') {{
+    clear(); S.q = q;
+    const needle = q.toLowerCase();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {{ acceptNode: (n) => {{
+      const p = n.parentElement; if (!p) return NodeFilter.FILTER_REJECT;
+      const tag = p.tagName; if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
+      return n.nodeValue && n.nodeValue.toLowerCase().includes(needle) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP; }} }});
+    let node; while ((node = walker.nextNode()) && S.ranges.length < 2000) {{
+      const text = node.nodeValue.toLowerCase(); let at = text.indexOf(needle);
+      while (at !== -1) {{ const r = new Range(); r.setStart(node, at); r.setEnd(node, at + needle.length); S.ranges.push(r); at = text.indexOf(needle, at + needle.length); }}
+    }}
+    try {{ CSS.highlights.set('cp-find', new Highlight(...S.ranges)); }} catch {{}}
+    if (!document.getElementById('cp-find-style')) {{ const st = document.createElement('style'); st.id = 'cp-find-style'; st.textContent = '::highlight(cp-find){{background:#ffe27a;color:#000}} ::highlight(cp-find-current){{background:#ff9632;color:#000}}'; document.documentElement.appendChild(st); }}
+    S.i = S.ranges.length ? 0 : -1;
+  }} else if (S.ranges.length) {{
+    S.i = (S.i + (dir === 'prev' ? -1 : 1) + S.ranges.length) % S.ranges.length;
+  }}
+  if (S.i >= 0) {{
+    const r = S.ranges[S.i];
+    try {{ CSS.highlights.set('cp-find-current', new Highlight(r)); }} catch {{}}
+    const el = r.startContainer.parentElement; if (el && el.scrollIntoView) el.scrollIntoView({{ block: 'center', behavior: 'instant' }});
+  }}
+  return {{ index: Math.max(0, S.i), total: S.ranges.length }};
+}})()"#)
+}
+
 fn click_script(reference: &str) -> String {
     element_script(reference, "el.focus(); el.click(); return { ok: true };")
 }
@@ -739,7 +1129,11 @@ fn type_script(reference: &str, text: &str, submit: bool) -> String {
     element_script(
         reference,
         &format!(
-            "el.focus(); const text = {t}; \
+            "const sensitive = (el.type === 'password') \
+               || /^(cc-|new-password|current-password|one-time-code)/.test(el.getAttribute('autocomplete') || '') \
+               || /pass(word|wd)?|passcode|\\bpin\\b|cvc|cvv|card.?num|credit|iban|\\bssn\\b|social.?sec|routing|\\botp\\b|2fa|secret|token/i.test([el.name, el.id, el.getAttribute('aria-label'), el.placeholder].join(' ')); \
+             if (sensitive) return {{ ok: false, error: 'This is a password, card or secret field. The person types those; ask them to.' }}; \
+             el.focus(); const text = {t}; \
              if (el.isContentEditable) {{ document.execCommand('selectAll'); document.execCommand('insertText', false, text); }} \
              else {{ const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype \
                        : el.tagName === 'SELECT' ? HTMLSelectElement.prototype \
@@ -800,7 +1194,7 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
         "snapshot" => {
             let wv = open_page(&app)?;
             settle(Duration::from_secs(10)).await;
-            run(&wv, SNAPSHOT).await.map(with_downloads)
+            run(&wv, &format!("(() => {{ {VISIBLE_TEXT} return ({SNAPSHOT}); }})()")).await.map(with_downloads)
         }
         "click" => {
             let wv = open_page(&app)?;
@@ -850,6 +1244,68 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             wv.eval("location.reload()").map_err(|e| e.to_string())?;
             Ok(json!({ "ok": true }))
         }
+        // Find in page. The matches are painted with the CSS Custom Highlight
+        // API (Chromium has it), so nothing in the page's DOM is touched and
+        // the page cannot tell; the current one is scrolled into view. An
+        // empty query clears everything.
+        // Reader view: the article alone, in our own readable page. Mozilla's
+        // Readability (vendored, Apache-2.0) does the extraction, the same
+        // code Firefox uses; Back or Reload brings the original page back.
+        "reader" => {
+            let wv = open_page(&app)?;
+            let now = wv.url().map_err(|e| e.to_string())?;
+            if is_reader_url(now.as_str()) {
+                // Already reading: the original is the entry behind this one.
+                return Box::pin(handle(app, "back", params)).await.map(|_| json!({ "ok": true, "reader": false }));
+            }
+            let a = run(&wv, &format!("(() => {{ {READABILITY}; {VISIBLE_TEXT} {READER_EXTRACT} }})()")).await?;
+            if a.is_null() {
+                return Ok(json!({ "ok": false, "error": "No article on this page to read." }));
+            }
+            let s = |k: &str| a.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let id = uuid::Uuid::new_v4().simple().to_string();
+            reader_pages().lock().insert(id.clone(), reader_html(&s("title"), &s("byline"), &s("content")));
+            let target = reader_url(&id, now.as_str());
+            go_to(&app, target.as_str())?;
+            settle(Duration::from_secs(10)).await;
+            Ok(json!({ "ok": true, "reader": true, "title": s("title"), "length": a.get("length").cloned().unwrap_or(Value::Null) }))
+        }
+        // Page zoom, for the whole browser (Firefox remembers it per site; one
+        // level is enough for a component). WebView2 also takes Ctrl+/- and
+        // Ctrl+wheel natively while the page has focus; those change the page
+        // and not this number, which is why the answer is the level WE set.
+        "zoom" => {
+            let wv = open_page(&app)?;
+            let factor = params.get("factor").and_then(|v| v.as_f64()).unwrap_or(1.0).clamp(0.3, 5.0);
+            wv.set_zoom(factor).map_err(|e| e.to_string())?;
+            Ok(json!({ "ok": true, "factor": factor }))
+        }
+        // Cookies, cache, storage: everything the sites kept, gone. Every
+        // tab shares the profile, so one call clears them all.
+        "clear_data" => {
+            let wv = open_page(&app)?;
+            wv.clear_all_browsing_data().map_err(|e| e.to_string())?;
+            Ok(json!({ "ok": true }))
+        }
+        "devtools" => {
+            let wv = open_page(&app)?;
+            wv.open_devtools();
+            Ok(json!({ "ok": true }))
+        }
+        // The same extraction for the agent: title and clean text, no
+        // navigation, no markup, so a page is read the way a person reads it.
+        "extract" => {
+            let wv = open_page(&app)?;
+            run(&wv, &format!("(() => {{ {READABILITY}; {VISIBLE_TEXT} const a = new Readability(cpVisibleClone()).parse(); return a ? {{ title: a.title, byline: a.byline, text: a.textContent, excerpt: a.excerpt, length: a.length }} : {{ title: document.title, text: document.body ? cpVisibleText(document.body) : '', excerpt: '', length: 0 }}; }})()")).await
+        }
+        "find" => {
+            let wv = open_page(&app)?;
+            let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("");
+            let direction = params.get("direction").and_then(|v| v.as_str()).unwrap_or("first");
+            let q = serde_json::to_string(query).unwrap_or_else(|_| "\"\"".into());
+            let d = serde_json::to_string(direction).unwrap_or_else(|_| "\"first\"".into());
+            run(&wv, &find_script(&q, &d)).await
+        }
         // The start page: the tab keeps its history, its page is parked, and
         // the panel shows its own new-tab page.
         "home" => {
@@ -872,6 +1328,13 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
         }
         "tabs" | "state" => Ok(tabs_json()),
         "extensions" => Ok(extensions_json()),
+        // The built-in blocker (Brave's engine): its state, and the on/off switch.
+        "adblock" => Ok(crate::adblock::status_json()),
+        "adblock_set" => {
+            let on = params.get("on").and_then(|v| v.as_bool()).unwrap_or(true);
+            crate::adblock::set_enabled(&app, on);
+            Ok(crate::adblock::status_json())
+        }
         "install_adblock" => install_adblock().await,
         "new_tab" => {
             // Empty: the panel shows its new-tab page over a parked, blank webview.
@@ -895,6 +1358,7 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
                 let mut t = tabs().lock();
                 if !t.list.iter().any(|x| x.id == id) { return Err("browser: no such tab".into()); }
                 t.active = Some(id);
+                if let Some(tab) = t.list.iter_mut().find(|x| x.id == id) { tab.last_active = std::time::Instant::now(); }
             }
             place_all(&app)?;
             emit_state(&app);

@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
 import { tauri } from '@/lib/tauri';
-import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 
 /**
  * The built-in browser panel: whether it is open, and what the page is doing.
@@ -18,6 +17,8 @@ export interface BrowserTab {
   loading: boolean;
   canBack: boolean;
   canForward: boolean;
+  /** Requests the ad blocker answered on the page this tab shows now. */
+  blocked: number;
 }
 
 /** The start page: the host parks the tab's page and the panel shows its own. */
@@ -73,6 +74,11 @@ interface BrowserStore {
   newTab: () => Promise<void>;
   switchTab: (id: number) => Promise<void>;
   closeTab: (id: number) => Promise<void>;
+  /** Addresses of tabs closed this session, last first, for Ctrl+Shift+T. */
+  closed: string[];
+  reopenTab: () => Promise<void>;
+  /** What was downloaded this session, newest first: the list every browser has. */
+  downloads: Array<{ name: string; at: number; dest?: string; artifact?: boolean; error?: string }>;
 }
 
 function fromState(st: { active: number | null; tabs: BrowserTab[] }) {
@@ -105,7 +111,17 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
   notice: null,
   agent: null,
 
-  setPanel: (open) => set({ panelOpen: open }),
+  setPanel: (open) => {
+    set({ panelOpen: open });
+    // The host restored last session's tabs at its first call, which may have
+    // been the agent's, before this store existed to hear the state event: the
+    // panel then opened on an empty tab row until "+" made the host speak
+    // again (21 Sep). Ask, instead of waiting to be told.
+    if (open) void tauri.browser.ui('state').then((r) => {
+      const st = r as { active: number | null; tabs: BrowserTab[] };
+      if (Array.isArray(st?.tabs)) set(fromState(st));
+    }).catch(() => {});
+  },
 
   open: async (address) => {
     const text = address.trim();
@@ -147,12 +163,24 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
   },
 
   closeTab: async (id) => {
+    const closing = get().tabs.find((t) => t.id === id);
     try {
       const st = await tauri.browser.ui('close_tab', { id });
       set({ ...fromState(st as never), error: null });
+      // Every browser has undo-close; a tab shut by mistake is a common mistake.
+      if (closing && closing.url !== HOME) set({ closed: [closing.url, ...get().closed].slice(0, 20) });
     } catch (e) {
       set({ error: String(e) });
     }
+  },
+  closed: [],
+  downloads: [],
+  reopenTab: async () => {
+    const [last, ...rest] = get().closed;
+    if (!last) return;
+    set({ closed: rest });
+    await get().newTab();
+    await get().open(last);
   },
 }));
 
@@ -166,29 +194,20 @@ void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e
 // arrives once the agent has CONFIRMED it is there; anything else, and a
 // document the agent refused (`reason`), is a file the person is asked where
 // to put, with the reason on screen first.
-void listen<{ name: string; path?: string; artifact?: boolean; error?: string; reason?: string }>('browser://download', async (e) => {
-  const { name, path, artifact, error, reason } = e.payload;
+void listen<{ name: string; dest?: string; artifact?: boolean; error?: string; reason?: string | null }>('browser://download', (e) => {
+  const { name, dest, artifact, error, reason } = e.payload;
+  const log = (entry: { dest?: string; artifact?: boolean; error?: string }) =>
+    useBrowser.setState((st) => ({ downloads: [{ name, at: Date.now(), ...entry }, ...st.downloads].slice(0, 50) }));
   if (error) {
     useBrowser.setState({ notice: `Could not download ${name}: ${error}` });
-    return;
-  }
-  if (artifact) {
+    log({ error });
+  } else if (artifact) {
     useBrowser.setState({ notice: `${name} is in Artifacts.` });
-    return;
-  }
-  if (!path) return;
-  if (reason) useBrowser.setState({ notice: `${name}: ${reason}. Choose where to save it.` });
-  try {
-    const dest = await saveDialog({ defaultPath: name });
-    if (dest) {
-      const res = await tauri.browser.ui('save_download', { path, dest });
-      useBrowser.setState({ notice: `Saved ${name} to ${String(res.path ?? dest)}` });
-    } else {
-      await tauri.browser.ui('discard_download', { path });
-      useBrowser.setState({ notice: null });
-    }
-  } catch (err) {
-    useBrowser.setState({ notice: `Could not save ${name}: ${String(err)}` });
+    log({ artifact: true });
+  } else if (dest) {
+    // Straight into the Downloads folder, like every browser; no dialog.
+    useBrowser.setState({ notice: reason ? `${name}: ${reason}. Saved to Downloads.` : `Saved ${name} to Downloads.` });
+    log({ dest });
   }
 }).catch(() => {});
 // The agent at work: shown while its action runs and for a moment after, so a

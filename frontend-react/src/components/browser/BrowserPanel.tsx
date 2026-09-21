@@ -1,14 +1,19 @@
 import { onPanelMotionSettled, panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Globe, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
 import { ENGINE_LOGOS } from '@/lib/engineLogos';
-import { cn, readLocal, writeLocal } from '@/lib/utils';
+import { cn, readLocal, writeLocal, SECONDARY_BUTTON } from '@/lib/utils';
+import { listen } from '@tauri-apps/api/event';
+import { SelectMenu } from '@/components/ui/select-menu';
+import { loadHistory, saveHistory, recordVisit, recordTitle, recordPick, loadBookmarks, saveBookmarks, upsertBookmark, removeBookmark, parseTags, findBookmarks, display, isReaderUrl, readerOriginal } from '@/lib/browserHistory';
+import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
+const ZOOM_KEY = 'cinderpaw.browserZoom';
 const DEFAULT_WIDTH = 640;
 const MIN_WIDTH = 360;
 /** The chat column's own minimum (min-w-[28rem] in ChatPage). */
@@ -50,9 +55,60 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
  */
 export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   const {
-    url, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab,
+    url: rawUrl, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab, reopenTab,
     wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall,
   } = useBrowser();
+  // Reader view is a page of our own; the chrome keeps showing the article's
+  // original address (bookmarks, history and the star all take that one).
+  const readerOn = isReaderUrl(rawUrl);
+  const url = readerOn ? readerOriginal(rawUrl) : rawUrl;
+  const addressRef = useRef<HTMLInputElement>(null);
+  // The key handler is registered once; this always points at the latest zoom.
+  const zoomRef = useRef<((f: number) => void) & { level: number }>(Object.assign(() => {}, { level: 1 }));
+  // Find in page: the query lives here, the matching happens in the page
+  // through the host (`find` op), which reports how many and which.
+  const [finding, setFinding] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findHits, setFindHits] = useState<{ index: number; total: number } | null>(null);
+  const findRef = useRef<HTMLInputElement>(null);
+  const runFind = async (query: string, direction: 'next' | 'prev' | 'first' = 'first') => {
+    if (!query) { setFindHits(null); return; }
+    try {
+      const r = (await tauri.browser.ui('find', { query, direction })) as { index?: number; total?: number };
+      setFindHits({ index: r.index ?? 0, total: r.total ?? 0 });
+    } catch { setFindHits(null); }
+  };
+  const closeFind = () => {
+    setFinding(false);
+    setFindQuery('');
+    setFindHits(null);
+    void tauri.browser.ui('find', { query: '' }).catch(() => {});
+  };
+  // The shortcuts every browser has. They reach us while the focus is in the
+  // app (address bar, tabs, chat); inside the native page the page has the
+  // keys, and Ctrl+L is the way back.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 't' && e.shiftKey) { e.preventDefault(); void reopenTab(); }
+      else if (k === 't') { e.preventDefault(); void newTab(); }
+      else if (k === 'w') { e.preventDefault(); if (active != null) void closeTab(active); }
+      else if (k === 'l') { e.preventDefault(); addressRef.current?.focus(); }
+      else if (k === 'f' && url) { e.preventDefault(); setFinding(true); requestAnimationFrame(() => findRef.current?.focus()); }
+      else if ((k === '=' || k === '+') && url) { e.preventDefault(); zoomRef.current(zoomRef.current.level + 0.1); }
+      else if (k === '-' && url) { e.preventDefault(); zoomRef.current(zoomRef.current.level - 0.1); }
+      else if (k === '0' && url) { e.preventDefault(); zoomRef.current(1); }
+    };
+    window.addEventListener('keydown', onKey);
+    // The same keys pressed while the PAGE has the focus: the page is a native
+    // view and its key events never reach this window, so the host relays
+    // them (browser://key) and they land in the same handler.
+    const off = listen<{ key: string; shift?: boolean }>('browser://key', (e) => {
+      onKey({ key: e.payload.key, shiftKey: !!e.payload.shift, ctrlKey: true, metaKey: false, preventDefault() {} } as unknown as globalThis.KeyboardEvent);
+    });
+    return () => { window.removeEventListener('keydown', onKey); void off.then((f) => f()); };
+  }, [active, url, newTab, closeTab, reopenTab]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const current = tabs.find((t) => t.id === active);
   const [address, setAddress] = useState(url);
@@ -67,6 +123,89 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ x: number; w: number } | null>(null);
   const [startQuery, setStartQuery] = useState('');
+  // A new tab is for typing into. `autoFocus` fires once per mount, and the
+  // native page grabs the focus when it is parked, so opening a second tab
+  // left the cursor nowhere and cost a click (20 Sep). Focus follows the
+  // active tab onto the new-tab page instead.
+  const startInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (url) return;
+    // The native webview for the new tab is created a beat after React has
+    // painted the new-tab page and takes the focus with it; one frame was
+    // not enough (20 Sep). Reclaim it a few times across the first half
+    // second, then stop: past that the person may have clicked elsewhere.
+    const timers = [30, 150, 350, 600].map((ms) =>
+      window.setTimeout(() => {
+        const el = startInputRef.current;
+        if (el && document.activeElement !== el) el.focus();
+      }, ms),
+    );
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [url, active]);
+  // The address bar's memory (see lib/browserHistory): visits with titles,
+  // ranked by frecency and by what was picked for these letters before.
+  const [history, setHistory] = useState(() => loadHistory());
+  useEffect(() => {
+    setHistory((prev) => {
+      const next = recordVisit(prev, url, current?.title ?? '');
+      if (next !== prev) saveHistory(next);
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]);
+  useEffect(() => {
+    if (!current?.title || !url) return;
+    setHistory((prev) => {
+      const next = recordTitle(prev, url, current.title);
+      if (next !== prev) saveHistory(next);
+      return next;
+    });
+  }, [current?.title, url]);
+  const [bookmarks, setBookmarks] = useState(() => loadBookmarks());
+  const bookmarked = bookmarks.find((b) => b.url === url) ?? null;
+  const [starOpen, setStarOpen] = useState(false);
+  const [tagText, setTagText] = useState('');
+  // Sparks fly off the star when a page is saved: a counter so every save
+  // restarts the animation (a fresh key remounts the sparks).
+  const [sparks, setSparks] = useState(0);
+  const commitBookmark = () => {
+    setBookmarks((prev) => {
+      const next = upsertBookmark(prev, { url, title: current?.title || display(url), tags: parseTags(tagText) });
+      saveBookmarks(next);
+      return next;
+    });
+    setStarOpen(false);
+    setSparks((n) => n + 1);
+  };
+  const [downloadsOpen, setDownloadsOpen] = useState(false);
+  const downloadCount = useBrowser((b) => b.downloads.length);
+  // One zoom level for the browser, remembered across restarts.
+  const [zoom, setZoom] = useState(() => Number(readLocal(ZOOM_KEY)) || 1);
+  const applyZoom = (factor: number) => {
+    const f = Math.round(Math.min(3, Math.max(0.5, factor)) * 10) / 10;
+    setZoom(f);
+    writeLocal(ZOOM_KEY, String(f));
+    void tauri.browser.ui('zoom', { factor: f }).catch(() => {});
+  };
+  zoomRef.current = Object.assign((f: number) => applyZoom(f), { level: zoom });
+  useEffect(() => { if (url && zoom !== 1) void tauri.browser.ui('zoom', { factor: zoom }).catch(() => {}); }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dropBookmark = () => {
+    setBookmarks((prev) => { const next = removeBookmark(prev, url); saveBookmarks(next); return next; });
+    setStarOpen(false);
+  };
+  const bookmarkedUrls = useMemo(() => new Set(bookmarks.map((b) => b.url)), [bookmarks]);
+  const addressSugg = useAddressSuggestions(history, address, editing, bookmarkedUrls);
+  const startSugg = useAddressSuggestions(history, startQuery, !url, bookmarkedUrls);
+  const pick = (typed: string, target: string) => {
+    setHistory((prev) => { const next = recordPick(prev, typed, target); saveHistory(next); return next; });
+    void open(target);
+  };
+  const keys = (sugg: ReturnType<typeof useAddressSuggestions>, typed: string) => (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); sugg.move(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); sugg.move(-1); }
+    else if (e.key === 'Escape') { sugg.setIndex(-1); e.currentTarget.blur(); }
+    else if (e.key === 'Enter' && sugg.selected) { e.preventDefault(); setEditing(false); pick(typed, sugg.selected.url); }
+  };
   // The slide in and out both run over the glass; see panelMotion. Started on
   // mount, ended when the enter animation completes (above); the exit is
   // marked for the length of the animation after unmount.
@@ -218,7 +357,9 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
                 : 'border-transparent text-text-muted hover:bg-bg-hover hover:text-text-secondary',
             )}
           >
-            {t.loading && <Loader2 size={12} className="shrink-0 animate-spin" />}
+            {t.loading
+              ? <Loader2 size={12} className="shrink-0 animate-spin" />
+              : t.url.startsWith('http') && <Favicon url={t.url} label={t.title || t.url} px={12} />}
             <span className="truncate">{t.url === 'about:blank' || !t.title ? 'New tab' : t.title}</span>
             <button
               type="button"
@@ -260,19 +401,82 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           spin={loading}
           onClick={() => void go('reload')}
         />
-        <input
-          aria-label="Address"
-          value={address}
-          placeholder="Search or type an address"
-          spellCheck={false}
-          onFocus={(e) => {
-            setEditing(true);
-            e.currentTarget.select();
+        <div className="relative min-w-0 flex-1">
+          <input
+            ref={addressRef}
+            aria-label="Address"
+            value={address}
+            placeholder="Search or type an address"
+            spellCheck={false}
+            onFocus={(e) => {
+              setEditing(true);
+              e.currentTarget.select();
+            }}
+            onBlur={() => setEditing(false)}
+            onChange={(e) => setAddress(e.target.value)}
+            onKeyDown={keys(addressSugg, address)}
+            className="h-8 w-full min-w-0 rounded-full border border-border-default bg-bg-elevated px-3 text-xs text-text-primary outline-hidden focus:border-brand"
+          />
+          <AddressSuggestions items={addressSugg.items} index={addressSugg.index} onPick={(s) => pick(address, s.url)} onHover={addressSugg.setIndex} />
+        </div>
+        <div className="relative">
+          <ChromeButton
+            label={bookmarked ? 'Edit bookmark' : 'Bookmark this page'}
+            icon={Star}
+            disabled={!url}
+            onClick={() => {
+              // One press saves it, with the sparks. The editor (tags, remove)
+              // is for a page already saved; typing tags first was a chore.
+              if (!bookmarked) { setTagText(''); commitBookmark(); return; }
+              setTagText(bookmarked.tags.join(', '));
+              setStarOpen((v) => !v);
+            }}
+            className={cn(bookmarked && 'text-brand [&>svg]:fill-current', sparks > 0 && 'star-pop')}
+            key={`star-${sparks}`}
+          />
+          {sparks > 0 && (
+            <span key={sparks} className="pointer-events-none absolute inset-0" aria-hidden>
+              {Array.from({ length: 8 }, (_, i) => (
+                <i key={i} className="spark" style={{ '--a': `${i * 45}deg` } as CSSProperties} />
+              ))}
+            </span>
+          )}
+        </div>
+        <ChromeButton
+          label={readerOn ? 'Leave reader view' : 'Reader view'}
+          icon={BookOpen}
+          disabled={!url}
+          pressed={readerOn}
+          onClick={() => {
+            void tauri.browser.ui('reader').then((r) => {
+              const out = r as { ok?: boolean; error?: string };
+              if (out?.ok === false) useBrowser.setState({ notice: out.error ?? 'No article on this page to read.' });
+            }).catch(() => {});
           }}
-          onBlur={() => setEditing(false)}
-          onChange={(e) => setAddress(e.target.value)}
-          className="h-8 min-w-0 flex-1 rounded-full border border-border-default bg-bg-elevated px-3 text-xs text-text-primary outline-hidden focus:border-brand"
         />
+        <div className="relative">
+          <ChromeButton label="Downloads" icon={Download} pressed={downloadsOpen} onClick={() => setDownloadsOpen((v) => !v)} />
+          {downloadCount > 0 && (
+            <span className="pointer-events-none absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-brand px-1 text-center text-[10px] font-semibold leading-4 text-brand-foreground" aria-hidden>
+              {downloadCount > 9 ? '9+' : downloadCount}
+            </span>
+          )}
+        </div>
+        {(current?.blocked ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((v) => !v)}
+            title={`${current?.blocked} ads and trackers blocked on this page`}
+            className="flex shrink-0 items-center gap-1 rounded-full bg-bg-hover px-2 py-0.5 text-2xs font-medium text-text-secondary hover:text-text-primary"
+          >
+            <ShieldCheck size={12} /> {current?.blocked}
+          </button>
+        )}
+        {zoom !== 1 && (
+          <button type="button" onClick={() => applyZoom(1)} title="Reset zoom (Ctrl+0)" className="shrink-0 rounded-full bg-bg-hover px-2 py-0.5 text-2xs font-medium text-text-secondary hover:text-text-primary">
+            {Math.round(zoom * 100)}%
+          </button>
+        )}
         <ChromeButton label="Browser settings" icon={Settings2} onClick={() => setSettingsOpen((v) => !v)} />
         <ChromeButton
           label={wide ? 'Back to split view' : 'Fill the window'}
@@ -298,6 +502,38 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         )}
         <ChromeButton label="Close browser" icon={X} onClick={close} />
       </form>
+      {/* Popovers sit in the flow, under the toolbar, and push the page down:
+          the page is a native view and paints over anything absolute, which is
+          where the Downloads card went (21 Sep). */}
+      {starOpen && url && (
+        <form
+          className="flex flex-col gap-2 border-b border-border-subtle bg-bg-elevated/40 px-3 py-3 text-xs"
+          onSubmit={(e) => { e.preventDefault(); commitBookmark(); }}
+        >
+          <p className="truncate font-medium text-text-primary">{current?.title || display(url)}</p>
+          <p className="truncate text-2xs text-text-muted">{display(url)}</p>
+          <input
+            autoFocus
+            aria-label="Tags"
+            value={tagText}
+            placeholder="tags, comma separated (docs, api, to-read)"
+            onChange={(e) => setTagText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setStarOpen(false); }}
+            className="h-7 rounded-md border border-border-default bg-bg-elevated px-2 text-xs text-text-primary outline-hidden focus:border-brand"
+          />
+          <div className="flex items-center justify-between">
+            {bookmarked
+              ? <button type="button" onClick={dropBookmark} className="text-2xs text-text-muted hover:text-error">Remove</button>
+              : <span />}
+            <button type="submit" className="rounded-md bg-brand px-2 py-1 text-2xs font-medium text-brand-foreground">Save</button>
+          </div>
+        </form>
+      )}
+      {downloadsOpen && (
+        <div className="border-b border-border-subtle bg-bg-elevated/40 px-3 py-3 text-xs">
+          <DownloadsList />
+        </div>
+      )}
       {settingsOpen && <BrowserSettings engine={engine} onEngine={setEngine} />}
       {/* Floating over the toolbar, never in the flow: as a row of its own it
           pushed the whole page down and back up on every agent action, which
@@ -316,6 +552,32 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       </div>
       {error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-(--warning)">{error}</p>}
       {notice && !error && <p className="border-y border-border-subtle px-3 py-2 text-2xs text-text-muted">{notice}</p>}
+      {finding && (
+        <form
+          className="flex items-center gap-2 border-b border-border-subtle bg-popover px-3 py-1.5"
+          onSubmit={(e) => { e.preventDefault(); void runFind(findQuery, 'next'); }}
+        >
+          <input
+            ref={findRef}
+            aria-label="Find in page"
+            value={findQuery}
+            placeholder="Find in page"
+            spellCheck={false}
+            onChange={(e) => { setFindQuery(e.target.value); void runFind(e.target.value, 'first'); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+              else if (e.key === 'Enter') { e.preventDefault(); void runFind(findQuery, e.shiftKey ? 'prev' : 'next'); }
+            }}
+            className="h-7 min-w-0 flex-1 rounded-md border border-border-default bg-bg-elevated px-2 text-xs text-text-primary outline-hidden focus:border-brand"
+          />
+          <span className="w-16 text-right text-2xs tabular-nums text-text-muted">
+            {findHits ? (findHits.total ? `${findHits.index + 1} / ${findHits.total}` : 'no match') : ''}
+          </span>
+          <ChromeButton label="Previous match" icon={ChevronUp} onClick={() => void runFind(findQuery, 'prev')} />
+          <ChromeButton label="Next match" icon={ChevronDown} onClick={() => void runFind(findQuery, 'next')} />
+          <ChromeButton label="Close find" icon={X} onClick={closeFind} />
+        </form>
+      )}
       {/* The page is a native webview and paints over everything React draws,
           the resize handle included: it could only be grabbed in the header,
           where no page is (20 Sep). The body starts after the handle's 6 px,
@@ -334,23 +596,49 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
               <p className="text-lg font-medium text-text-primary">{SEARCH_ENGINES[engine]?.label ?? 'DuckDuckGo'}</p>
             </div>
             <form
-              className="flex w-full max-w-2xl items-center gap-3 rounded-full border border-border-default bg-bg-elevated px-5 py-3 shadow-lg focus-within:border-brand"
+              className="relative flex w-full max-w-2xl items-center gap-3 rounded-full border border-border-default bg-bg-elevated px-5 py-3 shadow-lg focus-within:border-brand"
               onSubmit={(e) => {
                 e.preventDefault();
+                if (startSugg.selected) { pick(startQuery, startSugg.selected.url); return; }
                 void open(startQuery);
               }}
             >
+              <AddressSuggestions
+                items={startSugg.items}
+                index={startSugg.index}
+                onPick={(s) => pick(startQuery, s.url)}
+                onHover={startSugg.setIndex}
+                className="top-full text-left"
+              />
               <Search size={20} className="shrink-0 text-text-muted" />
               <input
+                ref={startInputRef}
                 autoFocus
                 aria-label="Search the web"
                 value={startQuery}
+                onKeyDown={keys(startSugg, startQuery)}
                 placeholder={`Search ${SEARCH_ENGINES[engine]?.label ?? 'DuckDuckGo'} or type an address`}
                 spellCheck={false}
                 onChange={(e) => setStartQuery(e.target.value)}
                 className="min-w-0 flex-1 bg-transparent text-base text-text-primary outline-hidden placeholder:text-text-muted"
               />
             </form>
+            {bookmarks.length > 0 && (
+              <div className="flex max-w-2xl flex-wrap justify-center gap-2">
+                {findBookmarks(bookmarks, startQuery, 12).map((b) => (
+                  <button
+                    key={b.url}
+                    type="button"
+                    onClick={() => void open(b.url)}
+                    title={b.tags.length ? `#${b.tags.join(' #')}` : b.url}
+                    className="flex max-w-56 items-center gap-1.5 rounded-full border border-border-default bg-bg-elevated px-3 py-1 text-xs text-text-secondary hover:border-brand hover:text-text-primary"
+                  >
+                    <Star size={11} className="shrink-0 text-brand" aria-hidden />
+                    <span className="truncate">{b.title || display(b.url)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {/* The engines as marks only: pick one and the box searches with it. */}
             <div role="radiogroup" aria-label="Search engine" className="flex items-center gap-2">
               {Object.entries(SEARCH_ENGINES).map(([id, e]) => (
@@ -412,74 +700,174 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   );
 }
 
+/** What the host says about the built-in ad blocker (`browser://adblock`). */
+interface AdblockStatus {
+  state: 'off' | 'loading' | 'on' | 'failed';
+  what?: string;
+  rules?: number;
+  updatedMs?: number;
+  error?: string;
+  /** Requests are intercepted on this system (Windows for now). */
+  supported: boolean;
+}
+
+function adblockHint(s: AdblockStatus | null): string {
+  if (!s) return 'Brave’s engine with EasyList and EasyPrivacy, built in.';
+  if (!s.supported) return 'Not on this system yet: pages are not filtered here. Windows only for now.';
+  switch (s.state) {
+    case 'off': return 'Off. Ads and trackers load like in a browser without a blocker.';
+    case 'loading': return `${s.what ?? 'Loading'}…`;
+    case 'failed': return `Could not load the block lists: ${s.error ?? 'unknown error'}. Check the connection and turn it off and on again.`;
+    default: return `Brave’s engine, ${(s.rules ?? 0).toLocaleString()} rules from EasyList, EasyPrivacy and uBlock, refreshed weekly.`;
+  }
+}
+
 /**
- * The browser's own settings: which engine answers the bar, and the ad
- * blocker. The blocker is uBlock Origin Lite, fetched from its GitHub release
- * on the person's press (GPLv3; not bundled with an Apache-2.0 app) into the
- * extensions folder WebView2 loads. Extensions are Windows only, and a new one
- * is picked up when Cinderpaw next starts, because the browser environment is
+ * The browser's own settings: which engine answers the bar, the built-in ad
+ * blocker (Brave's `adblock` engine in the host, on by default), and the
+ * extensions folder. uBlock Origin Lite stays as an optional extension,
+ * fetched from its GitHub release on the person's press (GPLv3; not bundled
+ * with an Apache-2.0 app). Extensions are Windows only, and a new one is
+ * picked up when Cinderpaw next starts, because the browser environment is
  * created once with the first tab.
  */
 function BrowserSettings({ engine, onEngine }: { engine: string; onEngine: (e: string) => void }) {
   const [ext, setExt] = useState<{ path: string; extensions: Array<{ name: string; version: string }> } | null>(null);
+  const [adblock, setAdblock] = useState<AdblockStatus | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
+  const [cleared, setCleared] = useState<string | null>(null);
   const refresh = () => {
     void tauri.browser.ui('extensions').then((r) => setExt(r as never)).catch(() => setExt(null));
   };
   useEffect(refresh, []);
+  useEffect(() => {
+    void tauri.browser.ui('adblock').then((r) => setAdblock(r as unknown as AdblockStatus)).catch(() => setAdblock(null));
+    const un = listen<AdblockStatus>('browser://adblock', (e) => setAdblock(e.payload));
+    return () => { void un.then((f) => f()).catch(() => {}); };
+  }, []);
   const hasBlocker = ext?.extensions.some((e) => /ublock/i.test(e.name)) ?? false;
   const isWindows = navigator.userAgent.includes('Windows');
+  const btn = cn(SECONDARY_BUTTON, 'shrink-0 text-xs');
+  const adblockOn = adblock !== null && adblock.state !== 'off';
 
   return (
-    <div className="flex flex-col gap-3 border-b border-border-subtle bg-bg-elevated/40 px-3 py-3 text-xs">
-      <label className="flex items-center gap-2">
-        <span className="w-28 shrink-0 text-text-muted">Search with</span>
-        <select
-          aria-label="Search engine"
+    <div className="flex flex-col divide-y divide-border-subtle border-b border-border-subtle bg-bg-elevated/40 px-4">
+      <SettingRow title="Search with" hint="Where words typed in the address bar go.">
+        <SelectMenu
           value={engine}
-          onChange={(e) => onEngine(e.target.value)}
-          className="rounded-md border border-border-default bg-bg-surface px-2 py-1 text-xs text-text-primary"
-        >
-          {Object.entries(SEARCH_ENGINES).map(([id, e]) => <option key={id} value={id}>{e.label}</option>)}
-        </select>
-      </label>
-      <div className="flex items-center gap-2">
-        <span className="w-28 shrink-0 text-text-muted">Ad blocker</span>
-        {!isWindows ? (
-          <span className="text-text-muted">Browser extensions are not available on this system yet.</span>
-        ) : hasBlocker ? (
-          <span className="flex items-center gap-1 text-text-secondary"><ShieldCheck size={14} /> uBlock Origin Lite installed</span>
-        ) : (
-          <button
-            type="button"
-            disabled={installing === 'busy'}
-            onClick={() => {
-              setInstalling('busy');
-              tauri.browser.ui('install_adblock')
-                .then(() => { setInstalling('Installed. It starts blocking when Cinderpaw next opens.'); refresh(); })
-                .catch((e) => setInstalling(`Could not install: ${String(e)}`));
-            }}
-            className="rounded-md border border-border-default px-2 py-1 text-xs text-text-primary hover:bg-bg-hover disabled:opacity-60"
-          >
-            {installing === 'busy' ? 'Downloading…' : 'Install uBlock Origin Lite'}
-          </button>
-        )}
-      </div>
-      {installing && installing !== 'busy' && <p className="text-2xs text-text-muted">{installing}</p>}
-      {ext && ext.extensions.length > 0 && (
-        <p className="text-2xs text-text-muted">
-          {`Extensions: ${ext.extensions.map((e) => `${e.name} ${e.version}`).join(', ')}.`}
-        </p>
-      )}
-      {ext && isWindows && (
+          onChange={onEngine}
+          ariaLabel="Search engine"
+          options={Object.entries(SEARCH_ENGINES).map(([id, e]) => ({ value: id, label: e.label }))}
+        />
+      </SettingRow>
+      <SettingRow title="Ad blocker" hint={adblockHint(adblock)}>
         <button
           type="button"
-          onClick={() => void shellOpen(ext.path)}
-          className="self-start text-2xs text-text-muted underline-offset-2 hover:underline"
+          role="switch"
+          aria-checked={adblockOn}
+          aria-label="Ad blocker"
+          disabled={adblock === null || adblock.state === 'loading'}
+          onClick={() => {
+            void tauri.browser.ui('adblock_set', { on: !adblockOn }).then((r) => setAdblock(r as unknown as AdblockStatus)).catch(() => {});
+          }}
+          className={cn(
+            'inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-default disabled:opacity-60',
+            adblockOn ? 'bg-brand hover:bg-brand-hover' : 'bg-border-default hover:bg-bg-hover',
+          )}
         >
-          Open the extensions folder (drop an unpacked Chrome extension there)
+          <span className={cn('inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200', adblockOn ? 'translate-x-[18px]' : 'translate-x-[2px]')} />
         </button>
+      </SettingRow>
+      <SettingRow
+        title="uBlock Origin Lite"
+        hint={!isWindows
+          ? 'Browser extensions are not available on this system yet.'
+          : installing && installing !== 'busy'
+            ? installing
+            : 'The extension Chrome users install, on top of the built-in blocker. It starts when Cinderpaw next opens.'}
+      >
+        {isWindows && (hasBlocker
+          ? <span className="flex shrink-0 items-center gap-1 text-xs text-text-secondary"><ShieldCheck size={14} /> Installed</span>
+          : (
+            <button
+              type="button"
+              disabled={installing === 'busy'}
+              onClick={() => {
+                setInstalling('busy');
+                tauri.browser.ui('install_adblock')
+                  .then(() => { setInstalling('Installed. It starts blocking when Cinderpaw next opens.'); refresh(); })
+                  .catch((e) => setInstalling(`Could not install: ${String(e)}`));
+              }}
+              className={btn}
+            >
+              {installing === 'busy' ? 'Downloading…' : 'Install'}
+            </button>
+          ))}
+      </SettingRow>
+      {ext && isWindows && (
+        <SettingRow
+          title="Extensions"
+          hint={ext.extensions.length > 0
+            ? ext.extensions.map((e) => `${e.name} ${e.version}`).join(', ')
+            : 'Drop an unpacked Chrome extension in the folder; it loads when Cinderpaw next opens.'}
+        >
+          <button type="button" onClick={() => void shellOpen(ext.path)} className={btn}>Open folder</button>
+        </SettingRow>
       )}
+      <SettingRow title="Site data" hint={cleared ?? 'Cookies, cache and storage every site kept. Clearing signs you out everywhere.'}>
+        {!cleared && (
+          <button
+            type="button"
+            onClick={() => {
+              void tauri.browser.ui('clear_data')
+                .then(() => setCleared('Cleared. Sites have forgotten you; sign in again where you need to.'))
+                .catch((e: unknown) => setCleared(`Could not clear: ${String(e)}`));
+            }}
+            className={btn}
+          >
+            Clear
+          </button>
+        )}
+      </SettingRow>
+      <SettingRow title="Developer tools" hint="Inspect this page the way Chrome's DevTools do.">
+        <button type="button" onClick={() => void tauri.browser.ui('devtools').catch(() => {})} className={btn}>Inspect</button>
+      </SettingRow>
+    </div>
+  );
+}
+
+/** One settings row: what it is and why on the left, the control on the right. */
+function SettingRow({ title, hint, children }: { title: string; hint: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-text-primary">{title}</p>
+        <p className="mt-0.5 text-2xs text-text-muted">{hint}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** This session's downloads, newest first, each one openable. */
+function DownloadsList() {
+  const downloads = useBrowser((b) => b.downloads);
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-2xs uppercase tracking-wide text-text-muted">Downloads</span>
+      {downloads.length === 0 && <span className="text-2xs text-text-muted">Nothing downloaded yet this session.</span>}
+      {downloads.slice(0, 8).map((d) => (
+        <div key={`${d.name}-${d.at}`} className="flex items-center gap-2 text-2xs">
+          <span className="min-w-0 flex-1 truncate text-text-primary">{d.name}</span>
+          {d.error
+            ? <span className="text-error">{d.error}</span>
+            : d.artifact
+              ? <span className="text-text-muted">in Artifacts</span>
+              : d.dest
+                ? <button type="button" onClick={() => void shellOpen(d.dest!)} className="text-text-muted underline-offset-2 hover:underline">Open</button>
+                : null}
+        </div>
+      ))}
     </div>
   );
 }
@@ -500,12 +888,13 @@ function agentLine(a: { op: string; url?: string; ref?: string; busy: boolean })
 }
 
 /** A site's own icon, or its initial while it loads or when it has none. */
-function Favicon({ url, label }: { url: string; label: string }) {
+function Favicon({ url, label, px = 32 }: { url: string; label: string; px?: number }) {
   const [failed, setFailed] = useState(false);
   const origin = new URL(url).origin;
+  const box = px <= 16 ? 'size-3 rounded-sm text-[9px]' : 'size-8 rounded-lg text-sm';
   if (failed) {
     return (
-      <span className="flex size-8 items-center justify-center rounded-lg bg-bg-hover text-sm font-semibold text-text-secondary" aria-hidden>
+      <span className={cn('flex shrink-0 items-center justify-center bg-bg-hover font-semibold text-text-secondary', box)} aria-hidden>
         {label.charAt(0)}
       </span>
     );
@@ -514,9 +903,9 @@ function Favicon({ url, label }: { url: string; label: string }) {
     <img
       src={`${origin}/favicon.ico`}
       alt=""
-      width={32}
-      height={32}
-      className="size-8 rounded-lg"
+      width={px}
+      height={px}
+      className={cn('shrink-0', box)}
       onError={() => setFailed(true)}
     />
   );
@@ -547,13 +936,16 @@ function EngineMark({ engine, size, px }: { engine: string; size?: number; px?: 
 }
 
 function ChromeButton({
-  label, icon: Icon, onClick, spin, disabled,
+  label, icon: Icon, onClick, spin, disabled, pressed, className,
 }: {
   label: string;
   icon: typeof Globe;
   onClick: () => void;
   spin?: boolean;
   disabled?: boolean;
+  /** A toggle's on state: announced, and drawn in the brand colour. */
+  pressed?: boolean;
+  className?: string;
 }) {
   return (
     <button
@@ -561,8 +953,9 @@ function ChromeButton({
       aria-label={label}
       title={label}
       disabled={disabled}
+      aria-pressed={pressed}
       onClick={onClick}
-      className="flex size-8 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-bg-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent"
+      className={cn('flex size-8 shrink-0 items-center justify-center rounded-full text-text-muted hover:bg-bg-hover hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent', pressed && 'bg-brand/15 text-brand', className)}
     >
       <Icon size={16} className={cn(spin && 'animate-spin')} />
     </button>

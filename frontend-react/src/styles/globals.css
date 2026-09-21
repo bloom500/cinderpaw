@@ -614,7 +614,11 @@
   --foreground:           var(--text-primary);
   --card:                 var(--bg-surface);
   --card-foreground:      var(--text-primary);
-  --popover:              var(--bg-elevated);
+  /* A menu is paper, not glass: the elevated surface is 34% ink, and a list
+     of models read through the greeting behind it (light theme, 20 Sep).
+     Same density as the typing bar, which is the one surface nobody has
+     ever complained about reading. */
+  --popover:              var(--surface-typing);
   --popover-foreground:   var(--text-primary);
   --primary:              var(--brand);
   --primary-foreground:   var(--bg-primary);
@@ -656,7 +660,11 @@
      `disabled` is again the exception and stays where it was, at 4.74: an off
      control must look off. */
   --text-secondary:  #2E251C;
-  --text-muted:      #3A2E24;
+  /* Deepened once more (was #3A2E24): the test's grounds are white and black
+     through the pane, and a mid-grey wallpaper under the light pane lands
+     around rgb(150) where timestamps, settings descriptions and paths measured
+     3.9 to 4.1 on screen (20 Sep). */
+  --text-muted:      #2B2119;
   --text-disabled:   #5E5649;
   --brand:           #925E22;
   --brand-foreground: #FFFFFF;
@@ -682,7 +690,8 @@
   --foreground:           var(--text-primary);
   --card:                 var(--bg-surface);
   --card-foreground:      var(--text-primary);
-  --popover:              var(--bg-elevated);
+  /* Paper, not glass: see the dark block. */
+  --popover:              var(--surface-typing);
   --popover-foreground:   var(--text-primary);
   --primary:              var(--brand);
   --primary-foreground:   var(--bg-primary);
@@ -720,6 +729,16 @@
 html {
   text-shadow: var(--text-outline);
 }
+/* ── Native controls follow the theme, not the OS ─────────────────────────
+   A checkbox, a range slider, a select's popup are drawn by the engine in the
+   colour scheme it believes the page has; nothing declared one, so they
+   followed Windows. In the light theme on a dark OS an UNCHECKED checkbox came
+   out as a solid black square (20 Sep). `color-scheme` fixes the palette, and
+   `accent-color` makes every checked box, radio and slider the brand colour
+   without a class on each one, which is how two of them ended up blue. */
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+html { accent-color: var(--brand); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * CINEMATIC SHELL — scene + glass material tokens (2026-08-16 spec)
@@ -1592,6 +1611,36 @@ body { overflow: hidden; }
     outline-offset: 2px;
     border-radius: inherit;
   }
+}
+
+/* ── Bookmark sparks ───────────────────────────────────────────────────────
+   Cartoon sparks off the star when a page is saved: eight four-point stars
+   shoot out along --a, fade, and the star itself pops. Both run once and are
+   removed with their element; reduced motion collapses them like everything
+   else. */
+.spark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px;
+  background: var(--brand);
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  transform: rotate(var(--a)) translateY(-2px) scale(0);
+  animation: spark-fly 520ms cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+@keyframes spark-fly {
+  20% { transform: rotate(var(--a)) translateY(-8px) scale(1.4); opacity: 1; }
+  100% { transform: rotate(var(--a)) translateY(-22px) scale(0); opacity: 0; }
+}
+.star-pop > svg {
+  animation: star-pop 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes star-pop {
+  0% { transform: scale(0.6) rotate(-20deg); }
+  60% { transform: scale(1.5) rotate(10deg); }
+  100% { transform: scale(1) rotate(0); }
 }
 
 /* ── Reduced motion, as a blanket ──────────────────────────────────────────

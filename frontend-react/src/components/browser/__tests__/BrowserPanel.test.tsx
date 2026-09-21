@@ -12,6 +12,19 @@ vi.mock('framer-motion', async (orig) => {
   return { ...actual, motion: { ...actual.motion, aside: Aside } };
 });
 
+// Events from the host, deliverable from a test: `emitTauri(name, payload)`.
+const listeners = new Map<string, Array<(e: { payload: unknown }) => void>>();
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
+    listeners.set(name, [...(listeners.get(name) ?? []), cb]);
+    return () => listeners.set(name, (listeners.get(name) ?? []).filter((f) => f !== cb));
+  },
+  emit: async () => {},
+}));
+async function emitTauri(name: string, payload: unknown) {
+  for (const cb of listeners.get(name) ?? []) cb({ payload });
+}
+
 vi.mock('@/lib/tauri', async (orig) => {
   const actual = await orig<typeof import('@/lib/tauri')>();
   return { ...actual, tauri: { ...actual.tauri, browser: { ui: vi.fn().mockResolvedValue({ ok: true, url: 'https://example.ro/' }) } } };
@@ -70,7 +83,7 @@ describe('the browser panel', () => {
     await act(async () => {});
     expect(ui).toHaveBeenCalledWith('reload');
     act(() => {
-      useBrowser.setState({ tabs: [{ id: 1, title: 'Wiki', url: 'https://wikipedia.org/', loading: false, canBack: true, canForward: false }], active: 1 });
+      useBrowser.setState({ tabs: [{ id: 1, title: 'Wiki', url: 'https://wikipedia.org/', loading: false, canBack: true, canForward: false, blocked: 0 }], active: 1 });
     });
     fireEvent.click(screen.getByLabelText('Back'));
     await act(async () => {});
@@ -79,8 +92,8 @@ describe('the browser panel', () => {
 
   it('tabs: shows each, switches, closes, and opens a new one', async () => {
     const tabs = [
-      { id: 1, title: 'Wiki', url: 'https://wikipedia.org/', loading: false, canBack: false, canForward: false },
-      { id: 2, title: '', url: 'about:blank', loading: false, canBack: false, canForward: false },
+      { id: 1, title: 'Wiki', url: 'https://wikipedia.org/', loading: false, canBack: false, canForward: false, blocked: 0 },
+      { id: 2, title: '', url: 'about:blank', loading: false, canBack: false, canForward: false, blocked: 0 },
     ];
     ui.mockResolvedValue({ active: 2, tabs });
     useBrowser.setState({ tabs, active: 1 });
@@ -149,5 +162,62 @@ describe('the promise on the start page', () => {
     expect(screen.getByText(/Cinderpaw can use this browser too/)).toBeInTheDocument();
     act(() => useBrowser.setState({ agent: { op: 'click', ref: '12', busy: true } }));
     expect(screen.getByRole('status')).toHaveTextContent('Cinderpaw clicked control 12…');
+  });
+  it('reader view is a toggle: the article is a page of our own, and the chrome shows the original address', async () => {
+    render(<BrowserPanel />);
+    act(() => {
+      useBrowser.setState({ url: 'https://wikipedia.org/', tabs: [{ id: 1, title: 'Wiki', url: 'https://wikipedia.org/', loading: false, canBack: false, canForward: false, blocked: 0 }], active: 1 });
+    });
+    const reader = screen.getByLabelText('Reader view');
+    expect(reader).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(reader);
+    await act(async () => {});
+    expect(ui).toHaveBeenCalledWith('reader');
+    // the host navigates to the reader page; the panel reads its state off the address
+    act(() => { useBrowser.setState({ url: 'http://cinderpaw-reader.localhost/abc?u=https%3A%2F%2Fwikipedia.org%2F' }); });
+    expect(screen.getByLabelText('Leave reader view')).toHaveAttribute('aria-pressed', 'true');
+    expect((screen.getByLabelText('Address') as HTMLInputElement).value).toBe('https://wikipedia.org/');
+  });
+
+  it('zooms with the keyboard, shows the level, and resets from it', async () => {
+    render(<BrowserPanel />);
+    act(() => { useBrowser.setState({ url: 'https://wikipedia.org/' }); });
+    fireEvent.keyDown(window, { key: '=', ctrlKey: true });
+    expect(screen.getByText('110%')).toBeInTheDocument();
+    expect(ui).toHaveBeenCalledWith('zoom', { factor: 1.1 });
+    fireEvent.click(screen.getByText('110%'));
+    expect(screen.queryByText('110%')).toBeNull();
+    expect(ui).toHaveBeenCalledWith('zoom', { factor: 1 });
+  });
+
+  it('downloads live behind a toolbar button, with a count, even before there are any', () => {
+    render(<BrowserPanel />);
+    fireEvent.click(screen.getByLabelText('Downloads'));
+    expect(screen.getByText('Nothing downloaded yet this session.')).toBeInTheDocument();
+    act(() => { useBrowser.setState({ downloads: [{ name: 'report.pdf', at: 1, artifact: true }] }); });
+    expect(screen.getByText('report.pdf')).toBeInTheDocument();
+    expect(screen.getByLabelText('Downloads').parentElement!.textContent).toContain('1');
+  });
+
+  it('one press on the star saves the page with sparks; the next press opens the editor', async () => {
+    render(<BrowserPanel />);
+    act(() => {
+      useBrowser.setState({ url: 'https://wikipedia.org/', tabs: [{ id: 1, title: 'Wiki', url: 'https://wikipedia.org/', loading: false, canBack: false, canForward: false, blocked: 0 }], active: 1 });
+    });
+    fireEvent.click(screen.getByLabelText('Bookmark this page'));
+    expect(document.querySelectorAll('.spark')).toHaveLength(8);
+    expect(screen.getByLabelText('Edit bookmark').className).toContain('star-pop');
+    expect(screen.queryByLabelText('Tags')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Edit bookmark'));
+    expect(screen.getByLabelText('Tags')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Remove'));
+    expect(screen.getByLabelText('Bookmark this page')).toBeInTheDocument();
+  });
+
+  it('a shortcut relayed from the page lands in the same handler', async () => {
+    render(<BrowserPanel />);
+    act(() => { useBrowser.setState({ url: 'https://wikipedia.org/' }); });
+    await act(async () => { await emitTauri('browser://key', { key: '=', shift: false }); });
+    expect(screen.getByText('110%')).toBeInTheDocument();
   });
 });
