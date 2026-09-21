@@ -131,3 +131,45 @@ pub(crate) async fn test_byok_provider(provider_id: String, api_key: String, bas
 pub(crate) async fn byok_has_key(provider_id: String) -> bool {
     byok::byok_get(&provider_id).is_some_and(|k| !k.trim().is_empty())
 }
+
+/// One System One request to Jev (TypeSafe), with the key from the keychain.
+///
+/// The JS side builds `state` and `questions` (the closed sets the call can
+/// act on) and gets `answers` back; it never sees the key. The route was
+/// stored with the key: OpenRouter (`https://openrouter.ai/api`) or TypeSafe
+/// (`https://api.typesafe.ai`), both `POST {base}/v1/systemone` with the same
+/// body and the same answer shape.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn jev_decide(state: serde_json::Value, questions: serde_json::Value) -> Result<serde_json::Value, String> {
+    let key = byok::byok_get("jev").filter(|k| !k.trim().is_empty()).ok_or("jev-no-key")?;
+    let cfg = byok::load(&settings::load()).providers.get("jev").cloned().unwrap_or_default();
+    let base = cfg.base_url.unwrap_or_else(|| "https://api.typesafe.ai".into());
+    let model = cfg.default_model.unwrap_or_else(|| "jev-latest".into());
+    let url = format!("{}/v1/systemone", base.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let started = std::time::Instant::now();
+    let resp = client
+        .post(&url)
+        .bearer_auth(key.trim())
+        .header("HTTP-Referer", "https://cinderpaw.ai")
+        .header("X-Title", "Cinderpaw")
+        .json(&serde_json::json!({ "model": model, "state": state, "questions": questions }))
+        .send()
+        .await
+        .map_err(|e| format!("jev-unreachable: {e}"))?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.map_err(|e| format!("jev-bad-reply: {e}"))?;
+    if !status.is_success() {
+        let msg = body.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()).unwrap_or("");
+        return Err(format!("jev-http-{}: {msg}", status.as_u16()));
+    }
+    Ok(serde_json::json!({
+        "answers": body.get("answers").cloned().unwrap_or(serde_json::Value::Null),
+        "usage": body.get("usage").cloned().unwrap_or(serde_json::Value::Null),
+        "ms": started.elapsed().as_millis() as u64,
+    }))
+}

@@ -27,17 +27,24 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Ole::{
     SafeArrayGetElement, SafeArrayGetLBound, SafeArrayGetUBound,
 };
-use windows::Win32::System::Variant::VariantToBooleanWithDefault;
+use windows::Win32::System::Variant::{InitVariantFromInt32Array, VariantToBooleanWithDefault};
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId, SetCursorPos};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+    MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC,
+    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
     KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE,
     VK_F1, VK_F10, VK_F11, VK_F12, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_HOME,
     VK_LEFT, VK_LWIN, VK_MENU, VK_NEXT, VK_PRIOR, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB,
-    VK_UP,
+    VK_UP, VK_BROWSER_BACK, VK_BROWSER_FORWARD, VK_BROWSER_REFRESH, VK_MEDIA_NEXT_TRACK,
+    VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_VOLUME_DOWN, VK_VOLUME_MUTE, VK_VOLUME_UP,
+    VK_OEM_1, VK_OEM_2, VK_OEM_3, VK_OEM_4, VK_OEM_5, VK_OEM_6, VK_OEM_7, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD, VK_OEM_PLUS,
 };
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationExpandCollapsePattern,
-    IUIAutomationInvokePattern, IUIAutomationTogglePattern, IUIAutomationValuePattern,
+    CUIAutomation, IUIAutomation, IUIAutomationCondition, IUIAutomationElement, IUIAutomationExpandCollapsePattern,
+    UIA_ControlTypePropertyId, UIA_LandmarkTypePropertyId, UIA_MainLandmarkTypeId, UIA_RuntimeIdPropertyId,
+    TreeScope_Descendants,
+    IUIAutomationInvokePattern, IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern, IUIAutomationValuePattern,
+    UIA_IsSelectionItemPatternAvailablePropertyId, UIA_SelectionItemPatternId,
     TreeScope_Children, TreeScope_Subtree, UIA_ButtonControlTypeId, UIA_CONTROLTYPE_ID,
     UIA_CalendarControlTypeId, UIA_CheckBoxControlTypeId, UIA_ComboBoxControlTypeId,
     UIA_DataGridControlTypeId, UIA_DataItemControlTypeId, UIA_DocumentControlTypeId,
@@ -276,6 +283,39 @@ fn role_of(elem: &IUIAutomationElement) -> String {
     }
 }
 
+/// The control type a role name stands for ("Document" -> 50030): the
+/// inverse of `control_type_name`, over the range UIA numbers them in.
+fn control_type_for(role: &str) -> Option<UIA_CONTROLTYPE_ID> {
+    (50000..=50040)
+        .map(UIA_CONTROLTYPE_ID)
+        .find(|ct| control_type_name(*ct).eq_ignore_ascii_case(role))
+}
+
+/// A condition the accessibility provider evaluates itself, for one role, a
+/// comma-separated list of roles ("Button,Hyperlink"), or "Main", the page's
+/// main landmark. Pulling every element of a page across the process
+/// boundary to read its role here cost 280 ms on one ChatGPT window, and the
+/// same search as a condition 6 ms (21 Sep); a Jev command made three to
+/// eight of those. None when no name maps, and the caller falls back to
+/// reading every element.
+fn role_condition(auto: &IUIAutomation, roles: &str) -> Option<IUIAutomationCondition> {
+    let mut out: Option<IUIAutomationCondition> = None;
+    for role in roles.split(',').map(str::trim).filter(|r| !r.is_empty()) {
+        let (prop, value) = if role.eq_ignore_ascii_case("main") {
+            (UIA_LandmarkTypePropertyId, windows::core::VARIANT::from(UIA_MainLandmarkTypeId.0))
+        } else {
+            let Some(ct) = control_type_for(role) else { continue };
+            (UIA_ControlTypePropertyId, windows::core::VARIANT::from(ct.0))
+        };
+        let Ok(c) = (unsafe { auto.CreatePropertyCondition(prop, &value) }) else { continue };
+        out = Some(match out {
+            None => c,
+            Some(prev) => unsafe { auto.CreateOrCondition(&prev, &c) }.ok()?,
+        });
+    }
+    out
+}
+
 fn is_enabled_of(elem: &IUIAutomationElement) -> bool {
     unsafe { elem.CurrentIsEnabled() }.map(|b| b.as_bool()).unwrap_or(false)
 }
@@ -438,6 +478,28 @@ fn window_root_for(
 /// window of the one `window_root_for` would pick.
 fn locate(auto: &IUIAutomation, pid: u32, rid: &[i32]) -> Result<IUIAutomationElement, String> {
     let wins = windows_for_pid(auto, pid)?;
+    // Asked of the provider by RuntimeId first: every click and every key a
+    // Jev command sends re-finds its element here, and reading the id of each
+    // element of a YouTube page in turn was most of the time a click took.
+    // The walk below stays as the fallback for a provider that does not
+    // answer the condition.
+    let by_id = unsafe { InitVariantFromInt32Array(rid) }
+        .ok()
+        .and_then(|v| unsafe { auto.CreatePropertyCondition(UIA_RuntimeIdPropertyId, &v) }.ok());
+    if let Some(c) = by_id.as_ref() {
+        for root in &wins {
+            if runtime_id(root).map(|r| r == rid).unwrap_or(false) {
+                return Ok(root.clone());
+            }
+            let Ok(found) = (unsafe { root.FindAll(TreeScope_Descendants, c) }) else { continue };
+            let n = unsafe { found.Length() }.unwrap_or(0);
+            if n > 0 {
+                if let Ok(el) = unsafe { found.GetElement(0) } {
+                    return Ok(el);
+                }
+            }
+        }
+    }
     for root in &wins {
         if runtime_id(root).map(|r| r == rid).unwrap_or(false) {
             return Ok(root.clone());
@@ -471,6 +533,7 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
     let _com = ComGuard::new();
     let auto = automation()?;
     let root = unsafe { auto.GetRootElement() }.map_err(|e| e.to_string())?;
+    let names = process_names();
     let mut out = Vec::new();
     for win in children(&auto, &root)? {
         let pid = match process_id(&win) {
@@ -482,7 +545,7 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
             continue;
         }
         let title = name_of(&win);
-        let app_name = process_name(pid).unwrap_or_default();
+        let app_name = names.get(&pid).cloned().unwrap_or_default();
         out.push(WindowInfo { pid, title, app_name });
     }
     Ok(out)
@@ -507,14 +570,43 @@ pub fn find_elements(
 ) -> Result<Vec<AccessibilityElement>, String> {
     let _com = ComGuard::new();
     let auto = automation()?;
-    let root = window_root_for(&auto, pid, window_title)?;
+    let mut root = window_root_for(&auto, pid, window_title)?;
     let cond = unsafe { auto.CreateTrueCondition() }.map_err(|e| e.to_string())?;
-    let arr = unsafe { root.FindAll(TreeScope_Subtree, &cond) }
+    // Scoped to the first element of `under_role` when asked (the page inside
+    // a browser): "the first video" then means the first on the page, not the
+    // first thing after twenty window and toolbar buttons (21 Sep).
+    // Several scopes, comma-separated, are tried in order ("Main,Document"):
+    // the page's main landmark first, the whole page when it has none. "Main"
+    // is not a control type but a landmark: on YouTube the first links in
+    // the Document are the logo and the guide ("YouTube Home", "Home",
+    // "Shorts"), so "the first video" pressed the logo (21 Sep).
+    if let Some(under) = query.under_role.as_deref() {
+        'scopes: for want in under.split(',') {
+            let Some(c) = role_condition(&auto, want) else { continue };
+            let Ok(found) = (unsafe { root.FindAll(TreeScope_Descendants, &c) }) else { continue };
+            let n = unsafe { found.Length() }.unwrap_or(0);
+            for i in 0..n {
+                let Ok(el) = (unsafe { found.GetElement(i) }) else { continue };
+                if !is_offscreen_of(&el) {
+                    root = el;
+                    break 'scopes;
+                }
+            }
+        }
+    }
+    // The role, when asked, is filtered by the provider as well; the check
+    // in the loop below stays for a role no control type maps to.
+    let by_role = query.role.as_deref().and_then(|r| role_condition(&auto, r));
+    let arr = unsafe { root.FindAll(TreeScope_Subtree, by_role.as_ref().unwrap_or(&cond)) }
         .map_err(|e| format!("desktop control: subtree FindAll failed: {e}"))?;
     let n = unsafe { arr.Length() }.map_err(|e| e.to_string())?;
     let limit = (n as usize).min(MAX_LOCATE_VISITS);
 
-    let role_q = query.role.as_deref().map(|s| s.to_lowercase());
+    // One role, or several comma-separated ("Button,Hyperlink").
+    let role_q: Option<Vec<String>> = query
+        .role
+        .as_deref()
+        .map(|s| s.split(',').map(|r| r.trim().to_lowercase()).filter(|r| !r.is_empty()).collect());
     let name_q = query.name.as_deref().map(|s| s.to_lowercase());
     let aid_q = query.automation_id.as_deref().map(|s| s.to_lowercase());
     let val_q = query.value_contains.as_deref().map(|s| s.to_lowercase());
@@ -523,7 +615,7 @@ pub fn find_elements(
     for i in 0..limit as i32 {
         let Ok(el) = (unsafe { arr.GetElement(i) }) else { continue };
         if let Some(ref r) = role_q {
-            if role_of(&el).to_lowercase() != *r {
+            if !r.contains(&role_of(&el).to_lowercase()) {
                 continue;
             }
         }
@@ -625,7 +717,36 @@ fn invoke(el: &IUIAutomationElement) -> Result<(), String> {
     if bool_property(el, UIA_IsTogglePatternAvailablePropertyId) {
         return toggle(el);
     }
-    Err("desktop control: element is not invokable (no Invoke or Toggle pattern)".into())
+    // A tab, a list row, a radio option: selectable, not invokable. Gmail's
+    // category tabs were found and then refused here (21 Sep).
+    if bool_property(el, UIA_IsSelectionItemPatternAvailablePropertyId) {
+        let p = unsafe { el.GetCurrentPattern(UIA_SelectionItemPatternId) }
+            .ok()
+            .and_then(|u| u.cast::<IUIAutomationSelectionItemPattern>().ok())
+            .ok_or("desktop control: selection pattern unavailable")?;
+        return unsafe { p.Select() }.map_err(|e| format!("desktop control: Select failed: {e}"));
+    }
+    // Last resort, the one every element answers to: a real click at its
+    // centre. Web content in particular exposes plenty of things that react to
+    // a mouse and to nothing in UIA (a video thumbnail, a card, a div with a
+    // handler). The pointer moves, which the person can see; it is the honest
+    // version of what they asked for.
+    let r = bounding_rect(el);
+    if r.width <= 0 || r.height <= 0 {
+        return Err("desktop control: element is not invokable and has no size to click".into());
+    }
+    let (x, y) = (r.x + r.width / 2, r.y + r.height / 2);
+    unsafe { SetCursorPos(x, y) }.map_err(|e| format!("desktop control: could not move the pointer: {e}"))?;
+    let click = |flags| INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 { mi: MOUSEINPUT { dx: 0, dy: 0, mouseData: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
+    };
+    let inputs = [click(MOUSEEVENTF_LEFTDOWN), click(MOUSEEVENTF_LEFTUP)];
+    let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent as usize != inputs.len() {
+        return Err("desktop control: the mouse click was blocked (a higher-integrity window may be in front)".into());
+    }
+    Ok(())
 }
 
 fn toggle(el: &IUIAutomationElement) -> Result<(), String> {
@@ -676,6 +797,17 @@ const MAX_KEYS_LEN: usize = 2000;
 /// system-wide `GetFocusedElement` that the focused element belongs to the
 /// target pid. If it never does, we fail SAFE (recoverable) instead of typing
 /// into the wrong place.
+/// The process that owns the window in front, which is where typed keys go.
+fn foreground_pid() -> Option<u32> {
+    let front = unsafe { GetForegroundWindow() };
+    if front.0.is_null() {
+        return None;
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(front, Some(&mut pid as *mut u32)) };
+    (pid != 0).then_some(pid)
+}
+
 fn ensure_focused(auto: &IUIAutomation, el: &IUIAutomationElement, pid: u32) -> Result<(), String> {
     for attempt in 0..3u64 {
         let _ = unsafe { el.SetFocus() };
@@ -686,6 +818,13 @@ fn ensure_focused(auto: &IUIAutomation, el: &IUIAutomationElement, pid: u32) -> 
             if process_id(&focused).map(|p| p == pid).unwrap_or(false) {
                 return Ok(());
             }
+        }
+        // The window in front is the target's, even when the focused element
+        // reports another process: an app built on WebView2 (the new
+        // WhatsApp, Teams, Outlook) hosts its page in msedgewebview2.exe, so
+        // the check above failed for every key sent to it.
+        if foreground_pid() == Some(pid) {
+            return Ok(());
         }
     }
     Err(
@@ -752,6 +891,18 @@ fn vk_for_name(name: &str) -> Option<VIRTUAL_KEY> {
         "f10" => VK_F10,
         "f11" => VK_F11,
         "f12" => VK_F12,
+        // The keys a keyboard has for the browser and the player. They reach the
+        // app that owns them whatever has the focus: Alt+Left in a YouTube
+        // player seeked the video instead of going back (21 Sep).
+        "browserback" => VK_BROWSER_BACK,
+        "browserforward" => VK_BROWSER_FORWARD,
+        "browserrefresh" => VK_BROWSER_REFRESH,
+        "playpause" => VK_MEDIA_PLAY_PAUSE,
+        "nexttrack" => VK_MEDIA_NEXT_TRACK,
+        "prevtrack" => VK_MEDIA_PREV_TRACK,
+        "volumeup" => VK_VOLUME_UP,
+        "volumedown" => VK_VOLUME_DOWN,
+        "volumemute" => VK_VOLUME_MUTE,
         _ => return None,
     })
 }
@@ -769,6 +920,23 @@ fn resolve_key(name: &str) -> Option<VIRTUAL_KEY> {
         if c.is_ascii_alphanumeric() {
             return Some(VIRTUAL_KEY(c as u16));
         }
+        // Punctuation under a modifier ("{ctrl+=}" zoom, "{shift+.}" faster on
+        // YouTube): a Unicode char event cannot carry Ctrl or Shift, so these
+        // need their OEM virtual keys. US layout positions; most layouts agree.
+        return Some(match c {
+            b'=' => VK_OEM_PLUS,
+            b'-' => VK_OEM_MINUS,
+            b'.' => VK_OEM_PERIOD,
+            b',' => VK_OEM_COMMA,
+            b'/' => VK_OEM_2,
+            b'`' => VK_OEM_3,
+            b'\\' => VK_OEM_5,
+            b';' => VK_OEM_1,
+            b'\'' => VK_OEM_7,
+            b'[' => VK_OEM_4,
+            b']' => VK_OEM_6,
+            _ => return None,
+        });
     }
     None
 }
@@ -784,13 +952,23 @@ fn modifier_vk(name: &str) -> Option<VIRTUAL_KEY> {
 }
 
 fn vk_input(vk: VIRTUAL_KEY, up: bool) -> INPUT {
+    // The media and browser keys are extended keys: without the flag and a
+    // scan code Windows delivers them as nothing, so "pause" did nothing (21 Sep).
+    let extended = matches!(
+        vk,
+        VK_BROWSER_BACK | VK_BROWSER_FORWARD | VK_BROWSER_REFRESH | VK_MEDIA_NEXT_TRACK
+            | VK_MEDIA_PLAY_PAUSE | VK_MEDIA_PREV_TRACK | VK_VOLUME_DOWN | VK_VOLUME_MUTE | VK_VOLUME_UP
+    );
+    let scan = if extended { unsafe { MapVirtualKeyW(vk.0 as u32, MAPVK_VK_TO_VSC) as u16 } } else { 0 };
+    let mut flags = if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) };
+    if extended { flags |= KEYEVENTF_EXTENDEDKEY; }
     INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
                 wVk: vk,
-                wScan: 0,
-                dwFlags: if up { KEYEVENTF_KEYUP } else { KEYBD_EVENT_FLAGS(0) },
+                wScan: scan,
+                dwFlags: flags,
                 time: 0,
                 dwExtraInfo: 0,
             },

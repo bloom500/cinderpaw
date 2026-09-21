@@ -20,6 +20,7 @@
     "core:window:allow-is-minimized",
     "core:window:allow-current-monitor",
     "core:window:allow-set-position",
+    "core:window:allow-set-size",
     "core:window:allow-destroy",
     "core:webview:allow-create-webview-window",
     "core:window:allow-start-dragging",

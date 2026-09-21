@@ -1164,10 +1164,28 @@ fn open_page(app: &AppHandle) -> Result<Webview, String> {
 /// something the person sees happen rather than reads about.
 pub async fn handle_from_agent(app: AppHandle, op: &str, params: &Value) -> Result<Value, String> {
     let acts = !matches!(op, "snapshot" | "tabs" | "state");
+    // Includes `snapshot`: reading a hidden page is pointless, and reaching
+    // `handle` at all restores last session's tabs into the hidden window.
+    if !matches!(op, "tabs" | "state") && crate::call_pill::main_out_of_sight(&app) {
+        if matches!(op, "open" | "navigate") {
+            // The person's own browser, in front of them, like the Jev call does.
+            use tauri_plugin_shell::ShellExt;
+            let url = parse_address(param_str(params, "url")?)?;
+            #[allow(deprecated)]
+            app.shell().open(url.as_str(), None).map_err(|e| format!("browser: could not open the system browser: {e}"))?;
+            return Ok(json!({
+                "opened_in": "the user's own browser (Cinderpaw is hidden behind the call pill)",
+                "url": url.as_str(),
+                "note": "browser.* cannot see that page; use computer_use on the window in front to read or act on it.",
+            }));
+        }
+        let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
+        return Err(format!("browser: {}", crate::call_pill::OUT_OF_SIGHT));
+    }
     if acts && person_took_over(&app).await {
         *AGENT_LAST_MS.lock() = now_ms();
         let _ = app.emit("browser://agent", json!({ "op": "paused", "busy": false, "ok": false }));
-        return Err("browser: the user took over this page since your last action (they clicked or typed in it).                     Do not continue on your own: take a snapshot to see where they are, and ask them before acting again.".into());
+        return Err("browser: the user took over this page since your last action (they clicked or typed in it). Do not continue on your own: take a snapshot to see where they are, and ask them before acting again.".into());
     }
     let _ = app.emit("browser://agent", json!({ "op": op, "url": params.get("url"), "ref": params.get("ref"), "busy": true }));
     let out = handle(app.clone(), op, params).await;

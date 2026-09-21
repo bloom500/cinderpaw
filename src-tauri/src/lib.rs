@@ -1,6 +1,7 @@
 mod agents;
 mod adblock;
 mod browser;
+mod call_pill;
 mod google;
 mod commands;
 mod connectors;
@@ -578,6 +579,10 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             save_byok_provider,
             remove_byok_provider,
             byok_has_key,
+            jev_decide,
+            call_pill::call_pill_open,
+            call_pill::call_pill_close,
+            call_pill::main_in_front,
             test_byok_provider,
             chat_cloud_stream,
             chat_complete_local,
@@ -655,6 +660,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             desktop_control::take_element_action,
             desktop_control::send_keys,
             desktop_control::launch_app,
+            desktop_control::list_apps,
             rsi::commands::rsi_init,
             rsi::commands::rsi_status,
             rsi::commands::rsi_get_bounds,
@@ -799,6 +805,11 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
         // printed onto somebody's wallpaper. The claim and the fact are made
         // together, and only a successful call is allowed to make the claim.
         .on_page_load(|window, _| {
+            // The call pill is a transparent strip over the desktop: an acrylic
+            // backdrop on it is a milky rectangle around the pill (21 Sep).
+            if window.label() == call_pill::LABEL {
+                return;
+            }
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
                 // This call returns a Result and the config does not.
@@ -851,6 +862,10 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
         // Not gated on the previous state, because there is no way to read it.
         // Setting the same backdrop twice is a no-op in DWM.
         .on_window_event(|window, event| {
+            // The call pill never gets the backdrop (see on_page_load).
+            if window.label() == call_pill::LABEL {
+                return;
+            }
             #[cfg(any(target_os = "windows", target_os = "macos"))]
             // BOTH transitions, not just regaining focus.
             //

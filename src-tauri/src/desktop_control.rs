@@ -110,10 +110,18 @@ pub struct LaunchResult {
 
 #[derive(Debug, Clone, Default, Deserialize, specta::Type)]
 pub struct ElementQuery {
+    /// One role ("Button"), or several comma-separated ("Button,Hyperlink").
     pub role: Option<String>,
     pub name: Option<String>,
     pub automation_id: Option<String>,
     pub value_contains: Option<String>,
+    /// Search only inside the first element of this role ("Document" for a
+    /// browser's page): what the page shows, without the window and toolbar
+    /// buttons around it. "Main" is the page's main landmark (no header, no
+    /// side menu). Several may be listed, comma-separated, tried in order
+    /// ("Main,Document"). Absent or not found, the whole window is searched.
+    #[serde(default)]
+    pub under_role: Option<String>,
 }
 
 /// Maximum tree depth we will ever walk, regardless of caller input. Deep
@@ -268,6 +276,21 @@ pub mod security {
 
 /// Resolve a pid to its process image name (e.g. `notepad.exe`). Cross-platform
 /// via `sysinfo`. Returns `None` when the process is gone.
+/// Every running process's name, by pid, from one snapshot of the process
+/// table. `list_windows` used to take a whole snapshot per window to name it;
+/// a Jev command lists the windows twice, so that was two dozen snapshots
+/// before anything happened.
+pub fn process_names() -> std::collections::HashMap<u32, String> {
+    use sysinfo::{ProcessRefreshKind, RefreshKind, System};
+    let sys = System::new_with_specifics(
+        RefreshKind::new().with_processes(ProcessRefreshKind::new()),
+    );
+    sys.processes()
+        .iter()
+        .map(|(pid, p)| (pid.as_u32(), p.name().to_string_lossy().to_string()))
+        .collect()
+}
+
 pub fn process_name(pid: u32) -> Option<String> {
     use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
     let sys = System::new_with_specifics(
@@ -432,6 +455,19 @@ pub async fn launch_app(app: String) -> Result<LaunchResult, String> {
     if app.is_empty() {
         return Err("desktop control: launch requires a non-empty app name".into());
     }
+    // An app's name as the Start Menu shows it ("WhatsApp", "Calculator") is
+    // that app. Told to pass an executable, the agent guessed names no PATH
+    // has, and a Store app has no program file at all, only its Start Menu
+    // entry. A path, a URL or a shell id is taken as it is.
+    let app = match run_blocking({
+        let name = app.clone();
+        move || Ok(start_menu_path(&name))
+    })
+    .await
+    {
+        Ok(Some(path)) => path,
+        _ => app,
+    };
     // No shell: reject anything that looks like a command line rather than a
     // single program token. This is what keeps `launch` from degenerating into
     // arbitrary shell execution.
@@ -445,6 +481,144 @@ pub async fn launch_app(app: String) -> Result<LaunchResult, String> {
     security::check_app(&app_basename(&app), &security::allowlist_from_env())?;
 
     run_blocking(move || spawn_detached(&app)).await
+}
+
+/// One installed application, as the Start Menu lists it.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct InstalledApp {
+    pub name: String,
+    pub path: String,
+}
+
+/// The applications a person can name: every shortcut in the Start Menu
+/// (the machine's and the user's), by display name. This is the closed set
+/// "open Spotify" picks from; without it every such sentence went to the
+/// agent as a chat message (21 Sep). Uninstallers, help files and web links
+/// are left out. Only Windows has a Start Menu; elsewhere the list is empty.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_apps() -> Result<Vec<InstalledApp>, String> {
+    run_blocking(installed_apps).await
+}
+
+fn installed_apps() -> Result<Vec<InstalledApp>, String> {
+    let mut roots = Vec::new();
+    if let Ok(p) = std::env::var("ProgramData") {
+        roots.push(std::path::PathBuf::from(p).join("Microsoft/Windows/Start Menu/Programs"));
+    }
+    if let Ok(p) = std::env::var("AppData") {
+        roots.push(std::path::PathBuf::from(p).join("Microsoft/Windows/Start Menu/Programs"));
+    }
+    let mut out: Vec<InstalledApp> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    fn walk(dir: &std::path::Path, depth: u8, out: &mut Vec<InstalledApp>, seen: &mut std::collections::HashSet<String>) {
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if depth < 3 {
+                    walk(&p, depth + 1, out, seen);
+                }
+                continue;
+            }
+            let Some(ext) = p.extension().and_then(|x| x.to_str()) else { continue };
+            if !ext.eq_ignore_ascii_case("lnk") {
+                continue;
+            }
+            let Some(name) = p.file_stem().and_then(|x| x.to_str()) else { continue };
+            let lower = name.to_lowercase();
+            if lower.contains("uninstall") || lower.contains("readme") || lower.contains("help") || lower.contains("website") {
+                continue;
+            }
+            if seen.insert(lower) {
+                out.push(InstalledApp { name: name.to_string(), path: p.to_string_lossy().to_string() });
+            }
+        }
+    }
+    for r in &roots {
+        walk(r, 0, &mut out, &mut seen);
+    }
+    for app in store_apps() {
+        if seen.insert(app.name.to_lowercase()) {
+            out.push(app);
+        }
+    }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(out)
+}
+
+/// The Start Menu entry named exactly `name` (any case, ".exe" ignored), as
+/// the path or id `spawn_detached` opens. None for a path, a URL or a shell id.
+fn start_menu_path(name: &str) -> Option<String> {
+    if name.contains(['\\', '/', ':']) {
+        return None;
+    }
+    let lower = name.to_lowercase();
+    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
+    installed_apps().ok()?.into_iter().find(|a| a.name.to_lowercase() == stem).map(|a| a.path)
+}
+
+/// Start Menu apps with no shortcut file: Store apps (Calculator, Camera,
+/// Notepad on Windows 11, WhatsApp...) and the system's own. 77 of the 204 on
+/// the dev machine were only here (21 Sep), so "open Calculator" went to the
+/// agent. `Get-StartApps` reads them but takes seconds, so it runs once, in the
+/// background; the first answer is the shortcuts alone, and every one after it
+/// has both.
+fn store_apps() -> Vec<InstalledApp> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<Option<Vec<InstalledApp>>>> = OnceLock::new();
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Some(list) = cache.lock().ok().and_then(|g| g.clone()) {
+        return list;
+    }
+    if !STARTED.swap(true, Ordering::SeqCst) {
+        std::thread::spawn(|| {
+            let list = read_start_apps();
+            if let Some(Ok(mut g)) = CACHE.get().map(|c| c.lock()) {
+                *g = Some(list);
+            }
+        });
+    }
+    Vec::new()
+}
+
+/// Every app in the Start Menu, by name, with the id the shell opens it by.
+/// A web link ("Get Help", a readme) is not an app and is left out; a game
+/// URL (`steam://...`) is kept and opened as a URL.
+#[cfg(windows)]
+fn read_start_apps() -> Vec<InstalledApp> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let Ok(out) = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-StartApps | ForEach-Object { $_.Name + \"`t\" + $_.AppID }",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .map(|(name, id)| (name.trim(), id.trim()))
+        .filter(|(name, id)| !name.is_empty() && !id.is_empty() && !id.starts_with("http"))
+        .map(|(name, id)| InstalledApp {
+            name: name.to_string(),
+            path: if id.contains("://") { id.to_string() } else { format!("shell:AppsFolder\\{id}") },
+        })
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn read_start_apps() -> Vec<InstalledApp> {
+    Vec::new()
 }
 
 /// Lowercased final path component of an executable name/path, used for the
@@ -497,11 +671,26 @@ fn spawn_detached(app: &str) -> Result<LaunchResult, String> {
     };
     #[cfg(not(target_os = "macos"))]
     let mut cmd = {
-        let mut c = Command::new(app);
-        if chromium {
-            c.arg("--force-renderer-accessibility");
+        // A `.lnk` from the Start Menu is not a program: the shell resolves it
+        // (working directory, arguments, elevation) the way a double-click does.
+        let lower = app.to_lowercase();
+        if lower.ends_with(".lnk") || (lower.contains("://") && !lower.starts_with("shell:")) {
+            let mut c = Command::new("cmd");
+            c.args(["/c", "start", "", app]);
+            c
+        } else if lower.starts_with("shell:appsfolder\\") {
+            // A Start Menu app by its id (a Store app has no program file to
+            // run): the shell opens it the way a click in the Start Menu does.
+            let mut c = Command::new("explorer.exe");
+            c.arg(app);
+            c
+        } else {
+            let mut c = Command::new(app);
+            if chromium {
+                c.arg("--force-renderer-accessibility");
+            }
+            c
         }
-        c
     };
 
     match cmd.spawn() {
