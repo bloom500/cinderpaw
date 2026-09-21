@@ -37,6 +37,9 @@ const IDLE_CALL = {
 vi.mock('@/hooks/useCallSession',        () => ({ useCallSession: () => IDLE_CALL, speak: () => {} }));
 vi.mock('@/hooks/useLiveCallSession',    () => ({ useLiveCallSession: () => IDLE_CALL }));
 vi.mock('@/hooks/useLiveKitCallSession', () => ({ useLiveKitCallSession: () => IDLE_CALL }));
+vi.mock('@/hooks/useJevCallSession',      () => ({ useJevCallSession: () => IDLE_CALL }));
+// The download store subscribes to host events when it is imported; there is no host here.
+vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
 vi.mock('@/hooks/useSendMessage', () => ({
   useSendMessage: () => vi.fn(async () => {}),
   saveVoiceBlobToDisk: vi.fn(),

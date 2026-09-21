@@ -107,7 +107,7 @@ export function CallPill() {
             and while a question is open it is away, down in the card. */}
         <span aria-hidden className="size-3 shrink-0" />
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-text-muted">{status}</div>
+          <div className="text-micro font-medium uppercase tracking-wide text-text-muted">{status}</div>
           <div className={cn('truncate text-sm leading-tight', yours ? 'italic text-text-muted' : 'text-text-primary')}>
             {line || 'Say something'}
           </div>
@@ -183,7 +183,7 @@ export function CallPill() {
               exit={{ opacity: 0, scale: 0.96, filter: 'blur(8px)', transition: { duration: 0.12 } }}
             >
               {ask.question.header && (
-                <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-brand">{ask.question.header}</div>
+                <div className="mb-1 text-micro font-medium uppercase tracking-wide text-brand">{ask.question.header}</div>
               )}
               <div className="mb-3 text-sm leading-snug">{ask.question.question}</div>
               {ask.questions > 1 ? (
@@ -215,7 +215,7 @@ export function CallPill() {
                   ))}
                 </div>
               )}
-              <div className="mt-3 text-[11px] text-text-muted">Or just say it.</div>
+              <div className="mt-3 text-micro text-text-muted">Or just say it.</div>
             </motion.div>
           )}
         </AnimatePresence>

@@ -5,6 +5,9 @@ import { ModelPickerPopover } from '@/components/chat/ModelPickerPopover';
 import { CinderpawModelSelector } from '@/components/agents/CinderpawModelSelector';
 import { tauri } from '@/lib/tauri';
 
+// The download store subscribes to host events when it is imported; there is no host here.
+vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+
 /**
  * An embedding model cannot hold a conversation. It turns text into vectors and
  * that is all it does, so offering it where somebody picks who they are about

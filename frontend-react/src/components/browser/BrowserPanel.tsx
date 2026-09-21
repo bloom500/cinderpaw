@@ -439,7 +439,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           {sparks > 0 && (
             <span key={sparks} className="pointer-events-none absolute inset-0" aria-hidden>
               {Array.from({ length: 8 }, (_, i) => (
-                <i key={i} className="spark" style={{ '--a': `${i * 45}deg` } as CSSProperties} />
+                <i key={i} className="spark absolute left-1/2 top-1/2" style={{ '--a': `${i * 45}deg` } as CSSProperties} />
               ))}
             </span>
           )}
@@ -459,7 +459,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         <div className="relative">
           <ChromeButton label="Downloads" icon={Download} pressed={downloadsOpen} onClick={() => setDownloadsOpen((v) => !v)} />
           {downloadCount > 0 && (
-            <span className="pointer-events-none absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-brand px-1 text-center text-[10px] font-semibold leading-4 text-brand-foreground" aria-hidden>
+            <span className="pointer-events-none absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-brand px-1 text-center text-micro font-semibold leading-4 text-brand-foreground" aria-hidden>
               {downloadCount > 9 ? '9+' : downloadCount}
             </span>
           )}
@@ -635,7 +635,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
                     title={b.tags.length ? `#${b.tags.join(' #')}` : b.url}
                     className="flex max-w-56 items-center gap-1.5 rounded-full border border-border-default bg-bg-elevated px-3 py-1 text-xs text-text-secondary hover:border-brand hover:text-text-primary"
                   >
-                    <Star size={11} className="shrink-0 text-brand" aria-hidden />
+                    <Star size={12} className="shrink-0 text-brand" aria-hidden />
                     <span className="truncate">{b.title || display(b.url)}</span>
                   </button>
                 ))}
@@ -893,7 +893,7 @@ function agentLine(a: { op: string; url?: string; ref?: string; busy: boolean })
 function Favicon({ url, label, px = 32 }: { url: string; label: string; px?: number }) {
   const [failed, setFailed] = useState(false);
   const origin = new URL(url).origin;
-  const box = px <= 16 ? 'size-3 rounded-sm text-[9px]' : 'size-8 rounded-lg text-sm';
+  const box = px <= 16 ? 'size-3 rounded-sm text-micro leading-none' : 'size-8 rounded-lg text-sm';
   if (failed) {
     return (
       <span className={cn('flex shrink-0 items-center justify-center bg-bg-hover font-semibold text-text-secondary', box)} aria-hidden>

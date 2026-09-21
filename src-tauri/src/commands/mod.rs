@@ -116,7 +116,10 @@ mod command_count_test {
     // desktop control).
     // 172 -> 176 = + google_status/connect/disconnect/upload (Send to Google Docs).
     // 176 -> 177 = + count_install (the one-time install ping, PROMISES.md 4).
-    const EXPECTED_COMMAND_COUNT: usize = 177;
+    // 177 -> 183 = + byok_has_key, jev_decide (the Jev key and its one decision
+    // call), call_pill_open/close, main_in_front (the call pill), list_apps
+    // (open_app over the Start Menu).
+    const EXPECTED_COMMAND_COUNT: usize = 183;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

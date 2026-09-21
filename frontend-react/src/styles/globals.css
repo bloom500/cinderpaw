@@ -1625,9 +1625,6 @@ body { overflow: hidden; }
    removed with their element; reduced motion collapses them like everything
    else. */
 .spark {
-  position: absolute;
-  left: 50%;
-  top: 50%;
   width: 7px;
   height: 7px;
   margin: -3.5px;

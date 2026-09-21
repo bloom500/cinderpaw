@@ -1109,7 +1109,7 @@ export function CallOverlay({
               disabled={!speaking}
               active={listening}
             >
-              <Square size={18} />
+              <Square size={16} />
             </RoundButton>
           )}
           {onMute && phase !== 'ready' && (
@@ -2290,7 +2290,7 @@ function DesktopControlRow() {
         >
           Turn on desktop control
         </Button>
-        <span className="text-[11px] text-text-muted">Off, so Jev can only work inside Cinderpaw. On, it can open apps, press keys and click in your other windows.</span>
+        <span className="text-micro text-text-muted">Off, so Jev can only work inside Cinderpaw. On, it can open apps, press keys and click in your other windows.</span>
       </div>
     </SettingRow>
   );
