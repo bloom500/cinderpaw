@@ -374,3 +374,35 @@ describe("launch confirmation names the launch", () => {
     expect(asked.toLowerCase()).not.toContain("click");
   });
 });
+
+describe("the confirmation names the element, not its id", () => {
+  it("an element seen in find_elements is asked about by role and name", async () => {
+    const tool = createComputerUseTool();
+    let asked = "";
+    const { ctx } = makeCtx({
+      onRequest: (action) => (action === "find_elements"
+        ? [{ id: "2288:42.853402.4.293.8.15505", role: "Button", name: "Send", value: "", automation_id: "", actions: ["press"], is_enabled: true, is_offscreen: false }]
+        : { ok: true }),
+      askUserAnswer: "Allow",
+      onAsk: (q) => { asked = q; },
+    });
+    await tool.execute({ action: "find_elements", pid: 1, query: { name: "Send" } }, ctx);
+    await tool.execute({ action: "click", element_id: "2288:42.853402.4.293.8.15505" }, ctx);
+    expect(asked).toContain('the Button "Send"');
+    expect(asked).not.toContain("2288:42");
+  });
+
+  it("an id it never saw is still shown, marked as found by the agent", async () => {
+    const tool = createComputerUseTool();
+    let asked = "";
+    const { ctx } = makeCtx({ onRequest: () => ({ ok: true }), askUserAnswer: "Allow", onAsk: (q) => { asked = q; } });
+    await tool.execute({ action: "click", element_id: "9:1.2.3" }, ctx);
+    expect(asked).toContain("an element the agent found (9:1.2.3)");
+  });
+
+  it("a tree's nodes are remembered too", async () => {
+    const { rememberElements, describeElement } = await import("../src/tools/builtin/computer-use.ts");
+    rememberElements({ id: "1:1", role: "Window", name: "Spotify", children: [{ id: "1:2", role: "Button", name: "Play", children: [] }] });
+    expect(describeElement("1:2")).toBe('the Button "Play"');
+  });
+});

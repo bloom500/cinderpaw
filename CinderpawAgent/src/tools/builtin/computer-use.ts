@@ -82,6 +82,42 @@ export function redactArgsForAudit(args: Record<string, unknown>): Record<string
   return out;
 }
 
+/**
+ * What each element id stands for, from the results the model has seen, so a
+ * confirmation names the thing ("click the Button \"Send\"") instead of the
+ * id. The ids are opaque ("2288:42.853402.4.293.8.15505"), and on a voice call
+ * the question is read aloud: nobody can say yes to that (21 Sep). The oldest
+ * entries go past the cap.
+ */
+const DESCRIBED_CAP = 2000;
+const described = new Map<string, string>();
+
+/** Remember the elements in a host result: a flat list, one element, or a tree. */
+export function rememberElements(data: unknown, depth = 0): void {
+  if (!data || typeof data !== "object" || depth > 60) return;
+  if (Array.isArray(data)) {
+    for (const d of data) rememberElements(d, depth + 1);
+    return;
+  }
+  const node = data as { id?: unknown; role?: unknown; name?: unknown; children?: unknown };
+  if (typeof node.id === "string" && node.id) {
+    const role = typeof node.role === "string" && node.role ? node.role : "element";
+    const name = typeof node.name === "string" ? node.name.trim().replace(/\s+/g, " ") : "";
+    described.delete(node.id);
+    described.set(node.id, name ? `the ${role} "${name.length > 60 ? `${name.slice(0, 60)}…` : name}"` : `a ${role} with no name`);
+    if (described.size > DESCRIBED_CAP) {
+      const oldest = described.keys().next().value;
+      if (oldest !== undefined) described.delete(oldest);
+    }
+  }
+  if (Array.isArray(node.children)) rememberElements(node.children, depth + 1);
+}
+
+/** The element as a person would name it, or null when it was never seen. */
+export function describeElement(id: string): string | null {
+  return described.get(id) ?? null;
+}
+
 function structuredError(message: string, recoverable: boolean): ToolResult {
   return {
     ok: false,
@@ -141,8 +177,9 @@ export function createComputerUseTool(): Tool {
         "(structural control — no screenshots/OCR). Use `list_windows` to find " +
         "an app's pid, `get_tree`/`find_elements` to discover elements, then " +
         "`click`/`type`/`send_keys`/`perform_action` to act on an element by its `element_id`. " +
-        "Use `launch` (with `app`) to OPEN an application by name (e.g. " +
-        "\"notepad.exe\", \"calc.exe\") — then call `list_windows` to get its pid. " +
+        "Use `launch` (with `app`) to OPEN an application: its name as the Start Menu shows it " +
+        "(\"WhatsApp\", \"Spotify\", \"Calculator\"; Store apps included) or an executable " +
+        "(\"notepad.exe\") — then call `list_windows` to get its pid. " +
         "IMPORTANT: `type` REPLACES the element's entire current contents (it sets " +
         "the field value, it does not append) — read the current value first if you " +
         "must preserve it. `type` uses the value pattern, which Electron/Chromium apps " +
@@ -217,9 +254,10 @@ export function createComputerUseTool(): Tool {
       app: {
         type: "string",
         description:
-          "Executable name or absolute path to OPEN (required for 'launch'), e.g. " +
-          "'notepad.exe' or 'calc.exe'. A single program token only — no arguments " +
-          "or shell syntax. Shells/terminals and security-sensitive apps are blocked.",
+          "What to OPEN (required for 'launch'): an app's name as the Start Menu shows it " +
+          "('WhatsApp', 'Calculator'), an executable name or an absolute path. A single " +
+          "program token only — no arguments or shell syntax. Shells/terminals and " +
+          "security-sensitive apps are blocked.",
         required: false,
       },
       query: {
@@ -368,6 +406,7 @@ export function createComputerUseTool(): Tool {
 
       try {
         const data = await ctx.desktopControl.request(action, params, ctx.sessionId);
+        if (action === "find_elements" || action === "get_tree" || action === "get_focused") rememberElements(data);
         return {
           ok: true,
           content: summarize(action, data),
@@ -394,7 +433,9 @@ async function confirmWrite(
     // transport that genuinely has no askUser bridge can opt out explicitly.
     return cfgBool("CINDERPAW_DESKTOP_CONTROL_NO_PROMPT_OK");
   }
-  const target = typeof args.element_id === "string" ? args.element_id : "(focused element)";
+  const target = typeof args.element_id === "string"
+    ? (describeElement(args.element_id) ?? `an element the agent found (${args.element_id})`)
+    : "(focused element)";
   // `launch` needs its own branch and used to have none, so it fell through to
   // the `click` default — and since a launch carries no element_id, the one
   // action in ALWAYS_CONFIRM asked the user to "click (focused element)" while
