@@ -1325,21 +1325,24 @@ async fn runtime_voice_tool(
         tracing::info!(call_id = %call.id, ms = started.elapsed().as_millis() as u64, "voice tool: answered");
         serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| json!({ "ok": true, "output": body }))
     } else {
-        // Not an error: the work is still running, and the model needs a
-        // sentence it can say out loud rather than a silence. The answer
-        // follows on its own as `toolLate`; the model is told NOT to re-ask,
-        // because a re-ask with one word changed used to start the work over.
+        // Not an error, and `ok` now says so: it used to say false, and the model
+        // read a slow search as a failure, told the caller a system error had
+        // occurred, then called the tool again to investigate the error it had
+        // just invented (22 Sep, twice in one call, the second time in Italian).
+        // `pending` says the work is unfinished; `ok` says whether anything went
+        // wrong. The answer follows on its own as `toolLate`, and the model is
+        // told NOT to re-ask: a re-ask with one word changed restarted the work.
         tracing::info!(
             call_id = %call.id,
             ms = started.elapsed().as_millis() as u64,
             "voice tool: still running past the deadline, holding reply sent"
         );
         json!({
-            "ok": false,
+            "ok": true,
             "pending": true,
             "output": "Still working on that one, it is taking longer than usual. \
-                       Tell the user you are still on it. The result will be handed to you \
-                       automatically when it is ready; do not repeat the request."
+                       Nothing has gone wrong. Tell the user you are still on it. The result will be handed to you \
+                       automatically when it is ready; do not repeat the request and do not report this as an error."
         })
     };
 

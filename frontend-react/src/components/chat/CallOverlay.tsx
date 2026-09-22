@@ -45,6 +45,8 @@ import { events } from '@/lib/tauri/events';
 import { CLOUD_STT, useUI } from '@/stores/ui';
 import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
+import { useArtifacts } from '@/stores/artifacts';
+import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { CallPhase, CallStage } from '@/hooks/useCallSession';
@@ -265,6 +267,9 @@ export function CallOverlay({
   // Only offered once there is something in it. A drawer that opens on an empty
   // list teaches the user it is empty, and they stop opening it.
   const artifactCount = useSyncExternalStore(subscribeArtifacts, artifactsSnapshot).length;
+  /** The artifacts panel, shared with the chat: the store opens it when the agent finishes a file. */
+  const artifactsPanelOpen = useArtifacts((s) => s.panelOpen);
+  const toggleArtifactsPanel = useArtifacts((s) => s.togglePanel);
   const sttProvider = useUI((s) => s.sttProvider);
   // Which on-device transcriber this build actually has, asked rather than
   // assumed. `null` while unknown AND when there is none — the row shows
@@ -633,7 +638,11 @@ export function CallOverlay({
         // ask_user card grew the column both ways and pushed the sphere out of
         // the top of a clipped stage (20 Sep). Safe centring keeps the stack
         // centred while it fits and top-aligned, scrollable, once it does not.
-        className="call-stage relative flex flex-1 flex-col items-center justify-center-safe gap-10 overflow-x-hidden overflow-y-auto px-6"
+        // `overscroll-contain`: with nothing to scroll here, the wheel used to
+        // chain to the conversation under the overlay, so scrolling "in the call"
+        // silently moved the chat behind it (22 Sep). The stage still scrolls when
+        // a card is taller than the window, which is what it is for.
+        className="call-stage relative flex flex-1 flex-col items-center justify-center-safe gap-10 overflow-x-hidden overflow-y-auto overscroll-contain px-6"
         style={{
           // The overlay carries its own text scale, and it has to.
           //
@@ -1156,6 +1165,17 @@ export function CallOverlay({
         )}
       </div>
 
+      {/* The same panel the conversation opens, mounted here because the
+          overlay covers the window it normally lives in: a report the agent
+          wrote during a call WAS opened, underneath, where nobody could see it
+          (22 Sep). `panelOpen` is the store's, so a file finished on this call
+          opens itself the way it does in the chat, and closing it here closes
+          the same one. */}
+      {artifactsPanelOpen && (
+        <div className="absolute inset-y-0 right-0 z-30 flex max-w-full">
+          <ArtifactsPanel onClose={toggleArtifactsPanel} />
+        </div>
+      )}
       {artifactsOpen && <CallArtifacts onClose={() => setArtifactsOpen(false)} />}
       {chatOpen && onSay && <CallChatPanel onClose={() => setChatOpen(false)} onSay={onSay} />}
       {browserOpen && browserUrl && <CallBrowserPanel />}

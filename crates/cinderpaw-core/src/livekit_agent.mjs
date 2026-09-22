@@ -401,6 +401,11 @@ function endpointing() {
   return defaults;
 }
 
+/** Google's async-reasoning live model, which takes a different session setup. */
+function extendedThinking() {
+  return (MODEL || '').includes('extended-thinking');
+}
+
 const REALTIME = {
   google: async () => {
     const google = await PLUGIN.google();
@@ -438,7 +443,16 @@ const REALTIME = {
       // WHEN_IDLE rather than INTERRUPT: the answer is spoken at the next
       // pause instead of cutting the assistant off mid-word. It is idle for
       // most of a long tool call, so "the next pause" is usually immediate.
-      toolResponseScheduling: 'WHEN_IDLE',
+      //
+      // Extended Thinking is the exception on both counts, per Google's Live
+      // guide: it refuses a session with no thinking level ("Thinking level
+      // must be specified for this model", every call, 22 Sep) and supports
+      // no function scheduling at all. `low` because a voice answer is
+      // waiting on it; the model still reasons in the background between
+      // turns, which is the point of picking it.
+      ...(extendedThinking()
+        ? { thinkingConfig: { thinkingLevel: 'low' } }
+        : { toolResponseScheduling: 'WHEN_IDLE' }),
       realtimeInputConfig: { automaticActivityDetection: endpointing() },
       // What the person speaks, when the app knows it. Left out, the server
       // detects it per utterance and gets it wrong on anything that is not

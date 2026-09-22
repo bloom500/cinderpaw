@@ -563,12 +563,53 @@ pub(crate) async fn transcribe_audio_cloud(
         /// Present with `verbose_json`, named in full ("romanian"). Optional so a
         /// provider that ignores the format still parses.
         language: Option<String>,
+        /// Whisper's own per-segment confidence, which `verbose_json` has
+        /// carried all along and nothing read. Optional for the same reason.
+        #[serde(default)]
+        segments: Vec<TranscriptionSegment>,
+    }
+    #[derive(serde::Deserialize)]
+    struct TranscriptionSegment {
+        /// How sure the model is that this stretch of audio is NOT speech.
+        #[serde(default)]
+        no_speech_prob: f32,
+        /// Mean log probability of the words it wrote. Low means it was guessing.
+        #[serde(default)]
+        avg_logprob: f32,
     }
     let parsed: TranscriptionResponse = resp
         .json()
         .await
         .map_err(|_| "stt-cloud-failed".to_string())?;
     let text = parsed.text.trim().to_string();
+
+    // Typing, a chair, a breath: Whisper writes a sentence over any of them
+    // ("Thank you for watching.", "Terima kasih telah menonton.") and it reaches
+    // the caller as if it had been said. It is not a guess that it was noise:
+    // the model reports `no_speech_prob` per segment and `verbose_json` has been
+    // carrying it all along, unread. A transcript whose speech segments are all
+    // judged non-speech, or written with very low confidence, is dropped here
+    // rather than downstream, so every caller is covered by one gate instead of
+    // each keeping its own list of phrases (22 Sep, on his open microphone).
+    //
+    // The thresholds are Whisper's own published defaults: the reference decoder
+    // treats a segment as silence at `no_speech_prob > 0.6` together with
+    // `avg_logprob < -1.0`, and needing BOTH is what keeps a quietly spoken real
+    // command from being thrown away.
+    if !parsed.segments.is_empty()
+        && parsed
+            .segments
+            .iter()
+            .all(|g| g.no_speech_prob > 0.6 && g.avg_logprob < -1.0)
+    {
+        tracing::info!(
+            transcript = %text,
+            segments = parsed.segments.len(),
+            no_speech = parsed.segments[0].no_speech_prob,
+            "stt: dropped, the model judged this audio not speech"
+        );
+        return Ok(String::new());
+    }
 
     // Every language flip, reported — but only between transcripts long enough
     // to be evidence rather than a guess.

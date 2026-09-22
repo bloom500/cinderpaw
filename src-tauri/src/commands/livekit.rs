@@ -74,6 +74,71 @@ pub struct S2sModelInfo {
     pub label: String,
 }
 
+/// The models a person may pick, out of everything the vendor accepts.
+///
+/// Google answers `bidiGenerateContent` for a dozen ids, and most of them are
+/// not a conversation: `gemini-3.5-live-translate-preview` translates,
+/// `gemini-3.5-transcribe-live` only transcribes, and several are dated
+/// snapshots of the same three. Every one of them opened a session and then
+/// behaved like a broken assistant, which reads as our bug, not theirs
+/// (**ACCEPTED IS NOT SUPPORTED**, see `list_s2s_models`).
+///
+/// So the picker shows the three that hold a spoken conversation here, tested
+/// on this machine 22 Sep: 2.5 Native Audio, 3.8 Live, and 3.8 Live Extended
+/// Thinking. Matching is on a substring of the id rather than an exact one,
+/// because Google ships the same model under dated ids and `-latest`.
+///
+/// Other providers are returned untouched: this is a fact about Google's list,
+/// not a policy about vendors.
+fn shortlist(provider: &str, models: Vec<S2sModelInfo>) -> Vec<S2sModelInfo> {
+    if provider != "google" {
+        return models;
+    }
+    const SPOKEN: [&str; 3] = ["native-audio", "gemini-3.8-live", "gemini-3.8-live-extended-thinking"];
+    let kept: Vec<S2sModelInfo> =
+        models.into_iter().filter(|m| SPOKEN.iter().any(|k| m.id.contains(k))).collect();
+    kept
+}
+
+#[cfg(test)]
+mod s2s_shortlist_tests {
+    use super::*;
+
+    fn m(id: &str) -> S2sModelInfo {
+        S2sModelInfo { id: id.to_string(), label: id.to_string() }
+    }
+
+    #[test]
+    fn google_keeps_the_three_that_talk_and_drops_the_rest() {
+        let kept = shortlist(
+            "google",
+            vec![
+                m("gemini-2.5-flash-native-audio-latest"),
+                m("gemini-3.8-live"),
+                m("gemini-3.8-live-extended-thinking"),
+                m("gemini-3.5-live-translate-preview"),
+                m("gemini-3.5-transcribe-live"),
+                m("gemini-3.1-flash-live-preview"),
+            ],
+        );
+        let ids: Vec<&str> = kept.iter().map(|x| x.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "gemini-2.5-flash-native-audio-latest",
+                "gemini-3.8-live",
+                "gemini-3.8-live-extended-thinking"
+            ]
+        );
+    }
+
+    #[test]
+    fn another_vendors_list_is_not_touched() {
+        let same = shortlist("openai", vec![m("gpt-realtime"), m("gpt-4o-realtime-preview")]);
+        assert_eq!(same.len(), 2);
+    }
+}
+
 /// The realtime models this vendor will actually open a call with, asked of the
 /// vendor itself.
 ///
@@ -161,6 +226,7 @@ pub(crate) async fn list_s2s_models(provider: String) -> Vec<S2sModelInfo> {
         _ => Vec::new(),
     };
 
+    let found = shortlist(p.id, found);
     if found.is_empty() {
         return fallback();
     }
