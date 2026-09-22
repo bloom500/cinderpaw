@@ -252,29 +252,85 @@ pub(crate) async fn jev_decide(state: serde_json::Value, questions: serde_json::
     let base = cfg.base_url.unwrap_or_else(|| "https://api.typesafe.ai".into());
     let model = cfg.default_model.unwrap_or_else(|| "jev-latest".into());
     let url = format!("{}/v1/systemone", base.trim_end_matches('/'));
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
+    // A 429/529 answers fast, so one or two short backoffs usually land: the
+    // sentence survives a busy moment instead of dying on it. Anything else
+    // (401/422/unreachable) is final the first time. `ms` counts the whole
+    // wait, backoffs included, so the call log keeps honest latencies.
     let started = std::time::Instant::now();
-    let resp = client
-        .post(&url)
-        .bearer_auth(key.trim())
-        .header("HTTP-Referer", "https://cinderpaw.ai")
-        .header("X-Title", "Cinderpaw")
-        .json(&serde_json::json!({ "model": model, "state": state, "questions": questions }))
-        .send()
-        .await
-        .map_err(|e| format!("jev-unreachable: {e}"))?;
-    let status = resp.status();
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("jev-bad-reply: {e}"))?;
-    if !status.is_success() {
-        let msg = body.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()).unwrap_or("");
-        return Err(format!("jev-http-{}: {msg}", status.as_u16()));
+    let mut attempt = 0u32;
+    loop {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| e.to_string())?;
+        let resp = client
+            .post(&url)
+            .bearer_auth(key.trim())
+            .header("HTTP-Referer", "https://cinderpaw.ai")
+            .header("X-Title", "Cinderpaw")
+            .json(&serde_json::json!({ "model": model, "state": state, "questions": questions }))
+            .send()
+            .await
+            .map_err(|e| format!("jev-unreachable: {e}"))?;
+        let status = resp.status();
+        if jev_retryable(status.as_u16()) && attempt < 2 {
+            let wait = jev_retry_delay_ms(
+                attempt,
+                resp.headers().get(reqwest::header::RETRY_AFTER).and_then(|v| v.to_str().ok()),
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+            attempt += 1;
+            continue;
+        }
+        let body: serde_json::Value = resp.json().await.map_err(|e| format!("jev-bad-reply: {e}"))?;
+        if !status.is_success() {
+            let msg = body.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()).unwrap_or("");
+            return Err(format!("jev-http-{}: {msg}", status.as_u16()));
+        }
+        return Ok(serde_json::json!({
+            "answers": body.get("answers").cloned().unwrap_or(serde_json::Value::Null),
+            "usage": body.get("usage").cloned().unwrap_or(serde_json::Value::Null),
+            "ms": started.elapsed().as_millis() as u64,
+        }));
     }
-    Ok(serde_json::json!({
-        "answers": body.get("answers").cloned().unwrap_or(serde_json::Value::Null),
-        "usage": body.get("usage").cloned().unwrap_or(serde_json::Value::Null),
-        "ms": started.elapsed().as_millis() as u64,
-    }))
+}
+
+/// Worth one more try, after a backoff: rate-limit and overload answers arrive
+/// fast, so waiting a beat usually lands. Anything else is final outright.
+fn jev_retryable(status: u16) -> bool {
+    status == 429 || status == 529
+}
+
+/// Backoff before retry number `n` (0-based): 500ms, 1s, 2s. A Retry-After in
+/// whole seconds wins when the server names one, capped at 5s for a voice
+/// budget; anything else (HTTP-date, garbage) falls back to the doubling.
+fn jev_retry_delay_ms(retry: u32, retry_after: Option<&str>) -> u64 {
+    if let Some(s) = retry_after.and_then(|v| v.trim().parse::<u64>().ok()) {
+        return s.min(5) * 1000;
+    }
+    (500 * 2u64.pow(retry.min(4))).min(8000)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_rate_limit_and_overload_retry() {
+        assert!(jev_retryable(429));
+        assert!(jev_retryable(529));
+        for s in [200, 400, 401, 402, 422, 500, 503] {
+            assert!(!jev_retryable(s), "{s} must be final");
+        }
+    }
+
+    #[test]
+    fn backoff_doubles_and_honors_retry_after() {
+        assert_eq!(jev_retry_delay_ms(0, None), 500);
+        assert_eq!(jev_retry_delay_ms(1, None), 1000);
+        assert_eq!(jev_retry_delay_ms(2, None), 2000);
+        assert_eq!(jev_retry_delay_ms(0, Some("2")), 2000);
+        assert_eq!(jev_retry_delay_ms(0, Some("30")), 5000);
+        assert_eq!(jev_retry_delay_ms(0, Some("garbage")), 500);
+    }
 }
