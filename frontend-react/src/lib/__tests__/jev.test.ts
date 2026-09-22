@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textCandidates, domainGuess, toPlan, earlyFingerprint } from '../jev';
+import { textCandidates, domainGuess, toPlan, earlyFingerprint, inReadingOrder } from '../jev';
 
 const choice = (choice: string, confidence = 0.9) => ({ type: 'choice', choice, confidence });
 
@@ -212,5 +212,23 @@ describe('earlyFingerprint', () => {
       { action: 'stop', confidence: 0.9 },
       { action: 'none', confidence: 0.9 },
     ] as const) expect(earlyFingerprint(plan)).toBeNull();
+  });
+});
+
+describe('inReadingOrder', () => {
+  const at = (x: number, y: number, name: string) =>
+    ({ id: name, role: 'Link', name, is_offscreen: false, is_enabled: true, bounding_rect: { x, y, width: 10, height: 10 } });
+
+  it('orders by what is highest on screen, and left to right within a row', () => {
+    // Deliberately handed in the order a markup tree might produce.
+    const order = inReadingOrder([at(500, 300, 'third'), at(40, 100, 'first'), at(300, 108, 'second')])
+      .map((e) => e.name);
+    expect(order).toEqual(['first', 'second', 'third']);
+  });
+
+  it('leaves the list alone when the host sent no rectangles', () => {
+    const noRects = [{ id: 'a', role: 'Link', name: 'a', is_offscreen: false, is_enabled: true },
+                     { id: 'b', role: 'Link', name: 'b', is_offscreen: false, is_enabled: true }];
+    expect(inReadingOrder(noRects).map((e) => e.name)).toEqual(['a', 'b']);
   });
 });

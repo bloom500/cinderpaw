@@ -622,9 +622,26 @@ pub(crate) async fn transcribe_audio_cloud(
     // is shipped is the count, so the next session can say how often it happens
     // instead of arguing about whether it does.
     if let Some(code) = parsed.language.as_deref().and_then(iso_code_of) {
-        if text.chars().count() >= CONFIDENT_TRANSCRIPT_CHARS {
+        // A sentence being transcribed piece by piece learns its language from
+        // a SHORTER first piece: "Now," is 4 characters, so the lock never took
+        // hold and the rest of that sentence came back in Portuguese, Turkish,
+        // Greek and Russian across one round (22 Sep). Inside one sentence the
+        // risk the long threshold guards against is gone: the pieces are the
+        // same speaker, seconds apart, and the lock expires with the sentence.
+        // Learned from 8 characters, not 25. The piece whose language the rest
+        // of the sentence should keep is the FIRST one, and a first piece
+        // carries no context, so the strict threshold was applied to exactly
+        // the piece it needed to skip: "Opa, na chat." (13 chars) taught
+        // nothing and the sentence went on to flip (22 Sep). A mistake here
+        // lives one sentence, because the first piece of the next sentence
+        // clears the slot.
+        if text.chars().count() >= 8 {
             let mut slot = LAST_LANG.get_or_init(|| Mutex::new(None)).lock();
-            if slot.is_some_and(|(previous, _)| previous != code) {
+            // Reported only on real evidence: below this, a differing code is
+            // Whisper guessing from too little audio, not a switch worth a line.
+            if slot.is_some_and(|(previous, _)| previous != code)
+                && text.chars().count() >= CONFIDENT_TRANSCRIPT_CHARS
+            {
                 tracing::warn!(
                     from = slot.map(|(l, _)| l).unwrap_or(""),
                     to = code,

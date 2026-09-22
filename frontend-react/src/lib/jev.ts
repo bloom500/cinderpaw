@@ -82,6 +82,11 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
     not_for: 'Searching the web (web_search), finding a word on the page (find), a keyboard shortcut (shortcut)',
     examples: ['type hello', 'write "see you tomorrow"', 'type my name is Ana', 'scrie salut'],
   },
+  window_ctl: {
+    what: 'Do something to the WINDOW of an application: close the app, minimise it, hide it, maximise it, make it full screen',
+    not_for: 'Closing a tab or a page inside the browser (navigate), or opening an app (open_app)',
+    examples: ['close Spotify', 'close this app', 'minimise WhatsApp', 'hide this window', 'maximise it', 'inchide Spotify', 'minimizeaza fereastra'],
+  },
   stop: {
     what: 'Tell the assistant to stop listening, hang up, or end the call',
     examples: ['stop', 'that is all', 'hang up', 'end the call'],
@@ -260,6 +265,15 @@ export function questions(cands: Record<string, string>, shortcuts?: Record<stri
       instructions: 'Assume the user wants to scroll up or down. How far?',
       criteria: { little: 'a little / a bit', page: 'a normal amount, about one screen; the default when unspecified', a_lot: 'a lot / way down / far' },
     },
+    window_op: {
+      type: 'choice',
+      instructions: 'Assume the user wants something done to an application WINDOW. Which one?',
+      criteria: {
+        close: 'Close the application or its window',
+        minimize: 'Minimise / hide the window, leaving the app running',
+        maximize: 'Maximise the window to fill the screen',
+      },
+    },
     nav: {
       type: 'choice',
       instructions: 'Assume the user wants to move within the browser. Which move?',
@@ -323,6 +337,7 @@ export type Plan =
   | { action: 'media'; op: 'play_pause' | 'next' | 'previous' | 'volume_up' | 'volume_down' | 'mute'; keys?: string; confidence: number }
   | { action: 'shortcut'; keys: string; means: string; confidence: number }
   | { action: 'type'; text: string; confidence: number }
+  | { action: 'window_ctl'; op: 'close' | 'minimize' | 'maximize'; app: string | null; confidence: number }
   | { action: 'stop'; confidence: number }
   | { action: 'none'; confidence: number };
 
@@ -453,6 +468,18 @@ export function toPlan(utterance: string, ans: Answers, cands: Record<string, st
       const [tkey, ct] = pick('text');
       const text = cands[tkey] ?? '';
       return text ? { action, text, confidence: Math.min(conf, ct) } : { action: 'none', confidence: conf };
+    }
+    case 'window_ctl': {
+      const [op, c] = pick('window_op');
+      // The app is a nicety (the front window is the default), so a weak name
+      // must not drag the whole decision down: `window` is picked already for
+      // keys, and code below reads it the same way.
+      const [wkey, cw] = pick('window');
+      const named = cw >= MIN_WINDOW_CONFIDENCE && wkey.startsWith('w') ? windows[Number(wkey.slice(1))] : undefined;
+      const valid = op === 'close' || op === 'minimize' || op === 'maximize';
+      return valid
+        ? { action, op: op as 'close' | 'minimize' | 'maximize', app: named?.app_name ?? null, confidence: Math.min(conf, c) }
+        : { action: 'none', confidence: conf };
     }
     case 'reader': return { action, confidence: conf };
     case 'stop': return { action, confidence: conf };
@@ -683,7 +710,34 @@ export function sharesName(target: string, name: string): boolean {
  */
 const MEDIA_KEYS = { play_pause: '{playpause}', next: '{nexttrack}', previous: '{prevtrack}', volume_up: '{volumeup}', volume_down: '{volumedown}', mute: '{volumemute}' };
 
-interface DesktopElement { id: string; role: string; name: string; is_offscreen: boolean; is_enabled: boolean }
+interface DesktopElement {
+  id: string;
+  role: string;
+  name: string;
+  is_offscreen: boolean;
+  is_enabled: boolean;
+  /** Screen rectangle. The host has always sent it; nothing here read it until 22 Sep. */
+  bounding_rect?: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Reading order: top to bottom, then left to right, by where a thing actually
+ * IS on screen.
+ *
+ * "The first link" and "the first video" kept pressing something else because
+ * the list handed to Jev was in accessibility-tree order, which follows the
+ * page's markup and is not what a person sees. Rows within 24 px of each other
+ * count as the same line, so two results side by side are ordered left to
+ * right rather than by a few pixels of vertical jitter.
+ */
+export function inReadingOrder(elements: DesktopElement[]): DesktopElement[] {
+  const ROW = 24;
+  return [...elements].sort((a, b) => {
+    const ra = a.bounding_rect, rb = b.bounding_rect;
+    if (!ra || !rb) return 0;
+    return Math.abs(ra.y - rb.y) > ROW ? ra.y - rb.y : ra.x - rb.x;
+  });
+}
 
 /** The one refusal a person can act on; it is spoken, so it is a sentence, not a log line. */
 export const DESKTOP_CONTROL_OFF = 'Desktop control is off. Turn it on in Settings to use commands outside Cinderpaw.';
@@ -777,6 +831,10 @@ async function clickInFront(target: string): Promise<boolean> {
     links = now;
     await new Promise((r) => setTimeout(r, 400));
   }
+  // In the order a person reads them. The tree's own order follows the page's
+  // markup, so "the first link" was whatever the DOM happened to put first and
+  // the click landed on something else every time (22 Sep, five tries).
+  clickable = inReadingOrder(clickable);
   const { ref, ms } = await decideClick(target, clickable.map((e) => ({ ref: e.id, name: e.name, role: e.role, inView: true })));
   console.info(`[jev] desktop click ${ref ? 'found' : 'none'} among ${clickable.length} in ${ms}ms`);
   if (!ref) return false;
@@ -784,6 +842,8 @@ async function clickInFront(target: string): Promise<boolean> {
   // subscribe) changes nothing the title shows, so it is not checked.
   const isLink = /link|hyperlink/i.test(clickable.find((e) => e.id === ref)?.role ?? '');
   const before = isLink ? await frontTitle() : null;
+  const chosen = clickable.find((e) => e.id === ref);
+  console.info(`[jev] desktop click pressing ${chosen?.role ?? '?'} "${chosen?.name ?? '?'}"`);
   await invoke('click_element', { elementId: ref });
   if (before !== null && !(await pageChanged(before))) throw new Error('The click landed but the page did not change.');
   return true;
@@ -808,6 +868,39 @@ export function windowOfApp(appName: string, w: OpenWindow): boolean {
   const app = key(appName);
   const proc = key(w.app_name);
   return proc.length >= 3 && app.length >= 3 && (app === proc || app.includes(proc) || proc.includes(app));
+}
+
+/**
+ * Put the caret in the window's text field, when it has one and does not
+ * already hold the focus. Best effort: a window with no such field (or one
+ * the tree does not expose) is left alone and the keys go where they would
+ * have gone anyway.
+ */
+async function focusTextField(): Promise<void> {
+  try {
+    const el = await frontElement();
+    if (/edit|text|combobox|document/i.test(el.role)) return;
+    const pid = Number(el.id.split(':')[0]);
+    const fields = await invoke<DesktopElement[]>('find_elements', { pid, query: { role: 'Edit', name: null, automation_id: null, value_contains: null }, windowTitle: null }).catch(() => [] as DesktopElement[]);
+    const field = fields.find((f) => f.is_enabled && !f.is_offscreen);
+    if (field) { await invoke('take_element_action', { elementId: field.id, action: 'focus' }); return; }
+    // A web page has no Edit: its composer lives inside the Document, and
+    // clicking the document at least puts the keyboard inside the page.
+    const docs = await invoke<DesktopElement[]>('find_elements', { pid, query: { role: 'Document', name: null, automation_id: null, value_contains: null }, windowTitle: null }).catch(() => [] as DesktopElement[]);
+    const doc = docs.find((d) => d.is_enabled && !d.is_offscreen);
+    if (doc) await invoke('take_element_action', { elementId: doc.id, action: 'focus' });
+  } catch {
+    // Typing is still worth attempting where the focus already is.
+  }
+}
+
+/** Bring a named app's window to the front, so window keys land on it. */
+async function focusWindowOf(appName: string): Promise<void> {
+  const open = (await openWindows()).find((w) => windowOfApp(appName, w));
+  if (!open) return;
+  const wins = await invoke<DesktopElement[]>('find_elements', { pid: open.pid, query: { role: 'Window', name: null, automation_id: null, value_contains: null }, windowTitle: null }).catch(() => [] as DesktopElement[]);
+  const win = wins.find((x) => x.is_enabled);
+  if (win) await invoke('take_element_action', { elementId: win.id, action: 'focus' }).catch(() => {});
 }
 
 export async function executeOnDesktop(plan: Plan): Promise<string> {
@@ -874,11 +967,27 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
     }
     case 'shortcut': await siteKeys(plan.keys); return '';
     // Literal characters; `{` is the key parser's escape, doubled it is itself.
+    // Alt+F4, Win+Down, Win+Up: the shortcuts every Windows app honours, sent
+    // to the window itself. Before this there was no window action at all, so
+    // "close Spotify" came back as `navigate` and closed a browser tab, and
+    // "minimise WhatsApp" came back as `open_app` and re-opened what the person
+    // wanted out of the way (22 Sep, four times in one round).
+    case 'window_ctl': {
+      if (plan.app) await focusWindowOf(plan.app);
+      const spec = plan.op === 'close' ? '{alt+f4}' : plan.op === 'minimize' ? '{win+down}' : '{win+up}';
+      await keys(spec);
+      const said = plan.op === 'close' ? 'Closing' : plan.op === 'minimize' ? 'Minimising' : 'Maximising';
+      return `${said} ${plan.app ?? 'this window'}.`;
+    }
     case 'type': {
       // An app launched by the step before is not in front yet; a second and
       // a half is what Notepad takes here. ponytail: a fixed wait, poll the
       // front window's pid if an app turns out slower.
       if (previous === 'open_app') await new Promise((r) => setTimeout(r, 1500));
+      // Into the text field, not into whatever holds the focus. Notepad focuses
+      // its own text area, so typing worked there and nothing at all reached
+      // ChatGPT's composer (22 Sep, twice, at 0.98 and 1.00 confidence).
+      await focusTextField();
       await keys(plan.text.replace(/\{/g, '{{'));
       return `Typing "${plan.text}".`;
     }
@@ -922,7 +1031,7 @@ export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
   // executeOnDesktop). An application opens on the desktop wherever the call
   // is. `desktop` is what `decide` saw, so a plan runs where it was made.
   const onDesktop = desktop ?? (await outOfSight());
-  if (onDesktop || target.system || plan.action === 'open_app' || plan.action === 'type') return executeOnDesktop(plan);
+  if (onDesktop || target.system || plan.action === 'open_app' || plan.action === 'type' || plan.action === 'window_ctl') return executeOnDesktop(plan);
   const b = useBrowser.getState();
   const ui = tauri.browser.ui;
   switch (plan.action) {

@@ -57,7 +57,14 @@ const PARTIAL_SILENCE_MS = 300;
  * below MIN_CONFIDENCE nothing runs. Each one is a transcription and a Jev
  * request (~$0.0001); a five-second sentence makes about ten.
  */
-const PARTIAL_VOICED_MS = 400;
+const PARTIAL_VOICED_MS = 700;
+/**
+ * A partial costs a request, and the cloud transcriber counts them: Groq's free
+ * tier allows 20 a minute, and a round of six sentences hit the limit twice
+ * (22 Sep). Under this much new voice, whatever was said is a syllable, not a
+ * step: waiting for the pause is both cheaper and more likely to be a word.
+ */
+const MIN_PARTIAL_GROWTH_MS = 500;
 
 /**
  * What execute says back is either the action done ("Opening YouTube.", or
@@ -243,7 +250,7 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       if (verdict !== 'continue') { rec.stop(); return; }
       // A partial at every short pause, and every PARTIAL_VOICED_MS of voice
       // without one: "open the browser" is running at "brow-", not after it.
-      if (voicedSincePartial > 0 && voicedMs >= MIN_COMMAND_VOICED_MS && (silenceMs >= PARTIAL_SILENCE_MS || voicedSincePartial >= PARTIAL_VOICED_MS)) {
+      if (voicedSincePartial >= MIN_PARTIAL_GROWTH_MS && voicedMs >= MIN_COMMAND_VOICED_MS && (silenceMs >= PARTIAL_SILENCE_MS || voicedSincePartial >= PARTIAL_VOICED_MS)) {
         voicedSincePartial = 0;
         anyPartial = true;
         partialDue = true;
@@ -511,11 +518,17 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
         // the trailing silence) is where the final flipped language (22 Sep).
         const final = heard.sincePartial ? transcribe(heard.blob, 'final', lastPartial || undefined) : null;
         await partials;
+        // `null` means no voice followed the last partial, so that partial IS
+        // the whole sentence. A final that THREW is the opposite: the sentence
+        // went on and we cannot read its end, and acting on the last partial
+        // then ran "Okay, now click on the" as a click (22 Sep, after a rate
+        // limit). One is the sentence; the other is half of one.
         text = final ? await final : lastPartial;
         if (!final) log(`final = last partial: ${JSON.stringify(text)}`);
       } catch (e) {
         // On the pill as well as the overlay: `said` is what the pill shows,
         // and the overlay is hidden exactly when the call is parked.
+        log(`the end of the sentence did not transcribe, nothing run: ${e instanceof Error ? e.message : String(e)}`);
         setSaid(transcriptionFault(e));
         chime('fail');
         continue;
