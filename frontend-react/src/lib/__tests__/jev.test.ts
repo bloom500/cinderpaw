@@ -215,6 +215,31 @@ describe('earlyFingerprint', () => {
   });
 });
 
+describe('window_ctl', () => {
+  const windows = [{ pid: 5, title: 'Spotify Premium', app_name: 'Spotify' }];
+
+  it('closes the named app, and the name does not drag the confidence down', () => {
+    const c = textCandidates('close spotify');
+    expect(toPlan('close spotify',
+      { action: choice('window_ctl'), window_op: choice('close'), window: choice('w0', 0.9) }, c, undefined, [], windows))
+      .toEqual({ action: 'window_ctl', op: 'close', app: 'Spotify', confidence: 0.9 });
+  });
+
+  it('an unsure name falls back to the front window; a wrong op is for the agent', () => {
+    const c = textCandidates('minimize this');
+    expect(toPlan('minimize this',
+      { action: choice('window_ctl'), window_op: choice('minimize'), window: choice('w0', 0.1) }, c, undefined, [], windows))
+      .toEqual({ action: 'window_ctl', op: 'minimize', app: null, confidence: 0.9 });
+    expect(toPlan('close spotify',
+      { action: choice('window_ctl'), window_op: choice('explode'), window: choice('w0', 0.9) }, c, undefined, [], windows))
+      .toMatchObject({ action: 'none' });
+  });
+
+  it('never runs on a partial: no fingerprint', () => {
+    expect(earlyFingerprint({ action: 'window_ctl', op: 'close', app: 'Spotify', confidence: 0.9 })).toBeNull();
+  });
+});
+
 describe('inReadingOrder', () => {
   const at = (x: number, y: number, name: string) =>
     ({ id: name, role: 'Link', name, is_offscreen: false, is_enabled: true, bounding_rect: { x, y, width: 10, height: 10 } });

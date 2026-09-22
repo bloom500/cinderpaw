@@ -27,3 +27,23 @@ describe('the tone of a result', () => {
     expect(toneFor('Openingly wrong')).toBe('fail');
   });
 });
+
+describe('keepsWordsOf', () => {
+  it('a partial that grew into the sentence keeps its words', async () => {
+    const { keepsWordsOf } = await import('../useJevCallSession');
+    expect(keepsWordsOf('open spot', 'open spotify')).toBe(true);
+    expect(keepsWordsOf('open spot', 'open spotify and play')).toBe(true);
+  });
+
+  it('case and punctuation aside, half the words suffice', async () => {
+    const { keepsWordsOf } = await import('../useJevCallSession');
+    expect(keepsWordsOf('Deschide YouTube!', 'deschide youtube și caută')).toBe(true);
+    expect(keepsWordsOf('open spotify premium now', 'open spot')).toBe(false);
+  });
+
+  it('one-letter words prove nothing; an empty partial keeps everything', async () => {
+    const { keepsWordsOf } = await import('../useJevCallSession');
+    expect(keepsWordsOf('a I x', 'a I x y z')).toBe(true);
+    expect(keepsWordsOf('', 'whatever was said')).toBe(true);
+  });
+});
