@@ -401,3 +401,62 @@ describe('runsLeft', () => {
     expect(runsLeft('search for jazz twice', null, new Map())).toBe(1);
   });
 });
+
+describe('rankedClickRefs', () => {
+  it('orders by probability, skipping none, ghosts and the primary, capped at three', async () => {
+    const { rankedClickRefs } = await import('../jev');
+    const menu = [
+      { ref: 'a1', name: 'Save' },
+      { ref: 'a2', name: 'Cancel' },
+      { ref: 'a3', name: 'Delete' },
+    ];
+    const ans = { type: 'choice', choice: 'ra1', confidence: 0.8, probabilities: { ra1: 0.5, ra2: 0.3, ra3: 0.25, ra4: 0.22, none: 0.05, rX: 0.9 } };
+    expect(rankedClickRefs(ans, menu, 'a1', 0.2)).toEqual(['a2', 'a3']);
+  });
+
+  it('caps at three and honors the floor', async () => {
+    const { rankedClickRefs } = await import('../jev');
+    const menu = [
+      { ref: 'a1', name: 'One' }, { ref: 'a2', name: 'Two' }, { ref: 'a3', name: 'Three' },
+      { ref: 'a4', name: 'Four' }, { ref: 'a5', name: 'Five' },
+    ];
+    const ans = { type: 'choice', choice: 'ra1', confidence: 0.9, probabilities: { ra1: 0.9, ra2: 0.8, ra3: 0.7, ra4: 0.6, ra5: 0.05 } };
+    expect(rankedClickRefs(ans, menu, 'a1', 0.2)).toEqual(['a2', 'a3', 'a4']);
+    expect(rankedClickRefs(ans, menu, 'a1', 0.7)).toEqual(['a2', 'a3']);
+    expect(rankedClickRefs(undefined, menu, null, 0.2)).toEqual([]);
+  });
+});
+
+describe('a click that misses falls to the next-best', () => {
+  it('the top pick fails to press, the second from the distribution lands', async () => {
+    const { executeOnDesktop, resetTarget } = await import('../jev');
+    const { invoke } = await import('@tauri-apps/api/core');
+    resetTarget();
+    vi.mocked(invoke).mockClear();
+    const buttons = [
+      { id: '7:1', role: 'Button', name: 'Export', is_enabled: true, is_offscreen: false },
+      { id: '7:2', role: 'Button', name: 'Cancel', is_enabled: true, is_offscreen: false },
+    ];
+    // By command, not by call order: how many times the page is read depends
+    // on how many looks it takes to settle, and that is not what this tests.
+    let clicks = 0;
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_focused_element') return { id: '7:0', role: 'Window', name: 'x', is_enabled: true, is_offscreen: false };
+      if (cmd === 'find_elements') return buttons;
+      if (cmd === 'jev_decide') return {
+        answers: {
+          element: { type: 'choice', choice: 'r7:1', confidence: 0.8, probabilities: { 'r7:1': 0.8, 'r7:2': 0.75 } },
+          position: { type: 'choice', choice: 'none', confidence: 0.9 },
+          kind: { type: 'choice', choice: 'any', confidence: 0.9 },
+        }, usage: null, ms: 50,
+      };
+      if (cmd === 'click_element' && ++clicks === 1) throw new Error('gone');
+      return undefined;
+    });
+    await expect(executeOnDesktop({ action: 'click', target: 'press the Export button', confidence: 1 })).resolves.toBe('');
+    const pressed = vi.mocked(invoke).mock.calls
+      .filter((c) => c[0] === 'click_element')
+      .map((c) => (c[1] as { elementId: string }).elementId);
+    expect(pressed).toEqual(['7:1', '7:2']);
+  });
+});

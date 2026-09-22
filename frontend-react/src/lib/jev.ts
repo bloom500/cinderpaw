@@ -468,7 +468,9 @@ export function runsLeft(step: string, fingerprint: string | null, done: Map<str
 
 const CLICK_VERBS: ClickVerb[] = ['delete', 'archive', 'reply', 'like', 'save', 'share'];
 
-type Answers = Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>;
+/** One Jev answer: the top choice, its confidence, and the full distribution the API returns (used for next-best fallback). */
+export interface ChoiceAnswer { type: string; choice?: string; confidence?: number; noul?: number; probabilities?: Record<string, number> }
+type Answers = Record<string, ChoiceAnswer>;
 
 /** Jev's answers, read into one plan. Only the answers the chosen action needs are read. */
 export function toPlan(utterance: string, ans: Answers, cands: Record<string, string>, shortcuts?: Record<string, KeyCommand>, apps: InstalledApp[] = [], windows: OpenWindow[] = []): Plan {
@@ -734,11 +736,22 @@ interface Clickable { ref: string; name: string; tag?: string; role?: string; in
  * first one" is a meaning it can match against the list order. Returns the
  * ref, or null when Jev says none of them.
  */
-export async function decideClick(target: string, elements: Clickable[]): Promise<{ ref: string | null; ms: number }> {
+/** Next-best element refs from the Choice distribution, best first: when the top pick will not press, the run tries these before reporting failure. Only what Jev believes (at the click floor), never `none`, never a ghost, at most three. A split across similar rows is several acceptable alternatives, not uncertainty. */
+const MAX_ALTS = 3;
+export function rankedClickRefs(answer: ChoiceAnswer | undefined, menu: { ref: string; name: string }[], exclude: string | null, floor: number): string[] {
+  const probs = answer?.probabilities ?? {};
+  return Object.entries(probs)
+    .filter(([key, p]) => key !== 'none' && typeof p === 'number' && p >= floor)
+    .sort(([, a], [, b]) => b - a)
+    .map(([key]) => (key.startsWith('r') ? key.slice(1) : key))
+    .filter((ref) => ref !== exclude && menu.some((e) => e.ref === ref))
+    .slice(0, MAX_ALTS);
+}
+export async function decideClick(target: string, elements: Clickable[]): Promise<{ ref: string | null; alts: string[]; ms: number }> {
   // What is on screen first: the like button is in view, a footer link is not.
   const named = elements.filter((e) => e.name);
   const menu = [...named.filter((e) => e.inView), ...named.filter((e) => !e.inView)].slice(0, 150);
-  if (menu.length === 0) return { ref: null, ms: 0 };
+  if (menu.length === 0) return { ref: null, alts: [], ms: 0 };
   const criteria: Record<string, string> = Object.fromEntries(menu.map((e) => [`r${e.ref}`, `${e.role ?? e.tag ?? ''}: ${e.name}`]));
   criteria.none = 'None of the listed elements is what the user means';
   // Jev does not count reliably over long lists (its own docs). So "the third
@@ -798,7 +811,7 @@ export async function decideClick(target: string, elements: Clickable[]): Promis
   // When nothing is picked, the menu itself is the evidence: was the element
   // there at all, or did the window expose only its chrome?
   if (!ref) note(`click "${target}": ${a?.choice ?? 'no answer'} at ${Number(a?.confidence ?? 0).toFixed(2)}; menu: ${menu.slice(0, 20).map((e) => e.name).join(' | ')}`);
-  return { ref, ms: r.ms };
+  return { ref, alts: rankedClickRefs(a, menu, ref, MIN_CLICK_CONFIDENCE), ms: r.ms };
 }
 
 
@@ -972,18 +985,32 @@ async function clickInFront(target: string): Promise<boolean> {
   // markup, so "the first link" was whatever the DOM happened to put first and
   // the click landed on something else every time (22 Sep, five tries).
   clickable = inReadingOrder(clickable);
-  const { ref, ms } = await decideClick(target, clickable.map((e) => ({ ref: e.id, name: e.name, role: e.role, inView: true })));
+  const { ref, alts, ms } = await decideClick(target, clickable.map((e) => ({ ref: e.id, name: e.name, role: e.role, inView: true })));
   note(`desktop click ${ref ? 'found' : 'none'} among ${clickable.length} in ${ms}ms`);
   if (!ref) return false;
-  // A link opens a page, and the title says whether it did; a button (like,
-  // subscribe) changes nothing the title shows, so it is not checked.
-  const isLink = /link|hyperlink/i.test(clickable.find((e) => e.id === ref)?.role ?? '');
-  const before = isLink ? await frontTitle() : null;
-  const chosen = clickable.find((e) => e.id === ref);
-  note(`desktop click pressing ${chosen?.role ?? '?'} "${chosen?.name ?? '?'}"`);
-  await invoke('click_element', { elementId: ref });
-  if (before !== null && !(await pageChanged(before))) throw new Error('The click landed but the page did not change.');
-  return true;
+  // The top pick first, then the next-best from the distribution: a stale or
+  // covered element fails into its alternatives, not into a failure line.
+  // Total failure keeps today's surface (throw), so the caller cannot tell.
+  let lastError: unknown = null;
+  for (const id of [ref, ...alts]) {
+    if (id === null) continue;
+    try {
+      // A link opens a page, and the title says whether it did; a button (like,
+      // subscribe) changes nothing the title shows, so it is not checked.
+      const isLink = /link|hyperlink/i.test(clickable.find((e) => e.id === id)?.role ?? '');
+      const before = isLink ? await frontTitle() : null;
+      const chosen = clickable.find((e) => e.id === id);
+      note(`desktop click pressing ${chosen?.role ?? '?'} "${chosen?.name ?? '?'}"`);
+      await invoke('click_element', { elementId: id });
+      if (before !== null && !(await pageChanged(before))) throw new Error('The click landed but the page did not change.');
+      return true;
+    } catch (e) {
+      note(`desktop click ${id} missed, trying next best`);
+      lastError = e;
+    }
+  }
+  if (lastError) throw lastError;
+  return false;
 }
 
 /** True when the front title differs from `before` within about a second: the page did something. */
@@ -1239,11 +1266,23 @@ export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
       b.setPanel(true);
       const press = async (target: string): Promise<boolean> => {
         const snap = (await ui('snapshot')) as { elements?: Clickable[] };
-        const { ref, ms } = await decideClick(target, snap.elements ?? []);
+        const { ref, alts, ms } = await decideClick(target, snap.elements ?? []);
         note(`click ${ref ? `ref ${ref}` : 'none'} in ${ms}ms`);
         if (!ref) return false;
-        await ui('click', { ref });
-        return true;
+        // Next-best on no effect, same as on the desktop; total failure keeps
+        // today's surface (throw), so the caller cannot tell.
+        let lastError: unknown = null;
+        for (const id of [ref, ...alts]) {
+          if (id === null) continue;
+          try {
+            await ui('click', { ref: id });
+            return true;
+          } catch (e) {
+            lastError = e;
+          }
+        }
+        if (lastError) throw lastError;
+        return false;
       };
       if (actsOnOpenItem(plan.verb) && (await press(`the ${plan.verb} button`))) return '';
       if (!(await press(plan.target))) return `I could not find ${plan.target} on this page.`;
