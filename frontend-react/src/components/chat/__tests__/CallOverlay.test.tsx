@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { CallTranscript, ProviderToggle, chooseSpeechEngine, compactCallTranscript, keyOwner, shownS2sProvider, voiceAnswerFor } from '../CallOverlay';
+import { CallTranscript, HandoffCard, ProviderToggle, chooseSpeechEngine, compactCallTranscript, keyOwner, shownS2sProvider, voiceAnswerFor } from '../CallOverlay';
 import type { TtsProviderInfo } from '@/lib/tauri';
 
 describe('compactCallTranscript', () => {
@@ -229,5 +229,20 @@ describe('voiceAnswerFor', () => {
   });
   it('takes every named option on a multi-select', () => {
     expect(voiceAnswerFor({ ...q, multiSelect: true }, 'delete, no wait, keep it').selected).toEqual(['Delete', 'Keep it']);
+  });
+});
+
+describe('the handoff card', () => {
+  it('nothing handed off, nothing on screen', () => {
+    const { container } = render(<HandoffCard sentence="" />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('the sentence while Cinder works, the reply beside it when it arrives', () => {
+    const { rerender } = render(<HandoffCard sentence="summarise these two mails" />);
+    expect(screen.getByTestId('handoff-card')).toHaveTextContent('summarise these two mails');
+    expect(screen.getByTestId('handoff-card')).toHaveTextContent('Cinder is on it.');
+    rerender(<HandoffCard sentence="summarise these two mails" reply="Done. Both are archived." />);
+    expect(screen.getByTestId('handoff-card')).toHaveTextContent('Done. Both are archived.');
   });
 });

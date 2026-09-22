@@ -150,6 +150,22 @@ export function CallTranscript({
 }
 
 /**
+ * The handoff, kept on screen: the sentence handed to Cinder, and the reply
+ * when it arrives. `said` is rewritten by every new sentence, so a long
+ * Cinder run scrolled both off; this pair stays until the next handoff or
+ * the hangup. Nothing here runs anything: display only.
+ */
+export function HandoffCard({ sentence, reply }: { sentence: string; reply?: string }) {
+  if (!sentence) return null;
+  return (
+    <div data-testid="handoff-card" className="w-full max-w-md text-left">
+      <p className="text-sm text-text-secondary">{sentence}</p>
+      <p className="text-sm text-text-primary">{reply || 'Cinder is on it.'}</p>
+    </div>
+  );
+}
+
+/**
  * Whose key this screen is asking for.
  *
  * One decision, used by both the sentence and the save, because they were
@@ -213,6 +229,8 @@ export function CallOverlay({
   youSpeaking = false,
   notice,
   said,
+  handoffText,
+  handoffReply,
   onAnswer,
   onHangUp,
   onInterrupt,
@@ -245,6 +263,14 @@ export function CallOverlay({
    * command was silence.
    */
   said?: string;
+  /**
+   * The handoff the call keeps on screen: the sentence handed to Cinder and
+   * the reply when it arrives. `said` is rewritten by every new sentence, so
+   * a long Cinder run scrolled both off; this pair stays until the next
+   * handoff or the hangup.
+   */
+  handoffText?: string;
+  handoffReply?: string;
   onAnswer: () => void;
   onHangUp: () => void;
   onInterrupt: () => void;
@@ -822,6 +848,7 @@ export function CallOverlay({
             speaking={phase === 'listening' && youSpeaking}
           />
           {said && <p className="max-w-md text-sm text-text-secondary">{said}</p>}
+          <HandoffCard sentence={handoffText ?? ''} reply={handoffReply} />
           {/* Said out loud on screen when nothing was said out loud in audio. */}
           {notice && <p className="text-sm text-(--warning)">{notice}</p>}
           {/* A question the agent is waiting on. It used to render only in the

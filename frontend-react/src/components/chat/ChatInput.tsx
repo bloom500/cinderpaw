@@ -710,6 +710,9 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         notice={call.notice}
         // Only a Jev call answers in lines of text; the others speak theirs.
         said={s2sProvider === JEV_PROVIDER_ID ? jevCall.said : undefined}
+        // Only a Jev call hands sentences to Cinder; the card shows what went and what came back.
+        handoffText={s2sProvider === JEV_PROVIDER_ID ? jevCall.handoffText : undefined}
+        handoffReply={s2sProvider === JEV_PROVIDER_ID ? jevCall.handoffReply : undefined}
         onAnswer={() => void call.begin()}
         onHangUp={() => {
           const next = hangUpLandsOn(call.phase);
