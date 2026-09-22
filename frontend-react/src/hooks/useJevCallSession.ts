@@ -6,7 +6,7 @@ import { tauri } from '@/lib/tauri';
 import { useSpeechPlayer } from './useSpeechPlayer';
 import { saveVoiceBlobToDisk, transcribeVoiceBlob } from './useSendMessage';
 import { rms, isVoiced, TRAIL_SILENCE_MS, MAX_UTTERANCE_MS, NO_SPEECH_TIMEOUT_MS } from '@/lib/vad';
-import { decide, earlyFingerprint, execute, installedApps, interpretReply, resetTarget, splitSteps, DESKTOP_CONTROL_OFF, MIN_CONFIDENCE, MIN_EARLY_CONFIDENCE, MIN_CLICK_ACTION_CONFIDENCE } from '@/lib/jev';
+import { decide, earlyFingerprint, runsLeft, execute, installedApps, interpretReply, resetTarget, splitSteps, DESKTOP_CONTROL_OFF, MIN_CONFIDENCE, MIN_EARLY_CONFIDENCE, MIN_CLICK_ACTION_CONFIDENCE } from '@/lib/jev';
 import { chime, decodeToPcm16k, wavBlob } from '@/lib/audio';
 import { forSpeech, isLikelyHallucination } from '@/lib/speechText';
 import { ensureSttModel } from '@/lib/voiceModel';
@@ -334,6 +334,8 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       }
     } catch (e) {
       log(`hand-off to Cinder failed: ${String(e)}`);
+      // The card would otherwise say "Cinder is on it." until the next handoff.
+      setHandoffReply('Cinder could not take that.');
       if (generation.current === mine) await speak('Cinder could not take that.', 'fail');
     } finally {
       agentBusy.current = false;
@@ -379,7 +381,7 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
    * `done` holds what an earlier pass of this sentence has already run, so
    * "open spot", "open spotify", "open spotify and play" open Spotify once.
    */
-  const runCommand = useCallback(async (text: string, mine: number, typed = false, done = new Set<string>(), early = false) => {
+  const runCommand = useCallback(async (text: string, mine: number, typed = false, done = new Map<string, number>(), early = false) => {
     // One word is a verb with nothing to act on: "Open" alone launched an app
     // at 0.93 before "the browser" was out (22 Sep). The sentence's end runs it.
     if (early && text.trim().split(/\s+/).length < 2) return;
@@ -420,7 +422,11 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       const plan = r.plan;
       log(`${early ? 'early ' : ''}${steps.length > 1 ? `step ${i + 1}/${steps.length} ` : ''}${plan.action} conf=${plan.confidence.toFixed(2)} in ${r.ms}ms${r.desktop ? ' on the desktop' : ' in the app'}`);
       const fingerprint = earlyFingerprint(plan);
-      if (fingerprint && done.has(fingerprint)) continue;
+      // A partial runs a step at most once; the end of the sentence runs what
+      // is left of its count ("close the last two tabs" = 2, minus any a
+      // partial already closed). Counted per step: see `repeatCount`.
+      const left = early ? (fingerprint && done.has(fingerprint) ? 0 : 1) : runsLeft(steps[i], fingerprint, done);
+      if (left === 0) continue;
       if (early) {
         if (!fingerprint || plan.confidence < MIN_EARLY_CONFIDENCE) return;
         try {
@@ -429,7 +435,7 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
           // again and reports it, once, with the whole sentence heard.
           if (toneFor(line) !== 'ok') return;
           show(line);
-          done.add(fingerprint);
+          done.set(fingerprint, (done.get(fingerprint) ?? 0) + 1);
         } catch (e) {
           log(`early ${plan.action} failed: ${String(e)}`);
           return;
@@ -464,9 +470,16 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
         return;
       }
       try {
-        const line = await execute(plan, r.desktop);
-        if (toneFor(line) === 'ok') show(line);
-        else { await speak(line, 'fail'); return; }
+        // `left` times: once for most steps, N for "close the last two tabs",
+        // minus what a partial already did. The pause lets a closed tab or a
+        // scrolled page settle before the next key lands on it.
+        for (let n = 0; n < left; n++) {
+          if (n > 0) await new Promise((res) => setTimeout(res, 250));
+          const line = await execute(plan, r.desktop);
+          if (toneFor(line) !== 'ok') { await speak(line, 'fail'); return; }
+          if (n === left - 1) show(line);
+        }
+        if (left > 1) log(`${plan.action} run ${left} times`);
       } catch (e) {
         // The notice lives in the overlay, which is hidden behind the pill
         // exactly when these happen; the console keeps the reason too.
@@ -495,7 +508,7 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       // ~700 ms each): only the newest is kept, the ones behind it are
       // dropped, and the end of the sentence waits for the last one so it
       // never repeats an action a partial has just run.
-      const done = new Set<string>();
+      const done = new Map<string, number>();
       /** The last partial heard, kept for when the final transcript disagrees with it. */
       let lastPartial = '';
       let newest: Blob | null = null;

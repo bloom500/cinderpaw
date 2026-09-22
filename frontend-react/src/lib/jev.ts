@@ -369,6 +369,47 @@ export function earlyFingerprint(plan: Plan): string | null {
     default: return null;
   }
 }
+/**
+ * How many times ONE step asks to be done: "close the last two tabs", "scroll
+ * down three times", "mergi înapoi de două ori". The number must qualify the
+ * repetition itself (N times, N tabs, de N ori, twice), never merely appear in
+ * the sentence: "search for three little pigs" is one search.
+ *
+ * Read per step, not per sentence. A count on one step lifting the guard for
+ * the whole sentence let "close this tab, then scroll down twice" close a
+ * second tab, and let every partial of "close the last two tabs" close
+ * another (22 Sep, rejected in review before merge).
+ *
+ * ponytail: capped at 5. More than that by voice is far likelier a
+ * mis-transcription than a wish; raise it if someone asks for "close ten tabs".
+ */
+const COUNT_WORDS: Record<string, number> = {
+  two: 2, three: 3, four: 4, five: 5,
+  'două': 2, doua: 2, trei: 3, patru: 4, cinci: 5,
+};
+const MAX_REPEAT = 5;
+export function repeatCount(step: string): number {
+  // Whitespace and punctuation as separators, not `\b`: it knows only ASCII
+  // letters, and "două" would never match (see splitSteps, 21 Sep).
+  const s = ` ${step.toLowerCase().replace(/[.,!?;:]/g, ' ')} `;
+  if (/\s(twice|de două ori|de doua ori)\s/.test(s)) return 2;
+  const m = s.match(/\s(\d+|two|three|four|five|două|doua|trei|patru|cinci)\s+(times?|tabs?|pages?|ori|taburi|tab-uri|pagini)\s/)
+    ?? s.match(/\sde\s+(\d+|două|doua|trei|patru|cinci)\s+ori\s/);
+  if (!m) return 1;
+  const n = /^\d+$/.test(m[1]) ? Number(m[1]) : COUNT_WORDS[m[1]] ?? 1;
+  return Math.max(1, Math.min(MAX_REPEAT, n));
+}
+
+/**
+ * How many more times this step still has to run, given what earlier passes
+ * of the same sentence already did. A partial may have closed one tab before
+ * "two" was out; the end of the sentence then closes the rest, not two more.
+ */
+export function runsLeft(step: string, fingerprint: string | null, done: Map<string, number>): number {
+  if (!fingerprint) return 1;
+  return Math.max(0, repeatCount(step) - (done.get(fingerprint) ?? 0));
+}
+
 const CLICK_VERBS: ClickVerb[] = ['delete', 'archive', 'reply', 'like', 'save', 'share'];
 
 type Answers = Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>;

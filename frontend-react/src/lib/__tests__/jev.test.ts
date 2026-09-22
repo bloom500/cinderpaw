@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textCandidates, domainGuess, toPlan, earlyFingerprint, inReadingOrder } from '../jev';
+import { textCandidates, domainGuess, toPlan, earlyFingerprint, inReadingOrder, repeatCount, runsLeft } from '../jev';
 
 const choice = (choice: string, confidence = 0.9) => ({ type: 'choice', choice, confidence });
 
@@ -255,5 +255,50 @@ describe('inReadingOrder', () => {
     const noRects = [{ id: 'a', role: 'Link', name: 'a', is_offscreen: false, is_enabled: true },
                      { id: 'b', role: 'Link', name: 'b', is_offscreen: false, is_enabled: true }];
     expect(inReadingOrder(noRects).map((e) => e.name)).toEqual(['a', 'b']);
+  });
+});
+
+describe('repeatCount', () => {
+  it('reads a count that qualifies the repetition itself', () => {
+    expect(repeatCount('close the last two tabs')).toBe(2);
+    expect(repeatCount('scroll down three times')).toBe(3);
+    expect(repeatCount('go back twice')).toBe(2);
+    expect(repeatCount('mergi înapoi de două ori')).toBe(2);
+    expect(repeatCount('închide 3 taburi')).toBe(3);
+  });
+
+  it('ignores a number that is only part of what is said', () => {
+    expect(repeatCount('search for three little pigs')).toBe(1);
+    expect(repeatCount('click the first video')).toBe(1);
+    expect(repeatCount('open two thousand and one')).toBe(1);
+  });
+
+  it('caps a count that is far likelier a mishearing than a wish', () => {
+    expect(repeatCount('close 40 tabs')).toBe(5);
+  });
+});
+
+describe('runsLeft', () => {
+  it('runs what is left of the count after a partial already did some', () => {
+    const done = new Map([['navigate:close_tab', 1]]);
+    expect(runsLeft('close the last two tabs', 'navigate:close_tab', done)).toBe(1);
+    expect(runsLeft('close the last two tabs', 'navigate:close_tab', new Map())).toBe(2);
+  });
+
+  it('never repeats a single step a partial already ran', () => {
+    const done = new Map([['open_app:spotify', 1]]);
+    expect(runsLeft('open spotify', 'open_app:spotify', done)).toBe(0);
+  });
+
+  it('a count on one step does not free another step of the same sentence', () => {
+    // "close this tab, then scroll down twice": the close ran early, and the
+    // "twice" belongs to the scroll, so the close must not run again.
+    const done = new Map([['navigate:close_tab', 1]]);
+    expect(runsLeft('close this tab', 'navigate:close_tab', done)).toBe(0);
+    expect(runsLeft('scroll down twice', 'scroll:600', done)).toBe(2);
+  });
+
+  it('steps that never run early run once', () => {
+    expect(runsLeft('search for jazz twice', null, new Map())).toBe(1);
   });
 });
