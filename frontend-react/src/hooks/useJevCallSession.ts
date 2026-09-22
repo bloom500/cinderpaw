@@ -160,6 +160,9 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [heard, setHeard] = useState('');
   const [said, setSaid] = useState('');
+  /** The handoff the overlay keeps on screen: what went to Cinder, and what came back. Plain display, no phases. */
+  const [handoffText, setHandoffText] = useState('');
+  const [handoffReply, setHandoffReply] = useState('');
   const [level, setLevel] = useState(0);
   const [youSpeaking, setYouSpeaking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -316,12 +319,19 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
     }
     agentBusy.current = true;
     agentStopped.current = false;
+    // The card keeps the pair on screen: the loop's next sentence rewrites `said`.
+    setHandoffText(text);
+    setHandoffReply('');
     show('Cinder is on it.');
     try {
       const sid = useChat.getState().sessionId;
       await fallbackRef.current(text);
       const reply = await agentReply(sid);
-      if (generation.current === mine && !agentStopped.current && reply.trim()) await speak(spokenReply(reply));
+      if (generation.current === mine && !agentStopped.current && reply.trim()) {
+        const out = spokenReply(reply);
+        setHandoffReply(out);
+        await speak(out);
+      }
     } catch (e) {
       log(`hand-off to Cinder failed: ${String(e)}`);
       if (generation.current === mine) await speak('Cinder could not take that.', 'fail');
@@ -588,6 +598,8 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
     setPhase('idle');
     setHeard('');
     setSaid('');
+    setHandoffText('');
+    setHandoffReply('');
     setLevel(0);
     setYouSpeaking(false);
     setMutedState(false);
@@ -624,5 +636,5 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
   // itself never speaks and listens at once: the phase is the loop's, except
   // while a line is actually being said.
   const shown: CallPhase = talking && phase !== 'idle' && phase !== 'ready' ? 'speaking' : phase;
-  return { phase: shown, stage: null as CallStage, heard, said, level, youSpeaking, notice, transcribing: false, open, begin, hangUp, interrupt, say, muted, setMuted };
+  return { phase: shown, stage: null as CallStage, heard, said, handoffText, handoffReply, level, youSpeaking, notice, transcribing: false, open, begin, hangUp, interrupt, say, muted, setMuted };
 }

@@ -145,6 +145,12 @@ $bytes = [IO.File]::ReadAllBytes('<binary>')
   `~/.cinderpaw/` to the agent's filesystem tools — both lose. **Read
   before adding/changing a `self_*` tool, the SUBSYSTEMS catalog,
   or any path that says `~/.cinderpaw/` somewhere in it.**
+- **`project_jev_fast_lane.md`** — the Jev voice-call fast lane: the closed
+  action set, the confidence floors, what may run on a partial and why the
+  rest waits, the Groq partial budget (20/min). **Read before touching
+  `frontend-react/src/lib/jev.ts`,
+  `frontend-react/src/hooks/useJevCallSession.ts`, or any partial/dedup
+  logic.**
 
 ## Things that are pinned at the type level (don't break these)
 
