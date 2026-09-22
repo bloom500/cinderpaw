@@ -24,6 +24,23 @@ export async function decodeToPcm16k(blob: Blob): Promise<Float32Array> {
   return rendered.getChannelData(0).slice();
 }
 
+/**
+ * 16 kHz mono 16-bit WAV from PCM. A WebM cut mid-recording (`requestData`)
+ * carries no duration in its header, and the cloud transcriber read 9 s of
+ * speech as "0.001 s, too short" (22 Sep); a WAV states its length by shape.
+ */
+export function wavBlob(pcm: Float32Array, rate = TARGET_RATE): Blob {
+  const buf = new ArrayBuffer(44 + pcm.length * 2);
+  const v = new DataView(buf);
+  const tag = (at: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(at + i, s.charCodeAt(i)); };
+  tag(0, 'RIFF'); v.setUint32(4, 36 + pcm.length * 2, true); tag(8, 'WAVE');
+  tag(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  tag(36, 'data'); v.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 0x7fff, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
 const NO_CARRY = new Uint8Array(0);
 
 /**

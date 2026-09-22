@@ -388,8 +388,16 @@ const PROPER_NOUNS: &str = "Cinderpaw, Cubby, Bloom, Darius, Piper, Kokoro.";
 /// It is deliberately NOT fed back into the next request. Whisper's `language`
 /// is an override, not a hint, so doing that made the loop self-sealing — we
 /// forced `ro`, the response therefore said "romanian", and that re-learned
-/// `ro`. Nothing else reads it — no code anywhere sends a language to Whisper.
-static LAST_LANG: OnceLock<Mutex<Option<&'static str>>> = OnceLock::new();
+/// `ro`. One exception, scoped to a single sentence: a caller that sends
+/// `context` (the Jev call, transcribing the same sentence again as it grows)
+/// gets the language the sentence started in, for SAME_SENTENCE_WINDOW after
+/// it was learned. Detection still runs fresh at every new sentence, so a
+/// wrong guess costs one sentence, never the ones after it. Without this the
+/// same English sentence came back English at 1.5 s and Romanian at 3 s,
+/// four times in one morning (22 Sep).
+static LAST_LANG: OnceLock<Mutex<Option<(&'static str, std::time::Instant)>>> = OnceLock::new();
+/// How long a learned language is offered to a caller re-transcribing the same sentence.
+const SAME_SENTENCE_WINDOW: std::time::Duration = std::time::Duration::from_secs(12);
 
 /// A transcript at least this long is treated as real evidence of a language.
 /// Below it, Whisper is guessing from too little audio: one evening of logs has
@@ -434,6 +442,12 @@ pub(crate) async fn transcribe_audio_cloud(
     audio_path: String,
     provider: String,
     language: Option<String>,
+    // The earlier part of the same sentence, when the caller is transcribing
+    // a sentence again as it grows (the Jev call). Its presence, not its
+    // text, is what counts: it marks the request as the same sentence, which
+    // keeps the language it started in (see LAST_LANG). Given as Whisper's
+    // `prompt`, the text made the model skip the words it repeated (22 Sep).
+    context: Option<String>,
 ) -> Result<String, String> {
     // Traced because the voice pipeline crosses four boundaries (webview → Rust →
     // vendor → back) and the webview's own console never reaches the terminal
@@ -490,8 +504,19 @@ pub(crate) async fn transcribe_audio_cloud(
     // and that re-learned `ro`. A first mistake became permanent and a user
     // switching language could never be heard again. Detection is free every
     // turn now — a wrong guess costs one turn instead of all of them.
-    let language = request_language(language);
-    tracing::info!(sending = language.as_deref().unwrap_or("<none>"), "stt: language");
+    let same_sentence = context.as_deref().map(str::trim).is_some_and(|c| !c.is_empty());
+    let language = request_language(language).or_else(|| {
+        let mut slot = LAST_LANG.get_or_init(|| Mutex::new(None)).lock();
+        if !same_sentence {
+            // The first piece of a new sentence: whatever the last sentence was
+            // in is not evidence about this one. A Romanian sentence 5 s after an
+            // English one was otherwise forced to English from its second piece.
+            *slot = None;
+            return None;
+        }
+        slot.filter(|(_, at)| at.elapsed() <= SAME_SENTENCE_WINDOW).map(|(code, _)| code.to_string())
+    });
+    tracing::info!(sending = language.as_deref().unwrap_or("<none>"), same_sentence, "stt: language");
 
     let mut form = reqwest::multipart::Form::new().text("model", cloud.model).part("file", part);
     if cloud.whisper_extras {
@@ -558,16 +583,16 @@ pub(crate) async fn transcribe_audio_cloud(
     if let Some(code) = parsed.language.as_deref().and_then(iso_code_of) {
         if text.chars().count() >= CONFIDENT_TRANSCRIPT_CHARS {
             let mut slot = LAST_LANG.get_or_init(|| Mutex::new(None)).lock();
-            if slot.is_some_and(|previous| previous != code) {
+            if slot.is_some_and(|(previous, _)| previous != code) {
                 tracing::warn!(
-                    from = slot.unwrap_or(""),
+                    from = slot.map(|(l, _)| l).unwrap_or(""),
                     to = code,
                     chars = text.chars().count(),
                     transcript = %text,
                     "stt: language flipped — a real switch, or a translation",
                 );
             }
-            *slot = Some(code);
+            *slot = Some((code, std::time::Instant::now()));
         }
     }
 

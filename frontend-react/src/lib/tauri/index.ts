@@ -1047,8 +1047,8 @@ const raw = {
     invoke<boolean>('stt_model_present', { id }),
   transcribeAudio:          (pcm: number[], modelId: string) =>
     invoke<string>('transcribe_audio', { pcm, modelId }),
-  transcribeAudioCloud:     (audioPath: string, provider: string, language?: string) =>
-    invoke<string>('transcribe_audio_cloud', { audioPath, provider, language: language ?? null }),
+  transcribeAudioCloud:     (audioPath: string, provider: string, language?: string, context?: string) =>
+    invoke<string>('transcribe_audio_cloud', { audioPath, provider, language: language ?? null, context: context ?? null }),
   // Idempotent — returns immediately if the model is already complete.
   // Progress streams over `cinderpaw://stt-download-*`.
   downloadSttModel:         (id: string) =>
@@ -1218,8 +1218,8 @@ export const tauri = {
     sttModels:     async () => raw.sttModels(),
     modelPresent:  async (id: string) => raw.sttModelPresent(id),
     transcribe:    async (pcm: number[], modelId: string) => raw.transcribeAudio(pcm, modelId),
-    transcribeCloud: async (audioPath: string, provider: string, language?: string) =>
-      raw.transcribeAudioCloud(audioPath, provider, language),
+    transcribeCloud: async (audioPath: string, provider: string, language?: string, context?: string) =>
+      raw.transcribeAudioCloud(audioPath, provider, language, context),
     downloadModel: async (id: string) => raw.downloadSttModel(id),
     ttsProviders:  async () => raw.ttsProviders(),
     ttsHasKey:     async (providerId: string) => raw.ttsHasKey(providerId),

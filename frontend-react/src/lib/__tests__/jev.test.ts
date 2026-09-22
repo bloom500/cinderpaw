@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textCandidates, domainGuess, toPlan } from '../jev';
+import { textCandidates, domainGuess, toPlan, earlyFingerprint } from '../jev';
 
 const choice = (choice: string, confidence = 0.9) => ({ type: 'choice', choice, confidence });
 
@@ -182,5 +182,35 @@ describe('an open window of the app asked for', () => {
     expect(windowOfApp('Spotify', w('Spotify.exe'))).toBe(true);
     expect(windowOfApp('Calculator', w('ApplicationFrameHost.exe'))).toBe(false);
     expect(windowOfApp('Brave', w('ai.exe'))).toBe(false);
+  });
+});
+
+describe('type', () => {
+  it('types the payload Jev cut out, never at a partial', () => {
+    const c = textCandidates('type hello there');
+    const key = Object.keys(c).find((k) => c[k] === 'hello there')!;
+    const plan = toPlan('type hello there', { action: choice('type'), text: choice(key) }, c);
+    expect(plan).toMatchObject({ action: 'type', text: 'hello there' });
+    expect(earlyFingerprint(plan)).toBeNull();
+  });
+});
+
+describe('earlyFingerprint', () => {
+  it('names the closed-payload actions once, case-blind, and nothing that carries free text or acts on the page', () => {
+    expect(earlyFingerprint({ action: 'open_app', name: 'Spotify', path: 'x', confidence: 0.9 })).toBe('open_app:spotify');
+    expect(earlyFingerprint({ action: 'open_app', name: 'spotify', path: 'y', confidence: 0.5 })).toBe('open_app:spotify');
+    expect(earlyFingerprint({ action: 'open_website', url: 'https://youtube.com', label: 'YouTube', system: false, confidence: 0.9 })).toBe('open_website:https://youtube.com');
+    expect(earlyFingerprint({ action: 'scroll', dy: 600, confidence: 0.9 })).toBe('scroll:600');
+    expect(earlyFingerprint({ action: 'navigate', op: 'back', confidence: 0.9 })).toBe('navigate:back');
+    expect(earlyFingerprint({ action: 'navigate', op: 'close_tab', confidence: 0.9 })).toBeNull();
+    for (const plan of [
+      { action: 'web_search', url: 'u', query: 'lofi hip', system: false, confidence: 0.9 },
+      { action: 'find', query: 'refund', confidence: 0.9 },
+      { action: 'click', target: 'first video', confidence: 0.9 },
+      { action: 'media', op: 'play_pause', confidence: 0.9 },
+      { action: 'shortcut', keys: 'k', means: 'pause', confidence: 0.9 },
+      { action: 'stop', confidence: 0.9 },
+      { action: 'none', confidence: 0.9 },
+    ] as const) expect(earlyFingerprint(plan)).toBeNull();
   });
 });

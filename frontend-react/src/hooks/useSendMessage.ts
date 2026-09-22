@@ -487,7 +487,7 @@ export async function saveVoiceBlobToDisk(blob: Blob): Promise<string> {
  * on screen. Errors ("stt-no-key" | "stt-cloud-failed" | "model-missing" |
  * "voice-unavailable") propagate to the caller for toast handling.
  */
-export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promise<string> {
+export async function transcribeVoiceBlob(blob: Blob, audioPath: string, context?: string): Promise<string> {
   const { sttProvider } = useUI.getState();
   if (sttProvider && sttProvider !== 'local') {
     // No language is ever sent. Whisper's `language` is an ORDER, not a hint:
@@ -495,7 +495,10 @@ export async function transcribeVoiceBlob(blob: Blob, audioPath: string): Promis
     // "Salut, Cinderpaw" into "Pozdvormiu Română!", and a stored preference is the
     // same mistake with the user's name on it. Detection runs per request, so a
     // wrong guess costs one turn instead of every turn after it.
-    const transcript = await tauri.voice.transcribeCloud(audioPath, sttProvider, undefined);
+    // `context`: the earlier part of the same sentence, a hint that keeps the
+    // language and the names steady across partials (cloud only; the local
+    // engine has no such input).
+    const transcript = await tauri.voice.transcribeCloud(audioPath, sttProvider, undefined, context);
     console.log('[voice] cloud transcript ->', JSON.stringify(transcript));
     return transcript;
   }

@@ -30,14 +30,14 @@ import type { AskUserQuestion } from '@/stores/askUser';
  */
 export const ACTIONS: Record<string, { what: string; not_for?: string; examples: string[] }> = {
   open_app: {
-    what: 'Launch, open, switch to, or bring up an application installed on the computer',
+    what: 'Launch, open, switch to, or bring up an application installed on the computer, including "the browser" (whichever browser they have)',
     not_for: 'A website or web page: that is open_website',
-    examples: ['open Spotify', 'launch Discord', 'switch to VS Code', 'open the settings app'],
+    examples: ['open Spotify', 'launch Discord', 'switch to VS Code', 'open the settings app', 'open the browser', 'can you open Brave'],
   },
   open_website: {
     what: 'Go to a website or web page by name or domain, with no search query',
     not_for: 'An installed application (open_app), or a search for something (web_search)',
-    examples: ['go to youtube', 'open reddit', 'pull up gmail', 'go to hotnews dot ro'],
+    examples: ['go to youtube', 'open reddit', 'pull up gmail', 'go to hotnews dot ro', 'can you open X', 'open twitter'],
   },
   web_search: {
     what: 'Search for something on the web or on a specific site',
@@ -77,13 +77,18 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
     not_for: 'Playback (media), pressing or acting on something the page shows, like a button, a video or an email (click), moving in the browser (navigate)',
     examples: ['turn on captions', 'full screen', 'play faster', 'compose a new email', 'rename the file', 'new folder', 'save', 'zoom in'],
   },
+  type: {
+    what: 'Type words into whatever has the keyboard focus right now: a note, a document, a chat box, a form field',
+    not_for: 'Searching the web (web_search), finding a word on the page (find), a keyboard shortcut (shortcut)',
+    examples: ['type hello', 'write "see you tomorrow"', 'type my name is Ana', 'scrie salut'],
+  },
   stop: {
     what: 'Tell the assistant to stop listening, hang up, or end the call',
     examples: ['stop', 'that is all', 'hang up', 'end the call'],
   },
   none: {
-    what: 'Not one of the commands above: a question, a conversation, a task of several steps, a request for something the list does not have (a file, a summary, a message to someone, typing text)',
-    examples: ['what is the weather', 'can you still hear me', 'summarise this page', 'write a reply saying yes', 'find me a cheaper flight', 'type my address in the form'],
+    what: 'Not one of the commands above: a question, a conversation, a task of several steps, a request for something the list does not have (a file, a summary, a message to someone, words the assistant would have to compose itself)',
+    examples: ['what is the weather', 'can you still hear me', 'summarise this page', 'write a reply saying yes', 'find me a cheaper flight', 'fill in my address'],
   },
 };
 
@@ -133,6 +138,8 @@ const NAV = {
 export const target: { system: boolean; pid: number | null } = { system: false, pid: null };
 /** What the call did last, for a one-word follow-up ("next", "back", "again"). */
 export const recent = { action: 'nothing yet' };
+/** What ran before `recent`: "open Notepad and type hello" types into a window that is still opening. */
+let previous = 'nothing yet';
 export function resetTarget() { target.system = false; target.pid = null; recent.action = 'nothing yet'; }
 
 /**
@@ -141,6 +148,12 @@ export function resetTarget() { target.system = false; target.pid = null; recent
  * search with 0.44 (21 Sep); an action with an effect needs more than a coin.
  */
 export const MIN_CONFIDENCE = 0.4;
+/**
+ * On a sentence still being said, more: "Open." alone, cut at the first
+ * pause, launched an app at 0.57 (22 Sep). A full "open Spotify" comes back
+ * at 0.99; the end of the sentence still runs whatever this refuses.
+ */
+export const MIN_EARLY_CONFIDENCE = 0.75;
 /** A wrong click is worse than no click: the ELEMENT choice needs this much. */
 export const MIN_CLICK_CONFIDENCE = 0.7;
 /**
@@ -224,7 +237,8 @@ export function questions(cands: Record<string, string>, shortcuts?: Record<stri
     site: {
       type: 'choice',
       instructions: 'Assume the user wants to open a website. Which site do they mean? Choose `other` if it is not one of the listed sites.',
-      criteria: { ...withNull(Object.keys(SITES)), other: 'A site not in this list' },
+      // One letter is a weak name: said out loud, "X" was `none` at 0.50 (22 Sep).
+      criteria: { ...withNull(Object.keys(SITES)), x: 'X, formerly Twitter (x.com)', other: 'A site not in this list' },
     },
     engine: {
       type: 'choice',
@@ -233,7 +247,7 @@ export function questions(cands: Record<string, string>, shortcuts?: Record<stri
     },
     text: {
       type: 'choice',
-      instructions: 'Assume the user wants some text searched or found. `candidates` holds possible payloads cut from the utterance. Which candidate is exactly the payload, with no command words (like "search for", "find", "on youtube")?',
+      instructions: 'Assume the user wants some text searched, found or typed. `candidates` holds possible payloads cut from the utterance. Which candidate is exactly the payload, with no command words (like "search for", "find", "type", "on youtube")?',
       criteria: cands,
     },
     scroll_dir: {
@@ -308,6 +322,7 @@ export type Plan =
   | { action: 'reader'; confidence: number }
   | { action: 'media'; op: 'play_pause' | 'next' | 'previous' | 'volume_up' | 'volume_down' | 'mute'; keys?: string; confidence: number }
   | { action: 'shortcut'; keys: string; means: string; confidence: number }
+  | { action: 'type'; text: string; confidence: number }
   | { action: 'stop'; confidence: number }
   | { action: 'none'; confidence: number };
 
@@ -318,6 +333,27 @@ function actsOnOpenItem(verb: ClickVerb | undefined): boolean {
 
 /** What a click can do to the item it lands on, once it is open; the button is found by this name. */
 export type ClickVerb = 'delete' | 'archive' | 'reply' | 'like' | 'save' | 'share';
+
+/**
+ * What may run on a half-said sentence, so the app opens while the person is
+ * still talking (the jev-voice demo, 22 Sep). Only actions whose payload is a
+ * closed choice: an app name, a site, a direction, back/forward. A search or a
+ * find carries free text that is still growing ("search for lofi hip" ->
+ * "... hip hop") and would run twice; a click, a key or play/pause acts on
+ * whatever is in front and is not undone by saying more. Those wait for the
+ * sentence to end. The fingerprint is what makes a partial and the final run
+ * of the same sentence the same action, done once.
+ */
+export function earlyFingerprint(plan: Plan): string | null {
+  switch (plan.action) {
+    case 'open_app': return `open_app:${plan.name.toLowerCase()}`;
+    case 'open_website': return `open_website:${plan.url}`;
+    case 'scroll': return `scroll:${plan.dy}`;
+    // "Can you close?" closed a tab at 0.82 before the sentence said which (22 Sep).
+    case 'navigate': return plan.op === 'close_tab' ? null : `navigate:${plan.op}`;
+    default: return null;
+  }
+}
 const CLICK_VERBS: ClickVerb[] = ['delete', 'archive', 'reply', 'like', 'save', 'share'];
 
 type Answers = Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>;
@@ -413,6 +449,11 @@ export function toPlan(utterance: string, ans: Answers, cands: Record<string, st
       const cmd = shortcuts?.[key];
       return cmd ? { action, keys: cmd.keys, means: cmd.means, confidence: Math.min(conf, c) } : { action: 'none', confidence: conf };
     }
+    case 'type': {
+      const [tkey, ct] = pick('text');
+      const text = cands[tkey] ?? '';
+      return text ? { action, text, confidence: Math.min(conf, ct) } : { action: 'none', confidence: conf };
+    }
     case 'reader': return { action, confidence: conf };
     case 'stop': return { action, confidence: conf };
     default: return { action: 'none', confidence: conf };
@@ -498,10 +539,17 @@ export async function interpretReply(q: AskUserQuestion, said: string): Promise<
  * lets "open Calculator" work a moment after the call starts.
  */
 let appsCache: { at: number; apps: InstalledApp[] } | null = null;
+/**
+ * "Open the browser" names no Start Menu entry, and picking Brave out of 254
+ * apps for it came back at 0.45 (22 Sep). One listed app IS the browser, by
+ * that name; its `path` is this marker and it opens the default browser on
+ * the start page instead of a shortcut.
+ */
+export const THE_BROWSER = 'the-default-browser';
 export async function installedApps(): Promise<InstalledApp[]> {
   if (appsCache && Date.now() - appsCache.at < 30_000) return appsCache.apps;
-  // A Choice takes at most 255 options; `none` is one of them.
-  const apps = (await invoke<InstalledApp[]>('list_apps').catch(() => [] as InstalledApp[])).slice(0, 254);
+  // A Choice takes at most 255 options; `none` is one of them, the browser another.
+  const apps = [{ name: 'Browser (the web browser, whichever is the default)', path: THE_BROWSER }, ...(await invoke<InstalledApp[]>('list_apps').catch(() => [] as InstalledApp[])).slice(0, 253)];
   appsCache = { at: Date.now(), apps };
   return apps;
 }
@@ -765,6 +813,7 @@ export function windowOfApp(appName: string, w: OpenWindow): boolean {
 export async function executeOnDesktop(plan: Plan): Promise<string> {
   switch (plan.action) {
     case 'open_app': {
+      if (plan.path === THE_BROWSER) { await shellOpen(SITES.duckduckgo); return 'Opening the browser.'; }
       // Already open: to the front. "Open Brave" with Brave open opened a
       // second window, and "switch to" did not switch.
       const open = (await openWindows()).find((w) => windowOfApp(plan.name, w));
@@ -824,6 +873,15 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
       return done ? '' : `I opened it, but could not find a ${plan.verb} button.`;
     }
     case 'shortcut': await siteKeys(plan.keys); return '';
+    // Literal characters; `{` is the key parser's escape, doubled it is itself.
+    case 'type': {
+      // An app launched by the step before is not in front yet; a second and
+      // a half is what Notepad takes here. ponytail: a fixed wait, poll the
+      // front window's pid if an app turns out slower.
+      if (previous === 'open_app') await new Promise((r) => setTimeout(r, 1500));
+      await keys(plan.text.replace(/\{/g, '{{'));
+      return `Typing "${plan.text}".`;
+    }
     case 'media': {
       // The site's own key first (Shift+N on YouTube). Failing that, "next"
       // and "previous" press the player's button when the window has one;
@@ -857,13 +915,14 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
  * Returns the short line to say back.
  */
 export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
+  previous = recent.action;
   recent.action = plan.action === 'media' ? `media ${plan.op}` : plan.action === 'navigate' ? `navigate ${plan.op}` : plan.action;
   // Out of sight (parked, hidden, minimised, another window in front), or a
   // named app on the computer: the desktop, never the hidden app (see
   // executeOnDesktop). An application opens on the desktop wherever the call
   // is. `desktop` is what `decide` saw, so a plan runs where it was made.
   const onDesktop = desktop ?? (await outOfSight());
-  if (onDesktop || target.system || plan.action === 'open_app') return executeOnDesktop(plan);
+  if (onDesktop || target.system || plan.action === 'open_app' || plan.action === 'type') return executeOnDesktop(plan);
   const b = useBrowser.getState();
   const ui = tauri.browser.ui;
   switch (plan.action) {
