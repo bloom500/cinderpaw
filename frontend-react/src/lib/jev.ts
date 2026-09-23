@@ -1048,6 +1048,14 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
       // and "previous" press the player's button when the window has one;
       // the OS media key is the last resort, a player ignores it outside a
       // playlist (YouTube, 21 Sep).
+      // Play/pause is the system's media key first, as jev-voice does: every
+      // player listens for it (Spotify desktop, and YouTube or Spotify web in
+      // any Chromium browser, through the media session), and it cannot land
+      // on the wrong element. The site's "k" or space went to the right page
+      // and still did nothing, because the focus was on a card or a link and
+      // space on a link opens it (23 Sep, five tries). It only works since
+      // this app stopped claiming the key itself (HardwareMediaKeyHandling).
+      if (plan.op === 'play_pause') { await keys(MEDIA_KEYS.play_pause); note('media key play_pause'); return ''; }
       if (plan.keys) {
         // "Next" and "previous" change the page, and the window title says
         // so: the one check that separates "the key was sent" from "it did
