@@ -729,6 +729,12 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
         if on {
             if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = Some(label.clone()); }
             let _ = window.set_fullscreen(true);
+            // A transparent window in fullscreen stays under the Windows 11
+            // taskbar (tauri#7328); he saw the bar over the video. Topmost for
+            // as long as the page is fullscreen puts it above.
+            // ponytail: stays topmost if he Alt-Tabs away mid-video; drop it on
+            // focus loss if that bothers anyone.
+            let _ = window.set_always_on_top(true);
             // The window's size once it has become fullscreen, not the monitor's
             // read at the call: sized that early the page stopped 49 px short of
             // the bottom (23 Sep). Read until two reads agree.
@@ -749,6 +755,7 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
         } else {
             if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = None; }
             tracing::info!(%label, "browser: page left fullscreen");
+            let _ = window.set_always_on_top(false);
             let _ = window.set_fullscreen(false);
             if let Some(tab) = tabs().lock().list.iter_mut().find(|t| t.label == label) { tab.placed = None; }
             let _ = place_all(&app);
