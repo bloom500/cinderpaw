@@ -335,6 +335,8 @@ export interface Settings {
    *  cloud provider. Off by default: it sends the conversation, and that
    *  provider's key, to a recipient the person did not choose. */
   cloud_fallback_enabled: boolean;
+  /** Appearance: solid background instead of the see-through window material. */
+  window_solid?: boolean;
 }
 
 export interface ByokProvider {
@@ -602,6 +604,8 @@ export interface MemoryGraphNodeView {
   label: string;
   type: string;
   touched_at: number;
+  /** Set on a fact row: the graph edge it came from, which is what Forget removes. */
+  edge?: { from: string; to: string; relation: string };
 }
 
 export interface MemoryGraphEdgeView {
@@ -859,6 +863,11 @@ const raw = {
   byokHasKey:            (providerId: string) => invoke<boolean>('byok_has_key', { providerId }),
   /** One-button OpenRouter sign-in (OAuth in the system browser). Resolves with the model it set. */
   openrouterSignIn:      () => invoke<string>('openrouter_sign_in'),
+  /** Appearance -> Background: solid (true) or glass (false). Applied to the open window at once. */
+  setWindowSolid:        (solid: boolean) => invoke<void>('set_window_solid', { solid }),
+  /** Memory page Forget: drop one fact (graph edge) from what the agent knows. */
+  memoryForget:          (from: string, to: string, relation: string) =>
+    invoke<void>('cinderpaw_memory_forget', { from, to, relation }),
   jevDecide:             (state: Record<string, unknown>, questions: Record<string, unknown>) =>
     invoke<{ answers: Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>; usage: unknown; ms: number }>('jev_decide', { state, questions }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>

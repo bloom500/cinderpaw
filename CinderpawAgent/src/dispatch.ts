@@ -149,6 +149,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
     db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter,
     runHooks,
     brainDerived, brainBreaker,
+    memoryGraph,
   } = ctx;
 
   switch (msg.type) {
@@ -933,6 +934,20 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
       case "rsi_code_patches_list": {
         const { sendCodePatches } = await codePatchGate();
         sendCodePatches();
+        break;
+      }
+      // The memory page's Forget: one fact (a graph edge) leaves what Cinderpaw
+      // knows about the person, and the file is written at once so the page's
+      // next read (Rust reads memory-graph.json directly) no longer has it.
+      // Only the edge goes; its two nodes may carry other facts.
+      case "memory_forget": {
+        const f = msg.forget;
+        if (!f?.from || !f.to) {
+          transport.send({ type: "error", message: "memory_forget: missing edge" });
+          break;
+        }
+        const removed = memoryGraph.removeEdge(f.from, f.to, f.relation || undefined);
+        if (removed > 0) memoryGraph.persist();
         break;
       }
       // Metacognition: the loop asked the user something; this is the reply.

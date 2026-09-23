@@ -120,7 +120,8 @@ mod command_count_test {
     // call), call_pill_open/close, main_in_front (the call pill), list_apps
     // (open_app over the Start Menu).
     // 183 -> 184 = + openrouter_sign_in (one-button OAuth instead of a pasted key).
-    const EXPECTED_COMMAND_COUNT: usize = 184;
+    // 184 -> 186 = + set_window_solid (glass or solid background), cinderpaw_memory_forget.
+    const EXPECTED_COMMAND_COUNT: usize = 186;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

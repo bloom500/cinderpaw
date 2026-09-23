@@ -1277,6 +1277,8 @@ export interface InboundMessage {
     // (payload `questionAction` + `answer`; the question id rides `id`).
     // The sidecar replies with a refreshed `code_patches`.
     | "rsi_question_resolve"
+    // Memory page: the person tells Cinderpaw to forget one fact (payload `forget`).
+    | "memory_forget"
     // Faza 4 (L2 LoRA) — the personal-adaptation gate. `train` runs one
     // full candidate cycle (dataset → trainer → paired eval → review card;
     // replies with `lora_train_result` + `lora_reviews`); `list` asks for
@@ -1382,6 +1384,8 @@ export interface InboundMessage {
    *  rides the plain `id` field. `answer` is required for "answer". */
   questionAction?: "answer" | "refuse" | "dismiss";
   answer?: string;
+  /** Forget payload (type === "memory_forget"): the one graph edge to drop. */
+  forget?: { from: string; to: string; relation: string };
   /** Workspace-panel payload (type === "artifact_op"). One message for the
    *  whole panel rather than five, because every inbound type costs a Tauri
    *  command, a specta binding and an entry in three allow-lists, and the panel

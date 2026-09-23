@@ -13,5 +13,8 @@ describe('memory page rows', () => {
     });
     expect(rows.map((r) => r.label)).toEqual(['Language: Romanian', 'orphan']);
     expect(rows[0]!.touched_at).toBe(20);
+    // The edge rides along: it is what the page's Forget sends back to the agent.
+    expect(rows[0]!.edge?.from).toBe('language');
+    expect(rows[1]!.edge).toBeUndefined();
   });
 });

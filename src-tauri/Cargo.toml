@@ -44,6 +44,8 @@ tauri-plugin-process = "2"
 tauri-plugin-clipboard-manager = "2"
 # System notifications: "your task finished" while the window is in the background (20 Sep).
 tauri-plugin-notification = "2"
+# Summon the window from anywhere (Alt+Space), like Spotlight or the ChatGPT app.
+tauri-plugin-global-shortcut = "2"
 # `serde_json`: so a `serde_json::Value` field can cross to TypeScript as `unknown`.
 specta = { version = "=2.0.0-rc.25", features = ["serde_json"] }
 specta-typescript = "0.0.12"

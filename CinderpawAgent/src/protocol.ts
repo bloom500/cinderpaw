@@ -30,6 +30,7 @@ export const INBOUND_TYPES = [
   "fractal_benchmark", "fractal_cluster_leaves",
   "rsi_start", "rsi_stop", "rsi_set_concurrency", "rsi_dream_now",
   "rsi_code_patches_list", "rsi_code_patch_resolve", "rsi_question_resolve",
+  "memory_forget",
   "rsi_lora_train", "rsi_lora_reviews_list", "rsi_lora_review_resolve",
   "meta_status", "meta_evolve", "meta_rollback", "meta_history",
   "governance_status", "governance_propose", "governance_approve",

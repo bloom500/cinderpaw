@@ -182,3 +182,32 @@ pub(crate) fn restart_sidecar(state: &AppState) {
     }
     *state.cinderpaw_agent_tx.lock() = None;
 }
+
+/// Appearance -> Background: glass (the see-through window material) or solid.
+///
+/// Applied to the open window at once, both halves together: the OS material
+/// and the page class that tells the stylesheet whether it is there, the same
+/// pairing `on_page_load` keeps. Saved so the next launch starts the same way.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn set_window_solid(app: tauri::AppHandle, solid: bool) -> Result<(), String> {
+    let mut s = settings::load();
+    s.window_solid = solid;
+    settings::save(&s).map_err(|e| e.to_string())?;
+    crate::WINDOW_SOLID.store(solid, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        use tauri::Manager;
+        if let Some(w) = app.get_webview_window("main") {
+            if solid {
+                let _ = w.set_effects(None);
+                let _ = w.eval("document.documentElement.classList.remove('has-window-effect')");
+            } else if w.set_effects(crate::window_effects()).is_ok() {
+                let _ = w.eval("document.documentElement.classList.add('has-window-effect')");
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let _ = app;
+    Ok(())
+}

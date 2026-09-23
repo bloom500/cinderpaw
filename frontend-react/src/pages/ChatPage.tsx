@@ -52,6 +52,13 @@ export function ChatPage() {
   const containerRef    = useRef<HTMLDivElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
   const chatInputRef    = useRef<ChatInputHandle>(null);
+  // Alt+Space (the host's global shortcut) brings the window up and lands the
+  // cursor here, so the next keystroke is the question.
+  useEffect(() => {
+    const focus = () => chatInputRef.current?.focus();
+    window.addEventListener('cinderpaw-focus-composer', focus);
+    return () => window.removeEventListener('cinderpaw-focus-composer', focus);
+  }, []);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);

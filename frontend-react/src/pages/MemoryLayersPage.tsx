@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNotifications } from '@/stores/notifications';
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import type { MemoryGraphNodeView, DreamEpisode } from '@/lib/tauri';
@@ -81,11 +82,13 @@ function TierPanel({
   nodes,
   totalAllTime,
   now,
+  onForget,
 }: {
   tier: Tier;
   nodes: MemoryGraphNodeView[];
   totalAllTime: number;
   now: number;
+  onForget: (n: MemoryGraphNodeView) => void;
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const total = totalAllTime;
@@ -141,13 +144,28 @@ function TierPanel({
                     setExpandedIdx(expanded ? null : i);
                   }
                 }}
-                className={`cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand ${expanded ? 'border-brand/50' : ''}`}
+                className={`group/row cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand ${expanded ? 'border-brand/50' : ''}`}
               >
                 <div className="flex items-baseline justify-between gap-3 text-xs">
                   <span className="font-mono text-brand">{formatClock(n.touched_at)}</span>
                   <span className="text-text-muted">{formatTimeAgo(now, n.touched_at)}</span>
                 </div>
-                <div className="mt-1 text-xs text-text-primary">{n.label}</div>
+                <div className="mt-1 flex items-center gap-3">
+                  <span className="flex-1 text-xs text-text-primary">{n.label}</span>
+                  {/* Everything it knows about you is on this page, so everything
+                      on it can be taken back. Revealed on hover like a mail
+                      client's delete, always reachable by keyboard. */}
+                  {n.edge && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onForget(n); }}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="shrink-0 rounded-md border border-border-default px-2 py-0.5 text-micro text-text-secondary opacity-0 transition-opacity hover:border-error/60 hover:text-error-text focus-visible:opacity-100 group-hover/row:opacity-100"
+                    >
+                      Forget
+                    </button>
+                  )}
+                </div>
                 {expanded && (
                   <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro text-text-muted">
                     <span>type</span><span>{n.type}</span>
@@ -254,6 +272,7 @@ export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: st
         : `${from.label} ${e.relation.replace(/_/g, ' ')} ${to.label}`,
       type: e.relation,
       touched_at: Math.max(from.touched_at, to.touched_at),
+      edge: { from: e.from, to: e.to, relation: e.relation },
     });
   }
   for (const n of graph.nodes) if (!linked.has(n.id)) rows.push(n);
@@ -317,17 +336,42 @@ export default function MemoryLayersPage() {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
+  /**
+   * Forget, with Undo. The row leaves at once; the agent is told only when the
+   * undo window ends, so Undo is a real undo and never has to re-add a fact.
+   * Only the fact goes: the conversation it came from stays in the history.
+   */
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const forget = useCallback((n: MemoryGraphNodeView) => {
+    const edge = n.edge;
+    if (!edge) return;
+    setHidden((h) => new Set(h).add(n.id));
+    const unhide = () => setHidden((h) => { const next = new Set(h); next.delete(n.id); return next; });
+    const timer = setTimeout(() => {
+      tauri.raw.memoryForget(edge.from, edge.to, edge.relation)
+        .then(() => setTimeout(() => { void refresh(); }, 400))
+        .catch((err: unknown) => {
+          unhide();
+          useNotifications.getState().push('error', 'Could not forget that', err instanceof Error ? err.message : String(err));
+        });
+    }, 5_000);
+    useNotifications.getState().push('info', 'Forgotten', n.label, {
+      label: 'Undo',
+      run: () => { clearTimeout(timer); unhide(); },
+    });
+  }, [refresh]);
+
   // Group nodes by tier (newest first).
   const tiers = useMemo(() => {
     const out: Record<Tier, MemoryGraphNodeView[]> = {
       today: [], week: [], month: [], older: [],
     };
-    for (const n of nodes) out[tierOf(now, n.touched_at)].push(n);
+    for (const n of nodes) if (!hidden.has(n.id)) out[tierOf(now, n.touched_at)].push(n);
     for (const t of Object.keys(out) as Tier[]) {
       out[t].sort((a, b) => b.touched_at - a.touched_at);
     }
     return out;
-  }, [nodes, now]);
+  }, [nodes, now, hidden]);
 
   const stats = useMemo(() => {
     const total = nodes.length;
@@ -439,7 +483,7 @@ export default function MemoryLayersPage() {
         {(Object.keys(tiers) as Tier[])
           .filter((t) => tiers[t].length > 0)
           .map((t) => (
-            <TierPanel key={t} tier={t} nodes={tiers[t]} totalAllTime={stats.total} now={now} />
+            <TierPanel key={t} tier={t} nodes={tiers[t]} totalAllTime={stats.total} now={now} onForget={forget} />
           ))}
 
         {/* ── CINDERPAW'S DREAMS ────────────────────────────────────── */}
