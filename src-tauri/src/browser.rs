@@ -222,6 +222,24 @@ pub fn extensions_dir() -> std::path::PathBuf {
     cinderpaw_core::paths::cinderpaw_dir().join("browser-extensions")
 }
 
+/// A manifest name like `__MSG_extName__` is a key into the extension's own
+/// `_locales/<default_locale>/messages.json`; shown raw, uBlock Origin Lite
+/// read "__MSG_extName__" in the settings (23 Sep). Keys are case-insensitive
+/// in Chrome. Anything unresolved shows the raw text.
+fn localized(dir: &std::path::Path, manifest: &Value, raw: &str) -> String {
+    let Some(key) = raw.strip_prefix("__MSG_").and_then(|k| k.strip_suffix("__")) else { return raw.to_string() };
+    let locale = manifest.get("default_locale").and_then(|v| v.as_str()).unwrap_or("en");
+    std::fs::read_to_string(dir.join("_locales").join(locale).join("messages.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|msgs| {
+            msgs.as_object()?.iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(key))
+                .and_then(|(_, v)| v.get("message")?.as_str().map(str::to_string))
+        })
+        .unwrap_or_else(|| raw.to_string())
+}
+
 /// The extensions present: each subfolder with a manifest.json.
 fn extensions_json() -> Value {
     let mut out = Vec::new();
@@ -230,9 +248,10 @@ fn extensions_json() -> Value {
             let manifest = e.path().join("manifest.json");
             let Ok(text) = std::fs::read_to_string(&manifest) else { continue };
             let m: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("extension");
             out.push(json!({
                 "folder": e.file_name().to_string_lossy(),
-                "name": m.get("name").and_then(|v| v.as_str()).unwrap_or("extension"),
+                "name": localized(&e.path(), &m, name),
                 "version": m.get("version").and_then(|v| v.as_str()).unwrap_or(""),
             }));
         }
@@ -1444,6 +1463,18 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_manifest_message_name_reads_from_its_locale() {
+        let dir = std::env::temp_dir().join(format!("cp-ext-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("_locales/en")).unwrap();
+        std::fs::write(dir.join("_locales/en/messages.json"), r#"{"extName":{"message":"uBlock Origin Lite"}}"#).unwrap();
+        let m = json!({ "default_locale": "en" });
+        assert_eq!(localized(&dir, &m, "__MSG_EXTNAME__"), "uBlock Origin Lite");
+        assert_eq!(localized(&dir, &m, "__MSG_missing__"), "__MSG_missing__");
+        assert_eq!(localized(&dir, &m, "Plain"), "Plain");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn an_address_bar_takes_urls_domains_and_words() {
