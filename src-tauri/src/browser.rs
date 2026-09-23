@@ -647,6 +647,9 @@ fn place_all(app: &AppHandle) -> Result<(), String> {
     };
     for (id, label, at_home, placed, wake) in labels {
         let Some(wv) = app.get_webview(&label) else { continue };
+        // A page in its own fullscreen owns the screen until it leaves it; the
+        // panel's resize reports as the window grows would shrink it back.
+        if FULLSCREEN_TAB.lock().map(|f| f.as_deref() == Some(label.as_str())).unwrap_or(false) { continue; }
         let show = b.visible && active == Some(id) && !at_home;
         // A parked tab keeps whatever size it had; it is sized when it is shown.
         let want = if show { (b.x, b.y, b.w.max(1.0), b.h.max(1.0)) } else {
@@ -705,6 +708,70 @@ fn open_or_navigate(app: &AppHandle, url: Url) -> Result<Webview, String> {
         return Ok(wv);
     }
     new_tab(app, url)
+}
+
+/// The tab whose page is in element fullscreen (a video's fullscreen button),
+/// if any. See `page_fullscreen`.
+static FULLSCREEN_TAB: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// A page asked for fullscreen, or left it. A child webview's fullscreen only
+/// fills the webview, so a YouTube video went "fullscreen" inside the panel
+/// (23 Sep). Every browser answers by giving the page the whole screen: the
+/// window goes fullscreen and the page covers it; on the way out both return
+/// and the panel places the page again. Esc, the video's own button and F11
+/// all arrive here the same way.
+fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
+    let app = app.clone();
+    // Off the WebView2 callback: window calls from inside it can wait on the
+    // same thread that is running it.
+    tauri::async_runtime::spawn(async move {
+        let (Some(window), Some(wv)) = (app.get_window("main"), app.get_webview(&label)) else { return };
+        if on {
+            if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = Some(label.clone()); }
+            let _ = window.set_fullscreen(true);
+            // The window's size once it has become fullscreen, not the monitor's
+            // read at the call: sized that early the page stopped 49 px short of
+            // the bottom (23 Sep). Read until two reads agree.
+            let mut last = (0.0, 0.0);
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(60)).await;
+                let (Ok(px), Ok(scale)) = (window.inner_size(), window.scale_factor()) else { break };
+                let size = px.to_logical::<f64>(scale);
+                if (size.width, size.height) == last { break; }
+                last = (size.width, size.height);
+            }
+            let _ = wv.set_bounds(tauri::Rect {
+                position: LogicalPosition::new(0.0, 0.0).into(),
+                size: LogicalSize::new(last.0, last.1).into(),
+            });
+            tracing::info!(%label, w = last.0, h = last.1, "browser: page fullscreen");
+            let _ = wv.set_focus();
+        } else {
+            if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = None; }
+            tracing::info!(%label, "browser: page left fullscreen");
+            let _ = window.set_fullscreen(false);
+            if let Some(tab) = tabs().lock().list.iter_mut().find(|t| t.label == label) { tab.placed = None; }
+            let _ = place_all(&app);
+        }
+    });
+}
+
+/// ponytail: Windows only. WKWebView (macOS) needs `elementFullscreenEnabled`
+/// and its own window handling; there a video's fullscreen stays in the panel.
+#[cfg(windows)]
+fn hook_fullscreen(wv: &Webview, app: AppHandle, label: String) {
+    use webview2_com::ContainsFullScreenElementChangedEventHandler;
+    let _ = wv.with_webview(move |pw| unsafe {
+        let Ok(core) = pw.controller().CoreWebView2() else { return };
+        let handler = ContainsFullScreenElementChangedEventHandler::create(Box::new(move |sender, _| {
+            let mut on = windows_core::BOOL::default();
+            if let Some(s) = sender { s.ContainsFullScreenElement(&mut on)?; }
+            page_fullscreen(&app, label.clone(), on.as_bool());
+            Ok(())
+        }));
+        let mut token = 0i64;
+        let _ = core.add_ContainsFullScreenElementChanged(&handler, &mut token);
+    });
 }
 
 /// A new tab, in front, loading `url`.
@@ -838,6 +905,8 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
         .map_err(|e| format!("browser: could not open the page ({e})"))?;
     // Ads and trackers are answered before they leave the machine (Windows).
     crate::adblock::hook_requests(&wv, label.clone());
+    #[cfg(windows)]
+    hook_fullscreen(&wv, app.clone(), label.clone());
     place_all(app)?;
     watch_active_url(app);
     if at_home {
