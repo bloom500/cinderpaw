@@ -251,7 +251,10 @@ export function useCallPill(call: {
       }),
       listen<{ muted: boolean }>('call-pill://mute', (e) => latest.current.setMuted?.(e.payload.muted)),
       listen('call-pill://interrupt', () => latest.current.interrupt()),
-      listen('call-pill://end', () => latest.current.hangUp()),
+      // Ending from the pill is a person done with the call and looking for the
+      // app; a minimised window stayed down and the pill just vanished (23 Sep).
+      // A call that ends on its own still leaves a minimised window alone.
+      listen('call-pill://end', () => { latest.current.hangUp(); void showMain(); }),
       // The window first, the pill after: closing waits for the destroy to
       // land (up to a second), and a person who pressed Open is waiting too.
       listen('call-pill://open', () => { void (async () => { await showMain(); await closePill('open pressed'); })(); }),
