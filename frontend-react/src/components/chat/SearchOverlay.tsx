@@ -46,6 +46,7 @@ interface PaletteAction {
 
 const SETTINGS_KEYWORDS: Partial<Record<Category, string>> = {
   accounts: 'connectors integrations discord telegram slack',
+  learning: 'rsi brsi dreams self-improvement lora practice',
   capabilities: 'skills extensions tools',
   appearance: 'theme dark light mascot',
   hardware: 'gpu ram cpu',

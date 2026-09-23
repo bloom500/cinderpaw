@@ -51,7 +51,7 @@ describe('RsiEngineStatusPanel', () => {
 
     render(<RsiEngineStatusPanel />);
 
-    expect(await screen.findByText('running')).toBeInTheDocument();
+    expect(await screen.findByText('practicing')).toBeInTheDocument();
     expect(screen.getByText('17')).toBeInTheDocument();
     expect(screen.getByText('0.810')).toBeInTheDocument();
     // The version in use is shown by its score; the commit hash is not a thing a person reads.
@@ -68,7 +68,7 @@ describe('RsiEngineStatusPanel', () => {
     render(<RsiEngineStatusPanel />);
 
     expect(await screen.findByText(/stopped/)).toBeInTheDocument();
-    expect(screen.getByText(/CostBudgetExhausted/)).toBeInTheDocument();
+    expect(screen.getByText(/hit the spending limit/)).toBeInTheDocument();
     // Stop button is only shown while running.
     expect(screen.queryByRole('button', { name: /stop/i })).not.toBeInTheDocument();
   });
@@ -82,8 +82,8 @@ describe('RsiEngineStatusPanel', () => {
 
     render(<RsiEngineStatusPanel />);
 
-    expect(await screen.findByText(/hard limit \$5\.00/)).toBeInTheDocument();
-    expect(screen.getByText(/local only|budget \$/)).toBeInTheDocument();
+    expect(await screen.findByText(/safety stop \$5\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/free only|limit \$/)).toBeInTheDocument();
     expect(screen.queryByText(/\bcap \$/)).toBeNull();
   });
 
@@ -93,9 +93,9 @@ describe('RsiEngineStatusPanel', () => {
 
     const user = userEvent.setup();
     render(<RsiEngineStatusPanel />);
-    await screen.findByText('running');
+    await screen.findByText('practicing');
 
-    await user.click(screen.getByRole('button', { name: 'Set concurrency to 3' }));
+    await user.click(screen.getByRole('button', { name: 'Practice 3 at once' }));
 
     expect(setSpy).toHaveBeenCalledWith(3);
   });
@@ -106,7 +106,7 @@ describe('RsiEngineStatusPanel', () => {
 
     const user = userEvent.setup();
     render(<RsiEngineStatusPanel />);
-    await screen.findByText('running');
+    await screen.findByText('practicing');
 
     await user.click(screen.getByRole('button', { name: /stop/i }));
 
@@ -118,7 +118,7 @@ describe('RsiEngineStatusPanel', () => {
 
     render(<RsiEngineStatusPanel />);
 
-    expect(await screen.findByText(/RSI engine status unavailable/)).toBeInTheDocument();
+    expect(await screen.findByText(/Can't see the practice right now/)).toBeInTheDocument();
     expect(screen.getByText(/sidecar down/)).toBeInTheDocument();
   });
 });

@@ -9,6 +9,7 @@ import { AppearanceTab } from '@/components/settings/AppearanceTab';
 import { HardwareTab }   from '@/components/settings/HardwareTab';
 import { ApiServerTab }  from '@/components/settings/ApiServerTab';
 import { AgentSettingsTab } from '@/components/settings/AgentSettingsTab';
+import { LearningTab }   from '@/components/settings/LearningTab';
 import { PrivacyTab }    from '@/components/settings/PrivacyTab';
 import { AboutTab }      from '@/components/settings/AboutTab';
 // Phase 5 S1: three former top-level pages, whose only door was the sidebar.
@@ -111,6 +112,7 @@ export function SettingsPage() {
         {cat === 'hardware'   && <HardwareTab />}
         {cat === 'api'        && <ApiServerTab />}
         {cat === 'agent'      && <AgentSettingsTab />}
+        {cat === 'learning'   && <LearningTab />}
         {cat === 'privacy'    && <PrivacyTab />}
         {cat === 'about'      && <AboutTab />}
         <Suspense fallback={null}>

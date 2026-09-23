@@ -3,12 +3,12 @@
  * them without pulling the lazily loaded settings screen into the startup bundle.
  */
 import {
-  ArrowLeftRight, Bot, Brain, Cpu, Info, Link2, Palette, Settings,
+  ArrowLeftRight, Bot, Brain, Cpu, Info, Link2, Moon, Palette, Settings,
   ShieldCheck, Sparkles, type LucideIcon,
 } from 'lucide-react';
 
 export type Category =
-  | 'general' | 'appearance' | 'hardware' | 'api' | 'agent' | 'privacy' | 'about'
+  | 'general' | 'appearance' | 'hardware' | 'api' | 'agent' | 'learning' | 'privacy' | 'about'
   | 'capabilities' | 'accounts' | 'memory';
 
 /** Exported so the router's redirects can be checked against it: a redirect to
@@ -25,6 +25,7 @@ export const CATS: { id: Category; label: string; icon: LucideIcon }[] = [
   { id: 'hardware',   label: 'Hardware',    icon: Cpu },
   { id: 'api',        label: 'API Server',  icon: ArrowLeftRight },
   { id: 'agent',      label: 'Agent',       icon: Bot },
+  { id: 'learning',   label: 'Learning',    icon: Moon },
   { id: 'privacy',    label: 'Privacy',     icon: ShieldCheck },
   // Named for what the user is looking for, not for the subsystem underneath:
   // 'skill', 'extension' and 'connector' are banned from the primary interface

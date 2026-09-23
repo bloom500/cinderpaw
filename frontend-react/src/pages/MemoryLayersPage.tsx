@@ -3,6 +3,7 @@ import { useNotifications } from '@/stores/notifications';
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import type { MemoryGraphNodeView, DreamEpisode } from '@/lib/tauri';
+import { triggerWords } from '@/lib/rsiWords';
 import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
 /**
@@ -188,18 +189,18 @@ function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; best
     <div className="rounded border border-border-subtle bg-bg-primary/40 px-3 py-2">
       <div className="flex items-baseline justify-between gap-3 text-xs">
         <span className="font-mono text-brand">
-          {ep.iterations} {ep.iterations === 1 ? 'iteration' : 'iterations'}
+          {ep.iterations} {ep.iterations === 1 ? 'idea tried' : 'ideas tried'}
         </span>
         <span className="text-text-muted">{formatTimeAgo(now, ep.startedAt)}</span>
       </div>
       <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-micro text-text-secondary">
-        <span className="text-text-muted">trigger</span><span>{ep.trigger}</span>
+        <span className="text-text-muted">why</span><span>{triggerWords(ep.trigger)}</span>
         <span className="text-text-muted">stop</span><span>{describeStop(ep.stopReason)}</span>
         <span className="text-text-muted">tokens</span><span>{ep.tokens}</span>
-        <span className="text-text-muted">ratchets</span><span className={ep.ratchets > 0 ? 'text-warning' : ''}>{ep.ratchets}</span>
+        <span className="text-text-muted">improvements</span><span className={ep.ratchets > 0 ? 'text-warning' : ''}>{ep.ratchets}</span>
         {improve && (
           <>
-            <span className="text-text-muted">best</span>
+            <span className="text-text-muted">best score</span>
             <span className="text-warning">{bestScore?.toFixed(1)}</span>
           </>
         )}
