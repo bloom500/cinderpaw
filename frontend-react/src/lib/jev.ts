@@ -706,7 +706,7 @@ export async function decideClick(target: string, elements: Clickable[]): Promis
   const nameMatch = byMeaning !== undefined && sharesName(target, byMeaning.name);
   if (nameMatch) {
     ref = byMeaning!.ref;
-    console.info(`[jev] click "${target}": named -> ${byMeaning!.name}`);
+    note(`click "${target}": named -> ${byMeaning!.name}`);
   } else if (pos !== 'none' && Number(r.answers.position?.confidence ?? 0) >= MIN_CLICK_CONFIDENCE) {
     const kind = r.answers.kind?.choice ?? 'any';
     const fits = (e: Clickable) => kind === 'any' ? true
@@ -717,13 +717,13 @@ export async function decideClick(target: string, elements: Clickable[]): Promis
     const ordered = menu.filter(fits);
     const index = { first: 0, second: 1, third: 2, fourth: 3, fifth: 4, last: ordered.length - 1 }[pos as 'first'] ?? 0;
     ref = ordered[index]?.ref ?? null;
-    console.info(`[jev] click "${target}": ${pos} ${kind} of ${ordered.length} -> ${ref ? ordered[index].name : 'nothing'}`);
+    note(`click "${target}": ${pos} ${kind} of ${ordered.length} -> ${ref ? ordered[index].name : 'nothing'}`);
   } else {
     ref = a?.choice && a.choice !== 'none' && Number(a.confidence ?? 0) >= MIN_CLICK_CONFIDENCE ? a.choice.slice(1) : null;
   }
   // When nothing is picked, the menu itself is the evidence: was the element
   // there at all, or did the window expose only its chrome?
-  if (!ref) console.info(`[jev] click "${target}": ${a?.choice ?? 'no answer'} at ${Number(a?.confidence ?? 0).toFixed(2)}; menu: ${menu.slice(0, 20).map((e) => e.name).join(' | ')}`);
+  if (!ref) note(`click "${target}": ${a?.choice ?? 'no answer'} at ${Number(a?.confidence ?? 0).toFixed(2)}; menu: ${menu.slice(0, 20).map((e) => e.name).join(' | ')}`);
   return { ref, ms: r.ms };
 }
 
@@ -749,6 +749,17 @@ export function sharesName(target: string, name: string): boolean {
  * says so. All of it needs desktop control, which is a Settings switch, off
  * by default; the refusal names it.
  */
+/**
+ * What the executor actually did (which key, to which element, by which
+ * route). It went to the webview console, which nobody can open in the app:
+ * on 23 Sep "pause" failed three times and the log could not say whether a
+ * key was even sent.
+ */
+function note(message: string): void {
+  console.info(`[jev] ${message}`);
+  void tauri.raw.uiLog('jev', message).catch(() => {});
+}
+
 const MEDIA_KEYS = { play_pause: '{playpause}', next: '{nexttrack}', previous: '{prevtrack}', volume_up: '{volumeup}', volume_down: '{volumedown}', mute: '{volumemute}' };
 
 interface DesktopElement {
@@ -830,7 +841,7 @@ async function siteKeys(spec: string): Promise<void> {
   const docs = await invoke<DesktopElement[]>('find_elements', { pid, query: { role: 'Document', name: null, automation_id: null, value_contains: null }, windowTitle: null }).catch(() => [] as DesktopElement[]);
   const page = docs.find((d) => d.is_enabled && !d.is_offscreen);
   await invoke('send_keys', { elementId: page?.id ?? el.id, keys: spec });
-  console.info(`[jev] site keys ${spec} to ${page ? `document "${page.name}"` : 'the focused element'}`);
+  note(`site keys ${spec} to ${page ? `document "${page.name}"` : 'the focused element'}`);
 }
 
 /** The roles a click can land on, as the host names them (one UIA control type each). */
@@ -868,7 +879,7 @@ async function clickInFront(target: string): Promise<boolean> {
     // web page in it (Spotify, WhatsApp) spent four looks and 1.6 s waiting
     // for links that were never coming.
     if (look > 0 && now === links) break;
-    console.info(`[jev] desktop look ${look + 1}: ${clickable.length} clickable, ${now} links`);
+    note(`desktop look ${look + 1}: ${clickable.length} clickable, ${now} links`);
     links = now;
     await new Promise((r) => setTimeout(r, 400));
   }
@@ -877,14 +888,14 @@ async function clickInFront(target: string): Promise<boolean> {
   // the click landed on something else every time (22 Sep, five tries).
   clickable = inReadingOrder(clickable);
   const { ref, ms } = await decideClick(target, clickable.map((e) => ({ ref: e.id, name: e.name, role: e.role, inView: true })));
-  console.info(`[jev] desktop click ${ref ? 'found' : 'none'} among ${clickable.length} in ${ms}ms`);
+  note(`desktop click ${ref ? 'found' : 'none'} among ${clickable.length} in ${ms}ms`);
   if (!ref) return false;
   // A link opens a page, and the title says whether it did; a button (like,
   // subscribe) changes nothing the title shows, so it is not checked.
   const isLink = /link|hyperlink/i.test(clickable.find((e) => e.id === ref)?.role ?? '');
   const before = isLink ? await frontTitle() : null;
   const chosen = clickable.find((e) => e.id === ref);
-  console.info(`[jev] desktop click pressing ${chosen?.role ?? '?'} "${chosen?.name ?? '?'}"`);
+  note(`desktop click pressing ${chosen?.role ?? '?'} "${chosen?.name ?? '?'}"`);
   await invoke('click_element', { elementId: ref });
   if (before !== null && !(await pageChanged(before))) throw new Error('The click landed but the page did not change.');
   return true;
@@ -1048,9 +1059,9 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
       }
       if (plan.op === 'next' || plan.op === 'previous') {
         const pressed = await clickInFront(plan.op === 'next' ? 'the next track or next video button' : 'the previous track or previous video button').catch(() => false);
-        if (pressed) { console.info(`[jev] media ${plan.op} via button`); return ''; }
+        if (pressed) { note(`media ${plan.op} via button`); return ''; }
       }
-      await keys(MEDIA_KEYS[plan.op]); console.info(`[jev] media key ${plan.op}`); return '';
+      await keys(MEDIA_KEYS[plan.op]); note(`media key ${plan.op}`); return '';
     }
     case 'reader': return 'Reader view only exists in Cinderpaw\'s browser.';
     default: return '';
@@ -1103,7 +1114,7 @@ export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
       const press = async (target: string): Promise<boolean> => {
         const snap = (await ui('snapshot')) as { elements?: Clickable[] };
         const { ref, ms } = await decideClick(target, snap.elements ?? []);
-        console.info(`[jev] click ${ref ? `ref ${ref}` : 'none'} in ${ms}ms`);
+        note(`click ${ref ? `ref ${ref}` : 'none'} in ${ms}ms`);
         if (!ref) return false;
         await ui('click', { ref });
         return true;
