@@ -308,7 +308,7 @@ pub(crate) fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
     // default nobody has seen is exactly the kind of thing that sits invisibly
     // between the app and the desktop.
     #[cfg(target_os = "windows")]
-    let color = Some(tauri::utils::config::Color(16, 14, 9, 24));
+    let color = Some(tauri::utils::config::Color(28, 24, 20, 24));
     #[cfg(target_os = "macos")]
     let color = None;
 
