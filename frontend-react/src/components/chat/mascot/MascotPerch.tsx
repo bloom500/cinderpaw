@@ -236,7 +236,12 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
     // a creature thrown at it flew in behind it and was lost (23 Sep). Its
     // edge is a wall, like the window's.
     const { url, pageRect: page } = useBrowser.getState();
-    if (url && page && page.x >= homeLeft + w) right = Math.min(right, page.x);
+    if (url && page) {
+      // Whichever side the page is on: beside the split view it is to the
+      // right; in wide mode the chat drawer can sit on the other side of it.
+      if (page.x >= homeLeft + w) right = Math.min(right, page.x);
+      else if (page.x + page.w <= homeLeft) left = Math.max(left, page.x + page.w);
+    }
 
     return boundsFrom(
       { left: homeLeft, top: homeTop, width: w },
