@@ -18,7 +18,7 @@ import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
 import { useChat, type ChatMessage } from '@/stores/chat';
-import { useUI } from '@/stores/ui';
+import { useUI, type CallEngine } from '@/stores/ui';
 import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useCallSession } from '@/hooks/useCallSession';
@@ -145,6 +145,21 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       : callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
   // X and minimise park a live call in the top-of-screen pill instead of ending it.
   useCallPill(call);
+  // Changing who answers on the pre-call screen swaps the engine under it
+  // (Jev <-> LiveKit), and the new one starts idle: idle closes the call screen,
+  // so picking Gemini while on Jev dropped him back into the chat (22 and
+  // 23 Sep). The ready screen carries over to the engine now chosen.
+  const engineKey: 'jev' | CallEngine = s2sProvider === JEV_PROVIDER_ID ? 'jev' : callEngine;
+  const engines = { jev: jevCall, livekit: liveKitCall, live: liveCall, pipeline: pipelineCall };
+  const prevEngine = useRef<'jev' | CallEngine>(engineKey);
+  useEffect(() => {
+    const was = prevEngine.current;
+    prevEngine.current = engineKey;
+    if (was === engineKey || engines[was].phase !== 'ready') return;
+    engines[was].hangUp();
+    engines[engineKey].open();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of engine acts
+  }, [engineKey]);
   const ttsProvider = useUI((s) => s.ttsProvider);
   const [engineCardOpen, setEngineCardOpen] = useState(false);
 
