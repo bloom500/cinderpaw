@@ -13,6 +13,64 @@
 > `2026.08.21`, were written but never tagged, so their entries have not
 > reached anybody either — whoever updates next receives all three at once.
 
+### Added
+
+**Getting started**
+- **Sign in with OpenRouter** instead of pasting a key: one button, your browser
+  opens, and the key goes straight to the system keychain. On a computer with no
+  model at all, the home screen is this button, not a text box nothing can answer.
+- On a small machine, setup recommends a cloud model first, and says why.
+- 24 more providers in Cloud Keys.
+
+**The chat**
+- A built-in **browser** beside the chat, with tabs, an ad blocker (Brave's
+  engine), downloads, and a wide mode. The agent uses it by itself, you can
+  watch it work, and a click of yours pauses it.
+- **Artifacts**: documents, PDFs, Word and Excel files and small interactive
+  apps the agent makes, in a panel that keeps them after the conversation ends.
+  You can edit, rename, export, and send them to Google Docs. PDFs can be
+  filled in and signed by you.
+- Replies show diagrams, equations and a copy button; what the agent did reads
+  as steps; tool results stay inside the reply and survive a reload.
+- Conversations get a short **generated title** after the first answer, and a
+  name you choose is kept.
+- Delete a chat with **Undo** instead of "Are you sure?".
+- The app **reopens the conversation you left**.
+- Drop a file anywhere on the chat page. On Windows, **Send to > Cinderpaw**
+  from Explorer attaches it.
+- **Alt+Space** brings Cinderpaw up from anywhere, with the cursor in the
+  composer. Ctrl+N starts a new chat even while typing; Ctrl+, opens Settings;
+  Esc closes the side panel.
+
+**Voice**
+- Speech-to-speech calls with Gemini Live, OpenAI Realtime, or Jev (TypeSafe),
+  which acts on your computer while you are still talking: open apps and
+  folders, play music on Spotify, copy, paste, take screenshots.
+- A call can be parked in a small **call pill** instead of ended; the pill says
+  what is running and for how long.
+- The call screen says which language is spoken, lets you pick the realtime
+  model, shows a question the agent asks so you can answer it, and plays a soft
+  tone when the line opens and closes.
+
+**Teammates and connectors**
+- **Cowork**: named teammates the agent can create, each with only its own
+  tools, talking in a group chat you can read, and stopping to ask you before a
+  gated action.
+- Chat with Cinderpaw from Telegram, Discord, Slack, WhatsApp and more of the
+  21 platforms in the catalog; files travel both ways where the platform allows.
+
+**Memory and learning**
+- The memory page lists facts as sentences, and every fact has **Forget**.
+- Learned procedures appear in the skills menu, with the evidence behind them.
+
+**Look and feel**
+- Appearance -> Background: **Glass** (your desktop shows through) or **Solid**.
+- The v2 mascot, with 73 animations, reacts to what the agent is doing.
+
+### Security
+
+- A prompt-injection gate checks tool calls before they run.
+
 ### Changed
 
 - **Cinderpaw counts installs now, once, and says so before it does.** Promise 4

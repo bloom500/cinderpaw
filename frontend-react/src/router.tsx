@@ -21,7 +21,9 @@ const lazyPage = (page: React.ReactNode) => <Suspense fallback={null}>{page}</Su
  * this only moves the load from "when clicked" to "when nothing else is
  * happening". Browsers without requestIdleCallback get a short timeout.
  */
-if (typeof window !== 'undefined') {
+// Not under test: the warm-up lands after a test's environment is torn down,
+// and vitest reports the late import as an unhandled error that fails the run.
+if (typeof window !== 'undefined' && import.meta.env.MODE !== 'test') {
   const warm = () => {
     void import('@/pages/SettingsPage');
     void import('@/pages/ChatsPage');
