@@ -2,6 +2,7 @@ mod agents;
 mod adblock;
 mod browser;
 mod call_pill;
+mod downloads_card;
 mod google;
 mod commands;
 mod connectors;
@@ -646,6 +647,8 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             call_pill::call_pill_open,
             call_pill::call_pill_close,
             call_pill::main_in_front,
+            downloads_card::downloads_card_open,
+            downloads_card::downloads_card_close,
             test_byok_provider,
             chat_cloud_stream,
             chat_complete_local,

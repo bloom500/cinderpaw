@@ -13,6 +13,7 @@ import { CallPill } from './components/call/CallPill';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { startFrameLog } from './lib/frameLog';
 import './styles/globals.css';
+import { DownloadsPopup } from '@/components/browser/DownloadsPopup';
 
 // Pre-paint theme: read persisted preference before React mounts to avoid a
 // light-then-dark flash on cold start. See spec §3.2.
@@ -38,7 +39,9 @@ import './styles/globals.css';
 // alone, over a transparent page, and talks to the app through events (see
 // `lib/callPill.ts`).
 const pill = window.location.hash === '#call-pill';
-if (pill) {
+// The browser's downloads card is the same kind of window (downloads_card.rs).
+const downloadsCard = window.location.hash === '#downloads-card';
+if (pill || downloadsCard) {
   document.documentElement.classList.add('call-pill');
   // The startup surface is an opaque sheet held until the app mounts; over a
   // transparent window it is the rectangle around the pill (21 Sep).
@@ -59,7 +62,7 @@ createRoot(document.getElementById('root')!).render(
           theirs to make, which is the point: it is a default nobody sets in
           this app and it has to be right without being found. */}
       <MotionConfig reducedMotion="user">
-        {pill ? <CallPill /> : <App />}
+        {pill ? <CallPill /> : downloadsCard ? <DownloadsPopup /> : <App />}
       </MotionConfig>
     </ErrorBoundary>
   </StrictMode>,

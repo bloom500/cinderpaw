@@ -37,12 +37,20 @@ function ago(at: number): string {
   return h < 24 ? `${h} h ago` : new Date(at).toLocaleDateString();
 }
 
-export function DownloadsCard() {
+/**
+ * `floating`: drawn in its own window over the page (DownloadsPopup), filling
+ * it. Without it, the fallback for a surface with no host windows (the
+ * browser app, tests): in the flow under the toolbar, right-aligned.
+ */
+export function DownloadsCard({ floating = false }: { floating?: boolean }) {
   const downloads = useBrowser((b) => b.downloads);
   const lastFolder = downloads.find((d) => d.dest)?.dest;
   return (
-    <div className="flex justify-end border-b border-border-subtle px-3 py-2">
-      <div className="w-full max-w-sm rounded-xl border border-border-default bg-bg-elevated shadow-lg">
+    <div className={floating ? 'h-screen w-screen' : 'flex justify-end border-b border-border-subtle px-3 py-2'}>
+      <div className={cn(
+        'flex flex-col overflow-hidden rounded-xl border border-border-default bg-(--bg-primary)',
+        floating ? 'h-full w-full' : 'w-full max-w-sm shadow-lg',
+      )}>
         <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
           <span className="text-xs font-semibold text-text-primary">Recent downloads</span>
           {lastFolder && (
@@ -63,7 +71,7 @@ export function DownloadsCard() {
             <p className="text-2xs text-text-muted">Files you download show up here.</p>
           </div>
         ) : (
-          <ul className="max-h-72 overflow-y-auto px-1.5 pb-1.5 thin-scrollbar">
+          <ul className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 thin-scrollbar">
             {downloads.slice(0, 20).map((d) => {
               const Icon = d.artifact ? Sparkles : iconFor(d.name);
               const where = d.error

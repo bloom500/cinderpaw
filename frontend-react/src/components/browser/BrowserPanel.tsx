@@ -8,11 +8,13 @@ import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
 import { useUI } from '@/stores/ui';
 import { ENGINE_LOGOS } from '@/lib/engineLogos';
 import { cn, readLocal, writeLocal, SECONDARY_BUTTON } from '@/lib/utils';
-import { listen } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { loadHistory, saveHistory, recordVisit, recordTitle, recordPick, loadBookmarks, saveBookmarks, upsertBookmark, removeBookmark, parseTags, findBookmarks, display, isReaderUrl, readerOriginal } from '@/lib/browserHistory';
 import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions';
 import { DownloadsCard } from './DownloadsCard';
+import { cardHeight } from './DownloadsPopup';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
 const ZOOM_KEY = 'cinderpaw.browserZoom';
@@ -197,8 +199,53 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
     setStarOpen(false);
     setSparks((n) => n + 1);
   };
+  // In the flow under the toolbar: only where the host cannot build the
+  // floating card (the browser app, tests). Everywhere else it is a window.
   const [downloadsOpen, setDownloadsOpen] = useState(false);
+  const [floatingOpen, setFloatingOpen] = useState(false);
+  const cardClosedAt = useRef(0);
+  const downloadsBtn = useRef<HTMLDivElement>(null);
   const downloadCount = useBrowser((b) => b.downloads.length);
+  // The card's window has its own copy of the list: it asks once on mount and
+  // hears every change while it is open (see DownloadsPopup).
+  useEffect(() => {
+    const send = () => void emit('downloads-card://data', { downloads: useBrowser.getState().downloads }).catch(() => {});
+    const unHello = listen('downloads-card://hello', send).catch(() => undefined);
+    const unClosed = listen('downloads-card://closed', () => {
+      cardClosedAt.current = Date.now();
+      setFloatingOpen(false);
+    }).catch(() => undefined);
+    const unList = useBrowser.subscribe((st, prev) => { if (st.downloads !== prev.downloads) send(); });
+    return () => {
+      unList();
+      void unHello.then((u) => u?.());
+      void unClosed.then((u) => u?.());
+    };
+  }, []);
+  const toggleDownloads = async () => {
+    if (downloadsOpen) { setDownloadsOpen(false); return; }
+    // The click on this button is what took the focus from the open card, and
+    // the card closed itself on that. This click was meant to close it, not
+    // to open a new one.
+    if (floatingOpen || Date.now() - cardClosedAt.current < 400) {
+      setFloatingOpen(false);
+      void invoke('downloads_card_close').catch(() => {});
+      return;
+    }
+    const r = downloadsBtn.current?.getBoundingClientRect();
+    if (!r) return;
+    try {
+      // Right edge under the button's right edge, like Chrome's bubble.
+      await invoke('downloads_card_open', {
+        x: Math.max(8, r.right - 384),
+        y: r.bottom + 6,
+        height: cardHeight(useBrowser.getState().downloads.length),
+      });
+      setFloatingOpen(true);
+    } catch {
+      setDownloadsOpen(true);
+    }
+  };
   // One zoom level for the browser, remembered across restarts.
   const [zoom, setZoom] = useState(() => Number(readLocal(ZOOM_KEY)) || 1);
   const applyZoom = (factor: number) => {
@@ -480,8 +527,8 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
             }).catch(() => {});
           }}
         />
-        <div className="relative">
-          <ChromeButton label="Downloads" icon={Download} pressed={downloadsOpen} onClick={() => setDownloadsOpen((v) => !v)} />
+        <div ref={downloadsBtn} className="relative">
+          <ChromeButton label="Downloads" icon={Download} pressed={downloadsOpen || floatingOpen} onClick={() => void toggleDownloads()} />
           {downloadCount > 0 && (
             <span className="pointer-events-none absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-brand px-1 text-center text-micro font-semibold leading-4 text-brand-foreground" aria-hidden>
               {downloadCount > 9 ? '9+' : downloadCount}
