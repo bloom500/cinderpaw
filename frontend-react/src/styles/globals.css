@@ -511,6 +511,17 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
+/* The person's own message bubble. It was solid brand orange, the loudest
+   thing on screen, so every line you wrote pulled the eye away from the reply
+   you were reading (24 Sep). A quarter of the caramel mixed into the page
+   colour: the bubble still reads as yours, it just stops shouting. Opaque on
+   purpose: the tail overlaps the bubble by a few pixels, and two translucent
+   fills would show that overlap as a darker notch. One definition serves both
+   themes because --brand and --bg-primary already change with the theme. */
+:root {
+  --bubble-user: color-mix(in oklab, var(--brand) 26%, var(--bg-primary));
+}
+
 :root[data-theme="dark"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
   --bg-primary:      #100E09;

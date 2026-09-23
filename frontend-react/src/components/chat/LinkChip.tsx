@@ -73,7 +73,7 @@ export function LinkChip({ href, onRemove }: { href: string; onRemove?: () => vo
       href={href}
       onClick={onClick}
       title={href}
-      className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-black/10 px-1.5 py-px align-baseline font-medium hover:bg-black/20 transition-colors"
+      className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-current/10 px-1.5 py-px align-baseline font-medium hover:bg-current/20 transition-colors"
     >
       <SiteIcon href={href} />
       <span className="truncate">{label}</span>

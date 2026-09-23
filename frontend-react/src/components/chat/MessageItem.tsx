@@ -153,12 +153,11 @@ export const MessageItem = memo(function MessageItem({
         {/* The bubble and its tail are one shape in two elements, so they
             share one fill and no border: a stroke would have to be drawn
             around the join as well, and the join is the whole illusion. */}
-        {/* Brand fill, not another shade of the background. The first version
-            used `bg-bg-elevated`, which on this scene is a step away from the
-            page — the bubble was legible only as a faint rectangle and its
-            tail not at all. Apple's user bubble is the accent colour for
-            exactly this reason: the shape has to read before the tail can
-            mean anything. */}
+        {/* A caramel tint, between the two versions that failed. `bg-bg-elevated`
+            was a step away from the page, legible only as a faint rectangle
+            and its tail not at all; solid brand read, and then shouted over
+            every reply. --bubble-user (globals.css) is a quarter of the brand
+            in the page colour: the shape reads, the eye stays on the reply. */}
         {draft !== null ? (
           <div className="w-full max-w-[75%] flex flex-col gap-2">
             <textarea
@@ -190,8 +189,8 @@ export const MessageItem = memo(function MessageItem({
             </div>
           </div>
         ) : (
-        <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-brand text-bg-primary shadow-md">
-          <BubbleTail className="absolute right-[-11px] bottom-0 text-(--brand)" />
+        <div className="relative max-w-[75%] rounded-2xl rounded-br-none px-4 py-2.5 bg-(--bubble-user) text-text-primary shadow-sm">
+          <BubbleTail className="absolute right-[-11px] bottom-0 text-(--bubble-user)" />
           {images.length > 0 && (
             <div className={cn('flex flex-wrap gap-2', (visibleText || fileChips.length > 0) && 'mb-2')}>
               {images.map((src, i) => (
