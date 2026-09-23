@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SettingsPage } from '../SettingsPage';
 
 /**
@@ -20,13 +20,12 @@ import { SettingsPage } from '../SettingsPage';
 // category renders a nameplate instead of its real screen.
 vi.mock('@/stores/settings', () => ({
   useSettings: (sel: (s: unknown) => unknown) =>
-    sel({ fetchSettings: vi.fn(), fetchByok: vi.fn() }),
+    sel({ fetchSettings: vi.fn() }),
 }));
 vi.mock('@/components/settings/GeneralTab',    () => ({ GeneralTab:    () => <div>general pane</div> }));
 vi.mock('@/components/settings/AppearanceTab', () => ({ AppearanceTab: () => <div>appearance pane</div> }));
 vi.mock('@/components/settings/HardwareTab',   () => ({ HardwareTab:   () => <div>hardware pane</div> }));
 vi.mock('@/components/settings/ApiServerTab',  () => ({ ApiServerTab:  () => <div>api pane</div> }));
-vi.mock('@/components/settings/ByokTab',       () => ({ ByokTab:       () => <div>byok pane</div> }));
 vi.mock('@/components/settings/AgentSettingsTab', () => ({ AgentSettingsTab: () => <div>agent pane</div> }));
 vi.mock('@/components/settings/PrivacyTab',    () => ({ PrivacyTab:    () => <div>privacy pane</div> }));
 vi.mock('@/components/settings/AboutTab',      () => ({ AboutTab:      () => <div>about pane</div> }));
@@ -63,6 +62,19 @@ describe('SettingsPage category navigation', () => {
   it('falls back to General when the URL names a category that does not exist', () => {
     renderAt('/settings?cat=nonsense');
     expect(screen.getByText('general pane')).toBeTruthy();
+  });
+
+  it('sends the old Cloud Keys address to Models, where the keys live now', () => {
+    render(
+      <MemoryRouter initialEntries={['/settings?cat=byok']}>
+        <Routes>
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/models" element={<div>models page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('models page')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Cloud Keys/ })).toBeNull();
   });
 
   it('says which category is open, not only in colour', async () => {

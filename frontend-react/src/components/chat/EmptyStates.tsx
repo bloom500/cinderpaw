@@ -27,10 +27,10 @@ function AgentByokNote() {
         recommend a cloud model:{' '}
         <button
           type="button"
-          onClick={() => navigate('/settings')}
+          onClick={() => navigate('/models?tab=cloud')}
           className="text-brand hover:underline"
         >
-          add a key (BYOK)
+          add a cloud key
         </button>
         .
       </p>

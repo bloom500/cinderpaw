@@ -379,7 +379,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       completedAt: now + 1,
       actions: [
         { label: t('chat.noModel.download'), route: '/models' },
-        { label: t('chat.noModel.addKey'), route: '/settings' },
+        { label: t('chat.noModel.addKey'), route: '/models?tab=cloud' },
       ],
     });
   };

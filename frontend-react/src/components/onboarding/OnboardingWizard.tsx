@@ -735,17 +735,17 @@ function CloudBranch() {
                 <ExternalLink size={12} /> Open {generic.name} console
               </a>
             )}
-            <p className="text-xs text-text-muted">Add your API key in Settings → Cloud Keys after the wizard.</p>
+            <p className="text-xs text-text-muted">Add your API key in Models → Cloud after the wizard.</p>
           </div>
         );
       })()}
 
       <button
         type="button"
-        onClick={() => { defer(); navigate('/settings'); }}
+        onClick={() => { defer(); navigate('/models?tab=cloud'); }}
         className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
       >
-        More providers in Settings → Cloud Keys <ChevronRight size={12} />
+        More providers in Models → Cloud <ChevronRight size={12} />
       </button>
     </div>
   );

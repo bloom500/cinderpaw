@@ -72,7 +72,7 @@ export function LocalModelsTab({ onBrowse }: Props) {
           {/* navigate(), not location.hash: the app runs on a memory router,
               so setting the hash changed nothing and this button was dead. */}
           <Button variant="outline" onClick={() => void signInWithOpenRouter()}>Sign in with OpenRouter</Button>
-          <Button variant="ghost" onClick={() => navigate('/settings?cat=byok')}>Use a cloud key →</Button>
+          <Button variant="ghost" onClick={() => navigate('/models?tab=cloud')}>Use a cloud key →</Button>
         </div>
         <p className="text-2xs text-text-disabled text-center max-w-sm">
           Local needs download (1–16GB) · Cloud is instant with an API key

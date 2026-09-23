@@ -331,10 +331,10 @@ export function ModelPickerPopover() {
                     // does nothing: only this button leaves the conversation.
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); void router.navigate('/settings?cat=byok'); }}
+                      onClick={(e) => { e.stopPropagation(); void router.navigate('/models?tab=cloud'); }}
                       className="text-xs text-brand underline-offset-2 hover:underline"
                     >
-                      No default model · choose one in Cloud Keys
+                      No default model · choose one in Models → Cloud
                     </button>
                   )}
                 </DropdownMenuItem>

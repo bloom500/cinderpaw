@@ -63,7 +63,7 @@ export function StreamErrorNotice() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => navigate(err.action === 'settings' ? '/settings' : '/models')}
+              onClick={() => navigate(err.action === 'settings' ? '/models?tab=cloud' : '/models')}
             >
               {err.actionLabel}
             </Button>
