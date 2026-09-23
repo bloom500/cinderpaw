@@ -4,6 +4,7 @@ import {
   useMessageScrollerScrollable,
 } from '@shadcn/react/message-scroller';
 import { useChat } from '@/stores/chat';
+import { cn } from '@/lib/utils';
 import { MessageItem } from './MessageItem';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
@@ -20,6 +21,15 @@ import { StreamingIndicator } from './StreamingIndicator';
  */
 export function MessageList() {
   const messages = useChat((s) => s.messages);
+  // Rows that arrive together (a chat opened, history loaded) are already
+  // there; only the one or two a turn adds should arrive. Animating fifty rows
+  // at once on open cost frames and says nothing. Refs written during render:
+  // idempotent, so a second StrictMode render changes nothing.
+  const known = useRef(new Set<string>());
+  const quiet = useRef(new Set<string>());
+  const unseen = messages.filter((m) => !known.current.has(m.id));
+  if (unseen.length > 2) for (const m of unseen) quiet.current.add(m.id);
+  for (const m of unseen) known.current.add(m.id);
   // One resend for the whole transcript: the hooks it needs are called here,
   // once, not inside every row.
   const resend = useResendTurn();
@@ -50,7 +60,13 @@ export function MessageList() {
                 key={m.id}
                 messageId={m.id}
                 scrollAnchor={m.role === 'user'}
-                className="message-row animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
+                className={cn(
+                  'message-row',
+                  !quiet.current.has(m.id) && (m.role === 'user'
+                    // Yours rises out of the composer's corner: it came from there.
+                    ? 'animate-in fade-in-0 slide-in-from-bottom-4 zoom-in-95 origin-bottom-right duration-300'
+                    : 'animate-in fade-in-0 slide-in-from-bottom-2 duration-200'),
+                )}
               >
                 <MessageItem
                   message={m}
