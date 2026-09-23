@@ -12,6 +12,7 @@ import { listen } from '@tauri-apps/api/event';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { loadHistory, saveHistory, recordVisit, recordTitle, recordPick, loadBookmarks, saveBookmarks, upsertBookmark, removeBookmark, parseTags, findBookmarks, display, isReaderUrl, readerOriginal } from '@/lib/browserHistory';
 import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions';
+import { DownloadsCard } from './DownloadsCard';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
 const ZOOM_KEY = 'cinderpaw.browserZoom';
@@ -554,11 +555,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           </div>
         </form>
       )}
-      {downloadsOpen && (
-        <div className="border-b border-border-subtle bg-bg-elevated/40 px-3 py-3 text-xs">
-          <DownloadsList />
-        </div>
-      )}
+      {downloadsOpen && <DownloadsCard />}
       {settingsOpen && <BrowserSettings engine={engine} onEngine={setEngine} />}
       {/* Floating over the toolbar, never in the flow: as a row of its own it
           pushed the whole page down and back up on every agent action, which
@@ -870,29 +867,6 @@ function SettingRow({ title, hint, children }: { title: string; hint: string; ch
         <p className="mt-0.5 text-2xs text-text-muted">{hint}</p>
       </div>
       {children}
-    </div>
-  );
-}
-
-/** This session's downloads, newest first, each one openable. */
-function DownloadsList() {
-  const downloads = useBrowser((b) => b.downloads);
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-2xs uppercase tracking-wide text-text-muted">Downloads</span>
-      {downloads.length === 0 && <span className="text-2xs text-text-muted">Nothing downloaded yet this session.</span>}
-      {downloads.slice(0, 8).map((d) => (
-        <div key={`${d.name}-${d.at}`} className="flex items-center gap-2 text-2xs">
-          <span className="min-w-0 flex-1 truncate text-text-primary">{d.name}</span>
-          {d.error
-            ? <span className="text-error">{d.error}</span>
-            : d.artifact
-              ? <span className="text-text-muted">in Artifacts</span>
-              : d.dest
-                ? <button type="button" onClick={() => void shellOpen(d.dest!)} className="text-text-muted underline-offset-2 hover:underline">Open</button>
-                : null}
-        </div>
-      ))}
     </div>
   );
 }

@@ -215,7 +215,13 @@ void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e
 // document the agent refused (`reason`), is a file the person is asked where
 // to put, with the reason on screen first.
 void listen<{ name: string; dest?: string; artifact?: boolean; error?: string; reason?: string | null }>('browser://download', (e) => {
-  const { name, dest, artifact, error, reason } = e.payload;
+  const { dest, artifact, error, reason } = e.payload;
+  // The name the file has on disk, not the one it was downloaded under: the
+  // host keeps downloads under a 32-hex uuid prefix until they are delivered,
+  // and that is the name it reports ("b3336a…-setup.exe" in the list, 24 Sep).
+  const name = dest
+    ? dest.replace(/^.*[\\/]/, '')
+    : e.payload.name.replace(/^[0-9a-f]{32}-/i, '');
   const log = (entry: { dest?: string; artifact?: boolean; error?: string }) =>
     useBrowser.setState((st) => ({ downloads: [{ name, at: Date.now(), ...entry }, ...st.downloads].slice(0, 50) }));
   if (error) {
