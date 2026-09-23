@@ -11,6 +11,7 @@ import { MotionConfig } from 'framer-motion';
 import App from './App';
 import { CallPill } from './components/call/CallPill';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { startFrameLog } from './lib/frameLog';
 import './styles/globals.css';
 
 // Pre-paint theme: read persisted preference before React mounts to avoid a
@@ -43,6 +44,8 @@ if (pill) {
   // transparent window it is the rectangle around the pill (21 Sep).
   document.getElementById('cinderpaw-startup')?.remove();
 }
+
+startFrameLog();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
