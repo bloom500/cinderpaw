@@ -17,6 +17,7 @@ import { modelLabel, refreshCatalog } from '@/lib/modelCatalog';
 import { ModelLogo, modelDisplayName, providerName } from '@/lib/modelLogos';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { router } from '@/router';
+import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
 import { BackendBadge } from '@/components/BackendBadge';
 
 // Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
@@ -67,6 +68,15 @@ export function ModelPickerPopover() {
       .getByokSettings()
       .then((providers) => setCloudProviders(providers.filter((p) => p.has_api_key)))
       .catch(() => {});
+
+  // Once at mount as well as on every open. Asked only on open, the trigger
+  // said "Add a model" on a machine with three keys active until someone
+  // clicked it: the label was computed from lists that were still empty.
+  useEffect(() => {
+    void tauri.models.list().then((all) => setLocalModels(all.filter((m) => !m.is_embedding))).catch(() => {});
+    void refreshCloud();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, at mount
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -333,9 +343,18 @@ export function ModelPickerPopover() {
           </>
         )}
         {!hasLocal && !hasCloud && (
-          <DropdownMenuItem disabled>
-            No models found. Download one or add a cloud key
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem
+              onSelect={() => { void signInWithOpenRouter().then((ok) => { if (ok) void refreshCloud(); }); }}
+            >
+              <Cloud size={14} className="mr-2 shrink-0 text-brand" />
+              Sign in with OpenRouter
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => { void router.navigate('/models'); }}>
+              <HardDrive size={14} className="mr-2 shrink-0" />
+              Download a model to this computer
+            </DropdownMenuItem>
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

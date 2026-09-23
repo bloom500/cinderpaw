@@ -119,7 +119,8 @@ mod command_count_test {
     // 177 -> 183 = + byok_has_key, jev_decide (the Jev key and its one decision
     // call), call_pill_open/close, main_in_front (the call pill), list_apps
     // (open_app over the Start Menu).
-    const EXPECTED_COMMAND_COUNT: usize = 183;
+    // 183 -> 184 = + openrouter_sign_in (one-button OAuth instead of a pasted key).
+    const EXPECTED_COMMAND_COUNT: usize = 184;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

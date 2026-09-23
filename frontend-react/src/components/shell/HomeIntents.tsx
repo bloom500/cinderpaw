@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { tauri } from '@/lib/tauri';
+import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
 
 /**
  * The four intents, under the composer.
@@ -22,8 +25,66 @@ const INTENTS = [
   { key: 'home.intent.automate', stem: 'Automate ' },
 ] as const;
 
+/**
+ * Whether anything can answer yet: a chat model on disk, or a cloud key.
+ * `null` while asking, so a working install never flashes the setup card.
+ */
+function useHasAnyModel(): boolean | null {
+  const [has, setHas] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    const check = () => Promise.all([
+      tauri.models.list().then((all) => all.some((m) => !m.is_embedding)).catch(() => true),
+      tauri.raw.getByokSettings().then((ps) => ps.some((p) => p.has_api_key)).catch(() => true),
+    ]).then(([local, cloud]) => { if (live) setHas(local || cloud); });
+    void check();
+    // A key saved in Settings, or a download finishing, while this screen is up.
+    const id = setInterval(check, 5000);
+    return () => { live = false; clearInterval(id); };
+  }, []);
+  return has;
+}
+
+/**
+ * On a machine with no model, the home screen IS the setup: one button that
+ * works on any computer, and the local route for people who want it. The
+ * intent chips would only lead to a message nothing can answer.
+ */
+function SetupCard() {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="mt-3 mx-6 w-full max-w-xl rounded-3xl border border-border-default bg-(--surface-typing) p-5 text-left shadow-lg">
+      <p className="text-base font-semibold text-text-primary">Cinderpaw needs a model to think with.</p>
+      <p className="mt-1 text-sm text-text-secondary">
+        Sign in with OpenRouter and it answers right away, on any computer. Or download a model that runs here, free and private, if this machine is strong enough.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => { setBusy(true); void signInWithOpenRouter().finally(() => setBusy(false)); }}
+          className="rounded-xl bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
+        >
+          {busy ? 'Finish in your browser…' : 'Sign in with OpenRouter'}
+        </button>
+        <button
+          type="button"
+          // Loaded on click: importing the router here pulls the whole app into
+          // anything that renders the home screen, tests included.
+          onClick={() => { void import('@/router').then((m) => m.router.navigate('/models')); }}
+          className="rounded-xl border border-border-default px-4 py-2 text-sm text-text-secondary hover:bg-bg-hover cursor-pointer"
+        >
+          Download a model
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function HomeIntents({ onPick }: { onPick: (text: string) => void }) {
   const t = useT();
+  const hasModel = useHasAnyModel();
+  if (hasModel === false) return <SetupCard />;
   return (
     <div className="mt-3 flex flex-wrap justify-center gap-2 px-6">
       {INTENTS.map(({ key, stem }) => (

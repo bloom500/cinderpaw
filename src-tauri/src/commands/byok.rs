@@ -132,6 +132,111 @@ pub(crate) async fn byok_has_key(provider_id: String) -> bool {
     byok::byok_get(&provider_id).is_some_and(|k| !k.trim().is_empty())
 }
 
+/// The model a fresh OpenRouter sign-in answers with. Cheap, tool-capable, and
+/// the one every benchmark in this repo was measured on.
+pub(crate) const OPENROUTER_DEFAULT_MODEL: &str = "z-ai/glm-5.3-flash";
+
+/// Sign in with OpenRouter instead of pasting a key (OAuth PKCE).
+///
+/// A stranger's first five minutes used to be: find a provider, make an
+/// account, find the keys page, copy a secret, paste it here. This is one
+/// button: the browser opens OpenRouter's consent page, OpenRouter sends the
+/// browser back to a one-shot listener on 127.0.0.1 with a code, and the code
+/// is exchanged for a key that goes straight to the keychain. The key never
+/// passes through the webview.
+///
+/// Flow per https://openrouter.ai/docs/use-cases/oauth-pkce: localhost
+/// callbacks are allowed on any port, codes are single-use and expire in 10
+/// minutes, exchange is `POST /api/v1/auth/keys {code, code_verifier,
+/// code_challenge_method}` -> `{key}`.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn openrouter_sign_in(app: tauri::AppHandle) -> Result<String, String> {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let mut raw = [0u8; 32];
+    getrandom::getrandom(&mut raw).map_err(|e| format!("Could not start sign-in: {e}"))?;
+    let verifier = b64.encode(raw);
+    let challenge = b64.encode(sha2::Sha256::digest(verifier.as_bytes()));
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("Could not start sign-in: {e}"))?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let callback = format!("http://localhost:{port}/callback");
+    let auth_url = format!(
+        "https://openrouter.ai/auth?callback_url={}&code_challenge={}&code_challenge_method=S256&key_label=Cinderpaw",
+        urlencoding::encode(&callback),
+        challenge
+    );
+    {
+        use tauri_plugin_shell::ShellExt;
+        // The same call browser.rs makes; the opener plugin is not a dependency.
+        #[allow(deprecated)]
+        let opened = app.shell().open(auth_url.as_str(), None);
+        opened.map_err(|e| format!("Could not open your browser: {e}"))?;
+    }
+
+    // One request is all this listener ever serves. Anything that is not the
+    // callback (a favicon probe) is answered and skipped. Ten minutes matches
+    // the code's own lifetime; after that the person has walked away.
+    let code = tokio::time::timeout(std::time::Duration::from_secs(600), async {
+        loop {
+            let (mut sock, _) = listener.accept().await.map_err(|e| e.to_string())?;
+            let mut buf = vec![0u8; 8192];
+            let n = sock.read(&mut buf).await.unwrap_or(0);
+            let head = String::from_utf8_lossy(&buf[..n]).to_string();
+            let path = head.split_whitespace().nth(1).unwrap_or("").to_string();
+            let parsed = url::Url::parse(&format!("http://localhost{path}")).ok();
+            let code = parsed
+                .as_ref()
+                .filter(|u| u.path() == "/callback")
+                .and_then(|u| u.query_pairs().find(|(k, _)| k == "code").map(|(_, v)| v.to_string()));
+            let page = if code.is_some() {
+                "<h2 style=\"font-family:system-ui\">Signed in. You can close this tab and go back to Cinderpaw.</h2>"
+            } else {
+                "<h2 style=\"font-family:system-ui\">Waiting for OpenRouter...</h2>"
+            };
+            let reply = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                page.len()
+            );
+            let _ = sock.write_all(reply.as_bytes()).await;
+            if let Some(c) = code {
+                return Ok::<String, String>(c);
+            }
+        }
+    })
+    .await
+    .map_err(|_| "Sign-in timed out. Press the button again when you're ready.".to_string())??;
+
+    let resp = reqwest::Client::new()
+        .post("https://openrouter.ai/api/v1/auth/keys")
+        .json(&serde_json::json!({ "code": code, "code_verifier": verifier, "code_challenge_method": "S256" }))
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach OpenRouter: {e}"))?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+    let key = body
+        .get("key")
+        .and_then(|k| k.as_str())
+        .filter(|k| !k.trim().is_empty())
+        .ok_or_else(|| format!("OpenRouter did not return a key (HTTP {}). Try again.", status.as_u16()))?
+        .to_string();
+
+    // Keep a model the person already chose on this provider; only a blank
+    // one gets the default.
+    let existing = byok::load(&settings::load()).providers.get("openrouter").and_then(|c| c.default_model.clone());
+    let model = existing.unwrap_or_else(|| OPENROUTER_DEFAULT_MODEL.to_string());
+    let config = byok::ProviderConfig { enabled: true, api_key: key, base_url: None, default_model: Some(model.clone()) };
+    byok::save_provider("openrouter", config).map_err(|e| e.to_string())?;
+    Ok(model)
+}
+
 /// One System One request to Jev (TypeSafe), with the key from the keychain.
 ///
 /// The JS side builds `state` and `questions` (the closed sets the call can

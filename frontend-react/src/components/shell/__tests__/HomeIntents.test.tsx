@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HomeIntents } from '../HomeIntents';
+import { tauri } from '@/lib/tauri';
 
 /**
  * Four, fixed, in this order. The rail grew from four items to nine one
@@ -24,5 +25,16 @@ describe('HomeIntents', () => {
     // a send: the product does not guess what the user meant to ask.
     expect(onPick).toHaveBeenCalledWith('Research ');
     expect(onPick).toHaveBeenCalledTimes(1);
+  });
+
+  // A fresh install: nothing on disk, no key. The chips would lead to a message
+  // nothing can answer, so the screen becomes the one-button setup instead.
+  it('turns into the sign-in card when no model exists', async () => {
+    vi.spyOn(tauri.models, 'list').mockResolvedValue([]);
+    vi.spyOn(tauri.raw, 'getByokSettings').mockResolvedValue([]);
+    render(<HomeIntents onPick={() => {}} />);
+    expect(await screen.findByText('Sign in with OpenRouter')).toBeTruthy();
+    expect(screen.queryByText('Research')).toBeNull();
+    vi.restoreAllMocks();
   });
 });

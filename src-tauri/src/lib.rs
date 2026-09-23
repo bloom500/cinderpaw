@@ -579,6 +579,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             save_byok_provider,
             remove_byok_provider,
             byok_has_key,
+            openrouter_sign_in,
             jev_decide,
             call_pill::call_pill_open,
             call_pill::call_pill_close,
