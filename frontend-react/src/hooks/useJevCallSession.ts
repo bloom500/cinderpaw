@@ -495,7 +495,8 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
     // As WAV: the recording is cut while it runs, and a WebM cut that way has
     // no duration in it (see `wavBlob`).
     const wav = wavBlob(await decodeToPcm16k(blob));
-    const text = (await transcribeVoiceBlob(wav, await saveVoiceBlobToDisk(wav), context)).trim();
+    const lang = useUI.getState().callLanguage;
+    const text = (await transcribeVoiceBlob(wav, await saveVoiceBlobToDisk(wav), context, lang && lang !== 'auto' ? lang : undefined)).trim();
     log(`${what} transcribed in ${Date.now() - t0}ms: ${JSON.stringify(text)}`);
     return text;
   }, []);

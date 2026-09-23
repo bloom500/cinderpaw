@@ -50,6 +50,7 @@ import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { CallPhase, CallStage } from '@/hooks/useCallSession';
+import { SelectMenu } from '@/components/ui/select-menu';
 
 /**
  * The in-call screen: one orb, one line of state, two buttons.
@@ -314,6 +315,8 @@ export function CallOverlay({
   const callEngine = useUI((s) => s.callEngine);
   const s2sProvider = useUI((s) => s.s2sProvider);
   const setS2sProvider = useUI((s) => s.setS2sProvider);
+  const callLanguage = useUI((s) => s.callLanguage);
+  const setCallLanguage = useUI((s) => s.setCallLanguage);
   const [s2sList, setS2sList] = useState<S2sProviderInfo[]>([]);
   const refreshS2s = useCallback(async () => {
     try {
@@ -984,6 +987,18 @@ export function CallOverlay({
                       willEcho={willEcho}
                       onChange={setS2sProvider}
                       t={t}
+                    />
+                  </SettingRow>
+
+                  {/* The language spoken on the call, for every engine. Here and
+                      not in Settings: a language sent is an order, and an order
+                      nobody can see goes wrong silently (23 Sep). */}
+                  <SettingRow label="Language">
+                    <SelectMenu
+                      ariaLabel="Language spoken on the call"
+                      value={callLanguage}
+                      options={CALL_LANGUAGES}
+                      onChange={setCallLanguage}
                     />
                   </SettingRow>
 
@@ -2342,6 +2357,18 @@ function DesktopControlRow() {
     </SettingRow>
   );
 }
+
+/** Auto first: it is the default, and it sends no language at all. */
+const CALL_LANGUAGES = [
+  { value: 'auto', label: 'Auto (detect)' },
+  { value: 'en', label: 'English' },
+  { value: 'ro', label: 'Română' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'es', label: 'Español' },
+  { value: 'fr', label: 'Français' },
+  { value: 'it', label: 'Italiano' },
+  { value: 'pt', label: 'Português' },
+];
 
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
   // Two cells of the parent's grid, so every label sits in one column and

@@ -136,6 +136,16 @@ interface UIStore {
    *  build. Persisted: a model picked once is the model the next call uses. */
   s2sModel: Record<string, string>;
   setS2sModel: (provider: string, model: string) => void;
+  /**
+   * The language spoken on a call: `auto`, or a two-letter code. Auto is the
+   * default and sends none, because a language sent to Whisper or Gemini is an
+   * order, not a hint. A choice here is made on the call screen, where it is
+   * seen on every call, not in a settings page where it is forgotten: short
+   * English commands came back as Slovenian, Russian and Croatian on Auto
+   * (23 Sep), and an English OS forced English on Romanian speech.
+   */
+  callLanguage: string;
+  setCallLanguage: (lang: string) => void;
   setS2sProvider: (id: string | null) => void;
   /**
    * Chosen voice per engine id.
@@ -205,6 +215,8 @@ export const useUI = create<UIStore>()(
       s2sProvider: null,
       setS2sProvider: (s2sProvider) => set({ s2sProvider }),
       s2sModel: {},
+      callLanguage: 'auto',
+      setCallLanguage: (callLanguage) => set({ callLanguage }),
       setS2sModel: (provider, model) =>
         set((st) => ({ s2sModel: { ...st.s2sModel, [provider]: model } })),
       ttsVoice: {},
@@ -233,6 +245,7 @@ export const useUI = create<UIStore>()(
         callEngine: s.callEngine,
         s2sProvider: s.s2sProvider,
         s2sModel: s.s2sModel,
+        callLanguage: s.callLanguage,
         ttsVoice: s.ttsVoice,
       }),
       // Dropping the two keys from `partialize` only stops them being WRITTEN.

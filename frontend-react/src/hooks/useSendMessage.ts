@@ -487,7 +487,7 @@ export async function saveVoiceBlobToDisk(blob: Blob): Promise<string> {
  * on screen. Errors ("stt-no-key" | "stt-cloud-failed" | "model-missing" |
  * "voice-unavailable") propagate to the caller for toast handling.
  */
-export async function transcribeVoiceBlob(blob: Blob, audioPath: string, context?: string): Promise<string> {
+export async function transcribeVoiceBlob(blob: Blob, audioPath: string, context?: string, language?: string): Promise<string> {
   const { sttProvider } = useUI.getState();
   if (sttProvider && sttProvider !== 'local') {
     // No language is ever sent. Whisper's `language` is an ORDER, not a hint:
@@ -498,7 +498,9 @@ export async function transcribeVoiceBlob(blob: Blob, audioPath: string, context
     // `context`: the earlier part of the same sentence, a hint that keeps the
     // language and the names steady across partials (cloud only; the local
     // engine has no such input).
-    const transcript = await tauri.voice.transcribeCloud(audioPath, sttProvider, undefined, context);
+    // The one exception: a call whose language the person picked on the call
+    // screen, where they see it every time (`callLanguage`).
+    const transcript = await tauri.voice.transcribeCloud(audioPath, sttProvider, language, context);
     console.log('[voice] cloud transcript ->', JSON.stringify(transcript));
     return transcript;
   }
