@@ -205,19 +205,21 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
           {visibleText && (
-            <p className="text-sm whitespace-pre-wrap wrap-break-word leading-relaxed">
+            <p className="text-[15px] whitespace-pre-wrap wrap-break-word leading-relaxed">
               {visibleText}
             </p>
           )}
         </div>
         )}
         {draft === null && (
-          <MessageActions
-            text={visibleText}
-            onEdit={onEdit ? () => setDraft(visibleText) : undefined}
-          />
+          <div className="flex items-center gap-1">
+            <MessageMeta message={message} className={QUIET} />
+            <MessageActions
+              text={visibleText}
+              onEdit={onEdit ? () => setDraft(visibleText) : undefined}
+            />
+          </div>
         )}
-        <MessageMeta message={message} />
       </div>
     );
   }
@@ -248,8 +250,16 @@ export const MessageItem = memo(function MessageItem({
       </div>
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
-      {!isUser && !streaming && (
-        <MessageActions text={message.content} onRetry={onRetry} />
+      {!streaming && (
+        <div className="flex items-center gap-1 min-h-7">
+          <MessageActions text={message.content} onRetry={onRetry} />
+          {!askUser && message.content.trim().length > 0 && (
+            <>
+              <FeedbackButtons messageId={message.id} />
+              <MessageMeta message={message} className={cn('ml-1', QUIET)} />
+            </>
+          )}
+        </div>
       )}
       {askUser && (
         <AskUserCard
@@ -305,15 +315,6 @@ export const MessageItem = memo(function MessageItem({
           ))}
         </div>
       )}
-      {/* Footer — only on a finished, non-empty reply, and not while a question
-          card is pending. The meta is always visible; the thumbs (the
-          acceptance adaptation signal) stay hover-only as before. */}
-      {!streaming && !askUser && message.content.trim().length > 0 && (
-        <div className="flex items-center gap-2">
-          <MessageMeta message={message} />
-          <FeedbackButtons messageId={message.id} />
-        </div>
-      )}
     </div>
   );
 });
@@ -354,7 +355,16 @@ export function scratchLabel(
   return `${scratch.edits} scratchpad edit${scratch.edits === 1 ? '' : 's'} ${churn}`;
 }
 
-function MessageMeta({ message }: { message: ChatMessage }) {
+/**
+ * Hidden at rest, shown on hover or keyboard focus, always on touch. The time
+ * and the counts sat on a line of their own under every message, below an
+ * invisible row of buttons that still took its space: each reply ended in a
+ * gap and a lone "00:16" (24 Sep screenshot). A transcript you read for hours
+ * should be text at rest; the receipts are one hover away.
+ */
+const QUIET = 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100 transition-opacity';
+
+function MessageMeta({ message, className }: { message: ChatMessage; className?: string }) {
   const at = message.completedAt ?? message.createdAt;
   const parts = [
     new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
@@ -367,7 +377,7 @@ function MessageMeta({ message }: { message: ChatMessage }) {
   if (scratch) parts.push(scratch);
   const fullDate = new Date(at).toLocaleString();
   return (
-    <div className="text-xs text-text-muted tabular-nums select-text cursor-text" title={fullDate}>{parts.join(' · ')}</div>
+    <div className={cn('text-xs text-text-muted tabular-nums select-text cursor-text', className)} title={fullDate}>{parts.join(' · ')}</div>
   );
 }
 
@@ -392,7 +402,7 @@ function FeedbackButtons({ messageId }: { messageId: string }) {
     setTimeout(() => setToast(null), 2000);
   };
   return (
-    <div className="flex items-center gap-2 mt-0.5 -ml-1">
+    <div className="flex items-center gap-2">
       <div className="flex items-center gap-1 opacity-60 hover:opacity-100 focus-within:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
         <button
           type="button"
