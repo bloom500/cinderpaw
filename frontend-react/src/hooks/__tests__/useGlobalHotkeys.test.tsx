@@ -3,6 +3,8 @@ import { render, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { useGlobalHotkeys } from '../useGlobalHotkeys';
 import { useConversations } from '@/stores/conversations';
+import { useArtifacts } from '@/stores/artifacts';
+import { waitFor } from '@testing-library/react';
 
 function Harness() {
   useGlobalHotkeys();
@@ -20,5 +22,22 @@ describe('useGlobalHotkeys', () => {
     fireEvent.keyDown(box, { key: 'n', ctrlKey: true });
     expect(newChat).toHaveBeenCalledTimes(1);
     newChat.mockRestore();
+  });
+
+  it('closes the side panel on Esc, but not while a dialog owns the key', async () => {
+    const { getByLabelText } = render(<MemoryRouter><Harness /></MemoryRouter>);
+    const box = getByLabelText('composer');
+
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    document.body.appendChild(dialog);
+    useArtifacts.setState({ panelOpen: true });
+    fireEvent.keyDown(box, { key: 'Escape' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(useArtifacts.getState().panelOpen).toBe(true);
+
+    dialog.remove();
+    fireEvent.keyDown(box, { key: 'Escape' });
+    await waitFor(() => expect(useArtifacts.getState().panelOpen).toBe(false));
   });
 });

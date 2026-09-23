@@ -2,11 +2,33 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConversations } from '@/stores/conversations';
 
+/** Close the browser panel if it is open, else the artifacts panel. True if one closed. */
+async function closeSidePanel(): Promise<boolean> {
+  const [{ useBrowser }, { useArtifacts }] = await Promise.all([import('@/stores/browser'), import('@/stores/artifacts')]);
+  if (useBrowser.getState().panelOpen) { useBrowser.getState().setPanel(false); return true; }
+  if (useArtifacts.getState().panelOpen) { useArtifacts.getState().togglePanel(); return true; }
+  return false;
+}
+
 export function useGlobalHotkeys() {
   const navigate = useNavigate();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Esc closes the side panel (browser first, then artifacts), the way it
+      // closes a sheet on a Mac. It stands aside for everything else that owns
+      // Esc: the call screen (Esc hangs up there), any open dialog or menu, a
+      // key some other handler already took, and single-line fields such as
+      // the address bar, where Esc means "leave this field".
+      if (e.key === 'Escape' && !e.defaultPrevented && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const el = e.target as HTMLElement | null;
+        const busy =
+          el?.tagName === 'INPUT' ||
+          document.querySelector('[data-call-overlay], [role="dialog"], [role="menu"], [role="listbox"]') !== null;
+        if (!busy) void closeSidePanel();
+        return;
+      }
+
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
 
