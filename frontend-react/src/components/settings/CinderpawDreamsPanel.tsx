@@ -714,7 +714,6 @@ function GovernanceCard({
                       ? 'Cinderpaw asks to loosen its rules. Nothing changes without your OK.'
                       : 'Cinderpaw is making its own rules stricter, and this applies on its own.'}
                   </span>
-                  <span className="ml-auto font-mono text-micro text-text-muted">{p.policyId}</span>
                 </div>
                 {needsOk && (
                   <div className="flex items-center gap-1.5 pl-4">
@@ -1035,7 +1034,6 @@ function LoraReviews({
             <li key={c.domain} className="flex items-center gap-2 text-2xs">
               <Check size={12} className="text-brand" />
               <span className="text-text-secondary">{c.domain}</span>
-              <span className="ml-auto font-mono text-micro text-text-muted">{c.id}</span>
             </li>
           ))}
         </ul>
@@ -1052,7 +1050,6 @@ function LoraReviews({
               <div className="flex items-center gap-1.5">
                 <LoraVerdictBadge status={r.status} verdict={r.verdict} />
                 <span className="text-text-secondary">{r.domain}</span>
-                <span className="font-mono text-text-muted">{r.id.slice(0, 24)}</span>
                 <span className="ml-auto text-text-muted tabular-nums">
                   {formatRelativeTime(r.createdAt)}
                 </span>
@@ -1155,7 +1152,12 @@ function Receipts({ rows }: { rows: JournalRow[] }) {
                 })}
               </span>
             </div>
-            <p className="mt-0.5 text-text-secondary">{r.decided.reason}</p>
+            <p className="mt-0.5 text-text-secondary">{DECISION_WORDS[r.decided.action] ?? DECISION_WORDS.reject}</p>
+            <details className="mt-0.5">
+              <summary className="cursor-pointer select-none text-text-muted hover:text-text-secondary">
+                What the engine wrote
+              </summary>
+            <p className="mt-0.5 text-text-muted">{r.decided.reason}</p>
             {r.result && (
               // Per-candidate fitness receipt (Contract FSM rows only).
               <p className="mt-0.5 text-text-muted tabular-nums">
@@ -1171,12 +1173,22 @@ function Receipts({ rows }: { rows: JournalRow[] }) {
                 ))}
               </ul>
             )}
+            </details>
           </li>
         ))}
       </ul>
     </div>
   );
 }
+
+/** What a receipt means, said once per decision kind. The engine's reason
+ *  ("worktree tests failed: 0 fail (exit 1)") is kept, folded, for whoever
+ *  wants it: it is accurate, and nobody but us can read it. */
+const DECISION_WORDS: Record<string, string> = {
+  accept: 'Found something better and started using it.',
+  reject: 'Tried something new. It was not better, so nothing changed.',
+  halt: 'Had to stop early. Nothing changed.',
+};
 
 function DecisionBadge({ action }: { action: string }) {
   const map: Record<string, { icon: typeof Check; cls: string; label: string }> = {
@@ -1322,9 +1334,9 @@ function PendingPatches({
       <div className="flex items-center gap-2">
         <Code2 size={12} className="text-brand" />
         <span className="text-2xs font-medium text-text-secondary">
-          Code changes waiting for you
+          Code changes Cinderpaw wrote
         </span>
-        <span className="text-text-muted text-2xs">({patches.length})</span>
+        <span className="text-text-muted text-2xs">({patches.filter((x) => x.status === 'pending').length} waiting for you)</span>
         {showWindow && (
           <span className="ml-auto text-2xs text-text-muted tabular-nums">
             {payload.appliedCount} of 10 approved. After 10, changes you approve go in by themselves
@@ -1337,7 +1349,8 @@ function PendingPatches({
           chose for a person, not in a log file nobody has open. */}
       {payload.lastRound && (
         <p className="text-2xs text-text-muted">
-          Last round{payload.lastRound.target ? ` on ${payload.lastRound.target}` : ''}: {payload.lastRound.verdict}. {payload.lastRound.reason}
+          Last try: {payload.lastRound.verdict}.{' '}
+          <span title={`${payload.lastRound.target ?? ''} ${payload.lastRound.reason}`.trim()}>Hover for the engine&apos;s note.</span>
         </p>
       )}
       {patches.length === 0 ? (
@@ -1372,29 +1385,9 @@ function PatchRow({
     <li className="text-2xs space-y-1">
       <div className="flex items-center gap-1.5">
         <PatchStatusBadge status={patch.status} />
-        <span className="font-mono text-text-muted">{patch.id.slice(0, 8)}</span>
-        <span className="ml-auto flex items-center gap-2 text-text-muted tabular-nums">
-          <span>score {patch.score.toFixed(2)}</span>
-          <span>·</span>
-          <span>{formatRelativeTime(patch.createdAt)}</span>
-        </span>
+        <span className="ml-auto text-text-muted tabular-nums">{formatRelativeTime(patch.createdAt)}</span>
       </div>
       <p className="text-text-secondary">{patch.rationale}</p>
-      {patch.affectedFiles.length > 0 && (
-        <ul className="flex flex-wrap gap-1 text-text-muted">
-          {patch.affectedFiles.map((f) => (
-            <li
-              key={f}
-              className="font-mono text-micro rounded border border-border-subtle px-1 py-px"
-            >
-              {f}
-            </li>
-          ))}
-        </ul>
-      )}
-      {patch.note && (
-        <p className="text-text-muted">{patch.note}</p>
-      )}
       {patch.error && (
         <p className="text-warning">{patch.error}</p>
       )}
@@ -1403,9 +1396,20 @@ function PatchRow({
           <FileText size={12} className="inline -mt-px mr-1" />
           Show the change
         </summary>
-        <pre className="overflow-x-auto whitespace-pre bg-bg-base/40 px-2 py-1.5 font-mono text-micro text-text-secondary border-t border-border-subtle">
-          {patch.patch}
-        </pre>
+        <div className="space-y-1 border-t border-border-subtle px-2 py-1.5">
+          <p className="font-mono text-micro text-text-muted">{patch.id.slice(0, 8)} · score {patch.score.toFixed(2)}</p>
+          {patch.affectedFiles.length > 0 && (
+            <ul className="flex flex-wrap gap-1 text-text-muted">
+              {patch.affectedFiles.map((f) => (
+                <li key={f} className="font-mono text-micro rounded border border-border-subtle px-1 py-px">{f}</li>
+              ))}
+            </ul>
+          )}
+          {patch.note && <p className="text-text-muted">{patch.note}</p>}
+          <pre className="overflow-x-auto whitespace-pre bg-bg-base/40 px-2 py-1.5 font-mono text-micro text-text-secondary">
+            {patch.patch}
+          </pre>
+        </div>
       </details>
       {patch.status === 'pending' && (
         <div className="flex items-center gap-1.5 pt-0.5">

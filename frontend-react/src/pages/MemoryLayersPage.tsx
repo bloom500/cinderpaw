@@ -3,7 +3,7 @@ import { useNotifications } from '@/stores/notifications';
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import type { MemoryGraphNodeView, DreamEpisode } from '@/lib/tauri';
-import { triggerWords } from '@/lib/rsiWords';
+import { stopReasonWords, triggerWords } from '@/lib/rsiWords';
 import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
 /**
@@ -64,17 +64,6 @@ function formatTimeAgo(now: number, ts: number): string {
  */
 function formatClock(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
-
-function describeStop(stopReason: string | undefined): string {
-  if (!stopReason) return 'finished';
-  const s = stopReason.toLowerCase();
-  if (s.includes('plateau')) return 'converged on plateau';
-  if (s.includes('budget')) return 'hit the USD budget';
-  if (s.includes('token')) return 'hit the token limit';
-  if (s.includes('iter')) return 'finished the iteration budget';
-  if (s.includes('error')) return 'ended on error';
-  return stopReason;
 }
 
 /** Tier panel — shows the memories inside a single recency window. */
@@ -195,8 +184,7 @@ function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; best
       </div>
       <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-micro text-text-secondary">
         <span className="text-text-muted">why</span><span>{triggerWords(ep.trigger)}</span>
-        <span className="text-text-muted">stop</span><span>{describeStop(ep.stopReason)}</span>
-        <span className="text-text-muted">tokens</span><span>{ep.tokens}</span>
+        <span className="text-text-muted">ended</span><span>{ep.stopReason ? stopReasonWords(ep.stopReason) : 'finished'}</span>
         <span className="text-text-muted">improvements</span><span className={ep.ratchets > 0 ? 'text-warning' : ''}>{ep.ratchets}</span>
         {improve && (
           <>
@@ -495,13 +483,13 @@ export default function MemoryLayersPage() {
               Cinderpaw's Dreams
             </h2>
             <span className="text-xs text-text-muted">
-              {dreamLast.length} {dreamLast.length === 1 ? 'cycle' : 'cycles'}
+              {dreamLast.length} {dreamLast.length === 1 ? 'dream' : 'dreams'}
             </span>
           </header>
           {dreamLast.length === 0 ? (
             <p className="text-xs text-text-muted">
-              No dream cycles yet. Cinderpaw tunes its own parameters while you're away.
-              leave the app for ~5 minutes and the first dream will land here.
+              No dreams yet. Leave Cinderpaw alone for about 5 minutes and it starts
+              practicing on its own. Each practice shows up here.
             </p>
           ) : (
             <ul className="space-y-2">

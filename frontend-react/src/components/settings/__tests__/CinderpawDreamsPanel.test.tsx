@@ -290,7 +290,7 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD());
 
-    expect(await screen.findByText('Code changes waiting for you')).toBeInTheDocument();
+    expect(await screen.findByText('Code changes Cinderpaw wrote')).toBeInTheDocument();
     expect(screen.getByText('fix: handle empty input in mutation.ts')).toBeInTheDocument();
     expect(screen.getByText('src/rsi/mutation.ts')).toBeInTheDocument();
     expect(screen.getByText('Approve')).toBeInTheDocument();
@@ -377,7 +377,7 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD({ manualWindowOpen: false, appliedCount: 12 }));
 
-    await screen.findByText('Code changes waiting for you');
+    await screen.findByText('Code changes Cinderpaw wrote');
     expect(screen.queryByText(/of 10 approved/)).not.toBeInTheDocument();
   });
 
@@ -406,7 +406,7 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     // Panel must render the dream summary…
     expect(await screen.findByText('12')).toBeInTheDocument();
     // …but the Pending patches card must NOT appear before the listener fires.
-    expect(screen.queryByText('Code changes waiting for you')).not.toBeInTheDocument();
+    expect(screen.queryByText('Code changes Cinderpaw wrote')).not.toBeInTheDocument();
     expect(screen.queryByText(/No code changes waiting/)).not.toBeInTheDocument();
   });
 });
@@ -610,7 +610,8 @@ describe('CinderpawDreamsPanel — Personal adaptation (Faza 4)', () => {
     }));
 
     expect(await screen.findByText('coding')).toBeInTheDocument();
-    expect(screen.getByText('lora-coding-deadbeef1234')).toBeInTheDocument();
+    // The adapter's id is a key for us; a person tells versions apart by what they are for.
+    expect(screen.queryByText('lora-coding-deadbeef1234')).toBeNull();
   });
 });
 
