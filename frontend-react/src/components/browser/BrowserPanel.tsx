@@ -530,7 +530,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         <div ref={downloadsBtn} className="relative">
           <ChromeButton label="Downloads" icon={Download} pressed={downloadsOpen || floatingOpen} onClick={() => void toggleDownloads()} />
           {downloadCount > 0 && (
-            <span className="pointer-events-none absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-brand px-1 text-center text-micro font-semibold leading-4 text-brand-foreground" aria-hidden>
+            <span className="pointer-events-none absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-text-primary px-1 text-center text-micro font-semibold leading-4 text-bg-primary" aria-hidden>
               {downloadCount > 9 ? '9+' : downloadCount}
             </span>
           )}

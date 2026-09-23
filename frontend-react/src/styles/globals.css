@@ -517,14 +517,14 @@
    colour: the bubble still reads as yours, it just stops shouting. Opaque on
    purpose: the tail overlaps the bubble by a few pixels, and two translucent
    fills would show that overlap as a darker notch. One definition serves both
-   themes because --brand and --bg-primary already change with the theme. */
-:root {
-  --bubble-user: color-mix(in oklab, var(--brand) 26%, var(--bg-primary));
-}
+   themes because --brand and --bg-primary already change with the theme.
+   Declared inside each theme block below: a bare `:root` rule outside a layer
+   is what glass.test.ts forbids, and it caught this one. */
 
 :root[data-theme="dark"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
-  --bg-primary:      #100E09;
+  --bg-primary:      #1C1814;
+  --bubble-user:     color-mix(in oklab, var(--brand) 26%, var(--bg-primary));
   /* Translucent, because these two ARE the glass. Every card, panel, popover
      and menu in the app is painted with one of them, so making the pane
      see-through and leaving these opaque produced exactly what we had: a glass
@@ -567,7 +567,13 @@
      rail's "Nothing yet" line was set in — a sentence written to explain an
      empty screen, itself too faint to read. Both step up; the hierarchy between
      the four is unchanged. */
-  /* White, and the three tiers below it are white too — only dimmer.
+  /* Cream since 24 Sep (was a pure white scale): pure white on a dark ground
+     glares, and it is what made the app read "tech" rather than warm. The
+     tiers keep the old shape, close together, and glass.test.ts still holds
+     every one of them to 4.5:1 over both wallpaper extremes. The history of
+     why they sit so close to primary, which still applies:
+
+     White, and the three tiers below it are white too — only dimmer.
      Requested directly, and the glass is why it is also correct: warm
      mid-tones like the old #9A8B75 were drawn for a flat near-black page, and
      on a pane that is partly somebody's wallpaper they are the first thing to
@@ -589,19 +595,19 @@
      control that is off has to LOOK off — collapsing it into the rest trades
      one legibility bug for a worse one, where every button looks pressable
      and only some are. */
-   --text-primary:    #FFFFFF;
-   --text-secondary:  #F2F2F2;
-   --text-muted:      #E8E8E8;
+   --text-primary:    #EDE4D3;
+   --text-secondary:  #E6DCCB;
+   --text-muted:      #DDD2BF;
    /* The dimmest tier, and NOT a grey. #ADADAD was the one remaining grey in
       the app's voice — everything else had gone white-scale when the glass
       arrived — and grey is exactly what drowns first on a pane that is partly
       somebody's wallpaper. Still visibly "off" next to muted (84% white vs
       91%), which is all the disabled state needs. */
-   --text-disabled:   #CCCCCC;
+   --text-disabled:   #C2B7A5;
   --brand:           #C4843A;
   --brand-hover:     #D4944A;
   --brand-muted:     #6B4820;
-  --brand-foreground: #100E09;
+  --brand-foreground: #1C1814;
   --error:           #D4553A;
   --success:         #6A9E5A;
   --warning:         #D4A03A;
@@ -666,7 +672,8 @@
 
 :root[data-theme="light"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
-  --bg-primary:      #FFF5EE;
+  --bg-primary:      #FAF6F0;
+  --bubble-user:     color-mix(in oklab, var(--brand) 26%, var(--bg-primary));
   /* Higher alpha than dark on purpose. Dark text over a blurred desktop loses
      contrast far faster than light text does — a bright wallpaper behind a 55%
      ivory panel puts near-black type on near-white ground with a photograph
@@ -793,7 +800,7 @@ html { accent-color: var(--brand); }
   /* 0.88 opaque was the same as no scene at all: the lights below it arrived
      at roughly 2% and the app read as flat black. The pane is thinner now and
      the lights are stronger, which is the whole point of having them. */
-  --scene-surface:       rgba(16, 14, 9, 0.30);
+  --scene-surface:       rgba(28, 24, 20, 0.30);
   /* Diffuse amber key light and restrained blue-violet counterlight. */
   --scene-key-light:     rgba(196, 132, 58, 0.50);
   --scene-counter-light: rgba(91, 97, 182, 0.38);
@@ -1025,7 +1032,7 @@ html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238
      thin (see --bg-surface). The desktop still comes through — as blur, as
      colour, as the tint the OS lays under all of it — it just no longer
      decides whether words are readable. */
-  --scene-surface:       rgba(16, 14, 9, 0.80);
+  --scene-surface:       rgba(28, 24, 20, 0.80);
 }
 :root[data-theme="light"] {
   --scene-key-light:     rgba(240, 168, 78, 0.20);
