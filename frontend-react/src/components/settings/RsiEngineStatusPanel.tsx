@@ -141,7 +141,8 @@ export function RsiEngineStatusPanel() {
         <Stat label="Iteration" value={e ? e.iteration.toLocaleString() : '-'} />
         <Stat label="Best score" value={e?.best_score != null ? e.best_score.toFixed(3) : '-'} />
         <Stat label="Spent" value={`$${(e?.cost_so_far_usd ?? 0).toFixed(4)}`} sub={spendLine} />
-        <Stat label="Main tip" value={status.main_tip ? status.main_tip.slice(0, 7) : '-'} sub={status.main_tip_score != null ? status.main_tip_score.toFixed(3) : 'no score'} />
+        {/* The score of the version in use, not its commit hash: a hash means nothing to the person reading it. */}
+        <Stat label="In use" value={status.main_tip_score != null ? status.main_tip_score.toFixed(3) : '-'} sub={status.main_tip ? 'current best version' : 'nothing kept yet'} />
       </div>
 
       <div className="flex items-center gap-3 text-2xs">
@@ -186,7 +187,7 @@ export function RsiEngineStatusPanel() {
       )}
 
       <p className="text-micro text-text-muted">
-        Engine autostarts on launch and re-reads <code className="text-text-secondary">CINDERPAW_RSI_MAX_COST_USD</code> on every restart. Set the USD cap in the section above.
+        Starts by itself when Cinderpaw opens. What it may spend is set in the section above.
       </p>
     </div>
   );

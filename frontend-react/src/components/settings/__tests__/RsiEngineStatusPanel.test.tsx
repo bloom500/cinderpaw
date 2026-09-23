@@ -54,7 +54,9 @@ describe('RsiEngineStatusPanel', () => {
     expect(await screen.findByText('running')).toBeInTheDocument();
     expect(screen.getByText('17')).toBeInTheDocument();
     expect(screen.getByText('0.810')).toBeInTheDocument();
-    expect(screen.getByText('abc1234')).toBeInTheDocument();
+    // The version in use is shown by its score; the commit hash is not a thing a person reads.
+    expect(screen.getByText('0.420')).toBeInTheDocument();
+    expect(screen.queryByText('abc1234')).toBeNull();
   });
 
   it('switches to "stopped" pill with the stop reason when the engine halts', async () => {

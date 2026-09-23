@@ -204,24 +204,24 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
     : phase === 'ratcheted' ? 'bg-warning'
     : phase === 'error'    ? 'bg-error'
                             : 'bg-text-muted';
+  // Said the way a person would, not in the engine's words ("RSI", "ratchet",
+  // "champion", "params" are all names from the code).
   const label =
-    phase === 'dreaming' ? 'dreaming'
-    : phase === 'ratcheted' ? 'ratcheted'
-    : phase === 'error'    ? 'error'
-                            : 'idle';
+    phase === 'dreaming' ? 'Learning'
+    : phase === 'ratcheted' ? 'Improved'
+    : phase === 'error'    ? 'Learning paused'
+                            : 'Resting';
   const detail =
-    phase === 'dreaming' ? 'Cinderpaw is exploring new params'
-    : phase === 'ratcheted' ? snapshot.lastRatchetScore != null
-        ? `champion score ${snapshot.lastRatchetScore.toFixed(1)}`
-        : 'new champion applied'
+    phase === 'dreaming' ? 'trying better ways to answer you'
+    : phase === 'ratcheted' ? 'a better version is now in use'
     : snapshot.lastRatchetAt
-      ? `last ratchet ${formatTimeAgo(Date.now(), snapshot.lastRatchetAt)}`
-      : 'no ratchets yet';
+      ? `last improved ${formatTimeAgo(Date.now(), snapshot.lastRatchetAt)}`
+      : 'no improvements yet';
   return (
     <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-bg-surface px-3 py-1.5 text-2xs backdrop-blur-sm ${tone}`}>
       <span className={`h-2 w-2 rounded-full ${dot}`} />
       <Brain size={12} className="opacity-70" />
-      <span className="font-medium uppercase tracking-wide">RSI · {label}</span>
+      <span className="font-medium">{label}</span>
       <span className="opacity-70">· {detail}</span>
     </div>
   );
@@ -247,7 +247,11 @@ export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: st
     linked.add(to.id);
     rows.push({
       id: `${e.from} ${e.relation} ${e.to}`,
-      label: `${from.label} ${e.relation.replace(/_/g, ' ')} ${to.label}`,
+      // "language has Romanian" read as a database row. `is` and `has` carry
+      // no meaning a colon does not, so those become "Language: Romanian".
+      label: /^(is|has)$/i.test(e.relation)
+        ? `${from.label.charAt(0).toUpperCase()}${from.label.slice(1).replace(/_/g, ' ')}: ${to.label}`
+        : `${from.label} ${e.relation.replace(/_/g, ' ')} ${to.label}`,
       type: e.relation,
       touched_at: Math.max(from.touched_at, to.touched_at),
     });

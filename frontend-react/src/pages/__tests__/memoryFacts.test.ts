@@ -11,7 +11,7 @@ describe('memory page rows', () => {
       ],
       edges: [{ from: 'language', to: 'romanian', relation: 'is' }],
     });
-    expect(rows.map((r) => r.label)).toEqual(['language is Romanian', 'orphan']);
+    expect(rows.map((r) => r.label)).toEqual(['Language: Romanian', 'orphan']);
     expect(rows[0]!.touched_at).toBe(20);
   });
 });
