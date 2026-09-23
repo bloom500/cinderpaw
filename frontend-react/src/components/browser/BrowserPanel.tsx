@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Glob
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
+import { useUI } from '@/stores/ui';
 import { ENGINE_LOGOS } from '@/lib/engineLogos';
 import { cn, readLocal, writeLocal, SECONDARY_BUTTON } from '@/lib/utils';
 import { listen } from '@tauri-apps/api/event';
@@ -73,6 +74,11 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   } = useBrowser();
   // Reader view is a page of our own; the chrome keeps showing the article's
   // original address (bookmarks, history and the star all take that one).
+  // Wide with the nav folded away: the page takes the canvas edge to edge. The
+  // nav's toggle stays where it floats, over the tab strip (React), never over
+  // the native page, which nothing can be drawn on.
+  const navCollapsed = useUI((s) => s.navCollapsed);
+  const edge = wide && navCollapsed;
   const readerOn = isReaderUrl(rawUrl);
   const url = readerOn ? readerOriginal(rawUrl) : rawUrl;
   const addressRef = useRef<HTMLInputElement>(null);
@@ -316,6 +322,8 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       className={cn(
         'relative flex min-w-[360px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
         wide && 'w-full flex-1',
+        // Out of main's gutters (pl-60px for the nav toggle, pr-4).
+        edge && '-ml-[60px] -mr-4 border-l-0',
         // A native page on top of the panel would otherwise take the pointer
         // mid-drag; the page is parked while the edge is held.
         dragging && 'select-none',
@@ -353,7 +361,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       />}
       {/* Tabs. pt-6 for the window's own buttons at the top-right, like the
           Artifacts panel. One row, scrolling sideways when there are many. */}
-      <div role="tablist" aria-label="Tabs" className="flex items-end gap-1 overflow-x-auto px-2 pt-6 thin-scrollbar">
+      <div role="tablist" aria-label="Tabs" className={cn('flex items-end gap-1 overflow-x-auto px-2 pt-6 thin-scrollbar', edge && 'pl-16')}>
         {tabs.map((t) => (
           <div
             key={t.id}
