@@ -1,6 +1,6 @@
 import { onPanelMotionSettled, panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { motion } from 'framer-motion';
+import { motion, Reorder } from 'framer-motion';
 import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
@@ -70,7 +70,7 @@ function place(r: DOMRect | null) {
 export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   const {
     url: rawUrl, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab, reopenTab,
-    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered,
+    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered, orderTabs,
   } = useBrowser();
   // Reader view is a page of our own; the chrome keeps showing the article's
   // original address (bookmarks, history and the star all take that one).
@@ -362,9 +362,13 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       {/* Tabs. pt-6 for the window's own buttons at the top-right, like the
           Artifacts panel. One row, scrolling sideways when there are many. */}
       <div role="tablist" aria-label="Tabs" className={cn('flex items-end gap-1 overflow-x-auto px-2 pt-6 thin-scrollbar', edge && 'pl-16')}>
+        {/* Dragged into any order, like every browser's strip. */}
+        <Reorder.Group as="div" axis="x" values={tabs} onReorder={orderTabs} className="flex items-end gap-1">
         {tabs.map((t) => (
-          <div
+          <Reorder.Item
+            as="div"
             key={t.id}
+            value={t}
             role="tab"
             aria-selected={t.id === active}
             tabIndex={0}
@@ -392,8 +396,9 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
             >
               <X size={12} />
             </button>
-          </div>
+          </Reorder.Item>
         ))}
+        </Reorder.Group>
         <button
           type="button"
           aria-label="New tab"

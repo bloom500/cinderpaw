@@ -1477,6 +1477,16 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             emit_state(&app);
             Ok(tabs_json())
         }
+        // The tab strip was dragged into a new order; `ids` is all of it, left
+        // to right. Ids it does not name keep their place at the end.
+        "order_tabs" => {
+            let ids: Vec<u64> = params.get("ids").and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_u64()).collect())
+                .unwrap_or_default();
+            tabs().lock().list.sort_by_key(|tab| ids.iter().position(|&i| i == u64::from(tab.id)).unwrap_or(usize::MAX));
+            emit_state(&app);
+            Ok(tabs_json())
+        }
         "close_tab" => {
             let id = params.get("id").and_then(|v| v.as_u64()).ok_or_else(|| "browser: \"id\" is required".to_string())? as u32;
             let label = {

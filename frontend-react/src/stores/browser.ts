@@ -84,6 +84,8 @@ interface BrowserStore {
   newTab: () => Promise<void>;
   switchTab: (id: number) => Promise<void>;
   closeTab: (id: number) => Promise<void>;
+  /** The strip as dragged, left to right. Shown at once, then told to the host. */
+  orderTabs: (tabs: BrowserTab[]) => void;
   /** Addresses of tabs closed this session, last first, for Ctrl+Shift+T. */
   closed: string[];
   reopenTab: () => Promise<void>;
@@ -176,6 +178,10 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
     }
   },
 
+  orderTabs: (tabs) => {
+    set({ tabs });
+    void tauri.browser.ui('order_tabs', { ids: tabs.map((t) => t.id) }).catch((e) => set({ error: String(e) }));
+  },
   closeTab: async (id) => {
     const closing = get().tabs.find((t) => t.id === id);
     try {
