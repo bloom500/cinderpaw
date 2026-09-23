@@ -119,15 +119,22 @@ export function computePeaks(samples: Float32Array, buckets = 48): number[] {
  * beeps read as an alarm clock; this reads as a notification.
  */
 let chimeCtx: AudioContext | null = null;
-export function chime(kind: 'ok' | 'fail'): void {
+export function chime(kind: 'ok' | 'fail' | 'connect' | 'end'): void {
   try {
     chimeCtx ??= new AudioContext();
     const ctx = chimeCtx;
     if (ctx.state === 'suspended') void ctx.resume();
     const at = ctx.currentTime;
-    const notes: Array<[number, number]> = kind === 'ok' ? [[1046.5, 0], [1318.5, 0.11]] : [[659.3, 0], [523.3, 0.13]];
+    // `connect` and `end` bracket a call: a fourth up (G5 to C6) when the line
+    // opens, the same fourth down when it closes, quieter than a result chime
+    // because they happen every call rather than once in a while.
+    const notes: Array<[number, number]> =
+      kind === 'ok' ? [[1046.5, 0], [1318.5, 0.11]]
+      : kind === 'connect' ? [[784, 0], [1046.5, 0.1]]
+      : kind === 'end' ? [[1046.5, 0], [784, 0.12]]
+      : [[659.3, 0], [523.3, 0.13]];
     const master = ctx.createGain();
-    master.gain.value = kind === 'ok' ? 0.16 : 0.12;
+    master.gain.value = kind === 'ok' ? 0.16 : kind === 'fail' ? 0.12 : 0.1;
     master.connect(ctx.destination);
     for (const [hz, delay] of notes) {
       for (const [mult, level] of [[1, 1], [2, 0.18]] as const) {

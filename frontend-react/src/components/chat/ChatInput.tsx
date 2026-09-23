@@ -28,7 +28,7 @@ import { useCallPill, hangUpLandsOn } from '@/lib/callPill';
 import { useJevCallSession } from '@/hooks/useJevCallSession';
 import { JEV_PROVIDER_ID } from './JevKeyRow';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
-import { decodeToPcm16k, computePeaks } from '@/lib/audio';
+import { decodeToPcm16k, computePeaks, chime } from '@/lib/audio';
 import { ensureSttModel } from '@/lib/voiceModel';
 import { stopActiveStream } from '@/lib/streamControl';
 import { useNotifications } from '@/stores/notifications';
@@ -145,6 +145,15 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       : callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
   // X and minimise park a live call in the top-of-screen pill instead of ending it.
   useCallPill(call);
+  // A tone when the line opens and when it closes: on a call you are looking
+  // away from the screen, and the sound is the confirmation. Jev chimes its own
+  // (useJevCallSession), so it is left out here rather than heard twice.
+  const wasLive = useRef(false);
+  useEffect(() => {
+    const live = call.phase !== 'idle' && call.phase !== 'ready' && call.phase !== 'connecting';
+    if (live !== wasLive.current && s2sProvider !== JEV_PROVIDER_ID) chime(live ? 'connect' : 'end');
+    wasLive.current = live;
+  }, [call.phase, s2sProvider]);
   // Changing who answers on the pre-call screen swaps the engine under it
   // (Jev <-> LiveKit), and the new one starts idle: idle closes the call screen,
   // so picking Gemini while on Jev dropped him back into the chat (22 and
