@@ -6,6 +6,18 @@ import { ChevronUp, Mic, MicOff, PhoneOff, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CallPillState } from '@/lib/callPill';
 
+/** What the pill says while a tool runs, by the tool's kind. */
+const WORK_VERB: Record<NonNullable<CallPillState['work']>['kind'], string> = {
+  agent: 'Cinder is working',
+  browser: 'Browsing',
+  files: 'Reading files',
+  terminal: 'Running a command',
+  memory: 'Remembering',
+  desktop: 'Using your desktop',
+  artifact: 'Writing',
+  generic: 'Working',
+};
+
 /**
  * The call pill's page: rendered alone in the `call-pill` window (see
  * `main.tsx`), over a transparent background. It owns nothing: every press is
@@ -82,15 +94,25 @@ export function CallPill() {
   }, [ask]);
 
   const phase = s?.phase ?? 'connecting';
+  const work = s?.work ?? null;
+  // A running clock is the difference between "working" and "stuck".
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!work) return;
+    const t = window.setInterval(() => tick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [work]);
+  const secs = work ? Math.max(0, Math.round((Date.now() - work.startedAt) / 1000)) : 0;
   const status = fault ? fault :
     ask ? 'Cinder is asking'
+      : work ? `${WORK_VERB[work.kind]} · ${secs}s`
       : phase === 'speaking' ? 'Cinder is speaking'
         : phase === 'thinking' ? 'Thinking'
           : phase === 'reconnecting' ? 'Reconnecting'
             : phase === 'connecting' ? 'Connecting'
               : s?.muted ? 'Muted' : 'Listening';
-  const line = s?.said || s?.heard || '';
-  const yours = Boolean(s && !s.said && s.heard);
+  const line = (work && !s?.said ? work.subject : '') || s?.said || s?.heard || '';
+  const yours = Boolean(s && !s.said && s.heard && !work);
   const btn = 'flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-bg-hover';
 
   return (

@@ -14,7 +14,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 const state = (over: Partial<CallPillState> = {}): CallPillState => ({
-  phase: 'listening', heard: '', said: '', muted: false, canMute: true, ask: null, ...over,
+  phase: 'listening', heard: '', said: '', muted: false, canMute: true, ask: null, work: null, ...over,
 });
 
 describe('CallPill', () => {
@@ -49,5 +49,11 @@ describe('CallPill', () => {
     const mute = screen.getByLabelText('Mute microphone');
     expect(mute).toBeDisabled();
     expect(mute).toHaveAttribute('title', 'This call engine has no microphone switch');
+  });
+  it('says what is running and for how long, instead of "Listening"', async () => {
+    render(<CallPill />);
+    act(() => push?.({ payload: state({ work: { kind: 'browser', subject: 'weather in Cluj', startedAt: Date.now() - 12_000 } }) }));
+    expect(await screen.findByText('Browsing · 12s')).toBeTruthy();
+    expect(screen.getByText('weather in Cluj')).toBeTruthy();
   });
 });
