@@ -1,3 +1,5 @@
+import { tauri } from '@/lib/tauri';
+import { listen } from '@tauri-apps/api/event';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
@@ -58,6 +60,19 @@ export function ChatPage() {
     const focus = () => chatInputRef.current?.focus();
     window.addEventListener('cinderpaw-focus-composer', focus);
     return () => window.removeEventListener('cinderpaw-focus-composer', focus);
+  }, []);
+  // Explorer's Send to > Cinderpaw: files the app was started with, and files
+  // sent while it is already open, land in the composer as attachments.
+  useEffect(() => {
+    const attach = (paths: string[]) => { if (paths.length) chatInputRef.current?.attachPaths(paths); };
+    // Through a promise so a host (or a test double) without the command rejects instead of throwing.
+    void Promise.resolve().then(() => tauri.raw.takeLaunchFiles()).then(attach).catch(() => {});
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void listen<string[]>('cinderpaw://attach-files', (e) => attach(e.payload))
+      .then((fn) => { if (cancelled) fn(); else unlisten = fn; })
+      .catch(() => {});
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);

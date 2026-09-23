@@ -267,6 +267,21 @@ pub struct DownloadProgress {
 // ---------- Entry ----------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Files the app was launched with (Explorer's "Send to > Cinderpaw" passes
+/// their paths as arguments). Held until the chat page asks for them with
+/// `take_launch_files`, because at startup there is no page to hand them to.
+pub(crate) static LAUNCH_FILES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// The arguments that are files on disk. The first argument is the program
+/// itself; a deep link (`cinderpaw://...`) is not a file and is left alone.
+pub(crate) fn file_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .skip(1)
+        .filter(|a| !a.contains("://") && std::path::Path::new(a.as_str()).is_file())
+        .cloned()
+        .collect()
+}
+
 /// Appearance -> Background: Solid. Read from settings once at startup and
 /// flipped by `set_window_solid`; a static because the focus handler below
 /// runs on every focus change and must not read a file each time.
@@ -626,6 +641,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             openrouter_sign_in,
             set_window_solid,
             cinderpaw_memory_forget,
+            take_launch_files,
             jev_decide,
             call_pill::call_pill_open,
             call_pill::call_pill_close,
@@ -903,6 +919,14 @@ Everything is there and nothing is at risk. Cinderpaw will                      
         })
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Send to > Cinderpaw while the app is already open: the second
+            // instance carries the file paths; they go to the chat page.
+            let files = file_args(&args);
+            if !files.is_empty() {
+                crate::deep_link::focus_main_window(app);
+                let _ = app.emit("cinderpaw://attach-files", files);
+                return;
+            }
             // Warm launch on Windows/Linux: the OS spawns a second instance
             // with the deep-link URL as a CLI arg. The deep-link plugin's
             // `deep-link` feature (enabled on single-instance) has already
@@ -935,6 +959,9 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             let _handle = app.handle().clone();
 
             WINDOW_SOLID.store(settings::load().window_solid, std::sync::atomic::Ordering::Relaxed);
+            if let Ok(mut pending) = LAUNCH_FILES.lock() {
+                *pending = file_args(&std::env::args().collect::<Vec<_>>());
+            }
 
             // Alt+Space from anywhere brings Cinderpaw to the front with the
             // cursor in the composer. If another app already owns Alt+Space

@@ -50,6 +50,9 @@
       "minimumSystemVersion": "13.3",
       "signingIdentity": "-"
     },
+    "windows": {
+      "nsis": { "installerHooks": "./windows/hooks.nsh" }
+    },
     "linux": {
       "deb": { "depends": ["git"] },
       "rpm": { "depends": ["git"] }

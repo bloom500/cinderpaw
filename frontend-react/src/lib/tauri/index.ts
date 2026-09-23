@@ -865,6 +865,8 @@ const raw = {
   openrouterSignIn:      () => invoke<string>('openrouter_sign_in'),
   /** Appearance -> Background: solid (true) or glass (false). Applied to the open window at once. */
   setWindowSolid:        (solid: boolean) => invoke<void>('set_window_solid', { solid }),
+  /** Files the app was launched with (Send to > Cinderpaw), handed over once. */
+  takeLaunchFiles:       () => invoke<string[]>('take_launch_files'),
   /** Memory page Forget: drop one fact (graph edge) from what the agent knows. */
   memoryForget:          (from: string, to: string, relation: string) =>
     invoke<void>('cinderpaw_memory_forget', { from, to, relation }),

@@ -40,6 +40,8 @@ export interface ChatInputHandle {
   focus: () => void;
   /** Attach files dropped anywhere on the chat page, not only on the composer. */
   attach: (dt: DataTransfer) => void;
+  /** Attach files by path (Explorer's Send to > Cinderpaw). */
+  attachPaths: (paths: string[]) => void;
 }
 
 export interface ChatInputProps {
@@ -262,6 +264,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     },
     focus: () => taRef.current?.focus(),
     attach: (dt: DataTransfer) => { void attachmentsFromClipboard(dt).then(addFiles); },
+    attachPaths: (paths: string[]) => { void Promise.all(paths.map(attachmentFromPath)).then(addFiles); },
   }));
 
   // Auto-resize textarea
