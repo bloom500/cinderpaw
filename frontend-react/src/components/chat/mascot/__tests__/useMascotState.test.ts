@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useMascotState, DONE_HOLD_MS, COOL_HOLD_MS, EXCITED_HOLD_MS } from '../useMascotState';
+import { useMascotState, DONE_HOLD_MS, COOL_HOLD_MS, EXCITED_HOLD_MS, CELEBRATE_AFTER_MS } from '../useMascotState';
 import type { StreamStatus } from '@/stores/chat';
 import type { AgentPhase } from '@/stores/chat';
 
@@ -121,5 +121,19 @@ describe('useMascotState', () => {
     it('EXCITED_HOLD_MS is 800', () => {
       expect(EXCITED_HOLD_MS).toBe(800);
     });
+  });
+  it('celebrates only a run that was long enough to wait on', () => {
+    vi.useFakeTimers();
+    const { result, rerender } = run({ streamStatus: 'streaming', agentPhase: null, isUserTyping: false });
+    vi.advanceTimersByTime(2_000);
+    rerender({ streamStatus: 'done', agentPhase: null, isUserTyping: false });
+    expect(result.current).toBe('done');
+    rerender({ streamStatus: 'streaming', agentPhase: null, isUserTyping: false });
+    vi.advanceTimersByTime(CELEBRATE_AFTER_MS);
+    rerender({ streamStatus: 'done', agentPhase: null, isUserTyping: false });
+    expect(result.current).toBe('celebrate');
+    act(() => { vi.advanceTimersByTime(COOL_HOLD_MS); });
+    expect(result.current).toBe('idle');
+    vi.useRealTimers();
   });
 });
