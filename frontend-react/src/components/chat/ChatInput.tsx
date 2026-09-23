@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
+import { LinkChip } from './LinkChip';
+import { splitLinks } from '@/lib/linkLabel';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
 import { VoiceProviderCard } from './VoiceProviderCard';
@@ -74,6 +76,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  // Links pasted on their own become chips beside the files instead of a
+  // hundred characters of address in the text box (the ChatGPT composer, 24
+  // Sep). They go back into the message, first, when it is sent.
+  const [links, setLinks] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const loaded      = useModel((s) => s.loaded);
   const cloudModel  = useModel((s) => s.cloudModel);
@@ -327,7 +333,18 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Keep text.
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
-    if (!items || !Array.from(items).some((i) => i.kind === 'file')) return;
+    const hasFile = !!items && Array.from(items).some((i) => i.kind === 'file');
+    // A paste that is nothing but links becomes chips. A sentence with a link
+    // in it stays text: the person is writing, not handing over an address.
+    const pasted = e.clipboardData?.getData('text/plain').trim() ?? '';
+    const parts = pasted ? splitLinks(pasted) : [];
+    if (!hasFile && parts.length > 0 && parts.every((x) => x.kind === 'link' || !x.text.trim())) {
+      e.preventDefault();
+      const found = parts.flatMap((x) => (x.kind === 'link' ? [x.href] : []));
+      setLinks((prev) => [...prev, ...found.filter((h) => !prev.includes(h))]);
+      return;
+    }
+    if (!hasFile) return;
     // Don't preventDefault — text+image paste should keep the text in the textarea
     // while also attaching the image. Preventing drops the text.
     void attachmentsFromClipboard(e.clipboardData).then(addFiles);
@@ -447,14 +464,21 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       }
       return;
     }
-    if ((!text.trim() && attachedFiles.length === 0) || isStreaming || disabled) return;
+    if ((!text.trim() && attachedFiles.length === 0 && links.length === 0) || isStreaming || disabled) return;
+    const draftText = text;
+    const draftLinks = links;
+    // Links first, the way they sat in the composer; the words on the next line.
+    const composed = links.length > 0
+      ? `${links.join(' ')}${text.trim() ? `\n${text}` : ''}`
+      : text;
     if (noModel) {
-      noModelReply(text);
+      noModelReply(composed);
       setText('');
       setAttachedFiles([]);
+      setLinks([]);
       return;
     }
-    const content = text;
+    const content = composed;
     const files = attachedFiles;
     // Cleared optimistically, because waiting for the whole turn before the
     // box empties feels broken. That makes what someone typed live nowhere but
@@ -464,6 +488,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     const before = useChat.getState().messages.length;
     setText('');
     setAttachedFiles([]);
+    setLinks([]);
     try {
       if (sendFn) {
         // Agent path: inline text attachments into the content (same as the
@@ -481,7 +506,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       // bubble exists the words are safe there, and restoring the draft as
       // well would show them twice.
       if (useChat.getState().messages.length === before) {
-        setText(content);
+        setText(draftText);
+        setLinks(draftLinks);
         setAttachedFiles(files);
       }
       useNotifications.getState().push(
@@ -498,6 +524,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       e.preventDefault();
       void trySend();
     }
+    // Backspace in an empty box takes the last link chip back, like deleting
+    // the character before the caret would have.
+    if (e.key === 'Backspace' && text === '' && links.length > 0) {
+      e.preventDefault();
+      setLinks((prev) => prev.slice(0, -1));
+    }
   };
 
   const removeFile = (path: string) =>
@@ -509,7 +541,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // a running conversation, where the transcript is the subject.
   const expanded =
     engaged || isEmpty || isStreaming || dragOver || text.length > 0 ||
-    attachedFiles.length > 0 || rec.state !== 'idle';
+    attachedFiles.length > 0 || links.length > 0 || rec.state !== 'idle';
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -548,8 +580,15 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               spacing complaint — the fix was room above the composer, which the
               greeting now leaves. */}
           <MascotPerch baseState={mascotState} />
-          {attachedFiles.length > 0 && (
+          {(attachedFiles.length > 0 || links.length > 0) && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
+              {links.map((href) => (
+                <LinkChip
+                  key={href}
+                  href={href}
+                  onRemove={() => setLinks((prev) => prev.filter((h) => h !== href))}
+                />
+              ))}
               {attachedFiles.map((f) => (
                 <AttachedFileChip
                   key={f.path}
