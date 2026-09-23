@@ -8,6 +8,7 @@ import { useChatStream } from './useChatStream';
 import { toIpcMessage, voiceToPersisted } from '@/lib/messageMapping';
 import { currentInferParams } from '@/lib/inferParams';
 import { autoTitle } from '@/lib/autoTitle';
+import { titleConversation } from '@/lib/chatTitle';
 import { splitThinking } from '@/lib/parseThink';
 import { tauri, type PersistedMessage } from '@/lib/tauri';
 import { resolveSttModel } from '@/lib/voiceModel';
@@ -357,6 +358,8 @@ export function useSendMessage() {
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted);
           await useConversations.getState().refresh();
+          // After the first answer, a short name instead of the first message cut at 40 characters.
+          void titleConversation(sessionId, persisted);
         } catch (err) {
           console.error('[chat] failed final save to Recent:', err);
         }

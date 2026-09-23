@@ -18,6 +18,7 @@ import { useNotifications } from '@/stores/notifications';
 import { useArtifacts } from '@/stores/artifacts';
 import { t } from '@/lib/i18n';
 import { autoTitle } from '@/lib/autoTitle';
+import { titleConversation } from '@/lib/chatTitle';
 import { voiceToPersisted } from '@/lib/messageMapping';
 import { splitThinking, stripStreamingToolCalls } from '@/lib/parseThink';
 import { tauri, type CinderpawAgentEvent, type PersistedMessage } from '@/lib/tauri';
@@ -308,6 +309,8 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         try {
           await tauri.conversations.save(sessionId, autoTitle(snapshot), persisted, agentId);
           await useConversations.getState().refresh();
+          // After the first answer, a short name instead of the first message cut at 40 characters.
+          void titleConversation(sessionId, persisted);
         } catch (err) {
           console.error('[cinderpaw] failed final save to Recent:', err);
         }
