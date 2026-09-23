@@ -36,6 +36,10 @@ Status as of 23 Sep 2026, evening. `[x]` done, `[ ]` open, `[~]` partly.
 - [ ] Taskbar-while-fullscreen fix, mascot wall, Language row, "play X on
       Spotify", Jev edit / open_folder / screenshot (from the 23 Sep morning).
 - [ ] One 5-minute call to read the stage timings (`lib/callTiming.ts`).
+- [ ] Models -> Cloud: the key cards moved here from Settings (2dc969e); every
+      "add a key" button (wizard, empty chat, error notice) lands on them.
+- [ ] Settings -> Learning: the new tab (c42aedb); Agent tab is short now; read
+      the words and say which still sound like an engineer.
 
 ## 4. The gate he set (19 Sep)
 
