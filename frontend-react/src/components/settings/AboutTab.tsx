@@ -1,5 +1,6 @@
 import { RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
 import { useUpdater } from '@/stores/updater';
+import { useWhatsNew } from '@/components/WhatsNew';
 import { useAppVersion } from '@/hooks/useAppVersion';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -61,6 +62,9 @@ export function AboutTab() {
         >
           <RefreshCw size={14} className={cn(status === 'checking' && 'animate-spin')} />
           {status === 'downloading' ? `Downloading… ${progress}%` : 'Check for updates'}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => useWhatsNew.getState().show()}>
+          What's new
         </Button>
 
         {status === 'up-to-date' && (

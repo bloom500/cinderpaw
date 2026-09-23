@@ -11,6 +11,7 @@ import { DownloadStatus } from './DownloadStatus';
 import { SideNav, NAV_W, NAV_COLLAPSED_W } from './SideNav';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { UpdateToast } from '@/components/UpdateToast';
+import { WhatsNew } from '@/components/WhatsNew';
 import { AlphaNotice } from '@/components/AlphaNotice';
 import { Toasts } from '@/components/Toasts';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
@@ -81,6 +82,7 @@ export function AppShell() {
   return (
     <div className="app-pane h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
       <SideNav />
+      <WhatsNew />
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat
           title": the page starts below it, so what shows through the glass is
