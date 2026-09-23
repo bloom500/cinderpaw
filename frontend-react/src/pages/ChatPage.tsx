@@ -348,7 +348,18 @@ export function ChatPage() {
     // A row, so the workspace can sit BESIDE the conversation rather than over
     // it. `min-w-0` on the column is what stops a long code line in a message
     // from pushing the panel off the edge instead of wrapping.
-    <div className="flex h-full">
+    // A file dropped anywhere on the page is attached, not only one aimed at
+    // the composer: the page is the target people actually aim at. The
+    // composer's own handler stops propagation by handling the drop first.
+    <div
+      className="flex h-full"
+      onDragOver={(e) => { if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault(); }}
+      onDrop={(e) => {
+        if (e.defaultPrevented || !Array.from(e.dataTransfer.types).includes('Files')) return;
+        e.preventDefault();
+        chatInputRef.current?.attach(e.dataTransfer);
+      }}
+    >
     {/* min-w-[28rem]: the artifacts panel may widen only until the chat is this
         wide (CHAT_MIN_WIDTH in ArtifactsPanel). */}
     {/* In wide mode the column lives in the browser panel (from `chat`). */}

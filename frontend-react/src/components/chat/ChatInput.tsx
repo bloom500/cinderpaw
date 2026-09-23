@@ -38,6 +38,8 @@ import { cn } from '@/lib/utils';
 export interface ChatInputHandle {
   setText: (text: string) => void;
   focus: () => void;
+  /** Attach files dropped anywhere on the chat page, not only on the composer. */
+  attach: (dt: DataTransfer) => void;
 }
 
 export interface ChatInputProps {
@@ -259,6 +261,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       setTimeout(() => taRef.current?.focus(), 0);
     },
     focus: () => taRef.current?.focus(),
+    attach: (dt: DataTransfer) => { void attachmentsFromClipboard(dt).then(addFiles); },
   }));
 
   // Auto-resize textarea
