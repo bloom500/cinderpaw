@@ -124,7 +124,7 @@ function JumpToBottom({ count }: { count: number }) {
           <button
             {...props}
             style={{ bottom: 'calc(var(--chat-dock-h, 5rem) + 0.75rem)' }}
-            className="absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-(--surface-typing) text-text-primary text-xs px-3 py-1.5 shadow-lg hover:bg-bg-hover flex items-center gap-1.5 border border-border-default"
+            className="absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-(--surface-typing) text-text-primary text-xs px-3 py-1.5 shadow-sm hover:bg-bg-hover flex items-center gap-1.5 border border-border-default"
           >
             ↓ {unread > 0 ? `${unread} new` : 'Jump to bottom'}
           </button>

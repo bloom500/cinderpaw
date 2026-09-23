@@ -986,7 +986,14 @@ html.has-window-effect[data-theme="light"] .app-pane {
    refraction during a slide, and `panelMotion` also defers the native
    webview resize. */
 
-/* The pane's own tint drops to a whisper, because the filter above is now
+/* 24 Sep, the Ember palette and his "more calm" call: the dark tint takes
+   the page's own warm hue (it was a cold rgb(10,10,12), which over a pale
+   wallpaper came out a muddy grey), and the light tint goes from a whisper to
+   a veil (0.02 let a busy wallpaper swirl behind every sentence). More tint
+   only raises contrast, so glass.test.ts floors still hold; the history
+   below explains how the pane got so thin in the first place.
+
+   The pane's own tint drops to a whisper, because the filter above is now
    doing the work the tint used to do badly. Dark sits at 0.25 — half of the
    0.49 a heavier veil needed, because contrast(0.37) carries more of the
    protection; that halving IS the extra transparency, measured: every text
@@ -996,8 +1003,8 @@ html.has-window-effect[data-theme="light"] .app-pane {
    palette blocks on specificity rather than on where it happens to sit in
    the file — the palette is declared both above and below this point, and
    source order alone would pick the wrong one. */
-html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(10, 10, 12, 0.73); }
-html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238, 0.02); }
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(28, 24, 20, 0.80); }
+html.has-window-effect[data-theme="light"] { --scene-surface: rgba(250, 246, 240, 0.35); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —
    both confirmed in the log at startup. So whether you can SEE through is
