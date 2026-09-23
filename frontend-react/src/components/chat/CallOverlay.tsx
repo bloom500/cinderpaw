@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Mic, MicOff, Phone, Square, X, Loader2, MessageSquare, ArrowUp, Laptop, Cloud, Settings2,
-  AudioLines, ChevronDown, Archive,
+  AudioLines, ChevronDown, Archive, PhoneOff,
 } from 'lucide-react';
 import { resolveSttModelRow } from '@/lib/voiceModel';
 import { Button } from '@/components/ui/button';
@@ -1114,7 +1114,10 @@ export function CallOverlay({
             does the lifting that the transparency was pretending to do. */}
         <div className="relative flex items-center gap-2 rounded-full border border-border-default bg-bg-surface p-2 shadow-lg">
           <RoundButton onClick={onHangUp} label={t('call.hangUp')} tone="danger">
-            <X size={20} />
+            {/* Before the call this closes a screen, so it is an X. Once the
+                line is open it ends a call, and every phone in the world
+                draws that as a phone put down. */}
+            {phase === 'ready' ? <X size={20} /> : <PhoneOff size={20} />}
           </RoundButton>
 
           {phase === 'ready' && noEngine ? (
