@@ -20,8 +20,12 @@ const ICONS: Record<ToastKind, React.ReactNode> = {
   error:   <AlertCircle size={14} className="text-error shrink-0 mt-0.5" />,
 };
 
-export function Toasts() {
-  const toasts = useNotifications((s) => s.toasts);
+/** `compact`: a native page fills the canvas and only the band above it is
+ *  visible, so one card shows (the newest, one line) and says how many wait. */
+export function Toasts({ compact = false }: { compact?: boolean }) {
+  const all = useNotifications((s) => s.toasts);
+  const toasts = compact ? all.slice(-1) : all;
+  const waiting = all.length - toasts.length;
   const dismiss = useNotifications((s) => s.dismiss);
 
   return (
@@ -49,9 +53,12 @@ export function Toasts() {
           >
             {ICONS[t.kind]}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-text-primary">{t.title}</p>
+              <p className="text-sm font-medium text-text-primary truncate">
+                {t.title}
+                {waiting > 0 && <span className="ml-1.5 text-xs font-normal text-text-muted">+{waiting} more</span>}
+              </p>
               {t.message && (
-                <p className="text-xs text-text-muted mt-0.5 leading-relaxed line-clamp-4 wrap-break-word">
+                <p className={cn('text-xs text-text-muted mt-0.5 leading-relaxed wrap-break-word', compact ? 'line-clamp-1' : 'line-clamp-4')}>
                   {t.message}
                 </p>
               )}

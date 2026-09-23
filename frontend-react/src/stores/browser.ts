@@ -72,6 +72,13 @@ interface BrowserStore {
   /** Modal dialogs open right now. Above zero, the panel parks the native page: a dialog cannot draw over it. */
   covered: number;
   cover: (delta: 1 | -1) => void;
+  /**
+   * Where the native page is on screen right now, or null when it is parked.
+   * A native page paints over anything React draws, so whatever must stay
+   * visible (toasts, the mascot's flight) has to know where it is.
+   */
+  pageRect: { x: number; y: number; w: number; h: number } | null;
+  setPageRect: (r: { x: number; y: number; w: number; h: number } | null) => void;
   open: (address: string) => Promise<void>;
   go: (op: 'back' | 'forward' | 'reload' | 'home') => Promise<void>;
   newTab: () => Promise<void>;
@@ -116,6 +123,8 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
 
   covered: 0,
   cover: (delta) => set((s) => ({ covered: Math.max(0, s.covered + delta) })),
+  pageRect: null,
+  setPageRect: (pageRect) => set({ pageRect }),
   setPanel: (open) => {
     set({ panelOpen: open });
     // The host restored last session's tabs at its first call, which may have

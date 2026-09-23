@@ -47,6 +47,19 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
  * that area for that reason.
  */
 /**
+ * Put the native page over this rectangle, or park it (null). The store keeps
+ * the same rectangle: a native page paints over everything React draws, so the
+ * toasts and the mascot need to know where it is to stay out from under it.
+ * ponytail: the call frame places the page on its own and does not report here.
+ */
+function place(r: DOMRect | null) {
+  useBrowser.getState().setPageRect(r && { x: r.left, y: r.top, w: r.width, h: r.height });
+  void tauri.browser
+    .ui('set_bounds', r ? { x: r.left, y: r.top, width: r.width, height: r.height, visible: true } : { visible: false })
+    .catch(() => {});
+}
+
+/**
  * `chat` is the conversation column, handed in by ChatPage. In wide mode the
  * browser takes the whole canvas up to the sidebar and the conversation opens
  * from a bubble, in a drawer beside the page. Beside, not over: the page is a
@@ -230,7 +243,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
     // A call frames the page itself; this re-runs and places it back here when the call ends.
     if (!el || !settled || inCall) return;
     // A modal is open: the page is parked until it closes, then placed again.
-    if (covered > 0) { void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {}); return; }
+    if (covered > 0) { place(null); return; }
     let frame = 0;
     const report = () => {
       cancelAnimationFrame(frame);
@@ -240,10 +253,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         // animating stalled both for a second or two (17 Sep). Deferred to the
         // end of the slide, where the rectangle is final anyway.
         onPanelMotionSettled(() => {
-          const r = el.getBoundingClientRect();
-          void tauri.browser
-            .ui('set_bounds', { x: r.left, y: r.top, width: r.width, height: r.height, visible: true })
-            .catch(() => {});
+          place(el.getBoundingClientRect());
         });
       });
     };
@@ -259,7 +269,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   }, [settled, inCall, covered]);
 
   // Leaving by any route (route change, unmount) parks the page.
-  useEffect(() => () => void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {}), []);
+  useEffect(() => () => place(null), []);
 
   // A window reload (Ctrl+R) tears down React without unmounting anything, and
   // the page is a NATIVE child webview the host placed: it kept floating over
@@ -273,7 +283,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   // the page would float again; the fix for that is a heartbeat from the panel
   // with a host-side watchdog, worth writing only if it actually happens.
   useEffect(() => {
-    const park = () => void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {});
+    const park = () => place(null);
     window.addEventListener('beforeunload', park);
     window.addEventListener('pagehide', park);
     return () => {
@@ -283,7 +293,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   }, []);
 
   const close = () => {
-    void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {});
+    place(null);
     setPanel(false);
   };
 

@@ -3,6 +3,7 @@ import { CinderpawMascot, usePrefersReducedMotion } from './CinderpawMascot';
 import { atRest, boundsFrom, leanDegrees, squashFor, step, type Body } from './physics';
 import { useUI } from '@/stores/ui';
 import type { MascotState } from './frames';
+import { useBrowser } from '@/stores/browser';
 
 /**
  * What the creature does when nobody is doing anything, and what it does when
@@ -231,6 +232,11 @@ function MascotPerchInner({ baseState }: { baseState: MascotState }) {
       right = mr.right - (parseFloat(cs.paddingRight) || 0);
       top = mr.top + (parseFloat(cs.paddingTop) || 0);
     }
+    // The browser's page is a native view that nothing React draws can cover:
+    // a creature thrown at it flew in behind it and was lost (23 Sep). Its
+    // edge is a wall, like the window's.
+    const { url, pageRect: page } = useBrowser.getState();
+    if (url && page && page.x >= homeLeft + w) right = Math.min(right, page.x);
 
     return boundsFrom(
       { left: homeLeft, top: homeTop, width: w },

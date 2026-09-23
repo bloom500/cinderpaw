@@ -63,8 +63,13 @@ export function AppShell() {
   useDreamCycle();
 
   const navCollapsed = useUI((s) => s.navCollapsed);
-  const browserOpen = useBrowser((s) => s.panelOpen && !s.wide);
+  // The native page, when one is showing (the start page is React, not native).
+  const page = useBrowser((s) => (s.url ? s.pageRect : null));
   const searchOpen   = useUI((s) => s.searchOpen);
+  const navRight = (navCollapsed ? NAV_COLLAPSED_W : NAV_W) + 16;
+  // Room for the 320px column between the nav and the page?
+  const besidePage = !!page && page.x - navRight >= 320 + 16;
+  const overPage = !!page && !besidePage;
 
   // Silent update check once on startup; the toast appears only if one is available.
   // Opt-out via Settings → General (privacy: the check contacts GitHub Releases).
@@ -148,17 +153,21 @@ export function AppShell() {
           `#root`'s z-index-1 stacking context lost to the call overlay's z-40
           outside it, so the errors that explain a failed call were invisible
           exactly when they were needed. */}
-      {/* The browser panel is a native page on the right, and a native page is
-          on top of anything React draws: a toast in that corner went under it
-          (21 Sep). With the panel open the stack moves to the chat side. */}
+      {/* The browser panel is a native page, and a native page is on top of
+          anything React draws: a toast over it went under it (21 Sep, and again
+          in wide mode on 23 Sep, where the old rule sent the stack right back
+          over the page). The column goes beside the page when there is room,
+          and when the page fills the canvas only the newest toast is shown, in
+          the toolbar band above the page. */}
       {createPortal(
         <div
-          className={cn('fixed top-11 z-200 w-80 flex flex-col gap-2 pointer-events-none', browserOpen ? 'left-0' : 'right-4')}
-          style={browserOpen ? { left: (navCollapsed ? NAV_COLLAPSED_W : NAV_W) + 16 } : undefined}
+          className={cn('fixed top-11 z-200 w-80 flex flex-col gap-2 pointer-events-none', besidePage ? 'left-0' : 'right-4')}
+          style={besidePage ? { left: navRight } : undefined}
         >
-          <AlphaNotice />
-          <UpdateToast />
-          <Toasts />
+          {/* Persistent cards wait until the page stops covering; they are not lost. */}
+          {!overPage && <AlphaNotice />}
+          {!overPage && <UpdateToast />}
+          <Toasts compact={overPage} />
         </div>,
         document.body,
       )}
