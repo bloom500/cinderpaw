@@ -63,6 +63,15 @@ export function Toasts({ compact = false }: { compact?: boolean }) {
                 </p>
               )}
             </div>
+            {t.action && (
+              <button
+                type="button"
+                onClick={() => { t.action!.run(); dismiss(t.id); }}
+                className="shrink-0 self-center rounded-md px-2 py-1 text-xs font-semibold text-brand hover:bg-bg-hover"
+              >
+                {t.action.label}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => dismiss(t.id)}

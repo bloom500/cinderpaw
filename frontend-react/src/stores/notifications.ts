@@ -18,12 +18,14 @@ export interface Toast {
   title: string;
   /** Optional body — long content is clamped by the component. */
   message?: string;
+  /** One button on the toast, e.g. Undo. Pressing it runs `run` and closes the toast. */
+  action?: { label: string; run: () => void };
   createdAt: number;
 }
 
 interface NotificationStore {
   toasts: Toast[];
-  push(kind: ToastKind, title: string, message?: string): void;
+  push(kind: ToastKind, title: string, message?: string, action?: Toast['action']): void;
   dismiss(id: string): void;
 }
 
@@ -47,12 +49,13 @@ const MAX_VISIBLE = 4;
 export const useNotifications = create<NotificationStore>((set, get) => ({
   toasts: [],
 
-  push(kind, title, message) {
+  push(kind, title, message, action) {
     const toast: Toast = {
       id: crypto.randomUUID(),
       kind,
       title,
       message,
+      action,
       createdAt: Date.now(),
     };
     set((s) => ({ toasts: [...s.toasts, toast].slice(-MAX_VISIBLE) }));
