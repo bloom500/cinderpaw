@@ -234,6 +234,23 @@
   html {
     font-family: 'Geist Variable', Geist, system-ui, sans-serif;
   }
+  /* A press you can feel. One button in 269 answered being pressed (23 Sep);
+     the rest changed colour on hover and then nothing, so a click read as
+     "did that land?". `scale`, not `transform`: it composes with whatever
+     transform a button already has instead of replacing it. In the base
+     layer, so any utility that sets `scale` still wins. */
+  @media (prefers-reduced-motion: no-preference) {
+    button:not(:disabled),
+    [role='button']:not([aria-disabled='true']) {
+      transition-property: scale, color, background-color, border-color, opacity, box-shadow;
+      transition-duration: 120ms;
+      transition-timing-function: ease-out;
+    }
+    button:not(:disabled):active,
+    [role='button']:not([aria-disabled='true']):active {
+      scale: 0.97;
+    }
+  }
 }
 
 @layer utilities {
