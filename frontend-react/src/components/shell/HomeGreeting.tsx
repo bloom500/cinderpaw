@@ -34,8 +34,11 @@ export function HomeGreeting() {
     //
     // The mascot stays on the composer, where it belongs: it walks that edge
     // and carries the tool-call stack, which is how anyone sees what is
-    // running. What it needed was air above the field, not a new home.
-    <div className="mb-8 flex flex-col items-center text-center select-none">
+    // running. What it needed was air above the field, not a new home: it
+    // perches 104px tall on the field's edge, and with mb-8 it stood through
+    // "What can" on the first screen a new install shows (23 Sep). mb-28
+    // clears it with a few px to spare and lifts the question, which sat low.
+    <div className="mb-28 flex flex-col items-center text-center select-none">
       <p className="text-base text-text-muted">{t(greetingKey())}</p>
       <h1 className="mt-1 text-3xl leading-[1.2] font-semibold tracking-[-0.02em] text-text-primary">
         {t('home.ask')}
