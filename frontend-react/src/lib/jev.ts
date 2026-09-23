@@ -42,7 +42,7 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
   web_search: {
     what: 'Search for something on the web or on a specific site',
     not_for: 'Finding a word on the page that is already open (find)',
-    examples: ['search for lofi hip hop', 'look up the weather in Cluj', 'search youtube for jazz', 'google best ramen near me'],
+    examples: ['search for lofi hip hop', 'look up the weather in Cluj', 'search youtube for jazz', 'google best ramen near me', 'play praying mantis on spotify', 'play some lofi on youtube', 'search spotify for daft punk'],
   },
   scroll: {
     what: 'Scroll the current page up or down, to the top or to the bottom',
@@ -69,7 +69,7 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
   },
   media: {
     what: 'Control whatever is playing: pause, play, resume, next or previous track or video, volume, mute',
-    not_for: 'Anything that is not playback',
+    not_for: 'Anything that is not playback, or playing a song, artist, album or video NAMED by the user (that is web_search on that site)',
     examples: ['pause', 'play the video', 'next video', 'skip this song', 'previous track', 'volume up', 'mute'],
   },
   shortcut: {
@@ -128,7 +128,16 @@ export const SEARCH_ON: Record<string, (q: string) => string> = {
   github: (q) => `https://github.com/search?q=${encodeURIComponent(q)}`,
   reddit: (q) => `https://www.reddit.com/search/?q=${encodeURIComponent(q)}`,
   amazon: (q) => `https://www.amazon.com/s?k=${encodeURIComponent(q)}`,
+  spotify: (q) => `https://open.spotify.com/search/${encodeURIComponent(q)}`,
 };
+
+/**
+ * "Play X": a search on a site that plays things, then its first result. The
+ * verb is read from the words, not asked of Jev: it is one word at the start
+ * of the sentence, and a question for it is ~400 ms for what a regex knows.
+ */
+const PLAY_VERB = /^\s*(?:(?:now|ok|okay|please|hey)[,\s]+)*(?:(?:can|could|would) you\s+(?:please\s+)?)?(?:play|put on|pune|porne[sș]te|d[aă] play la)\b/i;
+const PLAYS = new Set(['spotify', 'youtube']);
 
 const NAV = {
   back: 'go back to the previous page',
@@ -191,6 +200,9 @@ export function textCandidates(utterance: string): Record<string, string> {
   if (m) add(m[1]);
   const words = clean(utterance).split(/\s+/);
   for (let i = 1; i < words.length && out.length < 12; i++) add(words.slice(i).join(' '));
+  // Suffixes alone never drop the place at the END: "play praying mantis on
+  // Spotify" offered "praying mantis on spotify" and no "praying mantis" (23 Sep).
+  for (const c of [...out]) add(c.replace(/\s+(?:on|in|pe|în)\s+\S+$/i, ''));
   if (out.length === 0) out.push('(nothing)');
   return Object.fromEntries(out.map((c, i) => [`c${i}`, c]));
 }
@@ -328,7 +340,7 @@ export function splitSteps(utterance: string): string[] {
 export type Plan =
   | { action: 'open_app'; name: string; path: string; confidence: number }
   | { action: 'open_website'; url: string; label: string; system: boolean; confidence: number }
-  | { action: 'web_search'; url: string; query: string; system: boolean; confidence: number }
+  | { action: 'web_search'; url: string; query: string; system: boolean; play?: boolean; confidence: number }
   | { action: 'scroll'; dy: number; confidence: number }
   | { action: 'find'; query: string; confidence: number }
   | { action: 'click'; target: string; verb?: ClickVerb; confidence: number }
@@ -458,7 +470,12 @@ export function toPlan(utterance: string, ans: Answers, cands: Record<string, st
       const [engine] = pick('engine');
       const [tkey, ct] = pick('text');
       const query = cands[tkey] ?? utterance;
-      return { action, url: (SEARCH_ON[engine] ?? SEARCH_ON.default)(query), query, system, confidence: Math.min(conf, ct) };
+      const play = PLAYS.has(engine) && PLAY_VERB.test(utterance);
+      // Spotify's own app when it is installed: "not in the browser, in the
+      // app" (23 Sep). Its search: URI opens the app on the results.
+      const app = engine === 'spotify' && apps.some((a) => /spotify/i.test(a.name));
+      const url = app ? `spotify:search:${encodeURIComponent(query)}` : (SEARCH_ON[engine] ?? SEARCH_ON.default)(query);
+      return { action, url, query, system: app || system, ...(play ? { play } : {}), confidence: Math.min(conf, ct) };
     }
     case 'scroll': {
       const [dir, c] = pick('scroll_dir');
@@ -983,6 +1000,14 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
     case 'web_search': {
       const before = await frontTitle();
       await shellOpen(plan.url);
+      if (plan.play) {
+        // The results need a moment to be on screen and in the accessibility
+        // tree; clickInFront reads it more than once for the same reason.
+        await new Promise((r) => setTimeout(r, 2000));
+        const pressed = await clickInFront('the first song or video in the results').catch(() => false);
+        note(`play ${plan.query}: ${pressed ? 'first result pressed' : 'no result found to press'}`);
+        return pressed ? '' : `I searched for ${plan.query}, but could not find a result to play.`;
+      }
       return before === null || (await pageChanged(before)) ? `Searching for ${plan.query} in your browser.` : `I asked your browser to search for ${plan.query}, but nothing new came up.`;
     }
     case 'scroll': {
