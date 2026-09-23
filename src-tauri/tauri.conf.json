@@ -29,6 +29,7 @@
     "decorations": false,
     "transparent": true,
     "dragDropEnabled": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,HardwareMediaKeyHandling",
         "windowEffects": {
           "effects": ["acrylic"]
         }
