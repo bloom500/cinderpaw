@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useT } from '@/lib/i18n';
-import { useUI } from '@/stores/ui';
 import { useOnboarding } from '@/stores/onboarding';
 import { pickHomeLine } from '@/lib/homeLines';
 
@@ -8,11 +7,11 @@ const LAST_LINE_KEY = 'cinderpaw.homeLine.last';
 
 /** Today's line, remembered so the next visit gets a different one. Storage
  *  can be missing (private window, blocked site data); the line still shows. */
-function chooseLine(lang: 'en' | 'ro'): string {
+function chooseLine(): string {
   let last: string | null = null;
   try { last = localStorage.getItem(LAST_LINE_KEY); } catch { /* no storage */ }
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? '';
-  const line = pickHomeLine(new Date(), lang, zone, last);
+  const line = pickHomeLine(new Date(), zone, last);
   try { localStorage.setItem(LAST_LINE_KEY, line); } catch { /* no storage */ }
   return line;
 }
@@ -43,11 +42,10 @@ export function greetingKey(hour = new Date().getHours(), day = new Date().getDa
 
 export function HomeGreeting() {
   const t = useT();
-  const lang = useUI((s) => s.language);
   const name = useOnboarding((s) => s.userName);
   // Chosen once per visit: a line that changed while you looked at it would be
   // a screensaver, not a greeting.
-  const [line] = useState(() => chooseLine(lang));
+  const [line] = useState(chooseLine);
   const key = greetingKey();
   const hello = name && !key.startsWith('home.night') ? `${t(key)}, ${name}` : t(key);
   return (
