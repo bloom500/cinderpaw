@@ -10,6 +10,8 @@ import { MessageToolWidgets } from './MessageToolWidgets';
 import { MessageChain } from './MessageChain';
 import { MessageActions } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
+import { LinkChip } from './LinkChip';
+import { splitLinks } from '@/lib/linkLabel';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser } from '@/stores/askUser';
@@ -205,8 +207,10 @@ export const MessageItem = memo(function MessageItem({
             </div>
           )}
           {visibleText && (
-            <p className="text-[15px] whitespace-pre-wrap wrap-break-word leading-relaxed">
-              {visibleText}
+            <p className="text-base whitespace-pre-wrap wrap-break-word leading-relaxed">
+              {splitLinks(visibleText).map((part, i) =>
+                part.kind === 'link' ? <LinkChip key={i} href={part.href} /> : part.text,
+              )}
             </p>
           )}
         </div>
