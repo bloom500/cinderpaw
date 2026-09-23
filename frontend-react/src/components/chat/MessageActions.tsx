@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { Check, Copy, Pencil, RotateCcw, X } from 'lucide-react';
+import { Copy, Pencil, RotateCcw, X } from 'lucide-react';
 import { copyText } from '@/lib/clipboard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { CopiedCheck } from '@/components/ui/copied-check';
 
 /**
  * The row of actions under a message, after AI Elements' `Actions`.
@@ -78,7 +79,7 @@ export function MessageActions({
             onClick={copy}
           >
             {state === 'copied'
-              ? <span className="flex items-center gap-1 text-success"><Check size={14} /><span className="text-micro">Copied</span></span>
+              ? <span className="flex items-center gap-1 text-success"><CopiedCheck size={14} /><span className="text-micro">Copied</span></span>
               : state === 'failed'
                 ? <span className="flex items-center gap-1 text-error"><X size={14} /><span className="text-micro">Failed</span></span>
                 : <Copy size={14} />}

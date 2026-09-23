@@ -22,7 +22,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Copy, Check, Star, GripVertical } from 'lucide-react';
+import { Copy, Star, GripVertical } from 'lucide-react';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { copyText as writeText } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
@@ -36,6 +36,7 @@ import {
 } from '@/stores/coworkTranscript';
 import { useConversations } from '@/stores/conversations';
 import { useChat } from '@/stores/chat';
+import { CopiedCheck } from '@/components/ui/copied-check';
 
 const AVATAR_COLORS = [
   'bg-sky-500',
@@ -279,7 +280,7 @@ function Bubble({ m, showAuthor, pinned, onTogglePin }: { m: TranscriptMessage; 
                 : 'bg-bg-elevated border-border-subtle text-text-muted hover:text-text-secondary hover:border-brand/30',
             )}
           >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? <CopiedCheck size={12} /> : <Copy size={12} />}
             {copied ? 'Copied!' : 'Copy'}
           </button>
           {onTogglePin && (
