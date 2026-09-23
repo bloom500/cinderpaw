@@ -713,6 +713,8 @@ fn open_or_navigate(app: &AppHandle, url: Url) -> Result<Webview, String> {
 /// The tab whose page is in element fullscreen (a video's fullscreen button),
 /// if any. See `page_fullscreen`.
 static FULLSCREEN_TAB: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// The window was maximised when the page went fullscreen, to restore after.
+static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
 
 /// A page asked for fullscreen, or left it. A child webview's fullscreen only
 /// fills the webview, so a YouTube video went "fullscreen" inside the panel
@@ -728,6 +730,13 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
         let (Some(window), Some(wv)) = (app.get_window("main"), app.get_webview(&label)) else { return };
         if on {
             if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = Some(label.clone()); }
+            // A maximised undecorated window keeps its client area clipped to
+            // the work area, and fullscreen inherited the clip: the page ended
+            // 49 px short, exactly where the taskbar sat over it (23 Sep, his
+            // window was maximised). Leave maximised first; put it back after.
+            let was_max = window.is_maximized().unwrap_or(false);
+            WAS_MAXIMIZED.store(was_max, Ordering::SeqCst);
+            if was_max { let _ = window.unmaximize(); }
             let _ = window.set_fullscreen(true);
             // A transparent window in fullscreen stays under the Windows 11
             // taskbar (tauri#7328); he saw the bar over the video. Topmost for
@@ -757,6 +766,7 @@ fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
             tracing::info!(%label, "browser: page left fullscreen");
             let _ = window.set_always_on_top(false);
             let _ = window.set_fullscreen(false);
+            if WAS_MAXIMIZED.swap(false, Ordering::SeqCst) { let _ = window.maximize(); }
             if let Some(tab) = tabs().lock().list.iter_mut().find(|t| t.label == label) { tab.placed = None; }
             let _ = place_all(&app);
         }
