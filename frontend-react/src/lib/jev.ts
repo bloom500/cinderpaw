@@ -4,6 +4,7 @@ import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { parked } from '@/lib/callPill';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { audioDir, desktopDir, documentDir, downloadDir, pictureDir, videoDir } from '@tauri-apps/api/path';
 import { keysFor, type KeyCommand } from '@/lib/siteKeys';
 import type { AskUserQuestion } from '@/stores/askUser';
 
@@ -75,7 +76,7 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
   shortcut: {
     what: 'A keyboard shortcut the app or site in front has, listed under `shortcuts`, when none of the other actions covers it',
     not_for: 'Playback (media), pressing or acting on something the page shows, like a button, a video or an email (click), moving in the browser (navigate)',
-    examples: ['turn on captions', 'full screen', 'play faster', 'compose a new email', 'rename the file', 'new folder', 'save', 'zoom in'],
+    examples: ['turn on captions', 'full screen', 'play faster', 'compose a new email', 'rename the file', 'new folder', 'zoom in'],
   },
   type: {
     what: 'Type words into whatever has the keyboard focus right now: a note, a document, a chat box, a form field',
@@ -86,6 +87,20 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
     what: 'Do something to the WINDOW of an application: close the app, minimise it, hide it, maximise it, make it full screen',
     not_for: 'Closing a tab or a page inside the browser (navigate), or opening an app (open_app)',
     examples: ['close Spotify', 'close this app', 'minimise WhatsApp', 'hide this window', 'maximise it', 'inchide Spotify', 'minimizeaza fereastra'],
+  },
+  edit: {
+    what: 'An editing command in whatever app is in front: copy, cut, paste, undo, redo, save, select all',
+    not_for: 'Typing words (type), a shortcut only one app or site has (shortcut)',
+    examples: ['copy that', 'paste', 'undo', 'redo that', 'save the file', 'select all', 'cut it'],
+  },
+  open_folder: {
+    what: "Open one of the person's own folders in the file explorer: Downloads, Documents, Desktop, Pictures, Music, Videos",
+    not_for: 'An application (open_app) or a website (open_website)',
+    examples: ['open my downloads', 'show me the documents folder', 'open desktop', 'go to my pictures'],
+  },
+  screenshot: {
+    what: 'Take a screenshot of the screen',
+    examples: ['take a screenshot', 'screenshot this', 'capture the screen', 'fa un screenshot'],
   },
   stop: {
     what: 'Tell the assistant to stop listening, hang up, or end the call',
@@ -138,6 +153,12 @@ export const SEARCH_ON: Record<string, (q: string) => string> = {
  */
 const PLAY_VERB = /^\s*(?:(?:now|ok|okay|please|hey)[,\s]+)*(?:(?:can|could|would) you\s+(?:please\s+)?)?(?:play|put on|pune|porne[sș]te|d[aă] play la)\b/i;
 const PLAYS = new Set(['spotify', 'youtube']);
+
+/** The same keys in every Windows app. */
+const EDIT_KEYS = { copy: '{ctrl+c}', cut: '{ctrl+x}', paste: '{ctrl+v}', undo: '{ctrl+z}', redo: '{ctrl+y}', save: '{ctrl+s}', select_all: '{ctrl+a}' };
+
+/** The person's folders, by where Tauri finds them on this machine. */
+const FOLDERS = { downloads: downloadDir, documents: documentDir, desktop: desktopDir, pictures: pictureDir, music: audioDir, videos: videoDir };
 
 const NAV = {
   back: 'go back to the previous page',
@@ -311,6 +332,16 @@ export function questions(cands: Record<string, string>, shortcuts?: Record<stri
       instructions: 'Assume the user wants to control playback. What?',
       criteria: { play_pause: 'play, pause, resume or stop the current track or video', next: 'next track / skip', previous: 'previous track / go back a song', volume_up: 'louder', volume_down: 'quieter', mute: 'mute or unmute the sound' },
     },
+    edit_op: {
+      type: 'choice',
+      instructions: 'Assume the user wants an editing command in the app in front. Which one?',
+      criteria: { copy: 'copy', cut: 'cut', paste: 'paste', undo: 'undo the last change', redo: 'redo', save: 'save the file', select_all: 'select everything' },
+    },
+    folder: {
+      type: 'choice',
+      instructions: 'Assume the user wants one of their folders opened. Which one?',
+      criteria: { downloads: 'Downloads', documents: 'Documents', desktop: 'Desktop', pictures: 'Pictures / photos / screenshots', music: 'Music', videos: 'Videos' },
+    },
     compound: {
       type: 'noul',
       instructions: 'Does `utterance` ask for two or more separate actions to be performed one after another (for example "open youtube and search for jazz, then click the first one")? A single action with several words is not compound.',
@@ -350,6 +381,9 @@ export type Plan =
   | { action: 'shortcut'; keys: string; means: string; confidence: number }
   | { action: 'type'; text: string; confidence: number }
   | { action: 'window_ctl'; op: 'close' | 'minimize' | 'maximize'; app: string | null; confidence: number }
+  | { action: 'edit'; op: keyof typeof EDIT_KEYS; confidence: number }
+  | { action: 'open_folder'; folder: keyof typeof FOLDERS; confidence: number }
+  | { action: 'screenshot'; confidence: number }
   | { action: 'stop'; confidence: number }
   | { action: 'none'; confidence: number };
 
@@ -376,6 +410,7 @@ export function earlyFingerprint(plan: Plan): string | null {
     case 'open_app': return `open_app:${plan.name.toLowerCase()}`;
     case 'open_website': return `open_website:${plan.url}`;
     case 'scroll': return `scroll:${plan.dy}`;
+    case 'open_folder': return `open_folder:${plan.folder}`;
     // "Can you close?" closed a tab at 0.82 before the sentence said which (22 Sep).
     case 'navigate': return plan.op === 'close_tab' ? null : `navigate:${plan.op}`;
     default: return null;
@@ -474,7 +509,10 @@ export function toPlan(utterance: string, ans: Answers, cands: Record<string, st
       // Spotify's own app when it is installed: "not in the browser, in the
       // app" (23 Sep). Its search: URI opens the app on the results.
       const app = engine === 'spotify' && apps.some((a) => /spotify/i.test(a.name));
-      const url = app ? `spotify:search:${encodeURIComponent(query)}` : (SEARCH_ON[engine] ?? SEARCH_ON.default)(query);
+      // Words joined by "+", letters and digits only: the host's launcher refuses
+      // "%", quotes and "&" (they would make it a command line, not a target).
+      const words = query.replace(/[^\p{L}\p{N}\s-]/gu, ' ').trim().split(/\s+/).join('+');
+      const url = app ? `spotify:search:${words}` : (SEARCH_ON[engine] ?? SEARCH_ON.default)(query);
       return { action, url, query, system: app || system, ...(play ? { play } : {}), confidence: Math.min(conf, ct) };
     }
     case 'scroll': {
@@ -539,6 +577,15 @@ export function toPlan(utterance: string, ans: Answers, cands: Record<string, st
         ? { action, op: op as 'close' | 'minimize' | 'maximize', app: named?.app_name ?? null, confidence: Math.min(conf, c) }
         : { action: 'none', confidence: conf };
     }
+    case 'edit': {
+      const [op, c] = pick('edit_op');
+      return op in EDIT_KEYS ? { action, op: op as keyof typeof EDIT_KEYS, confidence: Math.min(conf, c) } : { action: 'none', confidence: conf };
+    }
+    case 'open_folder': {
+      const [f, c] = pick('folder');
+      return f in FOLDERS ? { action, folder: f as keyof typeof FOLDERS, confidence: Math.min(conf, c) } : { action: 'none', confidence: conf };
+    }
+    case 'screenshot': return { action, confidence: conf };
     case 'reader': return { action, confidence: conf };
     case 'stop': return { action, confidence: conf };
     default: return { action: 'none', confidence: conf };
@@ -999,7 +1046,9 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
     }
     case 'web_search': {
       const before = await frontTitle();
-      await shellOpen(plan.url);
+      // The shell plugin opens http(s) only; an app's own URI goes through the launcher.
+      if (plan.url.startsWith('spotify:')) await invoke('launch_app', { app: plan.url }).catch((e) => { throw desktopError(e); });
+      else await shellOpen(plan.url);
       if (plan.play) {
         // The results need a moment to be on screen and in the accessibility
         // tree; clickInFront reads it more than once for the same reason.
@@ -1049,6 +1098,16 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
     // "close Spotify" came back as `navigate` and closed a browser tab, and
     // "minimise WhatsApp" came back as `open_app` and re-opened what the person
     // wanted out of the way (22 Sep, four times in one round).
+    case 'edit': { await keys(EDIT_KEYS[plan.op]); return ''; }
+    case 'open_folder': {
+      const dir = await FOLDERS[plan.folder]();
+      await invoke('launch_app', { app: dir }).catch((e) => { throw desktopError(e); });
+      return `Opening ${plan.folder}.`;
+    }
+    // Windows' own snipping overlay: the person picks the area, the image
+    // lands on the clipboard and in the notification. There is no key for a
+    // silent full-screen shot that SendInput can press.
+    case 'screenshot': { await keys('{win+shift+s}'); return 'Pick the area to capture.'; }
     case 'window_ctl': {
       if (plan.app) await focusWindowOf(plan.app);
       const spec = plan.op === 'close' ? '{alt+f4}' : plan.op === 'minimize' ? '{win+down}' : '{win+up}';
@@ -1116,7 +1175,7 @@ export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
   // executeOnDesktop). An application opens on the desktop wherever the call
   // is. `desktop` is what `decide` saw, so a plan runs where it was made.
   const onDesktop = desktop ?? (await outOfSight());
-  if (onDesktop || target.system || plan.action === 'open_app' || plan.action === 'type' || plan.action === 'window_ctl') return executeOnDesktop(plan);
+  if (onDesktop || target.system || ['open_app', 'type', 'window_ctl', 'edit', 'open_folder', 'screenshot'].includes(plan.action)) return executeOnDesktop(plan);
   const b = useBrowser.getState();
   const ui = tauri.browser.ui;
   switch (plan.action) {

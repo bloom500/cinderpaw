@@ -21,11 +21,19 @@ describe('jev brain', () => {
     expect(key).toBeDefined();
     const ans = { action: choice('web_search'), engine: choice('spotify'), text: choice(key!) };
     const inApp = toPlan(said, ans, c, undefined, [{ name: 'Spotify', path: 'C:/Spotify.lnk' }]);
-    expect(inApp).toMatchObject({ action: 'web_search', url: 'spotify:search:praying%20mantis', system: true, play: true });
+    expect(inApp).toMatchObject({ action: 'web_search', url: 'spotify:search:praying+mantis', system: true, play: true });
     // No app installed: the web player, still played.
     expect(toPlan(said, ans, c)).toMatchObject({ url: 'https://open.spotify.com/search/praying%20mantis', play: true });
     // A search is not a play.
     expect(toPlan('search spotify for praying mantis', ans, c)).not.toHaveProperty('play');
+  });
+
+  it('editing, folders and screenshots are their own closed choices', () => {
+    const c = textCandidates('paste');
+    expect(toPlan('paste', { action: choice('edit'), edit_op: choice('paste') }, c)).toMatchObject({ action: 'edit', op: 'paste' });
+    expect(toPlan('open downloads', { action: choice('open_folder'), folder: choice('downloads') }, c)).toMatchObject({ action: 'open_folder', folder: 'downloads' });
+    expect(toPlan('open the attic', { action: choice('open_folder'), folder: choice('attic') }, c)).toMatchObject({ action: 'none' });
+    expect(toPlan('take a screenshot', { action: choice('screenshot') }, c)).toMatchObject({ action: 'screenshot' });
   });
 
   it('a spoken domain opens as a site, a known name opens its address', () => {
