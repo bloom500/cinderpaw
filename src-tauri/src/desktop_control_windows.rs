@@ -851,6 +851,18 @@ pub fn send_keys(handle: &str, keys: &str) -> Result<(), String> {
     // Focus AND verify the foreground actually moved before dispatching input —
     // otherwise SendInput races and types into the wrong (previous) window.
     ensure_focused(&auto, &el, pid)?;
+    // Where the keys actually land. "Pause" reached YouTube's document three
+    // times on 23 Sep and nothing paused; nothing recorded whether the target
+    // was even in front when SendInput ran, or what held the focus.
+    let focused = unsafe { auto.GetFocusedElement() }.ok();
+    tracing::info!(
+        target_pid = pid,
+        foreground_pid = ?foreground_pid(),
+        focus_pid = ?focused.as_ref().and_then(|f| process_id(f).ok()),
+        focus = %focused.as_ref().and_then(|f| unsafe { f.CurrentName() }.ok()).map(|b| b.to_string()).unwrap_or_default(),
+        keys,
+        "desktop control: sending keys",
+    );
     // SAFETY: `inputs` is a valid, fully-initialized slice of INPUT for the
     // lifetime of the call; cbsize is the per-record size as the API requires.
     let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
