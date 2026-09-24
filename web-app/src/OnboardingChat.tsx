@@ -39,7 +39,7 @@ export function OnboardingChat() {
   // cleanup function, which blanks the whole page.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [lines, step, busy]);
+  }, [lines, step, busy, showAll]);
 
   useEffect(() => {
     const saved = load(localStorage);
@@ -202,7 +202,7 @@ export function OnboardingChat() {
           )}
           {step === "pick-provider" && (
             <div className="choices wrap">
-              {(showAll ? providers : commonFirst(providers).common).map((p) => (
+              {(showAll ? [...commonFirst(providers).common, ...commonFirst(providers).rest] : commonFirst(providers).common).map((p) => (
                 <button key={p.id} type="button" className="button quiet" onClick={() => pick(p)}>{p.name}</button>
               ))}
               {!showAll && commonFirst(providers).rest.length > 0 && (

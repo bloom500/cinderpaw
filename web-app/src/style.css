@@ -177,10 +177,11 @@ h1 {
 /* The controls stick to the bottom; keep the newest line above them, not
    under them (a failure sentence hidden behind the key field is invisible). */
 .end {
-  scroll-margin-bottom: 140px;
+  /* Tall enough for the open provider list (max 30vh) plus the field. */
+  scroll-margin-bottom: calc(30vh + 80px);
 }
 .choices.wrap {
-  max-height: 40vh;
+  max-height: 30vh;
   overflow-y: auto;
   align-items: center;
 }
