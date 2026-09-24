@@ -112,7 +112,9 @@ pub fn main_out_of_sight(app: &AppHandle) -> bool {
 #[specta::specta]
 #[allow(unreachable_code)]
 pub fn main_in_front(app: AppHandle) -> bool {
-    let Some(main) = app.get_webview_window("main") else { return false };
+    // `get_window`, not `get_webview_window`: the latter is None whenever the
+    // built-in browser has a tab open (more than one webview in the window).
+    let Some(main) = app.get_window("main") else { return false };
     #[cfg(windows)]
     {
         use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, GA_ROOTOWNER};

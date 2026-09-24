@@ -3,6 +3,7 @@ import { useUI, type ThemePref } from '@/stores/ui';
 import { useEffect, useState } from 'react';
 import { tauri } from '@/lib/tauri';
 import { useNotifications } from '@/stores/notifications';
+import { useSettings } from '@/stores/settings';
 
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'dark',   label: 'Dark' },
@@ -24,10 +25,16 @@ export function AppearanceTab() {
   const pickSolid = (next: boolean) => {
     const was = solid;
     setSolid(next);
-    tauri.raw.setWindowSolid(next).catch((err) => {
-      setSolid(was);
-      useNotifications.getState().push('error', 'Could not change the background', String(err));
-    });
+    tauri.raw
+      .setWindowSolid(next)
+      // The Settings pages save their whole loaded object back to disk; left
+      // with the old value, the next Save on any tab put the old background
+      // back.
+      .then(() => useSettings.setState((st) => (st.settings ? { settings: { ...st.settings, window_solid: next } } : {})))
+      .catch((err) => {
+        setSolid(was);
+        useNotifications.getState().push('error', 'Could not change the background', String(err));
+      });
   };
 
   return (

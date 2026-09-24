@@ -198,13 +198,19 @@ pub(crate) fn set_window_solid(app: tauri::AppHandle, solid: bool) -> Result<(),
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
         use tauri::Manager;
-        if let Some(w) = app.get_webview_window("main") {
+        // The window and its page, looked up separately. `get_webview_window`
+        // answers None as soon as the built-in browser has a tab open (the
+        // window then holds more than one webview), and this switch silently
+        // did nothing in either direction (24 Sep).
+        if let (Some(win), Some(page)) = (app.get_window("main"), app.get_webview("main")) {
             if solid {
-                let _ = w.set_effects(None);
-                let _ = w.eval("document.documentElement.classList.remove('has-window-effect')");
-            } else if w.set_effects(crate::window_effects()).is_ok() {
-                let _ = w.eval("document.documentElement.classList.add('has-window-effect')");
+                let _ = win.set_effects(None);
+                let _ = page.eval("document.documentElement.classList.remove('has-window-effect')");
+            } else if win.set_effects(crate::window_effects()).is_ok() {
+                let _ = page.eval("document.documentElement.classList.add('has-window-effect')");
             }
+        } else {
+            tracing::warn!("appearance: main window not found, background saved but not applied until restart");
         }
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]

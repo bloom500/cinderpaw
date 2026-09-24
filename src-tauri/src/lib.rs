@@ -979,11 +979,15 @@ Everything is there and nothing is at risk. Cinderpaw will                      
                             if event.state() != ShortcutState::Pressed {
                                 return;
                             }
-                            if let Some(w) = app.get_webview_window("main") {
+                            // Window and page separately: `get_webview_window`
+                            // is None while a browser tab is open.
+                            if let Some(w) = app.get_window("main") {
                                 let _ = w.unminimize();
                                 let _ = w.show();
                                 let _ = w.set_focus();
-                                let _ = w.eval("window.dispatchEvent(new Event('cinderpaw-focus-composer'))");
+                            }
+                            if let Some(page) = app.get_webview("main") {
+                                let _ = page.eval("window.dispatchEvent(new Event('cinderpaw-focus-composer'))");
                             }
                         })
                         .build(),
