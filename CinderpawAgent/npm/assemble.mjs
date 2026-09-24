@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Assemble one per-platform npm package: `cinderpaw-agent-<os>-<arch>`, containing
-// just that platform's two binaries (the Rust CLI + the Bun sidecar) plus a
+// just that platform's three binaries (the Rust CLI, the Bun sidecar and the Go
+// TUI that is the chat window and setup wizard) plus a
 // package.json with `os`/`cpu` set so npm installs it only on a matching host.
 //
 //   node npm/assemble.mjs --os linux --arch x64 \
-//     --cli target/release/cinderpaw-cli --agent dist/cinderpaw-agent
+//     --cli target/release/cinderpaw-cli --agent dist/cinderpaw-agent //     --tui ../tui/cinderpaw-tui
 //
 // Output: CinderpawAgent/npm/dist/cinderpaw-agent-<os>-<arch>/  (ready to `npm publish`)
 //
@@ -27,8 +28,8 @@ const args = Object.fromEntries(
 
 const os = args.os;      // win32 | darwin | linux  (node's process.platform names)
 const arch = args.arch;  // x64 | arm64             (node's process.arch names)
-if (!os || !arch || !args.cli || !args.agent) {
-  console.error("usage: assemble.mjs --os <win32|darwin|linux> --arch <x64|arm64> --cli <path> --agent <path>");
+if (!os || !arch || !args.cli || !args.agent || !args.tui) {
+  console.error("usage: assemble.mjs --os <win32|darwin|linux> --arch <x64|arm64> --cli <path> --agent <path> --tui <path>");
   process.exit(1);
 }
 
@@ -38,7 +39,8 @@ const ext = os === "win32" ? ".exe" : "";
 // CinderpawAgent/ and passes e.g. `../target/release/cinderpaw-cli` and `dist/cinderpaw-agent`.
 const cliSrc = resolve(args.cli);
 const agentSrc = resolve(args.agent);
-for (const [label, p] of [["cli", cliSrc], ["agent", agentSrc]]) {
+const tuiSrc = resolve(args.tui);
+for (const [label, p] of [["cli", cliSrc], ["agent", agentSrc], ["tui", tuiSrc]]) {
   if (!existsSync(p)) {
     console.error(`${label} binary not found: ${p}`);
     process.exit(1);
@@ -62,13 +64,13 @@ const outDir = join(npmDir, "dist", dirName);
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
-// Binaries must sit in the SAME directory: the Rust CLI's find_binary() looks
-// for the `cinderpaw-agent` sidecar next to its own executable.
-copyFileSync(cliSrc, join(outDir, `cinderpaw-cli${ext}`));
-copyFileSync(agentSrc, join(outDir, `cinderpaw-agent${ext}`));
-if (os !== "win32") {
-  chmodSync(join(outDir, `cinderpaw-cli${ext}`), 0o755);
-  chmodSync(join(outDir, `cinderpaw-agent${ext}`), 0o755);
+// Binaries must sit in the SAME directory: the Rust CLI looks for the
+// `cinderpaw-agent` sidecar and the `cinderpaw-tui` chat next to its own
+// executable (find_binary, chat::tui_binary_path).
+const bins = [[cliSrc, "cinderpaw-cli"], [agentSrc, "cinderpaw-agent"], [tuiSrc, "cinderpaw-tui"]];
+for (const [src, base] of bins) {
+  copyFileSync(src, join(outDir, `${base}${ext}`));
+  if (os !== "win32") chmodSync(join(outDir, `${base}${ext}`), 0o755);
 }
 
 const pkgJson = {
@@ -80,7 +82,7 @@ const pkgJson = {
   repository: { type: "git", url: "git+https://github.com/bloom500/cinderpaw.git", directory: "CinderpawAgent" },
   os: [os],
   cpu: [arch],
-  files: [`cinderpaw-cli${ext}`, `cinderpaw-agent${ext}`],
+  files: bins.map(([, base]) => `${base}${ext}`),
   publishConfig: { access: "public" },
 };
 writeFileSync(join(outDir, "package.json"), JSON.stringify(pkgJson, null, 2) + "\n");
