@@ -590,15 +590,30 @@ func (a *App) renderHelpOverlay(under string) string {
 	}
 	// Commands + keys both render from single sources of truth: the command
 	// Registry (P0.8) and Keys.HelpEntries(). No hand-maintained lists.
-	lines := []string{""}
-	for _, c := range nonHiddenCommands() {
-		lines = append(lines, helpCommandLine(c))
-	}
-	lines = append(lines, "")
+	var keyLines []string
 	for _, b := range Keys.HelpEntries() {
 		h := b.Help()
-		lines = append(lines, helpLine(h.Key, h.Desc))
+		keyLines = append(keyLines, helpLine(h.Key, h.Desc))
 	}
+	var cmdLines []string
+	for _, c := range nonHiddenCommands() {
+		cmdLines = append(cmdLines, helpCommandLine(c))
+	}
+	// Fit the terminal. At 80x24 the list ran past the bottom edge and the
+	// last commands and every key binding were cut off with no sign they
+	// existed. Commands get at least 8 rows (the registry lists the common
+	// ones first), keys what is left, and whatever does not fit is named
+	// as a count with the way to reach it.
+	room := a.Height - 6 // title, blank rows, "esc close"
+	cmdRoom := room - len(keyLines)
+	if cmdRoom < 8 {
+		cmdRoom = 8
+	}
+	cmdLines = fitHelp(cmdLines, cmdRoom, "more commands · type / to see them all")
+	keyLines = fitHelp(keyLines, room-len(cmdLines), "more keys")
+	lines := append([]string{""}, cmdLines...)
+	lines = append(lines, "")
+	lines = append(lines, keyLines...)
 	lines = append(lines,
 		"",
 		ui.HelpMeta.Render("  esc close"),
@@ -610,6 +625,19 @@ func (a *App) renderHelpOverlay(under string) string {
 		lipgloss.Center, lipgloss.Center, box,
 		lipgloss.WithWhitespaceChars(" "))
 	return composeOverlay(under, overlay, a.Width, a.Height)
+}
+
+// fitHelp keeps at most `room` rows of `lines`, the last of them saying how
+// many were left out.
+func fitHelp(lines []string, room int, what string) []string {
+	if len(lines) <= room {
+		return lines
+	}
+	if room < 1 {
+		return nil
+	}
+	kept := lines[:room-1]
+	return append(kept[:len(kept):len(kept)], ui.HelpMeta.Render(fmt.Sprintf("  … %d %s", len(lines)-len(kept), what)))
 }
 
 // composeOverlay places a centered overlay box on top of an existing
