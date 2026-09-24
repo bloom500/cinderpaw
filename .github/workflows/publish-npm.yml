@@ -135,7 +135,8 @@ jobs:
         run: |
           node npm/assemble.mjs \
             --os ${{ matrix.node_os }} --arch ${{ matrix.node_arch }} \
-            --cli "../$CLI" --agent "dist/cinderpaw-agent${{ matrix.binext }}"             --tui "../tui/cinderpaw-tui${{ matrix.binext }}"
+            --cli "../$CLI" --agent "dist/cinderpaw-agent${{ matrix.binext }}" \
+            --tui "../tui/cinderpaw-tui${{ matrix.binext }}"
 
       - name: Publish (or pack on dry run)
         working-directory: CinderpawAgent/npm/dist/${{ matrix.pkg }}

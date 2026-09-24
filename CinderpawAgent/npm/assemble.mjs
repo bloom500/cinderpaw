@@ -5,7 +5,8 @@
 // package.json with `os`/`cpu` set so npm installs it only on a matching host.
 //
 //   node npm/assemble.mjs --os linux --arch x64 \
-//     --cli target/release/cinderpaw-cli --agent dist/cinderpaw-agent //     --tui ../tui/cinderpaw-tui
+//     --cli target/release/cinderpaw-cli --agent dist/cinderpaw-agent \
+//     --tui ../tui/cinderpaw-tui
 //
 // Output: CinderpawAgent/npm/dist/cinderpaw-agent-<os>-<arch>/  (ready to `npm publish`)
 //
