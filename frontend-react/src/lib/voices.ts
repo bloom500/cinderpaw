@@ -4,12 +4,11 @@ import type { TtsVoice } from './tauri';
 export const VOICE_SHORTLIST = 5;
 
 /**
- * Languages this app is used in, and therefore the only voice languages worth
- * offering. Not a universal truth — it is the pair the interface itself ships
- * (`LangPref`), and a voice in a language the user cannot check is a voice they
- * cannot judge.
+ * Voice languages offered to everybody: the interface's own (`LangPref`,
+ * English this release). A voice in the language the person SPEAKS is offered
+ * on top, through `lang` below, so a Romanian speaker still gets Romanian ones.
  */
-const READABLE_LANGS = ['ro', 'en'];
+const READABLE_LANGS = ['en'];
 
 /**
  * Does this label read like a name a person would choose?

@@ -20,7 +20,6 @@
  */
 
 import { t, type StringKey } from '@/lib/i18n';
-import { useUI } from '@/stores/ui';
 
 /** Midnight local time, as a timestamp. The unit every comparison here uses. */
 function startOfDay(ms: number): number {
@@ -87,15 +86,13 @@ const FIXED_LABELS: Record<Exclude<BucketKey['kind'], 'month'>, StringKey> = {
 /**
  * What the heading reads.
  *
- * Month names come from the platform in the user's own language rather than
- * from a hardcoded list — the app already lets someone pick Romanian, and a
- * column that says "Today" in Romanian and "August" in English is a column that
- * was translated halfway. The year is dropped for the current one, because
+ * Month names come from the platform, in English like the rest of the UI this
+ * release. The year is dropped for the current one, because
  * "August 2026" in August 2026 is noise.
  */
 function bucketLabel(b: BucketKey, now: number): string {
   if (b.kind !== 'month') return t(FIXED_LABELS[b.kind]);
-  const locale = useUI.getState().language === 'ro' ? 'ro-RO' : 'en-US';
+  const locale = 'en-US';
   const sameYear = b.year === new Date(now).getFullYear();
   return new Date(b.year, b.month, 1).toLocaleDateString(locale, {
     month: 'long',

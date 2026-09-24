@@ -6,7 +6,8 @@ export type ThemePref = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export type ReasoningMode = 'auto' | 'on' | 'off';
 export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' | 'code_execute';
-export type LangPref = 'en' | 'ro';
+// English only this release; the next one adds ~70 languages.
+export type LangPref = 'en';
 export type InputMode = 'chat' | 'agent';
 /**
  * Which on-device transcription model to use, by id.
@@ -69,7 +70,6 @@ interface UIStore {
   reasoningMode: ReasoningMode;
   enabledTools: ToolId[];
   setTheme: (t: ThemePref) => void;
-  setLanguage: (l: LangPref) => void;
   searchOpen:  boolean;
   /**
    * Project the search should open narrowed to, when it was opened from
@@ -179,10 +179,6 @@ export const useUI = create<UIStore>()(
       language: 'en',
       reasoningMode: 'auto',
       enabledTools: [],
-      setLanguage: (language) => {
-        document.documentElement.lang = language;
-        set({ language });
-      },
       setTheme: (theme) => {
         const resolved = resolveTheme(theme);
         applyTheme(resolved);
@@ -228,7 +224,6 @@ export const useUI = create<UIStore>()(
       partialize: (s) => ({
         navCollapsed: s.navCollapsed,
         theme: s.theme,
-        language: s.language,
         // `reasoningMode` and `enabledTools` are deliberately NOT persisted any
         // more. The composer controls that set them are gone, so a saved value
         // would be a setting with no way back: someone who once picked
@@ -259,6 +254,9 @@ export const useUI = create<UIStore>()(
         const { reasoningMode: _r, enabledTools: _t, ...rest } =
           (persisted ?? {}) as Partial<UIStore>;
         const merged = { ...current, ...rest };
+        // The Romanian interface was removed; a machine that picked it still
+        // has 'ro' saved, and the voice shortlist and dates read this field.
+        merged.language = 'en';
         // A retired engine that is still stored is still selected. Same reason
         // as the two keys above: rehydration merges the saved blob over the
         // defaults, so the machine that has been using voice the longest is
@@ -277,7 +275,7 @@ export const useUI = create<UIStore>()(
         const resolved = resolveTheme(state.theme);
         applyTheme(resolved);
         state.resolvedTheme = resolved;
-        document.documentElement.lang = state.language ?? 'en';
+        document.documentElement.lang = 'en';
       },
     },
   ),
