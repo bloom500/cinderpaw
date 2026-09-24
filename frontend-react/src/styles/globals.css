@@ -559,8 +559,6 @@
   --bg-active:       rgba(53, 48, 39, 0.58);
   --border-subtle:   #2C2820;
   --border-default:  #3A342B;
-  --text-primary:    #F0E6D3;
-  --text-secondary:  #B8AC95;
   /* `muted` and `disabled` were tuned against flat #100E09. Over a lit scene
      they lost the little contrast they had: #4A4035 on this ground is about
      2:1, which is below the threshold for text of any size, and it is what the

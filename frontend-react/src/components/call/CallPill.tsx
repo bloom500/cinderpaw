@@ -212,7 +212,7 @@ export function CallPill() {
                 <button
                   type="button"
                   onClick={() => { void emit('call-pill://open'); }}
-                  className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                  className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90"
                 >
                   {ask.questions} questions: open Cinderpaw to answer
                 </button>
@@ -229,7 +229,7 @@ export function CallPill() {
                       onClick={() => { void emit('call-pill://answer', { id: ask.id, selected: [o.label] }); }}
                       className={cn(
                         'rounded-full px-4 py-2 text-sm font-medium transition-colors',
-                        o.recommended ? 'bg-brand text-white hover:opacity-90' : 'bg-bg-hover hover:bg-bg-active',
+                        o.recommended ? 'bg-brand text-brand-foreground hover:opacity-90' : 'bg-bg-hover hover:bg-bg-active',
                       )}
                     >
                       {o.label}

@@ -98,7 +98,7 @@ export function AlphaNotice() {
           type="button"
           onClick={() => setShown(false)}
           aria-label="Dismiss notice"
-          className="shrink-0 rounded-md p-1 text-text-muted hover:bg-white/5 hover:text-text-primary"
+          className="shrink-0 rounded-md p-1 text-text-muted hover:bg-bg-hover hover:text-text-primary"
         >
           <X size={14} />
         </button>

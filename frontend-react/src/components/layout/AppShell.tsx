@@ -30,7 +30,7 @@ function WinControls() {
       <button
         type="button"
         onClick={() => void getCurrentWindow().minimize()}
-        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-white/5 transition-colors"
+        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-bg-hover transition-colors"
         aria-label="Minimize"
       >
         <Minus size={14} strokeWidth={1.5} />
@@ -38,7 +38,7 @@ function WinControls() {
       <button
         type="button"
         onClick={() => void getCurrentWindow().toggleMaximize()}
-        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-white/5 transition-colors"
+        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-bg-hover transition-colors"
         aria-label="Maximize"
       >
         <Square size={12} strokeWidth={1.5} />
