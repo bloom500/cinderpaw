@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { COPY } from "./copy";
 import {
-  failureLine, firstOffers, load, manualCandidate, mask, save, tryCandidate, tryKey,
+  commonFirst, failureLine, firstOffers, load, manualCandidate, mask, save, tryCandidate, tryKey,
   type Api, type Candidate, type KeyResult, type Outcome, type Provider,
 } from "./onboarding";
 
@@ -91,4 +91,12 @@ test("the mask shows only the ends", () => {
 
 test("unknown statuses fall back to the plain sentence with details", () => {
   expect(failureLine(fail("unknown"))).toEqual({ line: COPY.somethingElse, details: "raw unknown message" });
+});
+
+test("a beginner sees four common providers first, in a fixed order, the rest behind a button", () => {
+  const p = (id: string): Provider => ({ ...openrouter, id, name: id });
+  const all = ["openai", "anthropic", "google", "kimi", "glm", "openrouter", "nvidia"].map(p);
+  const { common, rest } = commonFirst(all);
+  expect(common.map((x) => x.id)).toEqual(["openrouter", "openai", "anthropic", "google"]);
+  expect(rest.map((x) => x.id)).toEqual(["kimi", "glm", "nvidia"]);
 });

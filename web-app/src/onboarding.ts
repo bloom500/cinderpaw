@@ -52,6 +52,14 @@ export function fetchApi(f: typeof fetch = fetch): Api {
   };
 }
 
+/** The few most people have; the rest sit behind "Show me more". */
+const COMMON = ["openrouter", "openai", "anthropic", "google"];
+
+export function commonFirst(all: Provider[]): { common: Provider[]; rest: Provider[] } {
+  const common = COMMON.map((id) => all.find((p) => p.id === id)).filter((p): p is Provider => !!p);
+  return { common, rest: all.filter((p) => !COMMON.includes(p.id)) };
+}
+
 /** A key typed by hand, shaped the way `cinderpaw setup` sends it. */
 export function manualCandidate(p: Provider): Candidate {
   return {

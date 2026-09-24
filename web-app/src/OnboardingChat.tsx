@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { COPY } from "./copy";
 import {
-  fetchApi, firstOffers, load, manualCandidate, save, tryCandidate, tryKey,
+  commonFirst, fetchApi, firstOffers, load, manualCandidate, save, tryCandidate, tryKey,
   type Candidate, type KeyResult, type Provider, type Step,
 } from "./onboarding";
 
@@ -21,6 +21,7 @@ export function OnboardingChat() {
   const [provider, setProvider] = useState<Provider | null>(null);
   const [local, setLocal] = useState<Candidate | undefined>();
   const [open, setOpen] = useState<number | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const add = (l: Line) => setLines((ls) => [...ls, l]);
@@ -33,7 +34,12 @@ export function OnboardingChat() {
     save(localStorage, { step: s, name: n, providerId: p?.id });
   };
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), [lines, step]);
+  // A block body on purpose: current Chrome returns a Promise from
+  // scrollIntoView, and an effect that returns one makes React call it as a
+  // cleanup function, which blanks the whole page.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [lines, step, busy]);
 
   useEffect(() => {
     const saved = load(localStorage);
@@ -181,7 +187,7 @@ export function OnboardingChat() {
           </div>
         ))}
         {busy && <div className="bubble agent typing" aria-label="Cinderpaw is typing">…</div>}
-        <div ref={endRef} />
+        <div ref={endRef} className="end" />
       </div>
 
       {!busy && (
@@ -196,9 +202,12 @@ export function OnboardingChat() {
           )}
           {step === "pick-provider" && (
             <div className="choices wrap">
-              {providers.map((p) => (
+              {(showAll ? providers : commonFirst(providers).common).map((p) => (
                 <button key={p.id} type="button" className="button quiet" onClick={() => pick(p)}>{p.name}</button>
               ))}
+              {!showAll && commonFirst(providers).rest.length > 0 && (
+                <button type="button" className="link" onClick={() => setShowAll(true)}>{COPY.moreProviders}</button>
+              )}
             </div>
           )}
           {step === "key" && <TextForm secret placeholder={COPY.keyPlaceholder} send={COPY.keySave} onSend={submitKey} />}

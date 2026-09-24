@@ -23,6 +23,7 @@ export const COPY = {
   ],
   openOpenRouter: "Open OpenRouter",
   pickProvider: "Which one is your key from?",
+  moreProviders: "Show me more",
   pasteKey: (provider: string) => `Paste your ${provider} key here. Only this computer will see it.`,
   keyPlaceholder: "Paste your key",
   keySave: "Save",

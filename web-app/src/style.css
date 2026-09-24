@@ -174,3 +174,13 @@ h1 {
   white-space: pre-wrap;
   color: var(--muted);
 }
+/* The controls stick to the bottom; keep the newest line above them, not
+   under them (a failure sentence hidden behind the key field is invisible). */
+.end {
+  scroll-margin-bottom: 140px;
+}
+.choices.wrap {
+  max-height: 40vh;
+  overflow-y: auto;
+  align-items: center;
+}
