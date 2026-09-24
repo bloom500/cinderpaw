@@ -367,32 +367,11 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
 
     let mut failed = 0;
     for t in &targets {
-        // Windows cannot delete the .exe running this command: hand the folder
-        // to a detached PowerShell that waits for us to exit first.
         #[cfg(windows)]
         if kind == Kind::Folder {
-            use std::os::windows::process::CommandExt;
-            let script = format!(
-                // Retries for 30 s: the sidecar can still hold files for a
-                // few seconds after the gateway stops.
-                "Wait-Process -Id {} -ErrorAction SilentlyContinue; $p='{}'; for ($i=0; $i -lt 30 -and (Test-Path -LiteralPath $p); $i++) {{ Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; if (Test-Path -LiteralPath $p) {{ Start-Sleep 1 }} }}",
-                std::process::id(),
-                footprint::ps_quote(&show(t))
-            );
-            let spawned = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
-                .creation_flags(0x0000_0008) // DETACHED_PROCESS
-                .spawn();
-            match spawned {
-                Ok(_) => println!("  {OK}removing{RESET} {DIM}{META}{} (finishes when this command ends){RESET}", show(t)),
-                Err(e) => {
-                    failed += 1;
-                    eprintln!("  {FAIL}could not remove {}{RESET}: {e}", show(t));
-                }
-            }
-            continue;
+            park_running_exe(t);
         }
-        let removed = if t.is_dir() { std::fs::remove_dir_all(t) } else { std::fs::remove_file(t) };
+        let removed = if t.is_dir() { remove_dir_retrying(t, 30) } else { std::fs::remove_file(t) };
         match removed {
             Ok(()) => println!("  {OK}removed{RESET} {DIM}{META}{}{RESET}", show(t)),
             Err(e) => {
@@ -558,6 +537,33 @@ pub fn open() -> i32 {
     0
 }
 
+/// A just-stopped sidecar can hold its database for a few more seconds.
+fn remove_dir_retrying(dir: &Path, secs: u32) -> std::io::Result<()> {
+    let mut last = Ok(());
+    for _ in 0..=secs {
+        last = std::fs::remove_dir_all(dir);
+        if last.is_ok() || !dir.exists() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    last
+}
+
+/// Windows will not delete the .exe running this command, but it will rename
+/// it. Park it in %TEMP% so the folder can go now, in this process, with the
+/// outcome on screen. (A detached helper that deleted after we exited never
+/// ran on the CI runner, and its failure would reach nobody.)
+#[cfg(windows)]
+fn park_running_exe(dir: &Path) {
+    if let Ok(exe) = std::env::current_exe() {
+        if exe.starts_with(dir) {
+            let parked = std::env::temp_dir().join(format!("cinderpaw-uninstalled-{}.exe", std::process::id()));
+            let _ = std::fs::rename(&exe, parked);
+        }
+    }
+}
+
 fn confirm(prompt: &str) -> bool {
     let Palette { meta: META, reset: RESET, .. } = palette();
     crate::common::reset_console_mode();
@@ -663,6 +669,32 @@ mod tests {
         assert!(is_folder_install(Path::new("/home/ana/.cinderpaw/bin/cinderpaw"), data));
         assert!(!is_folder_install(Path::new("/home/ana/.local/bin/cinderpaw"), data));
         assert!(!is_folder_install(Path::new("/home/ana/.cinderpaw/cinderpaw"), data));
+    }
+
+    /// The sidecar can hold files for a few seconds after the gateway stops;
+    /// one failed attempt must not leave ~/.cinderpaw behind.
+    #[cfg(windows)]
+    #[test]
+    fn removal_waits_out_a_file_still_held_open() {
+        let dir = std::env::temp_dir().join(format!("cp-held-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("agent")).unwrap();
+        // Opened the way SQLite opens its database: read/write sharing, no
+        // FILE_SHARE_DELETE, so nobody can delete it while it is held.
+        use std::os::windows::fs::OpenOptionsExt;
+        let held = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .share_mode(0x1 | 0x2)
+            .open(dir.join("agent/cinderpaw.db"))
+            .unwrap();
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            drop(held);
+        });
+        let removed = remove_dir_retrying(&dir, 10);
+        releaser.join().unwrap();
+        assert!(removed.is_ok(), "{removed:?}");
+        assert!(!dir.exists());
     }
 
     #[test]
