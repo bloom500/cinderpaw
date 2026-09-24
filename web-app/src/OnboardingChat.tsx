@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { streamChat } from "./chatStream";
+import { finishTool, streamChat } from "./chatStream";
 import { COPY } from "./copy";
 import {
   commonFirst, fetchApi, firstOffers, load, manualCandidate, save, tryCandidate, tryKey,
@@ -100,7 +100,7 @@ export function OnboardingChat() {
       else if (e.type === "reasoning") patch((l) => ({ ...l, reasoning: (l.reasoning ?? "") + e.text }));
       else if (e.type === "tool_start") patch((l) => ({ ...l, tools: [...(l.tools ?? []), { id: e.id, tool: e.tool }] }));
       else if (e.type === "tool_done")
-        patch((l) => ({ ...l, tools: (l.tools ?? []).map((t) => (t.id === e.id ? { ...t, ok: e.ok } : t)) }));
+        patch((l) => ({ ...l, tools: finishTool(l.tools ?? [], e.tool, e.ok) }));
       else if (e.type === "error")
         patch((l) => ({ ...l, text: l.text ? `${l.text}\n\n${COPY.chatError}` : COPY.chatError, details: e.detail }));
     });
@@ -210,8 +210,8 @@ export function OnboardingChat() {
                 <p>{l.reasoning}</p>
               </details>
             )}
-            {l.tools?.map((t) => (
-              <p key={t.id} className={`tool ${t.ok === false ? "bad" : ""}`}>
+            {l.tools?.map((t, j) => (
+              <p key={j} className={`tool ${t.ok === false ? "bad" : ""}`}>
                 {t.ok === undefined ? "⏳" : t.ok ? "✓" : "✗"}{" "}
                 {t.ok === false ? COPY.toolFailed(plain(t.tool)) : COPY.working(plain(t.tool))}
               </p>

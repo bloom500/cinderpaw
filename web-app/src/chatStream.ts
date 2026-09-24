@@ -15,6 +15,18 @@ type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 export const SESSION = "chat";
 
+/**
+ * Tool frames carry the MESSAGE id, not a per-call one, so a finished tool is
+ * matched to the last still-running row with the same name.
+ */
+export function finishTool<T extends { tool: string; ok?: boolean }>(rows: T[], tool: string, ok: boolean): T[] {
+  let i = -1;
+  rows.forEach((r, j) => {
+    if (r.tool === tool && r.ok === undefined) i = j;
+  });
+  return rows.map((r, j) => (j === i ? { ...r, ok } : r));
+}
+
 /** Complete SSE records from `buffer`, and whatever trailing part is not yet complete. */
 export function parseSse(buffer: string): { events: { event: string; data: string }[]; rest: string } {
   const records = buffer.replace(/\r\n/g, "\n").split("\n\n");
@@ -106,7 +118,9 @@ export async function streamChat(f: Fetch, content: string, on: (e: ChatEvent) =
           continue;
         }
         if (event === "tool_done") {
-          on({ type: "tool_done", id: String(raw.id ?? ""), tool: String(raw.tool ?? ""), ok: raw.ok !== false });
+          // The sidecar puts success in result.ok (top-level ok on older builds).
+          const ok = (raw.ok ?? raw.result?.ok) !== false;
+          on({ type: "tool_done", id: String(raw.id ?? ""), tool: String(raw.tool ?? ""), ok });
           continue;
         }
         if (event !== "message") continue;

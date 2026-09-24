@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseSse, ThinkSplitter, streamChat, type ChatEvent } from "./chatStream";
+import { finishTool, parseSse, ThinkSplitter, streamChat, type ChatEvent } from "./chatStream";
 
 test("SSE records are split on blank lines and keep their event name", () => {
   const { events, rest } = parseSse('data: {"a":1}\n\nevent: tool_start\ndata: {"id":"t1"}\n\ndata: {"par');
@@ -65,4 +65,32 @@ test("an error frame, a cut stream and no engine all end in one error event", as
   expect((await run(body([chunk("Hi")], true))).at(-1)?.type).toBe("error");
   expect((await run(new Error("fetch failed"))).at(-1)?.type).toBe("error");
   expect((await run(new Response("nope", { status: 401 }))).at(-1)).toEqual({ type: "error", detail: "401 nope" });
+});
+
+// Shape copied from a real gateway.log (25 Sep): every tool frame carries the
+// MESSAGE id, and success sits in result.ok, not at the top level.
+test("real tool frames: success is read from result.ok", async () => {
+  const id = "0beae56b";
+  const got = await run(body([
+    `event: tool_start\ndata: ${JSON.stringify({ type: "tool_start", id, tool: "list_skills", args: {} })}\n\n`,
+    `event: tool_done\ndata: ${JSON.stringify({ type: "tool_done", id, tool: "list_skills", result: { ok: false, content: "x" } })}\n\n`,
+    `event: tool_start\ndata: ${JSON.stringify({ type: "tool_start", id, tool: "connectors_manage", args: {} })}\n\n`,
+    `event: tool_done\ndata: ${JSON.stringify({ type: "tool_done", id, tool: "connectors_manage", result: { ok: true } })}\n\n`,
+    "data: [DONE]\n\n",
+  ]));
+  expect(got.filter((e) => e.type === "tool_done")).toEqual([
+    { type: "tool_done", id, tool: "list_skills", ok: false },
+    { type: "tool_done", id, tool: "connectors_manage", ok: true },
+  ]);
+});
+
+test("a tool_done lands on the last unfinished row of that tool, not every row with the id", () => {
+  const rows = [
+    { tool: "list_skills", ok: false as boolean | undefined },
+    { tool: "connectors_manage", ok: undefined as boolean | undefined },
+  ];
+  expect(finishTool(rows, "connectors_manage", true)).toEqual([
+    { tool: "list_skills", ok: false },
+    { tool: "connectors_manage", ok: true },
+  ]);
 });
