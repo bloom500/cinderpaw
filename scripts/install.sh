@@ -62,7 +62,7 @@ sha256_of() {
 
 # Newest CLI release tag. The desktop owns "latest", so list and pick ours.
 cli_tag() {
-  curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=30" \
+  curl -fsL --connect-timeout 20 "https://api.github.com/repos/${REPO}/releases?per_page=30" \
     | grep -oE '"tag_name": *"cinderpaw-agent-v[^"]+"' | head -1 | sed -E 's/.*"(cinderpaw-agent-v[^"]+)"/\1/'
 }
 
@@ -92,8 +92,8 @@ install_prebuilt() {
   fi
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  curl -fsSL -o "$tmp/$asset" "$base/$asset" || { echo; plain_fail "$MSG_OFFLINE"; }
-  sums="$(curl -fsSL "$base/SHA256SUMS")" || { echo; plain_fail "$MSG_OFFLINE"; }
+  curl -fsL --connect-timeout 20 -o "$tmp/$asset" "$base/$asset" || { echo; plain_fail "$MSG_OFFLINE"; }
+  sums="$(curl -fsL --connect-timeout 20 "$base/SHA256SUMS")" || { echo; plain_fail "$MSG_OFFLINE"; }
   want="$(sum_for "$sums" "$asset")"
   got="$(sha256_of "$tmp/$asset")"
   if [ -z "$want" ] || [ "$want" != "$got" ]; then
