@@ -52,3 +52,125 @@ h1 {
 .icon {
   font-size: 40px;
 }
+
+/* ── onboarding chat ─────────────────────────────────────────────────── */
+.chat {
+  max-width: 640px;
+  margin: 0 auto;
+  min-height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  gap: 16px;
+}
+.thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+.bubble p {
+  margin: 0;
+}
+.bubble.agent {
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border-bottom-left-radius: 4px;
+}
+.bubble.person {
+  align-self: flex-end;
+  background: var(--ember);
+  color: #1c1612;
+  border-bottom-right-radius: 4px;
+}
+.typing {
+  color: var(--muted);
+  letter-spacing: 2px;
+}
+.controls {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 0 4px;
+  background: var(--bg);
+}
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.choices.wrap {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.textform {
+  display: flex;
+  gap: 8px;
+}
+.textform input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  background: transparent;
+  color: var(--text);
+}
+.button {
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--ember);
+  color: #1c1612;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+}
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.button.big {
+  padding: 14px 20px;
+  font-size: 1.05rem;
+}
+.button.quiet {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+}
+.button:focus-visible,
+.link:focus-visible,
+.textform input:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+.link {
+  font: inherit;
+  font-size: 0.9rem;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.details {
+  margin: 0;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  color: var(--muted);
+}

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { COPY } from "./copy";
 import {
   failureLine, firstOffers, load, manualCandidate, mask, save, tryCandidate, tryKey,
-  type Api, type Candidate, type Outcome, type Provider,
+  type Api, type Candidate, type KeyResult, type Outcome, type Provider,
 } from "./onboarding";
 
 const openrouter: Provider = {
@@ -10,6 +10,7 @@ const openrouter: Provider = {
   default_base_url: "https://openrouter.ai/api/v1", console_url: "https://openrouter.ai/keys",
 };
 const ok: Outcome = { ok: true, status: "ok", message: "The model replied." };
+const lineOf = (r: KeyResult) => (r.ok ? "" : r.line);
 const fail = (status: string): Outcome => ({ ok: false, status, message: `raw ${status} message` });
 
 function fakeApi(verifyResult: Outcome | Error, detected: Candidate[] = []) {
@@ -36,12 +37,12 @@ test("a good key is verified, trimmed, made active, and only its mask comes back
 });
 
 test("each failure is a plain sentence, never a code", async () => {
-  expect((await tryKey(fakeApi(fail("auth")).api, manualCandidate(openrouter), "k")).line).toBe(COPY.badKey);
-  expect((await tryKey(fakeApi(fail("billing")).api, manualCandidate(openrouter), "k")).line).toBe(COPY.noCredit);
-  expect((await tryKey(fakeApi(fail("rate_limit")).api, manualCandidate(openrouter), "k")).line).toBe(COPY.busy);
-  expect((await tryKey(fakeApi(new Error("fetch failed")).api, manualCandidate(openrouter), "k")).line).toBe(COPY.offline);
+  expect(lineOf(await tryKey(fakeApi(fail("auth")).api, manualCandidate(openrouter), "k"))).toBe(COPY.badKey);
+  expect(lineOf(await tryKey(fakeApi(fail("billing")).api, manualCandidate(openrouter), "k"))).toBe(COPY.noCredit);
+  expect(lineOf(await tryKey(fakeApi(fail("rate_limit")).api, manualCandidate(openrouter), "k"))).toBe(COPY.busy);
+  expect(lineOf(await tryKey(fakeApi(new Error("fetch failed")).api, manualCandidate(openrouter), "k"))).toBe(COPY.offline);
   const other = await tryKey(fakeApi(fail("format")).api, manualCandidate(openrouter), "k");
-  expect(other.line).toBe(COPY.somethingElse);
+  expect(lineOf(other)).toBe(COPY.somethingElse);
   expect(other.ok ? "" : other.details).toBe("raw format message");
 });
 

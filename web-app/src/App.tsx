@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { OnboardingChat } from "./OnboardingChat";
 import { startSession, type Screen } from "./session";
 
 function shortcutPlace(): string {
@@ -29,10 +30,5 @@ export function App() {
       </main>
     );
   }
-  return (
-    <main className="center">
-      <h1>Cinderpaw is running on your computer.</h1>
-      <p className="muted">You can leave this page open.</p>
-    </main>
-  );
+  return <OnboardingChat />;
 }
