@@ -22,4 +22,8 @@ bbb  cinderpaw-macos-arm64.tar.gz'
 check "sum lookup"     "$(sum_for "$sums" cinderpaw-macos-arm64.tar.gz)" "bbb"
 check "sum missing"    "$(sum_for "$sums" cinderpaw-windows-x64.zip)" ""
 
+# The EXIT trap reads $tmp after install_prebuilt returns; a `local tmp` is
+# gone by then and `set -u` turns a good install into "unbound variable", exit 1.
+check "tmp outlives the function" "$(declare -f install_prebuilt | grep -cE "local .*[[:space:]]tmp([[:space:]]|$)")" "0"
+
 [ "$fails" -eq 0 ] || { echo "$fails failed"; exit 1; }

@@ -67,7 +67,8 @@ cli_tag() {
 }
 
 install_prebuilt() {
-  local os arch asset base tmp sums want got home bin
+  # tmp is global on purpose: the EXIT trap reads it after this function returns.
+  local os arch asset base sums want got home bin
   os="$(uname -s)"; arch="$(uname -m)"
   asset="$(asset_for "$os" "$arch")"
   [ -n "$asset" ] || plain_fail "$MSG_UNSUPPORTED"
