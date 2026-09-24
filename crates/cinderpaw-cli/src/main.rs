@@ -52,6 +52,12 @@ struct Cli {
 enum Command {
     /// Interactive chat in the terminal
     Chat,
+    /// Open Cinderpaw in your browser (starts it first if needed)
+    Open,
+    /// Finish a one-command install: autostart, PATH, shortcut, start, open.
+    /// Run by scripts/install.sh and install.ps1, not by people.
+    #[command(hide = true)]
+    SelfInstall,
     /// Connect your AI: detects what you already have, verifies it with a
     /// real completion, and only then saves it (guided; --classic = wizard)
     #[command(alias = "onboard")]
@@ -283,6 +289,8 @@ fn main() {
         // system package — because the answer is a different command each time
         // (see install.rs). The npm launcher still intercepts `update` before it
         // reaches this binary; every other install lands here.
+        Some(Command::Open) => install::open(),
+        Some(Command::SelfInstall) => install::self_install(),
         Some(Command::Update) => install::update(),
         Some(Command::Uninstall { purge, yes }) => install::uninstall(purge, yes),
         Some(Command::Migrate { from, source, dry_run, yes, overwrite }) => {

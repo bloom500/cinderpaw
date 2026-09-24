@@ -22,6 +22,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::common::{api_port, palette, port_in_use, Palette};
+use crate::footprint;
 
 const ONE_LINER: &str =
     "curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash";
@@ -342,6 +343,140 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
     0
 }
 
+// ── one-command install (spec 2026-09-24 §3) ─────────────────────────────
+
+pub fn page_url() -> String {
+    format!("{}/", crate::common::base_url())
+}
+
+fn last_line(opened: bool, url: &str) -> String {
+    if opened {
+        "All set! Your browser just opened. You can close this window.".into()
+    } else {
+        format!("All set! Open this in your browser: {url}")
+    }
+}
+
+/// Is the thing on our port a Cinderpaw that answers with our token?
+fn is_ours() -> bool {
+    crate::common::read_token()
+        .map(|t| crate::admin::block_on(crate::admin::fetch_json(&t, "/runtime/status")).is_ok())
+        .unwrap_or(false)
+}
+
+/// Engine up and ours, or a sentence saying why not. `restart` = the install
+/// just replaced the binaries, so a running engine is the OLD build.
+fn ensure_engine(restart: bool) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let port = api_port();
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let quiet = |args: &[&str]| {
+        Command::new(&exe)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if port_in_use(port) {
+        if !is_ours() {
+            return Err(format!(
+                "Something else on this computer is using port {port}, which Cinderpaw needs. Close it and try again."
+            ));
+        }
+        if !restart {
+            return Ok(());
+        }
+        quiet(&["stop"]);
+    }
+    let home = home().ok_or("I couldn't find your home folder.")?;
+    if !footprint::start_with_service(&home) {
+        quiet(&["gateway", "start"]);
+    }
+    for _ in 0..60 {
+        if port_in_use(port) {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    Err(format!(
+        "Cinderpaw didn't start. Run the same command again. If it still fails, send us this file: {}",
+        cinderpaw_core::paths::cinderpaw_dir().join("gateway.log").display()
+    ))
+}
+
+fn launch_browser(url: &str) -> bool {
+    use std::process::{Command, Stdio};
+    if std::env::var_os("CINDERPAW_NO_BROWSER").is_some() {
+        return false;
+    }
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", url]);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = Command::new("open");
+        c.arg(url);
+        c
+    } else {
+        // Without a display, xdg-open falls back to a text browser that takes
+        // over the terminal. Say the URL instead.
+        if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
+            return false;
+        }
+        let mut c = Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Run by install.sh / install.ps1 right after unpacking into ~/.cinderpaw/bin.
+/// Prints the last two of the three lines a stranger sees.
+pub fn self_install() -> i32 {
+    let (Some(home), Ok(exe)) = (home(), std::env::current_exe()) else {
+        eprintln!("I couldn't find your home folder.");
+        return 1;
+    };
+    let bin = exe.parent().map(Path::to_path_buf).unwrap_or_default();
+    for step in footprint::install(&home, &bin) {
+        if let Err(msg) = step {
+            println!("{msg}");
+        }
+    }
+    print!("Starting... ");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    if let Err(msg) = ensure_engine(true) {
+        println!();
+        eprintln!("{msg}");
+        return 1;
+    }
+    println!("✓");
+    let url = page_url();
+    println!("{}", last_line(launch_browser(&url), &url));
+    0
+}
+
+/// What the Cinderpaw shortcut runs. Slice 2 adds the one-time code here.
+pub fn open() -> i32 {
+    if let Err(msg) = ensure_engine(false) {
+        eprintln!("{msg}");
+        return 1;
+    }
+    let url = page_url();
+    if !launch_browser(&url) {
+        println!("Open this in your browser: {url}");
+    }
+    0
+}
+
 fn confirm(prompt: &str) -> bool {
     let Palette { meta: META, reset: RESET, .. } = palette();
     crate::common::reset_console_mode();
@@ -439,6 +574,12 @@ mod tests {
         );
         // A user-edited variant is not ours to touch.
         assert!(without_path_line("export PATH=\"$HOME/.local/bin:$PATH\"\n").is_none());
+    }
+
+    #[test]
+    fn the_last_line_never_claims_a_browser_that_did_not_open() {
+        assert_eq!(last_line(true, "http://127.0.0.1:11435/"), "All set! Your browser just opened. You can close this window.");
+        assert_eq!(last_line(false, "http://127.0.0.1:11435/"), "All set! Open this in your browser: http://127.0.0.1:11435/");
     }
 
     #[test]

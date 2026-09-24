@@ -118,6 +118,319 @@ pub fn ps_quote(s: &str) -> String {
     s.replace('\'', "''")
 }
 
+// ── the OS side ────────────────────────────────────────────────────────────
+
+use std::process::{Command, Stdio};
+
+/// Ok = a thing done (quiet), Err = a sentence the user must see.
+pub type Step = Result<String, String>;
+
+/// Profiles we may have written to. Uninstall strips all of them, because the
+/// login shell can change between install and uninstall.
+#[cfg(unix)]
+const PROFILES: [&str; 4] = [".zshrc", ".bashrc", ".bash_profile", ".profile"];
+
+#[cfg(unix)]
+fn quiet(cmd: &mut Command) -> bool {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn write(path: &Path, text: &str) -> Step {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("I couldn't create {}: {e}", dir.display()))?;
+    }
+    std::fs::write(path, text).map_err(|e| format!("I couldn't write {}: {e}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
+fn exe_in(bin: &Path) -> PathBuf {
+    bin.join(if cfg!(windows) { "cinderpaw.exe" } else { "cinderpaw" })
+}
+
+#[cfg(unix)]
+fn macos_plist(home: &Path) -> PathBuf {
+    home.join("Library/LaunchAgents").join(format!("{LABEL}.plist"))
+}
+#[cfg(unix)]
+fn macos_app(home: &Path) -> PathBuf {
+    home.join("Applications/Cinderpaw.app")
+}
+#[cfg(unix)]
+fn systemd_file(home: &Path) -> PathBuf {
+    home.join(".config/systemd/user/cinderpaw.service")
+}
+#[cfg(unix)]
+fn xdg_autostart(home: &Path) -> PathBuf {
+    home.join(".config/autostart/cinderpaw.desktop")
+}
+#[cfg(unix)]
+fn linux_shortcut(home: &Path) -> PathBuf {
+    home.join(".local/share/applications/cinderpaw.desktop")
+}
+#[cfg(unix)]
+fn fish_file(home: &Path) -> PathBuf {
+    home.join(".config/fish/conf.d/cinderpaw.fish")
+}
+
+/// Every file this module may create on unix, for uninstall and its test.
+#[cfg(unix)]
+fn owned_paths(home: &Path) -> Vec<PathBuf> {
+    vec![
+        macos_plist(home),
+        macos_app(home),
+        systemd_file(home),
+        xdg_autostart(home),
+        linux_shortcut(home),
+        fish_file(home),
+    ]
+}
+
+/// File-only half of install (unix): testable in a temp home. Service
+/// registration (launchctl / systemctl) is `install` and `start_with_service`.
+#[cfg(unix)]
+fn install_files(home: &Path, bin: &Path, shell: &str) -> Vec<Step> {
+    let exe = exe_in(bin);
+    let macos = cfg!(target_os = "macos");
+    let mut steps = Vec::new();
+
+    let profile = profile_for(home, shell, macos);
+    if profile == fish_file(home) {
+        steps.push(write(&profile, &fish_line(bin)));
+    } else {
+        let old = std::fs::read_to_string(&profile).unwrap_or_default();
+        steps.push(write(&profile, &with_path_block(&old, bin)));
+    }
+
+    if macos {
+        let log = bin.parent().unwrap_or(bin).join("gateway.log");
+        steps.push(write(&macos_plist(home), &launch_agent_plist(&exe, &log)));
+        let app = macos_app(home).join("Contents");
+        steps.push(write(
+            &app.join("Info.plist"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>\
+<key>CFBundleName</key><string>Cinderpaw</string>\
+<key>CFBundleIdentifier</key><string>dev.cinderpaw.open</string>\
+<key>CFBundlePackageType</key><string>APPL</string>\
+<key>CFBundleExecutable</key><string>cinderpaw-open</string>\
+</dict></plist>\n",
+        ));
+        let launcher = app.join("MacOS/cinderpaw-open");
+        steps.push(write(&launcher, &format!("#!/bin/sh\nexec \"{}\" open\n", exe.display())));
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755));
+    } else {
+        steps.push(write(&systemd_file(home), &systemd_unit(&exe)));
+        steps.push(write(
+            &linux_shortcut(home),
+            &desktop_entry("Cinderpaw", &exe, "open", "Comment=Open Cinderpaw in your browser\n"),
+        ));
+    }
+    steps
+}
+
+#[cfg(unix)]
+fn remove_files(home: &Path) -> Vec<String> {
+    let mut done = Vec::new();
+    for name in PROFILES {
+        let p = home.join(name);
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            let stripped = without_path_block(&text);
+            if stripped != text && std::fs::write(&p, stripped).is_ok() {
+                done.push(format!("the PATH line in {}", p.display()));
+            }
+        }
+    }
+    for p in owned_paths(home) {
+        let gone = if p.is_dir() { std::fs::remove_dir_all(&p) } else { std::fs::remove_file(&p) };
+        if gone.is_ok() {
+            done.push(p.display().to_string());
+        }
+    }
+    done
+}
+
+pub fn install(home: &Path, bin: &Path) -> Vec<Step> {
+    #[cfg(unix)]
+    {
+        let mut steps = install_files(home, bin, &std::env::var("SHELL").unwrap_or_default());
+        if !cfg!(target_os = "macos") {
+            let enabled = quiet(Command::new("systemctl").args(["--user", "daemon-reload"]))
+                && quiet(Command::new("systemctl").args(["--user", "enable", "cinderpaw.service"]));
+            if !enabled {
+                let _ = std::fs::remove_file(systemd_file(home));
+                steps.push(write(
+                    &xdg_autostart(home),
+                    &desktop_entry(
+                        "Cinderpaw engine",
+                        &exe_in(bin),
+                        "gateway start",
+                        "NoDisplay=true\nX-GNOME-Autostart-enabled=true\n",
+                    ),
+                ));
+                if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
+                    steps.push(Err(
+                        "Cinderpaw won't start by itself when this computer restarts. Run `cinderpaw open` to start it."
+                            .into(),
+                    ));
+                }
+            }
+        }
+        steps
+    }
+    #[cfg(windows)]
+    {
+        let _ = home;
+        windows::install(bin)
+    }
+}
+
+/// Human lines of what was removed.
+pub fn remove(home: &Path) -> Vec<String> {
+    #[cfg(unix)]
+    {
+        if cfg!(target_os = "macos") {
+            if let Some(uid) = uid() {
+                quiet(Command::new("launchctl").args(["bootout", &format!("gui/{uid}/{LABEL}")]));
+            }
+        } else {
+            quiet(Command::new("systemctl").args(["--user", "disable", "--now", "cinderpaw.service"]));
+        }
+        let done = remove_files(home);
+        if !cfg!(target_os = "macos") {
+            quiet(Command::new("systemctl").args(["--user", "daemon-reload"]));
+        }
+        done
+    }
+    #[cfg(windows)]
+    {
+        let _ = home;
+        windows::remove()
+    }
+}
+
+#[cfg(unix)]
+fn uid() -> Option<String> {
+    let out = Command::new("id").arg("-u").output().ok()?;
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// Start (or restart) the engine under the login service manager, so it is
+/// not a child of the installer's terminal. False = caller falls back to
+/// `cinderpaw gateway start`.
+pub fn start_with_service(home: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        if cfg!(target_os = "macos") {
+            let (Some(uid), true) = (uid(), macos_plist(home).exists()) else { return false };
+            quiet(Command::new("launchctl").args(["bootout", &format!("gui/{uid}/{LABEL}")]));
+            return quiet(Command::new("launchctl").args(["bootstrap", &format!("gui/{uid}")]).arg(macos_plist(home)));
+        }
+        systemd_file(home).exists() && quiet(Command::new("systemctl").args(["--user", "restart", "cinderpaw.service"]))
+    }
+    #[cfg(windows)]
+    {
+        let _ = home;
+        // ponytail: Windows has no per-user service manager without admin; `gateway start` detaches fine.
+        false
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use super::*;
+
+    fn programs() -> PathBuf {
+        let appdata = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_default();
+        appdata.join(r"Microsoft\Windows\Start Menu\Programs")
+    }
+    fn startup_lnk() -> PathBuf {
+        programs().join(r"Startup\Cinderpaw.lnk")
+    }
+    fn menu_lnk() -> PathBuf {
+        programs().join("Cinderpaw.lnk")
+    }
+
+    fn ps(script: &str) -> Result<String, String> {
+        let out = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    }
+
+    /// WindowStyle 7 = minimized: the console these console-subsystem
+    /// commands need shows as a taskbar blip, not a black window at login.
+    fn shortcut(lnk: &Path, exe: &Path, args: &str) -> Step {
+        ps(&format!(
+            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}');$s.TargetPath='{}';$s.Arguments='{}';$s.WindowStyle=7;$s.Save()",
+            ps_quote(&lnk.display().to_string()),
+            ps_quote(&exe.display().to_string()),
+            args
+        ))
+        .map(|_| lnk.display().to_string())
+        .map_err(|e| format!("I couldn't make the Cinderpaw shortcut: {e}"))
+    }
+
+    // The raw (unexpanded) value, written back as ExpandString: the default
+    // user PATH holds %USERPROFILE% entries, and [Environment]::SetEnvironmentVariable
+    // would flatten them to REG_SZ. The null write after is only there because
+    // it broadcasts WM_SETTINGCHANGE, so new terminals see the change.
+    const READ: &str =
+        "$k=Get-Item 'HKCU:\\Environment'; $k.GetValue('Path','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)";
+    fn write_path(value: &str) -> Result<String, String> {
+        ps(&format!(
+            "Set-ItemProperty 'HKCU:\\Environment' Path '{}' -Type ExpandString;[Environment]::SetEnvironmentVariable('CINDERPAW_PATH_TOUCH',$null,'User')",
+            ps_quote(value)
+        ))
+    }
+
+    pub fn install(bin: &Path) -> Vec<Step> {
+        let exe = exe_in(bin);
+        let bin_s = bin.display().to_string();
+        let path = ps(READ).and_then(|cur| {
+            let next = user_path_with(&cur, &bin_s);
+            if next == cur {
+                Ok(String::new())
+            } else {
+                write_path(&next)
+            }
+        });
+        vec![
+            path.map(|_| "PATH".into()).map_err(|e| format!("I couldn't add Cinderpaw to PATH: {e}")),
+            shortcut(&startup_lnk(), &exe, "gateway start"),
+            shortcut(&menu_lnk(), &exe, "open"),
+        ]
+    }
+
+    pub fn remove() -> Vec<String> {
+        let mut done = Vec::new();
+        for lnk in [startup_lnk(), menu_lnk()] {
+            if std::fs::remove_file(&lnk).is_ok() {
+                done.push(lnk.display().to_string());
+            }
+        }
+        let bin = cinderpaw_core::paths::cinderpaw_dir().join("bin").display().to_string();
+        if let Ok(cur) = ps(READ) {
+            let next = user_path_without(&cur, &bin);
+            if next != cur && write_path(&next).is_ok() {
+                done.push("the PATH entry".into());
+            }
+        }
+        done
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +486,31 @@ mod tests {
         assert_eq!(user_path_with(&format!(r"C:\a;{lower}"), bin), format!(r"C:\a;{lower}"), "already there");
         assert_eq!(user_path_without(&format!(r"C:\a;{lower};D:\b"), bin), r"C:\a;D:\b");
         assert_eq!(user_path_without(r"C:\a", bin), r"C:\a");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_then_remove_leaves_the_home_as_it_was() {
+        let home = tempfile::tempdir().unwrap();
+        let h = home.path();
+        std::fs::write(h.join(".zshrc"), "export EDITOR=vim\n").unwrap();
+        let bin = h.join(".cinderpaw/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+
+        let steps = install_files(h, &bin, "/bin/zsh");
+        assert!(steps.iter().all(|s| s.is_ok()), "{steps:?}");
+        assert!(std::fs::read_to_string(h.join(".zshrc")).unwrap().contains(".cinderpaw/bin:$PATH"));
+        // Re-run is a no-op on the profile.
+        let again = std::fs::read_to_string(h.join(".zshrc")).unwrap();
+        install_files(h, &bin, "/bin/zsh");
+        assert_eq!(std::fs::read_to_string(h.join(".zshrc")).unwrap(), again);
+
+        let removed = remove_files(h);
+        assert!(!removed.is_empty());
+        assert_eq!(std::fs::read_to_string(h.join(".zshrc")).unwrap(), "export EDITOR=vim\n");
+        for p in owned_paths(h) {
+            assert!(!p.exists(), "left behind: {}", p.display());
+        }
     }
 
     #[test]
