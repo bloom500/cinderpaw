@@ -957,8 +957,8 @@ html.has-window-effect body::after  { opacity: calc(var(--scene-grain-opacity) *
    contrast in `test/glass.test.ts` still holds: the displacement moved pixels
    sideways, it never changed their luminance. */
 html.has-window-effect[data-theme="dark"] .app-pane {
-  backdrop-filter: saturate(1) brightness(0.80);
-  -webkit-backdrop-filter: saturate(1) brightness(0.80);
+  backdrop-filter: saturate(1) contrast(0.4) brightness(0.5);
+  -webkit-backdrop-filter: saturate(1) contrast(0.4) brightness(0.5);
 }
 html.has-window-effect[data-theme="light"] .app-pane {
   backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5);
@@ -984,7 +984,14 @@ html.has-window-effect[data-theme="light"] .app-pane {
    refraction during a slide, and `panelMotion` also defers the native
    webview resize. */
 
-/* 24 Sep, the Ember palette and his "more calm" call: the dark tint takes
+/* 24 Sep evening: Glass looked exactly like Solid in the dark theme. The
+   0.80 tint on top of brightness(0.80) let ~16% of the desktop through, and
+   0.77 is the lowest that tint can go with that filter. So the filter does the
+   work instead, as it already did in light: contrast(0.4) squeezes any
+   wallpaper into a narrow dark band, and the tint drops to 0.40. The desktop's
+   colour and shapes come back; glass.test.ts floors still hold.
+
+   24 Sep, the Ember palette and his "more calm" call: the dark tint takes
    the page's own warm hue (it was a cold rgb(10,10,12), which over a pale
    wallpaper came out a muddy grey), and the light tint goes from a whisper to
    a veil (0.02 let a busy wallpaper swirl behind every sentence). More tint
@@ -1001,7 +1008,7 @@ html.has-window-effect[data-theme="light"] .app-pane {
    palette blocks on specificity rather than on where it happens to sit in
    the file — the palette is declared both above and below this point, and
    source order alone would pick the wrong one. */
-html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(28, 24, 20, 0.80); }
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(28, 24, 20, 0.40); }
 html.has-window-effect[data-theme="light"] { --scene-surface: rgba(250, 246, 240, 0.35); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —

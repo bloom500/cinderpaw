@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils';
 import { useUI, type ThemePref } from '@/stores/ui';
 import { useEffect, useState } from 'react';
 import { tauri } from '@/lib/tauri';
+import { useNotifications } from '@/stores/notifications';
 
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'dark',   label: 'Dark' },
@@ -23,7 +24,10 @@ export function AppearanceTab() {
   const pickSolid = (next: boolean) => {
     const was = solid;
     setSolid(next);
-    tauri.raw.setWindowSolid(next).catch(() => setSolid(was));
+    tauri.raw.setWindowSolid(next).catch((err) => {
+      setSolid(was);
+      useNotifications.getState().push('error', 'Could not change the background', String(err));
+    });
   };
 
   return (
