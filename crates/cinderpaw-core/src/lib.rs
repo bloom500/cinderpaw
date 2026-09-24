@@ -13,6 +13,7 @@ pub mod boot;
 pub mod brand;
 pub mod env;
 pub mod byok;
+pub mod web;
 #[cfg(target_os = "linux")]
 pub mod byok_file_store;
 pub mod connectors;
