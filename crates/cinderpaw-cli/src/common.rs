@@ -122,3 +122,54 @@ pub fn reset_console_mode() {
 
 #[cfg(not(windows))]
 pub fn reset_console_mode() {}
+
+#[cfg(all(test, windows))]
+mod tests {
+    extern "system" {
+        fn GetStdHandle(n: u32) -> isize;
+        fn GetHandleInformation(h: isize, flags: *mut u32) -> i32;
+    }
+
+    /// A detached gateway that inherits the stdout pipe of whoever ran
+    /// `cinderpaw` keeps that pipe open forever: `$x = cinderpaw ... | Out-String`
+    /// never returns (the install smoke test hung 30 min on exactly this).
+    #[test]
+    fn std_handles_are_not_passed_to_children() {
+        super::stop_std_handle_inheritance();
+        for n in [-10i32, -11, -12] {
+            let h = unsafe { GetStdHandle(n as u32) };
+            if h == 0 || h == -1 {
+                continue;
+            }
+            let mut flags = 0u32;
+            if unsafe { GetHandleInformation(h, &mut flags) } != 0 {
+                assert_eq!(flags & 1, 0, "std handle {n} is still inheritable");
+            }
+        }
+    }
+}
+
+/// Windows hands every inheritable handle to every child. Our std handles are
+/// often the write end of a pipe (`$x = cinderpaw open | Out-String`, the
+/// installer, `cinderpaw update`), and the detached gateway would keep that
+/// pipe open for its whole life: the caller waits for an end of output that
+/// never comes. Called first thing in main(). Children that need our stdio
+/// still get it: std duplicates `Stdio::inherit()` handles as inheritable at
+/// spawn time.
+#[cfg(windows)]
+pub fn stop_std_handle_inheritance() {
+    extern "system" {
+        fn GetStdHandle(n: u32) -> isize;
+        fn SetHandleInformation(h: isize, mask: u32, flags: u32) -> i32;
+    }
+    const HANDLE_FLAG_INHERIT: u32 = 1;
+    for n in [-10i32, -11, -12] {
+        // SAFETY: plain Win32 calls on this process's own std handles.
+        unsafe {
+            let h = GetStdHandle(n as u32);
+            if h != 0 && h != -1 {
+                SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
+}
