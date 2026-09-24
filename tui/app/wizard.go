@@ -486,10 +486,11 @@ type WizardHardware struct {
 	GpuOK   bool
 }
 
-// localMinVramGB is the GPU memory the Quick start local model (~5.5 GB of
-// weights) needs with room for its context. Below it the model spills onto
-// the processor, so Local is neither fast nor the right default.
-const localMinVramGB = 8
+// localMinVramGB is the GPU memory the Quick start local model (Qwen3.5 9B,
+// ~5.5 GB of weights) needs with room for its context: the core's
+// `setup::recommend_download` gives 9B a 9 GB budget at 80% of VRAM. Below it
+// the model spills onto the processor.
+const localMinVramGB = 12
 
 // localFits reports whether the Quick start local model runs on this GPU.
 func (h WizardHardware) localFits() bool {

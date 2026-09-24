@@ -42,8 +42,9 @@ func TestWizardFramesFitTheTerminal(t *testing.T) {
 	}
 }
 
-// A 4 GB card cannot hold the ~5.5 GB Quick start model: Cloud is the default
-// and Local says why it would be slow. A 12 GB card still gets Local.
+// Cloud is the default everywhere (the 9B local model fumbles tools, per the
+// core's measurement). A 4 GB card must not be promised the GPU; a 12 GB card
+// is told the model runs there.
 func TestEngineDefaultFollowsGPUMemory(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -51,7 +52,7 @@ func TestEngineDefaultFollowsGPUMemory(t *testing.T) {
 		want   WizardChoice
 	}{
 		{"rx580 4GB", 4 * 1024, WizChoiceCloud},
-		{"rtx4070 12GB", 12 * 1024, WizChoiceLocal},
+		{"rtx4070 12GB", 12 * 1024, WizChoiceCloud},
 	}
 	for _, c := range cases {
 		a := newTestApp()
@@ -61,7 +62,7 @@ func TestEngineDefaultFollowsGPUMemory(t *testing.T) {
 			t.Errorf("%s: default %v, want %v", c.name, a.Wizard.Choice, c.want)
 		}
 		body := stripAnsi(renderWizEngine(&a.Wizard, 100))
-		if c.want == WizChoiceCloud && strings.Contains(body, "runs on your GPU") {
+		if c.vramMB < 12*1024 && strings.Contains(body, "on your GPU") {
 			t.Errorf("%s: Local still promises to run on the GPU:\n%s", c.name, body)
 		}
 	}

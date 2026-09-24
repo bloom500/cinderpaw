@@ -1709,18 +1709,13 @@ func renderWizEngine(w *WizardState, width int) string {
 	local := modelDisplayName(w.ModelID) + " · private"
 	switch {
 	case w.Hardware.localFits():
-		local += " · on your GPU · " + w.ModelSize
+		local += " · on your GPU · tools less reliable"
 	case w.Hardware.GpuOK:
 		local += fmt.Sprintf(" · needs %d GB GPU memory, you have %d", localMinVramGB, w.Hardware.GpuVram)
 	default:
 		local += " · on your processor, slow"
 	}
-	localName, cloudName := "Local", "Cloud"
-	if w.Hardware.localFits() {
-		localName += "  (recommended)"
-	} else {
-		cloudName += "  (recommended)"
-	}
+	localName, cloudName := "Local", "Cloud  (recommended)"
 	rows := []rt{
 		{localName, local, WizChoiceLocal},
 		{cloudName, "API key · fast · messages go to that provider", WizChoiceCloud},
