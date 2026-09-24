@@ -218,7 +218,7 @@ jobs:
       - name: Install (unix), twice
         if: runner.os != 'Windows'
         run: |
-          (cd serve && exec python3 -m http.server 8765 >/dev/null 2>&1) &
+          (cd serve && exec python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1) &
           sleep 3
           bash scripts/install.sh | tee first.log
           grep -q 'All set!' first.log
@@ -228,7 +228,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Start-Process python -ArgumentList '-m','http.server','8765' -WorkingDirectory serve -WindowStyle Hidden
+          Start-Process python -ArgumentList '-m','http.server','8765','--bind','127.0.0.1' -WorkingDirectory serve -WindowStyle Hidden
           Start-Sleep 3
           foreach ($n in 1,2) {
             $out = powershell -NoProfile -Command "Get-Content -Raw scripts\install.ps1 | iex" | Out-String
