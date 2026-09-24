@@ -582,8 +582,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// P1: the probe result stays on the Engine screen (WizHardware). We
 		// do NOT auto-advance — the user picks Local/Cloud here. Pre-select
-		// the runtime from the probe: GPU → Local, else Cloud.
-		if a.Wizard.Hardware.GpuOK {
+		// the runtime from the probe: a GPU that can hold the model → Local,
+		// anything smaller or none → Cloud. A 4 GB card used to get Local and
+		// a 5.5 GB model it cannot hold (24 Sep).
+		if a.Wizard.Hardware.localFits() {
 			a.Wizard.Choice = WizChoiceLocal
 		} else {
 			a.Wizard.Choice = WizChoiceCloud

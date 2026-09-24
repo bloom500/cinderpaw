@@ -180,15 +180,12 @@ func (a *App) renderWelcomeContent() string {
 // renderWelcomeStatus builds the right-aligned-label / left-aligned-value
 // rows that show what model is loaded and how healthy the runtime is.
 func (a *App) renderWelcomeStatus() []string {
-	m := orStr(a.Status.Model, "—")
-	l := orStr(a.Status.LoRA, "none")
-	// Prefer the human-friendly BYOK provider id when set — "nvidia" is
-	// more useful than "openai_compatible" on a glance, but the raw
-	// backend stays available so the user can still tell which protocol
-	// the sidecar is using underneath.
-	backend := a.Status.Backend
-	if a.Status.ByokProvider != "" {
-		backend = a.Status.ByokProvider
+	// Same words as the header: the model you talk to, who runs it, and an
+	// adapter only when one is actually on. "lora none" was engine talk.
+	m := orStr(a.Status.AgentModel, orStr(a.Status.Model, "not set"))
+	via := a.Status.ByokProvider
+	if via == "" {
+		via = a.Status.Backend
 	}
 	dot := ui.StatusOffline.Render(ui.G.On)
 	state := "offline"
@@ -197,12 +194,14 @@ func (a *App) renderWelcomeStatus() []string {
 		state = "online"
 	}
 	elapsed := formatElapsed(a.Now.Sub(a.StartedAt))
-	rows := [][2]string{
-		{"model", m},
-		{"lora", l},
-		{"backend", backend},
-		{"session", fmt.Sprintf("%s %s · ⏱ %s", dot, state, elapsed)},
+	rows := [][2]string{{"model", m}}
+	if via != "" {
+		rows = append(rows, [2]string{"via", via})
 	}
+	if l := a.Status.LoRA; l != "" && l != "none" {
+		rows = append(rows, [2]string{"adapter", l})
+	}
+	rows = append(rows, [2]string{"session", fmt.Sprintf("%s %s · ⏱ %s", dot, state, elapsed)})
 	out := make([]string, 0, len(rows)+1)
 	for _, r := range rows {
 		out = append(out, fmt.Sprintf("%s %s",
@@ -367,17 +366,26 @@ func (a *App) renderHeader() string {
 		label string // e.g. "model", "lora", "backend"
 		value string
 	}
+	// Only what a person can act on, and only when it is known: the model
+	// they talk to and who runs it. "lora none" and a blank "backend" were
+	// engine internals, and during setup there is no model to name yet.
 	var segs []segment
-	if a.Width >= 60 {
-		segs = append(segs, segment{"model", orStr(a.Status.Model, "—")})
-	}
-	if a.Width >= 80 {
-		segs = append(segs, segment{"lora", orStr(a.Status.LoRA, "none")})
-		backendLabel := a.Status.Backend
-		if a.Status.ByokProvider != "" {
-			backendLabel = a.Status.ByokProvider
+	if !a.Wizard.Show && a.Width >= 60 {
+		model := a.Status.AgentModel
+		if model == "" {
+			model = a.Status.Model
 		}
-		segs = append(segs, segment{"backend", backendLabel})
+		segs = append(segs, segment{"model", orStr(model, "not set")})
+		via := a.Status.ByokProvider
+		if via == "" {
+			via = a.Status.Backend
+		}
+		if via != "" && a.Width >= 80 {
+			segs = append(segs, segment{"via", via})
+		}
+		if l := a.Status.LoRA; l != "" && l != "none" && a.Width >= 100 {
+			segs = append(segs, segment{"adapter", l})
+		}
 	}
 
 	// Assemble segments into a single string, measuring as we go.
@@ -413,7 +421,10 @@ func (a *App) renderHeader() string {
 		return ui.HeaderStyle.Render(right)
 	}
 
-	pad := a.Width - lipgloss.Width(left) - lipgloss.Width(right) - 2
+	// HeaderStyle pads one column each side, plus the leading space: 3 in
+	// all. Subtracting 2 made every header one column wider than the
+	// terminal, which wrapped it and pushed each screen down a row.
+	pad := a.Width - lipgloss.Width(left) - lipgloss.Width(right) - 3
 	if pad < 1 {
 		pad = 1
 	}
@@ -1491,7 +1502,7 @@ func (a *App) renderWizard() string {
 		width = 40
 	}
 
-	body, fullFrame := wizardStepBody(w, width)
+	body, fullFrame := wizardStepBody(w, width, a.Height)
 	if body == "" && !fullFrame {
 		return ""
 	}
@@ -1518,10 +1529,10 @@ func (a *App) renderWizard() string {
 // (everything else, which the wizard frame wraps). Per-step renderers
 // no longer prepend their own `wizTitle()` since the frame supplies
 // the title in the header strip.
-func wizardStepBody(w *WizardState, width int) (body string, fullFrame bool) {
+func wizardStepBody(w *WizardState, width, height int) (body string, fullFrame bool) {
 	switch w.Step {
 	case WizWelcome:
-		return renderWizWelcome(w, width), false
+		return renderWizWelcome(w, width, height), false
 	case WizResume:
 		return renderWizResume(w, width), false
 	case WizHardware:
@@ -1558,16 +1569,34 @@ func wizLine(s string) string {
 
 func wizSep(int) string { return "" }
 
-// renderWizWelcome renders the F1 welcome screen: bear logo + version +
-// random tagline + Enter-to-continue prompt. The bear mascot is the only
-// place in the TUI where the bear appears (per the OpenClaw-style UI rule
-// "only use the bear in branding").
-func renderWizWelcome(w *WizardState, width int) string {
+// welcomeChromeRows is everything on the welcome screen that is not art: the
+// two header rows, the card's border and margins, the footer strips, and the
+// menu with its security note. The art only gets the rows left after these.
+const welcomeChromeRows = 24
+
+// renderWizWelcome renders the F1 welcome screen: wordmark, bear, tagline and
+// the Quick start / Custom menu. The art is sized to the terminal: the menu is
+// the one thing a first-time user must see, and at 120x36 the full logo plus
+// the bear came to 61 rows, which put it below the bottom edge (24 Sep). The
+// logo shows only when it fits without wrapping, the bear only when there is
+// room for it too; otherwise a one-line wordmark stands in for both.
+func renderWizWelcome(w *WizardState, width, height int) string {
 	var b strings.Builder
-	b.WriteString(ui.AccentStyle.Render(ui.CinderpawLogo))
-	b.WriteByte('\n')
-	b.WriteString(ui.WarnStyle.Render(ui.BearLogo))
-	b.WriteByte('\n')
+	inner := width - 8 // border, padding and gutter of the wizard card
+	room := height - welcomeChromeRows
+	logoRows := strings.Count(ui.CinderpawLogo, "\n") + 1
+	bearRows := strings.Count(ui.BearLogo, "\n") + 1
+	if inner >= lipgloss.Width(ui.CinderpawLogo) && room >= logoRows {
+		b.WriteString(ui.AccentStyle.Render(ui.CinderpawLogo))
+		b.WriteByte('\n')
+		if room >= logoRows+bearRows {
+			b.WriteString(ui.WarnStyle.Render(ui.BearLogo))
+			b.WriteByte('\n')
+		}
+	} else {
+		b.WriteString(ui.AccentStyle.Render("  C I N D E R P A W"))
+		b.WriteByte('\n')
+	}
 	if w.Tagline == "" {
 		w.Tagline = ui.RandomTagline()
 	}
@@ -1611,10 +1640,10 @@ func renderWizWelcome(w *WizardState, width int) string {
 		b.WriteByte('\n')
 	}
 	b.WriteByte('\n')
-	// Security note as body copy (not a step).
-	b.WriteString(wizLine("  Cinderpaw can run tools and connect to services you enable. You approve"))
-	b.WriteByte('\n')
-	b.WriteString(wizLine("  each connector. Nothing leaves this machine unless you add a cloud key."))
+	// Security note as body copy (not a step). Wrapped to the card, because
+	// two hard-broken 75-column lines shredded into four at 80 columns.
+	note := "Cinderpaw can run tools and connect to services you enable. You approve each connector. Nothing leaves this machine unless you add a cloud key."
+	b.WriteString(ui.MetaStyle.PaddingLeft(2).Width(inner).Render(note))
 	b.WriteByte('\n')
 	return b.String()
 }
@@ -1633,8 +1662,10 @@ func modelDisplayName(id string) string {
 	name = strings.TrimSuffix(name, ".gguf")
 	name = strings.ReplaceAll(name, "_", " ")
 	name = strings.ReplaceAll(name, "-", " ")
-	if i := strings.Index(name, "Qwen "); i >= 0 {
-		name = name[i:] // drop a duplicated vendor prefix like "Qwen Qwen3.5"
+	// Drop a duplicated vendor prefix: "Qwen Qwen3.5 9B" -> "Qwen3.5 9B".
+	// The old Index("Qwen ") matched at 0 and so never dropped anything.
+	if strings.HasPrefix(name, "Qwen Qwen") {
+		name = strings.TrimPrefix(name, "Qwen ")
 	}
 	return strings.TrimSpace(name)
 }
@@ -1671,10 +1702,28 @@ func renderWizEngine(w *WizardState, width int) string {
 		name, desc string
 		opt        WizardChoice
 	}
-	localDesc := fmt.Sprintf("%s · %s · private, runs on your GPU", modelDisplayName(w.ModelID), w.ModelSize)
+	// What Local means on THIS machine, not on a hypothetical one: a card
+	// below localMinVramGB cannot hold the model, and without a GPU it runs on
+	// the processor. Saying "runs on your GPU" to either was false.
+	// Kept under ~60 columns so neither line wraps in an 80-column card.
+	local := modelDisplayName(w.ModelID) + " · private"
+	switch {
+	case w.Hardware.localFits():
+		local += " · on your GPU · " + w.ModelSize
+	case w.Hardware.GpuOK:
+		local += fmt.Sprintf(" · needs %d GB GPU memory, you have %d", localMinVramGB, w.Hardware.GpuVram)
+	default:
+		local += " · on your processor, slow"
+	}
+	localName, cloudName := "Local", "Cloud"
+	if w.Hardware.localFits() {
+		localName += "  (recommended)"
+	} else {
+		cloudName += "  (recommended)"
+	}
 	rows := []rt{
-		{"Local", localDesc, WizChoiceLocal},
-		{"Cloud", "bring your API key · faster, prompts leave this machine", WizChoiceCloud},
+		{localName, local, WizChoiceLocal},
+		{cloudName, "API key · fast · messages go to that provider", WizChoiceCloud},
 	}
 	keys := []string{"1", "2"}
 	for i, r := range rows {
@@ -1885,8 +1934,27 @@ func renderWizCloudKey(w *WizardState, width int) string {
 	b.WriteByte('\n')
 	b.WriteByte('\n')
 
+	// Where the key comes from, before the field that asks for it. "Paste your
+	// API key" is a dead end for someone who has never made one; the catalog
+	// already knows each provider's key page.
+	for _, p := range w.ProviderCatalog() {
+		if p.ID == w.Provider && p.ConsoleURL != nil && *p.ConsoleURL != "" {
+			b.WriteString(wizLine("  no key yet? make one at ") + ui.AccentStyle.Render(*p.ConsoleURL))
+			b.WriteByte('\n')
+			b.WriteByte('\n')
+			break
+		}
+	}
+
 	// Masked key field. EchoPassword-style: last-4 shown after validation.
-	masked := strings.Repeat("\u2022", 16)
+	// Empty means empty: sixteen dots in a blank field read as a key already
+	// typed in, and a stranger pressed Enter on nothing.
+	masked := ""
+	if w.APIKey == "" && !w.ProviderHasKey {
+		masked = wizLine("paste it here")
+	} else if w.ProviderHasKey && w.APIKey == "" {
+		masked = strings.Repeat("\u2022", 16)
+	}
 	if w.APIKey != "" {
 		masked = strings.Repeat("\u2022", len(w.APIKey))
 		if w.KeyValid && len(w.APIKey) > 4 {

@@ -486,6 +486,16 @@ type WizardHardware struct {
 	GpuOK   bool
 }
 
+// localMinVramGB is the GPU memory the Quick start local model (~5.5 GB of
+// weights) needs with room for its context. Below it the model spills onto
+// the processor, so Local is neither fast nor the right default.
+const localMinVramGB = 8
+
+// localFits reports whether the Quick start local model runs on this GPU.
+func (h WizardHardware) localFits() bool {
+	return h.GpuOK && h.GpuVram >= localMinVramGB
+}
+
 // CloudProvider is one entry in the ONB-003 provider picker. The list mirrors
 // the Rust `byok::ByokSettings::default_provider_configs` in
 // crates/cinderpaw-core/src/byok.rs — keep them in sync when adding providers.
@@ -1019,7 +1029,10 @@ func (ws *WizardState) footerHint() string {
 	case WizResume:
 		return ui.G.Up + ui.G.Down + " navigate  ·  enter select  ·  esc start over"
 	case WizHardware:
-		return "detecting hardware…"
+		if ws.Hardware.RamGB == 0 && !ws.Hardware.GpuOK {
+			return "detecting hardware…"
+		}
+		return "1 2  choose  ·  " + ui.AccentStyle.Render("Enter") + "  confirm"
 	case WizModelChoice:
 		return "enter to select"
 	case WizLocalDownload:
