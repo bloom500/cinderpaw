@@ -130,6 +130,29 @@ jobs:
           bun install --frozen-lockfile
           bun build src/index.ts --compile --target=${{ matrix.bun_target }} --outfile dist/cinderpaw-agent
 
+      # The one-command install (scripts/install.sh / install.ps1) downloads
+      # these. Flat archive: the three binaries, named as find_binary expects.
+      - name: Archive for the one-command install
+        run: |
+          case "${{ matrix.node_os }}" in win32) OSN=windows ;; darwin) OSN=macos ;; *) OSN=linux ;; esac
+          NAME="cinderpaw-$OSN-${{ matrix.node_arch }}"
+          mkdir -p "stage/$NAME" out
+          cp "$CLI" "stage/$NAME/cinderpaw${{ matrix.binext }}"
+          cp "CinderpawAgent/dist/cinderpaw-agent${{ matrix.binext }}" "stage/$NAME/"
+          cp "tui/cinderpaw-tui${{ matrix.binext }}" "stage/$NAME/"
+          if [ "$OSN" = windows ]; then
+            (cd "stage/$NAME" && 7z a -tzip "../../out/$NAME.zip" . >/dev/null)
+          else
+            tar -czf "out/$NAME.tar.gz" -C "stage/$NAME" .
+          fi
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.node_os }}-${{ matrix.node_arch }}
+          path: out/*
+          if-no-files-found: error
+
       - name: Assemble per-platform package
         working-directory: CinderpawAgent
         run: |
@@ -158,6 +181,135 @@ jobs:
           else
             npm pack --dry-run
           fi
+
+  # Spec 2026-09-24 §8.1: the real one-command install on clean runners,
+  # against the archives this run just built, served from localhost.
+  install-smoke:
+    name: install smoke (${{ matrix.os }})
+    needs: platform
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, macos-latest, ubuntu-22.04]
+    env:
+      CINDERPAW_NO_BROWSER: "1"
+      CINDERPAW_DOWNLOAD_BASE: http://127.0.0.1:8765
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          path: serve
+          merge-multiple: true
+      - name: Serve archives + SHA256SUMS
+        run: |
+          cd serve
+          if command -v sha256sum >/dev/null; then sha256sum * > SHA256SUMS; else shasum -a 256 * > SHA256SUMS; fi
+          cat SHA256SUMS
+          PY=$(command -v python3 || command -v python)
+          nohup "$PY" -m http.server 8765 >/dev/null 2>&1 &
+          sleep 3
+
+      - name: Install (unix), twice
+        if: runner.os != 'Windows'
+        run: |
+          bash scripts/install.sh | tee first.log
+          grep -q 'All set!' first.log
+          bash scripts/install.sh | tee second.log   # engine is up: must update, not fail
+          grep -q 'All set!' second.log
+      - name: Install (Windows), twice, through iex like a person would
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($n in 1,2) {
+            $out = powershell -NoProfile -Command "Get-Content -Raw scripts\install.ps1 | iex" | Out-String
+            Write-Host $out
+            if ($out -notmatch 'All set!') { throw "run $n did not finish" }
+          }
+
+      - name: Assert the footprint
+        shell: pwsh
+        run: |
+          $d = Join-Path $HOME '.cinderpaw'
+          $ext = if ($IsWindows) { '.exe' } else { '' }
+          foreach ($f in 'cinderpaw','cinderpaw-agent','cinderpaw-tui') {
+            if (-not (Test-Path (Join-Path $d "bin/$f$ext"))) { throw "missing $f" }
+          }
+          if ($IsWindows) {
+            $p = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
+            foreach ($l in "$p\Startup\Cinderpaw.lnk", "$p\Cinderpaw.lnk") { if (-not (Test-Path $l)) { throw "missing $l" } }
+            if ((Get-Item 'HKCU:\Environment').GetValue('Path') -notlike "*$d\bin*") { throw 'PATH not set' }
+          } elseif ($IsMacOS) {
+            foreach ($l in "$HOME/Library/LaunchAgents/dev.cinderpaw.engine.plist", "$HOME/Applications/Cinderpaw.app/Contents/MacOS/cinderpaw-open") { if (-not (Test-Path $l)) { throw "missing $l" } }
+            codesign -v "$d/bin/cinderpaw-agent"; if ($LASTEXITCODE) { throw 'sidecar signature invalid' }
+          } else {
+            if (-not (Test-Path "$HOME/.local/share/applications/cinderpaw.desktop")) { throw 'missing shortcut' }
+            if (-not ((Test-Path "$HOME/.config/systemd/user/cinderpaw.service") -or (Test-Path "$HOME/.config/autostart/cinderpaw.desktop"))) { throw 'missing autostart' }
+          }
+          # Engine healthy: Cinderpaw answers on its port with its own token.
+          $tok = (Get-Content (Join-Path $d 'api-token')).Trim()
+          Invoke-RestMethod -Headers @{ Authorization = "Bearer $tok" } http://127.0.0.1:11435/runtime/status | Out-Null
+
+      - name: Uninstall --purge, then nothing is left
+        shell: pwsh
+        run: |
+          $ext = if ($IsWindows) { '.exe' } else { '' }
+          & (Join-Path $HOME ".cinderpaw/bin/cinderpaw$ext") uninstall --purge --yes
+          Start-Sleep 8   # Windows removes the folder after the command exits
+          $left = @((Join-Path $HOME '.cinderpaw'))
+          if ($IsWindows) {
+            $p = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
+            $left += "$p\Startup\Cinderpaw.lnk", "$p\Cinderpaw.lnk"
+            if ((Get-Item 'HKCU:\Environment').GetValue('Path') -like '*.cinderpaw*') { throw 'PATH entry left' }
+          } elseif ($IsMacOS) {
+            $left += "$HOME/Library/LaunchAgents/dev.cinderpaw.engine.plist", "$HOME/Applications/Cinderpaw.app"
+          } else {
+            $left += "$HOME/.local/share/applications/cinderpaw.desktop", "$HOME/.config/systemd/user/cinderpaw.service", "$HOME/.config/autostart/cinderpaw.desktop"
+          }
+          foreach ($l in $left) { if (Test-Path $l) { throw "left behind: $l" } }
+          foreach ($rc in '.zshrc','.bashrc','.bash_profile','.profile') {
+            $f = Join-Path $HOME $rc
+            if ((Test-Path $f) -and (Select-String -Path $f -SimpleMatch '>>> cinderpaw >>>' -Quiet)) { throw "PATH block left in $rc" }
+          }
+
+  # Attach the archives to a GitHub release for this tag. NEVER "latest": the
+  # Desktop updater reads releases/latest/download/latest.json, and a CLI
+  # release there would leave every Desktop install unable to update.
+  github-release:
+    name: GitHub release (archives)
+    needs: [platform, install-smoke]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          path: out
+          merge-multiple: true
+      - name: Create or update the release
+        run: |
+          cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS
+          TAG="$GITHUB_REF_NAME"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" * --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" * -R "$GITHUB_REPOSITORY" --latest=false \
+              --title "Cinderpaw CLI ${TAG#cinderpaw-agent-v}" \
+              --notes "One-command install: see cinderpaw.dev/app. Checksums in SHA256SUMS."
+          fi
+      - name: The Desktop still owns "latest"
+        run: |
+          LATEST="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name || true)"
+          echo "latest = $LATEST"
+          case "$LATEST" in cinderpaw-agent-v*) echo "::error::CLI release became latest"; exit 1 ;; esac
 
   # Umbrella package: the `cinderpaw` bin + the optionalDependencies that point npm at
   # the per-platform packages published above. No binaries of its own.
