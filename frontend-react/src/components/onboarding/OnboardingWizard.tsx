@@ -443,7 +443,7 @@ export function ProviderStep() {
         <h2 className="text-2xl font-semibold text-text-primary mb-2">Choose your brain</h2>
         <p className="text-sm text-text-muted">
           I need a model to think with. Run one privately on your machine, or plug in a cloud key.
-          You can skip this and set it up later in Settings.
+          You can skip this and set it up later in Models.
         </p>
       </div>
 

@@ -18,7 +18,7 @@ const en = {
   'chat.placeholder': 'Ask anything…',
   'chat.placeholder.agent': 'Ask Cinderpaw…',
   'chat.placeholder.noModel': 'Load a model or add a cloud key to start chatting',
-  'chat.noModelHint': 'No model loaded. Open Models to download one, or add a cloud key in Settings.',
+  'chat.noModelHint': 'No model loaded. Open Models to download one, or add a cloud key in Models, Cloud tab.',
   // Spoken by the product, not the model — there is no model to speak. See
   // ChatInput.noModelReply.
   'chat.noModel.reply':
@@ -126,7 +126,7 @@ const en = {
   // told them is the thing that just failed. Say what will be used instead,
   // and say it as a fact rather than as a problem they have to solve.
   'call.voicesUsingDefault': 'Voice list unavailable, using',
-  'call.voicesNeedKey': 'Add this engine’s key in Settings to choose a voice.',
+  'call.voicesNeedKey': 'Add this engine’s key to choose a voice.',
   'call.voiceIdPlaceholder': 'Voice id',
   'call.voicesAvailable': 'available',
   'call.voiceMore': 'Showing the most relevant. Paste any voice id to use another:',
@@ -232,7 +232,7 @@ const ro: Strings = {
   'chat.placeholder': 'Întreabă orice…',
   'chat.placeholder.agent': 'Întreabă Cinderpaw…',
   'chat.placeholder.noModel': 'Încarcă un model sau adaugă o cheie cloud ca să începi',
-  'chat.noModelHint': 'Niciun model încărcat. Deschide Models ca să descarci unul, sau adaugă o cheie cloud în Settings.',
+  'chat.noModelHint': 'Niciun model încărcat. Deschide Models ca să descarci unul, sau adaugă o cheie cloud în Models, tabul Cloud.',
   'chat.noModel.reply':
     'Îmi trebuie un model ca să pot face asta. Pot rula unul mic direct pe calculatorul tău, merge și fără internet, sau pot folosi o cheie API, dacă ai deja una.',
   'chat.noModel.download': 'Descarcă un model',
@@ -316,7 +316,7 @@ const ro: Strings = {
   'call.voicesLoading': 'Se încarcă vocile…',
   'call.voiceIdPlaceholder': 'Id de voce',
   'call.voicesUsingDefault': 'Lista de voci nu e disponibilă, folosesc',
-  'call.voicesNeedKey': 'Adaugă cheia motorului în Setări ca să poți alege vocea.',
+  'call.voicesNeedKey': 'Adaugă cheia motorului ca să poți alege vocea.',
   'call.voicesAvailable': 'disponibile',
   'call.voiceMore': 'Arăt cele mai relevante. Lipește orice id de voce pentru altele:',
   'call.tooShort': 'A fost prea scurt ca să pot transcrie. Mai zi un pic.',
