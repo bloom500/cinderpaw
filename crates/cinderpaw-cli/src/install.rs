@@ -409,6 +409,35 @@ pub fn page_url() -> String {
     format!("{}/", crate::common::base_url())
 }
 
+fn url_with_code(base: &str, code: &str) -> String {
+    format!("{base}#code={code}")
+}
+
+fn open_error(status: u16) -> String {
+    if status == 404 {
+        "The Cinderpaw desktop app is using this computer's Cinderpaw port. Close the desktop app, then open Cinderpaw again.".into()
+    } else {
+        format!("Cinderpaw couldn't open its page. Run `cinderpaw open` again. (code {status})")
+    }
+}
+
+/// The page URL with a fresh one-time code (spec §4.2): the browser trades it
+/// for a cookie and never sees the bearer token.
+fn signed_in_url() -> Result<String, String> {
+    let token = crate::common::read_token().ok_or("Cinderpaw is running but its key file is missing. Run `cinderpaw open` again.")?;
+    let url = format!("{}/web/code", crate::common::base_url());
+    let resp = crate::admin::block_on(async {
+        reqwest::Client::new().post(&url).bearer_auth(&token).send().await
+    })
+    .map_err(|e| format!("Cinderpaw couldn't open its page: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(open_error(resp.status().as_u16()));
+    }
+    let body: serde_json::Value = crate::admin::block_on(resp.json()).map_err(|e| e.to_string())?;
+    let code = body["code"].as_str().ok_or("Cinderpaw sent an empty sign-in code.")?;
+    Ok(url_with_code(&page_url(), code))
+}
+
 fn last_line(opened: bool, url: &str) -> String {
     if opened {
         "All set! Your browser just opened. You can close this window.".into()
@@ -519,7 +548,13 @@ pub fn self_install() -> i32 {
         return 1;
     }
     println!("✓");
-    let url = page_url();
+    let url = match signed_in_url() {
+        Ok(u) => u,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 1;
+        }
+    };
     println!("{}", last_line(launch_browser(&url), &url));
     0
 }
@@ -530,7 +565,13 @@ pub fn open() -> i32 {
         eprintln!("{msg}");
         return 1;
     }
-    let url = page_url();
+    let url = match signed_in_url() {
+        Ok(u) => u,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 1;
+        }
+    };
     if !launch_browser(&url) {
         println!("Open this in your browser: {url}");
     }
@@ -695,6 +736,18 @@ mod tests {
         releaser.join().unwrap();
         assert!(removed.is_ok(), "{removed:?}");
         assert!(!dir.exists());
+    }
+
+    #[test]
+    fn the_code_rides_in_the_fragment_never_the_query() {
+        assert_eq!(url_with_code("http://127.0.0.1:11435/", "ab12"), "http://127.0.0.1:11435/#code=ab12");
+    }
+
+    #[test]
+    fn a_page_less_engine_on_our_port_is_named_not_opened() {
+        // 404 on /web/code = something Cinderpaw-shaped with no page: the Desktop app.
+        assert_eq!(open_error(404), "The Cinderpaw desktop app is using this computer's Cinderpaw port. Close the desktop app, then open Cinderpaw again.");
+        assert!(open_error(500).starts_with("Cinderpaw couldn't open its page."));
     }
 
     #[test]

@@ -338,6 +338,13 @@ fn main() {
 }
 
 fn run_gateway() -> i32 {
+    // The local page (spec 2026-09-24 §4), embedded by build.rs. Only this
+    // host registers it; the Desktop app serves no page.
+    cinderpaw_core::web::register(cinderpaw_core::web::Assets {
+        index_html: include_str!(concat!(env!("OUT_DIR"), "/index.html")),
+        app_js: include_str!(concat!(env!("OUT_DIR"), "/app.js")),
+        app_css: include_str!(concat!(env!("OUT_DIR"), "/app.css")),
+    });
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
