@@ -373,7 +373,9 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
         if kind == Kind::Folder {
             use std::os::windows::process::CommandExt;
             let script = format!(
-                "Wait-Process -Id {} -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '{}' -Recurse -Force",
+                // Retries for 30 s: the sidecar can still hold files for a
+                // few seconds after the gateway stops.
+                "Wait-Process -Id {} -ErrorAction SilentlyContinue; $p='{}'; for ($i=0; $i -lt 30 -and (Test-Path -LiteralPath $p); $i++) {{ Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue; if (Test-Path -LiteralPath $p) {{ Start-Sleep 1 }} }}",
                 std::process::id(),
                 footprint::ps_quote(&show(t))
             );
