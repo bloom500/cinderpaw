@@ -390,7 +390,14 @@ pub(crate) fn ask(prompt: &str) -> String {
     print!("  {ACCENT}{prompt}:{RESET} ");
     let _ = std::io::stdout().flush();
     let mut line = String::new();
-    let _ = std::io::stdin().read_line(&mut line);
+    // End of input (a closed or exhausted pipe) is not an empty answer: the
+    // setup menu took it for "not a number" and asked again, forever, so a
+    // script running `cinderpaw setup` hung (24 Sep). Stop and say why.
+    if matches!(std::io::stdin().read_line(&mut line), Ok(0)) {
+        println!();
+        eprintln!("cinderpaw: no more input (stdin closed). Run `cinderpaw setup` in a terminal to answer the questions.");
+        std::process::exit(1);
+    }
     line.trim().to_string()
 }
 
