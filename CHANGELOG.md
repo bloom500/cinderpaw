@@ -73,6 +73,9 @@
 
 ### Changed
 
+- The interface is English only for this release, and the language setting is
+  gone. More than 70 languages are planned for the next one. Talking to
+  Cinderpaw in your own language, by text or voice, works as before.
 - **Cinderpaw counts installs now, once, and says so before it does.** Promise 4
   used to read "no automatic analytics or crash-report uploads". It no longer
   does, and the honest thing is to say that in the same release rather than
