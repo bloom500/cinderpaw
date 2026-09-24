@@ -22,9 +22,12 @@ import { readLocal, writeLocal } from '@/lib/utils';
 
 const SEEN_KEY = 'cinderpaw.whatsNew.seen';
 
-const RELEASE: { id: string; hero: string; title: string; subtitle: string; items: { icon: LucideIcon; title: string; body: string }[] } = {
+const RELEASE: { id: string; hero: string; picture: string; title: string; subtitle: string; items: { icon: LucideIcon; title: string; body: string }[] } = {
   id: '2026-09-cinderpaw',
   hero: 'Cinderpaw',
+  // The release's picture, the same one the site's hero and share card use
+  // (cinderpaw.dev lib/releases.ts). Bundled, so it shows offline.
+  picture: '/releases/2026-09-moth.webp',
   title: 'Feral has a new name',
   subtitle: 'And it can do a lot more. Here is what changed.',
   items: [
@@ -64,7 +67,7 @@ export function WhatsNew() {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) hide(); }}>
       <DialogContent className="max-w-xl gap-0 overflow-hidden p-0 sm:rounded-2xl">
-        <Horizon name={RELEASE.hero} />
+        <ReleasePicture name={RELEASE.hero} src={RELEASE.picture} />
 
         <div className="px-6 pb-6 pt-5">
           <DialogTitle className="text-2xl font-semibold tracking-[-0.01em] text-text-primary">{RELEASE.title}</DialogTitle>
@@ -98,29 +101,19 @@ export function WhatsNew() {
 }
 
 /**
- * Dusk over the edge of the world: a deep sky, a thin ember line where it
- * meets the ground, the dark below, and film grain over all of it. After the
- * picture on Claude's new-model card, in Cinderpaw's own light: the horizon
- * is a cinder. CSS only, so it costs no download and is sharp at any size.
- * Fixed colours on purpose: it is a picture, the same in either theme.
+ * The release's picture with its name set over it, the way Claude's new-model
+ * card does it: one real photograph per big release (a moth's wing, close up,
+ * for September 2026), shared with the site's hero. Fixed colours on purpose:
+ * it is a picture, the same in either theme. It replaced a CSS dusk horizon
+ * that read as a copy of another company's launch picture.
  */
-const GRAIN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E")`;
-
-function Horizon({ name }: { name: string }) {
+function ReleasePicture({ name, src }: { name: string; src: string }) {
   return (
-    <div
-      className="relative flex h-56 items-center justify-center overflow-hidden"
-      style={{
-        background:
-          'linear-gradient(to bottom, #07111f 0%, #12294a 26%, #2f5d86 46%, #7f9fb5 56%, #d9a574 61.5%, #f07a2c 63%, #5a220b 64.5%, #1c0d06 72%, #0d0704 100%)',
-      }}
-    >
-      {/* The ember: a hot core on the line, a wide glow above it. */}
-      <div className="absolute inset-0" style={{ background: 'radial-gradient(38% 9% at 50% 63%, rgba(255,170,90,0.95), transparent 70%)' }} aria-hidden />
-      <div className="absolute inset-0" style={{ background: 'radial-gradient(90% 40% at 50% 64%, rgba(240,110,40,0.35), transparent 70%)' }} aria-hidden />
-      <div className="absolute inset-0 opacity-25 mix-blend-overlay" style={{ backgroundImage: GRAIN }} aria-hidden />
+    <div className="relative flex h-56 items-center justify-center overflow-hidden bg-[#1C1814]">
+      <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
+      <div className="absolute inset-0" style={{ background: 'radial-gradient(55% 60% at 50% 50%, rgba(20,14,8,0.4), transparent 80%)' }} aria-hidden />
       <span
-        className="relative -mt-6 text-5xl tracking-[-0.01em] text-[#f6efe4]"
+        className="relative text-5xl tracking-[-0.01em] text-[#f6efe4]"
         style={{ fontFamily: "'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif", textShadow: '0 2px 24px rgba(0,0,0,0.45)' }}
       >
         {name}
