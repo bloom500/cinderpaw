@@ -25,6 +25,7 @@ mod select;
 mod chat;
 mod common;
 mod guided;
+mod footprint;
 mod install;
 mod migrate;
 
