@@ -215,11 +215,13 @@ jobs:
       # The file server starts in the SAME step as the install: the macOS
       # runner kills background processes when a step ends.
 
+      # unix: curl reads the archives straight from disk (file://), the same
+      # download path without a file server (the macOS runner's never answered).
       - name: Install (unix), twice
         if: runner.os != 'Windows'
+        env:
+          CINDERPAW_DOWNLOAD_BASE: file://${{ github.workspace }}/serve
         run: |
-          (cd serve && exec python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1) &
-          sleep 3
           bash scripts/install.sh | tee first.log
           grep -q 'All set!' first.log
           bash scripts/install.sh | tee second.log   # engine is up: must update, not fail
@@ -264,8 +266,11 @@ jobs:
         run: |
           $ext = if ($IsWindows) { '.exe' } else { '' }
           & (Join-Path $HOME ".cinderpaw/bin/cinderpaw$ext") uninstall --purge --yes
-          Start-Sleep 8   # Windows removes the folder after the command exits
-          $left = @((Join-Path $HOME '.cinderpaw'))
+          # Windows removes the folder after the command exits, retrying for 30 s.
+          $dir = Join-Path $HOME '.cinderpaw'
+          for ($i = 0; $i -lt 40 -and (Test-Path $dir); $i++) { Start-Sleep 1 }
+          if (Test-Path $dir) { Get-ChildItem -Recurse $dir | Select-Object -First 20 FullName | Out-String | Write-Host }
+          $left = @($dir)
           if ($IsWindows) {
             $p = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
             $left += "$p\Startup\Cinderpaw.lnk", "$p\Cinderpaw.lnk"
