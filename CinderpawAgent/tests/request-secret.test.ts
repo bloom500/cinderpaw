@@ -44,13 +44,19 @@ test("in the browser it asks with a secret card and returns only { field, saved 
 test("a Saved answer is checked against what was really stored", async () => {
   const tool = createRequestSecretTool({ hasCards: () => true, isPresent: async () => false });
   const res = await tool.execute(args, ctxWith("Saved"));
-  expect(JSON.parse(res.content)).toEqual({ field: "DISCORD_TOKEN", saved: false });
+  expect(JSON.parse(res.content)).toMatchObject({ field: "DISCORD_TOKEN", saved: false, reason: "not_stored" });
 });
 
-test("cancel and a dismissed card both come back as not saved", async () => {
+test("'Not now' says the person declined, and forbids asking for a paste instead", async () => {
+  // Seen live 25 Sep: on a bare { saved: false } the agent concluded the field
+  // did not work and asked for the token in the chat, the one thing this
+  // tool exists to prevent.
   const tool = createRequestSecretTool({ hasCards: () => true, isPresent: async () => true });
-  expect(JSON.parse((await tool.execute(args, ctxWith("Cancel"))).content).saved).toBe(false);
-  expect(JSON.parse((await tool.execute(args, ctxWith(new Error("cancelled")))).content).saved).toBe(false);
+  for (const answer of ["Cancel", new Error("cancelled")] as const) {
+    const res = JSON.parse((await tool.execute(args, ctxWith(answer))).content);
+    expect(res).toMatchObject({ field: "DISCORD_TOKEN", saved: false, reason: "person_declined" });
+    expect(res.next).toContain("Do not ask for it in the chat");
+  }
 });
 
 test("an unknown connector or a field it does not have is refused", async () => {

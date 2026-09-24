@@ -9,7 +9,12 @@ export type ChatEvent =
   | { type: "tool_start"; id: string; tool: string }
   | { type: "tool_done"; id: string; tool: string; ok: boolean }
   | { type: "error"; detail: string }
+  | ({ type: "secret" } & SecretAsk)
+  | { type: "ask"; requestId: string; question: string; options: string[] }
   | { type: "done" };
+
+/** A request_secret question: the page shows a password field for it. */
+export type SecretAsk = { requestId: string; question: string; connector: string; field: string };
 
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -25,6 +30,17 @@ export function finishTool<T extends { tool: string; ok?: boolean }>(rows: T[], 
     if (r.tool === tool && r.ok === undefined) i = j;
   });
   return rows.map((r, j) => (j === i ? { ...r, ok } : r));
+}
+
+/** Finish the tool in whichever bubble is still running it, newest first. */
+export function finishToolIn<L extends { tools?: { tool: string; ok?: boolean }[] }>(lines: L[], tool: string, ok: boolean): L[] {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const rows = lines[i].tools;
+    if (rows?.some((r) => r.tool === tool && r.ok === undefined)) {
+      return lines.map((l, j) => (j === i ? { ...l, tools: finishTool(rows, tool, ok) } : l));
+    }
+  }
+  return lines;
 }
 
 /** Complete SSE records from `buffer`, and whatever trailing part is not yet complete. */
@@ -87,7 +103,8 @@ export async function streamChat(f: Fetch, content: string, on: (e: ChatEvent) =
     res = await f("/runtime/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content, session_id: SESSION }),
+      // "web": this surface can show cards, so request_secret may ask here.
+      body: JSON.stringify({ content, session_id: SESSION, surface: "web" }),
     });
   } catch (e) {
     return on({ type: "error", detail: String(e) });
@@ -123,6 +140,16 @@ export async function streamChat(f: Fetch, content: string, on: (e: ChatEvent) =
           on({ type: "tool_done", id: String(raw.id ?? ""), tool: String(raw.tool ?? ""), ok });
           continue;
         }
+        if (event === "ask_user") {
+          const q = raw.questions?.[0];
+          if (!q) continue;
+          if (q.secret?.connector && q.secret?.field) {
+            on({ type: "secret", requestId: String(raw.id), question: String(q.question), connector: q.secret.connector, field: q.secret.field });
+          } else {
+            on({ type: "ask", requestId: String(raw.id), question: String(q.question), options: (q.options ?? []).map((o: any) => String(o.label)) });
+          }
+          continue;
+        }
         if (event !== "message") continue;
         if (raw.error) return on({ type: "error", detail: String(raw.error) });
         const choice = raw.choices?.[0];
@@ -142,4 +169,38 @@ export async function streamChat(f: Fetch, content: string, on: (e: ChatEvent) =
   }
   // The stream ended without saying it was done: the engine went away mid-answer.
   on({ type: "error", detail: "the answer stopped before it finished" });
+}
+
+/** Answer an agent's question (ask_user) with one option label. */
+export async function answerAsk(f: Fetch, requestId: string, question: string, label: string): Promise<boolean> {
+  try {
+    const r = await f("/runtime/ask/respond", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId, answers: [{ question, selected: [label] }] }),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The secure field's Save: the value goes to the engine and nowhere else;
+ * the waiting agent is only told "Saved", and only once the engine took it.
+ */
+export async function saveSecret(f: Fetch, ask: SecretAsk, raw: string): Promise<boolean> {
+  const value = raw.trim();
+  if (!value) return false;
+  try {
+    const r = await f("/runtime/connectors", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: ask.connector, secrets: { [ask.field]: value } }),
+    });
+    if (!r.ok) return false;
+  } catch {
+    return false;
+  }
+  return answerAsk(f, ask.requestId, ask.question, "Saved");
 }

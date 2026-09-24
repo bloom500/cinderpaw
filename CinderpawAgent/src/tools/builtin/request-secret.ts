@@ -55,9 +55,9 @@ export function createRequestSecretTool(
       if (!ctx.askUser || !deps.hasCards(ctx.sessionId)) {
         return { ok: false, content: "unsupported_surface: this chat cannot show a secure field. Follow the connector's steps." };
       }
-      let saved = false;
+      let answer: string | undefined;
       try {
-        const [answer] = await ctx.askUser.ask(
+        const [a] = await ctx.askUser.ask(
           [
             {
               question: purpose,
@@ -69,11 +69,35 @@ export function createRequestSecretTool(
           ],
           ctx.sessionId,
         );
-        saved = answer?.selected?.[0] === SAVED && (await deps.isPresent(connector, field));
+        answer = a?.selected?.[0];
       } catch {
-        saved = false; // dismissed, cancelled, or the page went away
+        answer = undefined; // dismissed, cancelled, or the page went away
       }
-      return { ok: true, content: JSON.stringify({ field, saved }) };
+      if (answer !== SAVED) {
+        // Seen live: on a bare { saved: false } the agent decided the field was
+        // broken and asked for the token in the chat instead. Say what happened.
+        return {
+          ok: true,
+          content: JSON.stringify({
+            field,
+            saved: false,
+            reason: "person_declined",
+            next: "The person chose not to enter it now. Do not ask for it in the chat. Say it is fine, and offer the secure field again when they are ready.",
+          }),
+        };
+      }
+      if (!(await deps.isPresent(connector, field))) {
+        return {
+          ok: true,
+          content: JSON.stringify({
+            field,
+            saved: false,
+            reason: "not_stored",
+            next: "The page said it saved, but nothing is stored. Call request_secret again. Do not ask for it in the chat.",
+          }),
+        };
+      }
+      return { ok: true, content: JSON.stringify({ field, saved: true }) };
     },
   };
 }

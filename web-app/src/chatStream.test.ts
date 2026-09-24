@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { finishTool, parseSse, ThinkSplitter, streamChat, type ChatEvent } from "./chatStream";
+import { finishTool, finishToolIn, parseSse, saveSecret, ThinkSplitter, streamChat, type ChatEvent } from "./chatStream";
 
 test("SSE records are split on blank lines and keep their event name", () => {
   const { events, rest } = parseSse('data: {"a":1}\n\nevent: tool_start\ndata: {"id":"t1"}\n\ndata: {"par');
@@ -93,4 +93,48 @@ test("a tool_done lands on the last unfinished row of that tool, not every row w
     { tool: "list_skills", ok: false },
     { tool: "connectors_manage", ok: true },
   ]);
+});
+
+test("the page tells the engine it is the web surface (so request_secret can show a card)", async () => {
+  let sent: any;
+  await streamChat(async (_u, init) => { sent = JSON.parse(String(init?.body)); return body(["data: [DONE]\n\n"]); }, "hi", () => {});
+  expect(sent).toEqual({ content: "hi", session_id: "chat", surface: "web" });
+});
+
+test("an ask_user frame with a secret becomes a secure-field event; a plain one becomes a question", async () => {
+  const secretQ = { type: "ask_user", id: "req-1", sessionId: "chat", questions: [{ question: "Your Discord bot token", options: [{ label: "Saved" }, { label: "Cancel" }], multiSelect: false, secret: { connector: "discord", field: "DISCORD_TOKEN" } }] };
+  const plainQ = { type: "ask_user", id: "req-2", sessionId: "chat", questions: [{ question: "Which server?", options: [{ label: "Home" }, { label: "Work" }], multiSelect: false }] };
+  const got = await run(body([`event: ask_user\ndata: ${JSON.stringify(secretQ)}\n\n`, `event: ask_user\ndata: ${JSON.stringify(plainQ)}\n\n`, "data: [DONE]\n\n"]));
+  expect(got[0]).toEqual({ type: "secret", requestId: "req-1", question: "Your Discord bot token", connector: "discord", field: "DISCORD_TOKEN" });
+  expect(got[1]).toEqual({ type: "ask", requestId: "req-2", question: "Which server?", options: ["Home", "Work"] });
+});
+
+test("saving a secret sends the value only to the engine, and only 'Saved' to the agent", async () => {
+  const calls: { url: string; body: any }[] = [];
+  const f = async (url: string, init?: RequestInit) => { calls.push({ url, body: JSON.parse(String(init?.body)) }); return new Response("{}", { status: 200 }); };
+  const ok = await saveSecret(f, { requestId: "req-1", question: "Your Discord bot token", connector: "discord", field: "DISCORD_TOKEN" }, "  tok-123 \n");
+  expect(ok).toBe(true);
+  expect(calls[0]).toEqual({ url: "/runtime/connectors", body: { id: "discord", secrets: { DISCORD_TOKEN: "tok-123" } } });
+  expect(calls[1]).toEqual({ url: "/runtime/ask/respond", body: { requestId: "req-1", answers: [{ question: "Your Discord bot token", selected: ["Saved"] }] } });
+  expect(JSON.stringify(calls[1])).not.toContain("tok-123");
+});
+
+test("if the engine refuses the save, the agent is not told Saved", async () => {
+  const calls: string[] = [];
+  const f = async (url: string) => { calls.push(url); return new Response("nope", { status: 500 }); };
+  expect(await saveSecret(f, { requestId: "r", question: "q", connector: "discord", field: "DISCORD_TOKEN" }, "tok")).toBe(false);
+  expect(calls).toEqual(["/runtime/connectors"]);
+});
+
+test("a tool that finishes after its bubble was followed by another still gets its mark", () => {
+  // Seen live: request_secret starts in one bubble, the card opens a fresh one,
+  // and the tool_done used to land on the fresh one, leaving ⏳ forever.
+  const lines = [
+    { text: "", tools: [{ tool: "connectors_manage", ok: true }, { tool: "request_secret", ok: undefined as boolean | undefined }] },
+    { text: "Enter your token" },
+    { text: "", tools: [] as { tool: string; ok?: boolean }[] },
+  ];
+  const out = finishToolIn(lines, "request_secret", true);
+  expect(out[0].tools?.[1]).toEqual({ tool: "request_secret", ok: true });
+  expect(out[2]).toBe(lines[2]);
 });

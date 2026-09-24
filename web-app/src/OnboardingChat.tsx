@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { finishTool, streamChat } from "./chatStream";
+import { answerAsk, finishToolIn, saveSecret, streamChat, type SecretAsk } from "./chatStream";
 import { COPY } from "./copy";
 import {
   commonFirst, fetchApi, firstOffers, load, manualCandidate, save, tryCandidate, tryKey,
@@ -35,6 +35,8 @@ export function OnboardingChat() {
   const [open, setOpen] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [answering, setAnswering] = useState(false);
+  const [secretAsk, setSecretAsk] = useState<SecretAsk | null>(null);
+  const [plainAsk, setPlainAsk] = useState<{ requestId: string; question: string; options: string[] } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const add = (l: Line) => setLines((ls) => [...ls, l]);
@@ -99,12 +101,51 @@ export function OnboardingChat() {
       if (e.type === "text") patch((l) => ({ ...l, text: l.text + e.text }));
       else if (e.type === "reasoning") patch((l) => ({ ...l, reasoning: (l.reasoning ?? "") + e.text }));
       else if (e.type === "tool_start") patch((l) => ({ ...l, tools: [...(l.tools ?? []), { id: e.id, tool: e.tool }] }));
-      else if (e.type === "tool_done")
-        patch((l) => ({ ...l, tools: finishTool(l.tools ?? [], e.tool, e.ok) }));
-      else if (e.type === "error")
+      else if (e.type === "tool_done") setLines((ls) => finishToolIn(ls, e.tool, e.ok));
+      else if (e.type === "secret") {
+        add({ who: "agent", text: e.question, details: undefined });
+        setSecretAsk(e);
+        // The answer continues in a fresh bubble once the agent resumes.
+        add({ who: "agent", text: "", tools: [] });
+      } else if (e.type === "ask") {
+        add({ who: "agent", text: e.question });
+        setPlainAsk(e);
+        add({ who: "agent", text: "", tools: [] });
+      } else if (e.type === "error")
         patch((l) => ({ ...l, text: l.text ? `${l.text}\n\n${COPY.chatError}` : COPY.chatError, details: e.detail }));
     });
     setAnswering(false);
+    setSecretAsk(null);
+    setPlainAsk(null);
+    // Drop an answer bubble that never got any text (the agent only asked).
+    setLines((ls) => (ls.length && ls[ls.length - 1].who === "agent" && !ls[ls.length - 1].text && !ls[ls.length - 1].tools?.length ? ls.slice(0, -1) : ls));
+  }
+
+  async function submitSecret(raw: string) {
+    if (!secretAsk || !raw.trim()) return;
+    const ask = secretAsk;
+    const f = (u: string, i?: RequestInit) => fetch(u, i);
+    if (await saveSecret(f, ask, raw)) {
+      setSecretAsk(null);
+      setLines((ls) => [...ls.slice(0, -1), { who: "person", text: COPY.secretSaved }, ls[ls.length - 1]]);
+    } else {
+      setLines((ls) => [...ls.slice(0, -1), { who: "agent", text: COPY.secretFailed }, ls[ls.length - 1]]);
+    }
+  }
+
+  async function skipSecret() {
+    if (!secretAsk) return;
+    const ask = secretAsk;
+    setSecretAsk(null);
+    await answerAsk((u, i) => fetch(u, i), ask.requestId, ask.question, "Cancel");
+  }
+
+  async function pickAnswer(label: string) {
+    if (!plainAsk) return;
+    const ask = plainAsk;
+    setPlainAsk(null);
+    setLines((ls) => [...ls.slice(0, -1), { who: "person", text: label }, ls[ls.length - 1]]);
+    await answerAsk((u, i) => fetch(u, i), ask.requestId, ask.question, label);
   }
 
   function fail(r: KeyResult) {
@@ -257,7 +298,21 @@ export function OnboardingChat() {
             </div>
           )}
           {step === "key" && <TextForm secret placeholder={COPY.keyPlaceholder} send={COPY.keySave} onSend={submitKey} />}
-          {step === "done" && (
+          {step === "done" && secretAsk && (
+            <div className="secret-card">
+              <p className="muted">{COPY.secretHint}</p>
+              <TextForm secret placeholder={COPY.secretPlaceholder} send={COPY.secretSave} onSend={submitSecret} />
+              <button type="button" className="link" onClick={skipSecret}>{COPY.secretCancel}</button>
+            </div>
+          )}
+          {step === "done" && !secretAsk && plainAsk && (
+            <div className="choices wrap">
+              {plainAsk.options.map((o) => (
+                <button key={o} type="button" className="button quiet" onClick={() => pickAnswer(o)}>{o}</button>
+              ))}
+            </div>
+          )}
+          {step === "done" && !secretAsk && !plainAsk && (
             <TextForm placeholder={COPY.messagePlaceholder} send={COPY.send} onSend={sendChat} disabled={answering} />
           )}
         </div>

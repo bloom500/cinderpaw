@@ -23,6 +23,7 @@ import { atomicWriteFile } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { configPath, type ConnectorRow } from "../../transports/connectors.ts";
+import { sessionHasCards } from "../../core/card-surface.ts";
 
 /**
  * What each supported connector needs to come alive, and how a person
@@ -307,7 +308,30 @@ export const CATALOG: Record<string, CatalogEntry> = {
   },
 };
 
-const redact = (row: ConnectorRow | undefined, id: string) => ({
+/** Sentences that ask for a secret in the chat, or describe what happens to one pasted there. */
+const ASKS_FOR_PASTE = /in this chat|^send me |private file on this computer|secure box instead/i;
+
+/**
+ * The steps as this chat should hear them. Where the page can show a secure
+ * field, every "paste it here" becomes "call request_secret": seen live, an
+ * agent with the paste sentence still in front of it used it the moment the
+ * field was declined, and a token typed into the chat reaches the AI service.
+ */
+export function stepsFor(id: string, cards: boolean): string[] {
+  const entry = CATALOG[id];
+  const steps = entry?.steps ?? [];
+  if (!cards || !entry) return steps;
+  const fields = entry.secrets.join(" and ");
+  return steps.map((step) => {
+    const sentences = step.split(/(?<=[.!?;])\s+/);
+    const kept = sentences.filter((x) => !ASKS_FOR_PASTE.test(x));
+    if (kept.length === sentences.length) return step;
+    const ask = `Then call request_secret for ${fields}. It opens a secure box on this page. Never ask for these in the chat.`;
+    return [...kept, ask].join(" ");
+  });
+}
+
+const redact = (row: ConnectorRow | undefined, id: string, cards = false) => ({
   id,
   enabled: row?.enabled ?? false,
   configured: CATALOG[id]!.secrets.map((k) => ({
@@ -320,7 +344,7 @@ const redact = (row: ConnectorRow | undefined, id: string) => ({
   requires: CATALOG[id]!.secrets,
   note: CATALOG[id]!.note,
   ...(CATALOG[id]!.consoleUrl ? { consoleUrl: CATALOG[id]!.consoleUrl } : {}),
-  ...(CATALOG[id]!.steps ? { steps: CATALOG[id]!.steps } : {}),
+  ...(CATALOG[id]!.steps ? { steps: stepsFor(id, cards) } : {}),
 });
 
 async function readRows(): Promise<ConnectorRow[]> {
@@ -404,7 +428,7 @@ export function createConnectorsManageTool(
         schema: { type: "array", items: { type: "string" } },
       },
     },
-    async execute(args) {
+    async execute(args, ctx) {
       const action = typeof args.action === "string" ? args.action : "";
 
       if (action === "list") {
@@ -412,7 +436,7 @@ export function createConnectorsManageTool(
         return {
           ok: true,
           content: JSON.stringify(
-            Object.keys(CATALOG).map((id) => redact(rows.find((r) => r.id === id), id)),
+            Object.keys(CATALOG).map((id) => redact(rows.find((r) => r.id === id), id, sessionHasCards(ctx?.sessionId ?? ""))),
             null,
             2,
           ),

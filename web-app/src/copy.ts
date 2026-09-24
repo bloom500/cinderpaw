@@ -45,4 +45,10 @@ export const COPY = {
   working: (tool: string) => `Working on it: ${tool}`,
   toolFailed: (tool: string) => `That step did not work: ${tool}`,
   chatError: "I lost my train of thought. Please send that again.",
+  secretHint: "Only this computer sees it. The AI never does.",
+  secretPlaceholder: "Paste it here",
+  secretSave: "Save",
+  secretCancel: "Not now",
+  secretSaved: "Saved on this computer.",
+  secretFailed: "I couldn't save that. Please try again.",
 };

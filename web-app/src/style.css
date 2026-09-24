@@ -206,3 +206,11 @@ h1 {
 .tool.bad {
   color: var(--ember);
 }
+.secret-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--ember);
+}
