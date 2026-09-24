@@ -28,7 +28,17 @@ func (a *App) View() string {
 	if a.Height/4 < maxInH {
 		maxInH = a.Height / 4
 	}
-	inH := clamp(1, a.Input.Height()+2, maxInH)
+	// The composer is as tall as what is in it, up to the cap. It used to
+	// sit at its maximum with one line typed: at 80x24 that was five empty
+	// rows, a fifth of the screen taken from the conversation (24 Sep).
+	// Written only on change, like the viewport sizes below.
+	if rows := clamp(1, inputRows(a.Input.Value(), a.Input.Width()), maxInH-2); a.Input.Height() != rows {
+		a.Input.SetHeight(rows)
+		a.needsRebuild = true
+	}
+	// +1: one quiet row between the composer and the footer. It was +2 for a
+	// border InputStyle does not have.
+	inH := clamp(1, a.Input.Height()+1, maxInH)
 
 	// Guided mode: same layout as the wizard — header, guided content,
 	// guided footer, no input.
@@ -429,6 +439,19 @@ func (a *App) renderHeader() string {
 		pad = 1
 	}
 	return ui.HeaderStyle.Render(" " + left + strings.Repeat(" ", pad) + right)
+}
+
+// inputRows is how many screen rows `text` takes in a composer `width`
+// columns wide: one per hard line, plus the soft wraps of long lines.
+func inputRows(text string, width int) int {
+	if width < 1 {
+		width = 1
+	}
+	rows := 0
+	for _, line := range strings.Split(text, "\n") {
+		rows += 1 + lipgloss.Width(line)/width
+	}
+	return rows
 }
 
 func (a *App) renderInput(h int) string {

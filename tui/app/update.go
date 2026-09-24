@@ -1478,19 +1478,18 @@ func (a *App) pushAssistantError(msg string) {
 		a.RateLimitUntil = time.Now().Add(30 * time.Second)
 		a.retriedRateLimit = false
 	}
-	for i := range a.Turns {
-		t := &a.Turns[len(a.Turns)-1-i]
-		if t.Role != RoleAssistant {
-			continue
-		}
-		t.Errors = append(t.Errors, ErrorCard{
-			Message: msg,
-			Kind:    kind,
-			Hint:    hint,
-		})
+	card := ErrorCard{Message: msg, Kind: kind, Hint: hint}
+	// The card belongs under the message that failed. When the error lands
+	// before any reply to it exists, the last turn is the user's; walking
+	// back past it used to pin the card to the PREVIOUS answer, off screen,
+	// and the new message sat there with nothing under it (24 Sep).
+	if n := len(a.Turns); n > 0 && a.Turns[n-1].Role == RoleAssistant {
+		t := &a.Turns[n-1]
+		t.Errors = append(t.Errors, card)
 		t.markDirty()
 		return
 	}
+	a.Turns = append(a.Turns, Turn{Role: RoleAssistant, Errors: []ErrorCard{card}, turnVer: 1})
 }
 
 // retryLastMessage re-submits lastUserText — used both by the "r" keybind

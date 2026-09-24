@@ -723,11 +723,24 @@ func (a *App) renderTurn(turn *Turn, msgWidth int) string {
 			}
 		}
 
-		if turn.Text == "" && len(turn.Tools) == 0 && !turn.Streaming && turn.Reasoning == "" {
+		if turn.Text == "" && len(turn.Tools) == 0 && !turn.Streaming && turn.Reasoning == "" && len(turn.Errors) == 0 {
 			// Empty, finished assistant turn with no tools — skip rendering
 			// (no content, no tag, nothing to show).
 			b.WriteByte('\n')
 			return b.String()
+		}
+		// Tools before the text: an agent searches, THEN answers, and the
+		// answer printed above the search it came from read as if the
+		// search happened afterwards (24 Sep).
+		if collapsed := collapsedToolSummary(turn, gutter, a.Now); collapsed != "" {
+			b.WriteString(collapsed)
+			b.WriteByte('\n')
+		} else {
+			for _, tc := range turn.Tools {
+				pill := a.renderToolPill(tc, gutter, msgWidth)
+				b.WriteString(gutter + pill)
+				b.WriteByte('\n')
+			}
 		}
 		if turn.Text != "" {
 			// Plain text during streaming, markdown on completion
@@ -746,22 +759,11 @@ func (a *App) renderTurn(turn *Turn, msgWidth int) string {
 				b.WriteString(gutter + ui.CinderpawContent.Render(line))
 				b.WriteByte('\n')
 			}
-		} else {
-			b.WriteString(gutter)
-			if turn.Streaming {
-				b.WriteString(a.Loader.View())
-			}
+		} else if turn.Streaming && (turn.Reasoning == "" || turn.ThinkingOpen) {
+			// The working spinner, unless the collapsed thinking line above
+			// already carries one: two spinners on two rows read as a glitch.
+			b.WriteString(gutter + a.Loader.View())
 			b.WriteByte('\n')
-		}
-		if collapsed := collapsedToolSummary(turn, gutter, a.Now); collapsed != "" {
-			b.WriteString(collapsed)
-			b.WriteByte('\n')
-		} else {
-			for _, tc := range turn.Tools {
-				pill := a.renderToolPill(tc, gutter, msgWidth)
-				b.WriteString(gutter + pill)
-				b.WriteByte('\n')
-			}
 		}
 		for _, e := range turn.Errors {
 			b.WriteString(gutter + a.renderErrorCard(e, msgWidth))
