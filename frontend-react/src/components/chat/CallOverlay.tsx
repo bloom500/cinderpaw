@@ -344,7 +344,10 @@ export function CallOverlay({
       // chain is warm FOR what was picked when it started, and Rust discards
       // one warmed for anything else. Without the dependency, changing vendor
       // on the pre-call screen silently put the full boot back on the button.
-      warmLiveKit();
+      // Not for Jev: its call never touches LiveKit, and Rust read "jev" as an
+      // unknown vendor and warmed the first keyed one instead, booting a server
+      // and a Node agent on every visit only to reap them three minutes later.
+      if (s2sProvider !== JEV_PROVIDER_ID) warmLiveKit();
     }
   }, [phase, refreshS2s, s2sProvider, ttsProvider, sttProvider]);
   // What will ACTUALLY run. Rust falls back to the first provider with a key
@@ -656,7 +659,7 @@ export function CallOverlay({
       aria-modal="true"
       aria-label={t('call.title')}
       className="fixed inset-0 z-40 flex"
-      style={{ backgroundColor: 'var(--bg-primary, #100E09)' }}
+      style={{ backgroundColor: 'var(--bg-primary, #1C1814)' }}
     >
       {/* The frameless window still has to be movable while a call covers the
           screen. This strip spans the top and does nothing else. */}
