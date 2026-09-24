@@ -1,11 +1,23 @@
 import { useEffect, useRef, useState } from "react";
+import { streamChat } from "./chatStream";
 import { COPY } from "./copy";
 import {
   commonFirst, fetchApi, firstOffers, load, manualCandidate, save, tryCandidate, tryKey,
   type Candidate, type KeyResult, type Provider, type Step,
 } from "./onboarding";
 
-type Line = { who: "agent" | "person"; text: string; details?: string; link?: { href: string; label: string } };
+type Tool = { id: string; tool: string; ok?: boolean };
+type Line = {
+  who: "agent" | "person";
+  text: string;
+  details?: string;
+  link?: { href: string; label: string };
+  reasoning?: string;
+  tools?: Tool[];
+};
+
+/** "web_search" reads as "web search" to someone who has never seen code. */
+const plain = (tool: string) => tool.replace(/[_.]/g, " ");
 
 const api = fetchApi();
 const OPENROUTER_KEYS = "https://openrouter.ai/keys";
@@ -22,6 +34,7 @@ export function OnboardingChat() {
   const [local, setLocal] = useState<Candidate | undefined>();
   const [open, setOpen] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [answering, setAnswering] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const add = (l: Line) => setLines((ls) => [...ls, l]);
@@ -71,6 +84,27 @@ export function OnboardingChat() {
     await say(COPY.itWorks);
     await say(COPY.awake(n));
     go("done", n);
+  }
+
+  /** Talk to the real agent (spec §6.1): same engine, same "chat" session as the terminal. */
+  async function sendChat(raw: string) {
+    const text = raw.trim();
+    if (!text || answering) return;
+    add({ who: "person", text });
+    add({ who: "agent", text: "", tools: [] });
+    setAnswering(true);
+    const patch = (fn: (l: Line) => Line) =>
+      setLines((ls) => [...ls.slice(0, -1), fn(ls[ls.length - 1])]);
+    await streamChat((u, i) => fetch(u, i), text, (e) => {
+      if (e.type === "text") patch((l) => ({ ...l, text: l.text + e.text }));
+      else if (e.type === "reasoning") patch((l) => ({ ...l, reasoning: (l.reasoning ?? "") + e.text }));
+      else if (e.type === "tool_start") patch((l) => ({ ...l, tools: [...(l.tools ?? []), { id: e.id, tool: e.tool }] }));
+      else if (e.type === "tool_done")
+        patch((l) => ({ ...l, tools: (l.tools ?? []).map((t) => (t.id === e.id ? { ...t, ok: e.ok } : t)) }));
+      else if (e.type === "error")
+        patch((l) => ({ ...l, text: l.text ? `${l.text}\n\n${COPY.chatError}` : COPY.chatError, details: e.detail }));
+    });
+    setAnswering(false);
   }
 
   function fail(r: KeyResult) {
@@ -170,7 +204,19 @@ export function OnboardingChat() {
       <div className="thread" aria-live="polite">
         {lines.map((l, i) => (
           <div key={i} className={`bubble ${l.who}`}>
-            <p>{l.text}</p>
+            {l.reasoning && (
+              <details className="reasoning">
+                <summary>{COPY.thinking}</summary>
+                <p>{l.reasoning}</p>
+              </details>
+            )}
+            {l.tools?.map((t) => (
+              <p key={t.id} className={`tool ${t.ok === false ? "bad" : ""}`}>
+                {t.ok === undefined ? "⏳" : t.ok ? "✓" : "✗"}{" "}
+                {t.ok === false ? COPY.toolFailed(plain(t.tool)) : COPY.working(plain(t.tool))}
+              </p>
+            ))}
+            {(l.text || !l.tools) && <p className="text">{l.text || "…"}</p>}
             {l.link && (
               <a className="button" href={l.link.href} target="_blank" rel="noopener noreferrer">
                 {l.link.label}
@@ -211,19 +257,23 @@ export function OnboardingChat() {
             </div>
           )}
           {step === "key" && <TextForm secret placeholder={COPY.keyPlaceholder} send={COPY.keySave} onSend={submitKey} />}
+          {step === "done" && (
+            <TextForm placeholder={COPY.messagePlaceholder} send={COPY.send} onSend={sendChat} disabled={answering} />
+          )}
         </div>
       )}
     </main>
   );
 }
 
-function TextForm(props: { placeholder: string; send: string; secret?: boolean; onSend: (v: string) => void }) {
+function TextForm(props: { placeholder: string; send: string; secret?: boolean; disabled?: boolean; onSend: (v: string) => void }) {
   const [v, setV] = useState("");
   return (
     <form
       className="textform"
       onSubmit={(e) => {
         e.preventDefault();
+        if (props.disabled) return;
         props.onSend(v);
         setV("");
       }}
@@ -238,7 +288,7 @@ function TextForm(props: { placeholder: string; send: string; secret?: boolean; 
         value={v}
         onChange={(e) => setV(e.target.value)}
       />
-      <button type="submit" className="button" disabled={!v.trim()}>{props.send}</button>
+      <button type="submit" className="button" disabled={!v.trim() || props.disabled}>{props.send}</button>
     </form>
   );
 }

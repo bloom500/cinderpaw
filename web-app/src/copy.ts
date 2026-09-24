@@ -39,4 +39,10 @@ export const COPY = {
   hideDetails: "Hide details",
   tryAnother: "Try a different key",
   savedAs: (mask: string) => `Saved: ${mask}`,
+  messagePlaceholder: "Ask me anything, or say: connect me to Discord",
+  send: "Send",
+  thinking: "What I thought",
+  working: (tool: string) => `Working on it: ${tool}`,
+  toolFailed: (tool: string) => `That step did not work: ${tool}`,
+  chatError: "I lost my train of thought. Please send that again.",
 };
