@@ -245,8 +245,6 @@ enum ConfigAction {
 }
 
 fn main() {
-    #[cfg(windows)]
-    common::stop_std_handle_inheritance();
     let cli = Cli::parse();
 
     // Global output modes. Color auto-disables when piped (not a TTY) or when
