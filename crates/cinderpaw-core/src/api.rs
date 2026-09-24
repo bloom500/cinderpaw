@@ -51,6 +51,10 @@ pub struct ApiState {
     /// subscribes to the observability bus. `manager`/`token` above stay as
     /// convenience handles the pre-Slice-3 handlers already read.
     pub runtime: Arc<RuntimeState>,
+    /// The local web page and its browser sessions. `Some` only when the CLI
+    /// registered page assets (`web::register`) before boot; the Desktop app
+    /// has `None` and serves no page and accepts no cookies.
+    pub web: Option<Arc<crate::web::WebUi>>,
 }
 
 pub fn router(state: ApiState) -> Router {
@@ -63,7 +67,18 @@ pub fn router(state: ApiState) -> Router {
         .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any);
 
+
     Router::new()
+        // The local page and the code-for-cookie trade: `require_token` lets
+        // these through only when this host serves the page (PUBLIC_WEB),
+        // because they ARE how a browser gets authenticated. `/web/code`
+        // checks the bearer itself, so a cookie can never mint more codes.
+        .route("/", get(web_index))
+        .route("/app.js", get(web_js))
+        .route("/app.css", get(web_css))
+        .route("/web/session", post(web_session))
+        .route("/web/code", post(web_code))
+        .route("/web/me", get(web_me))
         // Ollama-compatible
         .route("/api/tags", get(api_tags))
         .route("/api/show", post(api_show))
@@ -250,6 +265,8 @@ async fn api_stability_header(req: Request<axum::body::Body>, next: Next) -> Res
     response
 }
 
+const PUBLIC_WEB: [&str; 5] = ["/", "/app.js", "/app.css", "/web/session", "/web/code"];
+
 /// Reject any request without a valid bearer token. CORS preflight
 /// (`OPTIONS`) is allowed through so browsers can negotiate before the real
 /// request carries the `Authorization` header.
@@ -261,6 +278,11 @@ async fn require_token(
     if req.method() == axum::http::Method::OPTIONS {
         return next.run(req).await;
     }
+    // Only a host that serves the page opens these; everywhere else they stay
+    // behind the token like any path, so a probe learns nothing new.
+    if state.web.is_some() && PUBLIC_WEB.contains(&req.uri().path()) {
+        return next.run(req).await;
+    }
     let presented = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -269,10 +291,93 @@ async fn require_token(
         .map(str::trim)
         .unwrap_or("");
     if constant_time_eq(presented.as_bytes(), state.token.as_bytes()) {
-        next.run(req).await
-    } else {
-        (StatusCode::UNAUTHORIZED, "missing or invalid bearer token").into_response()
+        return next.run(req).await;
     }
+    // A browser session from the local page (spec §4.2). Only when this host
+    // serves the page, and only from our own address.
+    if let Some(web) = state.web.clone() {
+        // Owned copies in their own block: a borrow of `req` (whose Body is
+        // not Sync) living across the awaits below makes this future !Send.
+        let (cookie, host, origin, method) = {
+            let owned = |n: header::HeaderName| req.headers().get(n).and_then(|v| v.to_str().ok()).map(str::to_string);
+            (owned(header::COOKIE), owned(header::HOST), owned(header::ORIGIN), req.method().as_str().to_string())
+        };
+        if let Some(id) = cookie.as_deref().and_then(crate::web::cookie_value).map(str::to_string) {
+            let port = state.runtime.api_port_actual.load(std::sync::atomic::Ordering::SeqCst);
+            if !crate::web::same_origin(&method, host.as_deref(), origin.as_deref(), port) {
+                return (StatusCode::FORBIDDEN, "wrong origin").into_response();
+            }
+            match web.check(&id, crate::web::unix_now()) {
+                crate::web::Session::Valid => return next.run(req).await,
+                crate::web::Session::Renewed => {
+                    let mut resp = next.run(req).await;
+                    if let Ok(v) = HeaderValue::from_str(&crate::web::session_cookie(&id)) {
+                        resp.headers_mut().append(header::SET_COOKIE, v);
+                    }
+                    return resp;
+                }
+                crate::web::Session::Invalid => {}
+            }
+        }
+    }
+    (StatusCode::UNAUTHORIZED, "missing or invalid bearer token").into_response()
+}
+
+fn web_ui(state: &ApiState) -> Result<&Arc<crate::web::WebUi>, Response> {
+    state.web.as_ref().ok_or_else(|| StatusCode::NOT_FOUND.into_response())
+}
+
+async fn web_index(State(state): State<ApiState>) -> Response {
+    match web_ui(&state) {
+        Ok(w) => ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], w.assets.index_html).into_response(),
+        Err(r) => r,
+    }
+}
+async fn web_js(State(state): State<ApiState>) -> Response {
+    match web_ui(&state) {
+        Ok(w) => ([(header::CONTENT_TYPE, "text/javascript; charset=utf-8")], w.assets.app_js).into_response(),
+        Err(r) => r,
+    }
+}
+async fn web_css(State(state): State<ApiState>) -> Response {
+    match web_ui(&state) {
+        Ok(w) => ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], w.assets.app_css).into_response(),
+        Err(r) => r,
+    }
+}
+
+fn bearer_ok(state: &ApiState, headers: &axum::http::HeaderMap) -> bool {
+    let presented = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer ")).map(str::trim).unwrap_or("");
+    constant_time_eq(presented.as_bytes(), state.token.as_bytes())
+}
+
+async fn web_code(State(state): State<ApiState>, headers: axum::http::HeaderMap) -> Response {
+    let w = match web_ui(&state) { Ok(w) => w, Err(r) => return r };
+    if !bearer_ok(&state, &headers) {
+        return (StatusCode::UNAUTHORIZED, "missing or invalid bearer token").into_response();
+    }
+    Json(json!({ "code": w.issue_code(crate::web::unix_now()) })).into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct CodeBody { code: String }
+
+async fn web_session(State(state): State<ApiState>, headers: axum::http::HeaderMap, Json(body): Json<CodeBody>) -> Response {
+    let w = match web_ui(&state) { Ok(w) => w, Err(r) => return r };
+    let port = state.runtime.api_port_actual.load(std::sync::atomic::Ordering::SeqCst);
+    let h = |n| headers.get(n).and_then(|v: &HeaderValue| v.to_str().ok());
+    if !crate::web::same_origin("POST", h(header::HOST), h(header::ORIGIN), port) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match w.redeem(&body.code, crate::web::unix_now()) {
+        Some(id) => ([(header::SET_COOKIE, crate::web::session_cookie(&id))], Json(json!({ "ok": true }))).into_response(),
+        None => (StatusCode::UNAUTHORIZED, "code already used or expired").into_response(),
+    }
+}
+
+async fn web_me() -> Json<Value> {
+    Json(json!({ "ok": true }))
 }
 
 /// Length-independent byte comparison. Localhost timing attacks are a stretch,

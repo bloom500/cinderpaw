@@ -66,6 +66,7 @@ fn build_router() -> axum::Router {
             settings,
             Arc::from(TOKEN),
         )),
+        web: None,
     };
     router(state)
 }
