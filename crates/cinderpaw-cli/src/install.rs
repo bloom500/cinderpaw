@@ -24,6 +24,8 @@ use std::path::{Path, PathBuf};
 use crate::common::{api_port, palette, port_in_use, Palette};
 use crate::footprint;
 
+const PS_URL: &str = "https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.ps1";
+
 const ONE_LINER: &str =
     "curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash";
 
@@ -32,6 +34,9 @@ const ONE_LINER: &str =
 pub enum Kind {
     /// `npm i -g feral-agent` — the binary sits under node_modules.
     Npm,
+    /// The one-command install (spec 2026-09-24): binaries in ~/.cinderpaw/bin,
+    /// plus the autostart, PATH and shortcut footprint.rs knows how to remove.
+    Folder,
     /// Built by scripts/install.sh: binaries in ~/.local/bin, checkout in
     /// ~/src/feral. `script` is the installer that can redo it (it git-pulls
     /// and rebuilds, so it doubles as the updater).
@@ -62,10 +67,19 @@ fn classify(exe: &Path) -> Option<Kind> {
     None
 }
 
+fn is_folder_install(exe: &Path, data: &Path) -> bool {
+    exe.parent() == Some(data.join("bin").as_path())
+}
+
 pub fn detect() -> Kind {
     let exe = std::env::current_exe().and_then(|p| p.canonicalize()).unwrap_or_default();
     if let Some(kind) = classify(&exe) {
         return kind;
+    }
+    let data = cinderpaw_core::paths::cinderpaw_dir();
+    let data = data.canonicalize().unwrap_or(data);
+    if is_folder_install(&exe, &data) {
+        return Kind::Folder;
     }
     // Sitting inside a checkout means this is `target/release/cinderpaw-cli`, i.e.
     // a build tree. Bail before anything below can offer to delete it.
@@ -122,6 +136,19 @@ pub fn update() -> i32 {
             eprintln!("cinderpaw: `update` is handled by the npm launcher, not this binary.");
             eprintln!("       run:  npm install -g cinderpaw-agent@latest");
             1
+        }
+        // The one-liner IS the updater: it replaces the binaries and restarts
+        // the engine (self-install). On Windows it renames the running .exe
+        // aside first, which Windows allows where overwriting is refused.
+        Kind::Folder => {
+            let status = if cfg!(windows) {
+                std::process::Command::new("powershell")
+                    .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &format!("irm {PS_URL} | iex")])
+                    .status()
+            } else {
+                std::process::Command::new("bash").args(["-c", ONE_LINER]).status()
+            };
+            status.map(|s| s.code().unwrap_or(1)).unwrap_or(1)
         }
         Kind::Dev { tree } => {
             eprintln!("{WARN}cinderpaw: this is a build from {}, not an install.{RESET}", show(&tree));
@@ -239,6 +266,13 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
             }
         }
         Kind::Npm => manual.push("npm uninstall -g cinderpaw-agent"),
+        // Without --purge only the programs go; settings, memory and keys
+        // stay so a reinstall resumes. --purge adds the whole folder below.
+        Kind::Folder => {
+            if !purge {
+                targets.push(data.join("bin"));
+            }
+        }
         // The package was called `feral` before the rename, and this machine
         // may still be holding that one — naming only the new package would
         // print a command that reports "not installed" and leaves the install
@@ -284,11 +318,19 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
     for m in &manual {
         println!("    {WARN}run yourself{RESET}  {TEXT}{m}{RESET}");
     }
+    if kind == Kind::Folder {
+        println!("    {FAIL}remove{RESET}        {TEXT}start at login, the PATH entry, the Cinderpaw shortcut{RESET}");
+        if purge {
+            println!("    {FAIL}remove{RESET}        {TEXT}saved AI keys in the keychain{RESET}");
+        }
+    }
     if purge {
         println!(
             "\n    {FAIL}{BOLD}--purge{RESET}{FAIL}: removes the profile directory, including settings, memory and models.{RESET}"
         );
-        println!("    {WARN}OS key-store credentials are retained; remove those separately if needed.{RESET}");
+        if kind != Kind::Folder {
+            println!("    {WARN}OS key-store credentials are retained; remove those separately if needed.{RESET}");
+        }
     } else {
         println!(
             "\n    {OK}kept{RESET}          {TEXT}{}{RESET}  {DIM}{META}{}{RESET}",
@@ -309,8 +351,45 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
         crate::admin::gateway_stop();
     }
 
+    if kind == Kind::Folder {
+        if let Some(h) = home() {
+            for what in footprint::remove(&h) {
+                println!("  {OK}removed{RESET} {DIM}{META}{what}{RESET}");
+            }
+        }
+        if purge {
+            for p in cinderpaw_core::byok::provider_catalog() {
+                let _ = cinderpaw_core::byok::remove_provider(&p.id);
+            }
+            println!("  {OK}removed{RESET} {DIM}{META}saved AI keys from the keychain{RESET}");
+        }
+    }
+
     let mut failed = 0;
     for t in &targets {
+        // Windows cannot delete the .exe running this command: hand the folder
+        // to a detached PowerShell that waits for us to exit first.
+        #[cfg(windows)]
+        if kind == Kind::Folder {
+            use std::os::windows::process::CommandExt;
+            let script = format!(
+                "Wait-Process -Id {} -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '{}' -Recurse -Force",
+                std::process::id(),
+                footprint::ps_quote(&show(t))
+            );
+            let spawned = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+                .creation_flags(0x0000_0008) // DETACHED_PROCESS
+                .spawn();
+            match spawned {
+                Ok(_) => println!("  {OK}removing{RESET} {DIM}{META}{} (finishes when this command ends){RESET}", show(t)),
+                Err(e) => {
+                    failed += 1;
+                    eprintln!("  {FAIL}could not remove {}{RESET}: {e}", show(t));
+                }
+            }
+            continue;
+        }
         let removed = if t.is_dir() { std::fs::remove_dir_all(t) } else { std::fs::remove_file(t) };
         match removed {
             Ok(()) => println!("  {OK}removed{RESET} {DIM}{META}{}{RESET}", show(t)),
@@ -574,6 +653,14 @@ mod tests {
         );
         // A user-edited variant is not ours to touch.
         assert!(without_path_line("export PATH=\"$HOME/.local/bin:$PATH\"\n").is_none());
+    }
+
+    #[test]
+    fn the_one_folder_layout_is_recognised() {
+        let data = Path::new("/home/ana/.cinderpaw");
+        assert!(is_folder_install(Path::new("/home/ana/.cinderpaw/bin/cinderpaw"), data));
+        assert!(!is_folder_install(Path::new("/home/ana/.local/bin/cinderpaw"), data));
+        assert!(!is_folder_install(Path::new("/home/ana/.cinderpaw/cinderpaw"), data));
     }
 
     #[test]
