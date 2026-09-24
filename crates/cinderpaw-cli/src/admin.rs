@@ -1685,6 +1685,8 @@ pub fn setup() -> i32 {
 
 	let code = match std::process::Command::new(&tui_bin)
 		.arg("--wizard")
+		// The TUI shows this in its brand line; see tui/ui/branding.go.
+		.env("CINDERPAW_VERSION", env!("CARGO_PKG_VERSION"))
 		.stdin(std::process::Stdio::inherit())
 		.stdout(std::process::Stdio::inherit())
 		.stderr(std::process::Stdio::inherit())

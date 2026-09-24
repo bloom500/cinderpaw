@@ -11,9 +11,13 @@ func TestAppName(t *testing.T) {
 	}
 }
 
-func TestAppVersion(t *testing.T) {
-	if AppVersion == "" {
-		t.Fatal("AppVersion is empty")
+func TestVersionTag(t *testing.T) {
+	if got := versionTag("2026.9.18"); got != " v2026.9.18" {
+		t.Fatalf("versionTag(2026.9.18) = %q", got)
+	}
+	// Unknown version: no "v" dangling in the brand line.
+	if got := versionTag(""); got != "" {
+		t.Fatalf("versionTag(\"\") = %q, want empty", got)
 	}
 }
 

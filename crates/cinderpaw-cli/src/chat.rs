@@ -50,6 +50,8 @@ pub fn run() -> ! {
     };
 
     let status = match Command::new(&tui_bin)
+        // The TUI shows this in its brand line; see tui/ui/branding.go.
+        .env("CINDERPAW_VERSION", env!("CARGO_PKG_VERSION"))
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
