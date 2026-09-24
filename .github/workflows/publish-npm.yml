@@ -96,6 +96,16 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME ($TAG) != CinderpawAgent/package.json ($PKG)"; exit 1
           fi
 
+      # The local page is embedded into cinderpaw-cli at compile time
+      # (crates/cinderpaw-cli/build.rs); build it first or the CLI ships the
+      # "no web page" placeholder.
+      - name: Build the local page (web-app)
+        working-directory: web-app
+        run: |
+          bun install --frozen-lockfile
+          bun test
+          bun run build
+
       - name: Build cinderpaw-cli (Rust, no local inference)
         run: |
           if [ -n "${{ matrix.rust_target }}" ]; then
@@ -260,6 +270,26 @@ jobs:
           # Engine healthy: Cinderpaw answers on its port with its own token.
           $tok = (Get-Content (Join-Path $d 'api-token')).Trim()
           Invoke-RestMethod -Headers @{ Authorization = "Bearer $tok" } http://127.0.0.1:11435/runtime/status | Out-Null
+
+      - name: The page, the one-time code and the cookie
+        shell: pwsh
+        run: |
+          $base = 'http://127.0.0.1:11435'
+          $page = Invoke-WebRequest "$base/"
+          if ($page.Content -notmatch 'id="root"') { throw 'the page is the placeholder, not the real app' }
+          $tok = (Get-Content (Join-Path $HOME '.cinderpaw/api-token')).Trim()
+          $code = (Invoke-RestMethod -Method Post -Headers @{ Authorization = "Bearer $tok" } "$base/web/code").code
+          $body = @{ code = $code } | ConvertTo-Json
+          $h = @{ Origin = $base }
+          $first = Invoke-WebRequest -Method Post -ContentType 'application/json' -Body $body -Headers $h "$base/web/session" -SessionVariable web -SkipHttpErrorCheck
+          if ($first.StatusCode -ne 200) { throw "first use: $($first.StatusCode)" }
+          if ($first.Headers['Set-Cookie'] -notmatch 'HttpOnly' -or $first.Headers['Set-Cookie'] -notmatch 'SameSite=Strict') { throw 'cookie flags' }
+          $second = Invoke-WebRequest -Method Post -ContentType 'application/json' -Body $body -Headers $h "$base/web/session" -SkipHttpErrorCheck
+          if ($second.StatusCode -ne 401) { throw "second use: $($second.StatusCode)" }
+          $me = Invoke-WebRequest "$base/web/me" -WebSession $web -SkipHttpErrorCheck
+          if ($me.StatusCode -ne 200) { throw "cookie: $($me.StatusCode)" }
+          $evil = Invoke-WebRequest "$base/web/me" -WebSession $web -Headers @{ Origin = 'http://evil.example' } -SkipHttpErrorCheck
+          if ($evil.StatusCode -ne 403) { throw "foreign origin: $($evil.StatusCode)" }
 
       - name: Uninstall --purge, then nothing is left
         shell: pwsh

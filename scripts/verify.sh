@@ -19,6 +19,7 @@ run "CinderpawAgent typecheck" bash -c "cd \"$ROOT/CinderpawAgent\" && bunx tsc 
 # recorded, so it is not mine to remove.
 run "React tests" bash -c "cd \"$ROOT/frontend-react\" && bunx vitest run --maxWorkers=1"
 run "React typecheck" bash -c "cd \"$ROOT/frontend-react\" && bunx tsc --noEmit"
+run "Web app tests + typecheck" bash -c "cd \"$ROOT/web-app\" && bun install --frozen-lockfile && bun test && bun run typecheck"
 run "Sidecar build" bash -c "cd \"$ROOT/src-tauri\" && node scripts/build-sidecar.mjs"
 run "Rust check" bash -c "cd \"$ROOT\" && cargo check"
 run "Rust tests (host)" bash -c "cd \"$ROOT\" && cargo test -p cinderpaw"
