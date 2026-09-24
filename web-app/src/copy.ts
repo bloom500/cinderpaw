@@ -1,0 +1,41 @@
+// Every line a person reads during onboarding. Agent lines are written by us
+// until a key works (spec 2026-09-24 §5); readability.test.ts holds them all
+// at grade 6 or below.
+
+export const COPY = {
+  hello: "Hey! I'm Cinderpaw. I'm going to live on your computer and help you out. What should I call you?",
+  namePlaceholder: "Your name",
+  nameSend: "That's me",
+  niceToMeet: (name: string) => `Nice to meet you, ${name}!`,
+  brain: "To think, I need a key. It's like a password that lets me use an AI brain. Want me to show you where to get one?",
+  showMe: "Show me",
+  haveKey: "I already have a key",
+  useLocal: "Use the AI on this computer",
+  localFound: "I also found an AI that runs on this computer. You can use that one, too.",
+  existingFound: (label: string) => `I think I already have a brain from before: ${label}. Let me check it.`,
+  showMeSteps: [
+    "Here is how to get one. It takes about two minutes.",
+    "1. Open OpenRouter with the button below. It opens in a new tab.",
+    "2. Sign in, or make an account.",
+    "3. Press Create Key. Give it any name you like.",
+    "4. Copy the key. It starts with sk-or-.",
+    "5. Come back here and paste it in the box.",
+  ],
+  openOpenRouter: "Open OpenRouter",
+  pickProvider: "Which one is your key from?",
+  pasteKey: (provider: string) => `Paste your ${provider} key here. Only this computer will see it.`,
+  keyPlaceholder: "Paste your key",
+  keySave: "Save",
+  trying: "Let me try it...",
+  itWorks: "It works!",
+  awake: (name: string) => `I'm awake now, ${name}! From here it's really me talking.`,
+  badKey: "That key didn't work. Check you copied all of it.",
+  noCredit: "Your account has no credit yet. Add some, then try again.",
+  offline: "I can't reach the internet. Check your connection, then try again.",
+  busy: "The key works, but the AI is busy right now. Try again in a minute.",
+  somethingElse: "Something went wrong when I tried the key. You can try again.",
+  showDetails: "Show details",
+  hideDetails: "Hide details",
+  tryAnother: "Try a different key",
+  savedAs: (mask: string) => `Saved: ${mask}`,
+};
