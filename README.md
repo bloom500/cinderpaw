@@ -70,26 +70,26 @@ and you can untick it right there. See [PROMISES.md](PROMISES.md#the-promises).<
 
 ## Quick install
 
-**One command, any Linux or macOS — the installer detects your system:**
+**One command. It downloads Cinderpaw, starts it, and opens it in your browser.**
+
+macOS or Linux, in Terminal:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.sh | bash
 ```
 
-- **Linux with a display** → installs the latest desktop app (`.deb`/`.rpm`).
-- **Linux headless (VPS/server)** → builds the `cinderpaw` CLI + gateway from source (no GPU toolchain needed). Force a mode with `| bash -s -- --headless` or `--desktop`.
-- **macOS** → downloads the right `.dmg` for your chip, installs to /Applications, clears the quarantine flag.
-
-**Windows 10/11** — download the latest `.exe` from
-[Releases](https://github.com/bloom500/cinderpaw/releases/latest) and run it. Or, in
-PowerShell:
+Windows 10/11, in PowerShell:
 
 ```powershell
-$a = (irm https://api.github.com/repos/bloom500/cinderpaw/releases/latest).assets | ? name -like '*x64-setup.exe' | select -First 1
-iwr $a.browser_download_url -OutFile cinderpaw-setup.exe; .\cinderpaw-setup.exe
+irm https://raw.githubusercontent.com/bloom500/cinderpaw/main/scripts/install.ps1 | iex
 ```
 
-> SmartScreen may warn on first run (the installer isn't code-signed yet) — click **More info → Run anyway**.
+It puts everything in `~/.cinderpaw` (no admin rights), starts Cinderpaw when
+you log in, and adds a **Cinderpaw** shortcut. Run it again to update. Remove it
+with `cinderpaw uninstall` (add `--purge` to also delete your settings and memory).
+
+- Build the CLI from source instead (Linux): `| bash -s -- --from-source`
+- The desktop app instead: `| bash -s -- --desktop` (macOS/Linux), or the installers below.
 
 Prefer to grab a file by hand? Every installer — Windows `.exe`, macOS `.dmg`,
 Linux `.deb`/`.rpm` — is on the
