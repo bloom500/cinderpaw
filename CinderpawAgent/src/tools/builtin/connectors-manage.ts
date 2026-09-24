@@ -60,7 +60,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Open the 'Bot' tab in the left sidebar.",
       "Under 'Privileged Gateway Intents', turn ON 'Message Content Intent' and save. Without it the bot can see that messages exist but not what they say.",
       "Click 'Reset Token', confirm, then 'Copy'. Discord shows this token exactly once — if you navigate away you have to reset it again.",
-      "Paste the token in this chat. It goes straight to your OS keychain and is redacted from memory.",
+      "Paste the token in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Then open 'OAuth2' → 'URL Generator', tick 'bot', tick the 'Send Messages' and 'Read Message History' permissions, open the generated URL, and pick your server.",
     ],
   },
@@ -74,7 +74,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Open 'OAuth & Permissions' → 'Bot Token Scopes' and add: chat:write, im:history, app_mentions:read.",
       "Scroll up on the same page and click 'Install to Workspace', then approve.",
       "Copy the 'Bot User OAuth Token' — it starts with 'xoxb-'.",
-      "Paste both tokens in this chat. They go to your OS keychain and are redacted from memory.",
+      "Paste both tokens in this chat. I keep them in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
     ],
   },
   whatsapp: {
@@ -97,7 +97,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "Open https://t.me/BotFather in Telegram and press Start.",
       "Send /newbot, then a display name, then a username ending in 'bot'.",
-      "BotFather replies with a token like 123456:ABC-... Copy it. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "BotFather replies with a token like 123456:ABC-... Copy it. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Your own numeric user id goes in the allowlist: message @userinfobot in Telegram and it replies with it.",
       "For a group, add the bot to the group and send me the group's chat id for channels; in a private chat nothing else is needed.",
     ],
@@ -110,7 +110,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Make a separate Matrix account for me (not your own), for example at https://app.element.io.",
       "Signed in as that account in Element: Settings, Help & About, Advanced, Access Token. Copy it.",
       "The homeserver is the address the account lives on, e.g. https://matrix.org.",
-      "Send me both. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me both. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Your own full id (@you:server) goes in the allowlist; invite my account to the rooms you want me in.",
     ],
   },
@@ -122,7 +122,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Personal access tokens must be enabled by the server admin (System Console, Integrations). See https://developers.mattermost.com/integrate/reference/personal-access-token/.",
       "Signed in as the account I should speak as: Profile, Security, Personal Access Tokens, Create Token. Copy the token.",
       "The URL is the address you open Mattermost at, e.g. https://chat.example.com.",
-      "Send me both. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me both. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
     ],
   },
   signal: {
@@ -155,7 +155,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Open https://open.feishu.cn/app (Lark: open.larksuite.com/app) and create a custom app.",
       "Turn on its bot capability and give it permission to read and send messages.",
       "Under Credentials, copy the App ID and App Secret.",
-      "Send me both. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me both. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Publish the app version so it can be added to chats.",
     ],
   },
@@ -166,7 +166,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "Make a separate Nextcloud user for me on your server.",
       "Signed in as that user: Settings, Security, Devices & sessions, create an app password. See https://docs.nextcloud.com/server/latest/user_manual/en/session_management.html.",
-      "Send me the server address, that user's name, and the app password. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me the server address, that user's name, and the app password. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Add that user to the Talk conversations you want me in, and put your own user name in the allowlist.",
     ],
   },
@@ -176,7 +176,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     consoleUrl: "https://nostr.how",
     steps: [
       "Make a NEW key pair for me with any Nostr client (see https://nostr.how). Never give me your own private key.",
-      "Copy that new private key (nsec... or hex). Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Copy that new private key (nsec... or hex). Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Send the relays to use, comma-separated, e.g. wss://relay.damus.io,wss://nos.lol.",
       "Your own public key goes in the allowlist; I answer direct messages from it.",
     ],
@@ -188,7 +188,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "Make a separate Twitch account for me, and register an app at https://dev.twitch.tv/console/apps.",
       "Signed in as my account, get a user access token for that app with the chat:read and chat:edit scopes.",
-      "Send me the token. Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me the token. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Tell me which channels to join, and put your own Twitch login in the allowlist.",
     ],
   },
@@ -199,7 +199,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "Open https://bot.zaloplatforms.com/ and sign in with Zalo.",
       "Create a bot and copy its token.",
-      "Paste it in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Put your own Zalo user id in the allowlist.",
     ],
   },
@@ -227,7 +227,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "You need a running Urbit ship, your own or one hosted by Tlon (https://tlon.io).",
       "Send me its name, the ~sampel-palnet form, and the URL where Landscape opens in your browser.",
-      "In the ship's dojo type +code and copy what it prints. That is the access code, NOT the master ticket, and it is the one thing here you must never paste anywhere else. Paste it in this chat; it goes to your OS keychain and is redacted from memory.",
+      "In the ship's dojo type +code and copy what it prints. That is the access code, NOT the master ticket, and it is the one thing here you must never paste anywhere else. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Put the ships allowed to DM me in the allowlist, ~sampel-palnet form. A DM from a ship nobody listed arrives as an invite and I leave it unanswered, so a stranger cannot open a conversation.",
       "Say honestly what happens when you enable it: written against Urbit's documented channel protocol, never run against a real ship. A wrong code shows up as a login failure the moment you enable, not later.",
     ],
@@ -255,7 +255,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Open https://developers.line.biz/console/ and create a provider, then a Messaging API channel.",
       "In the channel's Messaging API tab, issue a long-lived channel access token and copy it.",
       "In the Basic settings tab, copy the channel secret.",
-      "Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send it to me in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "Then set the channel's Webhook URL to your public address + /connectors/line and turn 'Use webhook' on. This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
     ],
   },
@@ -277,7 +277,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     steps: [
       "In Synology Chat on your NAS (what it is: https://www.synology.com/en-global/dsm/feature/chat), open the profile menu, Integration, and create an Incoming Webhook. Copy the URL it gives you.",
       "In the same place create an Outgoing Webhook pointing at your public address + /connectors/synology-chat, and copy its token.",
-      "Send me both. Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me both. Send it to me in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
     ],
   },
@@ -289,7 +289,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Open https://console.cloud.google.com/apis/library/chat.googleapis.com and enable the Google Chat API in a project.",
       "In the Chat API's Configuration tab, create the app and set Connection settings to 'HTTP endpoint URL' = your public address + /connectors/googlechat.",
       "Copy the project NUMBER from the project's dashboard (the number, not the id).",
-      "Create a service account in that project, add a JSON key, and send me the whole JSON plus the project number. Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Create a service account in that project, add a JSON key, and send me the whole JSON plus the project number. Send it to me in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
     ],
   },
@@ -301,7 +301,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
       "Register a bot at https://dev.botframework.com (or an Azure Bot resource) and copy its Microsoft App ID.",
       "Create a client secret for that app registration and copy its value; it is shown once.",
       "Set the bot's messaging endpoint to your public address + /connectors/msteams.",
-      "Send me the app id and the secret, and the tenant id too if the bot is single-tenant. Send it to me in this chat. It goes to your OS keychain and is redacted from memory.",
+      "Send me the app id and the secret, and the tenant id too if the bot is single-tenant. Send it to me in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
       "This one is INBOUND-ONLY over a webhook: the platform has to reach your machine, so it needs a public HTTPS address pointing at Cinderpaw (a tunnel or a reverse proxy). Without that it connects and never hears anything.",
     ],
   },
@@ -334,6 +334,12 @@ async function readRows(): Promise<ConnectorRow[]> {
   }
 }
 
+/** Is this secret stored for this connector? Never returns the value. */
+export async function secretPresent(connector: string, field: string): Promise<boolean> {
+  const row = (await readRows()).find((r) => r.id === connector);
+  return redact(row, connector).configured.some((c) => c.secret === field && c.present);
+}
+
 export function createConnectorsManageTool(
   manager: { reload(): Promise<void> },
 ): Tool {
@@ -348,7 +354,7 @@ export function createConnectorsManageTool(
       "id (and secrets/allowlist if required) to connect or disconnect. Changes " +
       "apply immediately. Secrets are stored, never echoed. " +
       "When a user asks how to connect you to something, call 'list' FIRST and " +
-      "walk them through the returned 'steps' verbatim — they are checked " +
+      "walk them through the returned 'steps' verbatim, except that wherever a step says to paste or send a secret you call request_secret first (it shows a secure field when the chat can) and only fall back to the paste if it returns unsupported_surface — they are checked " +
       "against the real console and your own recollection of these portals is " +
       "probably out of date. Give the steps a few at a time, wait at the one " +
       "that says to paste a token, and never invent a step that isn't there.",

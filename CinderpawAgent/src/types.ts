@@ -1473,7 +1473,7 @@ export interface InboundMessage {
    *
    * Absent (connectors, TUI) leaves whatever brief that surface already set.
    */
-  surface?: "voice" | "text";
+  surface?: "voice" | "text" | "web";
   /** The built-in browser's page, when one is on screen (desktop only). */
   browserPage?: { url?: string; title?: string } | null;
   // set_model fields (all present when type === "set_model")
@@ -1556,6 +1556,13 @@ export interface AskUserQuestion {
    * because each covers the other's blind spot.
    */
   forceEscalate?: boolean;
+  /**
+   * A secret the person types into a password card (request_secret, spec
+   * 2026-09-24 §6.2). Only a surface that renders cards (the local web page)
+   * is ever sent one; the page saves the value straight to the engine and
+   * answers "Saved" or "Cancel", so the value never reaches the agent.
+   */
+  secret?: { connector: string; field: string };
 }
 
 export interface AskUserAnswer {
