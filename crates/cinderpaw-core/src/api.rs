@@ -335,13 +335,13 @@ async fn web_index(State(state): State<ApiState>) -> Response {
 }
 async fn web_js(State(state): State<ApiState>) -> Response {
     match web_ui(&state) {
-        Ok(w) => ([(header::CONTENT_TYPE, "text/javascript; charset=utf-8")], w.assets.app_js).into_response(),
+        Ok(w) => ([(header::CONTENT_TYPE, "text/javascript; charset=utf-8"), (header::CACHE_CONTROL, "no-cache")], w.assets.app_js).into_response(),
         Err(r) => r,
     }
 }
 async fn web_css(State(state): State<ApiState>) -> Response {
     match web_ui(&state) {
-        Ok(w) => ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], w.assets.app_css).into_response(),
+        Ok(w) => ([(header::CONTENT_TYPE, "text/css; charset=utf-8"), (header::CACHE_CONTROL, "no-cache")], w.assets.app_css).into_response(),
         Err(r) => r,
     }
 }

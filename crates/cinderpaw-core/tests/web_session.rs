@@ -121,3 +121,16 @@ async fn without_a_web_ui_nothing_new_exists() {
     let with_token = Request::post("/web/code").header(header::AUTHORIZATION, "Bearer test-token").body(Body::empty()).unwrap();
     assert_eq!(send(&app, with_token).await.status(), StatusCode::NOT_FOUND);
 }
+
+/// The files ship inside the binary and change with every update; a browser
+/// holding yesterday's app.js would talk to today's engine.
+#[tokio::test]
+async fn the_page_files_are_never_cached_stale() {
+    let d = tempfile::tempdir().unwrap();
+    let (app, _) = app(true, d.path());
+    for path in ["/", "/app.js", "/app.css"] {
+        let resp = send(&app, Request::get(path).header(header::HOST, HOST).body(Body::empty()).unwrap()).await;
+        let cc = resp.headers().get(header::CACHE_CONTROL).and_then(|v| v.to_str().ok()).unwrap_or("");
+        assert!(cc == "no-store" || cc == "no-cache", "{path}: {cc:?}");
+    }
+}
