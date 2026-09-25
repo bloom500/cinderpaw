@@ -31,7 +31,10 @@ pub fn registered() -> Option<&'static Assets> {
 
 pub const COOKIE: &str = "cinderpaw_session";
 pub const SESSION_TTL: u64 = 30 * 24 * 3600;
-const CODE_TTL: u64 = 60;
+// Ten minutes, not one: the installer prints the link when it cannot open a
+// browser (SSH, containers), and a person reading and clicking it, or a cold
+// browser on a slow machine, took longer than 60 s and landed signed out.
+const CODE_TTL: u64 = 600;
 
 pub enum Session {
     Invalid,
@@ -168,14 +171,14 @@ mod tests {
     }
 
     #[test]
-    fn a_code_works_once_and_only_for_sixty_seconds() {
+    fn a_code_works_once_and_only_for_ten_minutes() {
         let (ui, _d) = ui();
         let code = ui.issue_code(T0);
         assert_eq!(code.len(), 32);
-        assert!(ui.redeem(&code, T0 + 59).is_some());
-        assert!(ui.redeem(&code, T0 + 59).is_none(), "second use must fail");
+        assert!(ui.redeem(&code, T0 + CODE_TTL - 1).is_some());
+        assert!(ui.redeem(&code, T0 + CODE_TTL - 1).is_none(), "second use must fail");
         let late = ui.issue_code(T0);
-        assert!(ui.redeem(&late, T0 + 61).is_none(), "expired code must fail");
+        assert!(ui.redeem(&late, T0 + CODE_TTL + 1).is_none(), "expired code must fail");
         assert!(ui.redeem("not-a-code", T0).is_none());
     }
 

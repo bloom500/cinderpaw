@@ -21,6 +21,10 @@ test("a used code with a still-valid cookie stays signed in", async () => {
   expect(screen).toBe("signed-in");
 });
 
+test("an expired code says so, instead of a bare sign-in hint", async () => {
+  expect(await startSession("#code=stale", async () => res(false))).toBe("expired");
+});
+
 test("no code and no cookie shows the shortcut hint, never an error", async () => {
   expect(await startSession("", async () => res(false))).toBe("signed-out");
   expect(await startSession("", async () => { throw new Error("offline"); })).toBe("signed-out");

@@ -1,4 +1,4 @@
-export type Screen = "loading" | "signed-in" | "signed-out";
+export type Screen = "loading" | "signed-in" | "signed-out" | "expired";
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 export function codeFrom(hash: string): string | null {
@@ -17,7 +17,8 @@ export async function startSession(hash: string, fetchFn: Fetch): Promise<Screen
       });
       if (r.ok) return "signed-in";
     }
-    return (await fetchFn("/web/me")).ok ? "signed-in" : "signed-out";
+    if ((await fetchFn("/web/me")).ok) return "signed-in";
+    return code ? "expired" : "signed-out";
   } catch {
     return "signed-out";
   }

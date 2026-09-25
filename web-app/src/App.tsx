@@ -18,9 +18,10 @@ export function App() {
   }, []);
 
   if (screen === "loading") return <main className="center"><p className="muted">One moment...</p></main>;
-  if (screen === "signed-out") {
+  if (screen === "signed-out" || screen === "expired") {
     return (
       <main className="center">
+        {screen === "expired" && <p className="muted">That sign-in link has expired. The shortcut makes a fresh one.</p>}
         <h1>Open Cinderpaw from its shortcut to sign in.</h1>
         <p className="muted">Look for it in {shortcutPlace()}:</p>
         <div className="shortcut" aria-hidden="true">
