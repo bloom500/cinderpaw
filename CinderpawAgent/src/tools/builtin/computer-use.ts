@@ -66,6 +66,9 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   "launch",
 ]);
 
+/** Elements listed by id in a `find_elements` result; the rest are counted. */
+const FIND_LIST_CAP = 60;
+
 /** Default tree depth when the caller omits it. Clamped again in the host. */
 const DEFAULT_DEPTH = 4;
 const MAX_DEPTH = 30;
@@ -484,7 +487,25 @@ function summarize(action: Action, data: unknown): string {
     return `Value: ${(data as any).value}`;
   }
   if ((action === "find_elements") && Array.isArray(data)) {
-    return `Found ${data.length} element(s).`;
+    // The ids ARE the result: the model only ever reads `content`, and this
+    // used to be the count alone, so every element found could not be
+    // clicked. It either guessed an id or fell back to a full `get_tree`.
+    // Values arrive redacted from the host for secure fields.
+    const clip = (v: unknown, n: number) => {
+      const t = String(v ?? "").replace(/\s+/g, " ").trim();
+      return t.length > n ? `${t.slice(0, n)}…` : t;
+    };
+    const shown = data.slice(0, FIND_LIST_CAP).map((e: any) => {
+      const value = clip(e?.value, 40);
+      const flags = [e?.is_enabled === false ? "disabled" : "", e?.is_offscreen ? "offscreen" : ""].filter(Boolean).join(", ");
+      return `  ${e?.id}  ${e?.role ?? "element"} "${clip(e?.name, 80)}"${value ? ` value="${value}"` : ""}${flags ? ` (${flags})` : ""}`;
+    });
+    const more = data.length > shown.length
+      ? `\n  … and ${data.length - shown.length} more: narrow the query (role, name) to see them.`
+      : "";
+    return data.length === 0
+      ? "Found 0 elements."
+      : `Found ${data.length} element(s):\n${shown.join("\n")}${more}`;
   }
   if (action === "click" || action === "type" || action === "send_keys" || action === "perform_action") {
     return `${action} succeeded.`;
