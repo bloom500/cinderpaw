@@ -400,8 +400,17 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
   const begin = useCallback(async () => {
     setNotice(null);
     setPhase('connecting');
+    // A hang-up while the microphone is being asked for (a permission prompt
+    // takes as long as the person does) bumps this; the call stays ended.
+    // Without it the microphone arrived afterwards and the loop started: the
+    // call came back on screen, listening, after the person had ended it.
+    const asked = generation.current;
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      if (generation.current !== asked) {
+        s.getTracks().forEach((t) => t.stop());
+        return;
+      }
       const c = new AudioContext();
       const a = c.createAnalyser();
       a.fftSize = 1024;
@@ -410,7 +419,13 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       ctx.current = c;
       analyser.current = a;
     } catch (e) {
-      setNotice(`Microphone: ${String(e)}`);
+      if (generation.current !== asked) return;
+      const name = e instanceof DOMException ? e.name : '';
+      setNotice(
+        name === 'NotAllowedError' ? 'The microphone was refused. Allow it for Cinderpaw in your system settings.'
+          : name === 'NotFoundError' ? 'No microphone was found. Plug one in and try again.'
+            : `Microphone: ${String(e)}`,
+      );
       setPhase('ready');
       return;
     }
