@@ -313,6 +313,47 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         }
       };
 
+      // The streamed text, rendered. The buffer is read whole each time, so
+      // one call after many tokens is the same as one call after each.
+      let tokenFrame: number | null = null;
+      const renderTokens = () => {
+        tokenFrame = null;
+        const split = splitThinking(state.buffer);
+        // Suppress tool-call text anywhere in the stream (prose before a
+        // mid-message <tool_call> stays visible; the call itself never does).
+        const visibleAnswer = stripStreamingToolCalls(split.answer);
+        state.answer = visibleAnswer;
+        const display = joinSegments(state.committed, visibleAnswer);
+        updateLiveSession(sessionId, {
+          content: display,
+          ...(split.thinking !== null
+            ? { thinking: split.thinking, thinkingComplete: split.thinkingComplete }
+            : {}),
+          agentPhase: 'thinking',
+        });
+        if (isActive()) {
+          const chat = useChat.getState();
+          const patch: Partial<ChatMessage> = { content: display };
+          if (split.thinking !== null) {
+            if (state.thinkingStartMs === 0) state.thinkingStartMs = Date.now();
+            patch.thinking = split.thinking;
+            patch.thinkingComplete = split.thinkingComplete;
+            if (split.thinkingComplete && !state.thinkingDurationRecorded && state.thinkingStartMs > 0) {
+              patch.thinkingDurationMs = Date.now() - state.thinkingStartMs;
+              state.thinkingDurationRecorded = true;
+            }
+          }
+          chat.updateLastAssistantMessage(patch);
+          if (chat.agentPhase !== 'thinking') chat.setAgentPhase('thinking');
+        }
+      };
+      /** Renders what is buffered now: every other event reads the answer the tokens built. */
+      const flushTokens = () => {
+        if (tokenFrame === null) return;
+        cancelAnimationFrame(tokenFrame);
+        renderTokens();
+      };
+
       await send(content, {
         // Pass the React-side asst message id so the ask_user flow can
         // attach the question card to the right message (the card reads
@@ -320,36 +361,15 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         chatMessageId: asstId,
         onToken: (token) => {
           state.buffer += token;
-          const split = splitThinking(state.buffer);
-          // Suppress tool-call text anywhere in the stream (prose before a
-          // mid-message <tool_call> stays visible; the call itself never does).
-          const visibleAnswer = stripStreamingToolCalls(split.answer);
-          state.answer = visibleAnswer;
-          const display = joinSegments(state.committed, visibleAnswer);
-          updateLiveSession(sessionId, {
-            content: display,
-            ...(split.thinking !== null
-              ? { thinking: split.thinking, thinkingComplete: split.thinkingComplete }
-              : {}),
-            agentPhase: 'thinking',
-          });
-          if (isActive()) {
-            const chat = useChat.getState();
-            const patch: Partial<ChatMessage> = { content: display };
-            if (split.thinking !== null) {
-              if (state.thinkingStartMs === 0) state.thinkingStartMs = Date.now();
-              patch.thinking = split.thinking;
-              patch.thinkingComplete = split.thinkingComplete;
-              if (split.thinkingComplete && !state.thinkingDurationRecorded && state.thinkingStartMs > 0) {
-                patch.thinkingDurationMs = Date.now() - state.thinkingStartMs;
-                state.thinkingDurationRecorded = true;
-              }
-            }
-            chat.updateLastAssistantMessage(patch);
-            if (chat.agentPhase !== 'thinking') chat.setAgentPhase('thinking');
-          }
+          // Once per frame, like the local chat's stream: a burst of tokens
+          // was a burst of renders inside one frame. A hidden window paints no
+          // frames and runs no frame callbacks, so there it updates at once.
+          if (tokenFrame !== null) return;
+          if (document.hidden) renderTokens();
+          else tokenFrame = requestAnimationFrame(renderTokens);
         },
         onToolStart: (_callId, tool, args) => {
+          flushTokens();
           state.toolCallCount += 1;
           state.tools.push(startActivity(tool, args));
           syncTools();
@@ -390,6 +410,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           }
         },
         onToolDone: (_callId, tool, result) => {
+          flushTokens();
           // Last running call of this tool: events carry no per-call id, and
           // the newest open one is the one a result belongs to.
           for (let i = state.tools.length - 1; i >= 0; i--) {
@@ -457,6 +478,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           }
         },
         onDone: async (finalContent?: string, stopped = false) => {
+          flushTokens();
           settleTools(stopped ? 'stopped' : 'no result');
           endLiveSession(sessionId);
           if (joinSegments(state.committed, state.answer).trim().length === 0 && finalContent?.trim()) {
@@ -488,6 +510,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           useConversations.getState().unmarkStreaming(sessionId);
         },
         onError: (err) => {
+          flushTokens();
           settleTools('failed');
           endLiveSession(sessionId);
           if (isActive()) useChat.getState().setStreamStatus('error', err);
@@ -497,6 +520,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           });
         },
         onStopped: () => {
+          flushTokens();
           settleTools('stopped');
           endLiveSession(sessionId);
           if (isActive()) useChat.getState().setStreamStatus('stopped');
@@ -505,6 +529,7 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
           });
         },
         onTruncated: (reason) => {
+          flushTokens();
           settleTools('truncated');
           endLiveSession(sessionId);
           if (isActive()) {
