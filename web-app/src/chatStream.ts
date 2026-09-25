@@ -222,3 +222,17 @@ export async function whatsappQr(f: Fetch): Promise<string | null> {
     return null;
   }
 }
+
+/** Stop the agent's turn in this conversation. The stream then ends on its own. */
+export async function stopChat(f: Fetch): Promise<boolean> {
+  try {
+    const res = await f("/runtime/chat/stop", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session_id: SESSION }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

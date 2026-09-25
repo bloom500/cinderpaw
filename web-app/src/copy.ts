@@ -54,4 +54,6 @@ export const COPY = {
   waScan: "On your phone, open WhatsApp. Tap Settings, then Linked devices, then Link a device. Point the camera at this square.",
   waNew: "The square changes every few seconds. That is normal.",
   waLinked: "✓ WhatsApp is linked.",
+  stop: "Stop",
+  stopped: "Stopped. I won't do anything else with that.",
 };

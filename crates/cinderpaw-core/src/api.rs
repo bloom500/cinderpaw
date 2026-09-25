@@ -99,6 +99,7 @@ pub fn router(state: ApiState) -> Router {
         // (/runtime/chat, /tools, /connectors, /memory, /dreams) land next.
         .route("/runtime/chat", post(runtime_chat))
         .route("/runtime/ask/respond", post(runtime_ask_respond))
+        .route("/runtime/chat/stop", post(runtime_chat_stop))
         .route(
             "/runtime/connectors",
             get(runtime_connectors_list).post(runtime_connectors_save),
@@ -1739,6 +1740,30 @@ async fn runtime_ask_respond(
     };
     let payload =
         json!({ "type": "ask_user_response", "requestId": request_id, "answers": answers });
+    if tx.send(payload.to_string()).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    Json(json!({ "ok": true })).into_response()
+}
+
+/// `POST /runtime/chat/stop` — body: {session_id}. The local page's Stop
+/// button: the same `{"type":"stop"}` line the desktop's Stop and a voice
+/// call send, scoped to that one conversation. The turn then ends on its own
+/// stream with `stopped`. Seen live 25 Sep: without it the page could only
+/// watch an agent run shell commands it had not been asked to run.
+async fn runtime_chat_stop(State(state): State<ApiState>, body: Option<Json<Value>>) -> Response {
+    let session_id = body
+        .as_ref()
+        .and_then(|Json(v)| v.get("session_id").and_then(|x| x.as_str()))
+        .unwrap_or("chat")
+        .to_string();
+    let tx = { state.runtime.cinderpaw_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "cinderpaw-agent sidecar is not running")
+            .into_response();
+    };
+    let payload = json!({ "type": "stop", "sessionId": session_id });
     if tx.send(payload.to_string()).await.is_err() {
         return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
             .into_response();

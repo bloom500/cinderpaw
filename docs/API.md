@@ -53,6 +53,7 @@ the comment tags next to each `.route(` line.
 | Method | Path | Stability | Class | Notes |
 |---|---|---|---|---|
 | POST | `/runtime/chat` | unstable | govern | Sidecar-roundtrip chat. |
+| POST | `/runtime/chat/stop` | unstable | govern | Stop the running turn in one conversation (`{session_id}`, default `chat`). The turn ends on its own stream. |
 | POST | `/runtime/ask/respond` | unstable | govern | Answer a pending `ask_user` question (`{requestId, answers}`); the question arrives as a typed `ask_user` SSE event on the chat stream. |
 | GET  | `/runtime/connectors` | unstable | read | Redacted state (enabled, filled secret keys, allowlist, channels, mode) per persisted connector. |
 | POST | `/runtime/connectors` | unstable | govern | Upsert one connector's config, then pokes the sidecar to reload. Never echoes secret values back. |
@@ -219,6 +220,7 @@ GET /runtime/sessions/:id/transcript
 GET /runtime/status
 POST /runtime/byok/save
 POST /runtime/chat
+POST /runtime/chat/stop
 POST /runtime/connectors
 POST /runtime/connectors/reload
 POST /runtime/voice/tool

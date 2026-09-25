@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { answerAsk, finishToolIn, saveSecret, streamChat, whatsappQr, type SecretAsk } from "./chatStream";
+import { answerAsk, finishToolIn, saveSecret, stopChat, streamChat, whatsappQr, type SecretAsk } from "./chatStream";
 import { COPY } from "./copy";
 import {
   commonFirst, fetchApi, firstOffers, load, manualCandidate, save, tryCandidate, tryKey,
@@ -40,6 +40,7 @@ export function OnboardingChat() {
   const [secretAsk, setSecretAsk] = useState<SecretAsk | null>(null);
   const [plainAsk, setPlainAsk] = useState<{ requestId: string; question: string; options: string[] } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const stoppedRef = useRef(false);
 
   const add = (l: Line) => setLines((ls) => [...ls, l]);
   const say = async (text: string, extra: Partial<Line> = {}) => {
@@ -97,6 +98,7 @@ export function OnboardingChat() {
     add({ who: "person", text });
     add({ who: "agent", text: "", tools: [] });
     setAnswering(true);
+    stoppedRef.current = false;
     const patch = (fn: (l: Line) => Line) =>
       setLines((ls) => [...ls.slice(0, -1), fn(ls[ls.length - 1])]);
     await streamChat((u, i) => fetch(u, i), text, (e) => {
@@ -123,8 +125,16 @@ export function OnboardingChat() {
     setAnswering(false);
     setSecretAsk(null);
     setPlainAsk(null);
+    if (stoppedRef.current) add({ who: "agent", text: COPY.stopped });
     // Drop an answer bubble that never got any text (the agent only asked).
     setLines((ls) => (ls.length && ls[ls.length - 1].who === "agent" && !ls[ls.length - 1].text && !ls[ls.length - 1].tools?.length ? ls.slice(0, -1) : ls));
+  }
+
+  async function stop() {
+    stoppedRef.current = true;
+    setSecretAsk(null);
+    setPlainAsk(null);
+    await stopChat((u, i) => fetch(u, i));
   }
 
   async function submitSecret(raw: string) {
@@ -306,6 +316,11 @@ export function OnboardingChat() {
           )}
           {step === "key" && <TextForm secret placeholder={COPY.keyPlaceholder} send={COPY.keySave} onSend={submitKey} />}
           {step === "done" && <WhatsAppCard />}
+          {/* Seen live 25 Sep: an agent running shell commands nobody asked for,
+              and nothing on this page could stop it. */}
+          {step === "done" && answering && (
+            <button type="button" className="button quiet" onClick={stop}>{COPY.stop}</button>
+          )}
           {step === "done" && secretAsk && (
             <div className="secret-card">
               <p className="muted">{COPY.secretHint}</p>
