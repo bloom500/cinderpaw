@@ -116,4 +116,20 @@ describe('parking a call in the pill', () => {
     expect(h.calls).not.toContain('show');
     expect(parked.current).toBe(false);
   });
+  it('a call that ends while its pill is being built takes the pill with it', async () => {
+    const hook = renderHook(({ phase }) => useCallPill(call(phase)), { initialProps: { phase: 'listening' as CallPhase } });
+    await flush();
+    const release = h.holdPillOpen();
+    let parking!: Promise<void>;
+    act(() => { parking = h.handlers.close!({ preventDefault() {} }); });
+    await flush();
+    // The vendor ends the call mid-build: the cleanup finds no pill to close yet.
+    hook.rerender({ phase: 'idle' });
+    await flush();
+    h.calls.length = 0;
+    release();
+    await act(async () => { await parking; });
+    expect(h.calls).toContain('call_pill_close');
+    expect(h.state.visible).toBe(true);
+  });
 });

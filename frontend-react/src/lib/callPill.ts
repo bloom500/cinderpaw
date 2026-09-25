@@ -154,6 +154,14 @@ export function useCallPill(call: {
   latest.current = call;
   const stateRef = useRef(state);
   stateRef.current = state;
+  /**
+   * Whether the call is still on, read after an await. A call that ended while
+   * its pill was being built had its cleanup run first, find no window to
+   * close, and leave the pill to appear afterwards: always on top, its buttons
+   * heard by nobody, and a close asked of it refused by design.
+   */
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   // The pill mirrors the state whenever it changes.
   useEffect(() => {
@@ -201,6 +209,10 @@ export function useCallPill(call: {
           await main.hide().catch(() => {});
           // No pill, no parking: the window comes back where it can be seen.
           if (!(await openPill('X pressed', stateRef.current))) await showMain();
+          else if (!activeRef.current) {
+            await closePill('call ended while parking');
+            await showMain();
+          }
         } finally {
           parking.current = false;
         }
@@ -227,7 +239,10 @@ export function useCallPill(call: {
           parking.current = true;
           parked.current = true;
           try {
-            await openPill('minimised', stateRef.current);
+            if ((await openPill('minimised', stateRef.current)) && !activeRef.current) {
+              parked.current = false;
+              await closePill('call ended while parking');
+            }
           } finally {
             parking.current = false;
           }
