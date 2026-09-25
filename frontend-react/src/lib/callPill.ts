@@ -5,6 +5,8 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke } from '@tauri-apps/api/core';
 import type { CallPhase } from '@/hooks/useCallSession';
 import { useAskUser, type AskUserQuestion } from '@/stores/askUser';
+import { useChat } from '@/stores/chat';
+import { useLiveToolActivity } from '@/hooks/useLiveToolActivity';
 
 /**
  * The call pill: a small always-on-top window at the top of the screen that
@@ -38,6 +40,13 @@ export interface CallPillState {
    * instead (`questions` is the count).
    */
   ask: { id: string; question: AskUserQuestion; questions: number } | null;
+  /**
+   * What a running tool is about (the search, the page, the file), or null.
+   * The overlay has the tool panel and a working sphere for this; parked, the
+   * pill is all there is, and a search ran under "Listening": the worker says
+   * "one moment" and goes back to listening while the tool works.
+   */
+  working: string | null;
 }
 
 
@@ -140,6 +149,9 @@ export function useCallPill(call: {
   // The browser app and the tests have no host window: nothing to park, nothing to open.
   const active = onCall(call.phase) && '__TAURI_INTERNALS__' in window;
   const pendingAsk = useAskUser((s) => s.pending);
+  const sessionId = useChat((s) => s.sessionId);
+  const activity = useLiveToolActivity(active, sessionId);
+  const running = [...activity].reverse().find((a) => a.status === 'running');
   const state: CallPillState = {
     phase: call.phase,
     heard: call.heard,
@@ -147,6 +159,7 @@ export function useCallPill(call: {
     muted: call.muted ?? false,
     canMute: typeof call.setMuted === 'function',
     ask: pendingAsk ? { id: pendingAsk.id, question: pendingAsk.questions[0], questions: pendingAsk.questions.length } : null,
+    working: running ? (running.subject.trim() || running.tool.replace(/_/g, ' ')) : null,
   };
   // The handlers read the latest call through a ref: the listeners are
   // registered once per call, not once per render.
@@ -169,7 +182,7 @@ export function useCallPill(call: {
     void emit('call-pill://state', state).then(() => console.info('[pill] state sent', state.phase)).catch((e) => console.warn('[pill] state not sent', e));
     // The list is the state's fields: a new value in any of them is a new pill.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, state.phase, state.heard, state.said, state.muted, state.canMute, state.ask?.id]);
+  }, [active, state.phase, state.heard, state.said, state.muted, state.canMute, state.ask?.id, state.working]);
 
   // Whatever unmounts this bridge (a route change, a hot reload in dev) must
   // not leave the window hidden with no pill: that reads as the app having
