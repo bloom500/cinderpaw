@@ -1,27 +1,23 @@
-//! Desktop control on macOS and Linux: windows, focus, keys and text.
+//! Desktop control on macOS and Linux: windows, focus, keys, text, and named
+//! elements.
 //!
 //! What a person does with a keyboard works here the way it works on Windows:
 //! bring a window to the front, press its shortcuts, type into it, scroll it,
-//! go back, change tabs, control playback. Pressing a *named* element (a
-//! button called "Send") needs the platform's accessibility tree (AX on macOS,
-//! AT-SPI on Linux), which is not built yet: those calls say so instead of
-//! guessing.
+//! go back, change tabs, control playback. Windows and keys go through the
+//! tools a person would use by hand: `osascript` (System Events) on macOS,
+//! `xdotool` (X11 and XWayland) on Linux. Both fail with a readable message
+//! and add no C dependency.
 //!
-//! No native bindings, on purpose. macOS goes through `osascript` (System
-//! Events), Linux through `xdotool` (X11 and XWayland). Both are the tools a
-//! person would use by hand, both fail with a readable message, and neither
-//! adds a C dependency that could break the build on a platform CI does not
-//! exercise.
+//! Named elements (the button called "Send") come from the platform's
+//! accessibility tree: AT-SPI on Linux (desktop_control_atspi.rs), AX through
+//! System Events on macOS (desktop_control_ax.rs).
 //!
-//! Element ids are `pid:<n>`, the shape every caller already decodes: `n` is
+//! Window ids are `pid:<n>`, the shape every caller already decodes: `n` is
 //! the X window id on Linux and the window's 1-based index in its process on
-//! macOS.
+//! macOS. Element ids are `pid:0.<check>.<path>` (see `element_handle`).
 use super::*;
 use super::keys::{parse, KeyTok};
 use std::process::Command;
-
-/// Said for everything that needs an element tree.
-pub const NO_ELEMENT_TREE: &str = "desktop control: reading and pressing named elements (buttons, links, fields) is Windows only for now. On this system, act on the window in front with keys: send_keys to the element from get_focused, e.g. \"{Tab}\" to move and \"{Enter}\" to press.";
 
 fn run(program: &str, args: &[&str]) -> Result<String, String> {
     let out = Command::new(program).args(args).output().map_err(|e| missing(program, e))?;
@@ -52,11 +48,6 @@ fn explain(program: &str, stderr: &str) -> String {
 
 fn handle(pid: u32, n: u32) -> String {
     encode_handle(pid, &[n as i32])
-}
-
-fn decode(h: &str) -> Result<(u32, u32), String> {
-    let (pid, rid) = decode_handle(h)?;
-    Ok((pid, rid[0] as u32))
 }
 
 fn window_element(pid: u32, n: u32, role: &str, title: &str) -> AccessibilityElement {
@@ -368,8 +359,57 @@ end tell"#))
 
 use os::{activate, focused, press, windows_of};
 
+/// Named elements: AT-SPI on Linux, the AX tree (through System Events) on
+/// macOS. Both answer in the same shapes, and neither is asked for windows,
+/// which the functions above list faster.
+#[cfg(not(target_os = "macos"))]
+#[path = "desktop_control_atspi.rs"]
+mod tree;
+#[cfg(target_os = "macos")]
+#[path = "desktop_control_ax.rs"]
+mod tree;
+
 pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
     os::list_windows()
+}
+
+// ---------------------------------------------------------------------------
+// Element ids
+// ---------------------------------------------------------------------------
+
+/// A window is `pid:<n>`. An element is `pid:0.<check>.<path>`: 0 is never a
+/// window (X ids and macOS window numbers start at 1), `path` is the child
+/// indices from the app down, and `check` is its role and name. A path alone
+/// could name another button once the window changed; with the check, a stale
+/// id is refused instead of pressing whatever is there now.
+pub fn element_handle(pid: u32, role: &str, name: &str, path: &[i32]) -> String {
+    let mut rid = vec![0, check_of(role, name)];
+    rid.extend_from_slice(path);
+    encode_handle(pid, &rid)
+}
+
+/// FNV-1a over the role and name, as an i32 (ids carry i32 parts).
+pub fn check_of(role: &str, name: &str) -> i32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in role.bytes().chain([0x1f]).chain(name.bytes()) {
+        h ^= b as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h as i32
+}
+
+enum Target {
+    Window(u32, u32),
+    Element { pid: u32, check: i32, path: Vec<i32> },
+}
+
+fn target(h: &str) -> Result<Target, String> {
+    let (pid, rid) = decode_handle(h)?;
+    match rid.as_slice() {
+        [n] if *n != 0 => Ok(Target::Window(pid, *n as u32)),
+        [0, check, path @ ..] if !path.is_empty() => Ok(Target::Element { pid, check: *check, path: path.to_vec() }),
+        _ => Err(format!("malformed element id \"{h}\"")),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -381,14 +421,8 @@ pub fn get_focused_element() -> Result<AccessibilityElement, String> {
     Ok(window_element(pid, n, "Window", &title))
 }
 
-/// Only windows can be found here: `Window` lists the process's windows, and
-/// `Document` (what a page is on Windows) answers with them too, so "focus the
-/// page, then press its keys" works unchanged. Anything else needs the tree.
-pub fn find_elements(pid: u32, q: &ElementQuery, window_title: Option<&str>) -> Result<Vec<AccessibilityElement>, String> {
-    let roles = q.role.as_deref().unwrap_or("");
-    let wanted = roles.split(',').map(str::trim).find(|r| r.eq_ignore_ascii_case("window") || r.eq_ignore_ascii_case("document"));
-    let Some(role) = wanted else { return Err(NO_ELEMENT_TREE.into()) };
-    let name = q.name.as_deref().map(str::to_lowercase);
+fn window_elements(pid: u32, role: &str, name: Option<&str>, window_title: Option<&str>) -> Result<Vec<AccessibilityElement>, String> {
+    let name = name.map(str::to_lowercase);
     let title = window_title.map(str::to_lowercase);
     Ok(windows_of(pid)?
         .into_iter()
@@ -396,46 +430,88 @@ pub fn find_elements(pid: u32, q: &ElementQuery, window_title: Option<&str>) -> 
             let t = t.to_lowercase();
             name.as_ref().is_none_or(|n| t.contains(n)) && title.as_ref().is_none_or(|w| t.contains(w))
         })
-        .map(|(n, t)| window_element(pid, n, if role.eq_ignore_ascii_case("document") { "Document" } else { "Window" }, &t))
+        .map(|(n, t)| window_element(pid, n, role, &t))
         .collect())
 }
 
-pub fn get_accessibility_tree(_pid: u32, _depth: u8, _window_title: Option<&str>) -> Result<AccessibilityNode, String> {
-    Err(NO_ELEMENT_TREE.into())
+/// `Window` lists the process's windows, as before. Everything else is read
+/// from the element tree. `Document` (the page in a browser) falls back to the
+/// window when the tree has none, so "focus the page, then press its keys"
+/// works in an app that publishes no tree.
+pub fn find_elements(pid: u32, q: &ElementQuery, window_title: Option<&str>) -> Result<Vec<AccessibilityElement>, String> {
+    let roles: Vec<&str> = q.role.as_deref().unwrap_or("").split(',').map(str::trim).filter(|r| !r.is_empty()).collect();
+    if !roles.is_empty() && roles.iter().all(|r| r.eq_ignore_ascii_case("window")) {
+        return window_elements(pid, "Window", q.name.as_deref(), window_title);
+    }
+    let found = tree::find(pid, q, window_title);
+    if roles.len() == 1 && roles[0].eq_ignore_ascii_case("document") && found.as_ref().map_or(true, Vec::is_empty) {
+        return window_elements(pid, "Document", q.name.as_deref(), window_title);
+    }
+    found
 }
 
-pub fn click_element(_id: &str) -> Result<(), String> {
-    Err(NO_ELEMENT_TREE.into())
+pub fn get_accessibility_tree(pid: u32, depth: u8, window_title: Option<&str>) -> Result<AccessibilityNode, String> {
+    tree::tree(pid, depth, window_title)
+}
+
+pub fn click_element(id: &str) -> Result<(), String> {
+    match target(id)? {
+        Target::Element { pid, check, path } => tree::press(pid, check, &path),
+        Target::Window(..) => Err("desktop control: that id is a window, not something to press. Find the element in it (find_elements) and click that.".into()),
+    }
 }
 
 pub fn type_into_element(id: &str, text: &str) -> Result<(), String> {
-    // A window can take typed text; a named field cannot be found here.
-    let (pid, n) = decode(id)?;
-    activate(pid, n)?;
-    press(&[KeyTok::Text(text.to_string())])
+    match target(id)? {
+        Target::Element { pid, check, path } => tree::set_text(pid, check, &path, text),
+        // A window takes typed text wherever its focus is.
+        Target::Window(pid, n) => {
+            activate(pid, n)?;
+            press(&[KeyTok::Text(text.to_string())])
+        }
+    }
 }
 
-pub fn get_element_value(_id: &str) -> Result<String, String> {
-    Err(NO_ELEMENT_TREE.into())
+pub fn get_element_value(id: &str) -> Result<String, String> {
+    match target(id)? {
+        Target::Element { pid, check, path } => tree::value(pid, check, &path),
+        Target::Window(pid, n) => Ok(windows_of(pid)?.into_iter().find(|(w, _)| *w == n).map(|(_, t)| t).unwrap_or_default()),
+    }
+}
+
+/// The element's window to the front, then the element takes the focus.
+fn focus_element(pid: u32, check: i32, path: &[i32], for_keys: bool) -> Result<(), String> {
+    tree::front(pid, path)?;
+    tree::focus(pid, check, path, for_keys)
 }
 
 pub fn take_element_action(id: &str, action: &str) -> Result<(), String> {
-    let (pid, n) = decode(id)?;
-    match action.to_lowercase().as_str() {
-        "focus" => activate(pid, n),
-        other => Err(format!("desktop control: \"{other}\" needs the element tree. {NO_ELEMENT_TREE}")),
+    let action = action.to_lowercase();
+    match target(id)? {
+        Target::Window(pid, n) if action == "focus" => activate(pid, n),
+        Target::Window(..) => Err(format!("desktop control: a window can only take the focus, not \"{action}\". Find the element in it (find_elements).")),
+        Target::Element { pid, check, path } => match action.as_str() {
+            // Toggling is a press: toolkits name it "click" or "toggle", and
+            // the press picks whichever the element has.
+            "press" | "invoke" | "click" | "toggle" => tree::press(pid, check, &path),
+            "focus" => focus_element(pid, check, &path, false),
+            other => Err(format!("desktop control: \"{other}\" is not available on this system; press, toggle and focus are.")),
+        },
     }
 }
 
 /// The window first, then the keys: sent to whatever is in front, they could
-/// land in the wrong app.
+/// land in the wrong app. An element (the page in a browser) also takes the
+/// focus, so its keys reach it and not the search box.
 pub fn send_keys(id: &str, keys: &str) -> Result<(), String> {
     let toks = parse(keys)?;
     if toks.is_empty() {
         return Ok(());
     }
-    let (pid, n) = decode(id)?;
-    activate(pid, n)?;
+    match target(id)? {
+        Target::Window(pid, n) => activate(pid, n)?,
+        Target::Element { pid, check, path } => focus_element(pid, check, &path, true)?,
+    }
     press(&toks)
 }
 
@@ -486,11 +562,129 @@ mod live {
         let _ = xev.kill();
         let mut out = String::new();
         xev.stdout.take().unwrap().read_to_string(&mut out).unwrap();
-        assert_eq!(decode(&focused.id).unwrap().0, pid, "the target window has the focus (before: {focused_before:?})");
+        assert_eq!(decode_handle(&focused.id).unwrap().0, pid, "the target window has the focus (before: {focused_before:?})");
         assert!(out.contains("(keysym 0x61, a)"), "a typed: {out}");
         assert!(out.contains("(keysym 0x62, b)"), "b typed: {out}");
         assert!(out.contains("state 0x4") && out.contains("(keysym 0x74, t)"), "ctrl+t pressed: {out}");
         assert!(out.contains("Return"), "enter pressed: {out}");
+    }
+
+    /// Waits for `pid` to publish elements matching `q` that satisfy `ready`.
+    fn wait_for(pid: u32, q: &ElementQuery, ready: impl Fn(&[AccessibilityElement]) -> bool) -> Vec<AccessibilityElement> {
+        let mut last = Err(String::new());
+        for _ in 0..100 {
+            last = find_elements(pid, q, None);
+            if last.as_deref().is_ok_and(&ready) {
+                return last.unwrap();
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!("elements never appeared: {last:?}");
+    }
+
+    fn exit_code(child: &mut std::process::Child) -> Option<i32> {
+        for _ in 0..50 {
+            if let Some(s) = child.try_wait().unwrap() {
+                return s.code();
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let _ = child.kill();
+        None
+    }
+
+    fn buttons() -> ElementQuery {
+        ElementQuery { role: Some("Button".into()), ..Default::default() }
+    }
+
+    /// A GTK dialog's button, found by name through AT-SPI and pressed through
+    /// its own action: zenity's exit code says which button that was. Needs
+    /// an X display, a D-Bus session (the accessibility bus starts on demand)
+    /// and zenity: `dbus-run-session -- xvfb-run -a cargo test ...`.
+    #[test]
+    #[ignore = "needs an X display, a D-Bus session with at-spi2-core, and zenity"]
+    fn a_named_button_is_pressed_in_a_real_app() {
+        let mut z = Command::new("zenity").args(["--question", "--text", "Send it?"]).spawn().expect("zenity");
+        let pid = z.id();
+        let found = wait_for(pid, &buttons(), |b| b.iter().any(|e| e.name == "Yes") && b.iter().any(|e| e.name == "No"));
+        let yes = found.iter().find(|e| e.name == "Yes").unwrap();
+        let no = found.iter().find(|e| e.name == "No").unwrap();
+        assert!(yes.is_enabled && !yes.is_offscreen, "{yes:?}");
+        assert!(yes.actions.iter().any(|a| a == "press"), "{yes:?}");
+
+        // "No"'s place with "Yes"'s check: the id of an element that is no
+        // longer what it was. Refused, and nothing is pressed.
+        let (_, yes_rid) = decode_handle(&yes.id).unwrap();
+        let (_, no_rid) = decode_handle(&no.id).unwrap();
+        let mut forged = no_rid.clone();
+        forged[1] = yes_rid[1];
+        let err = click_element(&encode_handle(pid, &forged)).unwrap_err();
+        assert!(err.contains("element_not_found"), "{err}");
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(z.try_wait().unwrap().is_none(), "a stale id pressed something");
+
+        // The same buttons in the tree, with the ids find_elements gives.
+        fn all(n: &AccessibilityNode, out: &mut Vec<(String, String, String)>) {
+            out.push((n.role.clone(), n.name.clone(), n.id.clone()));
+            n.children.iter().for_each(|c| all(c, out));
+        }
+        let mut nodes = Vec::new();
+        all(&get_accessibility_tree(pid, 30, None).expect("tree"), &mut nodes);
+        assert!(nodes.iter().any(|(r, n, id)| r == "Button" && n == "Yes" && *id == yes.id), "{nodes:?}");
+
+        click_element(&yes.id).expect("pressed");
+        assert_eq!(exit_code(&mut z), Some(0), "zenity exits 0 for Yes");
+    }
+
+    /// A field found by role, its text set and read back, keys typed into it
+    /// after it takes the focus, and OK pressed: zenity prints the field.
+    #[test]
+    #[ignore = "needs an X display, a D-Bus session with at-spi2-core, and zenity"]
+    fn a_named_field_takes_text_and_keys() {
+        let mut z = Command::new("zenity")
+            .args(["--entry", "--text", "Name?"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("zenity");
+        let pid = z.id();
+        let fields = wait_for(pid, &ElementQuery { role: Some("Edit".into()), ..Default::default() }, |f| !f.is_empty());
+        let field = &fields[0];
+        type_into_element(&field.id, "cinder").expect("text set");
+        assert_eq!(get_element_value(&field.id).expect("value"), "cinder");
+        // The window to the front, the field focused, real keys typed.
+        send_keys(&field.id, "{End}paw 42").expect("keys sent");
+        let mut value = String::new();
+        for _ in 0..30 {
+            value = get_element_value(&field.id).unwrap_or_default();
+            if value == "cinderpaw 42" {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert_eq!(value, "cinderpaw 42");
+        let ok = wait_for(pid, &buttons(), |b| b.iter().any(|e| e.name == "OK"));
+        click_element(&ok.iter().find(|e| e.name == "OK").unwrap().id).expect("OK pressed");
+        assert_eq!(exit_code(&mut z), Some(0));
+        let mut out = String::new();
+        z.stdout.take().unwrap().read_to_string(&mut out).unwrap();
+        assert_eq!(out.trim_end(), "cinderpaw 42");
+    }
+
+    #[test]
+    fn ids_tell_windows_from_elements() {
+        let el = element_handle(42, "push button", "Send", &[0, 3, 1]);
+        match target(&el).unwrap() {
+            Target::Element { pid, check, path } => {
+                assert_eq!((pid, path), (42, vec![0, 3, 1]));
+                assert_eq!(check, check_of("push button", "Send"));
+            }
+            Target::Window(..) => panic!("an element read as a window"),
+        }
+        assert!(matches!(target("42:12345").unwrap(), Target::Window(42, 12345)));
+        assert!(target("42:0").is_err(), "0 is no window");
+        assert!(target("42:0.7").is_err(), "an element needs a path");
+        assert_ne!(check_of("push button", "Send"), check_of("push button", "Sent"));
+        assert_ne!(check_of("push button", "Send"), check_of("link", "Send"));
     }
 
     #[test]
@@ -519,35 +713,129 @@ mod live {
         assert_eq!(os::quoted("say \"hi\""), "\"say \\\"hi\\\"\"");
     }
 
-    /// Keys typed into TextEdit read back from the document. Needs the
+    /// A text file opened in TextEdit, the way a person double-clicks it:
+    /// through LaunchServices (`open -e`), and read back through the AX tree,
+    /// never an Apple Event to TextEdit. The first CI run sent TextEdit two
+    /// and each waited two minutes to time out (-1712): a bare launch shows
+    /// the Open panel, and scripting TextEdit needs its own Automation
+    /// consent, a dialog nobody answers on a runner. The product never sends
+    /// TextEdit an Apple Event, only System Events, so the tests do not
+    /// either. Returns the pid, the window's number and the file.
+    fn open_in_textedit(stem: &str, text: &str) -> (u32, u32, std::path::PathBuf) {
+        // The title shows the name with or without ".txt", depending on the
+        // Finder setting: matched without it.
+        let name = format!("{stem}-{}", std::process::id());
+        let path = std::env::temp_dir().join(format!("{name}.txt"));
+        std::fs::write(&path, text).expect("temp file");
+        Command::new("open").arg("-e").arg(&path).status().expect("open -e");
+        for _ in 0..100 {
+            if let Some(w) = list_windows().unwrap_or_default().into_iter().find(|w| w.title.contains(&name)) {
+                if let Some((n, _)) = windows_of(w.pid).unwrap_or_default().into_iter().find(|(_, t)| t.contains(&name)) {
+                    return (w.pid, n, path);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        panic!("TextEdit never showed {name}: {:?}", list_windows());
+    }
+
+    fn text_area(pid: u32, n: u32) -> AccessibilityElement {
+        let title = windows_of(pid).unwrap().into_iter().find(|(w, _)| *w == n).map(|(_, t)| t);
+        let fields = find_elements(pid, &ElementQuery { role: Some("Edit".into()), ..Default::default() }, title.as_deref()).expect("fields");
+        fields.into_iter().next().expect("the document's text area")
+    }
+
+    fn close_button(pid: u32, n: u32) -> AccessibilityElement {
+        let title = windows_of(pid).unwrap().into_iter().find(|(w, _)| *w == n).map(|(_, t)| t);
+        let found = find_elements(pid, &ElementQuery { role: Some("Button".into()), ..Default::default() }, title.as_deref()).expect("buttons");
+        found
+            .iter()
+            .find(|e| e.name.to_lowercase().contains("close"))
+            .cloned()
+            .unwrap_or_else(|| panic!("no close button among {found:?}"))
+    }
+
+    fn value_becomes(id: &str, want: &str) -> String {
+        let mut value = String::new();
+        for _ in 0..30 {
+            value = get_element_value(id).unwrap_or_default();
+            if value == want {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        value
+    }
+
+    /// Keys typed into a TextEdit window arrive in its document. Needs the
     /// Accessibility permission for the process running the test, which
     /// GitHub's macOS runners grant.
     #[test]
     #[ignore = "needs a macOS desktop with Accessibility granted"]
     fn text_reaches_textedit() {
-        // Opened on a file, not bare: a bare launch shows TextEdit's Open
-        // panel, which holds every Apple event until it times out (-1712 on
-        // the first CI run).
-        let path = std::env::temp_dir().join(format!("cinderpaw-keytest-{}.txt", std::process::id()));
-        std::fs::write(&path, "").expect("temp file");
-        let p = path.to_string_lossy().to_string();
-        run("open", &["-a", "TextEdit", &p]).expect("TextEdit opened");
-        let mut front = None;
-        for _ in 0..40 {
-            if let Ok(f) = focused() {
-                if crate::desktop_control::process_name(f.0).is_some_and(|n| n.contains("TextEdit")) {
-                    front = Some(f);
-                    break;
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(250));
+        let (pid, n, path) = open_in_textedit("cinderpaw-keys", "");
+        send_keys(&handle(pid, n), "hello cinderpaw").expect("keys sent");
+        let text = value_becomes(&text_area(pid, n).id, "hello cinderpaw");
+        let _ = click_element(&close_button(pid, n).id);
+        let _ = std::fs::remove_file(path);
+        assert_eq!(text, "hello cinderpaw");
+    }
+
+    /// The document window's close button, found by name in the AX tree and
+    /// pressed through AXPress: the window is gone. A stale id is refused
+    /// first, and nothing closes.
+    #[test]
+    #[ignore = "needs a macOS desktop with Accessibility granted"]
+    fn a_named_button_is_pressed_in_textedit() {
+        let (pid, n, path) = open_in_textedit("cinderpaw-press", "unchanged");
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let open = || windows_of(pid).unwrap_or_default().iter().any(|(_, t)| t.contains(&name));
+        let close = close_button(pid, n);
+        assert!(close.is_enabled && !close.is_offscreen, "{close:?}");
+
+        let (_, rid) = decode_handle(&close.id).unwrap();
+        let mut forged = rid.clone();
+        forged[1] = forged[1].wrapping_add(1);
+        let err = click_element(&encode_handle(pid, &forged)).unwrap_err();
+        assert!(err.contains("element_not_found"), "{err}");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(open(), "a stale id closed the window");
+
+        fn all(n: &AccessibilityNode, out: &mut Vec<String>) {
+            out.push(n.id.clone());
+            n.children.iter().for_each(|c| all(c, out));
         }
-        let (pid, n, _) = front.expect("TextEdit in front");
-        send_keys(&handle(pid, n), "hello cinderpaw{Enter}").expect("keys sent");
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        let text = run("osascript", &["-e", "tell application \"TextEdit\" to get text of document 1"]).expect("read back");
-        let _ = run("osascript", &["-e", "tell application \"TextEdit\" to close every document saving no"]);
-        let _ = std::fs::remove_file(&path);
-        assert!(text.contains("hello cinderpaw"), "TextEdit has: {text:?}");
+        let mut ids = Vec::new();
+        let title = windows_of(pid).unwrap().into_iter().find(|(w, _)| *w == n).map(|(_, t)| t);
+        all(&get_accessibility_tree(pid, 30, title.as_deref()).expect("tree"), &mut ids);
+        assert!(ids.contains(&close.id), "the tree has the same button: {ids:?}");
+
+        click_element(&close.id).expect("pressed");
+        let mut still = open();
+        for _ in 0..30 {
+            if !still {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            still = open();
+        }
+        let _ = std::fs::remove_file(path);
+        assert!(!still, "the window closed");
+    }
+
+    /// The document's text area found by role: its text set and read back,
+    /// then real keys typed into it once it has the focus.
+    #[test]
+    #[ignore = "needs a macOS desktop with Accessibility granted"]
+    fn a_named_field_takes_text_in_textedit() {
+        let (pid, n, path) = open_in_textedit("cinderpaw-field", "x");
+        let field = text_area(pid, n);
+        type_into_element(&field.id, "cinder").expect("text set");
+        assert_eq!(value_becomes(&field.id, "cinder"), "cinder");
+        send_keys(&field.id, "{ctrl+end}paw").expect("keys sent");
+        let value = value_becomes(&field.id, "cinderpaw");
+        let _ = click_element(&close_button(pid, n).id);
+        let _ = std::fs::remove_file(path);
+        assert_eq!(value, "cinderpaw");
     }
 }
