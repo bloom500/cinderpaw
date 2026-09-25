@@ -19,7 +19,7 @@
  *   6. subagent_spawn hook can block a subagent run before it starts
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,6 +41,10 @@ import type { CinderpawFetch } from "../src/types.ts";
 function tempHome(): string {
   return mkdtempSync(join(tmpdir(), "cinderpaw-subagent-"));
 }
+
+// The observation log appends to disk; "." wrote it into the repo on every run.
+const observationsDir = tempHome();
+afterAll(() => rmSync(observationsDir, { recursive: true, force: true }));
 
 function stubRouter(
   // Canned responses for the subagent. Each call to complete() returns
@@ -114,7 +118,7 @@ function makeDeps(router: InferenceRouter, toolNames: string[]): Deps {
   const audit = new AuditLog(db.raw);
   const egress = new EgressProxy(audit.logger);
   const proc = new RealProcessSandbox(audit.logger);
-  const observations = new ToolObservationLog(".");
+  const observations = new ToolObservationLog(observationsDir);
   const allTools = toolNames.map((n) => makeEchoTool(n, `result-${n}`));
   const registry = new ToolRegistry(egress, audit, proc, observations);
   for (const t of allTools) registry.register(t);
