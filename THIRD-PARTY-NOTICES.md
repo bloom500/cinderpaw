@@ -115,6 +115,22 @@ paid once inside an exported file, by the people who asked for a chart.
 
 ---
 
+## Mozilla Readability — the built-in browser's reader view
+
+**Copied verbatim into:** `src-tauri/vendor/readability/Readability.js`
+
+- **Source:** https://github.com/mozilla/readability (v0.6.0, `Readability.js`
+  from the `@mozilla/readability` npm package)
+- **License:** Apache-2.0, the same licence as Cinderpaw (root `LICENSE`)
+- **Copyright:** Arc90 Inc and Mozilla contributors; the upstream header stays
+  in the file
+- **Modifications:** none. 89,980 bytes, sha256 starting `34dcab3d`.
+
+Compiled into the host binary (`include_str!` in `src-tauri/src/browser.rs`)
+and run inside the page for the reader view and `browser.read`.
+
+---
+
 ## Noto Sans — the letters inside a PDF artifact
 
 **Copied verbatim into:** `CinderpawAgent/src/artifacts/vendor/fonts/NotoSans-Regular.ttf`
