@@ -249,3 +249,68 @@ describe('the promise on the start page', () => {
     expect(screen.getByText('110%')).toBeInTheDocument();
   });
 });
+
+describe('the keys and controls every browser has', () => {
+  const tab = (id: number, url: string, over: Partial<{ loading: boolean }> = {}) => ({ id, title: `T${id}`, url, loading: false, canBack: true, canForward: true, blocked: 0, ...over });
+  const three = () => useBrowser.setState({ tabs: [tab(1, 'https://a.ro/'), tab(2, 'https://b.ro/'), tab(3, 'https://c.ro/')], active: 1, url: 'https://a.ro/' });
+
+  it('Ctrl+Tab and Ctrl+Shift+Tab move between tabs, wrapping around', () => {
+    three();
+    render(<BrowserPanel />);
+    fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true });
+    expect(ui).toHaveBeenCalledWith('switch_tab', { id: 2 });
+    fireEvent.keyDown(window, { key: 'Tab', ctrlKey: true, shiftKey: true });
+    expect(ui).toHaveBeenCalledWith('switch_tab', { id: 3 });
+  });
+
+  it('Ctrl+2 goes to the second tab and Ctrl+9 to the last', () => {
+    three();
+    render(<BrowserPanel />);
+    fireEvent.keyDown(window, { key: '2', ctrlKey: true });
+    expect(ui).toHaveBeenCalledWith('switch_tab', { id: 2 });
+    fireEvent.keyDown(window, { key: '9', ctrlKey: true });
+    expect(ui).toHaveBeenCalledWith('switch_tab', { id: 3 });
+  });
+
+  it('Ctrl+R and F5 reload, Alt+arrows go back and forward', () => {
+    three();
+    render(<BrowserPanel />);
+    fireEvent.keyDown(window, { key: 'r', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'F5' });
+    expect(ui.mock.calls.filter((c) => c[0] === 'reload')).toHaveLength(2);
+    fireEvent.keyDown(window, { key: 'ArrowLeft', altKey: true });
+    fireEvent.keyDown(window, { key: 'ArrowRight', altKey: true });
+    expect(ui.mock.calls.some((c) => c[0] === 'back')).toBe(true);
+    expect(ui.mock.calls.some((c) => c[0] === 'forward')).toBe(true);
+  });
+
+  it('the reload button stops a page that is still loading', () => {
+    useBrowser.setState({ tabs: [tab(1, 'https://a.ro/', { loading: true })], active: 1, url: 'https://a.ro/', loading: true });
+    render(<BrowserPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop loading' }));
+    expect(ui.mock.calls.some((c) => c[0] === 'stop')).toBe(true);
+  });
+
+  it('the wheel button closes a tab', () => {
+    three();
+    render(<BrowserPanel />);
+    const second = screen.getAllByRole('tab')[1]!;
+    fireEvent(second, new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+    expect(ui).toHaveBeenCalledWith('close_tab', { id: 2 });
+  });
+
+  it('says when a page is not encrypted', () => {
+    useBrowser.setState({ tabs: [tab(1, 'http://example.ro/')], active: 1, url: 'http://example.ro/' });
+    render(<BrowserPanel />);
+    expect(screen.getByRole('img', { name: 'Not secure' })).toBeInTheDocument();
+  });
+});
+
+describe('isSecure', () => {
+  it('https and this machine are secure, plain http elsewhere is not', async () => {
+    const { isSecure } = await import('@/lib/browserHistory');
+    expect(isSecure('https://a.ro/')).toBe(true);
+    expect(isSecure('http://localhost:3000/')).toBe(true);
+    expect(isSecure('http://example.ro/')).toBe(false);
+  });
+});

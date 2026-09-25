@@ -87,7 +87,7 @@ interface BrowserStore {
   covered: number;
   cover: (delta: 1 | -1) => void;
   open: (address: string) => Promise<void>;
-  go: (op: 'back' | 'forward' | 'reload' | 'home') => Promise<void>;
+  go: (op: 'back' | 'forward' | 'reload' | 'home' | 'stop') => Promise<void>;
   newTab: () => Promise<void>;
   switchTab: (id: number) => Promise<void>;
   closeTab: (id: number) => Promise<void>;

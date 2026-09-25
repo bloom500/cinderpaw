@@ -1,7 +1,7 @@
 import { onPanelMotionSettled, panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
@@ -9,7 +9,7 @@ import { ENGINE_LOGOS } from '@/lib/engineLogos';
 import { cn, readLocal, writeLocal, SECONDARY_BUTTON } from '@/lib/utils';
 import { listen } from '@tauri-apps/api/event';
 import { SelectMenu } from '@/components/ui/select-menu';
-import { loadHistory, saveHistory, recordVisit, recordTitle, recordPick, loadBookmarks, saveBookmarks, upsertBookmark, removeBookmark, parseTags, findBookmarks, display, isReaderUrl, readerOriginal } from '@/lib/browserHistory';
+import { loadHistory, saveHistory, recordVisit, recordTitle, recordPick, loadBookmarks, saveBookmarks, upsertBookmark, removeBookmark, parseTags, findBookmarks, display, isReaderUrl, readerOriginal, isSecure } from '@/lib/browserHistory';
 import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
@@ -87,10 +87,36 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   // The shortcuts every browser has. They reach us while the focus is in the
   // app (address bar, tabs, chat); inside the native page the page has the
   // keys, and Ctrl+L is the way back.
+  // What the keys act on, read at press time: the handler is registered once.
+  const keyTarget = useRef<{ tabs: typeof tabs; star: () => void; downloads: () => void }>({ tabs, star: () => {}, downloads: () => {} });
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
+      // The ones every browser answers without Ctrl: F5, and Alt+arrows for
+      // back and forward.
+      if (e.key === 'F5' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); void go('reload'); return; }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault(); void go(e.key === 'ArrowLeft' ? 'back' : 'forward'); return;
+      }
       if (!(e.ctrlKey || e.metaKey)) return;
       const k = e.key.toLowerCase();
+      const { tabs: open } = keyTarget.current;
+      const at = open.findIndex((t) => t.id === active);
+      if (k === 'tab' && open.length > 1) {
+        e.preventDefault();
+        const next = open[(at + (e.shiftKey ? -1 : 1) + open.length) % open.length];
+        if (next) void switchTab(next.id);
+        return;
+      }
+      // Ctrl+1..8: that tab; Ctrl+9: the last one.
+      if (/^[1-9]$/.test(k) && open.length > 0) {
+        e.preventDefault();
+        const target = k === '9' ? open[open.length - 1] : open[Number(k) - 1];
+        if (target) void switchTab(target.id);
+        return;
+      }
+      if (k === 'r') { e.preventDefault(); void go('reload'); return; }
+      if (k === 'd' && url) { e.preventDefault(); keyTarget.current.star(); return; }
+      if (k === 'j') { e.preventDefault(); keyTarget.current.downloads(); return; }
       if (k === 't' && e.shiftKey) { e.preventDefault(); void reopenTab(); }
       else if (k === 't') { e.preventDefault(); void newTab(); }
       else if (k === 'w') { e.preventDefault(); if (active != null) void closeTab(active); }
@@ -108,7 +134,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       onKey({ key: e.payload.key, shiftKey: !!e.payload.shift, ctrlKey: true, metaKey: false, preventDefault() {} } as unknown as globalThis.KeyboardEvent);
     });
     return () => { window.removeEventListener('keydown', onKey); void off.then((f) => f()); };
-  }, [active, url, newTab, closeTab, reopenTab]);
+  }, [active, url, newTab, closeTab, reopenTab, switchTab, go]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const current = tabs.find((t) => t.id === active);
   const [address, setAddress] = useState(url);
@@ -178,6 +204,17 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
     setSparks((n) => n + 1);
   };
   const [downloadsOpen, setDownloadsOpen] = useState(false);
+  keyTarget.current = {
+    tabs,
+    // Ctrl+D is the star: saves the page, or opens the editor for a saved one.
+    star: () => {
+      const saved = loadBookmarks().find((b) => b.url === url);
+      if (!saved) { setTagText(''); commitBookmark(); return; }
+      setTagText(saved.tags.join(', '));
+      setStarOpen(true);
+    },
+    downloads: () => setDownloadsOpen((v) => !v),
+  };
   const downloadCount = useBrowser((b) => b.downloads.length);
   // One zoom level for the browser, remembered across restarts.
   const [zoom, setZoom] = useState(() => Number(readLocal(ZOOM_KEY)) || 1);
@@ -350,7 +387,11 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
             role="tab"
             aria-selected={t.id === active}
             tabIndex={0}
+            title={t.url === 'about:blank' ? 'New tab' : `${t.title || t.url}\n${t.url}`}
             onClick={() => void switchTab(t.id)}
+            // The wheel button closes a tab, as everywhere.
+            onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); void closeTab(t.id); } }}
+            onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
             onKeyDown={(e) => { if (e.key === 'Enter') void switchTab(t.id); }}
             className={cn(
               'group flex max-w-[180px] shrink-0 cursor-default items-center gap-1 rounded-t-lg border border-b-0 px-2.5 py-1 text-2xs',
@@ -370,7 +411,12 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
                 e.stopPropagation();
                 void closeTab(t.id);
               }}
-              className="ml-1 rounded-sm p-0.5 opacity-0 hover:bg-bg-hover group-hover:opacity-100 focus-visible:opacity-100"
+              className={cn(
+                'ml-1 rounded-sm p-0.5 hover:bg-bg-hover group-hover:opacity-100 focus-visible:opacity-100',
+                // The tab in front always shows its ×: hidden until hovered,
+                // closing the page you are on was a hunt.
+                t.id === active ? 'opacity-100' : 'opacity-0',
+              )}
             >
               <X size={12} />
             </button>
@@ -397,13 +443,24 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         <ChromeButton label="Back" icon={ArrowLeft} disabled={!current?.canBack} onClick={() => void go('back')} />
         <ChromeButton label="Forward" icon={ArrowRight} disabled={!current?.canForward} onClick={() => void go('forward')} />
         <ChromeButton label="Home" icon={Home} onClick={() => void go('home')} />
+        {/* While it loads, the button stops it, as in every browser; pressing
+            the spinner used to start the same load over. */}
         <ChromeButton
-          label="Reload"
-          icon={loading ? Loader2 : RotateCw}
-          spin={loading}
-          onClick={() => void go('reload')}
+          label={loading ? 'Stop loading' : 'Reload'}
+          icon={loading ? X : RotateCw}
+          onClick={() => void go(loading ? 'stop' : 'reload')}
         />
         <div className="relative min-w-0 flex-1">
+          {!editing && url && /^https?:/.test(url) && (
+            <span
+              className={cn('pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2', isSecure(url) ? 'text-text-muted' : 'text-(--warning)')}
+              title={isSecure(url) ? 'Connection is secure' : 'Not secure: this page is not encrypted'}
+              aria-label={isSecure(url) ? 'Connection is secure' : 'Not secure'}
+              role="img"
+            >
+              {isSecure(url) ? <Lock size={12} /> : <LockOpen size={12} />}
+            </span>
+          )}
           <input
             ref={addressRef}
             aria-label="Address"
@@ -417,7 +474,10 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
             onBlur={() => setEditing(false)}
             onChange={(e) => setAddress(e.target.value)}
             onKeyDown={keys(addressSugg, address)}
-            className="h-8 w-full min-w-0 rounded-full border border-border-default bg-bg-elevated px-3 text-xs text-text-primary outline-hidden focus:border-brand"
+            className={cn(
+              'h-8 w-full min-w-0 rounded-full border border-border-default bg-bg-elevated px-3 text-xs text-text-primary outline-hidden focus:border-brand',
+              !editing && url && /^https?:/.test(url) && 'pl-7',
+            )}
           />
           <AddressSuggestions items={addressSugg.items} index={addressSugg.index} onPick={(s) => pick(address, s.url)} onHover={addressSugg.setIndex} />
         </div>

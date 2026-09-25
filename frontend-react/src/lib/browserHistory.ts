@@ -213,3 +213,8 @@ export function findBookmarks(list: Bookmark[], input: string, limit = 6): Bookm
     .slice(0, limit)
     .map((x) => x.b);
 }
+
+/** https, or a page on this machine (nothing leaves it to be read on the way). */
+export function isSecure(url: string): boolean {
+  return /^https:/.test(url) || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/.test(url);
+}
