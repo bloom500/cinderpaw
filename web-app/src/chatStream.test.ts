@@ -171,6 +171,7 @@ test("a chat error is named for what can fix it, not 'send that again'", () => {
   // The exact detail from 25 Sep, with no AI connected.
   expect(chatFailure('Inference unavailable: inference endpoint http://127.0.0.1:11499/v1/chat/completions returned 503: {"error":{"message":"no model selected — choose one in Models","type":"model_not_ready"}}')).toBe("no_model");
   expect(chatFailure("402 insufficient credits")).toBe("no_credit");
+  expect(chatFailure('returned 403: {"error":{"message":"Key limit exceeded (total limit)"}}')).toBe("no_credit");
   expect(chatFailure("401 Unauthorized: invalid api key")).toBe("bad_key");
   expect(chatFailure("429 rate limit")).toBe("busy");
   expect(chatFailure("TypeError: Failed to fetch")).toBe("offline");

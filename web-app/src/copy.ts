@@ -31,7 +31,7 @@ export const COPY = {
   itWorks: "It works!",
   awake: (name: string) => `I'm awake now, ${name}! From here it's really me talking.`,
   badKey: "That key didn't work. Check you copied all of it.",
-  noCredit: "Your account has no credit yet. Add some, then try again.",
+  noCredit: "Your AI key is out of credit or hit its spending limit. Add credit or raise the limit, then try again.",
   offline: "I can't reach the internet. Check your connection, then try again.",
   busy: "The key works, but the AI is busy right now. Try again in a minute.",
   somethingElse: "Something went wrong when I tried the key. You can try again.",

@@ -545,7 +545,14 @@ export async function runAgent(
   images?: string[],
   runs?: { hooks: ConnectorRunHooks; surface: RunSurface; target: string },
 ): Promise<{ reply: string; markDelivered: () => void }> {
+  let failure = "";
   const emit = (event: OutboundEvent) => {
+    if (event.type === "error") failure = event.message;
+    // A failed turn's reason rides only on this event; the chat gets a plain
+    // "something went wrong". Unlogged, the reason reached nobody (26 Sep,
+    // WhatsApp "Not finished" with an empty log).
+    if (event.type === "error") process.stderr.write(`[connector] ${sessionId}: turn failed: ${event.message}
+`);
     if (!onActivity) return;
     if (event.type === "tool_start") {
       const a = activityFor(event.tool);
@@ -587,7 +594,7 @@ export async function runAgent(
     // other surface gets it too — see the note beside the `done` event.
     // The verdict goes to the PERSON, not just into the row. A failed check
     // that only a database knows about is the same silence we started with.
-    const reply = [run.text, verdict].filter(Boolean).join("\n\n");
+    const reply = (run.outcome === "no_answer" && keyTrouble(failure)) || [run.text, verdict].filter(Boolean).join("\n\n");
     // Durable before it is spoken. Anything that goes wrong between here and
     // the caller's `markDelivered()` leaves the report on disk for the next
     // boot, rather than only in the memory of a process that may be dying.
@@ -598,6 +605,23 @@ export async function runAgent(
     reply: await agent.handle(sessionId, text, messageId, emit, undefined, images),
     markDelivered: () => {},
   };
+}
+
+/**
+ * A dead or spent AI key, said so that whoever set the agent up knows what to
+ * fix. Every retry fails the same way, and "something went wrong on my side"
+ * sent the owner hunting (seen live 26 Sep: OpenRouter's 403 "Key limit
+ * exceeded" on WhatsApp). Worded for any reader: a public-mode customer sees it
+ * too. Null for anything else, which keeps the plain apology.
+ */
+export function keyTrouble(detail: string): string | null {
+  if (/\b402\b|insufficient (credits|funds|balance)|key limit|spend(ing)? limit|credit limit/i.test(detail)) {
+    return "I can't answer right now: the AI key behind me is out of credit or hit its spending limit. Whoever set me up can add credit or raise the limit where the key was made.";
+  }
+  if (/\b401\b|invalid api key|incorrect api key|unauthori[sz]ed/i.test(detail)) {
+    return "I can't answer right now: the AI key behind me stopped working. Whoever set me up needs to connect a new one.";
+  }
+  return null;
 }
 
 /** Digits only — used to compare phone numbers across formats. */

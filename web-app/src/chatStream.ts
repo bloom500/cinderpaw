@@ -250,7 +250,8 @@ export type ChatFailure = "no_model" | "no_credit" | "bad_key" | "busy" | "offli
 
 export function chatFailure(detail: string): ChatFailure {
   if (/no model selected|model_not_ready|no model configured/i.test(detail)) return "no_model";
-  if (/\b402\b|insufficient (credits|funds|balance)|quota/i.test(detail)) return "no_credit";
+  // "Key limit exceeded" is OpenRouter's 403 for a key's own spending cap (seen live 26 Sep).
+  if (/\b402\b|insufficient (credits|funds|balance)|quota|key limit|spend(ing)? limit|credit limit/i.test(detail)) return "no_credit";
   if (/\b401\b|invalid api key|incorrect api key|unauthori[sz]ed/i.test(detail)) return "bad_key";
   if (/\b429\b|rate.?limit|overloaded|\b503\b/i.test(detail)) return "busy";
   if (/failed to fetch|networkerror|ENOTFOUND|ECONNREFUSED|timed? ?out/i.test(detail)) return "offline";
