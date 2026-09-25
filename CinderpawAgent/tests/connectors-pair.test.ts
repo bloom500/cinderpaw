@@ -125,3 +125,12 @@ test("it refuses what it cannot do, in words the agent can pass on", async () =>
   expect((await tool.execute({ id: "discord" }, { sessionId: "tui" } as unknown as ToolContext)).content).toContain("unsupported_surface");
   expect((await tool.execute({ id: "discord" }, ctxAnswering([]))).content).toContain("not_connected");
 });
+
+test("every wait tells the person, on the page, what to do", async () => {
+  const said: string[] = [];
+  const ctx = ctxAnswering(["Yes, that's me"]);
+  (ctx as { progress?: unknown }).progress = (e: { message: string }) => said.push(e.message);
+  await createConnectorsPairTool(fakeDeps([{ id: "42", name: "Ana" }, { id: "42", name: "Ana" }])).execute({ id: "discord" }, ctx);
+  expect(said[0]).toContain("Send your bot a direct message on Discord");
+  expect(said[1]).toContain("one more message");
+});

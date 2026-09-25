@@ -138,3 +138,15 @@ test("a tool that finishes after its bubble was followed by another still gets i
   expect(out[0].tools?.[1]).toEqual({ tool: "request_secret", ok: true });
   expect(out[2]).toBe(lines[2]);
 });
+
+test("a tool's progress message becomes a waiting line; an empty one is dropped", async () => {
+  const got = await run(body([
+    `event: tool_progress\ndata: ${JSON.stringify({ type: "tool_progress", tool: "connectors_pair", stage: "waiting", message: "Send your bot a direct message on Discord now." })}\n\n`,
+    `event: tool_progress\ndata: ${JSON.stringify({ type: "tool_progress", tool: "x", stage: "s", message: "" })}\n\n`,
+    "data: [DONE]\n\n",
+  ]));
+  expect(got).toEqual([
+    { type: "waiting", tool: "connectors_pair", message: "Send your bot a direct message on Discord now." },
+    { type: "done" },
+  ]);
+});

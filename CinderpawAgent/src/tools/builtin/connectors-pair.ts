@@ -91,6 +91,13 @@ export function createConnectorsPairTool(deps: PairDeps): Tool {
         };
       }
 
+      // Seen live 25 Sep: the agent started this with "Let me fix that" and
+      // nothing else, and the page sat on a silent spinner while the person had
+      // no idea they were meant to act. Each wait says what it waits for, on the
+      // page, whatever the model remembered to say.
+      const waiting = (message: string) => ctx.progress?.({ stage: "waiting", progress: null, message });
+      waiting(`Send your bot a direct message on ${platform} now. Any text works.`);
+
       const listed = new Set(await deps.allowlist(id));
       const declined = new Set<string>();
       const deadline = Date.now() + WAIT_MS;
@@ -134,11 +141,13 @@ export function createConnectorsPairTool(deps: PairDeps): Tool {
         else {
           declined.add(s.id);
           since = Date.now();
+          waiting(`Still listening. Send your bot a direct message on ${platform}.`);
         }
       }
 
       const allowedAt = Date.now();
       await deps.allow(id, who.id);
+      waiting(`You're in. Send your bot one more message on ${platform}, so we know it reaches me.`);
       const heard = await deps.nextSender(id, (u) => u === who.id, {
         since: allowedAt,
         ms: WAIT_MS,

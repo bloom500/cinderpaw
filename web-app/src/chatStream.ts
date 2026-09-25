@@ -8,6 +8,8 @@ export type ChatEvent =
   | { type: "reasoning"; text: string }
   | { type: "tool_start"; id: string; tool: string }
   | { type: "tool_done"; id: string; tool: string; ok: boolean }
+  /** A running tool says what it is waiting for (connectors_pair: "send your bot a message"). */
+  | { type: "waiting"; tool: string; message: string }
   | { type: "error"; detail: string }
   | ({ type: "secret" } & SecretAsk)
   | { type: "ask"; requestId: string; question: string; options: string[] }
@@ -132,6 +134,10 @@ export async function streamChat(f: Fetch, content: string, on: (e: ChatEvent) =
         }
         if (event === "tool_start") {
           on({ type: "tool_start", id: String(raw.id ?? ""), tool: String(raw.tool ?? "") });
+          continue;
+        }
+        if (event === "tool_progress") {
+          if (raw.message) on({ type: "waiting", tool: String(raw.tool ?? ""), message: String(raw.message) });
           continue;
         }
         if (event === "tool_done") {

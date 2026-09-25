@@ -14,6 +14,8 @@ type Line = {
   link?: { href: string; label: string };
   reasoning?: string;
   tools?: Tool[];
+  /** What a running tool is waiting for the person to do. Gone when it finishes. */
+  waiting?: string;
 };
 
 /** "web_search" reads as "web search" to someone who has never seen code. */
@@ -101,7 +103,11 @@ export function OnboardingChat() {
       if (e.type === "text") patch((l) => ({ ...l, text: l.text + e.text }));
       else if (e.type === "reasoning") patch((l) => ({ ...l, reasoning: (l.reasoning ?? "") + e.text }));
       else if (e.type === "tool_start") patch((l) => ({ ...l, tools: [...(l.tools ?? []), { id: e.id, tool: e.tool }] }));
-      else if (e.type === "tool_done") setLines((ls) => finishToolIn(ls, e.tool, e.ok));
+      // On the newest bubble, where the person is looking: after a card answer
+      // that is a fresh one, and without this it stayed empty (seen live 25 Sep).
+      else if (e.type === "waiting") patch((l) => ({ ...l, waiting: e.message }));
+      else if (e.type === "tool_done")
+        setLines((ls) => finishToolIn(ls, e.tool, e.ok).map((l) => (l.waiting ? { ...l, waiting: undefined } : l)));
       else if (e.type === "secret") {
         add({ who: "agent", text: e.question, details: undefined });
         setSecretAsk(e);
@@ -257,6 +263,7 @@ export function OnboardingChat() {
                 {t.ok === false ? COPY.toolFailed(plain(t.tool)) : COPY.working(plain(t.tool))}
               </p>
             ))}
+            {l.waiting && <p className="tool">⏳ {l.waiting}</p>}
             {(l.text || !l.tools) && <p className="text">{l.text || "…"}</p>}
             {l.link && (
               <a className="button" href={l.link.href} target="_blank" rel="noopener noreferrer">
