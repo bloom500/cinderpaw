@@ -34,6 +34,7 @@ import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
 import type { WASocket, WAMessage } from "@whiskeysockets/baileys";
 import qrcode from "qrcode-terminal";
+import { qrSvg } from "./qr-svg.ts";
 import type { OutboundEvent, SkillMeta } from "../types.ts";
 import type { LeadDesk } from "../core/lead-desk.ts";
 import {
@@ -1259,6 +1260,8 @@ export class WhatsAppConnector {
   #sock: WASocket | null = null;
   #wa: typeof import("@whiskeysockets/baileys") | null = null;
   #stopped = false;
+  /** Closes in a row without the connection ever opening. */
+  #closes = 0;
 
   constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void }) {
     const allow = opts.allowlist.map(digits).filter(Boolean);
@@ -1402,7 +1405,14 @@ export class WhatsAppConnector {
     const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = wa;
     const authDir = join(cinderpawHome(), "whatsapp-auth");
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
-    const sock = makeWASocket({ auth: state });
+    // WhatsApp refuses a protocol version it considers too old with 405, and
+    // the one built into the library ages out. Seen live 25 Sep: every
+    // connect closed with 405 and no QR ever came. Ask for the current one;
+    // if that fails, the built-in one is still worth a try.
+    const fetchLatest = (wa as { fetchLatestWaWebVersion?: (o: object) => Promise<{ version?: [number, number, number] }> })
+      .fetchLatestWaWebVersion;
+    const latest = await fetchLatest?.({}).catch(() => null);
+    const sock = makeWASocket({ auth: state, ...(latest?.version ? { version: latest.version } : {}) });
     this.#sock = sock;
     sock.ev.on("creds.update", saveCreds);
 
@@ -1416,11 +1426,12 @@ export class WhatsAppConnector {
           // can render it — a GUI user has no terminal to scan from.
           void writeFile(
             join(cinderpawHome(), "whatsapp-qr.json"),
-            JSON.stringify({ ts: Date.now(), qr, ascii }),
+            JSON.stringify({ ts: Date.now(), qr, ascii, svg: qrSvg(qr) }),
           ).catch(() => {});
         });
       }
       if (connection === "open") {
+        this.#closes = 0;
         this.#log("whatsapp connector online (linked)");
         void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
       }
@@ -1431,9 +1442,21 @@ export class WhatsAppConnector {
         if (loggedOut) {
           this.#log("whatsapp: logged out — toggle the connector off and on to re-link.");
           void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
+        } else if (++this.#closes >= 5) {
+          // Retrying forever hammered WhatsApp's servers and filled the log
+          // while every surface still waited for a QR (seen live 25 Sep, 405).
+          this.#sock = null;
+          void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
+          this.#log(
+            `whatsapp: WhatsApp closed the connection ${this.#closes} times in a row (last code ${code ?? "none"}) — ` +
+              "giving up. Turn WhatsApp off and on again to retry.",
+          );
         } else {
-          this.#log("whatsapp: connection closed, reconnecting…");
-          void this.#connect().catch((e) => this.#log(`whatsapp reconnect failed: ${String(e)}`));
+          const wait = Math.min(2 ** this.#closes, 30) * 1000;
+          this.#log(`whatsapp: connection closed (code ${code ?? "none"}), reconnecting in ${wait / 1000}s…`);
+          setTimeout(() => {
+            if (!this.#stopped) void this.#connect().catch((e) => this.#log(`whatsapp reconnect failed: ${String(e)}`));
+          }, wait);
         }
       }
     });

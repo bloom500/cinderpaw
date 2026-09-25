@@ -84,8 +84,9 @@ export const CATALOG: Record<string, CatalogEntry> = {
     note: "No secrets — pairing is QR-based. Enable it, then the user scans the QR code shown in the Cinderpaw app (Connectors page or TUI).",
     steps: [
       "There is nothing to copy and no token to fetch — WhatsApp pairs by QR code.",
-      "Say the word and I'll enable it, then open the Connectors page in the Cinderpaw app.",
-      "Scan the QR code there with WhatsApp on your phone: Settings → Linked devices → Link a device.",
+      "Say the word and I'll turn it on. The first time, I ask to download WhatsApp support.",
+      "A square code then shows up right here, under our chat (in the desktop app: the Connectors page; in the terminal chat: /connectors qr).",
+      "On your phone, open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the square.",
     ],
   },
   // Every other transport the sidecar can run. Without an entry the agent
@@ -619,7 +620,7 @@ export function createConnectorsManageTool(
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
           : pairing
             // Before the allowlist: nobody can message a WhatsApp that has no phone yet.
-            ? " A QR code is on its way to the Cinderpaw page (in the terminal chat: /connectors qr). " +
+            ? " A QR code is on its way. On the Cinderpaw page it shows up under the chat by itself; in the desktop app it is on the Connectors page; in the terminal chat: /connectors qr. " +
               "Tell the user: on your phone open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the code."
             : deaf
               ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
