@@ -649,6 +649,11 @@ mod live {
         let pid = z.id();
         let fields = wait_for(pid, &ElementQuery { role: Some("Edit".into()), ..Default::default() }, |f| !f.is_empty());
         let field = &fields[0];
+        // Jev's keys for "the page" ask for the Document. A dialog has none:
+        // the window answers, as before there was a tree.
+        let page = find_elements(pid, &ElementQuery { role: Some("Document".into()), ..Default::default() }, None).expect("page");
+        assert!(page.iter().all(|p| p.role == "Document" && target(&p.id).is_ok_and(|t| matches!(t, Target::Window(..)))), "{page:?}");
+        assert!(!page.is_empty(), "the window stands in for the page");
         type_into_element(&field.id, "cinder").expect("text set");
         assert_eq!(get_element_value(&field.id).expect("value"), "cinder");
         // The window to the front, the field focused, real keys typed.
@@ -853,6 +858,10 @@ mod live {
     fn a_named_field_takes_text_in_textedit() {
         let (pid, n, path) = open_in_textedit("cinderpaw-field", "x");
         let field = text_area(pid, n);
+        // Jev's keys for "the page" ask for the Document. TextEdit has none:
+        // the window answers, as before there was a tree.
+        let page = find_elements(pid, &ElementQuery { role: Some("Document".into()), ..Default::default() }, None).expect("page");
+        assert!(!page.is_empty() && page.iter().all(|p| matches!(target(&p.id), Ok(Target::Window(..)))), "{page:?}");
         type_into_element(&field.id, "cinder").expect("text set");
         assert_eq!(value_becomes(&field.id, "cinder"), "cinder");
         send_keys(&field.id, "{ctrl+end}paw").expect("keys sent");

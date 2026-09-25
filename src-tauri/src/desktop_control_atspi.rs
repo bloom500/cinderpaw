@@ -277,8 +277,9 @@ fn window_of(bus: &Bus, app: &Node, title: Option<&str>) -> Result<(i32, Node), 
 
 /// Preorder over `start`'s subtree (document order, as UIA's FindAll gives),
 /// calling `visit` with each node, its path and its AT-SPI role. `visit`
-/// returns false to stop.
-fn walk(bus: &Bus, start: &Node, path: Vec<i32>, visit: &mut dyn FnMut(&Node, &[i32], u32) -> bool) {
+/// returns false to stop. A node whose role `prune` names is visited but not
+/// entered.
+fn walk(bus: &Bus, start: &Node, path: Vec<i32>, prune: &dyn Fn(u32) -> bool, visit: &mut dyn FnMut(&Node, &[i32], u32) -> bool) {
     let mut stack = vec![(start.clone(), path)];
     let mut visits = 0usize;
     while let Some((n, p)) = stack.pop() {
@@ -289,6 +290,9 @@ fn walk(bus: &Bus, start: &Node, path: Vec<i32>, visit: &mut dyn FnMut(&Node, &[
         let role = bus.role(&n);
         if !visit(&n, &p, role) {
             return;
+        }
+        if prune(role) {
+            continue;
         }
         let kids = bus.children(&n);
         for (i, k) in kids.into_iter().enumerate().rev() {
@@ -304,7 +308,7 @@ fn walk(bus: &Bus, start: &Node, path: Vec<i32>, visit: &mut dyn FnMut(&Node, &[
 fn scope(bus: &Bus, win: &Node, win_path: &[i32], under: &str) -> Option<(Node, Vec<i32>)> {
     for want in under.split(',').map(str::trim).filter(|w| !w.is_empty()) {
         let mut found = None;
-        walk(bus, win, win_path.to_vec(), &mut |n, p, role| {
+        walk(bus, win, win_path.to_vec(), &|_| false, &mut |n, p, role| {
             let hit = if want.eq_ignore_ascii_case("main") {
                 role == ROLE_LANDMARK && bus.attributes(n).get("xml-roles").is_some_and(|r| r.eq_ignore_ascii_case("main"))
             } else {
@@ -381,8 +385,12 @@ pub fn find(pid: u32, q: &ElementQuery, window_title: Option<&str>) -> Result<Ve
     let name_q = q.name.as_deref().map(str::to_lowercase);
     let aid_q = q.automation_id.as_deref().map(str::to_lowercase);
     let val_q = q.value_contains.as_deref().map(str::to_lowercase);
+    // Asked only for the page (Jev's keys go to it), its thousands of
+    // elements are not read: a browser page took seconds to walk.
+    let only_documents = q.under_role.is_none() && roles.as_ref().is_some_and(|r| r.iter().all(|r| r == "document"));
+    let prune = |role: u32| only_documents && ui_role(role, 0) == Some("Document");
     let mut out = Vec::new();
-    walk(&bus, &root, root_path, &mut |n, p, role| {
+    walk(&bus, &root, root_path, &prune, &mut |n, p, role| {
         let state = bus.state(n);
         if let Some(r) = &roles {
             if !r.contains(&bus.ui_role(n, role, state).to_lowercase()) {

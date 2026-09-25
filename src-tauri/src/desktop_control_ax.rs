@@ -45,6 +45,8 @@ function run(argv) {
   if (mode === 'walk') {
     const title = argv[2].toLowerCase();
     const max = Number(argv[3]), maxDepth = Number(argv[4]);
+    // Roles read but not entered (a web page, when only the page is asked for).
+    const prune = (argv[5] || '').split(',').filter((r) => r);
     // Windows are listed front to back: with no title, the one in front.
     const names = bulk(p.windows, 'name');
     if (names.length === 0) throw new Error('no window');
@@ -73,7 +75,7 @@ function run(argv) {
           e: en[i] !== false,
           x: pos[i] ? pos[i][0] : 0, y: pos[i] ? pos[i][1] : 0, w: size[i] ? size[i][0] : 0, h: size[i] ? size[i][1] : 0,
         });
-        queue.push([kids[i], cp]);
+        if (!prune.includes(str(role[i]))) queue.push([kids[i], cp]);
       }
     }
     return JSON.stringify(out);
@@ -304,8 +306,8 @@ fn element(pid: u32, r: &Raw, win: (f64, f64, f64, f64)) -> AccessibilityElement
     }
 }
 
-fn walk(pid: u32, window_title: Option<&str>, depth: u8) -> Result<Vec<Raw>, String> {
-    let out = script(&["walk", &pid.to_string(), window_title.unwrap_or(""), &MAX_NODES.to_string(), &depth.to_string()])?;
+fn walk(pid: u32, window_title: Option<&str>, depth: u8, prune: &[&str]) -> Result<Vec<Raw>, String> {
+    let out = script(&["walk", &pid.to_string(), window_title.unwrap_or(""), &MAX_NODES.to_string(), &depth.to_string(), &prune.join(",")])?;
     serde_json::from_str(&out).map_err(|e| format!("desktop control: unreadable accessibility tree: {e}"))
 }
 
@@ -324,13 +326,16 @@ fn scope(nodes: &[Raw], under: &str) -> Option<Vec<i32>> {
 }
 
 pub fn find(pid: u32, q: &ElementQuery, window_title: Option<&str>) -> Result<Vec<AccessibilityElement>, String> {
-    let nodes = walk(pid, window_title, MAX_DEPTH)?;
-    let win = frame(&nodes);
-    let under = q.under_role.as_deref().and_then(|u| scope(&nodes, u));
     let roles: Option<Vec<String>> = q
         .role
         .as_deref()
         .map(|s| s.split(',').map(|r| r.trim().to_lowercase()).filter(|r| !r.is_empty()).collect());
+    // Asked only for the page (Jev's keys go to it), its thousands of
+    // elements are not read: each is an Apple Event.
+    let only_documents = q.under_role.is_none() && roles.as_ref().is_some_and(|r| r.iter().all(|r| r == "document"));
+    let nodes = walk(pid, window_title, MAX_DEPTH, if only_documents { &["AXWebArea"] } else { &[] })?;
+    let win = frame(&nodes);
+    let under = q.under_role.as_deref().and_then(|u| scope(&nodes, u));
     let name_q = q.name.as_deref().map(str::to_lowercase);
     let val_q = q.value_contains.as_deref().map(str::to_lowercase);
     Ok(nodes
@@ -349,7 +354,7 @@ pub fn find(pid: u32, q: &ElementQuery, window_title: Option<&str>) -> Result<Ve
 
 pub fn tree(pid: u32, depth: u8, window_title: Option<&str>) -> Result<AccessibilityNode, String> {
     // The window is depth 1; its children depth 2.
-    let nodes = walk(pid, window_title, depth.saturating_sub(1))?;
+    let nodes = walk(pid, window_title, depth.saturating_sub(1), &[])?;
     if nodes.is_empty() {
         return Err("desktop control: that app has no window".into());
     }
