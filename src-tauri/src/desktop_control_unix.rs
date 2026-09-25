@@ -525,13 +525,29 @@ mod live {
     #[test]
     #[ignore = "needs a macOS desktop with Accessibility granted"]
     fn text_reaches_textedit() {
-        let _ = run("osascript", &["-e", "tell application \"TextEdit\" to make new document", "-e", "tell application \"TextEdit\" to activate"]);
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        let (pid, n, _) = focused().expect("front app");
+        // Opened on a file, not bare: a bare launch shows TextEdit's Open
+        // panel, which holds every Apple event until it times out (-1712 on
+        // the first CI run).
+        let path = std::env::temp_dir().join(format!("cinderpaw-keytest-{}.txt", std::process::id()));
+        std::fs::write(&path, "").expect("temp file");
+        let p = path.to_string_lossy().to_string();
+        run("open", &["-a", "TextEdit", &p]).expect("TextEdit opened");
+        let mut front = None;
+        for _ in 0..40 {
+            if let Ok(f) = focused() {
+                if crate::desktop_control::process_name(f.0).is_some_and(|n| n.contains("TextEdit")) {
+                    front = Some(f);
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        let (pid, n, _) = front.expect("TextEdit in front");
         send_keys(&handle(pid, n), "hello cinderpaw{Enter}").expect("keys sent");
         std::thread::sleep(std::time::Duration::from_secs(1));
-        let text = run("osascript", &["-e", "tell application \"TextEdit\" to get text of front document"]).expect("read back");
-        let _ = run("osascript", &["-e", "tell application \"TextEdit\" to close front document saving no"]);
+        let text = run("osascript", &["-e", "tell application \"TextEdit\" to get text of document 1"]).expect("read back");
+        let _ = run("osascript", &["-e", "tell application \"TextEdit\" to close every document saving no"]);
+        let _ = std::fs::remove_file(&path);
         assert!(text.contains("hello cinderpaw"), "TextEdit has: {text:?}");
     }
 }
