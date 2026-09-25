@@ -35,7 +35,8 @@ describe('the desktop control switch', () => {
     onSystem('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)');
     render(<DesktopControlToggle />);
     expect(screen.getByRole('switch', { name: 'Enable desktop control' })).toBeEnabled();
-    expect(screen.getByText(/pressing buttons by name is Windows only/)).toBeInTheDocument();
+    expect(screen.getByText(/Accessibility permission/)).toBeInTheDocument();
+    expect(screen.queryByText(/Windows only/)).toBeNull();
   });
 
   it('on Linux, one that is on can be turned off', () => {

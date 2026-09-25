@@ -1,6 +1,6 @@
 /**
  * computer_use — drive native desktop applications through the OS accessibility
- * tree (UIA on Windows, AX on macOS via the Rust host).
+ * tree (UIA on Windows, AX on macOS, AT-SPI on Linux, via the Rust host).
  *
  * This is STRUCTURAL control: the agent reads element trees and acts on named
  * elements through their accessibility patterns. No screenshots, no OCR, no
@@ -204,11 +204,12 @@ export function createComputerUseTool(): Tool {
         "Taskbar AND File Explorer windows under one pid). Pass `window_title` (a substring from " +
         "`list_windows`) to `get_tree`/`find_elements` to pick the right window; without it the " +
         "tool skips the Taskbar/desktop and uses the first real window. " +
-        "MACOS AND LINUX: windows, focus, keys, typing and launching work (list_windows, get_focused, " +
-        "send_keys to the element get_focused returns, perform_action 'focus', launch); reading or pressing " +
-        "NAMED elements (get_tree, click, find_elements other than role 'Window') is Windows only for now, so " +
-        "drive those apps with keys ({Tab}, {Enter}, shortcuts). In key specs `ctrl` is the platform's " +
-        "shortcut key (Command on a Mac); `control` is the Control key itself.",
+        "MACOS AND LINUX: everything above works, through the AX tree (macOS) and AT-SPI (Linux), with " +
+        "the same role names. There, perform_action takes 'press', 'toggle' and 'focus' (not expand/collapse), " +
+        "automation_id is empty on macOS, and an id whose element changed is refused with element_not_found: " +
+        "find it again. A Linux app that publishes no tree (a Qt app without QT_LINUX_ACCESSIBILITY_ALWAYS_ON) " +
+        "is driven with keys ({Tab}, {Enter}, shortcuts) sent to the element get_focused returns. In key specs " +
+        "`ctrl` is the platform's shortcut key (Command on a Mac); `control` is the Control key itself.",
       permissions: [],
       networkAccess: false,
     },

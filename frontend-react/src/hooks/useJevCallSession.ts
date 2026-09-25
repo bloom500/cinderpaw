@@ -5,7 +5,7 @@ import { useBrowser } from '@/stores/browser';
 import { useSpeechPlayer } from './useSpeechPlayer';
 import { saveVoiceBlobToDisk, transcribeVoiceBlob } from './useSendMessage';
 import { rms, isVoiced, TRAIL_SILENCE_MS, MAX_UTTERANCE_MS, NO_SPEECH_TIMEOUT_MS } from '@/lib/vad';
-import { decide, execute, installedApps, interpretReply, resetTarget, splitSteps, DESKTOP_CONTROL_OFF, DESKTOP_WINDOWS_ONLY, MIN_CONFIDENCE, MIN_CLICK_ACTION_CONFIDENCE } from '@/lib/jev';
+import { decide, execute, installedApps, interpretReply, resetTarget, splitSteps, DESKTOP_CONTROL_OFF, DESKTOP_NO_TREE, MIN_CONFIDENCE, MIN_CLICK_ACTION_CONFIDENCE } from '@/lib/jev';
 import { chime } from '@/lib/audio';
 import { forSpeech, isLikelyHallucination } from '@/lib/speechText';
 import { ensureSttModel } from '@/lib/voiceModel';
@@ -66,7 +66,7 @@ function transcriptionFault(e: unknown): string {
  */
 function spokenFailure(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  return msg === DESKTOP_CONTROL_OFF || msg === DESKTOP_WINDOWS_ONLY || / is in front, and I never control /.test(msg) ? msg : 'That did not work.';
+  return msg === DESKTOP_CONTROL_OFF || msg === DESKTOP_NO_TREE || / is in front, and I never control /.test(msg) ? msg : 'That did not work.';
 }
 
 /** A Jev request that failed, in words for the person; the codes are the host's (`jev_decide`). */

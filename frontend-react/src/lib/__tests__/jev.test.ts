@@ -214,12 +214,12 @@ describe('scrolling on the desktop', () => {
 });
 
 describe('desktop commands on macOS and Linux', () => {
-  it('a press by name says it is Windows only and what to say instead', async () => {
+  it('a press in an app with no accessibility tree says what to say instead', async () => {
     const { invoke } = await import('@tauri-apps/api/core');
-    vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control: reading and pressing named elements (buttons, links, fields) is Windows only for now. On this system, act on the window in front with keys'; });
+    vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control: okular has not published an accessibility tree. GTK and Chromium apps do; a Qt (KDE) app needs QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1'; });
     try {
-      const { executeOnDesktop, DESKTOP_WINDOWS_ONLY } = await import('../jev');
-      await expect(executeOnDesktop({ action: 'click', target: 'the send button', confidence: 1 })).rejects.toThrow(DESKTOP_WINDOWS_ONLY);
+      const { executeOnDesktop, DESKTOP_NO_TREE } = await import('../jev');
+      await expect(executeOnDesktop({ action: 'click', target: 'the send button', confidence: 1 })).rejects.toThrow(DESKTOP_NO_TREE);
     } finally {
       vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true to enable it.'; });
     }

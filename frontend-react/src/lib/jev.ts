@@ -650,8 +650,12 @@ interface DesktopElement { id: string; role: string; name: string; is_offscreen:
 
 /** The one refusal a person can act on; it is spoken, so it is a sentence, not a log line. */
 export const DESKTOP_CONTROL_OFF = 'Desktop control is off. Turn it on in Settings to use commands outside Cinderpaw.';
-/** On macOS and Linux keys, apps and windows work; pressing a thing by name needs the element tree, Windows only for now. */
-export const DESKTOP_WINDOWS_ONLY = 'Pressing buttons by name works on Windows only for now. Say the keys instead, like tab and enter.';
+/**
+ * An app that publishes no accessibility tree (a Qt app on Linux without the
+ * switch, a Linux session with no accessibility bus): its buttons cannot be
+ * found by name, and its keys still work.
+ */
+export const DESKTOP_NO_TREE = 'This app does not show me its buttons. Say the keys instead, like tab and enter.';
 
 /**
  * A host error, worded for the person. The host's own line names an
@@ -660,9 +664,9 @@ export const DESKTOP_WINDOWS_ONLY = 'Pressing buttons by name works on Windows o
  */
 function desktopError(e: unknown): Error {
   const msg = String(e);
-  // macOS and Linux have windows, keys and apps, not yet the element tree:
-  // the host's refusal names the tool calls, this names what to say instead.
-  if (/is Windows only for now/.test(msg)) return new Error(DESKTOP_WINDOWS_ONLY);
+  // The host's refusal names packages and environment variables; this names
+  // what to say instead.
+  if (/has not published an accessibility tree|accessibility bus \(AT-SPI\) is not available/.test(msg)) return new Error(DESKTOP_NO_TREE);
   if (/Accessibility/.test(msg) && /macOS/.test(msg)) return new Error('macOS has not allowed Cinderpaw to control the computer. Turn it on in System Settings, Privacy and Security, Accessibility.');
   if (/xdotool is not installed/.test(msg)) return new Error('Install xdotool to let me use the keyboard and windows on Linux.');
   if (msg.includes('disabled')) return new Error(DESKTOP_CONTROL_OFF);

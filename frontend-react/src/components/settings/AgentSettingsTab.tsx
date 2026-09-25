@@ -393,8 +393,8 @@ export function DesktopControlToggle() {
   const [yoloBusy, setYoloBusy] = useState(false);
   const enabled = settings?.desktop_control_enabled ?? false;
   const yolo = settings?.desktop_control_yolo ?? false;
-  // Windows has the element tree (press "Send" by name); macOS and Linux have
-  // windows, keys, typing and apps, and the row says which is which.
+  // Every system presses buttons by name now; macOS and Linux each need one
+  // thing from the person, and the row says which.
   const windows = navigator.userAgent.includes('Windows');
 
   const toggle = async () => {
@@ -435,7 +435,7 @@ export function DesktopControlToggle() {
           <p className="text-xs text-text-muted mt-0.5">
             Let the agent read and operate native apps through the OS
             accessibility tree (the <span className="font-mono">computer_use</span> tool).
-            {windows ? ' Off by default.' : ' Off by default. On this system it can switch windows, press keys, type and open apps; pressing buttons by name is Windows only for now. macOS asks for the Accessibility permission the first time; Linux needs xdotool.'}
+            {windows ? ' Off by default.' : ' Off by default. macOS asks for the Accessibility permission the first time; Linux needs xdotool for keys and windows.'}
           </p>
         </div>
         <button
