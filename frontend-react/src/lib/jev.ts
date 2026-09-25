@@ -639,6 +639,8 @@ interface DesktopElement { id: string; role: string; name: string; is_offscreen:
 
 /** The one refusal a person can act on; it is spoken, so it is a sentence, not a log line. */
 export const DESKTOP_CONTROL_OFF = 'Desktop control is off. Turn it on in Settings to use commands outside Cinderpaw.';
+/** The same refusal where there is no switch to turn on: UI Automation is Windows only. */
+export const DESKTOP_WINDOWS_ONLY = 'Commands outside Cinderpaw work on Windows only for now.';
 
 /**
  * A host error, worded for the person. The host's own line names an
@@ -647,6 +649,10 @@ export const DESKTOP_CONTROL_OFF = 'Desktop control is off. Turn it on in Settin
  */
 function desktopError(e: unknown): Error {
   const msg = String(e);
+  // Off Windows, "turn it on in Settings" sent people to a switch that
+  // cannot be turned on there, and "not implemented yet" became "That did
+  // not work".
+  if (!navigator.userAgent.includes('Windows') && /disabled|not implemented|not yet supported/i.test(msg)) return new Error(DESKTOP_WINDOWS_ONLY);
   if (msg.includes('disabled')) return new Error(DESKTOP_CONTROL_OFF);
   // A terminal or a password manager in front: the host will not touch it,
   // by design. Said so, with what to do; "That did not work" said nothing.

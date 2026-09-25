@@ -93,9 +93,16 @@ describe('executeOnDesktop with desktop control off (the default)', () => {
   });
 
   it('a refusal is a sentence for the person, never the host\'s env-var line', async () => {
-    const { executeOnDesktop, DESKTOP_CONTROL_OFF } = await import('../jev');
-    await expect(executeOnDesktop({ action: 'open_app', name: 'Spotify', path: 'C:/apps/Spotify.lnk', confidence: 1 })).rejects.toThrow(DESKTOP_CONTROL_OFF);
-    await expect(executeOnDesktop({ action: 'scroll', dy: 700, confidence: 1 })).rejects.toThrow(DESKTOP_CONTROL_OFF);
+    // On Windows, where the switch exists (jsdom's own agent is not Windows).
+    const real = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' });
+    try {
+      const { executeOnDesktop, DESKTOP_CONTROL_OFF } = await import('../jev');
+      await expect(executeOnDesktop({ action: 'open_app', name: 'Spotify', path: 'C:/apps/Spotify.lnk', confidence: 1 })).rejects.toThrow(DESKTOP_CONTROL_OFF);
+      await expect(executeOnDesktop({ action: 'scroll', dy: 700, confidence: 1 })).rejects.toThrow(DESKTOP_CONTROL_OFF);
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => real });
+    }
   });
 });
 
@@ -202,6 +209,19 @@ describe('scrolling on the desktop', () => {
       expect(sent).toEqual([{ elementId: '42:1', keys: '{pagedown}' }]);
     } finally {
       vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true to enable it.'; });
+    }
+  });
+});
+
+describe('desktop commands where desktop control does not exist', () => {
+  it('say Windows only, not "turn it on in Settings"', async () => {
+    const real = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)' });
+    try {
+      const { executeOnDesktop, DESKTOP_WINDOWS_ONLY } = await import('../jev');
+      await expect(executeOnDesktop({ action: 'scroll', dy: 700, confidence: 1 })).rejects.toThrow(DESKTOP_WINDOWS_ONLY);
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => real });
     }
   });
 });
