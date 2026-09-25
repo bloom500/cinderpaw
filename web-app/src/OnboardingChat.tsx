@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { answerAsk, finishToolIn, saveSecret, stopChat, streamChat, whatsappQr, type SecretAsk } from "./chatStream";
 import { COPY } from "./copy";
+import { Reply } from "./Reply";
 import {
   commonFirst, fetchApi, firstOffers, load, manualCandidate, save, tryCandidate, tryKey,
   type Candidate, type KeyResult, type Provider, type Step,
@@ -274,7 +275,12 @@ export function OnboardingChat() {
               </p>
             ))}
             {l.waiting && <p className="tool">⏳ {l.waiting}</p>}
-            {(l.text || !l.tools) && <p className="text">{l.text || "…"}</p>}
+            {(l.text || !l.tools) &&
+              (l.who === "agent" && l.text ? (
+                <Reply text={l.text} />
+              ) : (
+                <p className="text">{l.text || "…"}</p>
+              ))}
             {l.link && (
               <a className="button" href={l.link.href} target="_blank" rel="noopener noreferrer">
                 {l.link.label}
