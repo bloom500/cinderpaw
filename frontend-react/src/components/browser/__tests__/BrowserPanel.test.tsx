@@ -151,6 +151,17 @@ describe('toAddress', () => {
     expect(toAddress('formular rev 3', 'brave')).toBe('https://search.brave.com/search?q=formular%20rev%203');
     expect(toAddress('cum fac o cerere', 'nope')).toBe('https://duckduckgo.com/?q=cum%20fac%20o%20cerere');
   });
+
+  it('opens a local server instead of searching for it, and searches what only looks like a scheme', () => {
+    expect(toAddress('localhost:3000', 'duckduckgo')).toBe('http://localhost:3000');
+    expect(toAddress('localhost:5173/app', 'duckduckgo')).toBe('http://localhost:5173/app');
+    expect(toAddress('127.0.0.1:8080', 'duckduckgo')).toBe('http://127.0.0.1:8080');
+    expect(toAddress('example.com:8443/x', 'duckduckgo')).toBe('https://example.com:8443/x');
+    expect(toAddress('Re: meeting notes', 'brave')).toBe('https://search.brave.com/search?q=Re%3A%20meeting%20notes');
+    expect(toAddress('about:blank', 'duckduckgo')).toBe('about:blank');
+    // Refused by the host, not quietly searched.
+    expect(toAddress('javascript:alert(1)', 'duckduckgo')).toBe('javascript:alert(1)');
+  });
 });
 
 describe('the promise on the start page', () => {

@@ -34,11 +34,25 @@ export const SEARCH_ENGINES: Record<string, { label: string; url: string }> = {
 };
 const ENGINE_KEY = 'cinderpaw.browserSearchEngine';
 
-/** An address as typed: a URL, a bare domain, or words for the search engine. */
+/**
+ * Schemes that name themselves without "//". Passed through so the host can
+ * refuse the ones it does not open (javascript:, file:) instead of searching.
+ */
+const BARE_SCHEMES = /^(about|data|blob|file|mailto|tel|javascript|view-source):/i;
+
+/**
+ * An address as typed: a URL, a bare domain, or words for the search engine.
+ *
+ * Any "word:" at the start used to count as a scheme, so "localhost:3000"
+ * went through raw and the host searched DuckDuckGo for it, and "Re: meeting"
+ * was refused as a "re:" link. A local server is plain http, like every
+ * browser assumes for it.
+ */
 export function toAddress(text: string, engine: string): string {
   const t = text.trim();
-  if (/^[a-z][a-z0-9+.-]*:/i.test(t)) return t;
-  if (/^[^\s]+\.[^\s]+$/.test(t) || /^localhost(:\d+)?(\/|$)/.test(t)) return `https://${t.replace(/^https?:\/\//, '')}`;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t) || BARE_SCHEMES.test(t)) return t;
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(t)) return `http://${t}`;
+  if (/^[^\s]+\.[^\s]+$/.test(t)) return `https://${t}`;
   return `${(SEARCH_ENGINES[engine] ?? SEARCH_ENGINES.duckduckgo!).url}${encodeURIComponent(t)}`;
 }
 
