@@ -2301,6 +2301,15 @@ function DesktopControlRow() {
   useEffect(() => { if (!settings) void fetchSettings(); }, [settings, fetchSettings]);
   const enabled = settings?.desktop_control_enabled ?? false;
   if (enabled) return null;
+  // UI Automation is Windows only: elsewhere the button turned on a switch
+  // that every desktop command then failed behind.
+  if (!navigator.userAgent.includes('Windows')) {
+    return (
+      <SettingRow label="Computer">
+        <span className="text-micro text-text-muted">Jev works inside Cinderpaw here. Opening apps and clicking in your other windows is Windows only for now.</span>
+      </SettingRow>
+    );
+  }
   return (
     <SettingRow label="Computer">
       <div className="flex flex-col items-end gap-1">

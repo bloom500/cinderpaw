@@ -385,7 +385,7 @@ function TokenBudgetToggle() {
  * backend, which persists the choice and restarts the sidecar so the tool
  * (de)registers — the agent will only "find" computer_use while this is ON.
  */
-function DesktopControlToggle() {
+export function DesktopControlToggle() {
   const settings = useSettings((s) => s.settings);
   const setDesktopControl = useSettings((s) => s.setDesktopControl);
   const setDesktopControlYolo = useSettings((s) => s.setDesktopControlYolo);
@@ -393,6 +393,11 @@ function DesktopControlToggle() {
   const [yoloBusy, setYoloBusy] = useState(false);
   const enabled = settings?.desktop_control_enabled ?? false;
   const yolo = settings?.desktop_control_yolo ?? false;
+  // The host reads other apps through UI Automation, which is Windows only;
+  // on macOS and Linux every action answers "not implemented". The switch
+  // said none of that, so turning it on looked like a broken feature. It can
+  // still be turned off, should it be on from an earlier build.
+  const supported = navigator.userAgent.includes('Windows');
 
   const toggle = async () => {
     if (busy || !settings) return;
@@ -432,7 +437,7 @@ function DesktopControlToggle() {
           <p className="text-xs text-text-muted mt-0.5">
             Let the agent read and operate native apps through the OS
             accessibility tree (the <span className="font-mono">computer_use</span> tool).
-            Off by default.
+            {supported ? ' Off by default.' : ' Windows only for now: on this system the agent cannot see or operate other apps yet.'}
           </p>
         </div>
         <button
@@ -440,7 +445,7 @@ function DesktopControlToggle() {
           role="switch"
           aria-checked={enabled}
           aria-label="Enable desktop control"
-          disabled={busy || !settings}
+          disabled={busy || !settings || (!supported && !enabled)}
           onClick={() => void toggle()}
           className={cn(
             'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden disabled:opacity-50',
