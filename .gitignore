@@ -138,6 +138,7 @@ vendor/
 # with nothing pointing at .gitignore. Each vendored source dir is re-included
 # by name, so adding one stays a decision someone made on purpose.
 !CinderpawAgent/src/vendor/
+!src-tauri/vendor/
 !CinderpawAgent/src/artifacts/vendor/
 
 # Python bytecode from the tau2 harness.

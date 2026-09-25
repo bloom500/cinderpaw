@@ -122,7 +122,8 @@ mod command_count_test {
     // 183 -> 184 = + openrouter_sign_in (one-button OAuth instead of a pasted key).
     // 184 -> 186 = + set_window_solid (glass or solid background), cinderpaw_memory_forget.
     // 186 -> 187 = + take_launch_files (Explorer's Send to > Cinderpaw).
-    const EXPECTED_COMMAND_COUNT: usize = 187;
+    // 187 -> 189 = + downloads_card_open/close (the browser's floating downloads card).
+    const EXPECTED_COMMAND_COUNT: usize = 189;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts
