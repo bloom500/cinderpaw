@@ -20,8 +20,14 @@ const lazyPage = (page: React.ReactNode) => <Suspense fallback={null}>{page}</Su
  * does not wait for its chunk. The split still keeps them out of first paint;
  * this only moves the load from "when clicked" to "when nothing else is
  * happening". Browsers without requestIdleCallback get a short timeout.
+ *
+ * Not under vitest: jsdom has no requestIdleCallback, so every test file that
+ * reached this module (ChatInput through the model picker) fired four page
+ * imports two seconds in, and on a slow runner that landed after the test had
+ * torn its environment down: "Cannot load GeneralTab.tsx after the environment
+ * was torn down", the ubuntu frontend job red since 21 Sep.
  */
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && import.meta.env.MODE !== 'test') {
   const warm = () => {
     void import('@/pages/SettingsPage');
     void import('@/pages/ChatsPage');
