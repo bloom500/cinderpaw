@@ -145,7 +145,7 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
   open: async (address) => {
     const text = address.trim();
     if (!text) return;
-    set({ error: null, loading: true, panelOpen: true });
+    set({ error: null, notice: null, loading: true, panelOpen: true });
     try {
       const res = await tauri.browser.ui('open', { url: toAddress(text, get().engine) });
       const url = typeof res.url === 'string' ? res.url : text;
@@ -206,9 +206,19 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
 // Module-level, like the download store: the host can report a page before the
 // panel has ever been mounted. A failed listen (tests, a plain browser) is not
 // an error worth surfacing.
-void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e) => {
-  useBrowser.setState(fromState(e.payload));
-}).catch(() => {});
+/**
+ * What the host says the tabs are now. Another page in front (a link
+ * followed, a tab switched) clears what was said about the last one: nothing
+ * else cleared the notice, so "No article on this page to read." sat under
+ * the toolbar for the rest of the session, over every page.
+ */
+export function applyHostState(st: { active: number | null; tabs: BrowserTab[] }): void {
+  const next = fromState(st);
+  const now = useBrowser.getState();
+  const moved = next.url !== now.url || next.active !== now.active;
+  useBrowser.setState(moved ? { ...next, error: null, notice: null } : next);
+}
+void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e) => applyHostState(e.payload)).catch(() => {});
 // A download. A PDF or Word file goes to Artifacts, and `artifact: true`
 // arrives once the agent has CONFIRMED it is there; anything else, and a
 // document the agent refused (`reason`), is a file the person is asked where

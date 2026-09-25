@@ -32,7 +32,7 @@ vi.mock('@/lib/tauri', async (orig) => {
 
 import { BrowserPanel } from '../BrowserPanel';
 import { toAddress } from '@/stores/browser';
-import { useBrowser } from '@/stores/browser';
+import { applyHostState, useBrowser } from '@/stores/browser';
 import { tauri } from '@/lib/tauri';
 
 const ui = tauri.browser.ui as unknown as ReturnType<typeof vi.fn>;
@@ -141,6 +141,23 @@ describe('wide mode', () => {
     expect(screen.getByText('the conversation')).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Back to split view'));
     expect(useBrowser.getState().wide).toBe(false);
+  });
+});
+
+describe('what the panel says about a page', () => {
+  it('goes when another page is in front, and stays while the same one is', () => {
+    useBrowser.setState({ active: 1, url: 'https://example.ro/a', notice: 'No article on this page to read.', error: null });
+    applyHostState({ active: 1, tabs: [{ id: 1, title: 'A', url: 'https://example.ro/a', loading: false, canBack: false, canForward: false, blocked: 0 }] });
+    expect(useBrowser.getState().notice).toBe('No article on this page to read.');
+    applyHostState({ active: 1, tabs: [{ id: 1, title: 'B', url: 'https://example.ro/b', loading: true, canBack: true, canForward: false, blocked: 0 }] });
+    expect(useBrowser.getState().notice).toBeNull();
+    expect(useBrowser.getState().url).toBe('https://example.ro/b');
+  });
+
+  it('a failed back is forgotten once a link on the page is followed', () => {
+    useBrowser.setState({ active: 1, url: 'https://example.ro/a', error: 'browser: nothing to go back to', notice: null });
+    applyHostState({ active: 1, tabs: [{ id: 1, title: 'C', url: 'https://example.ro/c', loading: true, canBack: true, canForward: false, blocked: 0 }] });
+    expect(useBrowser.getState().error).toBeNull();
   });
 });
 
