@@ -383,6 +383,15 @@ pub fn uninstall(purge: bool, yes: bool) -> i32 {
     if strip_path_line() {
         println!("  {OK}removed{RESET} {DIM}{META}the PATH line from ~/.bashrc{RESET}");
     }
+    // The agent's working folder holds what it made for the person: never
+    // deleted, and not left behind empty either (seen 26 Sep: an empty
+    // ~/Cinderpaw after --purge). remove_dir only takes an empty folder.
+    let docs = cinderpaw_core::cinderpaw_agent::agent_documents_path();
+    if std::fs::remove_dir(&docs).is_ok() {
+        println!("  {OK}removed{RESET} {DIM}{META}{} (it was empty){RESET}", show(&docs));
+    } else if docs.exists() {
+        println!("\n  {OK}kept{RESET} {TEXT}{}{RESET} — the files Cinderpaw made for you.", show(&docs));
+    }
 
     if !manual.is_empty() {
         println!("\n  {WARN}still to run yourself:{RESET}");

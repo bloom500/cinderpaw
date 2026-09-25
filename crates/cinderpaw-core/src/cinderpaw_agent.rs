@@ -1179,12 +1179,17 @@ fn refresh_spawn_binary(extra_bin_dirs: &[PathBuf], repo_root: &str) -> Result<(
 /// `~/Documents/Cinderpaw` (or `~/Cinderpaw` where there is no Documents),
 /// created on first use: the agent's working folder when the desktop app runs it.
 pub fn agent_documents_dir() -> std::path::PathBuf {
-    let base = dirs::document_dir()
-        .or_else(dirs::home_dir)
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let dir = base.join("Cinderpaw");
+    let dir = agent_documents_path();
     let _ = std::fs::create_dir_all(&dir);
     dir
+}
+
+/// Where `agent_documents_dir` lives, without creating it (uninstall asks).
+pub fn agent_documents_path() -> std::path::PathBuf {
+    dirs::document_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("Cinderpaw")
 }
 
 /// Reverse-apply a patch from the real source repo — the Rust mirror of the
