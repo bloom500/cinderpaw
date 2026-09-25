@@ -15,7 +15,7 @@
 
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readFile, writeFile, unlink } from "node:fs/promises";
+import { readFile, writeFile, unlink, rm } from "node:fs/promises";
 // Sync twins, deliberately: `isLinked` is called from `start()` before anything
 // is awaited, and from a static context that has no async seam to hide a read in.
 import { existsSync, readFileSync } from "node:fs";
@@ -1262,6 +1262,12 @@ export class WhatsAppConnector {
   #stopped = false;
   /** Closes in a row without the connection ever opening. */
   #closes = 0;
+  /** The socket is connected to WhatsApp right now (unlink needs that). */
+  #open = false;
+  /** Replies sent into the owner's own chat, so they are never read as the owner. */
+  readonly #sent = new Set<string>();
+  /** Dead keys being deleted; a new pairing waits for it. */
+  #forgetting: Promise<void> = Promise.resolve();
 
   constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void }) {
     const allow = opts.allowlist.map(digits).filter(Boolean);
@@ -1323,15 +1329,17 @@ export class WhatsAppConnector {
    * Is there a phone already linked to this install?
    *
    * Baileys writes `creds.json` as soon as a socket opens, so its mere presence
-   * proves nothing — `registered` is the flag that flips only once a phone has
-   * actually scanned the code. Treating file-exists as linked would put a
-   * half-finished pairing straight back into the loop this guard exists to stop.
+   * proves nothing. A QR scan writes `me` + `account` (pair-success); only the
+   * phone-number code flow sets `registered`. Reading `registered` alone called
+   * every QR-linked phone unlinked: WhatsApp stayed idle after each restart and
+   * "unlink" never told the phone (seen live 26 Sep).
    */
   static isLinked(): boolean {
     try {
       const creds = join(cinderpawHome(), "whatsapp-auth", "creds.json");
       if (!existsSync(creds)) return false;
-      return JSON.parse(readFileSync(creds, "utf8")).registered === true;
+      const c = JSON.parse(readFileSync(creds, "utf8"));
+      return c.registered === true || (!!c.me?.id && !!c.account);
     } catch {
       // Unreadable or malformed credentials are not a link.
       return false;
@@ -1399,6 +1407,10 @@ export class WhatsAppConnector {
     // Already connecting or connected: a second socket on the same account
     // would fight the first. Turning it on and asking to pair can both land here.
     if (this.#sock) return;
+    // A pairing starts from clean keys. Unregistered ones are a dead link or an
+    // abandoned pairing, and WhatsApp answers them with 401 instead of a QR
+    // (seen live 26 Sep after the phone removed this computer).
+    if (!WhatsAppConnector.isLinked()) this.#forgetting = WhatsAppConnector.forget();
     await this.start({ pair: true });
   }
 
@@ -1407,6 +1419,7 @@ export class WhatsAppConnector {
     this.#wa = wa;
     const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = wa;
     const authDir = join(cinderpawHome(), "whatsapp-auth");
+    await this.#forgetting;
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     // WhatsApp refuses a protocol version it considers too old with 405, and
     // the one built into the library ages out. Seen live 25 Sep: every
@@ -1434,17 +1447,23 @@ export class WhatsAppConnector {
         });
       }
       if (connection === "open") {
+        this.#open = true;
         this.#closes = 0;
         this.#log("whatsapp connector online (linked)");
         void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
       }
       if (connection === "close") {
+        this.#open = false;
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
         if (this.#stopped) return;
         if (loggedOut) {
-          this.#log("whatsapp: logged out — toggle the connector off and on to re-link.");
-          void unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
+          // The phone (or WhatsApp) removed this computer. Those keys never
+          // connect again, and a socket left set made pair() return early: the
+          // next "connect me" showed no QR at all (seen live 26 Sep).
+          this.#sock = null;
+          this.#forgetting = WhatsAppConnector.forget();
+          this.#log("whatsapp: the phone unlinked this computer. Turn WhatsApp on again to link it with a new code.");
         } else if (++this.#closes >= 5) {
           // Retrying forever hammered WhatsApp's servers and filled the log
           // while every surface still waited for a QR (seen live 25 Sep, 405).
@@ -1472,8 +1491,61 @@ export class WhatsAppConnector {
     });
   }
 
+  /**
+   * Unlink the phone for real. Stopping only closes the socket: the phone keeps
+   * listing this computer under Linked devices and the keys stay on disk
+   * (seen live 26 Sep: "deconectat cu succes" after a plain enabled:false).
+   * Logging out makes WhatsApp drop the device; then the keys go. Returns
+   * false when WhatsApp could not be reached, so the person is told to
+   * finish on the phone.
+   */
+  async unlink(): Promise<boolean> {
+    if (!this.#sock && WhatsAppConnector.isLinked()) await this.#connect().catch(() => {});
+    for (let i = 0; i < 40 && this.#sock && !this.#open; i++) await new Promise((r) => setTimeout(r, 500));
+    // Before logout, so the close it causes neither reconnects nor logs "toggle it".
+    this.#stopped = true;
+    const sock = this.#sock;
+    const cleared = this.#open && sock ? await WhatsAppConnector.#removeThisDevice(sock, this.#log) : false;
+    await this.stop();
+    await WhatsAppConnector.forget();
+    return cleared;
+  }
+
+  /**
+   * Ask WhatsApp to drop this computer from the phone's Linked devices, and
+   * wait for its answer. Baileys' logout() sends the same request but closes
+   * the socket in the same tick: the phone kept listing us after a
+   * "successful" logout (seen live 26 Sep).
+   */
+  static async #removeThisDevice(sock: WASocket, log: Log): Promise<boolean> {
+    const jid = sock.authState.creds.me?.id;
+    if (!jid) return false;
+    try {
+      await sock.query(
+        {
+          tag: "iq",
+          attrs: { to: "s.whatsapp.net", type: "set", xmlns: "md" },
+          content: [{ tag: "remove-companion-device", attrs: { jid, reason: "user_initiated" } }],
+        },
+        15_000,
+      );
+      log("whatsapp: the phone was told to remove this computer");
+      return true;
+    } catch (e) {
+      log(`whatsapp: WhatsApp did not confirm removing this computer: ${String(e).slice(0, 200)}`);
+      return false;
+    }
+  }
+
+  /** Delete the link keys and any pending QR. */
+  static async forget(): Promise<void> {
+    await rm(join(cinderpawHome(), "whatsapp-auth"), { recursive: true, force: true });
+    await unlink(join(cinderpawHome(), "whatsapp-qr.json")).catch(() => {});
+  }
+
   async stop(): Promise<void> {
     this.#stopped = true;
+    this.#open = false;
     this.#ask?.unregisterSender("whatsapp");
     try {
       this.#sock?.end(undefined);
@@ -1489,7 +1561,11 @@ export class WhatsAppConnector {
     const jid = msg.key.remoteJid ?? "";
     const isGroup = jid.endsWith("@g.us");
     const isPrivate = jid.endsWith("@s.whatsapp.net");
-    if (!isPrivate && !isGroup) return; // skip status/broadcast
+    // "Message yourself": newer WhatsApp addresses it by LID, not by number.
+    const self = this.#sock?.user;
+    const isSelfChat =
+      !!self && (jid === `${self.id.split(/[:@]/)[0]}@s.whatsapp.net` || (!!self.lid && jid === `${self.lid.split(/[:@]/)[0]}@lid`));
+    if (!isPrivate && !isGroup && !isSelfChat) return; // skip status/broadcast
 
     const m = msg.message;
     const doc = m.documentMessage ?? m.documentWithCaptionMessage?.message?.documentMessage;
@@ -1501,7 +1577,12 @@ export class WhatsAppConnector {
     // letting the owner pause/resume the assistant per conversation. We match
     // only literal command strings the bot itself never sends, so the bot's own
     // outgoing echoes can never trigger this.
-    if (msg.key.fromMe) {
+    //
+    // The exception is the owner's chat with themselves: writing to yourself is
+    // what a person does to talk to their own agent (seen live 26 Sep: "Esti
+    // aici cu mine?" went unanswered). Our own replies there are skipped by id.
+    const ownerToSelf = msg.key.fromMe && isSelfChat && !this.#sent.delete(msg.key.id ?? "");
+    if (msg.key.fromMe && !ownerToSelf) {
       this.#handleOwnerCommand(jid, text, msg);
       return;
     }
@@ -1518,9 +1599,9 @@ export class WhatsAppConnector {
     // Public ("business") mode: anyone messaging us privately (or in a
     // dedicated group) is answered, but a non-owner runs under the restricted
     // public persona profile, while an allowlisted owner keeps the full agent.
-    this.#onSender?.(senderNum, msg.pushName || senderNum);
+    if (!ownerToSelf) this.#onSender?.(senderNum, msg.pushName || senderNum);
     const isPublic = this.#mode === "public";
-    const isOwner = this.#allow.has(senderNum);
+    const isOwner = ownerToSelf || this.#allow.has(senderNum);
     if (!isPublic && !isOwner) {
       this.#log(`whatsapp: ignored message from non-allowlisted ${senderNum}`);
       return;
@@ -1594,7 +1675,8 @@ export class WhatsAppConnector {
       const { reply } = await runAgent(this.#agent, sessionId, prompt, `wa-${msg.key.id}`, undefined, images);
       const parts = formatForChat(reply, WHATSAPP_MAX);
       for (const part of parts) {
-        await sock.sendMessage(jid, { text: part });
+        const sent = await sock.sendMessage(jid, { text: part });
+        if (ownerToSelf && sent?.key.id) this.#sent.add(sent.key.id);
       }
       void sock.sendMessage(jid, { react: { text: "✅", key: msg.key } }).catch(() => {});
     } catch (e) {
@@ -1811,6 +1893,7 @@ registerTransport("whatsapp", (): LiveConnector => {
     pair: async () => {
       await inner?.pair();
     },
+    unlink: async () => (inner ? inner.unlink() : false),
   } as LiveConnector;
 });
 
@@ -2204,6 +2287,21 @@ export class ConnectorManager {
     await wa.pair();
     this.#health.set("whatsapp", wa.health());
     return true;
+  }
+
+  /**
+   * Take the phone off this install. A WhatsApp that is turned off has no
+   * socket, so a short-lived one logs out for it: "off" must not leave the
+   * phone linked. True when nothing stays linked on the phone.
+   */
+  async unlinkWhatsApp(): Promise<boolean> {
+    const live = this.#live.get("whatsapp") as (LiveConnector & { unlink?: () => Promise<boolean> }) | undefined;
+    if (live?.unlink && WhatsAppConnector.isLinked()) return live.unlink();
+    if (!WhatsAppConnector.isLinked()) {
+      await WhatsAppConnector.forget();
+      return true;
+    }
+    return new WhatsAppConnector({ allowlist: [], channels: [], agent: this.#agent, log: this.#log }).unlink();
   }
 
   async stopAll(): Promise<void> {

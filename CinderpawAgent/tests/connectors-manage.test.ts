@@ -320,3 +320,25 @@ test("'Not now', a failed download, or a chat that cannot ask: nothing is saved"
     expect(JSON.parse(readFileSync(file, "utf8")).connectors).toEqual([]);
   }
 });
+
+test("unlink takes the phone off and turns WhatsApp off; a pause says it is still linked", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [{ id: "whatsapp", enabled: true }] }), "utf8");
+  for (const cleared of [true, false]) {
+    let unlinks = 0;
+    const tool = createConnectorsManageTool(
+      { reload: async () => {}, unlinkWhatsApp: async () => (++unlinks, cleared) },
+      { isLinked: () => true, hasWhatsApp: () => true },
+    );
+    const res = await tool.execute({ action: "unlink", id: "whatsapp" }, ctx);
+    expect(unlinks).toBe(1);
+    expect(res.content).toContain(cleared ? "is unlinked" : "Log out");
+    expect(JSON.parse(readFileSync(file, "utf8")).connectors[0].enabled).toBe(false);
+  }
+
+  const paused = createConnectorsManageTool({ reload: async () => {} }, { isLinked: () => true, hasWhatsApp: () => true });
+  const res = await paused.execute({ action: "configure", id: "whatsapp", enabled: false }, ctx);
+  expect(res.content).toContain("PAUSED, not unlinked");
+
+  const discord = await paused.execute({ action: "unlink", id: "discord" }, ctx);
+  expect(discord.ok).toBe(false);
+});

@@ -447,7 +447,7 @@ export async function secretPresent(connector: string, field: string): Promise<b
 }
 
 export function createConnectorsManageTool(
-  manager: { reload(): Promise<void>; hasHostSecret?(id: string, key: string): boolean; pairWhatsApp?(): Promise<boolean> },
+  manager: { reload(): Promise<void>; hasHostSecret?(id: string, key: string): boolean; pairWhatsApp?(): Promise<boolean>; unlinkWhatsApp?(): Promise<boolean> },
   deps: { isLinked?: () => boolean; hasWhatsApp?: () => boolean; installWhatsApp?: () => Promise<void> } = {},
 ): Tool {
   if (manager.hasHostSecret) hostHas = (id, key) => manager.hasHostSecret!(id, key);
@@ -462,7 +462,8 @@ export function createConnectorsManageTool(
       "bot: if the user asks you to set up a different bot, this tool changes " +
       "you instead, and the usual result is that you go silent. Use action " +
       "'list' to see what's supported and what each needs; 'configure' with an " +
-      "id (and secrets/allowlist if required) to connect or disconnect. Changes " +
+      "id (and secrets/allowlist if required) to connect or pause; 'unlink' with id " +
+      "whatsapp when the person wants their phone disconnected. Changes " +
       "apply immediately. Secrets are stored, never echoed. " +
       "When a user asks how to connect you to something, call 'list' FIRST and " +
       "walk them through the returned 'steps' verbatim, except that wherever a step says to paste or send a secret you call request_secret first (it shows a secure field when the chat can) and only fall back to the paste if it returns unsupported_surface — they are checked " +
@@ -480,7 +481,7 @@ export function createConnectorsManageTool(
     parameters: {
       action: {
         type: "string",
-        description: "'list' or 'configure'.",
+        description: "'list', 'configure', or 'unlink' (WhatsApp only: takes this computer off the phone's Linked devices and deletes the link).",
         required: true,
       },
       id: {
@@ -532,8 +533,8 @@ export function createConnectorsManageTool(
         };
       }
 
-      if (action !== "configure") {
-        return { ok: false, content: "action must be 'list' or 'configure'.", error: "bad_args" };
+      if (action !== "configure" && action !== "unlink") {
+        return { ok: false, content: "action must be 'list', 'configure' or 'unlink'.", error: "bad_args" };
       }
       const id = typeof args.id === "string" ? args.id.trim().toLowerCase() : "";
       if (!CATALOG[id]) {
@@ -541,6 +542,29 @@ export function createConnectorsManageTool(
           ok: false,
           content: `unknown connector "${id}" — supported: ${Object.keys(CATALOG).join(", ")}`,
           error: "bad_args",
+        };
+      }
+
+      if (action === "unlink") {
+        if (id !== "whatsapp") {
+          return {
+            ok: false,
+            content: `Only WhatsApp is linked to a phone. To stop ${id}, use configure with enabled:false.`,
+            error: "bad_args",
+          };
+        }
+        const cleared = (await manager.unlinkWhatsApp?.()) ?? false;
+        const rows = await readRows();
+        const row: ConnectorRow = rows.find((r) => r.id === id) ?? { id };
+        row.enabled = false;
+        await writeRows([...rows.filter((r) => r.id !== id), row]);
+        await manager.reload();
+        return {
+          ok: true,
+          content: cleared
+            ? "WhatsApp is unlinked: the phone no longer lists this computer under Linked devices, and the link is deleted here. Tell the person it is done."
+            : "WhatsApp is off and the link is deleted from this computer, but WhatsApp could not be reached to take this device off the phone. " +
+              "Tell the person to finish on the phone: WhatsApp, Settings, Linked devices, tap this computer, Log out.",
         };
       }
 
@@ -667,7 +691,10 @@ export function createConnectorsManageTool(
                     `every message, including theirs.`)
               : id === "whatsapp" && row.enabled
                 ? " WhatsApp pairs via QR — tell the user to scan the code in the Cinderpaw app (Connectors page or TUI)."
-                : "";
+                : id === "whatsapp" && isLinked()
+                  ? " WhatsApp is PAUSED, not unlinked: the phone still lists this computer under Linked devices. " +
+                    "Do not say it is disconnected. If the person wanted it disconnected, call action 'unlink' with id whatsapp."
+                  : "";
       return {
         ok: true,
         content: `Saved and reloaded.${hint}\n${JSON.stringify(state, null, 2)}`,
