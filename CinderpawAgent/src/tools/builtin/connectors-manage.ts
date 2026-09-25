@@ -47,6 +47,9 @@ interface CatalogEntry {
   note: string;
   consoleUrl?: string;
   steps?: string[];
+  /** Needs a public web address pointing at this machine (a tunnel or a
+   *  server): the platform calls us, and a home computer has no such address. */
+  advanced?: true;
 }
 
 /** Exported for `tests/connector-catalog-transports.test.ts`: what the agent
@@ -57,13 +60,15 @@ export const CATALOG: Record<string, CatalogEntry> = {
     note: "Bot token from the Discord Developer Portal (Bot → Reset Token). The bot must be invited to the server with the Message Content intent enabled.",
     consoleUrl: "https://discord.com/developers/applications",
     steps: [
-      "Open https://discord.com/developers/applications and sign in with your Discord account.",
-      "Click 'New Application', give it a name (this is what the bot will be called), and accept the terms.",
-      "Open the 'Bot' tab in the left sidebar.",
-      "Under 'Privileged Gateway Intents', turn ON 'Message Content Intent' and save. Without it the bot can see that messages exist but not what they say.",
-      "Click 'Reset Token', confirm, then 'Copy'. Discord shows this token exactly once — if you navigate away you have to reset it again.",
+      "Open https://discord.com/developers/applications and sign in.",
+      "Click New Application. Type a name for your bot. Tick the box and click Create.",
+      "On the left, click Bot.",
+      "Find Message Content Intent and turn it on. Click Save. Without it, I can't read what you write.",
+      "Click Reset Token, then Yes, then Copy. Discord shows it just once.",
       "Paste the token in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
-      "Then open 'OAuth2' → 'URL Generator', tick 'bot', tick the 'Send Messages' and 'Read Message History' permissions, open the generated URL, and pick your server.",
+      "Now bring the bot to your server. On the left, click OAuth2. Scroll to the URL Generator. Tick bot. Then tick Send Messages and Read Message History.",
+      "Open the link at the bottom. Pick your server and click the button to add it.",
+      "Last, send your bot a message. I will ask you: is that you?",
     ],
   },
   slack: {
@@ -71,22 +76,23 @@ export const CATALOG: Record<string, CatalogEntry> = {
     note: "Socket-mode app token (xapp-…) + bot token (xoxb-…) from api.slack.com/apps.",
     consoleUrl: "https://api.slack.com/apps",
     steps: [
-      "Open https://api.slack.com/apps and click 'Create New App' → 'From scratch'. Name it and pick your workspace.",
-      "Open 'Socket Mode' and turn it on. Slack asks for a token name; any name works. Copy the app-level token it gives you — it starts with 'xapp-'.",
-      "Open 'OAuth & Permissions' → 'Bot Token Scopes' and add: chat:write, im:history, app_mentions:read.",
-      "Scroll up on the same page and click 'Install to Workspace', then approve.",
-      "Copy the 'Bot User OAuth Token' — it starts with 'xoxb-'.",
+      "Open https://api.slack.com/apps. Click Create New App, then From scratch. Give it a name and pick your team.",
+      "On the left, click Socket Mode and turn it on. Give the token any name. Copy the token. It starts with xapp.",
+      "On the left, click OAuth & Permissions. Find Bot Token Scopes. Add these three: chat:write, im:history and app_mentions:read.",
+      "Go to the top of that page. Click Install, then Allow.",
+      "Copy the Bot User OAuth Token. It starts with xoxb.",
       "Paste both tokens in this chat. I keep them in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
+      "Last, send your bot a message. I will ask you: is that you?",
     ],
   },
   whatsapp: {
     secrets: [],
     note: "No secrets — pairing is QR-based. Enable it, then the user scans the QR code shown in the Cinderpaw app (Connectors page or TUI).",
     steps: [
-      "There is nothing to copy and no token to fetch — WhatsApp pairs by QR code.",
-      "Say the word and I'll turn it on. The first time, I ask to download WhatsApp support.",
-      "A square code then shows up right here, under our chat (in the desktop app: the Connectors page; in the terminal chat: /connectors qr).",
-      "On your phone, open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the square.",
+      "WhatsApp needs no token. You link it with your phone.",
+      "Say the word and I will turn it on. The first time, I ask to download what WhatsApp needs.",
+      "A square code then shows up right here, under our chat. In the desktop app it is on the Connectors page. In the terminal chat, type /connectors qr.",
+      "On your phone, open WhatsApp. Tap Settings, then Linked devices, then Link a device. Point the camera at the square.",
     ],
   },
   // Every other transport the sidecar can run. Without an entry the agent
@@ -98,11 +104,12 @@ export const CATALOG: Record<string, CatalogEntry> = {
     note: "Bot token from @BotFather. Allowlist holds numeric Telegram user ids; a group is answered only when its chat id is in channels.",
     consoleUrl: "https://t.me/BotFather",
     steps: [
-      "Open https://t.me/BotFather in Telegram and press Start.",
-      "Send /newbot, then a display name, then a username ending in 'bot'.",
-      "BotFather replies with a token like 123456:ABC-... Copy it. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
-      "Your own numeric user id goes in the allowlist: message @userinfobot in Telegram and it replies with it.",
-      "For a group, add the bot to the group and send me the group's chat id for channels; in a private chat nothing else is needed.",
+      "Open https://t.me/BotFather in Telegram and tap Start.",
+      "Send /newbot. Then send a name for your bot. Then send a short name that ends in bot.",
+      "BotFather sends you a token. It looks like 123456:ABC. Copy it.",
+      "Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
+      "Last, send your bot a message. I will ask you: is that you?",
+      "Want me in a group too? Add the bot to the group, then ask me.",
     ],
   },
   matrix: {
@@ -110,11 +117,11 @@ export const CATALOG: Record<string, CatalogEntry> = {
     note: "Homeserver URL and the bot account's access token. Allowlist holds full user ids like @name:matrix.org.",
     consoleUrl: "https://app.element.io",
     steps: [
-      "Make a separate Matrix account for me (not your own), for example at https://app.element.io.",
-      "Signed in as that account in Element: Settings, Help & About, Advanced, Access Token. Copy it.",
-      "The homeserver is the address the account lives on, e.g. https://matrix.org.",
+      "Make a new Matrix account just for me, not your own. You can make one at https://app.element.io.",
+      "Sign in to Element as that new account. Open Settings, then Help & About, then Advanced. Copy the Access Token.",
+      "Your home server is the web address your account lives on, like https://matrix.org.",
       "Send me both. Paste it in this chat. I keep it in a private file on this computer and out of my memory, but the AI service I use sees that one message. In the Cinderpaw page I give you a secure box instead.",
-      "Your own full id (@you:server) goes in the allowlist; invite my account to the rooms you want me in.",
+      "Last, invite my account to a room and send me a message there. I will ask you: is that you?",
     ],
   },
   mattermost: {
@@ -251,6 +258,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
   // address the platform must reach, because without one they connect and
   // stay silent, which reads as broken rather than as unconfigured.
   line: {
+    advanced: true,
     secrets: ["LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET"],
     note: "Channel access token and channel secret of a Messaging API channel. Inbound arrives on the webhook path /connectors/line.",
     consoleUrl: "https://developers.line.biz/console/",
@@ -263,6 +271,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     ],
   },
   sms: {
+    advanced: true,
     secrets: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER", "TWILIO_WEBHOOK_URL"],
     note: "Twilio account SID, auth token, the number messages are sent from, and the exact public URL you configured on that number (the signature is computed over it).",
     consoleUrl: "https://console.twilio.com",
@@ -274,6 +283,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     ],
   },
   "synology-chat": {
+    advanced: true,
     secrets: ["SYNOLOGY_CHAT_WEBHOOK_URL", "SYNOLOGY_CHAT_TOKEN"],
     note: "The NAS's incoming-webhook URL (we POST to it) and the outgoing-webhook token (it POSTs to us).",
     consoleUrl: "https://www.synology.com/en-global/dsm/feature/chat",
@@ -285,6 +295,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     ],
   },
   googlechat: {
+    advanced: true,
     secrets: ["GOOGLE_CHAT_PROJECT_NUMBER", "GOOGLE_CHAT_SERVICE_ACCOUNT"],
     note: "The Google Cloud project number and a service-account key JSON. Inbound requests are verified by the signed token Google sends.",
     consoleUrl: "https://console.cloud.google.com/apis/library/chat.googleapis.com",
@@ -297,6 +308,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
     ],
   },
   msteams: {
+    advanced: true,
     secrets: ["MSTEAMS_APP_ID", "MSTEAMS_APP_PASSWORD"],
     note: "Bot Framework app id and password (client secret); MSTEAMS_TENANT_ID as well for a single-tenant bot.",
     consoleUrl: "https://dev.botframework.com",
@@ -385,7 +397,13 @@ const redact = (row: ConnectorRow | undefined, id: string, cards = false) => ({
   ...(CATALOG[id]!.consoleUrl ? { consoleUrl: CATALOG[id]!.consoleUrl } : {}),
   ...(CATALOG[id]!.steps ? { steps: stepsFor(id, cards) } : {}),
   ...(id === "whatsapp" && !whatsappAvailable() ? { download_first: WHATSAPP_DOWNLOAD } : {}),
+  ...(CATALOG[id]!.advanced ? { advanced: true, advice: ADVANCED } : {}),
 });
+
+/** The line for a connector a home computer cannot receive on its own. */
+const ADVANCED =
+  "This one needs some technical setup: a public web address that reaches this computer. " +
+  "Say so plainly, and offer Discord or Telegram first; they work right away.";
 
 /** Said instead of an error: seen live 25 Sep, the raw "optional external
  *  dependency" error sent the agent searching the person's folders for it. */

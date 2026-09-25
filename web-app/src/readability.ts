@@ -4,7 +4,10 @@
 
 // Product names are names, not vocabulary: nobody has to understand the
 // word "OpenRouter" to press a button that says it.
-const NAMES = new Set(["openrouter", "cinderpaw", "ollama", "discord", "telegram", "whatsapp"]);
+const NAMES = new Set([
+  "openrouter", "cinderpaw", "ollama", "discord", "telegram", "whatsapp",
+  "slack", "matrix", "element", "botfather", "newbot", "xapp", "xoxb", "oauth",
+]);
 
 export function syllables(word: string): number {
   const w = word.toLowerCase().replace(/[^a-z]/g, "");
