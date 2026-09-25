@@ -203,7 +203,12 @@ export function createComputerUseTool(): Tool {
         "SHARED-PID WINDOWS: one process can own several windows (Win11 explorer.exe owns the " +
         "Taskbar AND File Explorer windows under one pid). Pass `window_title` (a substring from " +
         "`list_windows`) to `get_tree`/`find_elements` to pick the right window; without it the " +
-        "tool skips the Taskbar/desktop and uses the first real window.",
+        "tool skips the Taskbar/desktop and uses the first real window. " +
+        "MACOS AND LINUX: windows, focus, keys, typing and launching work (list_windows, get_focused, " +
+        "send_keys to the element get_focused returns, perform_action 'focus', launch); reading or pressing " +
+        "NAMED elements (get_tree, click, find_elements other than role 'Window') is Windows only for now, so " +
+        "drive those apps with keys ({Tab}, {Enter}, shortcuts). In key specs `ctrl` is the platform's " +
+        "shortcut key (Command on a Mac); `control` is the Control key itself.",
       permissions: [],
       networkAccess: false,
     },
