@@ -330,18 +330,23 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       }
       const plan = r.plan;
       console.info(`[jev] ${steps.length > 1 ? `step ${i + 1}/${steps.length} ` : ''}${plan.action} conf=${plan.confidence.toFixed(2)} in ${r.ms}ms${r.desktop ? ' on the desktop' : ' in the app'}`);
+      if (plan.action === 'hang_up') {
+        hangUpRef.current();
+        return;
+      }
       if (plan.action === 'stop') {
-        // "Stop" while Cinder is working means stop Cinder: it may be typing
-        // into the wrong window, and the voice is the only brake the person
-        // has with the app parked. Ending the call left it going. The call
-        // stays; a second "stop" ends it.
+        // "Stop" is the brake on what Cinder was handed: it may be typing into
+        // the wrong window, and the voice is the only brake the person has
+        // with the app parked. It never ends the call; "hang up" does. With
+        // Cinder idle, a second "stop" used to hang up, which the person using
+        // it never knew and did not want (25 Sep).
         if (agentBusy.current) {
           agentStopped.current = true;
           await requestCinderpawStop(useChat.getState().sessionId).catch(() => {});
           await speak('Stopped Cinder.', 'ok');
-          return;
+        } else {
+          await speak('Cinder is not working on anything.', 'ok');
         }
-        hangUpRef.current();
         return;
       }
       // One floor per action, checked once: with two gates in a row, a click

@@ -253,3 +253,12 @@ describe('type_text is planned from the dictated words', () => {
       .toEqual({ action: 'type_text', text: 'see you tomorrow', confidence: 0.8 });
   });
 });
+
+describe('stop and hang up are two actions', () => {
+  it('"stop" is a stop and "hang up" a hang-up, each with its confidence', () => {
+    const c = textCandidates('stop');
+    expect(toPlan('stop', { action: choice('stop') }, c)).toEqual({ action: 'stop', confidence: 0.9 });
+    expect(toPlan('hang up', { action: choice('hang_up', 0.8) }, textCandidates('hang up'))).toEqual({ action: 'hang_up', confidence: 0.8 });
+  });
+});
+

@@ -82,9 +82,17 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
     not_for: 'Searching the web (web_search), finding on the page (find), or a message for the assistant itself',
     examples: ['type hello world', 'write see you tomorrow', 'type my email is ana at example dot com', 'scrie mulțumesc frumos'],
   },
+  // Two actions, because people mean two things: "stop" is the brake on what
+  // Cinder was handed; it ended the call instead whenever Cinder was idle,
+  // which the person using it did not know it could (25 Sep).
   stop: {
-    what: 'Tell the assistant to stop listening, hang up, or end the call',
-    examples: ['stop', 'that is all', 'hang up', 'end the call'],
+    what: 'Stop the task the assistant handed to Cinder (Cinderpaw\'s agent) and is still running: the brake on work in progress',
+    not_for: 'Ending the call (hang_up); pausing a video or a song (media)',
+    examples: ['stop', 'stop that', 'cancel', 'never mind', 'stop Cinder', 'oprește'],
+  },
+  hang_up: {
+    what: 'End the voice call with the assistant',
+    examples: ['hang up', 'end the call', 'that is all, bye', 'goodbye', 'închide apelul'],
   },
   none: {
     what: 'Not one of the commands above: a question, a conversation, a task of several steps, a request for something the list does not have (a file, a summary, a message to someone, typing text)',
@@ -315,6 +323,7 @@ export type Plan =
   | { action: 'shortcut'; keys: string; means: string; confidence: number }
   | { action: 'type_text'; text: string; confidence: number }
   | { action: 'stop'; confidence: number }
+  | { action: 'hang_up'; confidence: number }
   | { action: 'none'; confidence: number };
 
 /** Like, save and share act on what is already open ("like this video"); the others on an item named in a list. */
@@ -426,6 +435,7 @@ export function toPlan(utterance: string, ans: Answers, cands: Record<string, st
     }
     case 'reader': return { action, confidence: conf };
     case 'stop': return { action, confidence: conf };
+    case 'hang_up': return { action, confidence: conf };
     default: return { action: 'none', confidence: conf };
   }
 }
