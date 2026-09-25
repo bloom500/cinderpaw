@@ -264,8 +264,7 @@ test("turning WhatsApp on starts pairing when no phone is linked, and says where
     let pairs = 0;
     const tool = createConnectorsManageTool(
       { reload: async () => {}, pairWhatsApp: async () => (++pairs, true) },
-      () => linked,
-      () => true,
+      { isLinked: () => linked, hasWhatsApp: () => true },
     );
     const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, ctx);
     expect(pairs).toBe(linked ? 0 : 1);
@@ -273,14 +272,51 @@ test("turning WhatsApp on starts pairing when no phone is linked, and says where
   }
 });
 
-test("without the WhatsApp library it says so in words and saves nothing", async () => {
+function asking(answer: string, asked: string[] = []) {
+  return {
+    sessionId: "chat",
+    askUser: {
+      ask: async (qs: Array<{ question: string }>) => {
+        asked.push(qs[0]!.question);
+        return [{ question: qs[0]!.question, selected: [answer] }];
+      },
+      cancel: () => {},
+    },
+  } as never;
+}
+
+test("without the WhatsApp library it asks first, downloads on yes, then pairs", async () => {
   writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  let have = false;
   let pairs = 0;
-  const tool = createConnectorsManageTool({ reload: async () => {}, pairWhatsApp: async () => (++pairs, true) }, () => false, () => false);
-  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, ctx);
-  expect(res.ok).toBe(false);
-  expect(res.content).toContain("not included");
-  expect(res.content).toContain("Discord");
-  expect(pairs).toBe(0);
-  expect(JSON.parse(readFileSync(file, "utf8")).connectors).toEqual([]);
+  const asked: string[] = [];
+  const tool = createConnectorsManageTool(
+    { reload: async () => {}, pairWhatsApp: async () => (++pairs, true) },
+    { isLinked: () => false, hasWhatsApp: () => have, installWhatsApp: async () => void (have = true) },
+  );
+  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, asking("Download", asked));
+  expect(asked[0]).toContain("download");
+  expect(have).toBe(true);
+  expect(pairs).toBe(1);
+  expect(res.content).toContain("Linked devices");
+});
+
+test("'Not now', a failed download, or a chat that cannot ask: nothing is saved", async () => {
+  const cases = [
+    { ctx: asking("Not now"), install: async () => {}, says: "chose not to" },
+    { ctx: asking("Download"), install: async () => { throw new Error("ENOTFOUND registry.npmjs.org"); }, says: "internet connection" },
+    { ctx: {} as never, install: async () => {}, says: "cannot ask" },
+  ];
+  for (const c of cases) {
+    writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+    let pairs = 0;
+    const tool = createConnectorsManageTool(
+      { reload: async () => {}, pairWhatsApp: async () => (++pairs, true) },
+      { isLinked: () => false, hasWhatsApp: () => false, installWhatsApp: c.install },
+    );
+    const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, c.ctx);
+    expect(res.content).toContain(c.says);
+    expect(pairs).toBe(0);
+    expect(JSON.parse(readFileSync(file, "utf8")).connectors).toEqual([]);
+  }
 });

@@ -23,6 +23,7 @@ import { atomicWriteFile } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { configPath, WhatsAppConnector, whatsappAvailable, type ConnectorRow } from "../../transports/connectors.ts";
+import { installWhatsApp } from "../../transports/whatsapp-install.ts";
 import { sessionHasCards } from "../../core/card-surface.ts";
 
 /**
@@ -366,14 +367,17 @@ const redact = (row: ConnectorRow | undefined, id: string, cards = false) => ({
   note: CATALOG[id]!.note,
   ...(CATALOG[id]!.consoleUrl ? { consoleUrl: CATALOG[id]!.consoleUrl } : {}),
   ...(CATALOG[id]!.steps ? { steps: stepsFor(id, cards) } : {}),
-  ...(id === "whatsapp" && !whatsappAvailable() ? { available: false, why: WHATSAPP_MISSING } : {}),
+  ...(id === "whatsapp" && !whatsappAvailable() ? { download_first: WHATSAPP_DOWNLOAD } : {}),
 });
 
 /** Said instead of an error: seen live 25 Sep, the raw "optional external
  *  dependency" error sent the agent searching the person's folders for it. */
-const WHATSAPP_MISSING =
-  "WhatsApp is not included in this version of Cinderpaw (its library has a license we cannot ship). " +
-  "Discord and Telegram work right away. Offer one of those instead; do not look for the library yourself.";
+const WHATSAPP_DOWNLOAD =
+  "WhatsApp needs a one-time download of its library (about 50 MB) before it can be turned on. " +
+  "configure with enabled:true asks the person first. Never look for or install the library yourself.";
+
+const DOWNLOAD = "Download";
+const NOT_NOW = "Not now";
 
 export async function readRows(): Promise<ConnectorRow[]> {
   try {
@@ -409,10 +413,12 @@ export async function secretPresent(connector: string, field: string): Promise<b
 
 export function createConnectorsManageTool(
   manager: { reload(): Promise<void>; hasHostSecret?(id: string, key: string): boolean; pairWhatsApp?(): Promise<boolean> },
-  isLinked: () => boolean = WhatsAppConnector.isLinked,
-  hasWhatsApp: () => boolean = whatsappAvailable,
+  deps: { isLinked?: () => boolean; hasWhatsApp?: () => boolean; installWhatsApp?: () => Promise<void> } = {},
 ): Tool {
   if (manager.hasHostSecret) hostHas = (id, key) => manager.hasHostSecret!(id, key);
+  const isLinked = deps.isLinked ?? WhatsAppConnector.isLinked;
+  const hasWhatsApp = deps.hasWhatsApp ?? whatsappAvailable;
+  const install = deps.installWhatsApp ?? installWhatsApp;
   const manifest: ToolManifest = {
     name: "connectors_manage",
     description:
@@ -430,6 +436,8 @@ export function createConnectorsManageTool(
       "that says to paste a token, and never invent a step that isn't there.",
     permissions: [],
     networkAccess: false,
+    // The WhatsApp download can outrun the 60 s default on a slow line.
+    timeoutMs: 5 * 60_000,
   };
 
   return {
@@ -502,7 +510,48 @@ export function createConnectorsManageTool(
       }
 
       if (id === "whatsapp" && args.enabled === true && !hasWhatsApp()) {
-        return { ok: false, content: WHATSAPP_MISSING, error: "not_included" };
+        // Downloaded on request, never shipped: the library carries libsignal
+        // (GPL-3.0). The person says yes on a card, not the model on its own.
+        if (!ctx?.askUser) {
+          return {
+            ok: false,
+            content: "WhatsApp needs a one-time download, and this chat cannot ask for permission. Ask the person to set it up from the Cinderpaw page.",
+            error: "needs_download",
+          };
+        }
+        let answer: string | undefined;
+        try {
+          const [a] = await ctx.askUser.ask(
+            [
+              {
+                question: "WhatsApp needs a one-time download (about 50 MB) before I can connect to it. Download it now?",
+                header: "WhatsApp",
+                options: [
+                  { label: DOWNLOAD, description: "About half a minute. It stays on this computer." },
+                  { label: NOT_NOW, description: "Nothing changes." },
+                ],
+                multiSelect: false,
+              },
+            ],
+            ctx.sessionId,
+          );
+          answer = a?.selected?.[0];
+        } catch {
+          answer = undefined;
+        }
+        if (answer !== DOWNLOAD) {
+          return { ok: true, content: "The person chose not to download WhatsApp support now. Nothing was changed. Say that is fine." };
+        }
+        ctx.progress?.({ stage: "download", progress: null, message: "Downloading WhatsApp support. About half a minute." });
+        try {
+          await install();
+        } catch (e) {
+          return {
+            ok: false,
+            content: `The WhatsApp download did not finish (${String(e).slice(0, 200)}). Tell the person to check the internet connection and try again. Do not install it another way.`,
+            error: "download_failed",
+          };
+        }
       }
       const rows = await readRows();
       const row: ConnectorRow = rows.find((r) => r.id === id) ?? { id };

@@ -19,6 +19,7 @@ import { readFile, writeFile, unlink } from "node:fs/promises";
 // Sync twins, deliberately: `isLinked` is called from `start()` before anything
 // is awaited, and from a static context that has no async seam to hide a read in.
 import { existsSync, readFileSync } from "node:fs";
+import { whatsappBundlePath, whatsappDownloaded } from "./whatsapp-install.ts";
 import { cfgPath, cinderpawHome } from "../config.ts";
 import {
   Client,
@@ -1219,15 +1220,21 @@ export function mimeForName(name: string): string {
   return MIME_BY_EXT[name.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 }
 
-/** Is the WhatsApp library installed? It is not by default: it carries libsignal (GPL-3.0). */
-export function whatsappAvailable(): boolean {
+/** The WhatsApp library to load: a hand-installed one if set, else the one downloaded on request. */
+function whatsappEntry(): string | null {
   const entry = cfgPath("CINDERPAW_WHATSAPP_MODULE");
-  return !!entry && isAbsolute(entry);
+  if (entry && isAbsolute(entry)) return entry;
+  return whatsappDownloaded() ? whatsappBundlePath() : null;
+}
+
+/** Is the WhatsApp library here? Not by default: it carries libsignal (GPL-3.0). */
+export function whatsappAvailable(): boolean {
+  return whatsappEntry() !== null;
 }
 
 export async function loadWhatsAppModule(): Promise<typeof import("@whiskeysockets/baileys")> {
-  const entry = cfgPath("CINDERPAW_WHATSAPP_MODULE");
-  if (!entry || !isAbsolute(entry)) {
+  const entry = whatsappEntry();
+  if (!entry) {
     throw new Error(
       "WhatsApp is an optional external dependency. Install @whiskeysockets/baileys@7.0.0-rc13 " +
       "and set CINDERPAW_WHATSAPP_MODULE to the absolute bundled whatsapp.js path (see CinderpawAgent/README.md).",

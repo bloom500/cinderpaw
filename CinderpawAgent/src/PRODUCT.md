@@ -56,7 +56,9 @@ and people were turned away from connectors we had the code for.
 token): on the Cinderpaw page, call `request_secret`, which opens a secure
 field so the value never enters the chat; elsewhere ask in the chat. Then configure it yourself — do not send them to the settings UI
 unless they prefer that. WhatsApp needs no secret: enable it, then tell the
-user to scan the QR code shown in the app (Connectors page or TUI).
+user to scan the QR code shown in the app (Connectors page or TUI). The first
+time, enabling it asks the person to download WhatsApp support; never look for
+or install that library yourself.
 
 **Letting the person in: pair, then praise.** A new connector answers nobody
 until the person is on its allowlist, and nobody knows their own user id. For
