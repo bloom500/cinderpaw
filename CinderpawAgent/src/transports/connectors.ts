@@ -1396,6 +1396,9 @@ export class WhatsAppConnector {
    * path allowed to open a socket without credentials.
    */
   async pair(): Promise<void> {
+    // Already connecting or connected: a second socket on the same account
+    // would fight the first. Turning it on and asking to pair can both land here.
+    if (this.#sock) return;
     await this.start({ pair: true });
   }
 
@@ -1836,6 +1839,8 @@ export class ConnectorManager {
   /** Config signature per running connector — the reload only restarts what
    *  actually changed. */
   readonly #keys = new Map<string, string>();
+  /** Which ids were enabled after the last reconcile; null before the first. */
+  #wasEnabled: Set<string> | null = null;
   readonly #leadDesk: LeadDesk | null;
   /** Serialize reloads so overlapping pokes can't double-start a connection. */
   #reloading: Promise<void> = Promise.resolve();
@@ -2052,6 +2057,27 @@ export class ConnectorManager {
         this.#log(`${id} connector failed to start: ${String(e)}`);
         this.#mark(id, false, e);
         await instance.stop();
+      }
+    }
+
+    // WhatsApp turned on just now, from any surface (desktop toggle, TUI,
+    // chat): that is the person asking to link a phone, so start pairing. Not
+    // at boot, where an unlinked WhatsApp stays idle on purpose. Before this,
+    // turning it on anywhere but the chat left it idle and no code ever came.
+    const turnedOn = this.#wasEnabled !== null && wanted.has("whatsapp") && !this.#wasEnabled.has("whatsapp");
+    this.#wasEnabled = new Set(wanted.keys());
+    if (turnedOn && !WhatsAppConnector.isLinked()) {
+      try {
+        await this.pairWhatsApp();
+      } catch (e) {
+        this.#log(`whatsapp: could not start pairing: ${String(e)}`);
+        this.#mark(
+          "whatsapp",
+          false,
+          whatsappAvailable()
+            ? e
+            : "WhatsApp support is not downloaded yet. Ask Cinderpaw in the chat to connect WhatsApp; it offers the download.",
+        );
       }
     }
 
