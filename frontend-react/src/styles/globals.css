@@ -1150,55 +1150,26 @@ body::before {
      canvas as flat base colour, which is what made this read as "a stain in
      the corner" rather than as lighting. */
   background-size: 125% 125%, 115% 115%, 100% 100%;
-  /* Two animations, deliberately out of step, because ONE transform moves every
-     light together and the eye reads a rigid sheet sliding — the opposite of
-     liquid. `scene-drift` carries the whole layer; `scene-flow` slides the three
-     gradients WITHIN it at a different rhythm, so the key light and the
-     counterlight change their distance from each other and the colour between
-     them keeps reforming. That relative motion is the whole effect.
-     ponytail: background-position repaints this layer; the travel is kept
-     small (a few percent) for that reason. If it ever costs frames on a weak
-     GPU, the flow is the half to drop — the drift is composited. */
-  animation:
-    scene-drift 19s ease-in-out infinite alternate,
-    scene-flow  13s ease-in-out infinite alternate;
-  will-change: transform, background-position;
+  /* Still, on purpose. The lights used to drift (a transform) and slide against
+     each other (background-position), forever, and every pane of the app is
+     frosted glass over this layer: a frost is cheap only while what is behind
+     it stands still, so the whole window was blurred again on every frame, with
+     nothing happening. Measured in Chromium, the app sitting idle on its home
+     screen (25 Sep): 2,220 ms of CPU per second with both motions, 1,128 with
+     the drift alone, 198 still; the frost itself, still, costs nothing
+     measurable (226 with it off). That was the weight under every click and
+     every streamed word. The composition is the one reduced-motion users
+     already had. */
 }
-/* Grain: a small repeatable noise tile over everything, shifting subtly so
+/* Grain: a small repeatable noise tile over everything, so
    the gradients never read as synthetic paint. */
 body::after {
   inset: -30%;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
   background-repeat: repeat;
   opacity: var(--scene-grain-opacity);
-  animation: scene-grain-shift 6s steps(8) infinite;
-  will-change: transform;
 }
-/* A 2.5% move over 80 seconds is motion nobody will ever see: the eye reads it
-   as a still image, which is exactly what a scene meant to feel alive must not
-   be. Bigger travel, and a third of the duration. Still transform-only, still
-   one layer, so the cost per frame is unchanged. */
-@keyframes scene-drift {
-  from { transform: translate3d(-5%, -4%, 0) scale(1.06) rotate(0deg); }
-  30%  { transform: translate3d(2%, 3%, 0)  scale(1.15) rotate(1.8deg); }
-  60%  { transform: translate3d(6%, -2%, 0) scale(1.09) rotate(-1.4deg); }
-  to   { transform: translate3d(-2%, 4%, 0) scale(1.12) rotate(0.6deg); }
-}
-/* The three lights sliding against each other. Different period from the drift
-   on purpose: two motions that share a cycle resolve into one, and the point of
-   this one is that the pattern never quite repeats. */
-@keyframes scene-flow {
-  from { background-position: 18% 12%, 82% 88%, 62% 34%; }
-  50%  { background-position: 26% 20%, 72% 78%, 48% 46%; }
-  to   { background-position: 12% 22%, 88% 80%, 68% 26%; }
-}
-@keyframes scene-grain-shift {
-  0%   { transform: translate3d(0, 0, 0); }
-  25%  { transform: translate3d(-1.1%, 0.9%, 0); }
-  50%  { transform: translate3d(0.8%, -1.2%, 0); }
-  75%  { transform: translate3d(-0.5%, -0.7%, 0); }
-  100% { transform: translate3d(0, 0, 0); }
-}
+
 
 /* The React root paints above the scene; the app's page surface (AppShell's
    opaque --bg-primary in AppShell.tsx) becomes the milky glass pane so the
@@ -1226,16 +1197,6 @@ body::after {
      e.g. Linux); the higher-specificity rules further up win when it landed. */
   backdrop-filter: blur(28px) saturate(150%);
   -webkit-backdrop-filter: blur(28px) saturate(150%);
-}
-
-/* Reduced motion: the whole static lighting composition stays visible, only
-   the ambient drift stops. Route-level state is untouched — this matches the
-   OS preference and nothing else. */
-@media (prefers-reduced-motion: reduce) {
-  body::before,
-  body::after {
-    animation: none;
-  }
 }
 
 /* No blur support: the base scene still provides hierarchy, and the glass
