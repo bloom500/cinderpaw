@@ -40,12 +40,19 @@ pub async fn call_pill_open(app: AppHandle) -> Result<(), String> {
             (left + (width - WIDTH) / 2.0, top + 8.0)
         })
         .unwrap_or((360.0, 8.0));
-    WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("index.html#call-pill".into()))
+    let builder = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("index.html#call-pill".into()))
         .title("Cinderpaw call")
         .inner_size(WIDTH, HEIGHT)
         .position(x, y)
-        .decorations(false)
-        .transparent(true)
+        .decorations(false);
+    // On macOS a transparent window needs Tauri's `macos-private-api`, and
+    // without it `transparent` does not exist: the macOS build failed here.
+    // Turning that feature on would also make the main window's configured
+    // transparency take effect, an untested change of look; the pill is
+    // opaque there instead.
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.transparent(true);
+    builder
         .shadow(false)
         .resizable(false)
         .always_on_top(true)
