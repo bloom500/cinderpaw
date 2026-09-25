@@ -775,10 +775,20 @@ mod live {
     fn text_reaches_textedit() {
         let (pid, n, path) = open_in_textedit("cinderpaw-keys", "");
         send_keys(&handle(pid, n), "hello cinderpaw").expect("keys sent");
-        let text = value_becomes(&text_area(pid, n).id, "hello cinderpaw");
+        let field = text_area(pid, n);
+        let mut text = String::new();
+        for _ in 0..30 {
+            text = get_element_value(&field.id).unwrap_or_default();
+            // macOS capitalises the first word of a sentence as it is typed
+            // ("Hello cinderpaw" on the runner): the keys arrived either way.
+            if text.eq_ignore_ascii_case("hello cinderpaw") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
         let _ = click_element(&close_button(pid, n).id);
         let _ = std::fs::remove_file(path);
-        assert_eq!(text, "hello cinderpaw");
+        assert!(text.eq_ignore_ascii_case("hello cinderpaw"), "TextEdit has: {text:?}");
     }
 
     /// The document window's close button, found by name in the AX tree and
@@ -789,7 +799,19 @@ mod live {
     fn a_named_button_is_pressed_in_textedit() {
         let (pid, n, path) = open_in_textedit("cinderpaw-press", "unchanged");
         let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let open = || windows_of(pid).unwrap_or_default().iter().any(|(_, t)| t.contains(&name));
+        // Asked a few times: one System Events answer can fail while TextEdit
+        // is busy, and a failed answer is not a closed window.
+        let open = || -> (bool, String) {
+            let mut seen = String::new();
+            for _ in 0..5 {
+                match windows_of(pid) {
+                    Ok(w) => return (w.iter().any(|(_, t)| t.contains(&name)), format!("{w:?}")),
+                    Err(e) => seen = e,
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            (false, seen)
+        };
         let close = close_button(pid, n);
         assert!(close.is_enabled && !close.is_offscreen, "{close:?}");
 
@@ -799,7 +821,8 @@ mod live {
         let err = click_element(&encode_handle(pid, &forged)).unwrap_err();
         assert!(err.contains("element_not_found"), "{err}");
         std::thread::sleep(std::time::Duration::from_millis(500));
-        assert!(open(), "a stale id closed the window");
+        let (still_open, windows) = open();
+        assert!(still_open, "the window is gone after a refused stale id; windows: {windows}");
 
         fn all(n: &AccessibilityNode, out: &mut Vec<String>) {
             out.push(n.id.clone());
@@ -813,14 +836,14 @@ mod live {
         click_element(&close.id).expect("pressed");
         let mut still = open();
         for _ in 0..30 {
-            if !still {
+            if !still.0 {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
             still = open();
         }
         let _ = std::fs::remove_file(path);
-        assert!(!still, "the window closed");
+        assert!(!still.0, "the window is still open: {}", still.1);
     }
 
     /// The document's text area found by role: its text set and read back,
