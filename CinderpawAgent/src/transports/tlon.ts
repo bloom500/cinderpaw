@@ -291,6 +291,7 @@ export class TlonConnector implements LiveConnector {
 
     const ctx = this.#ctx;
     if (!ctx) return;
+    ctx.onSender?.(whom, whom);
     if (!this.#allow.has(whom)) {
       ctx.log(`tlon: ignored a DM from non-allowlisted ${whom}`);
       return;

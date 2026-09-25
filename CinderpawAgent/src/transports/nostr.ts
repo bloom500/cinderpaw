@@ -283,6 +283,7 @@ export class NostrConnector implements LiveConnector {
       this.#seen = new Set([...this.#seen].slice(-2500));
     }
 
+    ctx.onSender?.(event.pubkey, event.pubkey);
     if (!this.#allow.has(event.pubkey)) {
       ctx.log(`nostr: ignored message from non-allowlisted ${nip19.npubEncode(event.pubkey)}`);
       return;

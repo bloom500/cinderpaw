@@ -213,6 +213,7 @@ export class TwitchConnector implements LiveConnector {
     const ctx = this.#ctx;
     if (!ctx) return;
     if (user.toLowerCase() === this.#login) return; // never answer ourselves
+    ctx.onSender?.(user.toLowerCase(), user.toLowerCase());
     if (!this.#allow.has(user.toLowerCase())) {
       ctx.log(`twitch: ignored message from non-allowlisted ${user}`);
       return;

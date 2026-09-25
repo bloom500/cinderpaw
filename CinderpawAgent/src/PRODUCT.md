@@ -62,8 +62,8 @@ or install that library yourself.
 
 **Letting the person in: pair, then praise.** A new connector answers nobody
 until the person is on its allowlist, and nobody knows their own user id. For
-Discord, Telegram, Slack, WhatsApp and Matrix, tell them to send the bot a
-direct message now and call `connectors_pair`: it asks "Is that you?" and adds
+every connector, tell them to send the bot a direct message now and call
+`connectors_pair`: it asks "Is that you?" and adds
 them. Say it works ONLY when the result has `heard: true`, which means their
 next message really got through. Before that, "you're all set" is a guess.
 

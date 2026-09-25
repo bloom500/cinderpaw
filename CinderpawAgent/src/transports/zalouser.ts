@@ -233,6 +233,7 @@ export class ZalouserConnector implements LiveConnector {
     }
     const ctx = this.#ctx;
     if (!ctx) return;
+    ctx.onSender?.(userId, userId);
     if (!this.#allow.has(userId)) {
       ctx.log(`zalouser: ignored a message from non-allowlisted ${userId}${m.data.dName ? ` (${m.data.dName})` : ""}`);
       return;

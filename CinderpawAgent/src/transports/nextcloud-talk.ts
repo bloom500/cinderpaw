@@ -397,6 +397,7 @@ export class NextcloudTalkConnector implements LiveConnector {
     if (!actorId || !text) return;
     if (actorId === this.#self) return;
 
+    ctx.onSender?.(actorId, actorId);
     if (!this.#allow.has(actorId)) {
       ctx.log(`nextcloud-talk: ignored message from non-allowlisted ${actorId}`);
       return;

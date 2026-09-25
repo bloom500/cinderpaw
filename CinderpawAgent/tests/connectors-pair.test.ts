@@ -121,7 +121,7 @@ test("someone already on the list is not asked about again", async () => {
 
 test("it refuses what it cannot do, in words the agent can pass on", async () => {
   const tool = createConnectorsPairTool({ ...fakeDeps([]), isLive: () => false });
-  expect((await tool.execute({ id: "sms" }, ctxAnswering([]))).content).toContain("pairing_unsupported");
+  expect((await tool.execute({ id: "fax" }, ctxAnswering([]))).content).toContain("pairing_unsupported");
   expect((await tool.execute({ id: "discord" }, { sessionId: "tui" } as unknown as ToolContext)).content).toContain("unsupported_surface");
   expect((await tool.execute({ id: "discord" }, ctxAnswering([]))).content).toContain("not_connected");
 });

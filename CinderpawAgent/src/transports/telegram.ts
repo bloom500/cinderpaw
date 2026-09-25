@@ -273,8 +273,7 @@ export class TelegramConnector implements LiveConnector {
     if (msg.chat.type !== "private" && this.#chats.size > 0 && !this.#chats.has(chatId)) return;
     if (msg.chat.type !== "private" && this.#chats.size === 0) return;
 
-    this.#ctx?.onSender?.(String(from.id), from.first_name ?? from.username ?? String(from.id));
-    await this.#handle(chatId, String(from.id), text, msg.message_id, files);
+    await this.#handle(chatId, String(from.id), text, msg.message_id, files, from.first_name ?? from.username);
   }
 
   /** A document or a photo, as a download the shared reader can fetch. The
@@ -302,9 +301,10 @@ export class TelegramConnector implements LiveConnector {
     }
   }
 
-  async #handle(chatId: string, userId: string, text: string, messageId: number, files: InboundAttachment[] = []): Promise<void> {
+  async #handle(chatId: string, userId: string, text: string, messageId: number, files: InboundAttachment[] = [], name?: string): Promise<void> {
     const ctx = this.#ctx;
     if (!ctx) return;
+    ctx.onSender?.(userId, name ?? userId);
     if (!this.#allow.has(userId)) {
       ctx.log(`telegram: ignored message from non-allowlisted ${userId}`);
       return;

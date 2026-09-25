@@ -63,14 +63,14 @@ export function createConnectorsPairTool(deps: PairDeps): Tool {
         "First tell them to send any message to the bot (a DM) now, then call this. It waits for that " +
         "message, asks them 'Is that you?', and on yes adds them to the allowlist. Then it waits for " +
         "one more message to prove they really get through. Say it works ONLY when the result has " +
-        "heard: true. Works for " + Object.keys(PAIRABLE).join(", ") + ".",
+        "heard: true. Works for every connector connectors_manage lists.",
       permissions: [],
       networkAccess: false,
       // Two waits on a person, up to ten minutes each. The card itself pauses the clock.
       timeoutMs: 2 * WAIT_MS + 60_000,
     },
     parameters: {
-      id: { type: "string", description: "Connector id: " + Object.keys(PAIRABLE).join(", ") + ".", required: true },
+      id: { type: "string", description: "Connector id, as connectors_manage 'list' returns it.", required: true },
     },
     async execute(args, ctx: ToolContext): Promise<ToolResult> {
       const id = String(args.id ?? "").trim().toLowerCase();

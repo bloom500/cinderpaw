@@ -319,6 +319,22 @@ export const PAIRABLE: Record<string, string> = {
   slack: "Slack",
   whatsapp: "WhatsApp",
   matrix: "Matrix",
+  mattermost: "Mattermost",
+  signal: "Signal",
+  irc: "IRC",
+  feishu: "Feishu",
+  "nextcloud-talk": "Nextcloud Talk",
+  nostr: "Nostr",
+  twitch: "Twitch",
+  zalo: "Zalo",
+  imessage: "iMessage",
+  tlon: "Tlon",
+  zalouser: "Zalo",
+  line: "LINE",
+  sms: "SMS",
+  "synology-chat": "Synology Chat",
+  googlechat: "Google Chat",
+  msteams: "Microsoft Teams",
 };
 
 /** Sentences that ask for a secret in the chat, or describe what happens to one pasted there. */
