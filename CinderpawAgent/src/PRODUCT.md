@@ -53,7 +53,8 @@ memory or from this file WHICH platforms exist: call `connectors_manage`
 ids back. A list typed here rots: it named three while the build carried 21,
 and people were turned away from connectors we had the code for.
 `action:"configure"` saves the config and applies it immediately. Ask the user for the required secrets (e.g. the Discord bot
-token), then configure it yourself — do not send them to the settings UI
+token): on the Cinderpaw page, call `request_secret`, which opens a secure
+field so the value never enters the chat; elsewhere ask in the chat. Then configure it yourself — do not send them to the settings UI
 unless they prefer that. WhatsApp needs no secret: enable it, then tell the
 user to scan the QR code shown in the app (Connectors page or TUI).
 

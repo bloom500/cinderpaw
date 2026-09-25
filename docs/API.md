@@ -119,6 +119,15 @@ the comment tags next to each `.route(` line.
 | POST | `/modules/:id/reject` | unstable | govern |
 | POST | `/modules/:id/demote` | unstable | govern |
 
+### Local page (`/`, `/web/*`, CLI host only)
+
+| Method | Path | Stability | Class | Notes |
+|---|---|---|---|---|
+| GET | `/`, `/app.js`, `/app.css` | unstable | read | The embedded Browser App page. Served only by the CLI gateway; the Desktop app serves no page. |
+| POST | `/web/code` | unstable | govern | Bearer only. Mints a single-use, short-lived code that `cinderpaw open` puts in the page URL. |
+| POST | `/web/session` | unstable | govern | Trades that code for an HttpOnly, SameSite=Strict session cookie. The bearer token never reaches the browser. |
+| GET | `/web/me` | unstable | read | Whether the cookie is still a valid session. |
+
 ### Helpers
 
 | Method | Path | Stability | Notes |
@@ -154,6 +163,12 @@ the host's env, not via the request.
      of this fenced list to avoid a permanent false "unlisted" warning. -->
 
 ```cinderpaw-api-routes
+GET /
+GET /app.css
+GET /app.js
+GET /web/me
+POST /web/code
+POST /web/session
 DELETE /api/delete
 GET /api/tags
 POST /api/chat
