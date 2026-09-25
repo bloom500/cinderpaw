@@ -1626,3 +1626,56 @@ body { overflow: hidden; }
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Shimmering text (components/ui/shimmering-text.tsx) ─────────────────────
+   A light passing through a "working on it" line: one gradient clipped to the
+   text, moved by the browser. The bright band crosses in the first 70% of the
+   cycle and the rest is the pause between passes. Reduced motion keeps the
+   words and drops the light. */
+.shimmering-text {
+  color: var(--shimmer-base);
+  background-image: linear-gradient(
+    90deg,
+    var(--shimmer-base) 0%,
+    var(--shimmer-base) 42%,
+    var(--shimmer-light) 50%,
+    var(--shimmer-base) 58%,
+    var(--shimmer-base) 100%
+  );
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-sweep var(--shimmer-duration, 1.4s) linear infinite;
+}
+@keyframes shimmer-sweep {
+  0% { background-position: 100% 0; }
+  70%, 100% { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmering-text {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* ── Composer examples (components/chat/ComposerPlaceholder.tsx) ─────────────
+   Each letter blurs in after the one before it, and out in reverse. CSS, so
+   the browser runs it without a style write per letter per frame. */
+.composer-letter {
+  display: inline-block;
+  animation: composer-letter-in 280ms ease-out both;
+}
+.composer-letter-out {
+  animation: composer-letter-out 180ms ease-in both;
+}
+@keyframes composer-letter-in {
+  from { opacity: 0; filter: blur(8px); transform: translateY(6px); }
+  to   { opacity: 1; filter: blur(0); transform: none; }
+}
+@keyframes composer-letter-out {
+  from { opacity: 1; filter: blur(0); transform: none; }
+  to   { opacity: 0; filter: blur(8px); transform: translateY(-6px); }
+}
