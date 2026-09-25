@@ -10,6 +10,12 @@ here against the code before building on it.
 
 ## State of the PR
 
+- **Second session (25 Sep, 22:10-23:10 UTC)**: items 1 and 2 below are done
+  and green on CI (Linux GTK 3 on 22.04, macOS runner, Windows). `sign-off`
+  is still red for the reason below. `./scripts/verify.sh` passed except
+  one cinderpaw-core test that is order-dependent under parallel runs
+  (`settings::...legacy_home...`, passes alone 3/3; queued as its own task).
+
 - **CI** was green on `3d580e2f` except `sign-off`. DCO: no commit carries
   `Signed-off-by`, and only the author can add it (`git rebase --signoff main`).
 - **Head `b3448825`** adds the macOS rust job and the live desktop steps. Their
@@ -43,7 +49,16 @@ here against the code before building on it.
 - New files: `src-tauri/src/desktop_control_unix.rs` (osascript on macOS,
   xdotool on Linux) and `desktop_control_keys.rs` (the shared key-spec parser).
 - What works: windows, focus, keys, typed text, app list and launch.
-- Named elements are refused with `NO_ELEMENT_TREE`.
+- Named elements (second session, 25 Sep evening): `desktop_control_atspi.rs`
+  (Linux, AT-SPI over D-Bus with `zbus`) and `desktop_control_ax.rs` (macOS,
+  AX through System Events, JXA). Same UIA role names and
+  `AccessibilityElement` fields as Windows; `NO_ELEMENT_TREE` is gone.
+  - Element id `pid:0.<check>.<path>`: 0 is never a window, `path` is child
+    indices, `check` is FNV of role + name. A stale id is refused
+    (`element_not_found`), never pressed.
+  - Keys to an element: its window to the front, the element asked for focus
+    (best effort, as Windows `ensure_focused`), never into a password field.
+  - A query for Documents alone does not enter the Document (Jev's keys).
 - Packaging: `Info.plist` (NSAppleEventsUsageDescription), `entitlements.plist`
   (apple-events), and xdotool in the deb and rpm depends.
 
@@ -69,20 +84,30 @@ here against the code before building on it.
    Enabling `macos-private-api` (a transparent pill) is a product decision:
    ask first.
 
-1. **Watch the macOS CI result.** If `text_reaches_textedit` fails only for
-   TCC (Accessibility) on the runner, do not skip it. Find how the runner grants
-   it, or make the step report the missing permission clearly. A compile error
-   there is a real bug: fix it.
-2. **Click by name on macOS and Linux.** Jev's `click` plans and computer_use's
-   `click`/`find_elements`/`get_tree` return `NO_ELEMENT_TREE` there.
-   - macOS: AX through `osascript` (System Events `UI elements`, `click`), or the
-     AX C API through a crate. It must be tested on the macOS runner with a real
-     app (TextEdit, Safari).
-   - Linux: AT-SPI (the `atspi` crate, or `python3-pyatspi` through a helper).
-     Test it under Xvfb with a GTK app (for example `zenity`) and at-spi2-core
-     running.
-   - Keep the element id shape `pid:<n>...` and the `AccessibilityElement`
-     fields, so Jev's `clickInFront` and `decideClick` work unchanged.
+1. **macOS CI** (done, second session). The runner grants Accessibility; it
+   does not grant Automation for TextEdit, so an Apple Event *to TextEdit*
+   waits for a consent dialog and times out (-1712). The product never sends
+   one (only System Events), and the tests no longer do: TextEdit is opened
+   with `open -e` and read through AX.
+   `rust / macos-latest` on `9d84967`: 22/22, the four live TextEdit tests
+   included (keys, close button pressed by name, stale id refused, text area
+   filled and read). The first failure of the press test was a System
+   Events read failing while TextEdit was busy, not a closed window: the
+   check now retries and prints what it saw. One `macos-latest /
+   cinderpaw-agent` run failed only the FMS 10k `summaries()` p99 timing
+   (320 ms on a shared runner); the next run passed.
+2. **Click by name on macOS and Linux** (done, second session).
+   - Linux live tests (zenity; local GTK 4 and GTK 3 via yad; CI GTK 3 on
+     22.04): press "Yes" by name and read the exit code, a forged id refused,
+     text set and read, keys typed after focus, Document falls back to the
+     window.
+   - Never call AT-SPI `GetActions`: at-spi2-atk 2.38 (Ubuntu 22.04) aborts
+     the *target app* on it. Actions are read with `NActions` + `GetName(i)`.
+   - GTK 4 answers "" to `GetText(0, -1)` and has no `GrabFocus`.
+   - Known limits: a Qt app needs `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`; on
+     macOS every AX read is an Apple Event, so Jev's `clickInFront` (up to four
+     walks of the page) is slow on big pages; `automation_id` is empty on
+     macOS; `perform_action` there is press/toggle/focus only.
 3. **Latency, like Andy Gao's demo** (acting before the sentence ends). Today
    Jev records until 1 s of silence, transcribes the whole blob, then calls
    `jev_decide`.
