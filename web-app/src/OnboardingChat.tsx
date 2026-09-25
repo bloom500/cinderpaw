@@ -291,6 +291,15 @@ export function OnboardingChat() {
           </div>
         ))}
         {busy && <div className="bubble agent typing" aria-label="Cinderpaw is typing">…</div>}
+        {/* In the conversation, not the composer: pinned down there it covered
+            the text box and the chat scrolled behind it (seen live 25 Sep). */}
+        {step === "done" && (
+          <WhatsAppCard
+            onChange={() => {
+              endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+            }}
+          />
+        )}
         <div ref={endRef} className="end" />
       </div>
 
@@ -315,12 +324,6 @@ export function OnboardingChat() {
             </div>
           )}
           {step === "key" && <TextForm secret placeholder={COPY.keyPlaceholder} send={COPY.keySave} onSend={submitKey} />}
-          {step === "done" && <WhatsAppCard />}
-          {/* Seen live 25 Sep: an agent running shell commands nobody asked for,
-              and nothing on this page could stop it. */}
-          {step === "done" && answering && (
-            <button type="button" className="button quiet" onClick={stop}>{COPY.stop}</button>
-          )}
           {step === "done" && secretAsk && (
             <div className="secret-card">
               <p className="muted">{COPY.secretHint}</p>
@@ -336,7 +339,9 @@ export function OnboardingChat() {
             </div>
           )}
           {step === "done" && !secretAsk && !plainAsk && (
-            <TextForm placeholder={COPY.messagePlaceholder} send={COPY.send} onSend={sendChat} disabled={answering} />
+            // While the agent works, Send becomes Stop, in the same place (seen
+            // live 25 Sep: nothing on this page could stop a turn).
+            <TextForm placeholder={COPY.messagePlaceholder} send={COPY.send} onSend={sendChat} disabled={answering} onStop={answering ? stop : undefined} />
           )}
         </div>
       )}
@@ -349,14 +354,14 @@ export function OnboardingChat() {
  * the agent turned WhatsApp on (spec 6.6); asking every 3 s costs a local file
  * read, and the code itself changes about every 20 s.
  */
-function WhatsAppCard() {
-  const [ascii, setAscii] = useState<string | null>(null);
+function WhatsAppCard(props: { onChange: () => void }) {
+  const [svg, setSvg] = useState<string | null>(null);
   const [linked, setLinked] = useState(false);
   useEffect(() => {
     let shown = false;
     const tick = async () => {
       const code = await whatsappQr((u, i) => fetch(u, i));
-      setAscii(code);
+      setSvg(code);
       if (code) shown = true;
       // Gone after being shown: the phone scanned it.
       else if (shown) setLinked(true);
@@ -365,18 +370,24 @@ function WhatsAppCard() {
     const id = setInterval(tick, 3000);
     return () => clearInterval(id);
   }, []);
-  if (ascii)
+  const showing = svg !== null;
+  useEffect(() => {
+    props.onChange();
+    // Only when the card appears, goes, or turns into "linked".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showing, linked]);
+  if (svg)
     return (
       <div className="secret-card">
         <p>{COPY.waScan}</p>
-        <pre className="qr" aria-label="WhatsApp link code">{ascii}</pre>
+        <img className="qr" src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`} alt="WhatsApp link code" />
         <p className="muted">{COPY.waNew}</p>
       </div>
     );
   return linked ? <p className="tool">{COPY.waLinked}</p> : null;
 }
 
-function TextForm(props: { placeholder: string; send: string; secret?: boolean; disabled?: boolean; onSend: (v: string) => void }) {
+function TextForm(props: { placeholder: string; send: string; secret?: boolean; disabled?: boolean; onSend: (v: string) => void; onStop?: () => void }) {
   const [v, setV] = useState("");
   return (
     <form
@@ -398,7 +409,11 @@ function TextForm(props: { placeholder: string; send: string; secret?: boolean; 
         value={v}
         onChange={(e) => setV(e.target.value)}
       />
-      <button type="submit" className="button" disabled={!v.trim() || props.disabled}>{props.send}</button>
+      {props.onStop ? (
+        <button type="button" className="button" onClick={props.onStop}>{COPY.stop}</button>
+      ) : (
+        <button type="submit" className="button" disabled={!v.trim() || props.disabled}>{props.send}</button>
+      )}
     </form>
   );
 }

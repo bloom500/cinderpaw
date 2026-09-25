@@ -3867,7 +3867,10 @@ fn whatsapp_qr_at(path: &std::path::Path, now: f64) -> Option<serde_json::Value>
     if now - ts > 120_000.0 {
         return None;
     }
-    Some(json!({ "qr": v.get("qr")?.as_str()?, "ascii": v.get("ascii")?.as_str()?, "ts": ts }))
+    // `svg` is the scannable picture (the half-block text is for terminals);
+    // absent from files an older engine wrote.
+    let svg = v.get("svg").and_then(|x| x.as_str());
+    Some(json!({ "qr": v.get("qr")?.as_str()?, "ascii": v.get("ascii")?.as_str()?, "svg": svg, "ts": ts }))
 }
 
 #[cfg(test)]
@@ -3879,8 +3882,9 @@ mod whatsapp_qr_tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("whatsapp-qr.json");
         assert!(whatsapp_qr_at(&f, 1_000.0).is_none(), "no file = linked or never started");
-        std::fs::write(&f, r#"{"ts":1000,"qr":"2@abc","ascii":"XX"}"#).unwrap();
+        std::fs::write(&f, r#"{"ts":1000,"qr":"2@abc","ascii":"XX","svg":"<svg/>"}"#).unwrap();
         assert_eq!(whatsapp_qr_at(&f, 5_000.0).unwrap()["qr"], "2@abc");
+        assert_eq!(whatsapp_qr_at(&f, 5_000.0).unwrap()["svg"], "<svg/>");
         assert!(whatsapp_qr_at(&f, 1_000.0 + 120_001.0).is_none(), "a dead pairing is not shown");
     }
 }

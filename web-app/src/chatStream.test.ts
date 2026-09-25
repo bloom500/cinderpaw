@@ -151,9 +151,10 @@ test("a tool's progress message becomes a waiting line; an empty one is dropped"
   ]);
 });
 
-test("the WhatsApp code is the engine's text, and null when there is none or the engine is gone", async () => {
+test("the WhatsApp code is the engine's picture, and null when there is none, only text, or no engine", async () => {
   const answer = (body: unknown) => async () => new Response(JSON.stringify(body));
-  expect(await whatsappQr(answer({ qr: "2@x", ascii: "▀▄", ts: 1 }))).toBe("▀▄");
+  expect(await whatsappQr(answer({ qr: "2@x", ascii: "▀▄", svg: "<svg/>", ts: 1 }))).toBe("<svg/>");
+  expect(await whatsappQr(answer({ qr: "2@x", ascii: "▀▄", svg: null, ts: 1 }))).toBeNull();
   expect(await whatsappQr(answer(null))).toBeNull();
   expect(await whatsappQr(async () => { throw new Error("offline"); })).toBeNull();
 });

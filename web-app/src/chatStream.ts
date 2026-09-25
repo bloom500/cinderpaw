@@ -211,13 +211,17 @@ export async function saveSecret(f: Fetch, ask: SecretAsk, raw: string): Promise
   return answerAsk(f, ask.requestId, ask.question, "Saved");
 }
 
-/** The WhatsApp pairing code waiting to be scanned, or null (none, or already linked). */
+/**
+ * The WhatsApp pairing code waiting to be scanned, as an SVG picture, or null
+ * (none, already linked, or an engine too old to draw it: its half-block text
+ * does not scan on a page, seen live 25 Sep).
+ */
 export async function whatsappQr(f: Fetch): Promise<string | null> {
   try {
     const res = await f("/runtime/connectors/whatsapp/qr");
     if (!res.ok) return null;
-    const body = (await res.json()) as { ascii?: string } | null;
-    return body?.ascii || null;
+    const body = (await res.json()) as { svg?: string | null } | null;
+    return body?.svg || null;
   } catch {
     return null;
   }
