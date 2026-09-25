@@ -2760,7 +2760,13 @@ export async function boot(transportOverride?: Transport) {
     // that connector's sender is only registered once the client has logged in.
     // Chaining on the reload promise waits for the real signal instead of
     // guessing with a timer.
-    void connectors.reload().then(() => resumeInterrupted());
+    //
+    // Under a host, the first reload waits for the host's rows: the host keeps
+    // connector secrets in the OS keychain and sends them right after spawn,
+    // and reading the file alone started every connector once with no token.
+    // In-process (transportOverride) there is no host to wait for.
+    const hostRows = transportOverride ? Promise.resolve() : connectors.hostRows(5_000);
+    void hostRows.then(() => connectors.reload()).then(() => resumeInterrupted());
     // One round on demand, for a headless test of the code-RSI path; the
     // product's trigger is the Dreams cycle.
     if (cfgBool("CINDERPAW_CODE_RSI_ROUND_ON_READY")) void maybeCodeRsiRound();

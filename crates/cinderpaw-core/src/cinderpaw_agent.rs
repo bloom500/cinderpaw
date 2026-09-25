@@ -589,6 +589,13 @@ pub async fn spawn(
 
     // Channel: commands → stdin writer task.
     let (tx, rx) = mpsc::channel::<String>(64);
+    // First thing on the pipe: the connector rows with their secrets, read out
+    // of the vault. Boot moved those secrets out of connectors.json, and the
+    // sidecar cannot read the keychain, so without this every connector
+    // started with no token after any restart (seen 25 Sep: "telegram: enabled
+    // but no bot token"). The sidecar waits for this before its first reload.
+    let rows = crate::connectors::resolved_connector_configs();
+    let _ = tx.try_send(serde_json::json!({ "type": "connectors_reload", "connectors": rows }).to_string());
     *runtime.cinderpaw_agent_tx.lock() = Some(tx);
 
     // The stdout reader borrows the sender from `runtime.cinderpaw_agent_tx` at the

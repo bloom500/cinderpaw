@@ -331,12 +331,22 @@ export function stepsFor(id: string, cards: boolean): string[] {
   });
 }
 
+/**
+ * Secrets the host holds in the keychain, which connectors.json no longer
+ * shows once the host has moved them there. Set when the tool is built.
+ * ponytail: module-level, one manager per process.
+ */
+let hostHas: (id: string, key: string) => boolean = () => false;
+
+const has = (row: ConnectorRow | undefined, id: string, k: string) =>
+  Boolean(row?.secrets?.[k]?.trim() || (id === "discord" && row?.token?.trim()) || hostHas(id, k));
+
 const redact = (row: ConnectorRow | undefined, id: string, cards = false) => ({
   id,
   enabled: row?.enabled ?? false,
   configured: CATALOG[id]!.secrets.map((k) => ({
     secret: k,
-    present: Boolean(row?.secrets?.[k]?.trim() || (id === "discord" && row?.token?.trim())),
+    present: has(row, id, k),
   })),
   allowlist: row?.allowlist ?? [],
   channels: row?.channels ?? [],
@@ -365,8 +375,9 @@ export async function secretPresent(connector: string, field: string): Promise<b
 }
 
 export function createConnectorsManageTool(
-  manager: { reload(): Promise<void> },
+  manager: { reload(): Promise<void>; hasHostSecret?(id: string, key: string): boolean },
 ): Tool {
+  if (manager.hasHostSecret) hostHas = (id, key) => manager.hasHostSecret!(id, key);
   const manifest: ToolManifest = {
     name: "connectors_manage",
     description:
@@ -505,9 +516,7 @@ export function createConnectorsManageTool(
       await atomicWriteFile(file, JSON.stringify({ connectors: next }, null, 2));
       await manager.reload();
 
-      const missing = CATALOG[id]!.secrets.filter(
-        (k) => !row.secrets?.[k]?.trim() && !(id === "discord" && row.token?.trim()),
-      );
+      const missing = CATALOG[id]!.secrets.filter((k) => !has(row, id, k));
       const state = redact(row, id);
       // An enabled connector with nobody on the allowlist is the failure this
       // whole file now guards against, and refusing it outright is not an

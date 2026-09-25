@@ -1789,6 +1789,19 @@ export class ConnectorManager {
   /** Serialize reloads so overlapping pokes can't double-start a connection. */
   #reloading: Promise<void> = Promise.resolve();
   /**
+   * The secrets the host last sent, by connector id, read out of the vault.
+   *
+   * The host moves every connector secret out of connectors.json into the OS
+   * keychain on startup, and this process cannot read the keychain. So the
+   * file alone says "no token" for every connector on every machine that has
+   * restarted once: measured 25 Sep, a Telegram bot saved from the page came
+   * back up after a restart with "enabled but no bot token". Every read of the
+   * file fills its gaps from here.
+   */
+  #hostSecrets = new Map<string, Record<string, string>>();
+  #hostRowsSeen!: () => void;
+  readonly #hostRowsArrived = new Promise<void>((resolve) => (this.#hostRowsSeen = resolve));
+  /**
    * What actually connected, by connector id.
    *
    * A connector that fails to start used to be logged and swallowed here, while
@@ -1862,7 +1875,43 @@ export class ConnectorManager {
     } catch {
       rows = []; // no file yet → everything off
     }
-    await this.applyRows(rows);
+    await this.applyRows(rows.map((row) => this.#withHostSecrets(row)));
+  }
+
+  /** A value in the file wins, as on the host side (`resolve_secrets_into`). */
+  #withHostSecrets(row: ConnectorRow): ConnectorRow {
+    const fromHost = this.#hostSecrets.get(row.id);
+    if (!fromHost) return row;
+    const secrets = { ...row.secrets };
+    for (const [k, v] of Object.entries(fromHost)) if (!secrets[k]?.trim() && v.trim()) secrets[k] = v;
+    return { ...row, secrets };
+  }
+
+  /**
+   * The host's rows, secrets included. Replaces what came before, so a secret
+   * the person removed is gone here too. Reconciles through the same queue as
+   * every other reload.
+   */
+  setHostRows(rows: ConnectorRow[]): Promise<void> {
+    this.#hostSecrets = new Map(rows.map((r) => [r.id, { ...r.secrets }]));
+    this.#hostRowsSeen();
+    return this.reload();
+  }
+
+  /** Did the host send this secret? Never the value. */
+  hasHostSecret(id: string, key: string): boolean {
+    return Boolean(this.#hostSecrets.get(id)?.[key]?.trim());
+  }
+
+  /**
+   * Resolves when the host's rows arrive, or after `ms`. The host sends them
+   * as soon as it spawns this process; waiting for them before the first
+   * reload is what stops every connector from starting once with no token.
+   * The timeout keeps a host that never sends them (an older build) working
+   * as it did before.
+   */
+  hostRows(ms: number): Promise<void> {
+    return Promise.race([this.#hostRowsArrived, new Promise<void>((r) => setTimeout(r, ms))]);
   }
 
   /**

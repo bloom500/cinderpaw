@@ -162,9 +162,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // Reading connectors.json ourselves stopped being enough the moment
         // the migration emptied that file of credentials: every connector on
         // the machine would have come back up blank. The file path stays as
-        // the fallback for a host that has not been updated.
+        // the fallback for a host that has not been updated. Kept, not only
+        // applied: the agent's own connectors_manage edits re-read the file,
+        // and without these they restarted every connector with no token.
         const rows = (msg as { connectors?: unknown }).connectors;
-        if (Array.isArray(rows)) void connectors.applyRows(rows as never);
+        if (Array.isArray(rows)) void connectors.setHostRows(rows as never);
         else void connectors.reload();
         break;
       }
