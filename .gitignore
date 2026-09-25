@@ -22,6 +22,8 @@ node_modules/
 CinderpawAgent/dist/
 src-tauri/binaries/*.exe
 src-tauri/binaries/cinderpaw-agent
+# The sidecar build names the binary by target triple; on Linux and macOS it has no .exe.
+src-tauri/binaries/cinderpaw-agent-*
 
 # Compiled Bun scripts under scripts/ — sources (.ts/.mjs/.ps1) are
 # tracked, the .exe is a build artifact (e.g. scripts/fake-lora-trainer.exe
@@ -139,6 +141,9 @@ vendor/
 # by name, so adding one stays a decision someone made on purpose.
 !CinderpawAgent/src/vendor/
 !CinderpawAgent/src/artifacts/vendor/
+# Mozilla Readability, compiled into the host by `include_str!`: without it a
+# clean clone (CI, the release build) cannot compile `src-tauri` at all.
+!src-tauri/vendor/
 
 # Python bytecode from the tau2 harness.
 __pycache__/
