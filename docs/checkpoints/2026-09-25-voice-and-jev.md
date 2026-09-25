@@ -62,6 +62,13 @@ here against the code before building on it.
 
 ## Open, in priority order
 
+0. The first macOS CI run found that the host did not compile on macOS at all:
+   `call_pill.rs` called `.transparent()`, which needs `macos-private-api`.
+   That is fixed by gating it; the pill is opaque on macOS. The next macOS run
+   may surface further macOS-only compile errors: fix each one as it appears.
+   Enabling `macos-private-api` (a transparent pill) is a product decision:
+   ask first.
+
 1. **Watch the macOS CI result.** If `text_reaches_textedit` fails only for
    TCC (Accessibility) on the runner, do not skip it. Find how the runner grants
    it, or make the step report the missing permission clearly. A compile error
