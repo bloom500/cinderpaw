@@ -12,7 +12,7 @@ import { resolve, join, delimiter } from "node:path";
 import { mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFileSync } from "./atomic-write.ts";
 import { homedir } from "node:os";
-import { openDatabase } from "./db.ts";
+import { openDatabase, waitForWriterLock } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
 import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, defaultDbPath, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
@@ -428,6 +428,9 @@ function buildTransport(kind: AppConfig["transport"]): Transport {
  */
 export async function boot(transportOverride?: Transport) {
   const config = loadConfig();
+  // A predecessor still shutting down (stop, then start) holds the lock for a
+  // while; wait for it rather than failing five times and giving up.
+  await waitForWriterLock(config.dbPath, 60_000);
   const db = openDatabase(config.dbPath);
   // Durable state for unattended runs. Created here, next to the database,
   // because the boot-time resume pass below needs it before anything else can

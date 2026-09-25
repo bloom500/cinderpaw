@@ -133,6 +133,49 @@ function isLockAbandoned(lockPath: string, now: number): boolean {
  */
 const heldLocks = new Set<string>();
 
+/** Can nobody be holding this lock any more? */
+function isLockDead(lockPath: string, pid: number): boolean {
+  return (
+    !Number.isFinite(pid) || // legacy 0-byte or garbage lockfile
+    // Our pid, on a lock we never took: a predecessor's corpse wearing our
+    // number. We KNOW we did not write it, so no liveness probe can be
+    // more authoritative than that.
+    pid === process.pid ||
+    !couldBeOurSidecar(pid) || // dead, or a pid we could never own
+    // ...and the check that survives pid recycling onto a live stranger:
+    // the owner stopped saying it was alive. A dead process cannot keep
+    // touching a file, whoever inherited its number.
+    isLockAbandoned(lockPath, Date.now())
+  );
+}
+
+/**
+ * Wait, up to `ms`, for a previous sidecar that is still shutting down to let
+ * go of the memory database.
+ *
+ * Seen 25 Sep: `cinderpaw stop` returns once the port closes, while the old
+ * sidecar holds the lock for tens of seconds more. The next start failed on
+ * the lock five times in a row and the host gave up "until the app is
+ * restarted", which is exactly what `cinderpaw update` (stop, then start)
+ * walks into. A predecessor on its way out is worth waiting for; a real
+ * second sidecar is still refused by openDatabase when the wait runs out.
+ */
+export async function waitForWriterLock(dbPath: string, ms: number): Promise<void> {
+  if (dbPath === ":memory:") return;
+  const lockPath = `${dirname(dbPath)}${sep}.writer.lock`;
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline && existsSync(lockPath) && !heldLocks.has(lockPath)) {
+    let pid = Number.NaN;
+    try {
+      pid = Number.parseInt(readFileSync(lockPath, "utf8").trim(), 10);
+    } catch {
+      return; // gone between the check and the read
+    }
+    if (isLockDead(lockPath, pid)) return;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 export function openDatabase(path: string): CinderpawDb {
   let lockPath: string | null = null;
   let lockFd: number | null = null;
@@ -157,18 +200,7 @@ export function openDatabase(path: string): CinderpawDb {
       // us. Treat it like any other corpse. Only a lock we genuinely hold means
       // "opened twice", and that must still throw.
       const weHoldIt = heldLocks.has(lockPath);
-      const stale =
-        !weHoldIt &&
-        (!Number.isFinite(pid) || // legacy 0-byte or garbage lockfile
-          // Our pid, on a lock we never took: a predecessor's corpse wearing our
-          // number. We KNOW we did not write it, so no liveness probe can be
-          // more authoritative than that.
-          pid === process.pid ||
-          !couldBeOurSidecar(pid) || // dead, or a pid we could never own
-          // ...and the check that survives pid recycling onto a live stranger:
-          // the owner stopped saying it was alive. A dead process cannot keep
-          // touching a file, whoever inherited its number.
-          isLockAbandoned(lockPath, Date.now()));
+      const stale = !weHoldIt && isLockDead(lockPath, pid);
       if (stale) {
         try {
           unlinkSync(lockPath);
