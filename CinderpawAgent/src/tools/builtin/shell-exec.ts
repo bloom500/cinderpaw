@@ -50,12 +50,12 @@
  * through the narrower `run_tests`, `format_code`, `git_*` tools.
  */
 
-import type { Tool, ToolManifest } from "../../types.ts";
+import type { Tool, ToolContext, ToolManifest, ToolResult } from "../../types.ts";
 import { resolve, join, sep } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { resolveExecutables } from "../../core/executables.ts";
 import { cinderpawHome, readEnv } from "../../config.ts";
-import { classifyCommand, recordIntent } from "../../core/command-intent.ts";
+import { classifyCommand, installsSoftware, recordIntent } from "../../core/command-intent.ts";
 import { readMaxTimeoutMs } from "../../egress/process-sandbox.ts";
 import { snapshottable } from "../../core/safety-point.ts";
 import {
@@ -400,6 +400,11 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
         return { ok: false, content: `shell_exec: ${byIntent.reason}`, error: "permission_mode" };
       }
 
+      if (installsSoftware(argv)) {
+        const refused = await askBeforeInstall(ctx, argv.join(" "));
+        if (refused) return refused;
+      }
+
       // Blast-radius gate: destruction aimed outside every workspace root. The
       // denylist above covers what wrecks the machine; this covers what wrecks
       // the person — their Documents folder, another project, a sibling repo.
@@ -512,5 +517,43 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
         };
       }
     },
+  };
+}
+
+/**
+ * Putting software on the machine is the person's call, every time. Seen live
+ * 25 Sep: asked to connect WhatsApp, the agent went looking for the library
+ * through the shell on its own, and the page had no way to stop it. With
+ * nobody there to answer it is refused, except where the operator chose full
+ * access, which is that decision already made. null = go ahead.
+ */
+export async function askBeforeInstall(ctx: ToolContext, command: string): Promise<ToolResult | null> {
+  const shown = command.slice(0, 300);
+  if (!canAskAHuman(Boolean(ctx.askUser))) {
+    if (permissionMode() === "full_access") return null;
+    return {
+      ok: false,
+      content: `refused — installing software needs the person's yes, and nobody is here to give it (${shown}). Leave it for them.`,
+      error: "install_needs_approval",
+    };
+  }
+  const [answer] = await ctx.askUser!.ask(
+    [{
+      question: `Install software on this computer? The command is: ${shown}`,
+      header: "Install",
+      multiSelect: false,
+      forceEscalate: true,
+      options: [
+        { label: "No, don't install", description: "Nothing is installed." },
+        { label: "Yes, install it", description: "Run this one command." },
+      ],
+    }],
+    ctx.sessionId,
+  );
+  if ((answer?.selected?.[0] ?? "").toLowerCase().startsWith("yes")) return null;
+  return {
+    ok: false,
+    content: `The person said no to installing (${shown}). Do not install it another way.`,
+    error: "install_declined",
   };
 }

@@ -5,7 +5,7 @@
  * the report would look complete.
  */
 import { describe, expect, test } from "bun:test";
-import { classifyCommand, classifyCommandLine } from "../src/core/command-intent.ts";
+import { classifyCommand, classifyCommandLine, installsSoftware } from "../src/core/command-intent.ts";
 
 describe("classifying what a command is for", () => {
   test("the obvious cases", () => {
@@ -55,5 +55,22 @@ describe("classifying what a command is for", () => {
     expect(classifyCommand(["some-random-binary"])).toBe("unknown");
     expect(classifyCommand([])).toBe("unknown");
     expect(classifyCommand(["sh"])).toBe("unknown");
+  });
+});
+
+describe("installsSoftware: the verb decides, not the package manager", () => {
+  test("installs are caught, directly and inside a shell", () => {
+    for (const argv of [
+      ["npm", "install", "left-pad"], ["bun", "add", "x"], ["pip", "install", "requests"],
+      ["winget", "install", "Git.Git"], ["yarn"], ["python", "-m", "pip", "install", "x"],
+      ["powershell", "-NoProfile", "-Command", "cd D:/wa; npm install @whiskeysockets/baileys"],
+      ["cmd", "/c", "npm i -g something"], ["sudo", "apt-get", "install", "curl"],
+    ]) expect(installsSoftware(argv)).toBe(true);
+  });
+  test("everyday build and test commands are not", () => {
+    for (const argv of [
+      ["npm", "test"], ["bun", "run", "build"], ["cargo", "build"], ["go", "test", "./..."],
+      ["git", "status"], ["powershell", "-Command", "Get-ChildItem D:/"], ["npm", "--version"],
+    ]) expect(installsSoftware(argv)).toBe(false);
   });
 });

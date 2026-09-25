@@ -26,6 +26,7 @@ import { join } from "node:path";
 import type { Tool, ToolManifest, ToolResult } from "../../types.ts";
 import { resolveExecutables } from "../../core/executables.ts";
 import { readMaxTimeoutMs } from "../../egress/process-sandbox.ts";
+import { askBeforeInstall } from "./shell-exec.ts";
 
 // Resolve the executables we need at module load (F0.5 hardening).
 // npm/npx, cargo, pytest/python -m, go, make. On Windows, npm and npx
@@ -256,6 +257,10 @@ export function createCodeQualityTool(
           content: `${kind}: no command for project_type "${projectType}"`,
           error: "unsupported_kind",
         };
+      }
+      if (kind === "install_deps") {
+        const refused = await askBeforeInstall(ctx, cmd.join(" "));
+        if (refused) return refused;
       }
 
       // For Node, prefer the project's own "scripts" entry when present.
