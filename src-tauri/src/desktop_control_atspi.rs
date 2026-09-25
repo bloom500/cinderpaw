@@ -151,10 +151,14 @@ impl Bus {
         self.call(n, ACCESSIBLE, "GetAttributes", &()).unwrap_or_default()
     }
 
+    /// The element's action names, one at a time. Never `GetActions`:
+    /// at-spi2-atk 2.38 (Ubuntu 22.04, every GTK 3 app) writes four strings
+    /// into its a(sss) reply, and libdbus aborts the app on that. The first
+    /// CI run killed zenity with it on the first press.
     fn actions(&self, n: &Node) -> Vec<String> {
-        self.call::<_, Vec<(String, String, String)>>(n, "org.a11y.atspi.Action", "GetActions", &())
-            .map(|v| v.into_iter().map(|(name, _, _)| name).collect())
-            .unwrap_or_default()
+        const ACTION: &str = "org.a11y.atspi.Action";
+        let count = self.prop(n, ACTION, "NActions").ok().and_then(|v| i32::try_from(v).ok()).unwrap_or(0);
+        (0..count.clamp(0, 32)).map(|i| self.call::<_, String>(n, ACTION, "GetName", &(i,)).unwrap_or_default()).collect()
     }
 
     fn extents(&self, n: &Node) -> BoundingRect {
@@ -502,11 +506,12 @@ pub fn front(pid: u32, path: &[i32]) -> Result<(), String> {
     activate(pid, n)
 }
 
-/// The element takes the focus. Only when the app accepted the request or
-/// the element already has it: GTK 4 does not implement GrabFocus, and keys
-/// sent after a refused focus would land in whatever field had it. With
-/// `for_keys`, a password field is refused, as on Windows: keystrokes into it
-/// are not something to replay.
+/// The element takes the focus. Asked for on its own (`perform_action
+/// focus`), a refusal is an error. Before keys (`for_keys`) it is best effort,
+/// as on Windows: the element's window is already in front, and GTK 4 does not
+/// implement GrabFocus at all, so its fields would take no keys otherwise. A
+/// password field is refused keys, as on Windows: keystrokes into it are not
+/// something to replay.
 pub fn focus(pid: u32, check: i32, path: &[i32], for_keys: bool) -> Result<(), String> {
     let bus = Bus::open()?;
     let (n, role, name) = locate(&bus, pid, check, path)?;
@@ -524,7 +529,7 @@ pub fn focus(pid: u32, check: i32, path: &[i32], for_keys: bool) -> Result<(), S
             }
             Ok(())
         }
-        _ if focused() => Ok(()),
+        _ if focused() || for_keys => Ok(()),
         Ok(false) => Err(format!("desktop control: \"{name}\" refused the focus")),
         Err(e) => Err(format!("desktop control: \"{name}\" cannot take the focus in this app ({e}). Send the keys to its window instead: the id get_focused returns.")),
     }

@@ -501,8 +501,8 @@ pub fn take_element_action(id: &str, action: &str) -> Result<(), String> {
 }
 
 /// The window first, then the keys: sent to whatever is in front, they could
-/// land in the wrong app. An element (the page in a browser) also takes the
-/// focus, so its keys reach it and not the search box.
+/// land in the wrong app. An element (the page in a browser) is also asked to
+/// take the focus, so its keys reach it and not the search box.
 pub fn send_keys(id: &str, keys: &str) -> Result<(), String> {
     let toks = parse(keys)?;
     if toks.is_empty() {

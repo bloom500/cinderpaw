@@ -420,8 +420,9 @@ pub fn focus(pid: u32, check: i32, path: &[i32], for_keys: bool) -> Result<(), S
         return Err("desktop control: refusing to send keystrokes to a secure/password field".into());
     }
     let r = act("focus", pid, path, &want, None)?;
-    // Keys after a refused focus would land in whatever had it.
-    if r.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+    // Before keys the focus is best effort, as on Windows: the element's
+    // window is already in front. Asked for on its own, a refusal is an error.
+    if for_keys || r.get("ok").and_then(|v| v.as_bool()) == Some(true) {
         Ok(())
     } else {
         Err(format!(
