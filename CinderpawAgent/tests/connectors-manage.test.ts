@@ -255,3 +255,32 @@ test("no step routes a secret anywhere but this chat", async () => {
     }
   }
 });
+
+test("turning WhatsApp on starts pairing when no phone is linked, and says where the code is", async () => {
+  // Before 25 Sep nothing called pairWhatsApp: an enabled, unlinked WhatsApp
+  // stayed idle forever and no surface could link a phone on a fresh machine.
+  for (const linked of [false, true]) {
+    writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+    let pairs = 0;
+    const tool = createConnectorsManageTool(
+      { reload: async () => {}, pairWhatsApp: async () => (++pairs, true) },
+      () => linked,
+      () => true,
+    );
+    const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, ctx);
+    expect(pairs).toBe(linked ? 0 : 1);
+    if (!linked) expect(res.content).toContain("Linked devices");
+  }
+});
+
+test("without the WhatsApp library it says so in words and saves nothing", async () => {
+  writeFileSync(file, JSON.stringify({ connectors: [] }), "utf8");
+  let pairs = 0;
+  const tool = createConnectorsManageTool({ reload: async () => {}, pairWhatsApp: async () => (++pairs, true) }, () => false, () => false);
+  const res = await tool.execute({ action: "configure", id: "whatsapp", enabled: true }, ctx);
+  expect(res.ok).toBe(false);
+  expect(res.content).toContain("not included");
+  expect(res.content).toContain("Discord");
+  expect(pairs).toBe(0);
+  expect(JSON.parse(readFileSync(file, "utf8")).connectors).toEqual([]);
+});

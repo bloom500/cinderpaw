@@ -1219,6 +1219,12 @@ export function mimeForName(name: string): string {
   return MIME_BY_EXT[name.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 }
 
+/** Is the WhatsApp library installed? It is not by default: it carries libsignal (GPL-3.0). */
+export function whatsappAvailable(): boolean {
+  const entry = cfgPath("CINDERPAW_WHATSAPP_MODULE");
+  return !!entry && isAbsolute(entry);
+}
+
 export async function loadWhatsAppModule(): Promise<typeof import("@whiskeysockets/baileys")> {
   const entry = cfgPath("CINDERPAW_WHATSAPP_MODULE");
   if (!entry || !isAbsolute(entry)) {

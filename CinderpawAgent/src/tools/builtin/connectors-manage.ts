@@ -22,7 +22,7 @@ import { readFile, mkdir } from "node:fs/promises";
 import { atomicWriteFile } from "../../atomic-write.ts";
 import { dirname } from "node:path";
 import type { Tool, ToolManifest } from "../../types.ts";
-import { configPath, type ConnectorRow } from "../../transports/connectors.ts";
+import { configPath, WhatsAppConnector, whatsappAvailable, type ConnectorRow } from "../../transports/connectors.ts";
 import { sessionHasCards } from "../../core/card-surface.ts";
 
 /**
@@ -366,7 +366,14 @@ const redact = (row: ConnectorRow | undefined, id: string, cards = false) => ({
   note: CATALOG[id]!.note,
   ...(CATALOG[id]!.consoleUrl ? { consoleUrl: CATALOG[id]!.consoleUrl } : {}),
   ...(CATALOG[id]!.steps ? { steps: stepsFor(id, cards) } : {}),
+  ...(id === "whatsapp" && !whatsappAvailable() ? { available: false, why: WHATSAPP_MISSING } : {}),
 });
+
+/** Said instead of an error: seen live 25 Sep, the raw "optional external
+ *  dependency" error sent the agent searching the person's folders for it. */
+const WHATSAPP_MISSING =
+  "WhatsApp is not included in this version of Cinderpaw (its library has a license we cannot ship). " +
+  "Discord and Telegram work right away. Offer one of those instead; do not look for the library yourself.";
 
 export async function readRows(): Promise<ConnectorRow[]> {
   try {
@@ -401,7 +408,9 @@ export async function secretPresent(connector: string, field: string): Promise<b
 }
 
 export function createConnectorsManageTool(
-  manager: { reload(): Promise<void>; hasHostSecret?(id: string, key: string): boolean },
+  manager: { reload(): Promise<void>; hasHostSecret?(id: string, key: string): boolean; pairWhatsApp?(): Promise<boolean> },
+  isLinked: () => boolean = WhatsAppConnector.isLinked,
+  hasWhatsApp: () => boolean = whatsappAvailable,
 ): Tool {
   if (manager.hasHostSecret) hostHas = (id, key) => manager.hasHostSecret!(id, key);
   const manifest: ToolManifest = {
@@ -492,6 +501,9 @@ export function createConnectorsManageTool(
         };
       }
 
+      if (id === "whatsapp" && args.enabled === true && !hasWhatsApp()) {
+        return { ok: false, content: WHATSAPP_MISSING, error: "not_included" };
+      }
       const rows = await readRows();
       const row: ConnectorRow = rows.find((r) => r.id === id) ?? { id };
       if (typeof args.enabled === "boolean") row.enabled = args.enabled;
@@ -538,6 +550,11 @@ export function createConnectorsManageTool(
 
       await writeRows([...rows.filter((r) => r.id !== id), row]);
       await manager.reload();
+      // An enabled WhatsApp with no phone linked stays idle on purpose (no QR
+      // nobody asked for). Turning it on here IS the asking, and before this
+      // nothing called pair at all: no surface could link a phone on a fresh
+      // machine.
+      const pairing = id === "whatsapp" && row.enabled === true && !isLinked() && (await manager.pairWhatsApp?.()) === true;
 
       const missing = CATALOG[id]!.secrets.filter((k) => !has(row, id, k));
       const state = redact(row, id);
@@ -551,18 +568,22 @@ export function createConnectorsManageTool(
       const hint =
         row.enabled && missing.length > 0
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
-          : deaf
-            ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
-              `answers NOBODY — not "everyone". ` +
-              (PAIRABLE[id]
-                ? `Tell the user to send the bot a direct message now, then call connectors_pair ` +
-                  `with id "${id}": it asks them "Is that you?" and lets them in, no user id needed.`
-                : `Ask the user for their ${id} user id and call configure again with ` +
-                  `allowlist:["<their id>"], or the bot will look connected and silently ignore ` +
-                  `every message, including theirs.`)
-            : id === "whatsapp" && row.enabled
-              ? " WhatsApp pairs via QR — tell the user to scan the code in the Cinderpaw app (Connectors page or TUI)."
-              : "";
+          : pairing
+            // Before the allowlist: nobody can message a WhatsApp that has no phone yet.
+            ? " A QR code is on its way to the Cinderpaw page (in the terminal chat: /connectors qr). " +
+              "Tell the user: on your phone open WhatsApp, then Settings, Linked devices, Link a device, and point the camera at the code."
+            : deaf
+              ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
+                `answers NOBODY — not "everyone". ` +
+                (PAIRABLE[id]
+                  ? `Tell the user to send the bot a direct message now, then call connectors_pair ` +
+                    `with id "${id}": it asks them "Is that you?" and lets them in, no user id needed.`
+                  : `Ask the user for their ${id} user id and call configure again with ` +
+                    `allowlist:["<their id>"], or the bot will look connected and silently ignore ` +
+                    `every message, including theirs.`)
+              : id === "whatsapp" && row.enabled
+                ? " WhatsApp pairs via QR — tell the user to scan the code in the Cinderpaw app (Connectors page or TUI)."
+                : "";
       return {
         ok: true,
         content: `Saved and reloaded.${hint}\n${JSON.stringify(state, null, 2)}`,
