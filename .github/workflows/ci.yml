@@ -180,6 +180,10 @@ jobs:
             features: ""
           - os: windows-latest
             features: "--features cinderpaw/piper,cinderpaw/kokoro"
+          # Desktop control has a macOS backend (osascript) that nothing else
+          # compiles or runs; see the live step below.
+          - os: macos-latest
+            features: ""
 
     steps:
       - name: Checkout
@@ -225,6 +229,19 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace ${{ matrix.features }}
+
+      # Real keys into a real window: xev under Xvfb on Linux, TextEdit on the
+      # macOS runner. The unit tests prove the translation; these prove the
+      # keystrokes arrive (desktop_control_unix.rs, `live`).
+      - name: Desktop control, live (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y xvfb xdotool x11-utils
+          xvfb-run -a cargo test -p cinderpaw ${{ matrix.features }} desktop_control -- --include-ignored
+
+      - name: Desktop control, live (macOS)
+        if: runner.os == 'macOS'
+        run: cargo test -p cinderpaw desktop_control -- --include-ignored
 
   # The headless/server build (`cargo build -p cinderpaw-cli --no-default-features`)
   # compiles the cfg(not(feature = "inference")) stubs that no other job

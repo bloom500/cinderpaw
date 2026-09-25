@@ -47,11 +47,12 @@
     "targets": ["nsis", "msi", "app", "dmg", "deb", "rpm"],
     "macOS": {
       "minimumSystemVersion": "13.3",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "./entitlements.plist"
     },
     "linux": {
-      "deb": { "depends": ["git"] },
-      "rpm": { "depends": ["git"] }
+      "deb": { "depends": ["git", "xdotool"] },
+      "rpm": { "depends": ["git", "xdotool"] }
     },
     "externalBin": [
       "binaries/cinderpaw-agent"
