@@ -743,6 +743,9 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
                         .unwrap_or_else(|| url.path_segments().and_then(|mut s| s.next_back()).unwrap_or("download").into());
                     let dir = downloads_dir();
                     let _ = std::fs::create_dir_all(&dir);
+                    // Said now, not only when it lands: a large file took
+                    // minutes with nothing on screen after the click.
+                    let _ = wv.app_handle().emit("browser://download", json!({ "name": name.to_string_lossy(), "started": true }));
                     *destination = dir.join(format!("{}-{}", uuid::Uuid::new_v4().simple(), name.to_string_lossy()));
                 }
                 DownloadEvent::Finished { url, path, success } => {
@@ -751,7 +754,10 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
                             on_downloaded(wv.app_handle(), &url, &path);
                         }
                     } else {
-                        let _ = wv.app_handle().emit("browser://download", json!({ "name": url.as_str(), "error": "the download failed" }));
+                        // The file's name, not the whole address: that one can
+                        // carry a signed query string a screen should not show.
+                        let name = url.path_segments().and_then(|mut s| s.next_back()).filter(|n| !n.is_empty()).unwrap_or("the file");
+                        let _ = wv.app_handle().emit("browser://download", json!({ "name": name, "error": "the download failed" }));
                     }
                 }
                 // The enum is non-exhaustive: a kind Tauri adds later is allowed through.

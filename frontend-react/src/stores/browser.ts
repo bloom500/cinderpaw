@@ -223,8 +223,11 @@ void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e
 // arrives once the agent has CONFIRMED it is there; anything else, and a
 // document the agent refused (`reason`), is a file the person is asked where
 // to put, with the reason on screen first.
-void listen<{ name: string; dest?: string; artifact?: boolean; error?: string; reason?: string | null }>('browser://download', (e) => {
-  const { name, dest, artifact, error, reason } = e.payload;
+void listen<{ name: string; started?: boolean; dest?: string; artifact?: boolean; error?: string; reason?: string | null }>('browser://download', (e) => {
+  const { name, started, dest, artifact, error, reason } = e.payload;
+  // The click that starts a download changes nothing on the page; without
+  // this, a large file was minutes of nothing until it landed.
+  if (started) { useBrowser.setState({ notice: `Downloading ${name}…` }); return; }
   const log = (entry: { dest?: string; artifact?: boolean; error?: string }) =>
     useBrowser.setState((st) => ({ downloads: [{ name, at: Date.now(), ...entry }, ...st.downloads].slice(0, 50) }));
   if (error) {
