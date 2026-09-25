@@ -38,7 +38,9 @@ const MIN_COMMAND_VOICED_MS = 120;
  * is off..."). The chime has to tell the two apart before any voice does.
  */
 export function toneFor(line: string): 'ok' | 'fail' {
-  return !line || /^(Opening|Searching|Switching)\b/.test(line) ? 'ok' : 'fail';
+  // "3 matches for pricing." is `find` succeeding: it chimed as a failure,
+  // was spoken as one, and ended the rest of a chain that was going fine.
+  return !line || /^(Opening|Searching|Switching)\b|^\d+ match(es)? for /.test(line) ? 'ok' : 'fail';
 }
 
 /**

@@ -796,7 +796,10 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
         : Math.abs(plan.dy) <= 300 ? (plan.dy < 0 ? '{up}{up}{up}' : '{down}{down}{down}')
           : Math.abs(plan.dy) >= 2000 ? (plan.dy < 0 ? '{pageup}{pageup}{pageup}' : '{pagedown}{pagedown}{pagedown}')
             : (plan.dy < 0 ? '{pageup}' : '{pagedown}');
-      await keys(spec);
+      // To the page, not to whatever has the focus: after "search youtube
+      // for jazz" that is the search box, where Page Down and the arrows
+      // move a caret and the page never moved. Same road as a site's keys.
+      await siteKeys(spec);
       return '';
     }
     case 'navigate': {
@@ -880,7 +883,7 @@ export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
     case 'find': {
       b.setPanel(true);
       const r = (await ui('find', { query: plan.query })) as { total?: number };
-      return r?.total ? `${r.total} matches for ${plan.query}.` : `Nothing on this page says ${plan.query}.`;
+      return r?.total ? `${r.total} ${r.total === 1 ? 'match' : 'matches'} for ${plan.query}.` : `Nothing on this page says ${plan.query}.`;
     }
     case 'navigate': {
       b.setPanel(true);

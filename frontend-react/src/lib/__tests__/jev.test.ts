@@ -184,3 +184,24 @@ describe('an open window of the app asked for', () => {
     expect(windowOfApp('Brave', w('ai.exe'))).toBe(false);
   });
 });
+
+describe('scrolling on the desktop', () => {
+  it('sends the keys to the page, not to the search box that has the focus', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const sent: { elementId: string; keys: string }[] = [];
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'get_focused_element') return { id: '42:7', role: 'Edit', name: 'Search', is_offscreen: false, is_enabled: true };
+      if (cmd === 'find_elements') return [{ id: '42:1', role: 'Document', name: 'jazz - YouTube', is_offscreen: false, is_enabled: true }];
+      if (cmd === 'send_keys') { sent.push(args as { elementId: string; keys: string }); return null; }
+      throw new Error(`unexpected ${cmd}`);
+    });
+    try {
+      const { executeOnDesktop, resetTarget } = await import('../jev');
+      resetTarget();
+      await executeOnDesktop({ action: 'scroll', dy: 700, confidence: 1 });
+      expect(sent).toEqual([{ elementId: '42:1', keys: '{pagedown}' }]);
+    } finally {
+      vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true to enable it.'; });
+    }
+  });
+});

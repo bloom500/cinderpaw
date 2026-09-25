@@ -23,6 +23,8 @@ describe('the tone of a result', () => {
     expect(toneFor('Searching for jazz.')).toBe('ok');
     expect(toneFor('Switching to Brave.')).toBe('ok');
     expect(toneFor('')).toBe('ok');
+    expect(toneFor('3 matches for pricing.')).toBe('ok');
+    expect(toneFor('Nothing on this page says pricing.')).toBe('fail');
     expect(toneFor('I could not find the like button in the window in front.')).toBe('fail');
     expect(toneFor('Openingly wrong')).toBe('fail');
   });
