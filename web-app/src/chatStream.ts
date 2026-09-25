@@ -210,3 +210,15 @@ export async function saveSecret(f: Fetch, ask: SecretAsk, raw: string): Promise
   }
   return answerAsk(f, ask.requestId, ask.question, "Saved");
 }
+
+/** The WhatsApp pairing code waiting to be scanned, or null (none, or already linked). */
+export async function whatsappQr(f: Fetch): Promise<string | null> {
+  try {
+    const res = await f("/runtime/connectors/whatsapp/qr");
+    if (!res.ok) return null;
+    const body = (await res.json()) as { ascii?: string } | null;
+    return body?.ascii || null;
+  } catch {
+    return null;
+  }
+}

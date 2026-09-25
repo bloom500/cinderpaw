@@ -220,6 +220,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/runtime/setup/ack", post(runtime_setup_ack))
         .route("/runtime/providers/catalog", get(runtime_providers_catalog))
         .route("/runtime/connectors/catalog", get(runtime_connectors_catalog))
+        .route("/runtime/connectors/whatsapp/qr", get(runtime_whatsapp_qr))
         // Auth runs before any handler. `from_fn_with_state` hands the token
         // to the middleware so it can compare in constant time.
         .layer(middleware::from_fn_with_state(state.clone(), require_token))
@@ -3816,6 +3817,47 @@ pub async fn runtime_providers_catalog() -> Response {
 pub async fn runtime_connectors_catalog() -> Response {
     let body = connector_catalog::connectors_catalog();
     catalog_response(connector_catalog::CONNECTORS_CATALOG_VERSION, body)
+}
+
+/// `GET /runtime/connectors/whatsapp/qr` — the pairing code waiting to be
+/// scanned, or `null`. The sidecar mirrors each fresh code to
+/// `whatsapp-qr.json` and deletes it once a phone is linked, so the local page
+/// can show it: a person there has no terminal to scan from. A file older than
+/// two minutes is a pairing that died, not one in progress. Same reading as
+/// the desktop's `connectors_whatsapp_qr`.
+pub async fn runtime_whatsapp_qr() -> Response {
+    Json(whatsapp_qr_at(&crate::paths::cinderpaw_dir().join("whatsapp-qr.json"), now_ms())).into_response()
+}
+
+fn now_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as f64)
+        .unwrap_or(0.0)
+}
+
+fn whatsapp_qr_at(path: &std::path::Path, now: f64) -> Option<serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let ts = v.get("ts")?.as_f64()?;
+    if now - ts > 120_000.0 {
+        return None;
+    }
+    Some(json!({ "qr": v.get("qr")?.as_str()?, "ascii": v.get("ascii")?.as_str()?, "ts": ts }))
+}
+
+#[cfg(test)]
+mod whatsapp_qr_tests {
+    use super::whatsapp_qr_at;
+
+    #[test]
+    fn a_fresh_code_is_served_a_stale_or_missing_one_is_null() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("whatsapp-qr.json");
+        assert!(whatsapp_qr_at(&f, 1_000.0).is_none(), "no file = linked or never started");
+        std::fs::write(&f, r#"{"ts":1000,"qr":"2@abc","ascii":"XX"}"#).unwrap();
+        assert_eq!(whatsapp_qr_at(&f, 5_000.0).unwrap()["qr"], "2@abc");
+        assert!(whatsapp_qr_at(&f, 1_000.0 + 120_001.0).is_none(), "a dead pairing is not shown");
+    }
 }
 
 /// Common response shape for both catalog endpoints. The header carries

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { answerAsk, finishToolIn, saveSecret, streamChat, type SecretAsk } from "./chatStream";
+import { answerAsk, finishToolIn, saveSecret, streamChat, whatsappQr, type SecretAsk } from "./chatStream";
 import { COPY } from "./copy";
 import {
   commonFirst, fetchApi, firstOffers, load, manualCandidate, save, tryCandidate, tryKey,
@@ -305,6 +305,7 @@ export function OnboardingChat() {
             </div>
           )}
           {step === "key" && <TextForm secret placeholder={COPY.keyPlaceholder} send={COPY.keySave} onSend={submitKey} />}
+          {step === "done" && <WhatsAppCard />}
           {step === "done" && secretAsk && (
             <div className="secret-card">
               <p className="muted">{COPY.secretHint}</p>
@@ -326,6 +327,38 @@ export function OnboardingChat() {
       )}
     </main>
   );
+}
+
+/**
+ * The WhatsApp pairing code, while there is one. The engine only has one after
+ * the agent turned WhatsApp on (spec 6.6); asking every 3 s costs a local file
+ * read, and the code itself changes about every 20 s.
+ */
+function WhatsAppCard() {
+  const [ascii, setAscii] = useState<string | null>(null);
+  const [linked, setLinked] = useState(false);
+  useEffect(() => {
+    let shown = false;
+    const tick = async () => {
+      const code = await whatsappQr((u, i) => fetch(u, i));
+      setAscii(code);
+      if (code) shown = true;
+      // Gone after being shown: the phone scanned it.
+      else if (shown) setLinked(true);
+    };
+    void tick();
+    const id = setInterval(tick, 3000);
+    return () => clearInterval(id);
+  }, []);
+  if (ascii)
+    return (
+      <div className="secret-card">
+        <p>{COPY.waScan}</p>
+        <pre className="qr" aria-label="WhatsApp link code">{ascii}</pre>
+        <p className="muted">{COPY.waNew}</p>
+      </div>
+    );
+  return linked ? <p className="tool">{COPY.waLinked}</p> : null;
 }
 
 function TextForm(props: { placeholder: string; send: string; secret?: boolean; disabled?: boolean; onSend: (v: string) => void }) {

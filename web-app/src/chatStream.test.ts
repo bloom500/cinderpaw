@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { finishTool, finishToolIn, parseSse, saveSecret, ThinkSplitter, streamChat, type ChatEvent } from "./chatStream";
+import { finishTool, finishToolIn, parseSse, saveSecret, ThinkSplitter, streamChat, type ChatEvent, whatsappQr } from "./chatStream";
 
 test("SSE records are split on blank lines and keep their event name", () => {
   const { events, rest } = parseSse('data: {"a":1}\n\nevent: tool_start\ndata: {"id":"t1"}\n\ndata: {"par');
@@ -149,4 +149,11 @@ test("a tool's progress message becomes a waiting line; an empty one is dropped"
     { type: "waiting", tool: "connectors_pair", message: "Send your bot a direct message on Discord now." },
     { type: "done" },
   ]);
+});
+
+test("the WhatsApp code is the engine's text, and null when there is none or the engine is gone", async () => {
+  const answer = (body: unknown) => async () => new Response(JSON.stringify(body));
+  expect(await whatsappQr(answer({ qr: "2@x", ascii: "▀▄", ts: 1 }))).toBe("▀▄");
+  expect(await whatsappQr(answer(null))).toBeNull();
+  expect(await whatsappQr(async () => { throw new Error("offline"); })).toBeNull();
 });

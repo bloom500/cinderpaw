@@ -81,6 +81,7 @@ the comment tags next to each `.route(` line.
 | POST | `/runtime/setup/ack` | unstable | govern | Persist the one-time security-acknowledgement timestamp in settings.json. |
 | GET  | `/runtime/providers/catalog` | unstable | read | Provider catalog; carries `X-Cinderpaw-Catalog-Version`. |
 | GET  | `/runtime/connectors/catalog` | unstable | read | Connector catalog; same versioning header. |
+| GET  | `/runtime/connectors/whatsapp/qr` | unstable | read | The WhatsApp pairing code waiting to be scanned (`{qr, ascii, ts}`), or `null` once a phone is linked or pairing stopped. |
 
 ### Meta (`/meta/*` — L6, sidecar roundtrip)
 
@@ -202,6 +203,7 @@ POST /modules/propose
 POST /providers/test
 GET /runtime/connectors
 GET /runtime/connectors/catalog
+GET /runtime/connectors/whatsapp/qr
 GET /runtime/lora
 GET /runtime/lora/reviews
 POST /runtime/lora/reviews/resolve

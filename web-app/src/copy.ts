@@ -51,4 +51,7 @@ export const COPY = {
   secretCancel: "Not now",
   secretSaved: "Saved on this computer.",
   secretFailed: "I couldn't save that. Please try again.",
+  waScan: "On your phone, open WhatsApp. Tap Settings, then Linked devices, then Link a device. Point the camera at this square.",
+  waNew: "The square changes every few seconds. That is normal.",
+  waLinked: "✓ WhatsApp is linked.",
 };

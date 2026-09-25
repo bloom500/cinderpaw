@@ -214,3 +214,17 @@ h1 {
   border-radius: 14px;
   border: 1px solid var(--ember);
 }
+
+/* Same as the desktop's QR block: the engine's half-block text, white on black. */
+.qr {
+  align-self: center;
+  margin: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: #000;
+  color: #fff;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  line-height: 8px;
+  user-select: none;
+}
