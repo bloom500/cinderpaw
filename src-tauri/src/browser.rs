@@ -191,7 +191,7 @@ const NEW_WINDOW_SCRIPT: &str = "(() => {   const here = (u) => { try { const ur
 /// the key rides the one channel a page has: its own address fragment, which
 /// `watch_active_url` reads and puts back. Only the listed keys, so a page
 /// cannot forge anything worse than "close me".
-const KEY_SCRIPT: &str = "(() => { addEventListener('keydown', (e) => { if (!e.isTrusted || !(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key.toLowerCase(); if (!['=', '+', '-', '0', 't', 'w', 'l', 'f', 'd', 'j', 'tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(k)) return; e.preventDefault(); e.stopPropagation(); try { history.replaceState(history.state, '', location.pathname + location.search + '#cp-key=' + encodeURIComponent(k) + '&s=' + (e.shiftKey ? 1 : 0) + '&h=' + encodeURIComponent(location.hash.slice(1))); } catch {} }, true); })()";
+const KEY_SCRIPT: &str = "(() => { addEventListener('keydown', (e) => { if (!e.isTrusted || !(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key.toLowerCase(); if (!['=', '+', '-', '0', 't', 'w', 'l', 'f', 'd', 'h', 'j', 'tab', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(k)) return; e.preventDefault(); e.stopPropagation(); try { history.replaceState(history.state, '', location.pathname + location.search + '#cp-key=' + encodeURIComponent(k) + '&s=' + (e.shiftKey ? 1 : 0) + '&h=' + encodeURIComponent(location.hash.slice(1))); } catch {} }, true); })()";
 
 /// When the agent last acted in the page (ms since the epoch, the page's clock
 /// too). A person's touch after this hands the page to them.

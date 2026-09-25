@@ -314,3 +314,22 @@ describe('isSecure', () => {
     expect(isSecure('http://example.ro/')).toBe(false);
   });
 });
+
+describe('history', () => {
+  it('Ctrl+H lists visited pages, newest first, searchable, and opens one', async () => {
+    const { HISTORY_KEY } = await import('@/lib/browserHistory');
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([
+      { url: 'https://old.ro/', title: 'Old page', visits: 1, lastAt: 1, picks: {} },
+      { url: 'https://news.ro/', title: 'News', visits: 3, lastAt: 5, picks: {} },
+    ]));
+    render(<BrowserPanel />);
+    fireEvent.keyDown(window, { key: 'h', ctrlKey: true });
+    const rows = screen.getAllByRole('button', { name: /News|Old page/ });
+    expect(rows[0]).toHaveTextContent('News');
+    fireEvent.change(screen.getByLabelText('Search history'), { target: { value: 'old' } });
+    expect(screen.queryByRole('button', { name: /News/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Old page/ }));
+    await waitFor(() => expect(ui).toHaveBeenCalledWith('open', { url: 'https://old.ro/' }));
+    localStorage.removeItem(HISTORY_KEY);
+  });
+});

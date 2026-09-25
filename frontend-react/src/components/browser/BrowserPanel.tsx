@@ -1,7 +1,7 @@
 import { onPanelMotionSettled, panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, History, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
@@ -9,7 +9,7 @@ import { ENGINE_LOGOS } from '@/lib/engineLogos';
 import { cn, readLocal, writeLocal, SECONDARY_BUTTON } from '@/lib/utils';
 import { listen } from '@tauri-apps/api/event';
 import { SelectMenu } from '@/components/ui/select-menu';
-import { loadHistory, saveHistory, recordVisit, recordTitle, recordPick, loadBookmarks, saveBookmarks, upsertBookmark, removeBookmark, parseTags, findBookmarks, display, isReaderUrl, readerOriginal, isSecure } from '@/lib/browserHistory';
+import { type HistoryEntry, loadHistory, saveHistory, recordVisit, recordTitle, recordPick, loadBookmarks, saveBookmarks, upsertBookmark, removeBookmark, parseTags, findBookmarks, display, isReaderUrl, readerOriginal, isSecure } from '@/lib/browserHistory';
 import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
@@ -88,7 +88,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   // app (address bar, tabs, chat); inside the native page the page has the
   // keys, and Ctrl+L is the way back.
   // What the keys act on, read at press time: the handler is registered once.
-  const keyTarget = useRef<{ tabs: typeof tabs; star: () => void; downloads: () => void }>({ tabs, star: () => {}, downloads: () => {} });
+  const keyTarget = useRef<{ tabs: typeof tabs; star: () => void; downloads: () => void; history: () => void }>({ tabs, star: () => {}, downloads: () => {}, history: () => {} });
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       // The ones every browser answers without Ctrl: F5, and Alt+arrows for
@@ -117,6 +117,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       if (k === 'r') { e.preventDefault(); void go('reload'); return; }
       if (k === 'd' && url) { e.preventDefault(); keyTarget.current.star(); return; }
       if (k === 'j') { e.preventDefault(); keyTarget.current.downloads(); return; }
+      if (k === 'h') { e.preventDefault(); keyTarget.current.history(); return; }
       if (k === 't' && e.shiftKey) { e.preventDefault(); void reopenTab(); }
       else if (k === 't') { e.preventDefault(); void newTab(); }
       else if (k === 'w') { e.preventDefault(); if (active != null) void closeTab(active); }
@@ -204,6 +205,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
     setSparks((n) => n + 1);
   };
   const [downloadsOpen, setDownloadsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   keyTarget.current = {
     tabs,
     // Ctrl+D is the star: saves the page, or opens the editor for a saved one.
@@ -214,6 +216,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       setStarOpen(true);
     },
     downloads: () => setDownloadsOpen((v) => !v),
+    history: () => setHistoryOpen((v) => !v),
   };
   const downloadCount = useBrowser((b) => b.downloads.length);
   // One zoom level for the browser, remembered across restarts.
@@ -516,6 +519,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
             }).catch(() => {});
           }}
         />
+        <ChromeButton label="History" icon={History} pressed={historyOpen} onClick={() => setHistoryOpen((v) => !v)} />
         <div className="relative">
           <ChromeButton label="Downloads" icon={Download} pressed={downloadsOpen} onClick={() => setDownloadsOpen((v) => !v)} />
           {downloadCount > 0 && (
@@ -594,6 +598,15 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       {downloadsOpen && (
         <div className="border-b border-border-subtle bg-bg-elevated/40 px-3 py-3 text-xs">
           <DownloadsList />
+        </div>
+      )}
+      {historyOpen && (
+        <div className="border-b border-border-subtle bg-bg-elevated/40 px-3 py-3 text-xs">
+          <HistoryList
+            entries={history}
+            onOpen={(u) => { setHistoryOpen(false); void open(u); }}
+            onClear={() => { saveHistory([]); setHistory([]); }}
+          />
         </div>
       )}
       {settingsOpen && <BrowserSettings engine={engine} onEngine={setEngine} />}
@@ -912,6 +925,50 @@ function SettingRow({ title, hint, children }: { title: string; hint: string; ch
 }
 
 /** This session's downloads, newest first, each one openable. */
+/**
+ * The pages visited, newest first, searchable: the list Ctrl+H opens in every
+ * browser. They were kept (for the address bar's suggestions) and never
+ * shown, so "the page I had open yesterday" could only be found by typing it.
+ */
+function HistoryList({ entries, onOpen, onClear }: { entries: HistoryEntry[]; onOpen: (url: string) => void; onClear: () => void }) {
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  const rows = [...entries]
+    .filter((e) => !needle || e.url.toLowerCase().includes(needle) || e.title.toLowerCase().includes(needle))
+    .sort((a, b) => b.lastAt - a.lastAt)
+    .slice(0, 30);
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <span className="text-2xs uppercase tracking-wide text-text-muted">History</span>
+        <input
+          aria-label="Search history"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search history"
+          className="h-6 min-w-0 flex-1 rounded-md border border-border-default bg-bg-elevated px-2 text-2xs outline-hidden focus:border-brand"
+        />
+        {entries.length > 0 && (
+          <button type="button" onClick={onClear} className="text-2xs text-text-muted hover:text-error">Clear history</button>
+        )}
+      </div>
+      {rows.length === 0 && <span className="text-2xs text-text-muted">{entries.length ? 'Nothing matches.' : 'No pages visited yet.'}</span>}
+      {rows.map((e) => (
+        <button
+          key={e.url}
+          type="button"
+          onClick={() => onOpen(e.url)}
+          title={e.url}
+          className="flex items-center gap-2 rounded-md px-1 py-0.5 text-left text-2xs hover:bg-bg-hover"
+        >
+          <span className="min-w-0 flex-1 truncate text-text-primary">{e.title || display(e.url)}</span>
+          <span className="shrink-0 truncate text-text-muted">{display(e.url)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function DownloadsList() {
   const downloads = useBrowser((b) => b.downloads);
   return (
