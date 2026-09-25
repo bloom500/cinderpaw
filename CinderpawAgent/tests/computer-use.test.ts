@@ -433,3 +433,14 @@ describe("find_elements tells the model what it found", () => {
     expect(r.content).toContain("and 15 more");
   });
 });
+
+describe("find_elements can be scoped to the page", () => {
+  it("passes under_role and a list of roles through to the host", async () => {
+    const tool = createComputerUseTool();
+    let sent: Record<string, unknown> = {};
+    const { ctx } = makeCtx({ onRequest: (_a, params) => { sent = params; return []; } });
+    await tool.execute({ action: "find_elements", pid: 7, query: { role: "Button,Hyperlink", under_role: "Main,Document" } }, ctx);
+    expect(sent.query).toEqual({ role: "Button,Hyperlink", under_role: "Main,Document" });
+    expect(JSON.stringify(tool.parameters)).toContain("under_role");
+  });
+});

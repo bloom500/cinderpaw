@@ -267,12 +267,23 @@ export function createComputerUseTool(): Tool {
         type: "object",
         description:
           "Element filter for 'find_elements': { role?, name?, automation_id?, " +
-          "value_contains? }. All provided fields must match.",
+          "value_contains?, under_role? }. All provided fields must match. " +
+          "On a browser page, under_role 'Main,Document' searches the page only, " +
+          "without the browser's own tabs and toolbar buttons.",
         required: false,
         schema: {
           type: "object",
           properties: {
-            role: { type: "string", description: "Exact role, e.g. 'Button', 'Edit'." },
+            role: {
+              type: "string",
+              description: "Exact role, e.g. 'Button', 'Edit', or several comma-separated: 'Button,Hyperlink,ListItem'.",
+            },
+            under_role: {
+              type: "string",
+              description:
+                "Search only inside the first element of this role, e.g. 'Document' (a browser's page) or " +
+                "'Main,Document' (the page's main content, tried in order). Absent or not found: the whole window.",
+            },
             name: { type: "string", description: "Substring of the element name." },
             automation_id: { type: "string", description: "Substring of the automation id." },
             value_contains: { type: "string", description: "Substring of the element value." },
