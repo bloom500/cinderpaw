@@ -104,6 +104,10 @@ install_prebuilt() {
   home="${CINDERPAW_HOME:-$HOME/.cinderpaw}"
   bin="$home/bin"
   mkdir -p "$tmp/x" "$bin"
+  # Private: on a keychain-less Linux (VPS, container) connector tokens and the
+  # WhatsApp link keys live in plain files here, and some distros still make
+  # home folders world-readable.
+  chmod 700 "$home"
   tar -xzf "$tmp/$asset" -C "$tmp/x"
   # Unlink-then-copy: a running engine keeps its old inode, the new file takes the name.
   for f in cinderpaw cinderpaw-agent cinderpaw-tui; do
