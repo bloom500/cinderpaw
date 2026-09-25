@@ -213,15 +213,43 @@ describe('scrolling on the desktop', () => {
   });
 });
 
-describe('desktop commands where desktop control does not exist', () => {
-  it('say Windows only, not "turn it on in Settings"', async () => {
-    const real = navigator.userAgent;
-    Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5)' });
+describe('desktop commands on macOS and Linux', () => {
+  it('a press by name says it is Windows only and what to say instead', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control: reading and pressing named elements (buttons, links, fields) is Windows only for now. On this system, act on the window in front with keys'; });
     try {
       const { executeOnDesktop, DESKTOP_WINDOWS_ONLY } = await import('../jev');
-      await expect(executeOnDesktop({ action: 'scroll', dy: 700, confidence: 1 })).rejects.toThrow(DESKTOP_WINDOWS_ONLY);
+      await expect(executeOnDesktop({ action: 'click', target: 'the send button', confidence: 1 })).rejects.toThrow(DESKTOP_WINDOWS_ONLY);
     } finally {
-      Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => real });
+      vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true to enable it.'; });
     }
+  });
+
+  it('dictation types the words, braces escaped, into the window in front', async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const sent: unknown[] = [];
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd === 'get_focused_element') return { id: '7:1', role: 'Window', name: 'Notes', is_offscreen: false, is_enabled: true };
+      if (cmd === 'send_keys') { sent.push(args); return null; }
+      throw new Error(`unexpected ${cmd}`);
+    });
+    try {
+      const { executeOnDesktop, resetTarget } = await import('../jev');
+      resetTarget();
+      await executeOnDesktop({ action: 'type_text', text: 'hi {there}', confidence: 1 });
+      expect(sent).toEqual([{ elementId: '7:1', keys: 'hi {{there}}' }]);
+    } finally {
+      vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true to enable it.'; });
+    }
+  });
+});
+
+describe('type_text is planned from the dictated words', () => {
+  it('takes the payload candidate, not the command word', async () => {
+    const { toPlan, textCandidates } = await import('../jev');
+    const c = textCandidates('type see you tomorrow');
+    const key = Object.entries(c).find(([, v]) => v === 'see you tomorrow')![0];
+    expect(toPlan('type see you tomorrow', { action: { type: 'choice', choice: 'type_text', confidence: 0.9 }, text: { type: 'choice', choice: key, confidence: 0.8 } }, c))
+      .toEqual({ action: 'type_text', text: 'see you tomorrow', confidence: 0.8 });
   });
 });

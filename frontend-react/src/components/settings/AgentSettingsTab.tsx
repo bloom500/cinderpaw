@@ -393,11 +393,9 @@ export function DesktopControlToggle() {
   const [yoloBusy, setYoloBusy] = useState(false);
   const enabled = settings?.desktop_control_enabled ?? false;
   const yolo = settings?.desktop_control_yolo ?? false;
-  // The host reads other apps through UI Automation, which is Windows only;
-  // on macOS and Linux every action answers "not implemented". The switch
-  // said none of that, so turning it on looked like a broken feature. It can
-  // still be turned off, should it be on from an earlier build.
-  const supported = navigator.userAgent.includes('Windows');
+  // Windows has the element tree (press "Send" by name); macOS and Linux have
+  // windows, keys, typing and apps, and the row says which is which.
+  const windows = navigator.userAgent.includes('Windows');
 
   const toggle = async () => {
     if (busy || !settings) return;
@@ -437,7 +435,7 @@ export function DesktopControlToggle() {
           <p className="text-xs text-text-muted mt-0.5">
             Let the agent read and operate native apps through the OS
             accessibility tree (the <span className="font-mono">computer_use</span> tool).
-            {supported ? ' Off by default.' : ' Windows only for now: on this system the agent cannot see or operate other apps yet.'}
+            {windows ? ' Off by default.' : ' Off by default. On this system it can switch windows, press keys, type and open apps; pressing buttons by name is Windows only for now. macOS asks for the Accessibility permission the first time; Linux needs xdotool.'}
           </p>
         </div>
         <button
@@ -445,7 +443,7 @@ export function DesktopControlToggle() {
           role="switch"
           aria-checked={enabled}
           aria-label="Enable desktop control"
-          disabled={busy || !settings || (!supported && !enabled)}
+          disabled={busy || !settings}
           onClick={() => void toggle()}
           className={cn(
             'w-10 h-6 rounded-full transition-colors relative shrink-0 overflow-hidden disabled:opacity-50',
