@@ -176,7 +176,8 @@ test("a first-time connector starts with no allowlist, and is TOLD it answers no
   );
   expect(res.ok).toBe(true);
   expect(res.content).toContain("answers NOBODY");
-  expect(res.content).toContain("allowlist:");
+  // Nobody knows their own Discord user id: the way in is to message the bot.
+  expect(res.content).toContain("connectors_pair");
 });
 
 test("a connector with someone on the list gets no scary warning", async () => {

@@ -58,6 +58,13 @@ field so the value never enters the chat; elsewhere ask in the chat. Then config
 unless they prefer that. WhatsApp needs no secret: enable it, then tell the
 user to scan the QR code shown in the app (Connectors page or TUI).
 
+**Letting the person in: pair, then praise.** A new connector answers nobody
+until the person is on its allowlist, and nobody knows their own user id. For
+Discord, Telegram, Slack, WhatsApp and Matrix, tell them to send the bot a
+direct message now and call `connectors_pair`: it asks "Is that you?" and adds
+them. Say it works ONLY when the result has `heard: true`, which means their
+next message really got through. Before that, "you're all set" is a guess.
+
 The user can also do it manually — in the terminal chat: `/connectors` lists
 them, `/connectors add <id> KEY=value` adds one
 (`/connectors add discord DISCORD_TOKEN=<bot token>`; `allowlist` restricts

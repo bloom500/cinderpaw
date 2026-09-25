@@ -685,10 +685,11 @@ export class DiscordConnector {
   readonly #log: Log;
   readonly #ask: ChannelAskRouter | null;
   readonly #profileId: string | null;
+  readonly #onSender: ((id: string, name: string) => void) | null;
   readonly #runs: ConnectorRunHooks | null;
   #client: Client | null = null;
 
-  constructor(opts: { token: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string; runs?: ConnectorRunHooks }) {
+  constructor(opts: { token: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string; runs?: ConnectorRunHooks; onSender?: (id: string, name: string) => void }) {
     this.#token = opts.token;
     this.#allow = new Set(opts.allowlist.map((s) => s.trim()).filter(Boolean));
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
@@ -696,6 +697,7 @@ export class DiscordConnector {
     this.#log = opts.log;
     this.#ask = opts.ask ?? null;
     this.#profileId = opts.profileId ?? null;
+    this.#onSender = opts.onSender ?? null;
     this.#runs = opts.runs ?? null;
   }
 
@@ -841,6 +843,7 @@ export class DiscordConnector {
       return;
     }
 
+    this.#onSender?.(message.author.id, message.author.globalName ?? message.author.username);
     // Allowlist gate — exact user ID. Unlisted senders get no reply at all.
     if (!this.#allow.has(message.author.id)) {
       this.#log(`discord: ignored message from non-allowlisted ${message.author.id}`);
@@ -1010,11 +1013,12 @@ export class SlackConnector {
   readonly #log: Log;
   readonly #ask: ChannelAskRouter | null;
   readonly #profileId: string | null;
+  readonly #onSender: ((id: string, name: string) => void) | null;
   #socket: SocketModeClient | null = null;
   #web: WebClient | null = null;
   #botUserId = "";
 
-  constructor(opts: { appToken: string; botToken: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string }) {
+  constructor(opts: { appToken: string; botToken: string; allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void }) {
     this.#appToken = opts.appToken;
     this.#botToken = opts.botToken;
     this.#allow = new Set(opts.allowlist.map((s) => s.trim()).filter(Boolean));
@@ -1023,6 +1027,7 @@ export class SlackConnector {
     this.#log = opts.log;
     this.#ask = opts.ask ?? null;
     this.#profileId = opts.profileId ?? null;
+    this.#onSender = opts.onSender ?? null;
   }
 
   async start(): Promise<void> {
@@ -1098,6 +1103,7 @@ export class SlackConnector {
     const dedicated = this.#channels.has(channel);
     if (!isIM && !mentioned && !dedicated) return;
 
+    this.#onSender?.(user, user);
     if (!this.#allow.has(user)) {
       this.#log(`slack: ignored message from non-allowlisted ${user}`);
       return;
@@ -1236,11 +1242,12 @@ export class WhatsAppConnector {
   readonly #ownerNumber: string;
   readonly #ask: ChannelAskRouter | null;
   readonly #profileId: string | null;
+  readonly #onSender: ((id: string, name: string) => void) | null;
   #sock: WASocket | null = null;
   #wa: typeof import("@whiskeysockets/baileys") | null = null;
   #stopped = false;
 
-  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string }) {
+  constructor(opts: { allowlist: string[]; channels: string[]; agent: AgentLike; log: Log; mode?: ConnectorMode; desk?: LeadDesk; ask?: ChannelAskRouter; profileId?: string; onSender?: (id: string, name: string) => void }) {
     const allow = opts.allowlist.map(digits).filter(Boolean);
     this.#allow = new Set(allow);
     this.#channels = new Set(opts.channels.map((s) => s.trim()).filter(Boolean));
@@ -1250,6 +1257,7 @@ export class WhatsAppConnector {
     this.#desk = opts.desk ?? null;
     this.#ask = opts.ask ?? null;
     this.#profileId = opts.profileId ?? null;
+    this.#onSender = opts.onSender ?? null;
     this.#ownerNumber = allow[0] ?? "";
     // Wire the escalation/booking notifier: how the lead tools reach the owner.
     // Pings the first allowlisted number (the owner) in their WhatsApp. With
@@ -1471,6 +1479,7 @@ export class WhatsAppConnector {
     // Public ("business") mode: anyone messaging us privately (or in a
     // dedicated group) is answered, but a non-owner runs under the restricted
     // public persona profile, while an allowlisted owner keeps the full agent.
+    this.#onSender?.(senderNum, msg.pushName || senderNum);
     const isPublic = this.#mode === "public";
     const isOwner = this.#allow.has(senderNum);
     if (!isPublic && !isOwner) {
@@ -1666,6 +1675,7 @@ registerTransport("discord", (): LiveConnector => {
         ask: ctx.askRouter,
         ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
         ...(ctx.runs ? { runs: ctx.runs } : {}),
+        ...(ctx.onSender ? { onSender: ctx.onSender } : {}),
       });
       await inner.start();
     },
@@ -1701,6 +1711,7 @@ registerTransport("slack", (): LiveConnector => {
         log: ctx.log,
         ask: ctx.askRouter,
         ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
+        ...(ctx.onSender ? { onSender: ctx.onSender } : {}),
       });
       await inner.start();
     },
@@ -1744,6 +1755,7 @@ registerTransport("whatsapp", (): LiveConnector => {
         ...(ctx.leadDesk ? { desk: ctx.leadDesk } : {}),
         ask: ctx.askRouter,
         ...(ctx.personaProfileId ? { profileId: ctx.personaProfileId } : {}),
+        ...(ctx.onSender ? { onSender: ctx.onSender } : {}),
       });
       await inner.start();
     },
@@ -1762,6 +1774,9 @@ registerTransport("whatsapp", (): LiveConnector => {
     },
   } as LiveConnector;
 });
+
+/** Someone who messaged a connector: their platform id and the name they show. */
+export type Sender = { id: string; name: string };
 
 export class ConnectorManager {
   readonly #agent: AgentLike;
@@ -1812,6 +1827,9 @@ export class ConnectorManager {
    * so it is the place that has to write it down.
    */
   readonly #health = new Map<string, ConnectorHealth>();
+  /** The last sender each connector heard, listed or not, and who waits for the next. */
+  readonly #lastSender = new Map<string, Sender & { at: number }>();
+  readonly #senderWaits = new Set<{ connector: string; match: (id: string) => boolean; resolve: (s: Sender | null) => void }>();
 
   /**
    * Supplied by the host when durable runs are wired. Optional so the connector
@@ -1982,6 +2000,7 @@ export class ConnectorManager {
         askRouter: this.askRouter,
         ...(profileId ? { personaProfileId: profileId } : {}),
         ...(this.#leadDesk ? { leadDesk: this.#leadDesk } : {}),
+        onSender: (senderId, name) => this.#heard(id, { id: senderId, name }),
       };
       try {
         await instance.start(ctx);
@@ -2001,6 +2020,41 @@ export class ConnectorManager {
     }
 
     await this.#publishHealth();
+  }
+
+  #heard(connector: string, sender: Sender): void {
+    this.#lastSender.set(connector, { ...sender, at: Date.now() });
+    for (const w of this.#senderWaits) {
+      if (w.connector === connector && w.match(sender.id)) w.resolve(sender);
+    }
+  }
+
+  /**
+   * The next sender `connector` hears that `match` accepts, or one it heard
+   * after `since` (a person can be quicker than the tool that waits for
+   * them). null after `ms`, or when `signal` aborts.
+   */
+  nextSender(
+    connector: string,
+    match: (id: string) => boolean,
+    opts: { since: number; ms: number; signal?: AbortSignal },
+  ): Promise<Sender | null> {
+    if (opts.signal?.aborted) return Promise.resolve(null);
+    const last = this.#lastSender.get(connector);
+    if (last && last.at >= opts.since && match(last.id)) return Promise.resolve({ id: last.id, name: last.name });
+    return new Promise((resolve) => {
+      const finish = (s: Sender | null) => {
+        if (!this.#senderWaits.delete(wait)) return;
+        clearTimeout(timer);
+        opts.signal?.removeEventListener("abort", giveUp);
+        resolve(s);
+      };
+      const giveUp = () => finish(null);
+      const wait = { connector, match, resolve: finish };
+      this.#senderWaits.add(wait);
+      const timer = setTimeout(giveUp, opts.ms);
+      opts.signal?.addEventListener("abort", giveUp, { once: true });
+    });
   }
 
   /** What actually connected, for one id. */

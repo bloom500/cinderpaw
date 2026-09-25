@@ -308,6 +308,17 @@ export const CATALOG: Record<string, CatalogEntry> = {
   },
 };
 
+/** Connectors connectors_pair can let someone into by hearing their first message
+ *  (their transports report senders, see `ConnectorContext.onSender`), with the
+ *  name the person knows them by. */
+export const PAIRABLE: Record<string, string> = {
+  discord: "Discord",
+  telegram: "Telegram",
+  slack: "Slack",
+  whatsapp: "WhatsApp",
+  matrix: "Matrix",
+};
+
 /** Sentences that ask for a secret in the chat, or describe what happens to one pasted there. */
 const ASKS_FOR_PASTE = /in this chat|^send me |private file on this computer|secure box instead/i;
 
@@ -357,7 +368,7 @@ const redact = (row: ConnectorRow | undefined, id: string, cards = false) => ({
   ...(CATALOG[id]!.steps ? { steps: stepsFor(id, cards) } : {}),
 });
 
-async function readRows(): Promise<ConnectorRow[]> {
+export async function readRows(): Promise<ConnectorRow[]> {
   try {
     const parsed = JSON.parse(await readFile(configPath(), "utf8")) as {
       connectors?: ConnectorRow[];
@@ -366,6 +377,21 @@ async function readRows(): Promise<ConnectorRow[]> {
   } catch {
     return []; // no file yet
   }
+}
+
+async function writeRows(rows: ConnectorRow[]): Promise<void> {
+  const file = configPath();
+  await mkdir(dirname(file), { recursive: true });
+  await atomicWriteFile(file, JSON.stringify({ connectors: rows }, null, 2));
+}
+
+/** Add one person to a connector's allowlist, keeping everyone already on it. */
+export async function allowSender(id: string, userId: string): Promise<void> {
+  const rows = await readRows();
+  const row: ConnectorRow = rows.find((r) => r.id === id) ?? { id };
+  const allow = row.allowlist ?? [];
+  if (!allow.includes(userId)) row.allowlist = [...allow, userId];
+  await writeRows([...rows.filter((r) => r.id !== id), row]);
 }
 
 /** Is this secret stored for this connector? Never returns the value. */
@@ -510,10 +536,7 @@ export function createConnectorsManageTool(
         row.channels = (args.channels as unknown[]).filter((x): x is string => typeof x === "string");
       }
 
-      const next = [...rows.filter((r) => r.id !== id), row];
-      const file = configPath();
-      await mkdir(dirname(file), { recursive: true });
-      await atomicWriteFile(file, JSON.stringify({ connectors: next }, null, 2));
+      await writeRows([...rows.filter((r) => r.id !== id), row]);
       await manager.reload();
 
       const missing = CATALOG[id]!.secrets.filter((k) => !has(row, id, k));
@@ -530,9 +553,13 @@ export function createConnectorsManageTool(
           ? ` Still missing secrets: ${missing.join(", ")} — the connector stays offline until provided.`
           : deaf
             ? ` WARNING: ${id} is online but its allowlist is EMPTY, which means it ` +
-              `answers NOBODY — not "everyone". Ask the user for their ${id} user id ` +
-              `and call configure again with allowlist:["<their id>"], or the bot will ` +
-              `look connected and silently ignore every message, including theirs.`
+              `answers NOBODY — not "everyone". ` +
+              (PAIRABLE[id]
+                ? `Tell the user to send the bot a direct message now, then call connectors_pair ` +
+                  `with id "${id}": it asks them "Is that you?" and lets them in, no user id needed.`
+                : `Ask the user for their ${id} user id and call configure again with ` +
+                  `allowlist:["<their id>"], or the bot will look connected and silently ignore ` +
+                  `every message, including theirs.`)
             : id === "whatsapp" && row.enabled
               ? " WhatsApp pairs via QR — tell the user to scan the code in the Cinderpaw app (Connectors page or TUI)."
               : "";

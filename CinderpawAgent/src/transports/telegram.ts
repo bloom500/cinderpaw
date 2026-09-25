@@ -76,7 +76,7 @@ interface TelegramUpdate {
   update_id: number;
   message?: {
     message_id: number;
-    from?: { id: number; is_bot?: boolean; username?: string };
+    from?: { id: number; is_bot?: boolean; username?: string; first_name?: string };
     chat: { id: number; type: string };
     text?: string;
     caption?: string;
@@ -273,6 +273,7 @@ export class TelegramConnector implements LiveConnector {
     if (msg.chat.type !== "private" && this.#chats.size > 0 && !this.#chats.has(chatId)) return;
     if (msg.chat.type !== "private" && this.#chats.size === 0) return;
 
+    this.#ctx?.onSender?.(String(from.id), from.first_name ?? from.username ?? String(from.id));
     await this.#handle(chatId, String(from.id), text, msg.message_id, files);
   }
 

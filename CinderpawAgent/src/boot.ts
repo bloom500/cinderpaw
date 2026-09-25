@@ -119,6 +119,7 @@ import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
 import { createTokenUsageTool } from "./tools/builtin/token-usage.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
 import { createRequestSecretTool } from "./tools/builtin/request-secret.ts";
+import { createConnectorsPairTool, pairDepsFrom } from "./tools/builtin/connectors-pair.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
@@ -2423,6 +2424,9 @@ export async function boot(transportOverride?: Transport) {
   // The secure field for connector secrets (spec 2026-09-24 §6.2): only the
   // local web page can show it; everywhere else it says unsupported_surface.
   registry.register(createRequestSecretTool());
+  // "Is that you?" (spec §6.4): the person messages their new bot, and the page
+  // asks whether that was them, instead of asking for a user id.
+  registry.register(createConnectorsPairTool(pairDepsFrom(connectors)));
   // artifact_send hands an artifact back through a connector, so it is the one
   // artifact tool that cannot be registered with the other six above: the
   // connectors do not exist yet at that point in boot.
