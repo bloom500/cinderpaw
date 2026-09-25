@@ -104,7 +104,9 @@ git2 = { version = "0.19", default-features = false, features = ["vendored-libgi
 # OS-native secret storage for BYOK API keys (V6): DPAPI/Credential Manager on
 # Windows, Keychain on macOS, Secret Service (libsecret) on Linux. Platform
 # backends are target-gated inside the crate, so only the host's backend builds.
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+# `vendored` builds libdbus into the binary: minimal Linux (containers, VPS
+# images) has no libdbus-1.so.3 and the prebuilt CLI would not start at all.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust", "vendored"] }
 log = "0.4"
 once_cell = "1"
 parking_lot = "0.12"

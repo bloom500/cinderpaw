@@ -26,6 +26,7 @@ REPO="bloom500/cinderpaw"
 API="https://api.github.com/repos/${REPO}/releases/latest"
 MSG_OFFLINE="I couldn't download Cinderpaw. Check your internet and run the same command again."
 MSG_UNSUPPORTED="Cinderpaw doesn't run on this computer yet. It needs Windows 10+, macOS 12+ or a 64-bit Linux."
+MSG_CANT_START="Cinderpaw downloaded, but it can't start on this Linux: the system is missing a piece, or is older than Ubuntu 22.04 / Debian 12. Please send this line to github.com/bloom500/cinderpaw/issues :"
 
 say()  { printf '\033[1;32m[cinderpaw]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[cinderpaw]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -111,6 +112,11 @@ install_prebuilt() {
     chmod 0755 "$bin/$f"
   done
   echo "✓"
+  # A binary the loader rejects (old glibc, a missing library) must say so in
+  # words, not leave the loader's message as the last line the person sees.
+  if ! err="$("$bin/cinderpaw" --version 2>&1 >/dev/null)"; then
+    plain_fail "$MSG_CANT_START $err"
+  fi
   # </dev/null: under `curl | bash`, stdin is the rest of this script.
   "$bin/cinderpaw" self-install </dev/null
 }
