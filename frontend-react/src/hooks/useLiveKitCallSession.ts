@@ -182,6 +182,13 @@ const QUIET_LEVEL = 0.025;
  */
 const QUIET_HOLD_MS = 500;
 
+/**
+ * How long the agent may be gone from the room before the call counts as over.
+ * A clean close sends `closed` (with the reason) just before the agent leaves,
+ * over a different pipe; this is the time that reason gets to arrive first.
+ */
+const AGENT_LEFT_GRACE_MS = 1500;
+
 export function useLiveKitCallSession() {
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [stage, setStage] = useState<CallStage>(null);
@@ -276,6 +283,12 @@ export function useLiveKitCallSession() {
         // On screen immediately, whether or not it has settled — the point of
         // a partial is that it arrives while the person is still speaking.
         setHeard(e.text);
+        // A partial is a new sentence being spoken now, so the last answer
+        // makes way: the pill shows `said` over `heard`, and after the first
+        // reply it never showed the caller's words again (the Jev call had
+        // the same bug, 21 Sep). A final alone does not: on a native-audio
+        // model it lands after the answer to it.
+        if (e.partial) setSaid('');
         // Written to the conversation only once it has. A partial is the same
         // sentence mid-revision, so persisting it would file a dozen truncated
         // copies of every utterance in the chat history.
@@ -334,6 +347,7 @@ export function useLiveKitCallSession() {
           setStage(null);
           setLevel(0);
           setYouSpeaking(false);
+          setMutedState(false);
           setPhase(e.text ? 'ready' : 'idle');
         }
       }
@@ -410,6 +424,12 @@ export function useLiveKitCallSession() {
     setNotice(null);
     setPhase('connecting');
     setStage('starting');
+    // A new room publishes a live microphone. A mute left over from a call
+    // that closed on its own (a refusal, a vendor cut-off) said "Muted" over
+    // it, on the pill and the overlay, and the switch then worked backwards.
+    setMutedState(false);
+    setHeard('');
+    setSaid('');
     callMark('call_ui_ready');
     try {
       // Read at call time, not captured in a dep: a provider picked while
@@ -465,6 +485,29 @@ export function useLiveKitCallSession() {
       // retry window is a lie on screen.
       r.on(RoomEvent.Reconnecting, () => { if (isCurrent()) setPhase('reconnecting'); });
       r.on(RoomEvent.Reconnected, () => { if (isCurrent()) setPhase('listening'); });
+      // The agent leaving the room is the call ending, even when nothing said
+      // so. A voice worker that died took its `closed` line with it, and the
+      // window stayed in the room with a live microphone, "listening" to
+      // nobody, on the pill and the overlay alike. A worker that ends cleanly
+      // says `closed` first; the grace lets that reason arrive and win.
+      r.on(RoomEvent.ParticipantDisconnected, (p) => {
+        if (!p.isAgent || !isCurrent()) return;
+        window.setTimeout(() => {
+          if (!isCurrent()) return;
+          console.warn('[call] the voice agent left the room without closing the call');
+          generation.current += 1;
+          room.current = null;
+          void r.disconnect();
+          cleanup();
+          void tauri.raw.endLivekitCall().catch(() => {});
+          setStage(null);
+          setLevel(0);
+          setYouSpeaking(false);
+          setMutedState(false);
+          setNotice('The voice agent stopped unexpectedly. Press Call to start again.');
+          setPhase('ready');
+        }, AGENT_LEFT_GRACE_MS);
+      });
 
       await r.connect(call.url, call.token);
       if (mine !== generation.current) {
