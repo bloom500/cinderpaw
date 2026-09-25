@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { finishTool, finishToolIn, parseSse, saveSecret, ThinkSplitter, streamChat, type ChatEvent, whatsappQr, stopChat } from "./chatStream";
+import { finishTool, finishToolIn, parseSse, saveSecret, ThinkSplitter, streamChat, type ChatEvent, whatsappQr, stopChat, chatFailure } from "./chatStream";
 
 test("SSE records are split on blank lines and keep their event name", () => {
   const { events, rest } = parseSse('data: {"a":1}\n\nevent: tool_start\ndata: {"id":"t1"}\n\ndata: {"par');
@@ -165,4 +165,16 @@ test("Stop asks the engine to stop this conversation, and says false when it can
   expect(ok).toBe(true);
   expect(sent[0]).toEqual({ url: "/runtime/chat/stop", body: JSON.stringify({ session_id: "chat" }) });
   expect(await stopChat(async () => { throw new Error("offline"); })).toBe(false);
+});
+
+test("a chat error is named for what can fix it, not 'send that again'", () => {
+  // The exact detail from 25 Sep, with no AI connected.
+  expect(chatFailure('Inference unavailable: inference endpoint http://127.0.0.1:11499/v1/chat/completions returned 503: {"error":{"message":"no model selected — choose one in Models","type":"model_not_ready"}}')).toBe("no_model");
+  expect(chatFailure("402 insufficient credits")).toBe("no_credit");
+  expect(chatFailure("401 Unauthorized: invalid api key")).toBe("bad_key");
+  expect(chatFailure("429 rate limit")).toBe("busy");
+  expect(chatFailure("TypeError: Failed to fetch")).toBe("offline");
+  expect(chatFailure("the answer stopped before it finished")).toBe("other");
+  // A number inside a longer one is not a status code.
+  expect(chatFailure("request 14020 failed")).toBe("other");
 });

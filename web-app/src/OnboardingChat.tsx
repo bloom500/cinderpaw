@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { answerAsk, finishToolIn, saveSecret, stopChat, streamChat, whatsappQr, type SecretAsk } from "./chatStream";
+import { answerAsk, chatFailure, finishToolIn, saveSecret, stopChat, streamChat, whatsappQr, type ChatFailure, type SecretAsk } from "./chatStream";
 import { COPY } from "./copy";
 import { Reply } from "./Reply";
 import {
@@ -17,6 +17,15 @@ type Line = {
   tools?: Tool[];
   /** What a running tool is waiting for the person to do. Gone when it finishes. */
   waiting?: string;
+};
+
+const FAILURE_WORDS: Record<ChatFailure, string> = {
+  no_model: COPY.noModel,
+  no_credit: COPY.noCredit,
+  bad_key: COPY.keyStopped,
+  busy: COPY.aiBusy,
+  offline: COPY.offline,
+  other: COPY.chatError,
 };
 
 /** "web_search" reads as "web search" to someone who has never seen code. */
@@ -100,6 +109,7 @@ export function OnboardingChat() {
     add({ who: "agent", text: "", tools: [] });
     setAnswering(true);
     stoppedRef.current = false;
+    let failure: ChatFailure | null = null;
     const patch = (fn: (l: Line) => Line) =>
       setLines((ls) => [...ls.slice(0, -1), fn(ls[ls.length - 1])]);
     await streamChat((u, i) => fetch(u, i), text, (e) => {
@@ -120,13 +130,18 @@ export function OnboardingChat() {
         add({ who: "agent", text: e.question });
         setPlainAsk(e);
         add({ who: "agent", text: "", tools: [] });
-      } else if (e.type === "error")
-        patch((l) => ({ ...l, text: l.text ? `${l.text}\n\n${COPY.chatError}` : COPY.chatError, details: e.detail }));
+      } else if (e.type === "error") {
+        failure = chatFailure(e.detail);
+        const words = FAILURE_WORDS[failure];
+        patch((l) => ({ ...l, text: l.text ? `${l.text}\n\n${words}` : words, details: e.detail }));
+      }
     });
     setAnswering(false);
     setSecretAsk(null);
     setPlainAsk(null);
     if (stoppedRef.current) add({ who: "agent", text: COPY.stopped });
+    // Sending again cannot fix these: take them back to connecting an AI.
+    if (failure === "no_model" || failure === "bad_key") askBrain(name);
     // Drop an answer bubble that never got any text (the agent only asked).
     setLines((ls) => (ls.length && ls[ls.length - 1].who === "agent" && !ls[ls.length - 1].text && !ls[ls.length - 1].tools?.length ? ls.slice(0, -1) : ls));
   }

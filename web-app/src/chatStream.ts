@@ -240,3 +240,19 @@ export async function stopChat(f: Fetch): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * What a chat error means for the person. "Please send that again" is right
+ * only for a hiccup: with no AI connected (seen live 25 Sep), no credit, or a
+ * dead key, sending again can never work, so they get told what can.
+ */
+export type ChatFailure = "no_model" | "no_credit" | "bad_key" | "busy" | "offline" | "other";
+
+export function chatFailure(detail: string): ChatFailure {
+  if (/no model selected|model_not_ready|no model configured/i.test(detail)) return "no_model";
+  if (/\b402\b|insufficient (credits|funds|balance)|quota/i.test(detail)) return "no_credit";
+  if (/\b401\b|invalid api key|incorrect api key|unauthori[sz]ed/i.test(detail)) return "bad_key";
+  if (/\b429\b|rate.?limit|overloaded|\b503\b/i.test(detail)) return "busy";
+  if (/failed to fetch|networkerror|ENOTFOUND|ECONNREFUSED|timed? ?out/i.test(detail)) return "offline";
+  return "other";
+}
