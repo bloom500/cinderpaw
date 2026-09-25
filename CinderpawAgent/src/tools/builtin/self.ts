@@ -122,6 +122,7 @@ const P_META = join(RSI_ROOT, "meta_genome.json");
 const P_META_HISTORY = join(RSI_ROOT, "meta_history.jsonl");
 const P_MEMORY_GRAPH = join(cinderpawHome(), "memory-graph.json");
 const P_CONNECTORS = join(cinderpawHome(), "connectors.json");
+const P_CONNECTOR_HEALTH = join(cinderpawHome(), "connector-health.json");
 const P_LEAF_STORE = join(cinderpawHome(), "fractal-leaves.json");
 
 // ── Subsystem deep-dive catalog ───────────────────────────────────────────
@@ -553,19 +554,20 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
 interface ConnectorShape {
   id: string;
   enabled: boolean;
-  /** Whether a connector instance is actually started (config enabled + token present). */
+  /** Did it really connect? Read from what the ConnectorManager wrote after starting it. */
   active: boolean;
+  /** Why it is not active, when the manager knows. */
+  error?: string;
   mode?: string;
   allowlist_count: number;
   channels_count: number;
-  /** Which secret keys the row declared, never the values. */
-  secret_fields: string[];
 }
 
 /** Override hooks let tests inject a temp dir; production callers pass
  *  no argument and the helpers resolve the real `~/.cinderpaw/...` paths. */
 interface ShapePaths {
   connectors?: string;
+  connectorHealth?: string;
   lora?: string;
   champion?: string;
   population?: string;
@@ -576,6 +578,7 @@ interface ShapePaths {
 
 const DEFAULT_PATHS: Required<ShapePaths> = {
   connectors: P_CONNECTORS,
+  connectorHealth: P_CONNECTOR_HEALTH,
   lora: P_LORA,
   champion: P_CHAMPION,
   population: P_POPULATION,
@@ -596,20 +599,25 @@ function shapeConnectors(paths: ShapePaths = {}): ConnectorShape[] {
   };
   const parsed = readJsonSync(paths.connectors ?? DEFAULT_PATHS.connectors) as { connectors?: Row[] } | null;
   if (!parsed || !Array.isArray(parsed.connectors)) return [];
+  // Guessing "active" from the tokens in connectors.json was wrong on every
+  // machine that restarted once: the host moves them into the OS keychain, the
+  // file shows none, and this said "not active" over a bot that was online
+  // (seen live 25 Sep; the agent then went digging in protected files).
+  const health = readJsonSync(paths.connectorHealth ?? DEFAULT_PATHS.connectorHealth) as {
+    connectors?: Record<string, { live?: boolean; error?: string }>;
+  } | null;
   return parsed.connectors
     .filter((r): r is Row => !!r && typeof r === "object" && typeof r.id === "string")
     .map((r): ConnectorShape => {
-      const hasSecrets = r.secrets && Object.values(r.secrets).some((v) => !!String(v).trim());
-      const hasLegacyToken = !!r.token?.trim();
-      const active = !!r.enabled && (hasSecrets || hasLegacyToken);
+      const h = health?.connectors?.[r.id];
       return {
         id: r.id,
         enabled: !!r.enabled,
-        active,
+        active: !!r.enabled && h?.live === true,
+        ...(h?.error ? { error: h.error } : {}),
         mode: r.mode,
         allowlist_count: r.allowlist?.length ?? 0,
         channels_count: r.channels?.length ?? 0,
-        secret_fields: Object.keys(r.secrets ?? {}),
       };
     });
 }
