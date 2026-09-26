@@ -134,8 +134,8 @@ pub fn rsi_init(state: State<'_, AppState>) -> Result<RsiInitResult, String> {
     *rsi.initialized.lock() = true;
 
     // 4. Get the main tip (or the plan commit if main doesn't exist yet).
-    let main_tip = match repo::log(1) {
-        Ok(commits) if !commits.is_empty() => commits[0].commit_hash.clone(),
+    let main_tip = match repo::main_tip() {
+        Ok(Some((tip, _))) => tip,
         _ => plan_commit.clone(),
     };
 
@@ -159,18 +159,10 @@ pub fn rsi_status(state: State<'_, AppState>) -> Result<RsiStatus, String> {
     let bounds = rsi.bounds.lock().clone();
     let bounds_sha = rsi.bounds_file_sha256.lock().clone();
 
-    let (main_tip, main_tip_score) = match repo::log(1) {
-        Ok(commits) if !commits.is_empty() => {
-            let tip = &commits[0];
-            // metadata_json is a raw JSON string; we only need the
-            // scalar score here. Cheap parse — just one number.
-            let score = tip
-                .metadata_json
-                .as_deref()
-                .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-                .and_then(|v| v.get("score").and_then(|s| s.as_f64()));
-            (Some(tip.commit_hash.clone()), score)
-        }
+    // `main` itself, not `log(1)`: that walks every candidate branch and
+    // returned the newest candidate — often a refused one — as "main".
+    let (main_tip, main_tip_score) = match repo::main_tip() {
+        Ok(Some((tip, score))) => (Some(tip), score),
         _ => (None, None),
     };
 

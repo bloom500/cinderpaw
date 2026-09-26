@@ -508,6 +508,22 @@ pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
     })
 }
 
+/// `main`'s tip and its score — the config champion. Not `log(1)`: `log`
+/// walks every candidate branch, so its first entry is whatever was evaluated
+/// last, promoted or not, and the UI's "main tip" showed a refused candidate's
+/// score as the champion's.
+pub fn main_tip() -> Result<Option<(String, Option<f64>)>> {
+    let repo = open()?;
+    let Ok(branch) = repo.find_branch("main", BranchType::Local) else {
+        return Ok(None);
+    };
+    let Some(oid) = branch.get().target() else {
+        return Ok(None);
+    };
+    let score = parse_iteration_metadata(&repo.find_commit(oid)?).map(|m| m.score);
+    Ok(Some((oid.to_string(), score)))
+}
+
 /// Last N commits across all refs, newest first. Used by the
 /// lineage / taste-vector miner in Faza 3.
 pub fn log(max: usize) -> Result<Vec<CommitMeta>> {
@@ -1259,6 +1275,23 @@ mod tests {
             let r = ratchet_attempt(&code_b).expect("code-b");
             assert!(!r.advanced, "the code lineage remembers its own bar");
             assert_eq!(r.prior_score, Some(96.0));
+        });
+    }
+
+    /// The status the UI shows as "main tip" is the champion, not the newest
+    /// candidate branch `log(1)` happens to return.
+    #[test]
+    fn main_tip_is_the_champion_not_the_newest_candidate() {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
+            bootstrap().expect("bootstrap");
+            let champ = lineage_commit("cfg-champ", 40.0, "parametric");
+            assert!(ratchet_attempt(&champ).expect("champ").advanced);
+            // Newer, and refused: git time has one-second resolution.
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+            let loser = lineage_commit("cfg-loser", 10.0, "parametric");
+            assert!(!ratchet_attempt(&loser).expect("loser").advanced);
+
+            assert_eq!(main_tip().expect("main_tip"), Some((champ, Some(40.0))));
         });
     }
 }
