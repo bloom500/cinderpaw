@@ -97,6 +97,19 @@ export function resampleIndex(poolSize: number, rng: Rng): number {
 }
 
 /**
+ * Resample a categorical field to a value OTHER than `current` — what a
+ * mutation of that field has to mean. Resampling over the whole pool returned
+ * the parent's own value one time in `poolSize`: a clone that cost a full eval
+ * and, on a lucky re-measurement, could ratchet as an "improvement" that
+ * changes nothing live. A pool of one has no other value, so it stays put.
+ */
+export function resampleOther(poolSize: number, current: number, rng: Rng): number {
+  if (poolSize <= 1) return 0;
+  const k = resampleIndex(poolSize - 1, rng);
+  return k >= current ? k + 1 : k;
+}
+
+/**
  * Standard-normal sample via Box–Muller, built from a uniform `rng`.
  * The production noise source for `mutateBoundedReal`; tests inject a
  * deterministic `gaussian` instead.
@@ -150,13 +163,20 @@ export function mutateConfig(parent: GenomeConfig, g: MutationGrammar): Mutation
 
   switch (field) {
     case "promptTemplateId":
-      child.promptTemplateId = resampleIndex(g.templatePoolSize, g.rng);
+      child.promptTemplateId = resampleOther(g.templatePoolSize, parent.promptTemplateId, g.rng);
       break;
     case "systemPromptId":
-      child.systemPromptId = resampleIndex(g.systemPromptPoolSize, g.rng);
+      child.systemPromptId = resampleOther(g.systemPromptPoolSize, parent.systemPromptId, g.rng);
       break;
     case "retrievalStrategy":
-      child.retrievalStrategy = RETRIEVAL_STRATEGIES[resampleIndex(RETRIEVAL_STRATEGIES.length, g.rng)]!;
+      child.retrievalStrategy =
+        RETRIEVAL_STRATEGIES[
+          resampleOther(
+            RETRIEVAL_STRATEGIES.length,
+            Math.max(0, RETRIEVAL_STRATEGIES.indexOf(parent.retrievalStrategy)),
+            g.rng,
+          )
+        ]!;
       break;
     case "temperature":
       child.temperature = mutateBoundedReal(parent.temperature, {
