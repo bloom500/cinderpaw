@@ -1687,6 +1687,10 @@ export type OutboundEvent =
         body: string;
         status: string;
         createdAt: number;
+        /** The teammate's stored answer to this message, when the person sent it. */
+        reply?: string;
+        /** True when `reply` is the reason the teammate could not answer. */
+        replyFailed?: boolean;
       }[];
     }
   | {

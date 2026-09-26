@@ -17,6 +17,7 @@ import type { InboundMessage, ModelTarget, Schedule, DeliveryTarget } from "./ty
 import type { BootContext } from "./boot.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
 import { runUnattended } from "./core/unattended.ts";
+import { withHumanReplies } from "./cowork/runtime.ts";
 import { parseDoneWhenFromMessage } from "./cron/done-when.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
 import { defaultJournalDir, journalFilename, verifyJournal } from "./rsi/infra/journal.ts";
@@ -1093,7 +1094,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         transport.send({
           type: "cowork_history_result",
           threadId,
-          messages: rows.map((m) => ({
+          // A teammate's stored answer rides on the message it answers, so a
+          // reopened chat shows the question WITH its answer.
+          messages: withHumanReplies(rows).map((m) => ({
+            ...(m.reply !== undefined ? { reply: m.reply, replyFailed: m.replyFailed } : {}),
             id: m.id,
             fromAgentId: m.fromAgentId,
             toAgentId: m.toAgentId,
