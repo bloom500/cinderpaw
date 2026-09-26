@@ -588,8 +588,22 @@ Confidence, journaled, and budgeted.
 | L2    | Continual Personal Adaptation     | LoRA on user signal. Base model immutable. Personal Fitness becomes the promotion gate. | Yes, after N demos |
 | L3    | Code Evolution                    | First layer that touches CinderpawAgent source. First-10 human gate.                     | First 10 require approval |
 | L4    | Architecture Evolution            | Subsystem hot-plug in Worker sandbox. Resource caps hard. Always human gate.          | No                  |
-| L5    | **Governance Evolution** (NEW)    | Tunes confidence thresholds, fitness weights, mutation rates, budget caps within SandboxBounds. Reversible by restoring previous bounds. | Yes, within bounds |
+| L5    | **Governance Evolution** (NEW)    | Tunes confidence thresholds, fitness weights, mutation rates, budget caps within SandboxBounds. Reversible by restoring previous bounds. | Tightening only (see below) |
 | L6    | **Meta Evolution** (renamed)      | Optimises the algorithm that produces those parameters. **Always human gate.**        | No                  |
+
+**What the code does today (checked 26 Sep 2026; the table above is the
+target).**
+
+- **L5 does not propose.** The only proposer is the operator, through
+  `governance_propose` (`dispatch.ts`, `proposedBy: "operator"`). The
+  lifecycle (`l5-gov/governance-lifecycle.ts`) adopts a tightening proposal
+  on its own (at most one per 24 h) and holds anything that loosens for a
+  human approval record. Nothing in the dream cycle writes a proposal.
+- **L6 runs only when a human runs it** (`cinderpaw meta evolve`); nothing
+  schedules it. That is the human gate today. `approvals.l6Evolve` in the
+  policy is read by nobody: `governanceCheck("l6_evolve")` has no caller,
+  and `meta-evolution.ts` reads `frozen.l6` itself. Setting the flag changes
+  nothing until something schedules L6 and asks `governanceCheck` first.
 
 Promotion gate between layers (must hold):
 

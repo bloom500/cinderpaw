@@ -77,6 +77,9 @@ export interface GovernanceApprovals {
   l2LoraPromote: boolean;
   /** Always true in v1 (L4 spec §6) — the loader forces it. */
   l4ModulePromote: boolean;
+  /** Read by nobody today: `governanceCheck("l6_evolve")` has no caller, and
+   *  L6 runs only when a human runs `cinderpaw meta evolve`. Wire it before
+   *  anything schedules L6 (see `docs/brsi-spec.md` §5). */
   l6Evolve: boolean;
 }
 
