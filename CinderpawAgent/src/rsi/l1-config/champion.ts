@@ -46,6 +46,7 @@ import { sha256Canonical } from "../infra/hash-chain.ts";
 import { appliedDimensions, droppedDimensions, type GenomeConfig } from "./genome.ts";
 export { LIVE_REACH, droppedDimensions } from "./genome.ts";
 import type { GenomeSpec } from "./population-manager.ts";
+import type { EvalOutcome } from "../infra/eval-worker.ts";
 import { promptStyleFor } from "./prompt-pool.ts";
 
 /** The live-agent params a champion can set. Mirrors the agent loop's
@@ -102,6 +103,14 @@ export interface ChampionRecord {
   updatedAt: number;
   /** Filled in by `writeChampion`; absent on records written before S2. */
   parity?: ChampionParity;
+  /**
+   * The champion's per-task eval outcomes — the baseline the confidence gate
+   * (I6) pairs the next candidate against. Persisted because every dream
+   * episode builds a fresh engine: kept only in memory, the first candidate of
+   * EVERY episode had no baseline and bypassed the gate. Absent on records
+   * written before this field existed; the next ratchet fills it in.
+   */
+  outcomes?: EvalOutcome[];
 }
 
 /** Default on-disk location: `~/.cinderpaw/rsi/champion.json` (sibling of
@@ -156,7 +165,21 @@ export function readChampion(path: string): ChampionRecord | null {
       "config" in parsed &&
       (parsed as ChampionRecord).config
     ) {
-      return parsed as ChampionRecord;
+      const record = parsed as ChampionRecord;
+      // A malformed baseline is dropped, not trusted: the gate pairs on
+      // `taskId` + `success`, and anything else would compare garbage.
+      if (
+        record.outcomes !== undefined &&
+        !(
+          Array.isArray(record.outcomes) &&
+          record.outcomes.every(
+            (o) => o && typeof o.taskId === "string" && typeof o.success === "boolean" && typeof o.tier === "number",
+          )
+        )
+      ) {
+        delete record.outcomes;
+      }
+      return record;
     }
   } catch {
     // Missing / corrupt — treat as "no champion yet".

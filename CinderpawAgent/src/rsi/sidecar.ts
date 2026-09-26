@@ -418,7 +418,8 @@ export class RsiSidecar {
     // recorded in the RatchetAdvanced handler below.
     const championTreePath = this.deps.championTreePath ?? defaultChampionTreePath();
     const championTree = readChampionTree(championTreePath);
-    const resumeSeed = championSeed(readChampion(championPath));
+    const persistedChampion = readChampion(championPath);
+    const resumeSeed = championSeed(persistedChampion);
     const baseSeeds = defaultEngineSeedsWithExtras(this.deps.extraSeeds);
     const seeds = resumeSeed ? [resumeSeed, ...baseSeeds] : baseSeeds;
     for (const seed of seeds) pop.add(seed);
@@ -662,6 +663,9 @@ export class RsiSidecar {
           });
         },
         cycleId: () => cycleId,
+        // The gate's baseline outlives the engine: without it the first
+        // candidate of every episode bypassed I6 (each episode is a new engine).
+        ...(persistedChampion?.outcomes?.length ? { championOutcomes: persistedChampion.outcomes } : {}),
         // §2.10 personal fitness: recent tool-call outcomes + thumbs feedback
         // → a real userSatisfaction in each candidate's Journal row. Observed
         // only — the deploy leaf still hands the ratchet the raw score.
@@ -762,7 +766,10 @@ export class RsiSidecar {
         // anything the user will feel). Pass THAT on, not the bare record.
         let stamped = record;
         try {
-          stamped = writeChampion(championPath, record);
+          // The per-task outcomes ride along: they are the next episode's
+          // gate baseline (see `championOutcomes` above).
+          const outcomes = ev.outcomes as ChampionRecord["outcomes"];
+          stamped = writeChampion(championPath, outcomes ? { ...record, outcomes } : record);
         } catch {
           // disk error — soft layer
         }

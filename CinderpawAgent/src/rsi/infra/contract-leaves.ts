@@ -20,7 +20,7 @@
  */
 
 import type { EvalOutcome } from "./eval-worker.ts";
-import type { GateDecision, PairedSample } from "./confidence.ts";
+import { MIN_SAMPLES, type GateDecision, type PairedSample } from "./confidence.ts";
 import type { StageHandlerDeps } from "./contract-stages.ts";
 import type { CommitRequest, RatchetDeps } from "../l1-config/ratchet-handler.ts";
 import { hallucinationFromOutcomes, scoreToFitnessVector, toolSuccessFromOutcomes, VECTOR_KEYS, type FitnessVector } from "../l1-config/fitness.ts";
@@ -288,7 +288,8 @@ export function gateForCandidate(
   deps: Pick<RatchetDeps, "evaluateGate">,
   ctx: CandidateContext,
 ): (samples: readonly PairedSample[]) => GateDecision {
-  const shouldGate = Boolean(deps.evaluateGate && ctx.championOutcomes && ctx.outcomes);
+  const shouldGate =
+    Boolean(deps.evaluateGate && ctx.championOutcomes && ctx.outcomes) && !baselineIncomparable(ctx);
   if (!shouldGate) {
     return () => ({
       accept: true,
@@ -318,5 +319,24 @@ function bypassCause(
 ): string {
   if (!deps.evaluateGate) return "no gate configured";
   if (!ctx.championOutcomes) return "no champion baseline yet (bootstrap)";
-  return "candidate has no per-task outcomes (eval crashed or legacy event)";
+  if (!ctx.outcomes) return "candidate has no per-task outcomes (eval crashed or legacy event)";
+  const shared = buildPairedSamples(ctx.outcomes, ctx.championOutcomes).length;
+  return `champion baseline shares only ${shared} task(s) with this suite (re-bootstrap)`;
+}
+
+/**
+ * A baseline measured on a different suite is no baseline.
+ *
+ * The champion's outcomes now outlive the engine that measured them (they
+ * are persisted with champion.json), so an app update that renames or
+ * replaces eval tasks can leave a baseline that pairs with almost nothing.
+ * Gating on it would reject every candidate as "insufficient samples" —
+ * forever, because nothing could ratchet to refresh it. When it covers fewer
+ * tasks than the gate needs (or than the suite has, for a small suite), the
+ * candidate re-bootstraps exactly as the first one on a fresh install does.
+ */
+function baselineIncomparable(ctx: CandidateContext): boolean {
+  if (!ctx.outcomes || !ctx.championOutcomes) return false;
+  const shared = buildPairedSamples(ctx.outcomes, ctx.championOutcomes).length;
+  return shared < Math.min(MIN_SAMPLES, ctx.outcomes.length);
 }
