@@ -8,6 +8,7 @@ import { useConversations, type ConversationSummary } from '@/stores/conversatio
 import { useProjects, type Project } from '@/stores/projects';
 import { tauri, type Conversation } from '@/lib/tauri';
 import { ConversationActions, ProjectActions } from '@/components/items/ItemActions';
+import { MenuInOverlay } from '@/components/ui/dropdown-menu';
 import { Kbd, MOD } from '@/components/ui/kbd';
 import { CATS, type Category } from '@/lib/settingsCategories';
 
@@ -302,6 +303,7 @@ export function SearchOverlay() {
       className="fixed inset-0 z-50 flex flex-col items-center pt-[15vh] backdrop-blur-md bg-black/40"
       onClick={closeSearch}
     >
+      <MenuInOverlay.Provider value>
       <div
         className="w-full max-w-[600px] px-4"
         onClick={(e) => e.stopPropagation()}
@@ -472,6 +474,7 @@ export function SearchOverlay() {
           </div>
         )}
       </div>
+      </MenuInOverlay.Provider>
     </div>
   );
 }
