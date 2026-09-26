@@ -49,7 +49,7 @@ export function AlphaNotice() {
     >
       <div className="flex items-center gap-3">
         <span className="grid size-8 shrink-0 place-items-center rounded-full bg-warning/15 text-warning ring-1 ring-inset ring-warning/25">
-          <FlaskConical size={15} />
+          <FlaskConical size={16} />
         </span>
         <p className="min-w-0 flex-1 text-sm font-semibold text-text-primary">Cinderpaw is in alpha</p>
         <button
@@ -79,7 +79,7 @@ export function AlphaNotice() {
           }}
           className={cn(ACTION, 'bg-brand font-semibold text-on-brand shadow-sm hover:bg-brand-hover')}
         >
-          <Bug size={13} />
+          <Bug size={14} />
           Report a bug
         </button>
         <a
@@ -88,7 +88,7 @@ export function AlphaNotice() {
           rel="noreferrer"
           className={cn(ACTION, 'border border-border-default/70 bg-white/[0.04] font-medium text-text-primary hover:bg-bg-hover')}
         >
-          <GitPullRequest size={13} />
+          <GitPullRequest size={14} />
           Contribute
         </a>
       </div>
@@ -107,7 +107,7 @@ export function AlphaNotice() {
           className="inline-flex items-center gap-0.5 text-2xs font-medium text-text-muted transition-colors hover:text-text-primary"
         >
           Discord
-          <ArrowUpRight size={11} />
+          <ArrowUpRight size={12} />
         </a>
       </div>
     </div>
