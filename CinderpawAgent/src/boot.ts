@@ -114,7 +114,7 @@ import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
 import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/remember.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
-import { createCoworkTeamTool, createCoworkSendTool } from "./tools/builtin/cowork.ts";
+import { registerCoworkRosterTools } from "./tools/builtin/cowork.ts";
 import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
 import { createTokenUsageTool } from "./tools/builtin/token-usage.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
@@ -1801,8 +1801,8 @@ export async function boot(transportOverride?: Transport) {
   hooks.on("before_tool_call", coworkApprovalService.gate);
   // The one cowork tool that is ALWAYS present: without it a roster could
   // only be created by a seed script or by hand-editing SQLite, so nobody who
-  // installed Cinderpaw could reach the feature at all. It registers the two
-  // below itself once the roster stops being empty, which is what removes the
+  // installed Cinderpaw could reach the feature at all. It registers the roster
+  // tools below itself once the roster stops being empty, which is what removes the
   // "requires a restart" caveat that used to live in this comment.
   registry.register(
     createCoworkCreateTool({ agents: coworkAgents, mailbox: coworkMailbox, registry, log }),
@@ -1816,9 +1816,8 @@ export async function boot(transportOverride?: Transport) {
   // first message. Registered ONLY when teammates exist, so an install with
   // zero cowork agents gains no way to message one (fresh-install contract).
   if (coworkAgents.list().length > 0) {
-    registry.register(createCoworkTeamTool(coworkAgents));
-    registry.register(createCoworkSendTool(coworkAgents, coworkMailbox));
-    log(`cowork: ${coworkAgents.list().length} teammate(s) configured — cowork_team/cowork_send exposed`);
+    const exposed = registerCoworkRosterTools(registry, coworkAgents, coworkMailbox);
+    log(`cowork: ${coworkAgents.list().length} teammate(s) configured — ${exposed.join(", ")} exposed`);
   }
   const coworkRuntime = new CoworkRuntime({
     agents: coworkAgents,
