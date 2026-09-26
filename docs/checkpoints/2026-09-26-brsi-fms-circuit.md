@@ -98,5 +98,9 @@ character live prompt on long tasks.
   `rsi_hall_of_fame` are created and never read or written.
 - **FMS rebuild runs at boot only**; a process that lives for days serves new
   episodic rows through FTS5 alone until the next start.
-- **`docs/agents-memory/`** (every topic file AGENTS.md indexes) is not in the
-  repository.
+- **`docs/agents-memory/`** (every topic file AGENTS.md indexes) is
+  gitignored on purpose (local-only process docs), so a clean clone has none
+  of them.
+
+L3–L6 read layer by layer, with the approved fix plan:
+`2026-09-26-brsi-l3-l6.md` (same folder).
