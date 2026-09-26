@@ -504,6 +504,12 @@ Meta Evolution (L6) changes require explicit human approval before
 apply. Governance Evolution (L5) may auto-apply within bounds but
 rolls back on regression.
 
+Today (26 Sep 2026): L5 auto-adopts only a *tightening* policy, and only
+the operator proposes one (`governance_propose`); nothing in the engine
+proposes on its own. L6 runs only when a human runs `cinderpaw meta
+evolve`; `approvals.l6Evolve` is not read by anything (see
+`docs/brsi-spec.md` §5).
+
 **Owner:** `CinderpawAgent/src/rsi/l3-code/pending-patches.ts` — a
 candidate that wins the ratchet is never applied to the source tree by
 the winning alone. It lands in `PendingPatchStore` as `pending`, and

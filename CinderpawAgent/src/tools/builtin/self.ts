@@ -462,11 +462,12 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     purpose:
       "L5 — the policy that governs every promotion in the system (L1 configs, " +
       "L2 LoRAs, L4 modules, L6 meta-genomes). It is the single place where " +
-      "'how strict is the bar?' is answered. Cinderpaw evolves the policy too, but " +
-      "only in the tightening direction without a human.",
+      "'how strict is the bar?' is answered. The operator proposes policy changes; " +
+      "a tightening one is adopted without a human, a loosening one needs approval. " +
+      "Nothing in the engine proposes a policy on its own yet.",
     inputs: [
       "The genesis policy (bootstrapped on first boot).",
-      "Policy proposals from dream episodes.",
+      "Policy proposals from the operator (`governance_propose`).",
       "Operator approval records (required for any loosening).",
     ],
     outputs: [
