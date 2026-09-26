@@ -103,9 +103,6 @@ export function MessageChain({
             description={a.status === 'failed' ? (a.error ?? 'failed') : summaryOf(a)}
             status={a.status === 'running' ? 'active' : 'complete'}
           >
-            {/* What the agent said as it reached for this tool, kept beside it
-                rather than in the answer (see isWorkingNote). */}
-            {a.lead && <p className="text-xs text-text-secondary">{a.lead}</p>}
             <Widget activity={a} flat />
           </ChainOfThoughtStep>
         ))}

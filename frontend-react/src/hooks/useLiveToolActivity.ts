@@ -125,9 +125,6 @@ export interface ToolActivity {
   artifact: ArtifactFact | null;
   /** Present when the tool failed, so the panel can say so rather than empty. */
   error: string | null;
-  /** What the agent said just before this call ("Let me check X."), shown on
-   *  the step instead of in the answer. See `isWorkingNote`. */
-  lead?: string;
 }
 
 /**

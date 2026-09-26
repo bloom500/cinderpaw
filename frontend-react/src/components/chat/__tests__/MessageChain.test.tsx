@@ -37,12 +37,6 @@ describe('MessageChain', () => {
     expect(screen.queryByText('old')).not.toBeInTheDocument();
   });
 
-  it('shows what the agent said before a tool on that tool step', () => {
-    const step = { ...startActivity('list_skills', {}), lead: 'Notebook-ul îmi dă doar contoare. Cer lista direct:' };
-    render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[step]} streaming />);
-    expect(screen.getByText('Notebook-ul îmi dă doar contoare. Cer lista direct:')).toBeInTheDocument();
-  });
-
   it('draws nothing when there was no reasoning and no tool', () => {
     const { container } = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[]} streaming />);
     expect(container).toBeEmptyDOMElement();
