@@ -974,14 +974,14 @@ export async function boot(transportOverride?: Transport) {
   // L4 (§1.1): the search routes through the retrieval_strategy seam — a
   // promoted module replaces the ranking; with none promoted the builtin
   // fast-path calls FractalMemory.query directly (no process boundary).
-  const retrievalSeam = liveSeamAdapter(
-    "retrieval_strategy",
-    async (_method, params) => {
-      const p = params as { query: string; k: number };
-      return hitsToItems(await fractalMemory.query(p.query, p.k));
-    },
-    log,
-  );
+  // One builtin, two users: the live seam below and the L4 paired eval's
+  // incumbent (`seamBuiltins` on the RsiSidecar). Without the second, every
+  // retrieval module was compared against no memory at all.
+  const retrievalBuiltin = async (_method: string, params: unknown): Promise<unknown> => {
+    const p = params as { query: string; k: number };
+    return hitsToItems(await fractalMemory.query(p.query, p.k));
+  };
+  const retrievalSeam = liveSeamAdapter("retrieval_strategy", retrievalBuiltin, log);
   // Utility ledger (competence plan §3.3): which leaves were shown to which
   // session, closed with the run's verdict in `concludeRun`. The ranking
   // knob is 0, so this changes nothing a user sees; it collects the
@@ -2266,6 +2266,9 @@ export async function boot(transportOverride?: Transport) {
     metaParams: () => metaEvolution.current(),
     // L5: policy gates tighten the promotion gate further (§7).
     policyGates: () => effectiveGates(governancePolicy()),
+    // L4 §5: the incumbent a retrieval module is paired against IS the live
+    // ranking. `planner` needs none here — the sidecar binds its own builtin.
+    seamBuiltins: { retrieval_strategy: retrievalBuiltin },
     onIdle: (...args: Parameters<typeof dreamCycle.onEpisodeEnd>) => {
       dreamCycle.onEpisodeEnd(...args);
       void maybeCodeRsiRound();

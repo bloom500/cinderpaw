@@ -187,10 +187,11 @@ export interface RsiSidecarDeps {
    *  behaviour (§7). */
   policyGates?: () => import("./infra/confidence.ts").GateThresholds;
   /** Optional: L4 seam builtins for the paired module eval (§5) — the
-   *  INCUMBENT implementation per seam, keyed by seam name. index.ts
+   *  INCUMBENT implementation per seam, keyed by seam name. boot.ts
    *  provides `retrieval_strategy` (FractalMemory-backed); `planner`
-   *  defaults to the builtin split. Absent seam → that seam's method is
-   *  left unbound on BOTH eval runs (symmetric pairing). */
+   *  defaults to the builtin split. Absent seam → the INCUMBENT run has
+   *  nothing bound for it while the candidate has the module, so the pair is
+   *  only symmetric when the builtin is supplied. */
   seamBuiltins?: Record<string, (method: string, params: unknown) => Promise<unknown>>;
 }
 
