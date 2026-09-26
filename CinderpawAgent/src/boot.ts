@@ -1036,9 +1036,12 @@ export async function boot(transportOverride?: Transport) {
   // needs a synchronous path or the fact is simply lost.
   registry.register(
     createRememberTool(semantic, {
-      // The graph mirrors only global (owner) facts; see extractor.ts.
+      // The graph and the tree mirror only global (owner) facts; see
+      // extractor.ts and reconciler.ts.
       onForget: (key, scope) => {
-        if (scope === "" && memoryGraph.forgetFact(key, "has") > 0) memoryGraph.persist();
+        if (scope !== "") return;
+        if (memoryGraph.forgetFact(key, "has") > 0) memoryGraph.persist();
+        fractalMemory.forgetFact(key);
       },
     }),
   );

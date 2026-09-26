@@ -814,6 +814,33 @@ export class FractalMemory {
   }
 
   /**
+   * Remove every leaf written for fact `key`: the tree's half of forgetting a
+   * fact. SemanticMemory.delete closes the fact; its leaf stayed recallable,
+   * labelled superseded, which still showed the model the value the user had
+   * asked it to forget. Same removal path as eviction (store, caches, index,
+   * audit log, pulse). Returns the removed ids.
+   */
+  forgetFact(key: string): number[] {
+    const k = key.trim().toLowerCase();
+    if (!k) return [];
+    const ids = this.#leafStore
+      .all()
+      .filter((r) => r.provenance.key?.trim().toLowerCase() === k)
+      .map((r) => r.id);
+    if (ids.length === 0) return [];
+    this.#leafStore.remove(ids);
+    for (const id of ids) {
+      this.#pendingLeaves.delete(id);
+      this.#provenance.delete(id);
+    }
+    this.#forgetFromIndex(ids);
+    const now = Date.now();
+    this.#appendEvicted(ids, now, "forget");
+    this.#emit({ kind: "prune", evictedLeafIds: ids, ts: now });
+    return ids;
+  }
+
+  /**
    * Drop ids from the recall index so a removed memory stops being recallable.
    *
    * Eviction and dedup used to delete from the leaf store and leave the search

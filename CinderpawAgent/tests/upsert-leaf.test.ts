@@ -399,3 +399,21 @@ describe("FractalMemory.upsertLeaf — a new value is an update, not a duplicate
     expect(fm.pendingLeaves()).toHaveLength(1);
   });
 });
+
+describe("FractalMemory.forgetFact", () => {
+  test("removes the fact's leaf so recall cannot surface it", async () => {
+    const { fm } = makeMemory();
+    const kept = await fm.upsertLeaf({
+      text: "editor: helix", embedding: [0, 1, 0],
+      provenance: { source: "react", first_seen_at: 1, sessionId: "s", ts: 1, key: "editor", value: "helix" },
+    });
+    const gone = await fm.upsertLeaf({
+      text: "phone: 0721 000 000", embedding: [1, 0, 0],
+      provenance: { source: "react", first_seen_at: 2, sessionId: "s", ts: 2, key: "phone", value: "0721 000 000" },
+    });
+    expect(fm.forgetFact("Phone")).toEqual([gone.leafId]);
+    expect(fm.pendingLeaves().map((l) => l.id)).toEqual([kept.leafId]);
+    expect(fm.leaves().map((l) => l.id)).toEqual([kept.leafId]);
+    expect(fm.forgetFact("phone")).toEqual([]);
+  });
+});
