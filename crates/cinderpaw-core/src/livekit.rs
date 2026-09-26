@@ -983,6 +983,18 @@ pub async fn start(
 ) -> Result<Session, String> {
     let node = crate::toolchain::find_node().ok_or_else(|| "livekit-no-node".to_string())?;
 
+    // A build with no on-device transcriber used to start a local call anyway:
+    // the room opened, the microphone was published, the overlay showed a
+    // healthy call, and every word went to a recogniser that answers
+    // `voice-unavailable`. Only for `local`: a cloud transcriber has nothing to
+    // do with what this binary was compiled with. (9d9d7d8, 10 Sep.)
+    if stt_provider.as_deref().unwrap_or("local") == "local" && crate::stt::resolve(stt_model.as_deref()).is_none() {
+        return Err(
+            "This build has no on-device transcriber, so a local call could not hear you. Pick a cloud transcriber in the voice settings, or use a build that ships one."
+                .into(),
+        );
+    }
+
     // Taken before anything is consumed, so what the chain is bound to is
     // recorded by the same call that binds it.
     let spec = session_spec(

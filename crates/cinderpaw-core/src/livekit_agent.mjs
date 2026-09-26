@@ -55,6 +55,13 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const RATE = 48000;
+/** How long a call may go without reaching `listening` before the person is
+ *  told it may not hear them. A CALIBRATION KNOB, not a measurement: a cold
+ *  VAD load and a first model read take seconds, how many depends on the
+ *  machine, so it is generous, the message never calls the call dead, and a
+ *  session that reaches `listening` late clears it. Raise it if a healthy call
+ *  on a slow machine ever trips it. (9d9d7d8, 10 Sep, never landed.) */
+const DEAF_AFTER_MS = 12_000;
 const CHANNELS = 1;
 
 /** No key ⇒ echo. Read once, so the mode cannot change mid-call. */
@@ -1001,6 +1008,17 @@ async function assistant(ctx, makeSession) {
     }
   };
 
+  // Whether the session ever started listening. `listening` is reached only
+  // once audio recognition runs, so it is the one honest answer to "can this
+  // call hear me". A session that never gets there stays connected, the
+  // overlay looks like a working call, and every word is dropped: no line in
+  // the log and nothing on screen.
+  let listened = false;
+  let deaf = null;
+  const stopDeafTimer = () => {
+    if (deaf !== null) { clearTimeout(deaf); deaf = null; }
+  };
+
   session.on(AgentSessionEventTypes.AgentStateChanged, (e) => {
     const state = String(e.newState ?? '');
     talk.agent = state;
@@ -1011,7 +1029,11 @@ async function assistant(ctx, makeSession) {
     emit({ kind: 'state', text: state });
     // The greeting waits for this rather than firing right after `start()`.
     // See `greet` below for why.
-    if (state === 'listening') greet();
+    if (state === 'listening') {
+      listened = true;
+      stopDeafTimer();
+      greet();
+    }
   });
 
   session.on(AgentSessionEventTypes.UserStateChanged, (e) => {
@@ -1035,7 +1057,10 @@ async function assistant(ctx, makeSession) {
     lastError = message;
     emit({ kind: 'error', text: message, recoverable: Boolean(e?.recoverable) });
   });
-  session.on(AgentSessionEventTypes.Close, () => emit({ kind: 'closed', text: lastError }));
+  session.on(AgentSessionEventTypes.Close, () => {
+    stopDeafTimer();
+    emit({ kind: 'closed', text: lastError });
+  });
 
   // Commands from the window, over LiveKit's own data channel.
   //
@@ -1107,6 +1132,21 @@ async function assistant(ctx, makeSession) {
   console.log(
     `CINDERPAW_AGENT_READY mode=assistant provider=${PROVIDER} persona=${INSTRUCTIONS.length} tools=${TOOL_DECLARATIONS.length}`,
   );
+
+  if (!listened) {
+    deaf = setTimeout(() => {
+      deaf = null;
+      if (listened) return;
+      console.error(`the call has not started listening after ${DEAF_AFTER_MS} ms`);
+      // `recoverable`, and worded as what is observed rather than a verdict:
+      // "hang up, nothing is heard" is a lie on a slow machine still loading.
+      emit({
+        kind: 'error',
+        text: 'This call has not started listening yet, so it may not be hearing you. If it stays this way, hang up and start it again.',
+        recoverable: true,
+      });
+    }, DEAF_AFTER_MS);
+  }
 
   // A greeting that misfires used to take the whole call with it, and that is
   // the bug this shape exists to prevent.
