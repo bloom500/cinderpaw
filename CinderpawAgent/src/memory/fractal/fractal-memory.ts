@@ -710,10 +710,13 @@ export class FractalMemory {
   //      the existing leaf + emit `seed`. The tree's cluster topology is
   //      unchanged; the leaf's hit_count / last_seen_at are updated via
   //      the side-channel #provenance map.
-  //   2. New leaf → add to the in-memory pending set, persist the
-  //      embedding through the optional `persistEmbeddings` hook, and
-  //      emit `grow`. The next `rebuild()` will pick the leaf up via
-  //      `loadLeaves()` (the source of truth) and cluster it.
+  //   2. New leaf → add to the in-memory pending set, write it to the
+  //      durable leaf store, graft it into the live tree, and emit `grow`.
+  //      It is NOT clustered by the next `rebuild()`: `loadLeaves()` is
+  //      episodic rows only, and these ids live above UPSERT_LEAF_ID_BASE.
+  //      The graft lasts until the next rebuild or restart; after that the
+  //      fact is still in every turn through the known-facts block
+  //      (`RecallFallback.knownFacts`), just not on the semantic path.
   //
   // Idempotency: the dedup key is `sha256(text + first_seen_at)`. Calling
   // upsertLeaf twice with the same `(text, first_seen_at)` returns the
