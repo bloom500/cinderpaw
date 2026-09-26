@@ -304,6 +304,22 @@ export class FractalRecallEngine {
     return ranked.slice(0, limit).map((h) => h.id);
   }
 
+  /**
+   * The ranked hits with the text each resolved to: the leaf's text for a
+   * tree hit, the row itself for an FTS5 hit. For callers that render hits
+   * themselves (the `recall` tool). Resolving an id back through the leaf map
+   * afterwards loses every FTS5-only hit on a row written since the tree was
+   * built, which is the row a user is most likely to ask about.
+   */
+  async rankedEntries(
+    query: string,
+    sessionId: string,
+    limit = MAX_CONTEXT_HITS,
+  ): Promise<{ id: number; text: string; ts: number }[]> {
+    const ranked = await this.#rankedHits(query, sessionId);
+    return ranked.slice(0, limit).map((h) => ({ id: h.id, text: h.text, ts: h.ts }));
+  }
+
   async recall(query: string, sessionId: string): Promise<RecallResult> {
     const ranked = (await this.#rankedHits(query, sessionId)).slice(0, MAX_CONTEXT_HITS);
 

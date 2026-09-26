@@ -5,8 +5,9 @@
  * Unlike `recall` (which formats a prompt block) this returns ranked
  * `{leafId, text}` hits so a tool can render them however it likes. It is a
  * read over the loaded tree with the same "never throws, augment never
- * replace" contract: no tree, or an embedding failure, yields `[]` rather than
- * an error — the calling tool just shows its own (non-fractal) results.
+ * replace" contract: no tree, or an embedding failure, downgrades to FTS5
+ * alone, exactly like `recall` — never an error, and never an empty answer to
+ * a question the keyword index can answer.
  */
 import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -91,5 +92,57 @@ describe("FractalMemory.query", () => {
     await fm.rebuild();
     expect(fm.hasTree).toBe(true);
     expect(await fm.query("", 5)).toEqual([]); // empty query → no hits, no throw
+  });
+});
+
+describe("FractalMemory.query — FTS5 is never thrown away", () => {
+  const row = (id: number, content: string): EpisodicEvent => ({
+    id, sessionId: "s-new", timestamp: 1700000009999, role: "user", content,
+  } as EpisodicEvent);
+  const ftsWith = (rows: EpisodicEvent[]) => (_q: string, l: number) => rows.slice(0, l);
+
+  it("with no tree, answers from FTS5 instead of returning nothing", async () => {
+    const fm = new FractalMemory({
+      loadLeaves: () => [], embed: groupEmbed(), summarize: fakeSummarize,
+      ftsSearch: ftsWith([row(501, "the invoice number is 4471")]), fallback, treePath: treePath(),
+    });
+    expect(fm.hasTree).toBe(false);
+    expect(await fm.query("invoice number", 5)).toEqual([{ leafId: 501, text: "the invoice number is 4471" }]);
+  });
+
+  it("keeps an FTS5 hit on a row written after the tree was built", async () => {
+    // Row 501 is not a tree leaf: it arrived after the build. The keyword
+    // index still finds it, and the hit must reach the tool with its text.
+    const fm = new FractalMemory({
+      loadLeaves: leaves, embed: groupEmbed(), summarize: fakeSummarize,
+      ftsSearch: ftsWith([row(501, "invoice from this morning, s-b")]), fallback, treePath: treePath(),
+    });
+    await fm.rebuild();
+    expect(fm.hasTree).toBe(true);
+    const hits = await fm.query("invoice s-b", 20);
+    expect(hits).toContainEqual({ leafId: 501, text: "invoice from this morning, s-b" });
+  });
+
+  it("falls back to FTS5 when the query cannot be embedded on a built tree", async () => {
+    let failing = false;
+    const flaky = async (texts: string[]) => {
+      if (failing) throw new Error("model unloaded");
+      return groupEmbed()(texts);
+    };
+    const fm = new FractalMemory({
+      loadLeaves: leaves, embed: flaky, summarize: fakeSummarize,
+      ftsSearch: ftsWith([row(501, "invoice 4471")]), fallback, treePath: treePath(),
+    });
+    await fm.rebuild();
+    failing = true;
+    expect(await fm.query("invoice", 5)).toEqual([{ leafId: 501, text: "invoice 4471" }]);
+  });
+
+  it("a throwing FTS5 on the fallback path still yields [], never an error", async () => {
+    const fm = new FractalMemory({
+      loadLeaves: () => [], embed: groupEmbed(), summarize: fakeSummarize,
+      ftsSearch: () => { throw new Error("db closed"); }, fallback, treePath: treePath(),
+    });
+    expect(await fm.query("anything", 5)).toEqual([]);
   });
 });

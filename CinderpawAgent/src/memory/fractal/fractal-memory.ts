@@ -627,26 +627,39 @@ export class FractalMemory {
    * excluding any session (an explicit tool query has no "current" session).
    *
    * Same contract as the rest of the facade: never throws, augment never
-   * replace. No tree, an embedding failure, or an empty query → `[]`, so the
-   * calling tool simply falls back to its own (non-fractal) results.
+   * replace. No tree, or an embedding failure, falls back to FTS5 alone — the
+   * same downgrade `recall` makes. It used to return `[]`, on the premise that
+   * the calling tool shows its own results; the `recall` tool has none for
+   * past conversations, so every install without a tree (a fresh one, or no
+   * embedding model) answered "Nothing in memory matched" to a question FTS5
+   * could answer by keyword. An empty query → `[]`.
    */
    async query(pattern: string, limit: number): Promise<FractalQueryHit[]> {
-    if (!this.#tree || !this.#leavesById || !pattern.trim() || limit <= 0) return [];
-    const leavesById = this.#leavesById;
+    if (!pattern.trim() || limit <= 0) return [];
+    if (this.#tree && this.#leavesById) {
+      try {
+        const engine = new FractalRecallEngine({
+          tree: this.#tree,
+          embed: this.#embed,
+          ftsSearch: this.#ftsSearch,
+          leavesById: this.#leavesById,
+        });
+        // The entries carry their own text. Looking each id up in
+        // `leavesById` instead dropped every FTS5 hit on a row written since
+        // the tree was built — the tree does not know those rows, so a keyword
+        // match on this morning's conversation came back as nothing.
+        const hits = await engine.rankedEntries(pattern, "", limit);
+        return hits.map((h) => ({ leafId: h.id, text: h.text }));
+      } catch (e) {
+        this.#log?.(`fractal: query fell back to FTS5: ${String(e)}`);
+      }
+    }
     try {
-      const engine = new FractalRecallEngine({
-        tree: this.#tree,
-        embed: this.#embed,
-        ftsSearch: this.#ftsSearch,
-        leavesById,
-      });
-      const ids = await engine.rankedLeafIds(pattern, "", limit);
-      return ids.flatMap((leafId) => {
-        const leaf = leavesById.get(leafId);
-        return leaf ? [{ leafId, text: leaf.text }] : [];
-      });
+      return this.#ftsSearch(pattern, limit).flatMap((ev) =>
+        ev.id === undefined ? [] : [{ leafId: ev.id, text: ev.content }],
+      );
     } catch (e) {
-      this.#log?.(`fractal: query fell back to empty: ${String(e)}`);
+      this.#log?.(`fractal: FTS5 query failed, returning nothing: ${String(e)}`);
       return [];
     }
   }
