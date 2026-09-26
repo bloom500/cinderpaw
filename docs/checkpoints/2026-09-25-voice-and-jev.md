@@ -96,11 +96,16 @@ stubbed (see "Measuring the UI" below):
 - Call pill window loads only the pill: first pixel 952 -> 320 ms (CPU x4).
 - Menus are non-modal (no body restyle): model picker 200 -> 104 ms.
 - Home: the mascot covered the "W" of the question; the greeting leaves room.
+- Menus click through on the page (user's call, 26 Sep): checked in
+  Chromium with New, Browser, the composer, another chat row, a second "…",
+  Escape and Delete (which always asks). Inside Search and dialogs they stay
+  modal (`MenuInOverlay`), so dismissing a menu does not close Search too.
+- The alpha notice has real buttons (Report a bug, Contribute) and drops its
+  paragraph below 1,280 px so it never covers the home question.
 
 Still slow-ish (click to paint, CPU x4): Browser panel ~200 ms (not the
 glass: unchanged without backdrop), search overlay ~150 ms (88 without its
-backdrop blur), new chat ~170 ms. The alpha notice covers the home question
-below ~1,250 px wide until dismissed.
+backdrop blur), new chat ~170 ms.
 
 **Measuring the UI** (none of it committed): `vite build`, `vite preview`,
 Playwright's Chromium (`/opt/pw-browsers/...`) with an init script that
