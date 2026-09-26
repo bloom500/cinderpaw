@@ -29,8 +29,8 @@ import {
 import { parseUnifiedDiff } from "../src/rsi/l3-code/code-genome.ts";
 
 const genome: CodeGenome = {
-  patch: "--- a/src/rsi/mutation.ts\n+++ b/src/rsi/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n",
-  affectedFiles: ["src/rsi/mutation.ts"],
+  patch: "--- a/src/rsi/l1-config/mutation.ts\n+++ b/src/rsi/l1-config/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n",
+  affectedFiles: ["src/rsi/l1-config/mutation.ts"],
   baseCommit: "base123",
   proposal: { rationale: "r", riskAssessment: "ra", testPlan: "tp" },
 };
@@ -299,15 +299,17 @@ describe("makeCodeStageAdapters — the base and the Rust verdict", () => {
 });
 
 describe("proposal operator — pure pieces", () => {
-  test("proposableFiles excludes the enforcement chain and non-.ts", () => {
+  test("proposableFiles offers only what the wall would let through", () => {
     const files = proposableFiles([
-      "mutation.ts",
-      "code-genome.ts", // denylisted
-      "ratchet-handler.ts", // denylisted
-      "notes.md", // wrong extension
-      "taste-miner.ts",
+      "l1-config/mutation.ts",
+      "l3-code/code-genome.ts", // denylisted
+      "infra/ratchet-handler.ts", // denylisted
+      "l1-config/notes.md", // wrong extension
+      "l1-config/goal-mode.ts", // not on the allowlist
+      "mutation.ts", // not the real path
+      "l1-config/taste-miner.ts",
     ]);
-    expect(files).toEqual(["mutation.ts", "taste-miner.ts"]);
+    expect(files).toEqual(["l1-config/mutation.ts", "l1-config/taste-miner.ts"]);
   });
 
   test("extractUnifiedDiff prefers the fenced block", () => {
@@ -330,17 +332,17 @@ describe("proposal operator — pure pieces", () => {
   test("proposeCodePatch: end-to-end over fake deps", async () => {
     const g = await proposeCodePatch({
       completeLocal: async ({ user }) => {
-        expect(user).toContain("src/rsi/mutation.ts");
-        return "RATIONALE: tighten a clamp\n```diff\n--- a/src/rsi/mutation.ts\n+++ b/src/rsi/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n```";
+        expect(user).toContain("src/rsi/l1-config/mutation.ts");
+        return "RATIONALE: tighten a clamp\n```diff\n--- a/src/rsi/l1-config/mutation.ts\n+++ b/src/rsi/l1-config/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n```";
       },
-      listRsiFiles: async () => ["mutation.ts", "code-genome.ts"],
+      listRsiFiles: async () => ["l1-config/mutation.ts", "code-genome.ts"],
       readRsiFile: async () => "export const a = 1;",
       baseCommit: async () => "head123",
       rng: () => 0, // deterministic: picks the first proposable file
     });
     expect(g).not.toBeNull();
     expect(g!.baseCommit).toBe("head123");
-    expect(g!.affectedFiles).toEqual(["src/rsi/mutation.ts"]);
+    expect(g!.affectedFiles).toEqual(["src/rsi/l1-config/mutation.ts"]);
     expect(g!.proposal.rationale).toBe("tighten a clamp");
   });
 
@@ -368,16 +370,16 @@ describe("proposal operator — pure pieces", () => {
   test("buildUnifiedDiff: single hunk with context that the TS wall parses", () => {
     const oldText = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n";
     const newText = "l1\nl2\nl3\nl4x\nl5\nl6\nl7\nl8\n";
-    const diff = buildUnifiedDiff(oldText, newText, "src/rsi/mutation.ts");
-    expect(diff).toContain("--- a/src/rsi/mutation.ts");
-    expect(diff).toContain("+++ b/src/rsi/mutation.ts");
+    const diff = buildUnifiedDiff(oldText, newText, "src/rsi/l1-config/mutation.ts");
+    expect(diff).toContain("--- a/src/rsi/l1-config/mutation.ts");
+    expect(diff).toContain("+++ b/src/rsi/l1-config/mutation.ts");
     expect(diff).toContain("-l4");
     expect(diff).toContain("+l4x");
     // The wall's parser must accept exactly what the serializer emits.
     const parsed = parseUnifiedDiff(diff!);
     expect("error" in parsed).toBe(false);
     // Identical texts → no diff.
-    expect(buildUnifiedDiff(oldText, oldText, "src/rsi/mutation.ts")).toBeNull();
+    expect(buildUnifiedDiff(oldText, oldText, "src/rsi/l1-config/mutation.ts")).toBeNull();
   });
 
   test("buildUnifiedDiff: edits at file top and bottom keep valid hunks", () => {
@@ -395,7 +397,7 @@ describe("proposal operator — pure pieces", () => {
     const g = await proposeCodePatch({
       completeLocal: async () =>
         "RATIONALE: tighten\n<<<<<<< SEARCH\nline2\n=======\nline2-improved\n>>>>>>> REPLACE\n",
-      listRsiFiles: async () => ["mutation.ts"],
+      listRsiFiles: async () => ["l1-config/mutation.ts"],
       readRsiFile: async () => source,
       baseCommit: async () => "h",
       rng: () => 0,
@@ -403,7 +405,7 @@ describe("proposal operator — pure pieces", () => {
     expect(g).not.toBeNull();
     expect(g!.patch).toContain("-line2");
     expect(g!.patch).toContain("+line2-improved");
-    expect(g!.affectedFiles).toEqual(["src/rsi/mutation.ts"]);
+    expect(g!.affectedFiles).toEqual(["src/rsi/l1-config/mutation.ts"]);
     const parsed = parseUnifiedDiff(g!.patch);
     expect("error" in parsed).toBe(false);
   });
@@ -412,7 +414,7 @@ describe("proposal operator — pure pieces", () => {
     const g = await proposeCodePatch({
       completeLocal: async () =>
         "RATIONALE: x\n<<<<<<< SEARCH\nthis text is not in the file\n=======\nnew\n>>>>>>> REPLACE\n",
-      listRsiFiles: async () => ["mutation.ts"],
+      listRsiFiles: async () => ["l1-config/mutation.ts"],
       readRsiFile: async () => "real content\n",
       baseCommit: async () => "h",
       rng: () => 0,
@@ -422,7 +424,7 @@ describe("proposal operator — pure pieces", () => {
 
   test("proposeCodePatch: SKIP and diff-less output → null, not an error", async () => {
     const base = {
-      listRsiFiles: async () => ["mutation.ts"],
+      listRsiFiles: async () => ["l1-config/mutation.ts"],
       readRsiFile: async () => "x",
       baseCommit: async () => "h",
       rng: () => 0,

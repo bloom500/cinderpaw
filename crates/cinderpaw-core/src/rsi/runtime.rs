@@ -754,13 +754,13 @@ mod tests {
     #[test]
     fn dispatch_rsi_validate_code_patch_soft_verdicts() {
         // Policy-clean patch → ok:true with stats.
-        let good = "--- a/src/rsi/mutation.ts\n+++ b/src/rsi/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n";
+        let good = "--- a/src/rsi/l1-config/mutation.ts\n+++ b/src/rsi/l1-config/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n";
         let v = run_dispatch("rsi_validate_code_patch", serde_json::json!({ "patch": good }))
             .expect("dispatch must succeed");
         assert_eq!(v.get("ok").and_then(|x| x.as_bool()), Some(true));
         assert_eq!(v.get("changed_lines").and_then(|x| x.as_u64()), Some(2));
         // Violation → ok:false soft verdict, NOT a bridge error.
-        let bad = good.replace("src/rsi/mutation.ts", "src/agent-loop.ts");
+        let bad = good.replace("src/rsi/l1-config/mutation.ts", "src/agent-loop.ts");
         let v = run_dispatch("rsi_validate_code_patch", serde_json::json!({ "patch": bad }))
             .expect("soft verdict, not an error");
         assert_eq!(v.get("ok").and_then(|x| x.as_bool()), Some(false));
