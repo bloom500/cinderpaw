@@ -486,6 +486,17 @@ type WizardHardware struct {
 	GpuOK   bool
 }
 
+// localMinVramGB is the GPU memory the Quick start local model (Qwen3.5 9B,
+// ~5.5 GB of weights) needs with room for its context: the core's
+// `setup::recommend_download` gives 9B a 9 GB budget at 80% of VRAM. Below it
+// the model spills onto the processor.
+const localMinVramGB = 12
+
+// localFits reports whether the Quick start local model runs on this GPU.
+func (h WizardHardware) localFits() bool {
+	return h.GpuOK && h.GpuVram >= localMinVramGB
+}
+
 // CloudProvider is one entry in the ONB-003 provider picker. The list mirrors
 // the Rust `byok::ByokSettings::default_provider_configs` in
 // crates/cinderpaw-core/src/byok.rs — keep them in sync when adding providers.
@@ -565,7 +576,7 @@ var CloudProviders = []CloudProvider{
 	{ID: "groq", Name: "Groq", DefaultModel: "llama-3.1-70b-versatile", BaseURL: ""},
 	{ID: "mistral", Name: "Mistral AI", DefaultModel: "mistral-large-latest", BaseURL: ""},
 	{ID: "deepseek", Name: "DeepSeek", DefaultModel: "deepseek-chat", BaseURL: ""},
-	{ID: "openrouter", Name: "OpenRouter", DefaultModel: "openai/gpt-4o", BaseURL: ""},
+	{ID: "openrouter", Name: "OpenRouter", DefaultModel: "z-ai/glm-5.3-flash", BaseURL: ""},
 	{ID: "kimi", Name: "Kimi (Moonshot AI)", DefaultModel: "moonshot-v1-8k", BaseURL: ""},
 	{ID: "glm", Name: "GLM (Zhipu)", DefaultModel: "glm-4-plus", BaseURL: ""},
 }
@@ -1019,7 +1030,10 @@ func (ws *WizardState) footerHint() string {
 	case WizResume:
 		return ui.G.Up + ui.G.Down + " navigate  ·  enter select  ·  esc start over"
 	case WizHardware:
-		return "detecting hardware…"
+		if ws.Hardware.RamGB == 0 && !ws.Hardware.GpuOK {
+			return "detecting hardware…"
+		}
+		return "1 2  choose  ·  " + ui.AccentStyle.Render("Enter") + "  confirm"
 	case WizModelChoice:
 		return "enter to select"
 	case WizLocalDownload:

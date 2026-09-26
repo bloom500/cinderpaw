@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textCandidates, domainGuess, toPlan } from '../jev';
+import { textCandidates, domainGuess, toPlan, earlyFingerprint, inReadingOrder, repeatCount, runsLeft } from '../jev';
 
 const choice = (choice: string, confidence = 0.9) => ({ type: 'choice', choice, confidence });
 
@@ -12,6 +12,28 @@ describe('jev brain', () => {
     }, c);
     expect(plan).toMatchObject({ action: 'web_search', query: 'lofi hip hop' });
     expect((plan as { url: string }).url).toBe('https://www.youtube.com/results?search_query=lofi%20hip%20hop');
+  });
+
+  it('"play X on Spotify" searches the installed app and plays the first result', () => {
+    const said = 'Now, can you play praying mantis on Spotify?';
+    const c = textCandidates(said);
+    const key = Object.keys(c).find((k) => c[k].toLowerCase() === 'praying mantis');
+    expect(key).toBeDefined();
+    const ans = { action: choice('web_search'), engine: choice('spotify'), text: choice(key!) };
+    const inApp = toPlan(said, ans, c, undefined, [{ name: 'Spotify', path: 'C:/Spotify.lnk' }]);
+    expect(inApp).toMatchObject({ action: 'web_search', url: 'spotify:search:praying+mantis', system: true, play: true });
+    // No app installed: the web player, still played.
+    expect(toPlan(said, ans, c)).toMatchObject({ url: 'https://open.spotify.com/search/praying%20mantis', play: true });
+    // A search is not a play.
+    expect(toPlan('search spotify for praying mantis', ans, c)).not.toHaveProperty('play');
+  });
+
+  it('editing, folders and screenshots are their own closed choices', () => {
+    const c = textCandidates('paste');
+    expect(toPlan('paste', { action: choice('edit'), edit_op: choice('paste') }, c)).toMatchObject({ action: 'edit', op: 'paste' });
+    expect(toPlan('open downloads', { action: choice('open_folder'), folder: choice('downloads') }, c)).toMatchObject({ action: 'open_folder', folder: 'downloads' });
+    expect(toPlan('open the attic', { action: choice('open_folder'), folder: choice('attic') }, c)).toMatchObject({ action: 'none' });
+    expect(toPlan('take a screenshot', { action: choice('screenshot') }, c)).toMatchObject({ action: 'screenshot' });
   });
 
   it('a spoken domain opens as a site, a known name opens its address', () => {
@@ -236,7 +258,7 @@ describe('desktop commands on macOS and Linux', () => {
     try {
       const { executeOnDesktop, resetTarget } = await import('../jev');
       resetTarget();
-      await executeOnDesktop({ action: 'type_text', text: 'hi {there}', confidence: 1 });
+      await executeOnDesktop({ action: 'type', text: 'hi {there}', confidence: 1 });
       expect(sent).toEqual([{ elementId: '7:1', keys: 'hi {{there}}' }]);
     } finally {
       vi.mocked(invoke).mockImplementation(async () => { throw 'desktop control is disabled. Set CINDERPAW_ENABLE_DESKTOP_CONTROL=true to enable it.'; });
@@ -244,13 +266,13 @@ describe('desktop commands on macOS and Linux', () => {
   });
 });
 
-describe('type_text is planned from the dictated words', () => {
+describe('dictation is planned from the dictated words', () => {
   it('takes the payload candidate, not the command word', async () => {
     const { toPlan, textCandidates } = await import('../jev');
     const c = textCandidates('type see you tomorrow');
     const key = Object.entries(c).find(([, v]) => v === 'see you tomorrow')![0];
-    expect(toPlan('type see you tomorrow', { action: { type: 'choice', choice: 'type_text', confidence: 0.9 }, text: { type: 'choice', choice: key, confidence: 0.8 } }, c))
-      .toEqual({ action: 'type_text', text: 'see you tomorrow', confidence: 0.8 });
+    expect(toPlan('type see you tomorrow', { action: { type: 'choice', choice: 'type', confidence: 0.9 }, text: { type: 'choice', choice: key, confidence: 0.8 } }, c))
+      .toEqual({ action: 'type', text: 'see you tomorrow', confidence: 0.8 });
   });
 });
 
@@ -262,3 +284,120 @@ describe('stop and hang up are two actions', () => {
   });
 });
 
+describe('type', () => {
+  it('types the payload Jev cut out, never at a partial', () => {
+    const c = textCandidates('type hello there');
+    const key = Object.keys(c).find((k) => c[k] === 'hello there')!;
+    const plan = toPlan('type hello there', { action: choice('type'), text: choice(key) }, c);
+    expect(plan).toMatchObject({ action: 'type', text: 'hello there' });
+    expect(earlyFingerprint(plan)).toBeNull();
+  });
+});
+
+describe('earlyFingerprint', () => {
+  it('names the closed-payload actions once, case-blind, and nothing that carries free text or acts on the page', () => {
+    expect(earlyFingerprint({ action: 'open_app', name: 'Spotify', path: 'x', confidence: 0.9 })).toBe('open_app:spotify');
+    expect(earlyFingerprint({ action: 'open_app', name: 'spotify', path: 'y', confidence: 0.5 })).toBe('open_app:spotify');
+    expect(earlyFingerprint({ action: 'open_website', url: 'https://youtube.com', label: 'YouTube', system: false, confidence: 0.9 })).toBe('open_website:https://youtube.com');
+    expect(earlyFingerprint({ action: 'scroll', dy: 600, confidence: 0.9 })).toBe('scroll:600');
+    expect(earlyFingerprint({ action: 'navigate', op: 'back', confidence: 0.9 })).toBe('navigate:back');
+    expect(earlyFingerprint({ action: 'navigate', op: 'close_tab', confidence: 0.9 })).toBeNull();
+    for (const plan of [
+      { action: 'web_search', url: 'u', query: 'lofi hip', system: false, confidence: 0.9 },
+      { action: 'find', query: 'refund', confidence: 0.9 },
+      { action: 'click', target: 'first video', confidence: 0.9 },
+      { action: 'media', op: 'play_pause', confidence: 0.9 },
+      { action: 'shortcut', keys: 'k', means: 'pause', confidence: 0.9 },
+      { action: 'stop', confidence: 0.9 },
+      { action: 'none', confidence: 0.9 },
+    ] as const) expect(earlyFingerprint(plan)).toBeNull();
+  });
+});
+
+describe('window_ctl', () => {
+  const windows = [{ pid: 5, title: 'Spotify Premium', app_name: 'Spotify' }];
+
+  it('closes the named app, and the name does not drag the confidence down', () => {
+    const c = textCandidates('close spotify');
+    expect(toPlan('close spotify',
+      { action: choice('window_ctl'), window_op: choice('close'), window: choice('w0', 0.9) }, c, undefined, [], windows))
+      .toEqual({ action: 'window_ctl', op: 'close', app: 'Spotify', confidence: 0.9 });
+  });
+
+  it('an unsure name falls back to the front window; a wrong op is for the agent', () => {
+    const c = textCandidates('minimize this');
+    expect(toPlan('minimize this',
+      { action: choice('window_ctl'), window_op: choice('minimize'), window: choice('w0', 0.1) }, c, undefined, [], windows))
+      .toEqual({ action: 'window_ctl', op: 'minimize', app: null, confidence: 0.9 });
+    expect(toPlan('close spotify',
+      { action: choice('window_ctl'), window_op: choice('explode'), window: choice('w0', 0.9) }, c, undefined, [], windows))
+      .toMatchObject({ action: 'none' });
+  });
+
+  it('never runs on a partial: no fingerprint', () => {
+    expect(earlyFingerprint({ action: 'window_ctl', op: 'close', app: 'Spotify', confidence: 0.9 })).toBeNull();
+  });
+});
+
+describe('inReadingOrder', () => {
+  const at = (x: number, y: number, name: string) =>
+    ({ id: name, role: 'Link', name, is_offscreen: false, is_enabled: true, bounding_rect: { x, y, width: 10, height: 10 } });
+
+  it('orders by what is highest on screen, and left to right within a row', () => {
+    // Deliberately handed in the order a markup tree might produce.
+    const order = inReadingOrder([at(500, 300, 'third'), at(40, 100, 'first'), at(300, 108, 'second')])
+      .map((e) => e.name);
+    expect(order).toEqual(['first', 'second', 'third']);
+  });
+
+  it('leaves the list alone when the host sent no rectangles', () => {
+    const noRects = [{ id: 'a', role: 'Link', name: 'a', is_offscreen: false, is_enabled: true },
+                     { id: 'b', role: 'Link', name: 'b', is_offscreen: false, is_enabled: true }];
+    expect(inReadingOrder(noRects).map((e) => e.name)).toEqual(['a', 'b']);
+  });
+});
+
+describe('repeatCount', () => {
+  it('reads a count that qualifies the repetition itself', () => {
+    expect(repeatCount('close the last two tabs')).toBe(2);
+    expect(repeatCount('scroll down three times')).toBe(3);
+    expect(repeatCount('go back twice')).toBe(2);
+    expect(repeatCount('mergi înapoi de două ori')).toBe(2);
+    expect(repeatCount('închide 3 taburi')).toBe(3);
+  });
+
+  it('ignores a number that is only part of what is said', () => {
+    expect(repeatCount('search for three little pigs')).toBe(1);
+    expect(repeatCount('click the first video')).toBe(1);
+    expect(repeatCount('open two thousand and one')).toBe(1);
+  });
+
+  it('caps a count that is far likelier a mishearing than a wish', () => {
+    expect(repeatCount('close 40 tabs')).toBe(5);
+  });
+});
+
+describe('runsLeft', () => {
+  it('runs what is left of the count after a partial already did some', () => {
+    const done = new Map([['navigate:close_tab', 1]]);
+    expect(runsLeft('close the last two tabs', 'navigate:close_tab', done)).toBe(1);
+    expect(runsLeft('close the last two tabs', 'navigate:close_tab', new Map())).toBe(2);
+  });
+
+  it('never repeats a single step a partial already ran', () => {
+    const done = new Map([['open_app:spotify', 1]]);
+    expect(runsLeft('open spotify', 'open_app:spotify', done)).toBe(0);
+  });
+
+  it('a count on one step does not free another step of the same sentence', () => {
+    // "close this tab, then scroll down twice": the close ran early, and the
+    // "twice" belongs to the scroll, so the close must not run again.
+    const done = new Map([['navigate:close_tab', 1]]);
+    expect(runsLeft('close this tab', 'navigate:close_tab', done)).toBe(0);
+    expect(runsLeft('scroll down twice', 'scroll:600', done)).toBe(2);
+  });
+
+  it('steps that never run early run once', () => {
+    expect(runsLeft('search for jazz twice', null, new Map())).toBe(1);
+  });
+});

@@ -203,6 +203,7 @@ export class SmsConnector implements LiveConnector {
     }
     const ctx = this.#ctx;
     if (!ctx) return;
+    ctx.onSender?.(from, from);
     if (!this.#allow.has(from)) {
       ctx.log(`sms: ignored a text from non-allowlisted ${from}`);
       return;

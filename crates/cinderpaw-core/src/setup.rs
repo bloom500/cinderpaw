@@ -764,10 +764,22 @@ fn extract_reply(provider: &Provider, body: &str) -> Option<String> {
         if !content.trim().is_empty() {
             return Some(content.to_string());
         }
-        // Reasoning models (DeepSeek R1 style) may spend all 32 tokens in
-        // `reasoning_content`, leaving `content` empty — that is still a
-        // successful round-trip, not a format failure.
-        msg.get("reasoning_content")?.as_str().map(str::to_string)
+        // Reasoning models may spend all 32 tokens thinking, leaving
+        // `content` empty — that is still a successful round-trip, not a
+        // format failure. DeepSeek names the field `reasoning_content`;
+        // OpenRouter names it `reasoning`. Only the first was read, so a
+        // working OpenRouter key on GLM 5.3 Flash failed setup with "the
+        // endpoint answered, but not with a usable completion" (24 Sep).
+        let thought = ["reasoning_content", "reasoning"]
+            .iter()
+            .find_map(|k| msg.get(*k).and_then(|r| r.as_str()).filter(|r| !r.trim().is_empty()));
+        if let Some(r) = thought {
+            return Some(r.to_string());
+        }
+        // Cut off by max_tokens before a word of either: the request, the
+        // key and the model all worked, which is what this test is for.
+        let finish = v.get("choices")?.get(0)?.get("finish_reason").and_then(|f| f.as_str());
+        (finish == Some("length")).then(|| "(still thinking when the test ended)".to_string())
     } else {
         // Anthropic Messages API: { content: [{ type: "text", text: "…" }] }
         v.get("content")?
@@ -925,5 +937,12 @@ mod tests {
         let anthropic = r#"{"content":[{"type":"text","text":"OK"}]}"#;
         assert_eq!(extract_reply(&Provider::Anthropic, anthropic).as_deref(), Some("OK"));
         assert!(extract_reply(&Provider::Openai, "{}").is_none());
+        // OpenRouter's reasoning field, and a reply cut off while thinking.
+        let or = r#"{"choices":[{"message":{"content":"","reasoning":"The user wants OK"},"finish_reason":"length"}]}"#;
+        assert!(extract_reply(&Provider::Openai, or).is_some());
+        let cut = r#"{"choices":[{"message":{"content":null},"finish_reason":"length"}]}"#;
+        assert!(extract_reply(&Provider::Openai, cut).is_some());
+        let empty = r#"{"choices":[{"message":{"content":""},"finish_reason":"stop"}]}"#;
+        assert!(extract_reply(&Provider::Openai, empty).is_none());
     }
 }

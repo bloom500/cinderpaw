@@ -157,6 +157,37 @@ describe("CoworkApprovalService.gate", () => {
     }
   });
 
+  test("a request and its verdict carry the chat the teammate is working for", async () => {
+    // Without a thread the UI filed the request under whatever screen was
+    // open, and on Home or Settings nowhere a chat shows: it expired unseen.
+    const { raw, close } = openDatabase(":memory:");
+    const events: OutboundEvent[] = [];
+    const agents = new CoworkAgentRepo(raw);
+    const service = new CoworkApprovalService({
+      approvals: new CoworkApprovalRepo(raw),
+      agents,
+      emitEvent: (e: OutboundEvent) => events.push(e),
+      threadOf: () => "chat-42",
+    });
+    try {
+      const agent = agents.upsert({ name: "Shipper" });
+      const pending = service.gate({
+        tool: "shell_exec",
+        args: { command: "rm -rf dist/" },
+        sessionId: `cowork:${agent.id}`,
+      });
+      await new Promise((r) => setTimeout(r, 5));
+      service.resolveExternal(requestedId(events), false);
+      await pending;
+      const threads = events
+        .filter((e): e is Extract<OutboundEvent, { type: "cowork_event" }> => e.type === "cowork_event")
+        .map((e) => e.threadId);
+      expect(threads).toEqual(["chat-42", "chat-42"]);
+    } finally {
+      close();
+    }
+  });
+
   test("deny blocks with a readable reason", async () => {
     const { service, events, close } = makeService();
     try {
@@ -210,6 +241,29 @@ describe("CoworkApprovalService.gate", () => {
       expect(service.resolveExternal(id, true)).toBe(true);
       expect(service.resolveExternal(id, true)).toBe(false);
       expect(await pending).toEqual({ block: false });
+    } finally {
+      close();
+    }
+  });
+});
+
+describe("pending approvals, for a client that connects late", () => {
+  test("lists what a teammate is blocked on now, and drops it once answered", async () => {
+    const { service, agents, events, close } = makeService();
+    try {
+      const agent = agents.upsert({ name: "Shipper" });
+      const gate = service.gate({
+        tool: "shell_exec",
+        args: { command: "rm -rf dist/" },
+        sessionId: `cowork:${agent.id}`,
+      });
+      await new Promise((r) => setTimeout(r, 5));
+      expect(service.pending()).toEqual([
+        expect.objectContaining({ agentName: "Shipper", approvalClass: "delete", requestId: requestedId(events) }),
+      ]);
+      service.resolveExternal(requestedId(events), true);
+      await gate;
+      expect(service.pending()).toEqual([]);
     } finally {
       close();
     }

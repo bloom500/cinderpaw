@@ -19,11 +19,18 @@
  * could call the notebook from inside the notebook.
  */
 
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { atomicWriteFileSync } from "../../atomic-write.ts";
 import { join } from "node:path";
 import { Notebook } from "../../rlm/repl.ts";
-import { ChildRegistry, type ChildTelemetry, type RunChild } from "../../rlm/children.ts";
+import {
+  ChildRegistry,
+  INTERRUPTED,
+  interruptOnRestart,
+  type ChildEntry,
+  type ChildTelemetry,
+  type RunChild,
+} from "../../rlm/children.ts";
 import type { ToolRegistry } from "../../tools/registry.ts";
 import type { Tool, ToolManifest } from "../../types.ts";
 import { hostToolNames } from "../tiers.ts";
@@ -58,6 +65,9 @@ export const NOTEBOOK_CHILD_TOOLS: string[] = [
 
 /** Beyond this many live sessions, the least recently used notebook is dropped. */
 const MAX_SESSIONS = 32;
+
+/** A session's saved workers live in `<session>` + this, beside its variables. */
+const CHILDREN_SUFFIX = ".children.json";
 
 /** Upstream debounces its auto-snapshot by 1500ms; same window here. */
 const PERSIST_DEBOUNCE_MS = 1_500;
@@ -120,6 +130,58 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
 
   const file = (sessionId: string) =>
     join(deps.stateDir!, `${sessionId.replace(/[^A-Za-z0-9_.-]/g, "_")}.json`);
+  /**
+   * A session's workers, beside its variables. The session id is stored inside
+   * too: the file name is sanitised, and the UI needs the real id to settle
+   * the right row.
+   */
+  const childrenFile = (sessionId: string) =>
+    join(deps.stateDir!, `${sessionId.replace(/[^A-Za-z0-9_.-]/g, "_")}${CHILDREN_SUFFIX}`);
+
+  function writeChildren(sessionId: string, children: ChildEntry[]) {
+    try {
+      mkdirSync(deps.stateDir!, { recursive: true });
+      atomicWriteFileSync(childrenFile(sessionId), JSON.stringify({ sessionId, children }));
+    } catch {
+      // Same rule as the variable snapshot: losing this on restart is not
+      // worth failing a worker over.
+    }
+  }
+
+  // Workers that were running when the process died are running no longer.
+  // Settle them on disk and on screen now, at boot, rather than when their
+  // session next touches its notebook: until then the card would show them
+  // working for ever.
+  if (deps.stateDir) {
+    let names: string[] = [];
+    try {
+      names = readdirSync(deps.stateDir).filter((n) => n.endsWith(CHILDREN_SUFFIX));
+    } catch {
+      /* no state dir yet: nothing ran before */
+    }
+    for (const n of names) {
+      try {
+        const saved = JSON.parse(readFileSync(join(deps.stateDir, n), "utf8")) as {
+          sessionId: string;
+          children: ChildEntry[];
+        };
+        const { entries, interrupted } = interruptOnRestart(saved.children ?? []);
+        if (interrupted.length === 0) continue;
+        writeChildren(saved.sessionId, entries);
+        for (const c of interrupted) {
+          deps.onChildEvent?.({
+            sessionId: saved.sessionId,
+            childId: c.rlm_child_id,
+            name: c.name,
+            status: "error",
+            detail: INTERRUPTED,
+          });
+        }
+      } catch {
+        /* an unreadable file is skipped, never fatal at boot */
+      }
+    }
+  }
 
   /**
    * Debounced write, mirroring upstream's auto-snapshot (their default window
@@ -153,6 +215,24 @@ export function createNotebookTool(deps: NotebookToolDeps): Tool {
         // than threaded through every telemetry call.
         deps.onChildEvent ? (e) => deps.onChildEvent!({ ...e, sessionId }) : undefined,
       );
+      if (deps.stateDir) {
+        try {
+          const saved = JSON.parse(readFileSync(childrenFile(sessionId), "utf8")) as { children?: ChildEntry[] };
+          reg.restore(saved.children ?? []);
+        } catch {
+          // No workers saved for this session yet.
+        }
+        // Debounced like the variable snapshot: a fan-out admits several
+        // children in one cell.
+        const r = reg;
+        r.onChange = () => {
+          const key = `children:${sessionId}`;
+          clearTimeout(timers.get(key));
+          const t = setTimeout(() => writeChildren(sessionId, r.list()), PERSIST_DEBOUNCE_MS);
+          t.unref?.();
+          timers.set(key, t);
+        };
+      }
       registries.set(sessionId, reg);
     }
     return reg;

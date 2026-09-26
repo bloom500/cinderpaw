@@ -198,17 +198,17 @@ describe('actions', () => {
     return <output data-testid="where">{pathname + search}</output>;
   }
 
-  it('finds a settings screen by a word that is not in its name, and Enter goes there', async () => {
+  it('finds a screen by a word that is not in its name, and Enter goes there', async () => {
     useConversations.setState({ list: CONVS as never, open: vi.fn() as never });
     useProjects.setState({ list: PROJECTS as never });
     useUI.setState({ searchOpen: true } as never);
     render(<MemoryRouter><SearchOverlay /><Where /></MemoryRouter>);
 
     await userEvent.type(screen.getByRole('combobox'), 'api key');
-    await waitFor(async () => expect((await rows())[0]).toContain('Settings: Cloud Keys'));
+    await waitFor(async () => expect((await rows())[0]).toContain('Models: Cloud'));
     await userEvent.keyboard('{Enter}');
 
-    expect(screen.getByTestId('where').textContent).toBe('/settings?cat=byok');
+    expect(screen.getByTestId('where').textContent).toBe('/models?tab=cloud');
     expect(useUI.getState().searchOpen).toBe(false);
   });
 

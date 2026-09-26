@@ -39,13 +39,16 @@ func TestQuickStartGPUWalkthrough_AcceptanceP1(t *testing.T) {
 	count()
 	assertStep(t, a, WizHardware, "welcome→engine")
 
-	// Probe arrives, Choice pre-selects Local.
+	// Probe arrives. Cloud is highlighted on every machine (the 9B local
+	// model fumbles tools, measured by the core), so Local is a choice.
 	a.Update(HardwareProbeMsg{Info: &api.SystemInfo{
 		GpuName: "rtx 4070", VramTotalMB: 12 * 1024, RamTotalMB: 64 * 1024,
 	}})
 
-	// Screen 2 — Engine. Enter on the highlighted Local kicks off the
-	// download and advances to WizLocalDownload. 2 interactions.
+	// Screen 2 — Engine. "1" picks Local, Enter kicks off the download and
+	// advances to WizLocalDownload. 3 interactions.
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	count()
 	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	count()
 	assertStep(t, a, WizLocalDownload, "engine→download")

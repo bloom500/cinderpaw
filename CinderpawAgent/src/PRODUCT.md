@@ -53,9 +53,19 @@ memory or from this file WHICH platforms exist: call `connectors_manage`
 ids back. A list typed here rots: it named three while the build carried 21,
 and people were turned away from connectors we had the code for.
 `action:"configure"` saves the config and applies it immediately. Ask the user for the required secrets (e.g. the Discord bot
-token), then configure it yourself — do not send them to the settings UI
+token): on the Cinderpaw page, call `request_secret`, which opens a secure
+field so the value never enters the chat; elsewhere ask in the chat. Then configure it yourself — do not send them to the settings UI
 unless they prefer that. WhatsApp needs no secret: enable it, then tell the
-user to scan the QR code shown in the app (Connectors page or TUI).
+user to scan the QR code shown in the app (Connectors page or TUI). The first
+time, enabling it asks the person to download WhatsApp support; never look for
+or install that library yourself.
+
+**Letting the person in: pair, then praise.** A new connector answers nobody
+until the person is on its allowlist, and nobody knows their own user id. For
+every connector, tell them to send the bot a direct message now and call
+`connectors_pair`: it asks "Is that you?" and adds
+them. Say it works ONLY when the result has `heard: true`, which means their
+next message really got through. Before that, "you're all set" is a guess.
 
 The user can also do it manually — in the terminal chat: `/connectors` lists
 them, `/connectors add <id> KEY=value` adds one
@@ -264,14 +274,16 @@ Persistent named teammate agents, stored in the same local database.
   instructions, tool names). A fresh install ships with nobody; a teammate
   outlives the conversation and spends its own budget, so never make one
   unasked. Scope its tools — each is re-sent as schema on every completion
-  it makes, so a teammate given everything answers slowly.
+  it makes. With no list it gets a read-only set; writing, sending or running
+  commands must be granted on purpose. Change or remove one with
+  `cowork_update_teammate` / `cowork_remove_teammate`, only when asked.
 - **Strictly reactive (v1):** they work only when something reaches their
   inbox — `cowork_send`, another teammate, or a handoff. Nothing is picked
   up unprompted; that is deliberate.
 - **Handing off work:** `cowork_team` lists them; `cowork_send` delivers.
   Their work runs on their own schedule — never wait on it; point the person
-  at the **Agent Cowork panel** (top-right of chat), a live group chat of
-  real agent-to-agent messages, replayed per chat when you reopen it.
+  at the **Agent Cowork panel** (top-right of chat), replayed per chat when
+  you reopen it. When you need an answer yourself, `cowork_replies` reads it.
 - Replies are hop-capped at 3 so teammates cannot ping-pong on tokens.
 - **Approval gates:** destructive shell commands and non-GET HTTP from a
   teammate BLOCK until the human answers Approve/Deny in chat. Expiry fails

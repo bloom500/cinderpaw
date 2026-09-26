@@ -354,6 +354,13 @@ async fn spawn_api_server_if_enabled(
         manager: runtime.manager.clone(),
         token: runtime.local_api_token.clone(),
         runtime: runtime.clone(),
+        web: crate::web::registered().map(|a| {
+            Arc::new(crate::web::WebUi::new(
+                a,
+                crate::paths::cinderpaw_dir().join("web-sessions.json"),
+                crate::web::unix_now(),
+            ))
+        }),
     };
     let port = runtime.settings.api_port;
     // Bind HERE, not inside the spawned task, so the port is known before

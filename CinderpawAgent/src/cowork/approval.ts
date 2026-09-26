@@ -261,6 +261,13 @@ export interface CoworkApprovalServiceDeps {
   emitEvent: (event: OutboundEvent) => void;
   log?: (msg: string) => void;
   timeoutMs?: number;
+  /**
+   * The chat a teammate is working for right now. Without it a request had
+   * no thread, so the UI filed it under whatever screen happened to be open,
+   * and on Home or Settings under a thread no chat ever shows: it expired
+   * unseen and the teammate's work silently did not happen.
+   */
+  threadOf?: (agentId: string) => string | null | undefined;
 }
 
 /**
@@ -274,6 +281,8 @@ export class CoworkApprovalService {
   readonly #timeoutMs: number;
   readonly #waiters = new Map<string, (d: Decision) => void>();
   readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Request id -> the chat it belongs to, from request until its verdict. */
+  readonly #threads = new Map<string, string>();
 
   constructor(deps: CoworkApprovalServiceDeps) {
     this.#deps = deps;
@@ -303,6 +312,8 @@ export class CoworkApprovalService {
       description: cls.description,
       tool: payload.tool,
     });
+    const threadId = this.#deps.threadOf?.(agentId);
+    if (threadId) this.#threads.set(approval.id, threadId);
 
     this.#emit("approval_requested", approval, agentName, undefined);
     this.#log(
@@ -341,6 +352,32 @@ export class CoworkApprovalService {
    * The user answered from chat. Returns false when the id is unknown or
    * already terminal (harmless no-op for a late double-click).
    */
+  /**
+   * Requests a teammate is blocked on RIGHT NOW. Read from the live waiters,
+   * not from `pending` rows: a row left pending by a process that died has
+   * nobody waiting on it, and offering it to the person would ask them to
+   * decide something that can no longer happen. A surface that connects late
+   * (the terminal client) uses this to show what was already waiting.
+   */
+  pending(): Array<{ requestId: string; agentId: string; agentName: string; description: string; approvalClass: string; threadId?: string; createdAt: number }> {
+    const out = [];
+    for (const id of this.#waiters.keys()) {
+      const a = this.#deps.approvals.get(id);
+      if (!a) continue;
+      const threadId = this.#threads.get(id);
+      out.push({
+        requestId: a.id,
+        agentId: a.agentId,
+        agentName: this.#deps.agents.get(a.agentId)?.name ?? a.agentId,
+        description: a.description,
+        approvalClass: a.approvalClass,
+        ...(threadId ? { threadId } : {}),
+        createdAt: a.createdAt,
+      });
+    }
+    return out;
+  }
+
   resolveExternal(id: string, approve: boolean): boolean {
     const approval = this.#deps.approvals.get(id);
     if (!approval) return false;
@@ -374,13 +411,20 @@ export class CoworkApprovalService {
     agentName: string,
     detail: string | undefined,
   ): void {
+    // The verdict carries the same thread as the request, then it is forgotten.
+    const threadId = this.#threads.get(approval.id);
+    if (eventType !== "approval_requested") this.#threads.delete(approval.id);
     this.#deps.emitEvent({
       type: "cowork_event",
       eventType,
       agentId: approval.agentId,
+      ...(threadId ? { threadId } : {}),
       title: `🔐 ${agentName}: ${approval.description}`,
       data: {
         requestId: approval.id,
+        // Separate from the title, so a client can name the teammate without
+        // parsing the display string.
+        agentName,
         approvalClass: approval.approvalClass,
         description: approval.description,
         tool: approval.tool,

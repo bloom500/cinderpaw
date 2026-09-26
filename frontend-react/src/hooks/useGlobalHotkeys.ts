@@ -2,11 +2,33 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConversations } from '@/stores/conversations';
 
+/** Close the browser panel if it is open, else the artifacts panel. True if one closed. */
+async function closeSidePanel(): Promise<boolean> {
+  const [{ useBrowser }, { useArtifacts }] = await Promise.all([import('@/stores/browser'), import('@/stores/artifacts')]);
+  if (useBrowser.getState().panelOpen) { useBrowser.getState().setPanel(false); return true; }
+  if (useArtifacts.getState().panelOpen) { useArtifacts.getState().togglePanel(); return true; }
+  return false;
+}
+
 export function useGlobalHotkeys() {
   const navigate = useNavigate();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Esc closes the side panel (browser first, then artifacts), the way it
+      // closes a sheet on a Mac. It stands aside for everything else that owns
+      // Esc: the call screen (Esc hangs up there), any open dialog or menu, a
+      // key some other handler already took, and single-line fields such as
+      // the address bar, where Esc means "leave this field".
+      if (e.key === 'Escape' && !e.defaultPrevented && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const el = e.target as HTMLElement | null;
+        const busy =
+          el?.tagName === 'INPUT' ||
+          document.querySelector('[data-call-overlay], [role="dialog"], [role="menu"], [role="listbox"]') !== null;
+        if (!busy) void closeSidePanel();
+        return;
+      }
+
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
 
@@ -17,13 +39,22 @@ export function useGlobalHotkeys() {
           target.tagName === 'TEXTAREA' ||
           target.isContentEditable);
 
-      if (e.key.toLowerCase() === 'n' && !inEditable) {
+      // Allowed from the composer too. Ctrl+N means nothing to a text field,
+      // and the composer holds the focus almost all the time, so gating it on
+      // "not in an editable" made the shortcut dead exactly where people are.
+      if (e.key.toLowerCase() === 'n' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         // Called on the store, not announced as an event: from Models or
         // Settings the chat page is not mounted yet, so nobody was listening and
         // Ctrl+N reopened the last conversation instead of starting one.
         useConversations.getState().newChat();
         navigate('/chat');
+      }
+
+      // Ctrl+, opens Settings, the convention on both Windows and macOS apps.
+      if (e.key === ',' && !inEditable) {
+        e.preventDefault();
+        navigate('/settings');
       }
 
       if (e.key.toLowerCase() === 'k') {

@@ -44,6 +44,10 @@ export interface ConnectorContext {
    *  hands strangers to it). One optional field beats an abstraction: a
    *  transport that does not want it never reads it. */
   leadDesk?: LeadDesk;
+  /** Told about every sender that reached the allowlist gate, listed or not,
+   *  before the gate decides. Pairing hears strangers through it, and the
+   *  first message after pairing proves the person really gets through. */
+  onSender?: (id: string, name: string) => void;
 }
 
 export interface LiveConnector {

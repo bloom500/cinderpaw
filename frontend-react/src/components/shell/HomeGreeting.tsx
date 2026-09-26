@@ -1,4 +1,20 @@
+import { useState } from 'react';
 import { useT } from '@/lib/i18n';
+import { useOnboarding } from '@/stores/onboarding';
+import { pickHomeLine } from '@/lib/homeLines';
+
+const LAST_LINE_KEY = 'cinderpaw.homeLine.last';
+
+/** Today's line, remembered so the next visit gets a different one. Storage
+ *  can be missing (private window, blocked site data); the line still shows. */
+function chooseLine(): string {
+  let last: string | null = null;
+  try { last = localStorage.getItem(LAST_LINE_KEY); } catch { /* no storage */ }
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? '';
+  const line = pickHomeLine(new Date(), zone, last);
+  try { localStorage.setItem(LAST_LINE_KEY, line); } catch { /* no storage */ }
+  return line;
+}
 
 /**
  * The time of day, then the one question.
@@ -26,6 +42,12 @@ export function greetingKey(hour = new Date().getHours(), day = new Date().getDa
 
 export function HomeGreeting() {
   const t = useT();
+  const name = useOnboarding((s) => s.userName);
+  // Chosen once per visit: a line that changed while you looked at it would be
+  // a screensaver, not a greeting.
+  const [line] = useState(chooseLine);
+  const key = greetingKey();
+  const hello = name && !key.startsWith('home.night') ? `${t(key)}, ${name}` : t(key);
   return (
     // Three tiers, not two lines of the same size. Every ai-chat home screen
     // worth copying does this: a mark, a quiet line that says WHO is being
@@ -35,13 +57,13 @@ export function HomeGreeting() {
     // The mascot stays on the composer, where it belongs: it walks that edge
     // and carries the tool-call stack, which is how anyone sees what is
     // running. What it needed was air above the field, not a new home: it
-    // stands about 75 px tall on the composer's top edge, and with 32 px here
-    // its horns covered the first letter of the line above at every window
-    // size (26 Sep). The margin clears it with room to spare.
-    <div className="mb-[72px] flex flex-col items-center text-center select-none">
-      <p className="text-base text-text-muted">{t(greetingKey())}</p>
+    // perches 104px tall on the field's edge, and with mb-8 it stood through
+    // "What can" on the first screen a new install shows (23 Sep). mb-28
+    // clears it with a few px to spare and lifts the question, which sat low.
+    <div className="mb-28 flex flex-col items-center text-center select-none">
+      <p className="text-base text-text-muted">{hello}</p>
       <h1 className="mt-1 text-3xl leading-[1.2] font-semibold tracking-[-0.02em] text-text-primary">
-        {t('home.ask')}
+        {line}
       </h1>
     </div>
   );

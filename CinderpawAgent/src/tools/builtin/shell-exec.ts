@@ -50,13 +50,14 @@
  * through the narrower `run_tests`, `format_code`, `git_*` tools.
  */
 
-import type { Tool, ToolManifest } from "../../types.ts";
+import type { Tool, ToolContext, ToolManifest, ToolResult } from "../../types.ts";
 import { resolve, join, sep } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { resolveExecutables } from "../../core/executables.ts";
 import { cinderpawHome, readEnv } from "../../config.ts";
-import { classifyCommand, recordIntent } from "../../core/command-intent.ts";
+import { classifyCommand, installsSoftware, recordIntent } from "../../core/command-intent.ts";
 import { readMaxTimeoutMs } from "../../egress/process-sandbox.ts";
+import { deniedPaths } from "../../egress/tool-permissions.ts";
 import { snapshottable } from "../../core/safety-point.ts";
 import {
   canAskAHuman,
@@ -374,6 +375,21 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       const binary = argv[0]!;
       const binaryArgs = argv.slice(1);
 
+      // The file tools' deny wall, for the shell too. Seen live 25 Sep: the
+      // agent read ~/.cinderpaw/connectors.json through PowerShell, which the
+      // file tools would have refused. Every mode, like the denylist below.
+      const walled = shellReachesDenied(argv);
+      if (walled) {
+        return {
+          ok: false,
+          content:
+            `shell_exec: refused — that reaches into ${walled}, which holds Cinderpaw's settings and ` +
+            "secrets. Read Cinderpaw's own state with the self_* tools (self_connectors, self_health, " +
+            "self_describe) instead.",
+          error: "protected_path",
+        };
+      }
+
       // Denylist gate FIRST — best-effort catastrophe guard, active in every
       // mode (including YOLO). Scans the whole joined command so a shell
       // payload (sh -c "rm -rf /") is caught, not just argv[0].
@@ -398,6 +414,11 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       const byIntent = decideIntent(intent, mode);
       if (byIntent.kind === "block") {
         return { ok: false, content: `shell_exec: ${byIntent.reason}`, error: "permission_mode" };
+      }
+
+      if (installsSoftware(argv)) {
+        const refused = await askBeforeInstall(ctx, argv.join(" "));
+        if (refused) return refused;
       }
 
       // Blast-radius gate: destruction aimed outside every workspace root. The
@@ -513,4 +534,81 @@ export function createShellExecTool(allowedPaths: string[]): Tool {
       }
     },
   };
+}
+
+/**
+ * Putting software on the machine is the person's call, every time. Seen live
+ * 25 Sep: asked to connect WhatsApp, the agent went looking for the library
+ * through the shell on its own, and the page had no way to stop it. With
+ * nobody there to answer it is refused, except where the operator chose full
+ * access, which is that decision already made. null = go ahead.
+ */
+export async function askBeforeInstall(ctx: ToolContext, command: string): Promise<ToolResult | null> {
+  const shown = command.slice(0, 300);
+  if (!canAskAHuman(Boolean(ctx.askUser))) {
+    if (permissionMode() === "full_access") return null;
+    return {
+      ok: false,
+      content: `refused — installing software needs the person's yes, and nobody is here to give it (${shown}). Leave it for them.`,
+      error: "install_needs_approval",
+    };
+  }
+  const [answer] = await ctx.askUser!.ask(
+    [{
+      question: `Install software on this computer? The command is: ${shown}`,
+      header: "Install",
+      multiSelect: false,
+      forceEscalate: true,
+      options: [
+        { label: "No, don't install", description: "Nothing is installed." },
+        { label: "Yes, install it", description: "Run this one command." },
+      ],
+    }],
+    ctx.sessionId,
+  );
+  if ((answer?.selected?.[0] ?? "").toLowerCase().startsWith("yes")) return null;
+  return {
+    ok: false,
+    content: `The person said no to installing (${shown}). Do not install it another way.`,
+    error: "install_declined",
+  };
+}
+
+/**
+ * Does this command name a path behind the file tools' deny wall (the profile
+ * dirs, ~/.ssh, CINDERPAW_FS_DENY), outside its two doors (workspace, skills)?
+ * Returns the walled path, or null.
+ *
+ * ponytail: text match over the command line, with ~, $HOME and USERPROFILE
+ * expanded and a bare `.cinderpaw` caught. A path built at run time
+ * (variables, globs, string concatenation) gets past it; the fs tools' wall
+ * is the real one, this closes the door the agent actually walked through.
+ */
+export function shellReachesDenied(argv: string[]): string | null {
+  const win = process.platform === "win32";
+  const norm = (p: string) => {
+    const s = p.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/$/, "");
+    return win ? s.toLowerCase() : s;
+  };
+  const home = homedir().replace(/\\/g, "/");
+  const text = norm(
+    argv
+      .join(" ")
+      .replace(/(\$\{?HOME\}?|%USERPROFILE%|\$env:USERPROFILE|~)(?=[\\/])/gi, home),
+  );
+  const { deny, exempt } = deniedPaths();
+  const doors = exempt.map(norm);
+  for (const d of deny.map(norm)) {
+    let i = text.indexOf(d);
+    while (i !== -1) {
+      const end = i + d.length;
+      const whole = end === text.length || /[\s/"'`;|&)]/.test(text[end]!);
+      if (whole && !doors.some((door) => text.startsWith(door, i))) return d;
+      i = text.indexOf(d, i + 1);
+    }
+  }
+  // A relative `.cinderpaw` (run from the home folder) names the same place.
+  const bare = /(^|[\s"'=/])\.(cinderpaw|feral)(?=$|[\s"'/])/.exec(text);
+  if (bare && !/\.(cinderpaw|feral)\/(workspace|skills)(\/|$|[\s"'])/.test(text.slice(bare.index))) return `.${bare[2]}`;
+  return null;
 }

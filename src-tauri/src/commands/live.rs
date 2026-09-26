@@ -153,11 +153,23 @@ fn fresh_session_config(
     voice: Option<String>,
     system_instruction: Option<String>,
 ) -> live::SessionConfig {
+    let mut tools = bridge::declarations();
+    // Extended Thinking runs its tools asynchronously and nothing else: Google's
+    // Live guide says only NON_BLOCKING execution is supported there, and
+    // `stop_cinder` is declared blocking on purpose for every other model. A
+    // declaration the model cannot run is the first thing in the setup it can
+    // refuse, and a refused setup is a closed socket with no sentence in it.
+    // (22 Sep: this model connected on no call; the plain 3.8 Live did.)
+    if model.contains("extended-thinking") {
+        for t in &mut tools {
+            t.behavior = Some("NON_BLOCKING".to_string());
+        }
+    }
     live::SessionConfig {
         api_key,
         model,
         system_instruction,
-        tools: bridge::declarations(),
+        tools,
         resume: None,
         voice,
         pin_voice: false,
@@ -920,6 +932,22 @@ mod tests {
                 "optional voice configuration must be opt-in for {model}"
             );
         }
+    }
+
+    #[test]
+    fn extended_thinking_gets_every_tool_non_blocking_and_nothing_else_changes() {
+        let thinking = fresh_session_config(
+            "k".into(),
+            "gemini-3.8-live-extended-thinking".into(),
+            None,
+            None,
+        );
+        assert!(thinking.tools.iter().all(|t| t.behavior.as_deref() == Some("NON_BLOCKING")));
+        let plain = fresh_session_config("k".into(), "gemini-3.8-live".into(), None, None);
+        assert!(
+            plain.tools.iter().any(|t| t.behavior.is_none()),
+            "the stop stays blocking on a model that allows it"
+        );
     }
 
     /// The bug this pins is not "does the string match" — it is that the close

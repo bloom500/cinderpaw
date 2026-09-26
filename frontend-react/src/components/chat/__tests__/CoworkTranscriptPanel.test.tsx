@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   CoworkTranscriptPanel,
@@ -499,6 +499,28 @@ describe('the panel and its bubble animate once, not three times', () => {
     expect(bubble.className).not.toMatch(/transition-transform/);
     expect(bubble.className).not.toMatch(/hover:scale-/);
     expect(bubble.className).not.toMatch(/active:scale-/);
+    localStorage.removeItem('cowork-panel-collapsed');
+  });
+
+  test('a new approval opens a collapsed panel', () => {
+    // A teammate is blocked on it and it expires in minutes; folded into the
+    // bubble it was easy to miss.
+    useCoworkTranscript.setState({ exchanges: [exchange({ id: 'msg:c1' })] });
+    localStorage.setItem('cowork-panel-collapsed', '1');
+    render(<CoworkTranscriptPanel />);
+    expect(screen.queryByTestId('cowork-transcript-panel')).not.toBeInTheDocument();
+
+    act(() => {
+      useCoworkTranscript.setState((s) => ({
+        exchanges: [
+          ...s.exchanges,
+          exchange({ id: 'approval:r9', kind: 'approval', requestText: 'Run command: rm -rf dist/' }),
+        ],
+      }));
+    });
+    expect(screen.getByTestId('cowork-transcript-panel')).toBeInTheDocument();
+    // The person's own choice is not overwritten.
+    expect(localStorage.getItem('cowork-panel-collapsed')).toBe('1');
     localStorage.removeItem('cowork-panel-collapsed');
   });
 

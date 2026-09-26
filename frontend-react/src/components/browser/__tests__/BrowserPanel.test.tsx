@@ -218,10 +218,11 @@ describe('the promise on the start page', () => {
     expect(ui).toHaveBeenCalledWith('zoom', { factor: 1 });
   });
 
-  it('downloads live behind a toolbar button, with a count, even before there are any', () => {
+  it('downloads live behind a toolbar button, with a count, even before there are any', async () => {
     render(<BrowserPanel />);
     fireEvent.click(screen.getByLabelText('Downloads'));
-    expect(screen.getByText('Nothing downloaded yet this session.')).toBeInTheDocument();
+    // No host to build the floating card here, so it falls back into the flow.
+    expect(await screen.findByText('Nothing downloaded yet this session.')).toBeInTheDocument();
     act(() => { useBrowser.setState({ downloads: [{ name: 'report.pdf', at: 1, artifact: true }] }); });
     expect(screen.getByText('report.pdf')).toBeInTheDocument();
     expect(screen.getByLabelText('Downloads').parentElement!.textContent).toContain('1');

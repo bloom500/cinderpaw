@@ -53,7 +53,10 @@ the comment tags next to each `.route(` line.
 | Method | Path | Stability | Class | Notes |
 |---|---|---|---|---|
 | POST | `/runtime/chat` | unstable | govern | Sidecar-roundtrip chat. |
+| POST | `/runtime/chat/stop` | unstable | govern | Stop the running turn in one conversation (`{session_id}`, default `chat`). The turn ends on its own stream. |
 | POST | `/runtime/ask/respond` | unstable | govern | Answer a pending `ask_user` question (`{requestId, answers}`); the question arrives as a typed `ask_user` SSE event on the chat stream. |
+| GET  | `/runtime/cowork/team` | unstable | read | The teammate roster (name, role, tools, model) and the approval requests a teammate is blocked on right now (`pendingApprovals`). |
+| POST | `/runtime/cowork/approval` | unstable | govern | Answer a teammate's approval request (`{requestId, action: "approve"\|"reject"}`); the verdict arrives as a `cowork_event` on `/events`. |
 | GET  | `/runtime/connectors` | unstable | read | Redacted state (enabled, filled secret keys, allowlist, channels, mode) per persisted connector. |
 | POST | `/runtime/connectors` | unstable | govern | Upsert one connector's config, then pokes the sidecar to reload. Never echoes secret values back. |
 | POST | `/runtime/connectors/reload` | unstable | govern | Sidecar reloads the connector catalog from disk. |
@@ -81,6 +84,7 @@ the comment tags next to each `.route(` line.
 | POST | `/runtime/setup/ack` | unstable | govern | Persist the one-time security-acknowledgement timestamp in settings.json. |
 | GET  | `/runtime/providers/catalog` | unstable | read | Provider catalog; carries `X-Cinderpaw-Catalog-Version`. |
 | GET  | `/runtime/connectors/catalog` | unstable | read | Connector catalog; same versioning header. |
+| GET  | `/runtime/connectors/whatsapp/qr` | unstable | read | The WhatsApp pairing code waiting to be scanned (`{qr, ascii, svg, ts}`; `svg` is the scannable picture), or `null` once a phone is linked or pairing stopped. |
 
 ### Meta (`/meta/*` — L6, sidecar roundtrip)
 
@@ -119,6 +123,15 @@ the comment tags next to each `.route(` line.
 | POST | `/modules/:id/reject` | unstable | govern |
 | POST | `/modules/:id/demote` | unstable | govern |
 
+### Local page (`/`, `/web/*`, CLI host only)
+
+| Method | Path | Stability | Class | Notes |
+|---|---|---|---|---|
+| GET | `/`, `/app.js`, `/app.css` | unstable | read | The embedded Browser App page. Served only by the CLI gateway; the Desktop app serves no page. |
+| POST | `/web/code` | unstable | govern | Bearer only. Mints a single-use, short-lived code that `cinderpaw open` puts in the page URL. |
+| POST | `/web/session` | unstable | govern | Trades that code for an HttpOnly, SameSite=Strict session cookie. The bearer token never reaches the browser. |
+| GET | `/web/me` | unstable | read | Whether the cookie is still a valid session. |
+
 ### Helpers
 
 | Method | Path | Stability | Notes |
@@ -154,6 +167,12 @@ the host's env, not via the request.
      of this fenced list to avoid a permanent false "unlisted" warning. -->
 
 ```cinderpaw-api-routes
+GET /
+GET /app.css
+GET /app.js
+GET /web/me
+POST /web/code
+POST /web/session
 DELETE /api/delete
 GET /api/tags
 POST /api/chat
@@ -187,11 +206,14 @@ POST /modules/propose
 POST /providers/test
 GET /runtime/connectors
 GET /runtime/connectors/catalog
+GET /runtime/connectors/whatsapp/qr
 GET /runtime/lora
 GET /runtime/lora/reviews
 POST /runtime/lora/reviews/resolve
 POST /runtime/lora/train
 POST /runtime/ask/respond
+GET /runtime/cowork/team
+POST /runtime/cowork/approval
 GET /runtime/manifest
 GET /runtime/models
 GET /runtime/providers/catalog
@@ -202,6 +224,7 @@ GET /runtime/sessions/:id/transcript
 GET /runtime/status
 POST /runtime/byok/save
 POST /runtime/chat
+POST /runtime/chat/stop
 POST /runtime/connectors
 POST /runtime/connectors/reload
 POST /runtime/voice/tool

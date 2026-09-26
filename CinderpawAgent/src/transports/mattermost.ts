@@ -250,6 +250,7 @@ export class MattermostConnector implements LiveConnector {
   async #handle(channelId: string, userId: string, text: string, postId: string): Promise<void> {
     const ctx = this.#ctx;
     if (!ctx) return;
+    ctx.onSender?.(userId, userId);
     if (!this.#allow.has(userId)) {
       ctx.log(`mattermost: ignored message from non-allowlisted ${userId}`);
       return;

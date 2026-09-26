@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Mic, MicOff, Phone, Square, X, Loader2, MessageSquare, ArrowUp, Laptop, Cloud, Settings2,
-  AudioLines, ChevronDown, Archive,
+  AudioLines, ChevronDown, Archive, PhoneOff,
 } from 'lucide-react';
 import { resolveSttModelRow } from '@/lib/voiceModel';
 import { Button } from '@/components/ui/button';
@@ -45,9 +45,12 @@ import { events } from '@/lib/tauri/events';
 import { CLOUD_STT, useUI } from '@/stores/ui';
 import { useChat } from '@/stores/chat';
 import { useNotifications } from '@/stores/notifications';
+import { useArtifacts } from '@/stores/artifacts';
+import { ArtifactsPanel } from '@/components/artifacts/ArtifactsPanel';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { CallPhase, CallStage } from '@/hooks/useCallSession';
+import { SelectMenu } from '@/components/ui/select-menu';
 
 /**
  * The in-call screen: one orb, one line of state, two buttons.
@@ -169,6 +172,22 @@ export function CallTranscript({
 }
 
 /**
+ * The handoff, kept on screen: the sentence handed to Cinder, and the reply
+ * when it arrives. `said` is rewritten by every new sentence, so a long
+ * Cinder run scrolled both off; this pair stays until the next handoff or
+ * the hangup. Nothing here runs anything: display only.
+ */
+export function HandoffCard({ sentence, reply }: { sentence: string; reply?: string }) {
+  if (!sentence) return null;
+  return (
+    <div data-testid="handoff-card" className="w-full max-w-md text-left">
+      <p className="text-sm text-text-secondary">{sentence}</p>
+      <p className="text-sm text-text-primary">{reply || 'Cinder is on it.'}</p>
+    </div>
+  );
+}
+
+/**
  * Whose key this screen is asking for.
  *
  * One decision, used by both the sentence and the save, because they were
@@ -232,6 +251,8 @@ export function CallOverlay({
   youSpeaking = false,
   notice,
   said,
+  handoffText,
+  handoffReply,
   onAnswer,
   onHangUp,
   onInterrupt,
@@ -264,6 +285,14 @@ export function CallOverlay({
    * command was silence.
    */
   said?: string;
+  /**
+   * The handoff the call keeps on screen: the sentence handed to Cinder and
+   * the reply when it arrives. `said` is rewritten by every new sentence, so
+   * a long Cinder run scrolled both off; this pair stays until the next
+   * handoff or the hangup.
+   */
+  handoffText?: string;
+  handoffReply?: string;
   onAnswer: () => void;
   onHangUp: () => void;
   onInterrupt: () => void;
@@ -286,6 +315,9 @@ export function CallOverlay({
   // Only offered once there is something in it. A drawer that opens on an empty
   // list teaches the user it is empty, and they stop opening it.
   const artifactCount = useSyncExternalStore(subscribeArtifacts, artifactsSnapshot).length;
+  /** The artifacts panel, shared with the chat: the store opens it when the agent finishes a file. */
+  const artifactsPanelOpen = useArtifacts((s) => s.panelOpen);
+  const toggleArtifactsPanel = useArtifacts((s) => s.togglePanel);
   const sttProvider = useUI((s) => s.sttProvider);
   // Which on-device transcriber this build actually has, asked rather than
   // assumed. `null` while unknown AND when there is none — the row shows
@@ -304,6 +336,8 @@ export function CallOverlay({
   const callEngine = useUI((s) => s.callEngine);
   const s2sProvider = useUI((s) => s.s2sProvider);
   const setS2sProvider = useUI((s) => s.setS2sProvider);
+  const callLanguage = useUI((s) => s.callLanguage);
+  const setCallLanguage = useUI((s) => s.setCallLanguage);
   const [s2sList, setS2sList] = useState<S2sProviderInfo[]>([]);
   const refreshS2s = useCallback(async () => {
     try {
@@ -331,7 +365,10 @@ export function CallOverlay({
       // chain is warm FOR what was picked when it started, and Rust discards
       // one warmed for anything else. Without the dependency, changing vendor
       // on the pre-call screen silently put the full boot back on the button.
-      warmLiveKit();
+      // Not for Jev: its call never touches LiveKit, and Rust read "jev" as an
+      // unknown vendor and warmed the first keyed one instead, booting a server
+      // and a Node agent on every visit only to reap them three minutes later.
+      if (s2sProvider !== JEV_PROVIDER_ID) warmLiveKit();
     }
   }, [phase, refreshS2s, s2sProvider, ttsProvider, sttProvider]);
   // What will ACTUALLY run. Rust falls back to the first provider with a key
@@ -643,7 +680,7 @@ export function CallOverlay({
       aria-modal="true"
       aria-label={t('call.title')}
       className="fixed inset-0 z-40 flex"
-      style={{ backgroundColor: 'var(--bg-primary, #100E09)' }}
+      style={{ backgroundColor: 'var(--bg-primary, #1C1814)' }}
     >
       {/* The frameless window still has to be movable while a call covers the
           screen. This strip spans the top and does nothing else. */}
@@ -654,7 +691,11 @@ export function CallOverlay({
         // ask_user card grew the column both ways and pushed the sphere out of
         // the top of a clipped stage (20 Sep). Safe centring keeps the stack
         // centred while it fits and top-aligned, scrollable, once it does not.
-        className="call-stage relative flex flex-1 flex-col items-center justify-center-safe gap-10 overflow-x-hidden overflow-y-auto px-6"
+        // `overscroll-contain`: with nothing to scroll here, the wheel used to
+        // chain to the conversation under the overlay, so scrolling "in the call"
+        // silently moved the chat behind it (22 Sep). The stage still scrolls when
+        // a card is taller than the window, which is what it is for.
+        className="call-stage relative flex flex-1 flex-col items-center justify-center-safe gap-10 overflow-x-hidden overflow-y-auto overscroll-contain px-6"
         style={{
           // The overlay carries its own text scale, and it has to.
           //
@@ -834,6 +875,7 @@ export function CallOverlay({
             speaking={phase === 'listening' && youSpeaking}
           />
           {said && phase !== 'ready' && <CallAnswer text={said} />}
+          <HandoffCard sentence={handoffText ?? ''} reply={handoffReply} />
           {/* Said out loud on screen when nothing was said out loud in audio. */}
           {notice && <p className="text-sm text-(--warning)">{notice}</p>}
           {/* A question the agent is waiting on. It used to render only in the
@@ -972,6 +1014,18 @@ export function CallOverlay({
                     />
                   </SettingRow>
 
+                  {/* The language spoken on the call, for every engine. Here and
+                      not in Settings: a language sent is an order, and an order
+                      nobody can see goes wrong silently (23 Sep). */}
+                  <SettingRow label="Language">
+                    <SelectMenu
+                      ariaLabel="Language spoken on the call"
+                      value={callLanguage}
+                      options={CALL_LANGUAGES}
+                      onChange={setCallLanguage}
+                    />
+                  </SettingRow>
+
                   {/* Jev hears a transcript, so its first setting is who
                       transcribes: the app's STT choice, on device or cloud. */}
                   {jevSelected && (
@@ -1084,7 +1138,10 @@ export function CallOverlay({
             does the lifting that the transparency was pretending to do. */}
         <div className="relative flex items-center gap-2 rounded-full border border-border-default bg-bg-surface p-2 shadow-lg">
           <RoundButton onClick={onHangUp} label={t('call.hangUp')} tone="danger">
-            <X size={20} />
+            {/* Before the call this closes a screen, so it is an X. Once the
+                line is open it ends a call, and every phone in the world
+                draws that as a phone put down. */}
+            {phase === 'ready' ? <X size={20} /> : <PhoneOff size={20} />}
           </RoundButton>
 
           {phase === 'ready' && noEngine ? (
@@ -1177,6 +1234,17 @@ export function CallOverlay({
         )}
       </div>
 
+      {/* The same panel the conversation opens, mounted here because the
+          overlay covers the window it normally lives in: a report the agent
+          wrote during a call WAS opened, underneath, where nobody could see it
+          (22 Sep). `panelOpen` is the store's, so a file finished on this call
+          opens itself the way it does in the chat, and closing it here closes
+          the same one. */}
+      {artifactsPanelOpen && (
+        <div className="absolute inset-y-0 right-0 z-30 flex max-w-full">
+          <ArtifactsPanel onClose={toggleArtifactsPanel} />
+        </div>
+      )}
       {artifactsOpen && <CallArtifacts onClose={() => setArtifactsOpen(false)} />}
       {chatOpen && onSay && <CallChatPanel onClose={() => setChatOpen(false)} onSay={onSay} />}
       {browserOpen && browserUrl && <CallBrowserPanel />}
@@ -2316,6 +2384,18 @@ function DesktopControlRow() {
     </SettingRow>
   );
 }
+
+/** Auto first: it is the default, and it sends no language at all. */
+const CALL_LANGUAGES = [
+  { value: 'auto', label: 'Auto (detect)' },
+  { value: 'en', label: 'English' },
+  { value: 'ro', label: 'Română' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'es', label: 'Español' },
+  { value: 'fr', label: 'Français' },
+  { value: 'it', label: 'Italiano' },
+  { value: 'pt', label: 'Português' },
+];
 
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
   // Two cells of the parent's grid, so every label sits in one column and

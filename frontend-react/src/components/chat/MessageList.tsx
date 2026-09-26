@@ -4,6 +4,7 @@ import {
   useMessageScrollerScrollable,
 } from '@shadcn/react/message-scroller';
 import { useChat } from '@/stores/chat';
+import { cn } from '@/lib/utils';
 import { MessageItem } from './MessageItem';
 import { useResendTurn } from '@/hooks/useResendTurn';
 import { StreamingIndicator } from './StreamingIndicator';
@@ -20,6 +21,15 @@ import { StreamingIndicator } from './StreamingIndicator';
  */
 export function MessageList() {
   const messages = useChat((s) => s.messages);
+  // Rows that arrive together (a chat opened, history loaded) are already
+  // there; only the one or two a turn adds should arrive. Animating fifty rows
+  // at once on open cost frames and says nothing. Refs written during render:
+  // idempotent, so a second StrictMode render changes nothing.
+  const known = useRef(new Set<string>());
+  const quiet = useRef(new Set<string>());
+  const unseen = messages.filter((m) => !known.current.has(m.id));
+  if (unseen.length > 2) for (const m of unseen) quiet.current.add(m.id);
+  for (const m of unseen) known.current.add(m.id);
   // One resend for the whole transcript: the hooks it needs are called here,
   // once, not inside every row.
   const resend = useResendTurn();
@@ -41,7 +51,13 @@ export function MessageList() {
         {/* No `scroll-smooth`: programmatic follow on every streamed frame
             turns into overlapping animations, visible jank on long chats. */}
         <MessageScroller.Viewport aria-label="Conversation" className="h-full overflow-y-auto overscroll-contain thin-scrollbar outline-hidden">
-          <MessageScroller.Content className="max-w-3xl mx-auto px-6 py-6 pb-48 flex flex-col gap-6">
+          {/* Clears the dock's measured height, not a flat 12rem: the dock grows
+              with the workers card, the error notice and a multi-line draft,
+              and a flat pad let the last reply slide under it. */}
+          <MessageScroller.Content
+            className="max-w-3xl mx-auto px-6 py-6 flex flex-col gap-6"
+            style={{ paddingBottom: 'calc(var(--chat-dock-h, 10rem) + 2rem)' }}
+          >
             {messages.map((m, i) => (
               // A message arrives, it does not blink into existence. Keyed on
               // the id so only genuinely new rows animate; a streamed token must
@@ -50,7 +66,13 @@ export function MessageList() {
                 key={m.id}
                 messageId={m.id}
                 scrollAnchor={m.role === 'user'}
-                className="message-row animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
+                className={cn(
+                  'message-row',
+                  !quiet.current.has(m.id) && (m.role === 'user'
+                    // Yours rises out of the composer's corner: it came from there.
+                    ? 'animate-in fade-in-0 slide-in-from-bottom-4 zoom-in-95 origin-bottom-right duration-300'
+                    : 'animate-in fade-in-0 slide-in-from-bottom-2 duration-200'),
+                )}
               >
                 <MessageItem
                   message={m}
@@ -108,7 +130,7 @@ function JumpToBottom({ count }: { count: number }) {
           <button
             {...props}
             style={{ bottom: 'calc(var(--chat-dock-h, 5rem) + 0.75rem)' }}
-            className="absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-brand text-white text-xs px-3 py-1.5 shadow-lg hover:bg-brand-hover flex items-center gap-1.5 border border-brand-hover"
+            className="absolute left-1/2 -translate-x-1/2 z-10 rounded-full bg-(--surface-typing) text-text-primary text-xs px-3 py-1.5 shadow-sm hover:bg-bg-hover flex items-center gap-1.5 border border-border-default"
           >
             ↓ {unread > 0 ? `${unread} new` : 'Jump to bottom'}
           </button>

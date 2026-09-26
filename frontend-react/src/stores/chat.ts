@@ -162,18 +162,6 @@ interface ChatStore {
   noteToolProgress: (message: string) => void;
   pushSkillsContext: (names: string[]) => void;
   /**
-   * Create or update a background worker's bubble from an `rlm_child` event.
-   * One action rather than push/complete because the sidecar sends a stream of
-   * updates keyed by the same childId, and the first one may arrive after the
-   * turn that spawned it has already ended.
-   */
-  upsertWorker: (e: {
-    childId: string;
-    name: string;
-    status: 'running' | 'completed' | 'error' | 'cancelled';
-    detail?: string;
-  }) => void;
-  /**
    * Create or update an agent-to-agent activity bubble from a
    * `cowork_event`. Keyed by the mailbox message / handoff id so a
    * received→processed pair is ONE bubble that changes state, never two.
@@ -240,24 +228,11 @@ export type ToolCallEvent =
       status: 'done';
     }
   | {
-      /** The ChildRegistry id — stable, so repeated events update one bubble. */
-      id: string;
-      kind: 'worker';
-      /** Registry name, e.g. `subagent-count-the-files-a1b2`. */
-      name: string;
-      /** What it is doing right now, or why it ended. */
-      detail: string | null;
-      status: 'running' | 'done' | 'error' | 'cancelled';
-      startedAt: number;
-      endedAt: number | null;
-    }
-  | {
       /**
        * One agent-to-agent exchange (Agent Cowork S3.5). Keyed by the
        * mailbox message / handoff id, so `message_received` creates the
        * bubble and its terminal sibling (`processed`/`rejected`) UPDATES
-       * it instead of stacking a second one — same upsert contract as a
-       * worker bubble.
+       * it instead of stacking a second one.
        */
       id: string;
       kind: 'cowork';
@@ -408,9 +383,8 @@ export const useChat = create<ChatStore>((set, get) => ({
     // broken in all of them.
     //
     // `cancelled`, not `done`: nothing reported success. Only `tool` bubbles
-    // are swept — a `worker` from `rlm()` and a `cowork` exchange both
-    // deliberately outlive the turn that started them, and ending those here
-    // would erase live work from the screen.
+    // are swept — a `cowork` exchange deliberately outlives the turn that
+    // started it, and ending it here would erase live work from the screen.
     const orphans = get()
       .toolCallStream.filter((e) => e.kind === 'tool' && e.status === 'running')
       .map((e) => e.id);
@@ -538,33 +512,6 @@ export const useChat = create<ChatStore>((set, get) => ({
     }, TOOL_CALL_LINGER_MS);
   },
 
-  upsertWorker: ({ childId, name, status, detail }) => {
-    const done = status !== 'running';
-    set((s) => {
-      const existing = s.toolCallStream.find((e) => e.id === childId);
-      const entry: ToolCallEvent = {
-        id: childId,
-        kind: 'worker',
-        name,
-        detail: detail ?? null,
-        status: status === 'completed' ? 'done' : status,
-        startedAt: existing?.startedAt ?? Date.now(),
-        endedAt: done ? Date.now() : null,
-      };
-      const next = existing
-        ? s.toolCallStream.map((e) => (e.id === childId ? entry : e))
-        : [...s.toolCallStream, entry];
-      return { toolCallStream: next.length > TOOL_CALL_STREAM_MAX ? next.slice(-TOOL_CALL_STREAM_MAX) : next };
-    });
-    // Only a settled worker fades. A running one has no known end — that is
-    // the whole difference between a worker and a tool call.
-    if (done) {
-      window.setTimeout(() => {
-        set((s) => ({ toolCallStream: s.toolCallStream.filter((e) => e.id !== childId) }));
-      }, TOOL_CALL_LINGER_MS);
-    }
-  },
-
   upsertCoworkEvent: ({ key, title, status, detail, approval }) => {
     const done = status !== 'running';
     set((s) => {
@@ -635,12 +582,8 @@ export const useChat = create<ChatStore>((set, get) => ({
     }
   },
 
-  // A running worker SURVIVES the clear. The stream is wiped 5s after the turn
-  // ends, and a worker outliving its turn is the normal case, not the edge —
-  // wiping it would hide exactly the work that has nothing else to show it.
-  clearToolCallStream: () =>
-    set((s) => ({
-      toolCallStream: s.toolCallStream.filter((e) => e.kind === 'worker' && e.status === 'running'),
-    })),
+  // Workers from `rlm()` outlive the turn, so they live in stores/rlmWorkers.ts
+  // and this wipe cannot reach them.
+  clearToolCallStream: () => set({ toolCallStream: [] }),
 
 }));

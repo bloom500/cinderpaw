@@ -123,3 +123,42 @@ describe('a file dropped on the composer', () => {
     expect(screen.queryByText('Drop to attach')).toBeNull();
   });
 });
+
+describe('a pasted link', () => {
+  it('becomes a chip in the composer and goes first in the message', async () => {
+    const sendFn = vi.fn(async () => {});
+    render(<ChatInput alwaysEnabled sendFn={sendFn} />);
+    const box = screen.getByRole('textbox') as HTMLTextAreaElement;
+    await userEvent.click(box);
+    await userEvent.paste('https://github.com/jd-opensource/JoyAI-Video-Edit');
+
+    // A chip with the short name, and nothing typed into the box.
+    expect(screen.getByText('jd-opensource/JoyAI-Video-Edit')).toBeTruthy();
+    expect(box.value).toBe('');
+
+    await userEvent.type(box, 'ce face asta?');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => expect(sendFn).toHaveBeenCalled());
+    expect((sendFn.mock.calls[0] as unknown[])[0]).toBe('https://github.com/jd-opensource/JoyAI-Video-Edit\nce face asta?');
+    expect(screen.queryByText('jd-opensource/JoyAI-Video-Edit')).toBeNull();
+  });
+
+  it('stays text when it is part of a sentence', async () => {
+    render(<ChatInput alwaysEnabled sendFn={vi.fn(async () => {})} />);
+    const box = screen.getByRole('textbox') as HTMLTextAreaElement;
+    await userEvent.click(box);
+    await userEvent.paste('vezi https://hotnews.ro/ceva-anume');
+    expect(box.value).toBe('vezi https://hotnews.ro/ceva-anume');
+  });
+
+  it('comes back out with Backspace in an empty box', async () => {
+    render(<ChatInput alwaysEnabled sendFn={vi.fn(async () => {})} />);
+    const box = screen.getByRole('textbox');
+    await userEvent.click(box);
+    await userEvent.paste('https://github.com/a/b');
+    expect(screen.getByText('a/b')).toBeTruthy();
+    await userEvent.keyboard('{Backspace}');
+    expect(screen.queryByText('a/b')).toBeNull();
+  });
+});

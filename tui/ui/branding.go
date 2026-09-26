@@ -2,6 +2,7 @@ package ui
 
 import (
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 )
@@ -9,8 +10,20 @@ import (
 // AppName is the product name shown in branding.
 const AppName = "CINDERPAW"
 
-// AppVersion is the current release; bumped by release tooling.
-const AppVersion = "0.1.0"
+// AppVersion is the release this TUI shipped in. The `cinderpaw` CLI launches
+// the TUI and hands it its own version in CINDERPAW_VERSION, so the number is
+// the one `cinderpaw --version` prints. It used to be a "0.1.0" typed in by
+// hand, which every release showed while being 2026.x (24 Sep). Empty when
+// the TUI is run on its own; the branding then simply leaves it out.
+var AppVersion = os.Getenv("CINDERPAW_VERSION")
+
+// versionTag is " v<version>", or nothing when the version is unknown.
+func versionTag(v string) string {
+	if v == "" {
+		return ""
+	}
+	return " v" + v
+}
 
 // CinderpawLogo is the wordmark rendered on the welcome screen.
 //
@@ -34,7 +47,7 @@ const CinderpawLogo = `
 // BearLogo is the ASCII bear mascot. The mascot is only used in branding
 // surfaces (welcome screen, footer of the finish screen, splash). Other
 // surfaces stay glyph-free per the OpenClaw-style UI guidelines.
-const BearLogo = `
+var BearLogo = `
                                              ==
                                             =--
                                            ===:-   #*%#***:%          +:
@@ -63,10 +76,10 @@ const BearLogo = `
                                               %%@%%@@@+%*%@@@@@%%*
                                               #%%%%%%@:  %@@@@@%=%**
                                              %%%%%#%%#      %@%%%%.
-` + AppName + ` v` + AppVersion + ` | Own your agent`
+` + AppName + versionTag(AppVersion) + ` | Own your agent`
 
 // BearCompact is a one-line bear for narrow terminals and the finish footer.
-const BearCompact = `(=-._.=) ` + AppName + ` v` + AppVersion + ` | Own your agent`
+var BearCompact = `(=-._.=) ` + AppName + versionTag(AppVersion) + ` | Own your agent`
 
 // Taglines are short, rotating brand messages shown on the welcome screen.
 // A random pick per launch gives the welcome screen a bit of personality

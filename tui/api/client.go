@@ -1592,6 +1592,13 @@ type RuntimeEvent struct {
 	Detail   string `json:"detail,omitempty"`
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
+	// Agent Cowork (`cowork_event`): what happened, the line a person reads,
+	// and its payload. Data stays raw: other event kinds also use a `data`
+	// key, not always for an object, and one that failed to decode here
+	// would drop the whole event.
+	EventType string          `json:"eventType,omitempty"`
+	Title     string          `json:"title,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
 }
 
 // parseRuntimeEventSSE decodes one SSE data line from /events into a
@@ -1671,4 +1678,74 @@ func flushTag(buf *string, inThink *bool) string {
 		return ""
 	}
 	return leftover
+}
+
+// CoworkTeammate is one teammate as GET /runtime/cowork/team reports it.
+type CoworkTeammate struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Role string `json:"role"`
+	// Tools is nil for a teammate made before tools were scoped: every tool.
+	Tools []string `json:"tools"`
+	// Model is nil when the Brain Stack picks one per task.
+	Model *string `json:"model"`
+}
+
+// CoworkApproval is a request a teammate is blocked on right now.
+type CoworkApproval struct {
+	RequestID     string `json:"requestId"`
+	AgentName     string `json:"agentName"`
+	Description   string `json:"description"`
+	ApprovalClass string `json:"approvalClass"`
+}
+
+// CoworkTeam is the roster plus the approvals waiting on the person.
+type CoworkTeam struct {
+	Roster  []CoworkTeammate `json:"roster"`
+	Pending []CoworkApproval `json:"pendingApprovals"`
+}
+
+// FetchCoworkTeam hits GET /runtime/cowork/team. The TUI calls it once at
+// start, so a request raised before it connected is not missed: /events only
+// carries what happens after the stream opens.
+func FetchCoworkTeam(baseURL, token string) (*CoworkTeam, error) {
+	req, _ := http.NewRequest("GET", baseURL+"/runtime/cowork/team", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := doRequest(httpClient, req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("%s", strings.TrimSpace(string(body)))
+	}
+	var team CoworkTeam
+	if err := json.NewDecoder(resp.Body).Decode(&team); err != nil {
+		return nil, err
+	}
+	return &team, nil
+}
+
+// ResolveCoworkApproval answers one request (POST /runtime/cowork/approval).
+// The verdict comes back as a cowork_event on /events.
+func ResolveCoworkApproval(baseURL, token, requestID string, approve bool) error {
+	action := "reject"
+	if approve {
+		action = "approve"
+	}
+	body, _ := json.Marshal(map[string]string{"requestId": requestID, "action": action})
+	req, _ := http.NewRequest("POST", baseURL+"/runtime/cowork/approval", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := doRequest(httpClient, req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("%s", strings.TrimSpace(string(msg)))
+	}
+	return nil
 }

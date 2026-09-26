@@ -316,6 +316,7 @@ export class IrcConnector implements LiveConnector {
      * others and is not: for IRC, treat the allowlist as a courtesy filter,
      * not as authentication.
      */
+    ctx.onSender?.(from.toLowerCase(), from.toLowerCase());
     if (!this.#allow.has(from.toLowerCase())) {
       ctx.log(`irc: ignored message from non-allowlisted ${from}`);
       return;

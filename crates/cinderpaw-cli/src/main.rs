@@ -25,6 +25,7 @@ mod select;
 mod chat;
 mod common;
 mod guided;
+mod footprint;
 mod install;
 mod migrate;
 
@@ -51,6 +52,12 @@ struct Cli {
 enum Command {
     /// Interactive chat in the terminal
     Chat,
+    /// Open Cinderpaw in your browser (starts it first if needed)
+    Open,
+    /// Finish a one-command install: autostart, PATH, shortcut, start, open.
+    /// Run by scripts/install.sh and install.ps1, not by people.
+    #[command(hide = true)]
+    SelfInstall,
     /// Connect your AI: detects what you already have, verifies it with a
     /// real completion, and only then saves it (guided; --classic = wizard)
     #[command(alias = "onboard")]
@@ -282,6 +289,8 @@ fn main() {
         // system package — because the answer is a different command each time
         // (see install.rs). The npm launcher still intercepts `update` before it
         // reaches this binary; every other install lands here.
+        Some(Command::Open) => install::open(),
+        Some(Command::SelfInstall) => install::self_install(),
         Some(Command::Update) => install::update(),
         Some(Command::Uninstall { purge, yes }) => install::uninstall(purge, yes),
         Some(Command::Migrate { from, source, dry_run, yes, overwrite }) => {
@@ -329,6 +338,13 @@ fn main() {
 }
 
 fn run_gateway() -> i32 {
+    // The local page (spec 2026-09-24 §4), embedded by build.rs. Only this
+    // host registers it; the Desktop app serves no page.
+    cinderpaw_core::web::register(cinderpaw_core::web::Assets {
+        index_html: include_str!(concat!(env!("OUT_DIR"), "/index.html")),
+        app_js: include_str!(concat!(env!("OUT_DIR"), "/app.js")),
+        app_css: include_str!(concat!(env!("OUT_DIR"), "/app.css")),
+    });
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

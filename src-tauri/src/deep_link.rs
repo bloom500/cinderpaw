@@ -82,9 +82,10 @@ pub fn contains_valid_open_url(urls: &[url::Url]) -> bool {
 /// performed (e.g. window already closed) is not a crash.
 pub fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     // The main window label is `main` (the sole entry in
-    // `tauri.conf.json` → `app.windows[0]`). Use `get_webview_window`
-    // which is the Tauri 2 API for the primary window.
-    if let Some(window) = app.get_webview_window("main") {
+    // `tauri.conf.json` → `app.windows[0]`). `get_window`, not
+    // `get_webview_window`: the latter is None whenever the built-in browser
+    // has a tab open, because the window then holds more than one webview.
+    if let Some(window) = app.get_window("main") {
         // Order matters: an minimized window must be unminimized before
         // `show`/`set_focus` can bring it forward.
         let _ = window.unminimize();

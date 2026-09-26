@@ -12,7 +12,7 @@ import { resolve, join, delimiter } from "node:path";
 import { mkdirSync, readFileSync } from "node:fs";
 import { atomicWriteFileSync } from "./atomic-write.ts";
 import { homedir } from "node:os";
-import { openDatabase } from "./db.ts";
+import { openDatabase, waitForWriterLock } from "./db.ts";
 import { SIDECAR_PROTOCOL } from "./protocol.ts";
 import { dispatchMessage } from "./dispatch.ts";
 import { agentProfileDirs, benchmarkRunId, cfgBool, cfgInt, cfgList, cfgPath, cinderpawHome, defaultDbPath, readEnv, scratchRoot, searxngOrigin } from "./config.ts";
@@ -114,10 +114,12 @@ import { createDelegateTaskTool } from "./tools/builtin/delegate-task.ts";
 import { createRecallTool } from "./tools/builtin/recall.ts";
 import { createRememberTool, NOTE_PREFIX, POSITION_KEY } from "./tools/builtin/remember.ts";
 import { createSelfTools } from "./tools/builtin/self.ts";
-import { createCoworkTeamTool, createCoworkSendTool } from "./tools/builtin/cowork.ts";
+import { registerCoworkRosterTools } from "./tools/builtin/cowork.ts";
 import { createCoworkCreateTool } from "./tools/builtin/cowork-create.ts";
 import { createTokenUsageTool } from "./tools/builtin/token-usage.ts";
 import { createConnectorsManageTool } from "./tools/builtin/connectors-manage.ts";
+import { createRequestSecretTool } from "./tools/builtin/request-secret.ts";
+import { createConnectorsPairTool, pairDepsFrom } from "./tools/builtin/connectors-pair.ts";
 import { AgentLoop } from "./core/agent-loop.ts";
 import { HeartbeatLoop } from "./core/heartbeat.ts";
 import { HookRegistry } from "./core/hook-registry.ts";
@@ -236,6 +238,9 @@ const BOOT_EPOCH_MS = Date.now();
  * long-context provider where the whole corpus does fit.
  */
 const CLOUD_REBUILD_LEAF_CAP = 200;
+
+// The child events that are progress. `chunk` (one streamed token) is not.
+const CHILD_PROGRESS_EVENTS = new Set(["tool_start", "tool_progress", "tool_done", "error", "model_error"]);
 
 /**
  * Resolve the agent's filesystem sandbox roots.
@@ -426,6 +431,9 @@ function buildTransport(kind: AppConfig["transport"]): Transport {
  */
 export async function boot(transportOverride?: Transport) {
   const config = loadConfig();
+  // A predecessor still shutting down (stop, then start) holds the lock for a
+  // while; wait for it rather than failing five times and giving up.
+  await waitForWriterLock(config.dbPath, 60_000);
   const db = openDatabase(config.dbPath);
   // Durable state for unattended runs. Created here, next to the database,
   // because the boot-time resume pass below needs it before anything else can
@@ -1074,6 +1082,12 @@ export async function boot(transportOverride?: Transport) {
   // read-only by default, exactly like delegate_task, so code that spawns
   // workers cannot quietly acquire write access the parent never granted.
   if (cfgBool("CINDERPAW_ENABLE_NOTEBOOK")) {
+    // Shared so a child can find the parent that admitted it.
+    const childRegistries: ChildRegistries = new Map();
+    // Registered BEFORE the Subagent below: `registry.list()` is a copy, and a
+    // worker can only be granted a tool that is in it. Registered after, every
+    // worker lost notify_parent silently while its allow-list still named it.
+    registry.register(createNotifyParentTool(childRegistries));
     const notebookSubagent = new Subagent({
       router,
       allTools: registry.list(),
@@ -1084,9 +1098,6 @@ export async function boot(transportOverride?: Transport) {
       episodic,
       hooks,
     });
-    // Shared so a child can find the parent that admitted it.
-    const childRegistries: ChildRegistries = new Map();
-    registry.register(createNotifyParentTool(childRegistries));
     registry.register(createNotebookTool({
       registry: () => registry,
       registries: childRegistries,
@@ -1123,9 +1134,13 @@ export async function boot(transportOverride?: Transport) {
             : sessionId,
           // Feeds `rlm.observe()`. Only the shape the parent can act on: what
           // kind of thing happened and a short detail, never the raw event.
+          // Tool and error events only: `chunk` is one streamed token, so
+          // forwarding it showed "chunk" as the worker's progress and pushed
+          // every real tool call out of the 40-entry trail.
           onEvent: (e) => {
             const ev = e as { type?: string; tool?: string; message?: string };
-            onEvent(ev.type ?? "event", ev.tool ?? ev.message ?? "");
+            if (!CHILD_PROGRESS_EVENTS.has(ev.type ?? "")) return;
+            onEvent(ev.type!, ev.tool ?? ev.message ?? "");
           },
         });
         log(
@@ -1796,13 +1811,16 @@ export async function boot(transportOverride?: Transport) {
     agents: coworkAgents,
     emitEvent: (event) => transport.send(event),
     timeoutMs: Number(readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ?? 5 * 60_000),
+    // Called only while a teammate's turn is running, long after boot has
+    // declared the runtime below.
+    threadOf: (agentId) => coworkRuntime.threadOf(agentId),
     log,
   });
   hooks.on("before_tool_call", coworkApprovalService.gate);
   // The one cowork tool that is ALWAYS present: without it a roster could
   // only be created by a seed script or by hand-editing SQLite, so nobody who
-  // installed Cinderpaw could reach the feature at all. It registers the two
-  // below itself once the roster stops being empty, which is what removes the
+  // installed Cinderpaw could reach the feature at all. It registers the roster
+  // tools below itself once the roster stops being empty, which is what removes the
   // "requires a restart" caveat that used to live in this comment.
   registry.register(
     createCoworkCreateTool({ agents: coworkAgents, mailbox: coworkMailbox, registry, log }),
@@ -1816,9 +1834,8 @@ export async function boot(transportOverride?: Transport) {
   // first message. Registered ONLY when teammates exist, so an install with
   // zero cowork agents gains no way to message one (fresh-install contract).
   if (coworkAgents.list().length > 0) {
-    registry.register(createCoworkTeamTool(coworkAgents));
-    registry.register(createCoworkSendTool(coworkAgents, coworkMailbox));
-    log(`cowork: ${coworkAgents.list().length} teammate(s) configured — cowork_team/cowork_send exposed`);
+    const exposed = registerCoworkRosterTools(registry, coworkAgents, coworkMailbox);
+    log(`cowork: ${coworkAgents.list().length} teammate(s) configured — ${exposed.join(", ")} exposed`);
   }
   const coworkRuntime = new CoworkRuntime({
     agents: coworkAgents,
@@ -2437,6 +2454,12 @@ export async function boot(transportOverride?: Transport) {
   // to Discord/Slack/WhatsApp on user request. Writes ~/.cinderpaw/connectors.json
   // (the one deliberate exception to the deny wall) and hot-reloads the manager.
   registry.register(createConnectorsManageTool(connectors));
+  // The secure field for connector secrets (spec 2026-09-24 §6.2): only the
+  // local web page can show it; everywhere else it says unsupported_surface.
+  registry.register(createRequestSecretTool());
+  // "Is that you?" (spec §6.4): the person messages their new bot, and the page
+  // asks whether that was them, instead of asking for a user id.
+  registry.register(createConnectorsPairTool(pairDepsFrom(connectors)));
   // artifact_send hands an artifact back through a connector, so it is the one
   // artifact tool that cannot be registered with the other six above: the
   // connectors do not exist yet at that point in boot.
@@ -2653,6 +2676,8 @@ export async function boot(transportOverride?: Transport) {
   // value on the other side.
   const ctx = {
     config, db, user, audit, router, localFallbackTarget, episodic, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, registry, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate,
+    // The semantic graph, for the memory page's Forget (dispatch `memory_forget`).
+    memoryGraph,
     // Agent Cowork S4 — the chat-side approval resolver (dispatch routes
     // `cowork_approval_resolve` here).
     coworkApprovals: coworkApprovalService,
@@ -2772,7 +2797,13 @@ export async function boot(transportOverride?: Transport) {
     // that connector's sender is only registered once the client has logged in.
     // Chaining on the reload promise waits for the real signal instead of
     // guessing with a timer.
-    void connectors.reload().then(() => resumeInterrupted());
+    //
+    // Under a host, the first reload waits for the host's rows: the host keeps
+    // connector secrets in the OS keychain and sends them right after spawn,
+    // and reading the file alone started every connector once with no token.
+    // In-process (transportOverride) there is no host to wait for.
+    const hostRows = transportOverride ? Promise.resolve() : connectors.hostRows(5_000);
+    void hostRows.then(() => connectors.reload()).then(() => resumeInterrupted());
     // One round on demand, for a headless test of the code-RSI path; the
     // product's trigger is the Dreams cycle.
     if (cfgBool("CINDERPAW_CODE_RSI_ROUND_ON_READY")) void maybeCodeRsiRound();

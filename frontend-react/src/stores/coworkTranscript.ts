@@ -247,6 +247,9 @@ export interface CoworkHistoryRow {
   body: string;
   status: string;
   createdAt: number;
+  /** The teammate's stored answer, when the person sent this message. */
+  reply?: string;
+  replyFailed?: boolean;
 }
 
 /**
@@ -273,9 +276,11 @@ export function fromHistory(threadId: string, rows: CoworkHistoryRow[]): CoworkE
     fromName: r.fromAgentName,
     toName: r.toAgentName,
     requestText: r.body,
-    responseText: null,
+    // The answer rides on its question (sidecar withHumanReplies). Before it
+    // was stored, every reopened chat showed questions with no answers.
+    responseText: r.reply ?? null,
     status:
-      r.status === 'rejected'
+      r.status === 'rejected' || r.replyFailed
         ? ('error' as const)
         : r.status === 'pending'
           ? ('running' as const)

@@ -13,7 +13,10 @@ test("default executable contains no libsignal implementation", () => {
       process.execPath, "build", "src/index.ts", "--compile", "--outfile", binary,
     ], { cwd: resolve(import.meta.dir, ".."), timeout: 120_000 });
     expect(build.exitCode, build.stderr.toString()).toBe(0);
-    const contents = readFileSync(binary).toString("latin1");
+    // The pinned lockfile for the on-request WhatsApp download names libsignal
+    // (a name and a hash, no code). Everything else in the binary may not.
+    const lock = readFileSync(resolve(import.meta.dir, "../src/transports/whatsapp/bun.lock"), "latin1");
+    const contents = readFileSync(binary).toString("latin1").replace(lock, "");
     expect(contents.match(/libsignal|Closing session:|SessionBuilder/g)).toBeNull();
   } finally {
     rmSync(dir, { recursive: true, force: true });

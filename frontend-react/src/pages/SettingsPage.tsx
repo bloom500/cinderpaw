@@ -1,5 +1,5 @@
 import { useEffect, lazy, Suspense } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CATS, type Category } from '@/lib/settingsCategories';
@@ -8,8 +8,8 @@ import { GeneralTab }    from '@/components/settings/GeneralTab';
 import { AppearanceTab } from '@/components/settings/AppearanceTab';
 import { HardwareTab }   from '@/components/settings/HardwareTab';
 import { ApiServerTab }  from '@/components/settings/ApiServerTab';
-import { ByokTab }       from '@/components/settings/ByokTab';
 import { AgentSettingsTab } from '@/components/settings/AgentSettingsTab';
+import { LearningTab }   from '@/components/settings/LearningTab';
 import { PrivacyTab }    from '@/components/settings/PrivacyTab';
 import { AboutTab }      from '@/components/settings/AboutTab';
 // Phase 5 S1: three former top-level pages, whose only door was the sidebar.
@@ -51,12 +51,14 @@ export function SettingsPage() {
   const cat: Category = isCategory(raw) ? raw : 'general';
   const setCat = (next: Category) => setSearchParams({ cat: next }, { replace: true });
   const fetchSettings = useSettings((s) => s.fetchSettings);
-  const fetchByok     = useSettings((s) => s.fetchByok);
 
   useEffect(() => {
     void fetchSettings();
-    void fetchByok();
-  }, [fetchSettings, fetchByok]);
+  }, [fetchSettings]);
+
+  // Cloud keys moved to Models → Cloud (24 Sep). The old address still arrives
+  // from messages written before the move, so it lands on the cards, not General.
+  if (raw === 'byok') return <Navigate to="/models?tab=cloud" replace />;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -109,8 +111,8 @@ export function SettingsPage() {
         {cat === 'appearance' && <AppearanceTab />}
         {cat === 'hardware'   && <HardwareTab />}
         {cat === 'api'        && <ApiServerTab />}
-        {cat === 'byok'       && <ByokTab />}
         {cat === 'agent'      && <AgentSettingsTab />}
+        {cat === 'learning'   && <LearningTab />}
         {cat === 'privacy'    && <PrivacyTab />}
         {cat === 'about'      && <AboutTab />}
         <Suspense fallback={null}>

@@ -26,6 +26,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { useNotifications } from '@/stores/notifications';
 import { useConversations, type ConversationSummary } from '@/stores/conversations';
 import { useProjects, type Project } from '@/stores/projects';
 
@@ -215,6 +216,34 @@ function RenameDialog({
  * "Remove from project" has to work there too, or a chat can get stuck inside
  * a container only the sidebar could open.
  */
+/**
+ * Delete now, with Undo, instead of "Are you sure?".
+ *
+ * A confirmation dialog stops everyone to protect the rare mistake; an undo
+ * lets everyone through and still catches the mistake. The chat leaves the list
+ * at once and is really deleted when the toast ends. Undo in that window puts it
+ * back untouched. If the app closes inside the window the chat survives, which
+ * is the safe way round.
+ */
+const UNDO_MS = 5_000;
+function deleteChatWithUndo(id: string, title: string) {
+  const store = useConversations.getState();
+  if (store.currentId === id) store.newChat();
+  useConversations.setState((s) => ({ list: s.list.filter((c) => c.id !== id) }));
+  const timer = setTimeout(() => {
+    // A delete that fails puts the chat back and says why, instead of leaving
+    // it gone from the list and still on disk.
+    useConversations.getState().delete(id).catch((err: unknown) => {
+      useNotifications.getState().push('error', 'Could not delete the chat', err instanceof Error ? err.message : String(err));
+      void useConversations.getState().refresh();
+    });
+  }, UNDO_MS);
+  useNotifications.getState().push('info', 'Chat deleted', title || undefined, {
+    label: 'Undo',
+    run: () => { clearTimeout(timer); void useConversations.getState().refresh(); },
+  });
+}
+
 export function ConversationActions({
   conv, side = 'right', align = 'start', className,
 }: {
@@ -224,7 +253,6 @@ export function ConversationActions({
   className?: string;
 }) {
   const projects = useProjects((s) => s.list);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [renaming, setRenaming] = useState(false);
 
   const parent = projects.find((p) => p.conversation_ids.includes(conv.id)) ?? null;
@@ -275,7 +303,7 @@ export function ConversationActions({
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => setConfirmDelete(true)}
+            onClick={() => deleteChatWithUndo(conv.id, conv.title)}
             className="text-error focus:text-error"
           >
             <Trash2 size={14} />
@@ -293,13 +321,6 @@ export function ConversationActions({
         onSave={(title) => useConversations.getState().rename(conv.id, title)}
       />
 
-      <ConfirmDeleteDialog
-        open={confirmDelete}
-        onOpenChange={setConfirmDelete}
-        title="Delete this chat?"
-        body={<>This permanently deletes <span className="text-text-primary">{conv.title || 'this chat'}</span>. This can&apos;t be undone.</>}
-        onConfirm={() => useConversations.getState().delete(conv.id)}
-      />
     </>
   );
 }

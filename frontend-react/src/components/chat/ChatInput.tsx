@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AttachedFileChip, type AttachedFile } from './AttachedFileChip';
+import { LinkChip } from './LinkChip';
+import { splitLinks } from '@/lib/linkLabel';
 import { FileAttachButton } from './FileAttachButton';
 import { VoicePreview } from './VoicePreview';
 import { VoiceProviderCard } from './VoiceProviderCard';
@@ -18,7 +20,7 @@ import { MascotPerch } from './mascot/MascotPerch';
 import { useMascotState } from './mascot/useMascotState';
 import { useModel } from '@/stores/model';
 import { useChat, type ChatMessage } from '@/stores/chat';
-import { useUI } from '@/stores/ui';
+import { useUI, type CallEngine } from '@/stores/ui';
 import { useSendMessage, saveVoiceBlobToDisk, transcribeVoiceBlob, buildUserContent } from '@/hooks/useSendMessage';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useCallSession } from '@/hooks/useCallSession';
@@ -28,7 +30,7 @@ import { useCallPill, hangUpLandsOn } from '@/lib/callPill';
 import { useJevCallSession } from '@/hooks/useJevCallSession';
 import { JEV_PROVIDER_ID } from './JevKeyRow';
 import { attachmentFromPath, attachmentsFromClipboard } from '@/lib/attachments';
-import { decodeToPcm16k, computePeaks } from '@/lib/audio';
+import { decodeToPcm16k, computePeaks, chime } from '@/lib/audio';
 import { ensureSttModel } from '@/lib/voiceModel';
 import { stopActiveStream } from '@/lib/streamControl';
 import { useNotifications } from '@/stores/notifications';
@@ -38,6 +40,10 @@ import { cn } from '@/lib/utils';
 export interface ChatInputHandle {
   setText: (text: string) => void;
   focus: () => void;
+  /** Attach files dropped anywhere on the chat page, not only on the composer. */
+  attach: (dt: DataTransfer) => void;
+  /** Attach files by path (Explorer's Send to > Cinderpaw). */
+  attachPaths: (paths: string[]) => void;
 }
 
 export interface ChatInputProps {
@@ -70,6 +76,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
 function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   const [text, setText] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  // Links pasted on their own become chips beside the files instead of a
+  // hundred characters of address in the text box (the ChatGPT composer, 24
+  // Sep). They go back into the message, first, when it is sent.
+  const [links, setLinks] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const loaded      = useModel((s) => s.loaded);
   const cloudModel  = useModel((s) => s.cloudModel);
@@ -145,6 +155,30 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       : callEngine === 'livekit' ? liveKitCall : callEngine === 'live' ? liveCall : pipelineCall;
   // X and minimise park a live call in the top-of-screen pill instead of ending it.
   useCallPill(call);
+  // A tone when the line opens and when it closes: on a call you are looking
+  // away from the screen, and the sound is the confirmation. Jev chimes its own
+  // (useJevCallSession), so it is left out here rather than heard twice.
+  const wasLive = useRef(false);
+  useEffect(() => {
+    const live = call.phase !== 'idle' && call.phase !== 'ready' && call.phase !== 'connecting';
+    if (live !== wasLive.current && s2sProvider !== JEV_PROVIDER_ID) chime(live ? 'connect' : 'end');
+    wasLive.current = live;
+  }, [call.phase, s2sProvider]);
+  // Changing who answers on the pre-call screen swaps the engine under it
+  // (Jev <-> LiveKit), and the new one starts idle: idle closes the call screen,
+  // so picking Gemini while on Jev dropped him back into the chat (22 and
+  // 23 Sep). The ready screen carries over to the engine now chosen.
+  const engineKey: 'jev' | CallEngine = s2sProvider === JEV_PROVIDER_ID ? 'jev' : callEngine;
+  const engines = { jev: jevCall, livekit: liveKitCall, live: liveCall, pipeline: pipelineCall };
+  const prevEngine = useRef<'jev' | CallEngine>(engineKey);
+  useEffect(() => {
+    const was = prevEngine.current;
+    prevEngine.current = engineKey;
+    if (was === engineKey || engines[was].phase !== 'ready') return;
+    engines[was].hangUp();
+    engines[engineKey].open();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of engine acts
+  }, [engineKey]);
   const ttsProvider = useUI((s) => s.ttsProvider);
   const [engineCardOpen, setEngineCardOpen] = useState(false);
 
@@ -235,6 +269,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       setTimeout(() => taRef.current?.focus(), 0);
     },
     focus: () => taRef.current?.focus(),
+    attach: (dt: DataTransfer) => { void attachmentsFromClipboard(dt).then(addFiles); },
+    attachPaths: (paths: string[]) => { void Promise.all(paths.map(attachmentFromPath)).then(addFiles); },
   }));
 
   // Auto-resize textarea
@@ -297,7 +333,18 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // Ctrl+V / ⌘V: attach pasted screenshots and copied files. Keep text.
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
-    if (!items || !Array.from(items).some((i) => i.kind === 'file')) return;
+    const hasFile = !!items && Array.from(items).some((i) => i.kind === 'file');
+    // A paste that is nothing but links becomes chips. A sentence with a link
+    // in it stays text: the person is writing, not handing over an address.
+    const pasted = e.clipboardData?.getData('text/plain').trim() ?? '';
+    const parts = pasted ? splitLinks(pasted) : [];
+    if (!hasFile && parts.length > 0 && parts.every((x) => x.kind === 'link' || !x.text.trim())) {
+      e.preventDefault();
+      const found = parts.flatMap((x) => (x.kind === 'link' ? [x.href] : []));
+      setLinks((prev) => [...prev, ...found.filter((h) => !prev.includes(h))]);
+      return;
+    }
+    if (!hasFile) return;
     // Don't preventDefault — text+image paste should keep the text in the textarea
     // while also attaching the image. Preventing drops the text.
     void attachmentsFromClipboard(e.clipboardData).then(addFiles);
@@ -349,7 +396,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       completedAt: now + 1,
       actions: [
         { label: t('chat.noModel.download'), route: '/models' },
-        { label: t('chat.noModel.addKey'), route: '/settings' },
+        { label: t('chat.noModel.addKey'), route: '/models?tab=cloud' },
       ],
     });
   };
@@ -417,14 +464,21 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       }
       return;
     }
-    if ((!text.trim() && attachedFiles.length === 0) || isStreaming || disabled) return;
+    if ((!text.trim() && attachedFiles.length === 0 && links.length === 0) || isStreaming || disabled) return;
+    const draftText = text;
+    const draftLinks = links;
+    // Links first, the way they sat in the composer; the words on the next line.
+    const composed = links.length > 0
+      ? `${links.join(' ')}${text.trim() ? `\n${text}` : ''}`
+      : text;
     if (noModel) {
-      noModelReply(text);
+      noModelReply(composed);
       setText('');
       setAttachedFiles([]);
+      setLinks([]);
       return;
     }
-    const content = text;
+    const content = composed;
     const files = attachedFiles;
     // Cleared optimistically, because waiting for the whole turn before the
     // box empties feels broken. That makes what someone typed live nowhere but
@@ -434,6 +488,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
     const before = useChat.getState().messages.length;
     setText('');
     setAttachedFiles([]);
+    setLinks([]);
     try {
       if (sendFn) {
         // Agent path: inline text attachments into the content (same as the
@@ -451,7 +506,8 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       // bubble exists the words are safe there, and restoring the draft as
       // well would show them twice.
       if (useChat.getState().messages.length === before) {
-        setText(content);
+        setText(draftText);
+        setLinks(draftLinks);
         setAttachedFiles(files);
       }
       useNotifications.getState().push(
@@ -468,6 +524,12 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
       e.preventDefault();
       void trySend();
     }
+    // Backspace in an empty box takes the last link chip back, like deleting
+    // the character before the caret would have.
+    if (e.key === 'Backspace' && text === '' && links.length > 0) {
+      e.preventDefault();
+      setLinks((prev) => prev.slice(0, -1));
+    }
   };
 
   const removeFile = (path: string) =>
@@ -479,7 +541,7 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
   // a running conversation, where the transcript is the subject.
   const expanded =
     engaged || isEmpty || isStreaming || dragOver || text.length > 0 ||
-    attachedFiles.length > 0 || rec.state !== 'idle';
+    attachedFiles.length > 0 || links.length > 0 || rec.state !== 'idle';
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -518,8 +580,15 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
               spacing complaint — the fix was room above the composer, which the
               greeting now leaves. */}
           <MascotPerch baseState={mascotState} />
-          {attachedFiles.length > 0 && (
+          {(attachedFiles.length > 0 || links.length > 0) && (
             <div className="flex flex-wrap gap-1 px-3 pt-2">
+              {links.map((href) => (
+                <LinkChip
+                  key={href}
+                  href={href}
+                  onRemove={() => setLinks((prev) => prev.filter((h) => h !== href))}
+                />
+              ))}
               {attachedFiles.map((f) => (
                 <AttachedFileChip
                   key={f.path}
@@ -710,6 +779,9 @@ function ChatInput({ isEmpty, sendFn, alwaysEnabled }, ref) {
         notice={call.notice}
         // Only a Jev call answers in lines of text; the others speak theirs.
         said={s2sProvider === JEV_PROVIDER_ID ? jevCall.said : undefined}
+        // Only a Jev call hands sentences to Cinder; the card shows what went and what came back.
+        handoffText={s2sProvider === JEV_PROVIDER_ID ? jevCall.handoffText : undefined}
+        handoffReply={s2sProvider === JEV_PROVIDER_ID ? jevCall.handoffReply : undefined}
         onAnswer={() => void call.begin()}
         onHangUp={() => {
           const next = hangUpLandsOn(call.phase);

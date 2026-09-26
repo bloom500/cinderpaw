@@ -17,6 +17,8 @@ import type { InboundMessage, ModelTarget, Schedule, DeliveryTarget } from "./ty
 import type { BootContext } from "./boot.ts";
 import { cfgBool, cfgInt, cfgPath } from "./config.ts";
 import { runUnattended } from "./core/unattended.ts";
+import { withHumanReplies } from "./cowork/runtime.ts";
+import { removeTeammate } from "./tools/builtin/cowork.ts";
 import { parseDoneWhenFromMessage } from "./cron/done-when.ts";
 import { sha256Canonical } from "./rsi/infra/hash-chain.ts";
 import { defaultJournalDir, journalFilename, verifyJournal } from "./rsi/infra/journal.ts";
@@ -54,6 +56,7 @@ import { routerInfer } from "./memory/fractal/summarize.ts";
 import { parseResponse } from "./core/agent-loop.ts";
 import { BrainStack } from "./brain/brain-stack.ts";
 import { rebuildDerivedBrain } from "./brain/brain-config.ts";
+import { markCardSurface } from "./core/card-surface.ts";
 
 /**
  * Diagnostics go to stderr; stdout is reserved for the transport protocol.
@@ -149,6 +152,7 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
     db, audit, router, localFallbackTarget, dataDir, fractalMemory, extractor, askUser, hostTools, desktopControl, capabilityBridge, adminBridge, mcpManager, mood, innerThoughts, agent, cronRepo, transport, rsiBridge, activityMonitor, metaEvolution, rsiSidecar, dream, connectors, codePatchGate, governanceGate, modulesGate, loraGate, coworkApprovals, coworkMailbox, coworkAgents, artifacts, artifactExporter,
     runHooks,
     brainDerived, brainBreaker,
+    memoryGraph,
   } = ctx;
 
   switch (msg.type) {
@@ -160,9 +164,11 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // Reading connectors.json ourselves stopped being enough the moment
         // the migration emptied that file of credentials: every connector on
         // the machine would have come back up blank. The file path stays as
-        // the fallback for a host that has not been updated.
+        // the fallback for a host that has not been updated. Kept, not only
+        // applied: the agent's own connectors_manage edits re-read the file,
+        // and without these they restarted every connector with no token.
         const rows = (msg as { connectors?: unknown }).connectors;
-        if (Array.isArray(rows)) void connectors.applyRows(rows as never);
+        if (Array.isArray(rows)) void connectors.setHostRows(rows as never);
         else void connectors.reload();
         break;
       }
@@ -935,6 +941,20 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         sendCodePatches();
         break;
       }
+      // The memory page's Forget: one fact (a graph edge) leaves what Cinderpaw
+      // knows about the person, and the file is written at once so the page's
+      // next read (Rust reads memory-graph.json directly) no longer has it.
+      // Only the edge goes; its two nodes may carry other facts.
+      case "memory_forget": {
+        const f = msg.forget;
+        if (!f?.from || !f.to) {
+          transport.send({ type: "error", message: "memory_forget: missing edge" });
+          break;
+        }
+        const removed = memoryGraph.removeEdge(f.from, f.to, f.relation || undefined);
+        if (removed > 0) memoryGraph.persist();
+        break;
+      }
       // Metacognition: the loop asked the user something; this is the reply.
       // Every outcome re-sends the card so the question leaves the inbox
       // the moment it is resolved, and stays if the resolve was refused.
@@ -1078,7 +1098,10 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         transport.send({
           type: "cowork_history_result",
           threadId,
-          messages: rows.map((m) => ({
+          // A teammate's stored answer rides on the message it answers, so a
+          // reopened chat shows the question WITH its answer.
+          messages: withHumanReplies(rows).map((m) => ({
+            ...(m.reply !== undefined ? { reply: m.reply, replyFailed: m.replyFailed } : {}),
             id: m.id,
             fromAgentId: m.fromAgentId,
             toAgentId: m.toAgentId,
@@ -1091,6 +1114,38 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
             status: m.status,
             createdAt: m.createdAt,
           })),
+        });
+        break;
+      }
+
+      // The roster for the Settings list. One message for both actions, like
+      // artifact_op: each inbound type costs a Rust command and three lists.
+      // Removal happens HERE, beside the store, through the same function the
+      // cowork_remove_teammate tool uses.
+      case "cowork_team_op": {
+        let removed: string | undefined;
+        let error: string | undefined;
+        if (msg.teamAction === "remove") {
+          const target = coworkAgents.get((msg.toAgentId ?? "").trim());
+          if (!target) error = "That teammate no longer exists.";
+          else if (removeTeammate(coworkAgents, coworkMailbox, target.id).removed) removed = target.name;
+        } else if (msg.teamAction !== "list") {
+          error = `Unknown team action "${String(msg.teamAction)}".`;
+        }
+        transport.send({
+          type: "cowork_team_result",
+          roster: coworkAgents.list().map((a) => ({
+            id: a.id,
+            name: a.name,
+            role: a.role,
+            instructions: a.instructions,
+            tools: a.tools ?? null,
+            model: a.modelPin ?? null,
+            createdAt: a.createdAt,
+          })),
+          ...(removed ? { removed } : {}),
+          ...(error ? { error } : {}),
+          pendingApprovals: coworkApprovals.pending(),
         });
         break;
       }
@@ -1648,9 +1703,12 @@ export async function dispatchMessage(ctx: BootContext, msg: InboundMessage): Pr
         // description cannot say "right now". Composed with the voice brief
         // rather than replacing it: a call made from the browser is both.
         const browserBrief = browserSurfaceBrief(msg.browserPage);
+        // The local web page can show a password card; nothing else can.
+        // Per message, because the terminal and the page share the session.
+        markCardSurface(sessionId, msg.surface === "web");
         if (msg.surface === "voice") {
           agent.setSessionSurface(sessionId, [VOICE_SURFACE_BRIEF, browserBrief].filter(Boolean).join("\n\n"), { spoken: true });
-        } else if (msg.surface === "text") {
+        } else if (msg.surface === "text" || msg.surface === "web") {
           // Explicitly typed → drop the spoken brief. Only the desktop sends this
           // field, so a connector's own brief is never touched here.
           agent.setSessionSurface(sessionId, browserBrief);

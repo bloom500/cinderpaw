@@ -5,13 +5,14 @@ import { events, type LoraReviewsLine, type MetaResultLine, type GovernanceResul
 import { useDream, type DreamStage } from '@/stores/dream';
 import { useSettings } from '@/stores/settings';
 import { cn } from '@/lib/utils';
+import { stopReasonWords, triggerWords } from '@/lib/rsiWords';
 
 /** The §2.8 stages the sidecar actually emits (dream/mutate are subsumed by the
  *  opaque engine episode in Faza 1). The live indicator walks these in order. */
 const STAGE_STEPS: { key: DreamStage; label: string }[] = [
   { key: 'wake', label: 'Wake' },
   { key: 'observe', label: 'Observe' },
-  { key: 'evaluate', label: 'Evaluate' },
+  { key: 'evaluate', label: 'Test' },
   { key: 'remember', label: 'Remember' },
   { key: 'sleep', label: 'Sleep' },
 ];
@@ -438,7 +439,7 @@ export function CinderpawDreamsPanel() {
       <header className="flex items-center gap-2">
         <Moon size={14} className="text-brand" />
         <span className="text-sm font-medium text-text-primary">Cinderpaw&apos;s Dreams</span>
-        <span className="text-2xs text-text-muted">self-improvement while you&apos;re idle</span>
+        <span className="text-2xs text-text-muted">it practices while you&apos;re away</span>
         <button
           type="button"
           onClick={dreamNow}
@@ -446,7 +447,7 @@ export function CinderpawDreamsPanel() {
           title={
             dreamsAsleep
               ? 'Asleep. Turn on dreaming for cloud models first'
-              : 'Run one dream episode now (bypasses the idle wait)'
+              : 'Dream once now, without waiting for you to step away'
           }
           className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-2xs text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
         >
@@ -459,15 +460,16 @@ export function CinderpawDreamsPanel() {
           the spend cap below only matter once this is on. */}
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-text-primary">Dreaming enabled</p>
+          <p className="text-xs font-medium text-text-primary">Dreaming</p>
           <p className="text-2xs text-text-muted">
-            Master opt-in. While off, nothing runs in the background. No exceptions.
+            When this is off, Cinderpaw does nothing in the background. Nothing at all.
           </p>
         </div>
         <button
           type="button"
           role="switch"
           aria-checked={settings?.dreams_enabled === true}
+          aria-label="Dreaming"
           disabled={dreamsBusy}
           onClick={async () => {
             setDreamsBusy(true);
@@ -499,7 +501,7 @@ export function CinderpawDreamsPanel() {
               Your model runs in the cloud, so every dream costs money. Cinderpaw won&apos;t
               spend it behind your back. Turn this on and it improves itself while
               you&apos;re away, stopping at{' '}
-              {budget > 0 ? `$${budget} of spend` : 'the spend cap in Agent settings'}.
+              {budget > 0 ? `$${budget} of spend` : 'the spending limit above'}.
             </p>
           </div>
           <button
@@ -545,7 +547,7 @@ export function CinderpawDreamsPanel() {
               value={summary.ratchets.toLocaleString()}
               accent={summary.ratchets > 0}
             />
-            <Stat label="Iterations" value={summary.iterations.toLocaleString()} />
+            <Stat label="Ideas tried" value={summary.iterations.toLocaleString()} />
           </div>
 
           <RatchetSparkline episodes={summary.last} />
@@ -553,16 +555,15 @@ export function CinderpawDreamsPanel() {
           {summary.last[0] && (
             <p className="flex items-center gap-1.5 text-2xs text-text-secondary">
               <Sparkles size={12} className="text-brand" />
-              Last dream: {summary.last[0].trigger}-triggered ·{' '}
+              Last dream, because {triggerWords(summary.last[0].trigger)}:{' '}
               {summary.last[0].ratchets > 0
                 ? `${summary.last[0].ratchets} improvement${summary.last[0].ratchets === 1 ? '' : 's'}`
-                : 'no improvement'}{' '}
-              · {summary.last[0].stopReason}
+                : 'no improvement'}
+              , then {stopReasonWords(summary.last[0].stopReason)}.
             </p>
           )}
 
           <Receipts rows={receipts} />
-          <ChampionsByNiche rows={champions} />
           <LoopQuestions
             questions={pendingPatches?.questions ?? null}
             resolving={resolving}
@@ -585,13 +586,6 @@ export function CinderpawDreamsPanel() {
         onTrain={loraTrainNow}
       />
 
-      <MetaEvolutionCard
-        status={metaStatus}
-        busy={metaBusy}
-        note={metaNote}
-        onAction={runMetaAction}
-      />
-
       <GovernanceCard
         status={govStatus}
         verify={govVerify}
@@ -606,6 +600,23 @@ export function CinderpawDreamsPanel() {
         note={modulesNote}
         onResolve={resolveModule}
       />
+
+      {/* The machinery, for whoever wants it. Everything that needs the
+          person's OK stays above; nothing in here asks for a decision. */}
+      <details className="border-t border-border-subtle pt-2">
+        <summary className="cursor-pointer select-none text-2xs text-text-muted hover:text-text-secondary">
+          Details for the curious
+        </summary>
+        <div className="space-y-3 pt-2">
+          <ChampionsByNiche rows={champions} />
+          <MetaEvolutionCard
+            status={metaStatus}
+            busy={metaBusy}
+            note={metaNote}
+            onAction={runMetaAction}
+          />
+        </div>
+      </details>
     </div>
   );
 }
@@ -703,7 +714,6 @@ function GovernanceCard({
                       ? 'Cinderpaw asks to loosen its rules. Nothing changes without your OK.'
                       : 'Cinderpaw is making its own rules stricter, and this applies on its own.'}
                   </span>
-                  <span className="ml-auto font-mono text-micro text-text-muted">{p.policyId}</span>
                 </div>
                 {needsOk && (
                   <div className="flex items-center gap-1.5 pl-4">
@@ -894,10 +904,10 @@ function MetaEvolutionCard({
     <section className="space-y-1.5 border-t border-border-subtle pt-2">
       <header className="flex items-center gap-1.5">
         <Brain size={12} className="text-brand" />
-        <span className="text-2xs font-medium text-text-primary">Meta Evolution</span>
+        <span className="text-2xs font-medium text-text-primary">How it practices</span>
         <span className="text-micro text-text-muted">
-          generation {status.generation ?? 0}
-          {status.pendingCandidate ? ' · candidate pending' : ''}
+          round {status.generation ?? 0}
+          {status.pendingCandidate ? ' · trying a new way' : ''}
         </span>
         <span className="ml-auto flex items-center gap-1.5">
           {status.pendingCandidate && (
@@ -905,28 +915,28 @@ function MetaEvolutionCard({
               type="button"
               onClick={() => onAction('rollback')}
               disabled={busy}
-              title="Drop the pending candidate and return to its baseline"
+              title="Stop trying the new way and go back to the old one"
               className="rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
             >
               <Undo2 size={12} className="mr-1 inline" />
-              Rollback
+              Go back
             </button>
           )}
           <button
             type="button"
             onClick={() => onAction('evolve')}
             disabled={busy}
-            title="Settle the pending candidate against its baseline, then propose the next one"
+            title="Judge the new way against the old one, then pick another to try"
             className="rounded border border-border-subtle px-2 py-0.5 text-micro text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
           >
-            {busy ? 'Working…' : 'Evolve'}
+            {busy ? 'Working…' : 'Try a new way'}
           </button>
         </span>
       </header>
       <p className="text-micro text-text-muted">
         {fitness
-          ? `fitness ${fitness.score.toFixed(4)} over ${fitness.cycles} cycles`
-          : 'fitness: needs more dream cycles under this genome'}
+          ? `scores ${fitness.score.toFixed(2)} out of 1, over ${fitness.cycles} dreams`
+          : 'needs a few more dreams before it can be judged'}
       </p>
       {status.genome && (
         <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-micro">
@@ -974,13 +984,13 @@ function LoraReviews({
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <div className="flex items-center gap-2">
         <Brain size={12} className="text-brand" />
-        <span className="text-2xs font-medium text-text-secondary">Personal adaptation</span>
-        <span className="text-text-muted text-2xs">LoRA · learns how you work</span>
+        <span className="text-2xs font-medium text-text-secondary">Learning your style</span>
+        <span className="text-text-muted text-2xs">from your own chats</span>
         <button
           type="button"
           onClick={onTrain}
           disabled={training}
-          title="Mine your conversations into a dataset, train a candidate adapter, and evaluate it against the champion"
+          title="Learn from your past chats, then test whether the new version is better than the one in use"
           className="ml-auto rounded border border-border-subtle px-2 py-0.5 text-2xs text-text-secondary hover:text-text-primary hover:border-brand disabled:opacity-60"
         >
           {training ? 'Training…' : 'Train now'}
@@ -989,7 +999,7 @@ function LoraReviews({
       {note && <p className="text-2xs text-warning">{note}</p>}
       {payload && payload.stats.adapters > 0 && (
         <div className="grid grid-cols-4 gap-x-4 gap-y-1.5 text-2xs">
-          <Stat label="Adapters" value={String(payload.stats.adapters)} />
+          <Stat label="Versions" value={String(payload.stats.adapters)} />
           <Stat
             label="Accepted"
             value={
@@ -1000,7 +1010,7 @@ function LoraReviews({
             accent={(payload.stats.acceptanceRate ?? 0) > 0}
           />
           <Stat
-            label="Avg gain"
+            label="Average gain"
             value={
               payload.stats.averageGain === null
                 ? '-'
@@ -1024,15 +1034,14 @@ function LoraReviews({
             <li key={c.domain} className="flex items-center gap-2 text-2xs">
               <Check size={12} className="text-brand" />
               <span className="text-text-secondary">{c.domain}</span>
-              <span className="ml-auto font-mono text-micro text-text-muted">{c.id}</span>
             </li>
           ))}
         </ul>
       )}
       {reviews.length === 0 ? (
         <p className="text-2xs text-text-muted">
-          No adapters under review. Train one and Cinderpaw starts adapting to you. Every
-          promotion needs your explicit approval.
+          Nothing waiting for you. Press Train now and Cinderpaw starts learning your
+          style. It never switches to a new version without your OK.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -1041,7 +1050,6 @@ function LoraReviews({
               <div className="flex items-center gap-1.5">
                 <LoraVerdictBadge status={r.status} verdict={r.verdict} />
                 <span className="text-text-secondary">{r.domain}</span>
-                <span className="font-mono text-text-muted">{r.id.slice(0, 24)}</span>
                 <span className="ml-auto text-text-muted tabular-nums">
                   {formatRelativeTime(r.createdAt)}
                 </span>
@@ -1082,11 +1090,11 @@ function LoraReviews({
 /** Badge for a review card: resolved status wins, otherwise the gate verdict. */
 function LoraVerdictBadge({ status, verdict }: { status: string; verdict: string }) {
   const map: Record<string, { icon: typeof Check; cls: string; label: string }> = {
-    approved: { icon: Check, cls: 'text-brand', label: 'champion' },
+    approved: { icon: Check, cls: 'text-brand', label: 'in use' },
     rejected: { icon: X, cls: 'text-text-muted', label: 'rejected' },
     recommend_promote: { icon: Sparkles, cls: 'text-brand', label: 'recommended' },
     reject: { icon: X, cls: 'text-text-muted', label: 'not better' },
-    insufficient_evidence: { icon: AlertTriangle, cls: 'text-warning', label: 'needs more evals' },
+    insufficient_evidence: { icon: AlertTriangle, cls: 'text-warning', label: 'needs more testing' },
   };
   const entry = (status !== 'pending' ? map[status] : map[verdict])
     ?? { icon: AlertTriangle, cls: 'text-text-muted', label: verdict };
@@ -1108,7 +1116,7 @@ function ChampionsByNiche({ rows }: { rows: ChampionTreeRow[] }) {
   return (
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
       <span className="text-2xs font-medium text-text-secondary">
-        Champions by niche <span className="text-text-muted">({rows.length})</span>
+        Best version for each style <span className="text-text-muted">({rows.length})</span>
       </span>
       <ul className="space-y-1">
         {rows.map((c) => (
@@ -1130,7 +1138,7 @@ function Receipts({ rows }: { rows: JournalRow[] }) {
   if (rows.length === 0) return null;
   return (
     <div className="space-y-1.5 border-t border-border-subtle pt-2.5">
-      <span className="text-2xs font-medium text-text-secondary">Receipts</span>
+      <span className="text-2xs font-medium text-text-secondary">What each dream decided</span>
       <ul className="space-y-2">
         {rows.map((r, i) => (
           // Per-candidate Contract rows share the episode's cycleId, so the
@@ -1144,7 +1152,12 @@ function Receipts({ rows }: { rows: JournalRow[] }) {
                 })}
               </span>
             </div>
-            <p className="mt-0.5 text-text-secondary">{r.decided.reason}</p>
+            <p className="mt-0.5 text-text-secondary">{DECISION_WORDS[r.decided.action] ?? DECISION_WORDS.reject}</p>
+            <details className="mt-0.5">
+              <summary className="cursor-pointer select-none text-text-muted hover:text-text-secondary">
+                What the engine wrote
+              </summary>
+            <p className="mt-0.5 text-text-muted">{r.decided.reason}</p>
             {r.result && (
               // Per-candidate fitness receipt (Contract FSM rows only).
               <p className="mt-0.5 text-text-muted tabular-nums">
@@ -1160,6 +1173,7 @@ function Receipts({ rows }: { rows: JournalRow[] }) {
                 ))}
               </ul>
             )}
+            </details>
           </li>
         ))}
       </ul>
@@ -1167,11 +1181,20 @@ function Receipts({ rows }: { rows: JournalRow[] }) {
   );
 }
 
+/** What a receipt means, said once per decision kind. The engine's reason
+ *  ("worktree tests failed: 0 fail (exit 1)") is kept, folded, for whoever
+ *  wants it: it is accurate, and nobody but us can read it. */
+const DECISION_WORDS: Record<string, string> = {
+  accept: 'Found something better and started using it.',
+  reject: 'Tried something new. It was not better, so nothing changed.',
+  halt: 'Had to stop early. Nothing changed.',
+};
+
 function DecisionBadge({ action }: { action: string }) {
   const map: Record<string, { icon: typeof Check; cls: string; label: string }> = {
-    accept: { icon: Check, cls: 'text-brand', label: 'promoted' },
+    accept: { icon: Check, cls: 'text-brand', label: 'kept' },
     reject: { icon: X, cls: 'text-text-muted', label: 'no change' },
-    halt: { icon: AlertTriangle, cls: 'text-warning', label: 'halted' },
+    halt: { icon: AlertTriangle, cls: 'text-warning', label: 'stopped' },
   };
   const { icon: Icon, cls, label } = map[action] ?? map.reject;
   return (
@@ -1212,7 +1235,7 @@ function LoopQuestions({
         <span className="text-text-muted text-2xs">({open.length})</span>
       </div>
       <p className="text-2xs text-text-muted">
-        The improvement loop stopped on these until you answer. Refuse leaves the file alone; the X just hides the question.
+        Cinderpaw paused this work until you answer. Refuse means: leave this file alone. The X only hides the question.
       </p>
       <ul className="space-y-2">
         {open.map((q) => (
@@ -1311,12 +1334,12 @@ function PendingPatches({
       <div className="flex items-center gap-2">
         <Code2 size={12} className="text-brand" />
         <span className="text-2xs font-medium text-text-secondary">
-          Pending patches
+          Code changes Cinderpaw wrote
         </span>
-        <span className="text-text-muted text-2xs">({patches.length})</span>
+        <span className="text-text-muted text-2xs">({patches.filter((x) => x.status === 'pending').length} waiting for you)</span>
         {showWindow && (
           <span className="ml-auto text-2xs text-text-muted tabular-nums">
-            {payload.appliedCount}/10 manual approvals until auto-apply unlocks
+            {payload.appliedCount} of 10 approved. After 10, changes you approve go in by themselves
           </span>
         )}
       </div>
@@ -1326,11 +1349,12 @@ function PendingPatches({
           chose for a person, not in a log file nobody has open. */}
       {payload.lastRound && (
         <p className="text-2xs text-text-muted">
-          Last round{payload.lastRound.target ? ` on ${payload.lastRound.target}` : ''}: {payload.lastRound.verdict}. {payload.lastRound.reason}
+          Last try: {payload.lastRound.verdict}.{' '}
+          <span title={`${payload.lastRound.target ?? ''} ${payload.lastRound.reason}`.trim()}>Hover for the engine&apos;s note.</span>
         </p>
       )}
       {patches.length === 0 ? (
-        <p className="text-2xs text-text-muted">No pending code patches.</p>
+        <p className="text-2xs text-text-muted">No code changes waiting.</p>
       ) : (
         <ul className="space-y-2">
           {patches.map((p) => (
@@ -1361,40 +1385,31 @@ function PatchRow({
     <li className="text-2xs space-y-1">
       <div className="flex items-center gap-1.5">
         <PatchStatusBadge status={patch.status} />
-        <span className="font-mono text-text-muted">{patch.id.slice(0, 8)}</span>
-        <span className="ml-auto flex items-center gap-2 text-text-muted tabular-nums">
-          <span>score {patch.score.toFixed(2)}</span>
-          <span>·</span>
-          <span>{formatRelativeTime(patch.createdAt)}</span>
-        </span>
+        <span className="ml-auto text-text-muted tabular-nums">{formatRelativeTime(patch.createdAt)}</span>
       </div>
       <p className="text-text-secondary">{patch.rationale}</p>
-      {patch.affectedFiles.length > 0 && (
-        <ul className="flex flex-wrap gap-1 text-text-muted">
-          {patch.affectedFiles.map((f) => (
-            <li
-              key={f}
-              className="font-mono text-micro rounded border border-border-subtle px-1 py-px"
-            >
-              {f}
-            </li>
-          ))}
-        </ul>
-      )}
-      {patch.note && (
-        <p className="text-text-muted">{patch.note}</p>
-      )}
       {patch.error && (
         <p className="text-warning">{patch.error}</p>
       )}
       <details className="rounded border border-border-subtle">
         <summary className="cursor-pointer select-none px-2 py-1 text-text-muted hover:text-text-secondary">
           <FileText size={12} className="inline -mt-px mr-1" />
-          Show diff
+          Show the change
         </summary>
-        <pre className="overflow-x-auto whitespace-pre bg-bg-base/40 px-2 py-1.5 font-mono text-micro text-text-secondary border-t border-border-subtle">
-          {patch.patch}
-        </pre>
+        <div className="space-y-1 border-t border-border-subtle px-2 py-1.5">
+          <p className="font-mono text-micro text-text-muted">{patch.id.slice(0, 8)} · score {patch.score.toFixed(2)}</p>
+          {patch.affectedFiles.length > 0 && (
+            <ul className="flex flex-wrap gap-1 text-text-muted">
+              {patch.affectedFiles.map((f) => (
+                <li key={f} className="font-mono text-micro rounded border border-border-subtle px-1 py-px">{f}</li>
+              ))}
+            </ul>
+          )}
+          {patch.note && <p className="text-text-muted">{patch.note}</p>}
+          <pre className="overflow-x-auto whitespace-pre bg-bg-base/40 px-2 py-1.5 font-mono text-micro text-text-secondary">
+            {patch.patch}
+          </pre>
+        </div>
       </details>
       {patch.status === 'pending' && (
         <div className="flex items-center gap-1.5 pt-0.5">
@@ -1425,12 +1440,12 @@ function PatchRow({
 /** Color-coded badge for the six lifecycle states (spec §2.5). */
 function PatchStatusBadge({ status }: { status: CodePatchStatus | string }) {
   const map: Record<string, { icon: typeof Check; cls: string; label: string }> = {
-    pending:      { icon: Code2,        cls: 'text-text-muted',          label: 'pending' },
+    pending:      { icon: Code2,        cls: 'text-text-muted',          label: 'waiting' },
     approved:     { icon: GitMerge,     cls: 'text-text-muted',          label: 'approved' },
     rejected:     { icon: X,            cls: 'text-text-muted',          label: 'rejected' },
-    applied:      { icon: Check,        cls: 'text-brand',               label: 'applied' },
-    apply_failed: { icon: AlertTriangle, cls: 'text-warning',          label: 'apply failed' },
-    reverted:     { icon: Undo2,        cls: 'text-text-muted',          label: 'reverted' },
+    applied:      { icon: Check,        cls: 'text-brand',               label: 'in use' },
+    apply_failed: { icon: AlertTriangle, cls: 'text-warning',          label: "couldn't apply" },
+    reverted:     { icon: Undo2,        cls: 'text-text-muted',          label: 'undone' },
   };
   const entry = map[status] ?? { icon: AlertTriangle, cls: 'text-text-muted', label: status };
   const { icon: Icon, cls, label } = entry;
@@ -1477,7 +1492,7 @@ function RatchetSparkline({ episodes }: { episodes: DreamTelemetrySummary['last'
     <div
       className="flex items-end gap-0.5 h-8"
       role="img"
-      aria-label={`Ratchets per recent dream: ${ordered.map((e) => e.ratchets).join(', ')}`}
+      aria-label={`Improvements per recent dream: ${ordered.map((e) => e.ratchets).join(', ')}`}
     >
       {ordered.map((e, i) => (
         <div

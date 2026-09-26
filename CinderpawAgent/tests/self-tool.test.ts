@@ -342,21 +342,37 @@ describe("shape helpers (use temp dirs so they're environment-independent)", () 
           ],
         }),
       );
-      const out = shapeConnectors({ connectors: f });
+      const out = shapeConnectors({ connectors: f, connectorHealth: join(dir, "none.json") });
       expect(out).toEqual([
         {
           id: "discord",
           enabled: true,
-          active: true,
+          active: false,
           mode: "owner",
           allowlist_count: 2,
           channels_count: 3,
-          secret_fields: ["DISCORD_TOKEN"],
         },
       ]);
       const serialised = JSON.stringify(out);
       expect(serialised).not.toContain("super-secret");
       expect(serialised).not.toContain("do-not-leak");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("shapeConnectors reads what really connected", () => {
+  test("a token in the keychain and a live bot is active, though the file shows no secret", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-self-"));
+    try {
+      const f = join(dir, "connectors.json");
+      const h = join(dir, "connector-health.json");
+      writeFileSync(f, JSON.stringify({ connectors: [{ id: "discord", enabled: true }, { id: "telegram", enabled: true }] }));
+      writeFileSync(h, JSON.stringify({ connectors: { discord: { live: true }, telegram: { live: false, error: "bad token" } } }));
+      const out = shapeConnectors({ connectors: f, connectorHealth: h });
+      expect(out.find((c) => c.id === "discord")?.active).toBe(true);
+      expect(out.find((c) => c.id === "telegram")).toMatchObject({ active: false, error: "bad token" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

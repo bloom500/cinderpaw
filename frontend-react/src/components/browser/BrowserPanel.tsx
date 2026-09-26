@@ -1,16 +1,20 @@
 import { onPanelMotionSettled, panelMotionEnd, panelMotionExit, panelMotionStart } from '@/lib/panelMotion';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { motion } from 'framer-motion';
+import { motion, Reorder } from 'framer-motion';
 import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ChevronUp, Download, Globe, History, Lock, LockOpen, Star, Home, Loader2, Maximize2, MessageSquare, Minimize2, Plus, RotateCw, Search, Settings2, ShieldCheck, X } from 'lucide-react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { tauri } from '@/lib/tauri';
 import { SEARCH_ENGINES, useBrowser } from '@/stores/browser';
+import { useUI } from '@/stores/ui';
 import { ENGINE_LOGOS } from '@/lib/engineLogos';
 import { cn, readLocal, writeLocal, SECONDARY_BUTTON } from '@/lib/utils';
-import { listen } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { SelectMenu } from '@/components/ui/select-menu';
 import { type HistoryEntry, loadHistory, saveHistory, recordVisit, recordTitle, recordPick, loadBookmarks, saveBookmarks, upsertBookmark, removeBookmark, parseTags, findBookmarks, display, isReaderUrl, readerOriginal, isSecure } from '@/lib/browserHistory';
 import { AddressSuggestions, useAddressSuggestions } from './AddressSuggestions';
+import { DownloadsCard } from './DownloadsCard';
+import { cardHeight } from './DownloadsPopup';
 
 const WIDTH_KEY = 'cinderpaw.browserPanelWidth';
 const ZOOM_KEY = 'cinderpaw.browserZoom';
@@ -47,6 +51,19 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
  * that area for that reason.
  */
 /**
+ * Put the native page over this rectangle, or park it (null). The store keeps
+ * the same rectangle: a native page paints over everything React draws, so the
+ * toasts and the mascot need to know where it is to stay out from under it.
+ * ponytail: the call frame places the page on its own and does not report here.
+ */
+function place(r: DOMRect | null) {
+  useBrowser.getState().setPageRect(r && { x: r.left, y: r.top, w: r.width, h: r.height });
+  void tauri.browser
+    .ui('set_bounds', r ? { x: r.left, y: r.top, width: r.width, height: r.height, visible: true } : { visible: false })
+    .catch(() => {});
+}
+
+/**
  * `chat` is the conversation column, handed in by ChatPage. In wide mode the
  * browser takes the whole canvas up to the sidebar and the conversation opens
  * from a bubble, in a drawer beside the page. Beside, not over: the page is a
@@ -56,10 +73,15 @@ const SHORTCUTS: Array<{ label: string; url: string }> = [
 export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   const {
     url: rawUrl, loading, error, notice, open, go, setPanel, tabs, active, newTab, switchTab, closeTab, reopenTab,
-    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered,
+    wide, setWide, chatOpen, setChatOpen, engine, setEngine, agent, inCall, covered, orderTabs,
   } = useBrowser();
   // Reader view is a page of our own; the chrome keeps showing the article's
   // original address (bookmarks, history and the star all take that one).
+  // Wide with the nav folded away: the page takes the canvas edge to edge. The
+  // nav's toggle stays where it floats, over the tab strip (React), never over
+  // the native page, which nothing can be drawn on.
+  const navCollapsed = useUI((s) => s.navCollapsed);
+  const edge = wide && navCollapsed;
   const readerOn = isReaderUrl(rawUrl);
   const url = readerOn ? readerOriginal(rawUrl) : rawUrl;
   const addressRef = useRef<HTMLInputElement>(null);
@@ -204,7 +226,12 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
     setStarOpen(false);
     setSparks((n) => n + 1);
   };
+  // In the flow under the toolbar: only where the host cannot build the
+  // floating card (the browser app, tests). Everywhere else it is a window.
   const [downloadsOpen, setDownloadsOpen] = useState(false);
+  const [floatingOpen, setFloatingOpen] = useState(false);
+  const cardClosedAt = useRef(0);
+  const downloadsBtn = useRef<HTMLDivElement>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   keyTarget.current = {
     tabs,
@@ -215,10 +242,50 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       setTagText(saved.tags.join(', '));
       setStarOpen(true);
     },
-    downloads: () => setDownloadsOpen((v) => !v),
+    downloads: () => void toggleDownloads(),
     history: () => setHistoryOpen((v) => !v),
   };
   const downloadCount = useBrowser((b) => b.downloads.length);
+  // The card's window has its own copy of the list: it asks once on mount and
+  // hears every change while it is open (see DownloadsPopup).
+  useEffect(() => {
+    const send = () => void emit('downloads-card://data', { downloads: useBrowser.getState().downloads }).catch(() => {});
+    const unHello = listen('downloads-card://hello', send).catch(() => undefined);
+    const unClosed = listen('downloads-card://closed', () => {
+      cardClosedAt.current = Date.now();
+      setFloatingOpen(false);
+    }).catch(() => undefined);
+    const unList = useBrowser.subscribe((st, prev) => { if (st.downloads !== prev.downloads) send(); });
+    return () => {
+      unList();
+      void unHello.then((u) => u?.());
+      void unClosed.then((u) => u?.());
+    };
+  }, []);
+  const toggleDownloads = async () => {
+    if (downloadsOpen) { setDownloadsOpen(false); return; }
+    // The click on this button is what took the focus from the open card, and
+    // the card closed itself on that. This click was meant to close it, not
+    // to open a new one.
+    if (floatingOpen || Date.now() - cardClosedAt.current < 400) {
+      setFloatingOpen(false);
+      void invoke('downloads_card_close').catch(() => {});
+      return;
+    }
+    const r = downloadsBtn.current?.getBoundingClientRect();
+    if (!r) return;
+    try {
+      // Right edge under the button's right edge, like Chrome's bubble.
+      await invoke('downloads_card_open', {
+        x: Math.max(8, r.right - 384),
+        y: r.bottom + 6,
+        height: cardHeight(useBrowser.getState().downloads.length),
+      });
+      setFloatingOpen(true);
+    } catch {
+      setDownloadsOpen(true);
+    }
+  };
   // One zoom level for the browser, remembered across restarts.
   const [zoom, setZoom] = useState(() => Number(readLocal(ZOOM_KEY)) || 1);
   const applyZoom = (factor: number) => {
@@ -270,7 +337,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
     // A call frames the page itself; this re-runs and places it back here when the call ends.
     if (!el || !settled || inCall) return;
     // A modal is open: the page is parked until it closes, then placed again.
-    if (covered > 0) { void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {}); return; }
+    if (covered > 0) { place(null); return; }
     let frame = 0;
     const report = () => {
       cancelAnimationFrame(frame);
@@ -280,10 +347,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
         // animating stalled both for a second or two (17 Sep). Deferred to the
         // end of the slide, where the rectangle is final anyway.
         onPanelMotionSettled(() => {
-          const r = el.getBoundingClientRect();
-          void tauri.browser
-            .ui('set_bounds', { x: r.left, y: r.top, width: r.width, height: r.height, visible: true })
-            .catch(() => {});
+          place(el.getBoundingClientRect());
         });
       });
     };
@@ -299,7 +363,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   }, [settled, inCall, covered]);
 
   // Leaving by any route (route change, unmount) parks the page.
-  useEffect(() => () => void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {}), []);
+  useEffect(() => () => place(null), []);
 
   // A window reload (Ctrl+R) tears down React without unmounting anything, and
   // the page is a NATIVE child webview the host placed: it kept floating over
@@ -313,7 +377,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   // the page would float again; the fix for that is a heartbeat from the panel
   // with a host-side watchdog, worth writing only if it actually happens.
   useEffect(() => {
-    const park = () => void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {});
+    const park = () => place(null);
     window.addEventListener('beforeunload', park);
     window.addEventListener('pagehide', park);
     return () => {
@@ -323,7 +387,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
   }, []);
 
   const close = () => {
-    void tauri.browser.ui('set_bounds', { visible: false }).catch(() => {});
+    place(null);
     setPanel(false);
   };
 
@@ -346,6 +410,8 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       className={cn(
         'relative flex min-w-[360px] shrink flex-col overflow-hidden border-l border-border-default bg-bg-surface',
         wide && 'w-full flex-1',
+        // Out of main's gutters (pl-60px for the nav toggle, pr-4).
+        edge && '-ml-[60px] -mr-4 border-l-0',
         // A native page on top of the panel would otherwise take the pointer
         // mid-drag; the page is parked while the edge is held.
         dragging && 'select-none',
@@ -383,10 +449,14 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
       />}
       {/* Tabs. pt-6 for the window's own buttons at the top-right, like the
           Artifacts panel. One row, scrolling sideways when there are many. */}
-      <div role="tablist" aria-label="Tabs" className="flex items-end gap-1 overflow-x-auto px-2 pt-6 thin-scrollbar">
+      <div role="tablist" aria-label="Tabs" className={cn('flex items-end gap-1 overflow-x-auto px-2 pt-6 thin-scrollbar', edge && 'pl-16')}>
+        {/* Dragged into any order, like every browser's strip. */}
+        <Reorder.Group as="div" axis="x" values={tabs} onReorder={orderTabs} className="flex items-end gap-1">
         {tabs.map((t) => (
-          <div
+          <Reorder.Item
+            as="div"
             key={t.id}
+            value={t}
             role="tab"
             aria-selected={t.id === active}
             tabIndex={0}
@@ -423,8 +493,9 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
             >
               <X size={12} />
             </button>
-          </div>
+          </Reorder.Item>
         ))}
+        </Reorder.Group>
         <button
           type="button"
           aria-label="New tab"
@@ -520,10 +591,10 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           }}
         />
         <ChromeButton label="History" icon={History} pressed={historyOpen} onClick={() => setHistoryOpen((v) => !v)} />
-        <div className="relative">
-          <ChromeButton label="Downloads" icon={Download} pressed={downloadsOpen} onClick={() => setDownloadsOpen((v) => !v)} />
+        <div ref={downloadsBtn} className="relative">
+          <ChromeButton label="Downloads" icon={Download} pressed={downloadsOpen || floatingOpen} onClick={() => void toggleDownloads()} />
           {downloadCount > 0 && (
-            <span className="pointer-events-none absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-brand px-1 text-center text-micro font-semibold leading-4 text-brand-foreground" aria-hidden>
+            <span className="pointer-events-none absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-text-primary px-1 text-center text-micro font-semibold leading-4 text-bg-primary" aria-hidden>
               {downloadCount > 9 ? '9+' : downloadCount}
             </span>
           )}
@@ -595,11 +666,7 @@ export function BrowserPanel({ chat }: { chat?: React.ReactNode }) {
           </div>
         </form>
       )}
-      {downloadsOpen && (
-        <div className="border-b border-border-subtle bg-bg-elevated/40 px-3 py-3 text-xs">
-          <DownloadsList />
-        </div>
-      )}
+      {downloadsOpen && <DownloadsCard />}
       {historyOpen && (
         <div className="border-b border-border-subtle bg-bg-elevated/40 px-3 py-3 text-xs">
           <HistoryList
@@ -924,7 +991,6 @@ function SettingRow({ title, hint, children }: { title: string; hint: string; ch
   );
 }
 
-/** This session's downloads, newest first, each one openable. */
 /**
  * The pages visited, newest first, searchable: the list Ctrl+H opens in every
  * browser. They were kept (for the address bar's suggestions) and never
@@ -964,28 +1030,6 @@ function HistoryList({ entries, onOpen, onClear }: { entries: HistoryEntry[]; on
           <span className="min-w-0 flex-1 truncate text-text-primary">{e.title || display(e.url)}</span>
           <span className="shrink-0 truncate text-text-muted">{display(e.url)}</span>
         </button>
-      ))}
-    </div>
-  );
-}
-
-function DownloadsList() {
-  const downloads = useBrowser((b) => b.downloads);
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-2xs uppercase tracking-wide text-text-muted">Downloads</span>
-      {downloads.length === 0 && <span className="text-2xs text-text-muted">Nothing downloaded yet this session.</span>}
-      {downloads.slice(0, 8).map((d) => (
-        <div key={`${d.name}-${d.at}`} className="flex items-center gap-2 text-2xs">
-          <span className="min-w-0 flex-1 truncate text-text-primary">{d.name}</span>
-          {d.error
-            ? <span className="text-error">{d.error}</span>
-            : d.artifact
-              ? <span className="text-text-muted">in Artifacts</span>
-              : d.dest
-                ? <button type="button" onClick={() => void shellOpen(d.dest!)} className="text-text-muted underline-offset-2 hover:underline">Open</button>
-                : null}
-        </div>
       ))}
     </div>
   );

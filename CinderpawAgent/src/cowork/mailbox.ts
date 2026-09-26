@@ -41,6 +41,14 @@ export class CoworkMailboxRepo {
   readonly #byThread: ReturnType<Database["query"]>;
   readonly #recent: ReturnType<Database["query"]>;
 
+  /**
+   * Told about every message written, whoever wrote it. The runtime sets this
+   * so a teammate starts on a message now rather than at the next 15 s tick;
+   * hanging it here, where every sender passes, covers the chat tool, the
+   * panel, a teammate's automatic reply and a handoff result at once.
+   */
+  onSend: ((message: CoworkMessage) => void) | null = null;
+
   constructor(db: Database) {
     this.#insert = db.query(`
       INSERT INTO cowork_mailbox (
@@ -120,6 +128,13 @@ export class CoworkMailboxRepo {
       message.payloadJson,
       message.createdAt,
     );
+    // The row is already written; a listener that throws must not make the
+    // caller think the send failed.
+    try {
+      this.onSend?.(message);
+    } catch {
+      /* ignore */
+    }
     return message;
   }
 

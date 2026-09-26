@@ -53,8 +53,10 @@ bun run src/index.ts
 ### Optional WhatsApp dependency
 
 The default executable does **not** bundle Baileys or its `libsignal` dependency.
-WhatsApp remains available through an external Baileys installation. Install the
-tested version in a persistent directory of your choice:
+Turning WhatsApp on asks the person, then downloads the tested version into
+`~/.cinderpaw/whatsapp/whatsapp.js` (see `src/transports/whatsapp-install.ts`).
+To use a copy you installed yourself instead, install the tested version in a
+persistent directory of your choice:
 
 ```bash
 mkdir cinderpaw-whatsapp

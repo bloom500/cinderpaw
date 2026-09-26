@@ -71,9 +71,11 @@ func TestHeaderCollapsesAtNarrowWidths(t *testing.T) {
 		want []string // substrings we expect in the stripped header
 		not  []string // substrings we do NOT expect
 	}{
-		{w: 80, want: []string{"cinderpaw", "model", "lora", "backend"}, not: nil},
-		{w: 70, want: []string{"cinderpaw", "model"}, not: []string{"lora", "backend"}},
-		{w: 50, want: []string{"cinderpaw"}, not: []string{"model", "lora", "backend"}},
+		// "lora none" is gone from the header on purpose (24 Sep): an
+		// adapter only shows when one is on, and "backend" reads "via".
+		{w: 80, want: []string{"cinderpaw", "model", "via"}, not: []string{"lora"}},
+		{w: 70, want: []string{"cinderpaw", "model"}, not: []string{"via"}},
+		{w: 50, want: []string{"cinderpaw"}, not: []string{"model", "via"}},
 	}
 	for _, c := range cases {
 		a := newTestApp()

@@ -38,7 +38,7 @@ export function DownloadStatus() {
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="relative h-8 w-10 flex items-center justify-center text-text-muted/60 hover:text-text-secondary hover:bg-white/5 transition-colors"
+                className="relative h-8 w-10 flex items-center justify-center text-text-muted/60 hover:text-text-secondary hover:bg-bg-hover transition-colors"
                 /* The label carries the state, so a screen reader hears what
                    the coloured dot means to everyone else. */
                 aria-label={

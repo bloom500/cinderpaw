@@ -119,7 +119,14 @@ mod command_count_test {
     // 177 -> 183 = + byok_has_key, jev_decide (the Jev key and its one decision
     // call), call_pill_open/close, main_in_front (the call pill), list_apps
     // (open_app over the Start Menu).
-    const EXPECTED_COMMAND_COUNT: usize = 183;
+    // 183 -> 184 = + openrouter_sign_in (one-button OAuth instead of a pasted key).
+    // 184 -> 186 = + set_window_solid (glass or solid background), cinderpaw_memory_forget.
+    // 186 -> 187 = + take_launch_files (Explorer's Send to > Cinderpaw).
+    // 187 -> 189 = + downloads_card_open / downloads_card_close (3e08247
+    //   registered them without moving this, so the test was red on the
+    //   release branch).
+    // 189 -> 190 = + cinderpaw_cowork_team (the Settings teammate list).
+    const EXPECTED_COMMAND_COUNT: usize = 190;
 
     /// There is no runtime introspection API for `collect_commands!`
     /// contents, so this test reads `lib.rs`'s macro invocation and counts

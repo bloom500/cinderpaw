@@ -265,6 +265,19 @@ wanted it or not. It blocks release while WhatsApp is compiled in. The ways out 
 WhatsApp transport, move it behind a separate process the user installs and runs
 themselves, or replace `baileys` with a client that does not carry libsignal.
 
+**Decided 25 Sep 2026: downloaded on the person's request, never shipped.** Nothing
+we distribute contains Baileys or libsignal. When someone turns WhatsApp on, the
+agent asks first ("WhatsApp needs a one-time download"), and on yes the engine
+fetches `@whiskeysockets/baileys@7.0.0-rc13` from the npm registry into
+`~/.cinderpaw/whatsapp/`, pinned by the lockfile in
+`CinderpawAgent/src/transports/whatsapp/bun.lock`, and packs it into
+`whatsapp.js` there (`CinderpawAgent/src/transports/whatsapp-install.ts`). This
+is how OpenClaw (MIT) ships WhatsApp too: their main package excludes
+`dist/extensions/whatsapp/**`, and `@openclaw/whatsapp` is installed from npm
+on request. The combination exists only on the person's own machine, which the
+GPL does not restrict; we distribute only our own code. This is the widely held
+reading, not legal advice: have it checked before relying on it commercially.
+
 The same import drags in a second one. `sharp` is a peer dependency of
 `baileys`, and bun inlines its JavaScript (`node_modules/sharp/dist/*.mjs`,
 Apache-2.0) into the bundle. Its native half is the prebuilt

@@ -1,0 +1,246 @@
+:root {
+  --bg: #1c1612;
+  --text: #f4ece1;
+  --muted: #b8a898;
+  --ember: #ff7a3d;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fbf6ef;
+    --text: #2a1f17;
+    --muted: #6f6053;
+    --ember: #c2410c;
+    color-scheme: light;
+  }
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+h1 {
+  font-size: 1.5rem;
+  margin: 0;
+  max-width: 28ch;
+}
+.center {
+  min-height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+}
+.muted {
+  color: var(--muted);
+  margin: 0;
+}
+.shortcut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+}
+.icon {
+  font-size: 40px;
+}
+
+/* ── onboarding chat ─────────────────────────────────────────────────── */
+.chat {
+  max-width: 640px;
+  margin: 0 auto;
+  min-height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  gap: 16px;
+}
+.thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+.bubble p {
+  margin: 0;
+}
+.bubble.agent {
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  border-bottom-left-radius: 4px;
+}
+.bubble.person {
+  align-self: flex-end;
+  background: var(--ember);
+  color: #1c1612;
+  border-bottom-right-radius: 4px;
+}
+.typing {
+  color: var(--muted);
+  letter-spacing: 2px;
+}
+.controls {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 0 4px;
+  background: var(--bg);
+}
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.choices.wrap {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.textform {
+  display: flex;
+  gap: 8px;
+}
+.textform input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+  background: transparent;
+  color: var(--text);
+}
+.button {
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--ember);
+  color: #1c1612;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+}
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.button.big {
+  padding: 14px 20px;
+  font-size: 1.05rem;
+}
+.button.quiet {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+}
+.button:focus-visible,
+.link:focus-visible,
+.textform input:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+.link {
+  font: inherit;
+  font-size: 0.9rem;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.details {
+  margin: 0;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+/* The controls stick to the bottom; keep the newest line above them, not
+   under them (a failure sentence hidden behind the key field is invisible). */
+.end {
+  /* Tall enough for the open provider list (max 30vh) plus the field. */
+  scroll-margin-bottom: calc(30vh + 80px);
+}
+.choices.wrap {
+  max-height: 30vh;
+  overflow-y: auto;
+  align-items: center;
+}
+.bubble .text {
+  white-space: pre-wrap;
+}
+.reasoning {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.reasoning summary {
+  cursor: pointer;
+}
+.reasoning p {
+  white-space: pre-wrap;
+  margin: 6px 0 0;
+}
+.tool {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.tool.bad {
+  color: var(--ember);
+}
+.secret-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--ember);
+}
+
+/* The code as a picture: square modules, black on white, its own white border. */
+.qr {
+  align-self: center;
+  width: min(280px, 100%);
+  height: auto;
+  image-rendering: pixelated;
+  border-radius: 6px;
+}
+
+/* The agent's Markdown, kept quiet: the bubble is the frame. */
+.bubble .text.md { white-space: normal; }
+.md pre { white-space: pre; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md pre, .md table { margin: 0 0 0.6em; }
+.md ul, .md ol { padding-left: 1.3em; }
+.md h1, .md h2, .md h3 { font-size: 1em; margin: 0.8em 0 0.4em; }
+.md code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.92em;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+.md pre { overflow-x: auto; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--text) 8%, transparent); }
+.md pre code { padding: 0; background: none; }
+.md a { color: var(--ember); }
+.md table { border-collapse: collapse; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid color-mix(in srgb, var(--text) 20%, transparent); padding: 4px 8px; text-align: left; }

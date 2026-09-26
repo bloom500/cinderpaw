@@ -8,6 +8,15 @@ export const DONE_HOLD_MS = 1200;
 export const COOL_HOLD_MS = DONE_HOLD_MS * 2;
 export const EXCITED_HOLD_MS = 800;
 export const ERROR_HOLD_MS = 1600;
+/**
+ * A run this long ends in `celebrate` (with its confetti) instead of `done`.
+ * The reward has to be earned to feel like one: every quick answer throwing
+ * confetti is the light show nobody asked for, while the end of a minute of
+ * waiting on real work is exactly the moment someone wants to be told "done,
+ * and it went well". The frames and the confetti existed; nothing ever
+ * reached them (23 Sep).
+ */
+export const CELEBRATE_AFTER_MS = 30_000;
 
 // Idle personality lives in MascotPerch, NOT here. This hook used to fire random
 // "ambient" beats by overriding the at-rest state every 6-13s — but MascotPerch
@@ -26,6 +35,8 @@ export interface MascotInputs {
 
 export function useMascotState({ streamStatus, agentPhase, isUserTyping }: MascotInputs): MascotState {
   const [doneActive, setDoneActive] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
+  const runStart = useRef(0);
   const [excitedActive, setExcitedActive] = useState(false);
   const [errorActive, setErrorActive] = useState(false);
   const prevStatus = useRef<StreamStatus>(streamStatus);
@@ -39,9 +50,13 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
   const isExcitedTransition = streamStatus === 'streaming' && prevStatus.current !== 'streaming' && idleTier.current > 0;
 
   useEffect(() => {
+    if (streamStatus === 'streaming' && prevStatus.current !== 'streaming') runStart.current = Date.now();
     if (streamStatus === 'done' && prevStatus.current !== 'done') {
+      const earned = runStart.current > 0 && Date.now() - runStart.current >= CELEBRATE_AFTER_MS;
+      runStart.current = 0;
+      setCelebrate(earned);
       setDoneActive(true);
-      const id = setTimeout(() => setDoneActive(false), DONE_HOLD_MS);
+      const id = setTimeout(() => setDoneActive(false), earned ? COOL_HOLD_MS : DONE_HOLD_MS);
       prevStatus.current = streamStatus;
       return () => clearTimeout(id);
     }
@@ -70,7 +85,7 @@ export function useMascotState({ streamStatus, agentPhase, isUserTyping }: Masco
 
   if (agentOffline) return 'sleep';
   if (errorActive) return 'error';
-  if (doneActive) return 'done';
+  if (doneActive) return celebrate ? 'celebrate' : 'done';
   if (excitedActive) return 'excited';
   if (askPending) return 'curious';
   if (streamStatus === 'streaming') {

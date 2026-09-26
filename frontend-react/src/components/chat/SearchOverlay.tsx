@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X, Folder, Globe, MessageSquarePlus, Box, Sun, Moon, Bot, MessageSquare, type LucideIcon } from 'lucide-react';
+import { Search, X, Folder, Globe, MessageSquarePlus, Box, Sun, Moon, Bot, MessageSquare, KeyRound, type LucideIcon } from 'lucide-react';
 import { useBrowser, type BrowserTab } from '@/stores/browser';
 import { fuzzyScore } from '@/lib/browserHistory';
 import { useNavigate } from 'react-router-dom';
@@ -46,8 +46,8 @@ interface PaletteAction {
 }
 
 const SETTINGS_KEYWORDS: Partial<Record<Category, string>> = {
-  byok: 'api key provider openai anthropic openrouter',
   accounts: 'connectors integrations discord telegram slack',
+  learning: 'rsi brsi dreams self-improvement lora practice',
   capabilities: 'skills extensions tools',
   appearance: 'theme dark light mascot',
   hardware: 'gpu ram cpu',
@@ -186,6 +186,8 @@ export function SearchOverlay() {
       run: () => { useConversations.getState().newChat(); navigate('/chat'); },
     },
     { id: 'models', label: 'Models', hint: 'Download, load or pick a model', icon: Box, run: () => navigate('/models') },
+    { id: 'cloud', label: 'Models: Cloud', hint: 'API keys for OpenAI, Anthropic, OpenRouter and others', icon: KeyRound,
+      keywords: 'api key cloud keys provider openai anthropic openrouter byok', run: () => navigate('/models?tab=cloud') },
     resolvedTheme === 'dark'
       ? { id: 'theme', label: 'Switch to light theme', hint: 'Appearance', icon: Sun, keywords: 'theme', run: () => setTheme('light') }
       : { id: 'theme', label: 'Switch to dark theme', hint: 'Appearance', icon: Moon, keywords: 'theme', run: () => setTheme('dark') },

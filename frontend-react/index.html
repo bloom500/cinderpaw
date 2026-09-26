@@ -17,10 +17,10 @@
       /* Theme-correct opaque base before external CSS/JS arrive. Values mirror
          globals.css --bg-primary per theme; no data-theme means dark, which is
          also the store default. */
-      html { background-color: #100E09; }
-      html[data-theme="light"] { background-color: #FFF5EE; }
-      body { margin: 0; background-color: #100E09; }
-      html[data-theme="light"] body { background-color: #FFF5EE; }
+      html { background-color: #1C1814; }
+      html[data-theme="light"] { background-color: #FAF6F0; }
+      body { margin: 0; background-color: #1C1814; }
+      html[data-theme="light"] body { background-color: #FAF6F0; }
       /* The call pill window: nothing behind the pill, from the first frame. */
       html.call-pill, html.call-pill body { background: transparent !important; }
       html.call-pill #cinderpaw-startup { display: none !important; }
@@ -52,9 +52,9 @@
            mounted app showed THROUGH the overlay during the hold — the bear
            floating over the live UI for the whole minimum-hold window
            (Darius, 2026-08-24). The loading scene is its own scene. */
-        background-color: #100E09;
+        background-color: #1C1814;
       }
-      html[data-theme="light"] #cinderpaw-startup { background-color: #FFF5EE; }
+      html[data-theme="light"] #cinderpaw-startup { background-color: #FAF6F0; }
       /* Vignette + grain mirror the shell tokens (globals.css --scene-vignette,
          --scene-grain-opacity) — hardcoded here because this style block is
          parsed before that stylesheet exists. */

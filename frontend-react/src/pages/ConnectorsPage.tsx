@@ -371,12 +371,23 @@ function ConnectorCard({
                   <span className="text-text-muted">
                     Scan with <span className="text-text-secondary">WhatsApp → Settings → Linked devices</span>:
                   </span>
-                  <pre
-                    aria-label="WhatsApp pairing QR code"
-                    className="mx-auto w-fit rounded bg-black text-white p-2 font-mono text-micro leading-[8px] select-none"
-                  >
-                    {waQr.ascii}
-                  </pre>
+                  {waQr.svg ? (
+                    // The half-block text below does not scan on screen (seen
+                    // 25 Sep); the engine's SVG is square modules on white.
+                    <img
+                      alt="WhatsApp pairing QR code"
+                      className="mx-auto block w-56 rounded"
+                      style={{ imageRendering: 'pixelated' }}
+                      src={`data:image/svg+xml;utf8,${encodeURIComponent(waQr.svg)}`}
+                    />
+                  ) : (
+                    <pre
+                      aria-label="WhatsApp pairing QR code"
+                      className="mx-auto w-fit rounded bg-black text-white p-2 font-mono text-micro leading-[8px] select-none"
+                    >
+                      {waQr.ascii}
+                    </pre>
+                  )}
                   <span className="block text-text-muted tabular-nums" role="timer">
                     {qrSecondsLeft > 0
                       ? `New code in ~${qrSecondsLeft}s. No rush, it refreshes here automatically.`
@@ -519,7 +530,7 @@ function ConnectorCard({
               onClick={() => void save()}
               disabled={busy}
               className={cn(
-                'inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-50 transition-colors',
+                'inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg text-brand-foreground disabled:opacity-50 transition-colors',
                 justSaved ? 'bg-success' : 'bg-brand hover:bg-brand/90',
               )}
             >

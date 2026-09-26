@@ -7,7 +7,7 @@
  *   prompt and the agent's persistent session id,
  * - an agent-to-agent reply flows back through the mailbox with an
  *   incremented hop counter; hop limit stops the ping-pong,
- * - replies to "human" never enter the mailbox,
+ * - replies to "human" are stored for the person and never drained,
  * - unfinished turns are rejected, not delivered as answers.
  */
 
@@ -19,6 +19,8 @@ import { CoworkHandoffService } from "../src/cowork/handoff.ts";
 import {
   CoworkRuntime,
   DEFAULT_MAX_REPLY_HOPS,
+  HUMAN,
+  withHumanReplies,
 } from "../src/cowork/runtime.ts";
 import type { OutboundEvent } from "../src/types.ts";
 
@@ -124,13 +126,110 @@ describe("CoworkRuntime", () => {
     }
   });
 
-  test("reply to human never enters the mailbox", async () => {
-    const { runtime, agents, mailbox, close } = makeRuntime();
+  test("a reply to the person is stored for them, not delivered to any teammate", async () => {
+    // It used to live only in the live event: a reopened chat showed the
+    // question with no answer, and the main agent could never read it.
+    const { runtime, agents, mailbox, calls, close } = makeRuntime();
     try {
       const b = agents.upsert({ name: "Bob" });
-      mailbox.send({ fromAgentId: "human", toAgentId: b.id, body: "hello" });
+      const asked = mailbox.send({ fromAgentId: "human", toAgentId: b.id, body: "hello", threadId: "t1" });
       await runtime.tick();
-      expect(mailbox.inbox("human")).toEqual([]);
+      const stored = mailbox.inbox(HUMAN);
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({ fromAgentId: b.id, threadId: "t1", body: "answer from Bob" });
+      expect(JSON.parse(stored[0].payloadJson ?? "{}")).toEqual({ coworkHops: 0, replyTo: asked.id });
+      // No loop: one turn, and nothing is left for anyone to drain.
+      await runtime.tick();
+      expect(calls).toHaveLength(1);
+    } finally {
+      close();
+    }
+  });
+
+  test("when a teammate cannot answer the person, the reason is stored too", async () => {
+    const { runtime, agents, mailbox, close } = makeRuntime({
+      runTurn: async () => {
+        throw new Error("model is down");
+      },
+    });
+    try {
+      const b = agents.upsert({ name: "Bob" });
+      mailbox.send({ fromAgentId: "human", toAgentId: b.id, body: "hello", threadId: "t1" });
+      await runtime.tick();
+      const [stored] = mailbox.inbox(HUMAN);
+      expect(stored?.body).toBe("model is down");
+      expect(JSON.parse(stored?.payloadJson ?? "{}").failed).toBe(true);
+    } finally {
+      close();
+    }
+  });
+
+  test("history folds each stored answer into the question it answers", () => {
+    const { agents, mailbox, close } = makeRuntime();
+    try {
+      const b = agents.upsert({ name: "Bob" });
+      const q = mailbox.send({ fromAgentId: "human", toAgentId: b.id, body: "hello", threadId: "t1" });
+      mailbox.send({
+        fromAgentId: b.id, toAgentId: HUMAN, threadId: "t1", body: "hi there",
+        payloadJson: JSON.stringify({ coworkHops: 0, replyTo: q.id }),
+      });
+      const rows = withHumanReplies(mailbox.byThread("t1"));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: q.id, body: "hello", reply: "hi there", replyFailed: false });
+    } finally {
+      close();
+    }
+  });
+
+  test("a message is picked up at once, not at the next tick", async () => {
+    const { agents, mailbox, handoffs, close } = makeRuntime();
+    const seen: string[] = [];
+    const runtime = new CoworkRuntime({
+      agents, mailbox, handoffs, emitEvent: () => {},
+      // Far longer than the test: only the wake can have started the turn.
+      tickIntervalMs: 60_000,
+      runTurn: async (agent) => {
+        seen.push(agent.name);
+        return { text: "ok", finished: true };
+      },
+    });
+    try {
+      const b = agents.upsert({ name: "Bob" });
+      runtime.start();
+      mailbox.send({ fromAgentId: "human", toAgentId: b.id, body: "now please" });
+      for (let i = 0; i < 50 && seen.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+      expect(seen).toEqual(["Bob"]);
+    } finally {
+      runtime.stop();
+      close();
+    }
+  });
+
+  test("one slow teammate does not hold another's inbox shut", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const done: string[] = [];
+    const { runtime, agents, mailbox, close } = makeRuntime({
+      runTurn: async (agent) => {
+        if (agent.name === "Slow") await gate;
+        done.push(agent.name);
+        return { text: "ok", finished: true };
+      },
+    });
+    try {
+      const slow = agents.upsert({ name: "Slow" });
+      const quick = agents.upsert({ name: "Quick" });
+      mailbox.send({ fromAgentId: "human", toAgentId: slow.id, body: "long job" });
+      const first = runtime.tick();
+      await new Promise((r) => setTimeout(r, 10));
+      // Arrives while Slow is still mid-turn. The old whole-tick flag made this
+      // tick a no-op, so Quick waited for Slow to finish.
+      mailbox.send({ fromAgentId: "human", toAgentId: quick.id, body: "quick one" });
+      await runtime.tick();
+      expect(done).toEqual(["Quick"]);
+      release();
+      await first;
+      expect(done).toEqual(["Quick", "Slow"]);
     } finally {
       close();
     }

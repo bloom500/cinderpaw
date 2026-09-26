@@ -4,7 +4,8 @@ import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { parked } from '@/lib/callPill';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { keysFor, type KeyCommand } from '@/lib/siteKeys';
+import { audioDir, desktopDir, documentDir, downloadDir, pictureDir, videoDir } from '@tauri-apps/api/path';
+import { appKeys, keysFor, platform, type KeyCommand } from '@/lib/siteKeys';
 import type { AskUserQuestion } from '@/stores/askUser';
 
 /**
@@ -30,19 +31,19 @@ import type { AskUserQuestion } from '@/stores/askUser';
  */
 export const ACTIONS: Record<string, { what: string; not_for?: string; examples: string[] }> = {
   open_app: {
-    what: 'Launch, open, switch to, or bring up an application installed on the computer',
+    what: 'Launch, open, switch to, or bring up an application installed on the computer, including "the browser" (whichever browser they have)',
     not_for: 'A website or web page: that is open_website',
-    examples: ['open Spotify', 'launch Discord', 'switch to VS Code', 'open the settings app'],
+    examples: ['open Spotify', 'launch Discord', 'switch to VS Code', 'open the settings app', 'open the browser', 'can you open Brave'],
   },
   open_website: {
     what: 'Go to a website or web page by name or domain, with no search query',
     not_for: 'An installed application (open_app), or a search for something (web_search)',
-    examples: ['go to youtube', 'open reddit', 'pull up gmail', 'go to hotnews dot ro'],
+    examples: ['go to youtube', 'open reddit', 'pull up gmail', 'go to hotnews dot ro', 'can you open X', 'open twitter'],
   },
   web_search: {
     what: 'Search for something on the web or on a specific site',
     not_for: 'Finding a word on the page that is already open (find)',
-    examples: ['search for lofi hip hop', 'look up the weather in Cluj', 'search youtube for jazz', 'google best ramen near me'],
+    examples: ['search for lofi hip hop', 'look up the weather in Cluj', 'search youtube for jazz', 'google best ramen near me', 'play praying mantis on spotify', 'play some lofi on youtube', 'search spotify for daft punk'],
   },
   scroll: {
     what: 'Scroll the current page up or down, to the top or to the bottom',
@@ -69,18 +70,37 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
   },
   media: {
     what: 'Control whatever is playing: pause, play, resume, next or previous track or video, volume, mute',
-    not_for: 'Anything that is not playback',
+    not_for: 'Anything that is not playback, or playing a song, artist, album or video NAMED by the user (that is web_search on that site)',
     examples: ['pause', 'play the video', 'next video', 'skip this song', 'previous track', 'volume up', 'mute'],
   },
   shortcut: {
     what: 'A keyboard shortcut the app or site in front has, listed under `shortcuts`, when none of the other actions covers it',
     not_for: 'Playback (media), pressing or acting on something the page shows, like a button, a video or an email (click), moving in the browser (navigate)',
-    examples: ['turn on captions', 'full screen', 'play faster', 'compose a new email', 'rename the file', 'new folder', 'save', 'zoom in'],
+    examples: ['turn on captions', 'full screen', 'play faster', 'compose a new email', 'rename the file', 'new folder', 'zoom in'],
   },
-  type_text: {
-    what: 'Type words the user dictates into the window or field in front, as if typed on the keyboard',
-    not_for: 'Searching the web (web_search), finding on the page (find), or a message for the assistant itself',
-    examples: ['type hello world', 'write see you tomorrow', 'type my email is ana at example dot com', 'scrie mulțumesc frumos'],
+  type: {
+    what: 'Type words into whatever has the keyboard focus right now: a note, a document, a chat box, a form field',
+    not_for: 'Searching the web (web_search), finding a word on the page (find), a keyboard shortcut (shortcut)',
+    examples: ['type hello', 'write "see you tomorrow"', 'type my name is Ana', 'type my email is ana at example dot com', 'scrie salut'],
+  },
+  window_ctl: {
+    what: 'Do something to the WINDOW of an application: close the app, minimise it, hide it, maximise it, make it full screen',
+    not_for: 'Closing a tab or a page inside the browser (navigate), or opening an app (open_app)',
+    examples: ['close Spotify', 'close this app', 'minimise WhatsApp', 'hide this window', 'maximise it', 'inchide Spotify', 'minimizeaza fereastra'],
+  },
+  edit: {
+    what: 'An editing command in whatever app is in front: copy, cut, paste, undo, redo, save, select all',
+    not_for: 'Typing words (type), a shortcut only one app or site has (shortcut)',
+    examples: ['copy that', 'paste', 'undo', 'redo that', 'save the file', 'select all', 'cut it'],
+  },
+  open_folder: {
+    what: "Open one of the person's own folders in the file explorer: Downloads, Documents, Desktop, Pictures, Music, Videos",
+    not_for: 'An application (open_app) or a website (open_website)',
+    examples: ['open my downloads', 'show me the documents folder', 'open desktop', 'go to my pictures'],
+  },
+  screenshot: {
+    what: 'Take a screenshot of the screen',
+    examples: ['take a screenshot', 'screenshot this', 'capture the screen', 'fa un screenshot'],
   },
   // Two actions, because people mean two things: "stop" is the brake on what
   // Cinder was handed; it ended the call instead whenever Cinder was idle,
@@ -95,8 +115,8 @@ export const ACTIONS: Record<string, { what: string; not_for?: string; examples:
     examples: ['hang up', 'end the call', 'that is all, bye', 'goodbye', 'închide apelul'],
   },
   none: {
-    what: 'Not one of the commands above: a question, a conversation, a task of several steps, a request for something the list does not have (a file, a summary, a message to someone, typing text)',
-    examples: ['what is the weather', 'can you still hear me', 'summarise this page', 'write a reply saying yes', 'find me a cheaper flight', 'fill in the whole form for me'],
+    what: 'Not one of the commands above: a question, a conversation, a task of several steps, a request for something the list does not have (a file, a summary, a message to someone, words the assistant would have to compose itself)',
+    examples: ['what is the weather', 'can you still hear me', 'summarise this page', 'write a reply saying yes', 'find me a cheaper flight', 'fill in my address', 'fill in the whole form for me'],
   },
 };
 
@@ -131,7 +151,22 @@ export const SEARCH_ON: Record<string, (q: string) => string> = {
   github: (q) => `https://github.com/search?q=${encodeURIComponent(q)}`,
   reddit: (q) => `https://www.reddit.com/search/?q=${encodeURIComponent(q)}`,
   amazon: (q) => `https://www.amazon.com/s?k=${encodeURIComponent(q)}`,
+  spotify: (q) => `https://open.spotify.com/search/${encodeURIComponent(q)}`,
 };
+
+/**
+ * "Play X": a search on a site that plays things, then its first result. The
+ * verb is read from the words, not asked of Jev: it is one word at the start
+ * of the sentence, and a question for it is ~400 ms for what a regex knows.
+ */
+const PLAY_VERB = /^\s*(?:(?:now|ok|okay|please|hey)[,\s]+)*(?:(?:can|could|would) you\s+(?:please\s+)?)?(?:play|put on|pune|porne[sș]te|d[aă] play la)\b/i;
+const PLAYS = new Set(['spotify', 'youtube']);
+
+/** The edit operations Jev knows. The keys come from `appKeys()` for this system; these, Windows', are the fallback. */
+const EDIT_KEYS = { copy: '{ctrl+c}', cut: '{ctrl+x}', paste: '{ctrl+v}', undo: '{ctrl+z}', redo: '{ctrl+y}', save: '{ctrl+s}', select_all: '{ctrl+a}' };
+
+/** The person's folders, by where Tauri finds them on this machine. */
+const FOLDERS = { downloads: downloadDir, documents: documentDir, desktop: desktopDir, pictures: pictureDir, music: audioDir, videos: videoDir };
 
 const NAV = {
   back: 'go back to the previous page',
@@ -146,6 +181,8 @@ const NAV = {
 export const target: { system: boolean; pid: number | null } = { system: false, pid: null };
 /** What the call did last, for a one-word follow-up ("next", "back", "again"). */
 export const recent = { action: 'nothing yet' };
+/** What ran before `recent`: "open Notepad and type hello" types into a window that is still opening. */
+let previous = 'nothing yet';
 export function resetTarget() { target.system = false; target.pid = null; recent.action = 'nothing yet'; }
 
 /**
@@ -154,6 +191,12 @@ export function resetTarget() { target.system = false; target.pid = null; recent
  * search with 0.44 (21 Sep); an action with an effect needs more than a coin.
  */
 export const MIN_CONFIDENCE = 0.4;
+/**
+ * On a sentence still being said, more: "Open." alone, cut at the first
+ * pause, launched an app at 0.57 (22 Sep). A full "open Spotify" comes back
+ * at 0.99; the end of the sentence still runs whatever this refuses.
+ */
+export const MIN_EARLY_CONFIDENCE = 0.75;
 /** A wrong click is worse than no click: the ELEMENT choice needs this much. */
 export const MIN_CLICK_CONFIDENCE = 0.7;
 /**
@@ -186,6 +229,9 @@ export function textCandidates(utterance: string): Record<string, string> {
   if (m) add(m[1]);
   const words = clean(utterance).split(/\s+/);
   for (let i = 1; i < words.length && out.length < 12; i++) add(words.slice(i).join(' '));
+  // Suffixes alone never drop the place at the END: "play praying mantis on
+  // Spotify" offered "praying mantis on spotify" and no "praying mantis" (23 Sep).
+  for (const c of [...out]) add(c.replace(/\s+(?:on|in|pe|în)\s+\S+$/i, ''));
   if (out.length === 0) out.push('(nothing)');
   return Object.fromEntries(out.map((c, i) => [`c${i}`, c]));
 }
@@ -237,7 +283,8 @@ export function questions(cands: Record<string, string>, shortcuts?: Record<stri
     site: {
       type: 'choice',
       instructions: 'Assume the user wants to open a website. Which site do they mean? Choose `other` if it is not one of the listed sites.',
-      criteria: { ...withNull(Object.keys(SITES)), other: 'A site not in this list' },
+      // One letter is a weak name: said out loud, "X" was `none` at 0.50 (22 Sep).
+      criteria: { ...withNull(Object.keys(SITES)), x: 'X, formerly Twitter (x.com)', other: 'A site not in this list' },
     },
     engine: {
       type: 'choice',
@@ -258,6 +305,15 @@ export function questions(cands: Record<string, string>, shortcuts?: Record<stri
       type: 'choice',
       instructions: 'Assume the user wants to scroll up or down. How far?',
       criteria: { little: 'a little / a bit', page: 'a normal amount, about one screen; the default when unspecified', a_lot: 'a lot / way down / far' },
+    },
+    window_op: {
+      type: 'choice',
+      instructions: 'Assume the user wants something done to an application WINDOW. Which one?',
+      criteria: {
+        close: 'Close the application or its window',
+        minimize: 'Minimise / hide the window, leaving the app running',
+        maximize: 'Maximise the window to fill the screen',
+      },
     },
     nav: {
       type: 'choice',
@@ -283,6 +339,16 @@ export function questions(cands: Record<string, string>, shortcuts?: Record<stri
       type: 'choice',
       instructions: 'Assume the user wants to control playback. What?',
       criteria: { play_pause: 'play, pause, resume or stop the current track or video', next: 'next track / skip', previous: 'previous track / go back a song', volume_up: 'louder', volume_down: 'quieter', mute: 'mute or unmute the sound' },
+    },
+    edit_op: {
+      type: 'choice',
+      instructions: 'Assume the user wants an editing command in the app in front. Which one?',
+      criteria: { copy: 'copy', cut: 'cut', paste: 'paste', undo: 'undo the last change', redo: 'redo', save: 'save the file', select_all: 'select everything' },
+    },
+    folder: {
+      type: 'choice',
+      instructions: 'Assume the user wants one of their folders opened. Which one?',
+      criteria: { downloads: 'Downloads', documents: 'Documents', desktop: 'Desktop', pictures: 'Pictures / photos / screenshots', music: 'Music', videos: 'Videos' },
     },
     compound: {
       type: 'noul',
@@ -313,7 +379,7 @@ export function splitSteps(utterance: string): string[] {
 export type Plan =
   | { action: 'open_app'; name: string; path: string; confidence: number }
   | { action: 'open_website'; url: string; label: string; system: boolean; confidence: number }
-  | { action: 'web_search'; url: string; query: string; system: boolean; confidence: number }
+  | { action: 'web_search'; url: string; query: string; system: boolean; play?: boolean; confidence: number }
   | { action: 'scroll'; dy: number; confidence: number }
   | { action: 'find'; query: string; confidence: number }
   | { action: 'click'; target: string; verb?: ClickVerb; confidence: number }
@@ -321,7 +387,11 @@ export type Plan =
   | { action: 'reader'; confidence: number }
   | { action: 'media'; op: 'play_pause' | 'next' | 'previous' | 'volume_up' | 'volume_down' | 'mute'; keys?: string; confidence: number }
   | { action: 'shortcut'; keys: string; means: string; confidence: number }
-  | { action: 'type_text'; text: string; confidence: number }
+  | { action: 'type'; text: string; confidence: number }
+  | { action: 'window_ctl'; op: 'close' | 'minimize' | 'maximize'; app: string | null; confidence: number }
+  | { action: 'edit'; op: keyof typeof EDIT_KEYS; confidence: number }
+  | { action: 'open_folder'; folder: keyof typeof FOLDERS; confidence: number }
+  | { action: 'screenshot'; confidence: number }
   | { action: 'stop'; confidence: number }
   | { action: 'hang_up'; confidence: number }
   | { action: 'none'; confidence: number };
@@ -333,6 +403,69 @@ function actsOnOpenItem(verb: ClickVerb | undefined): boolean {
 
 /** What a click can do to the item it lands on, once it is open; the button is found by this name. */
 export type ClickVerb = 'delete' | 'archive' | 'reply' | 'like' | 'save' | 'share';
+
+/**
+ * What may run on a half-said sentence, so the app opens while the person is
+ * still talking (the jev-voice demo, 22 Sep). Only actions whose payload is a
+ * closed choice: an app name, a site, a direction, back/forward. A search or a
+ * find carries free text that is still growing ("search for lofi hip" ->
+ * "... hip hop") and would run twice; a click, a key or play/pause acts on
+ * whatever is in front and is not undone by saying more. Those wait for the
+ * sentence to end. The fingerprint is what makes a partial and the final run
+ * of the same sentence the same action, done once.
+ */
+export function earlyFingerprint(plan: Plan): string | null {
+  switch (plan.action) {
+    case 'open_app': return `open_app:${plan.name.toLowerCase()}`;
+    case 'open_website': return `open_website:${plan.url}`;
+    case 'scroll': return `scroll:${plan.dy}`;
+    case 'open_folder': return `open_folder:${plan.folder}`;
+    // "Can you close?" closed a tab at 0.82 before the sentence said which (22 Sep).
+    case 'navigate': return plan.op === 'close_tab' ? null : `navigate:${plan.op}`;
+    default: return null;
+  }
+}
+/**
+ * How many times ONE step asks to be done: "close the last two tabs", "scroll
+ * down three times", "mergi înapoi de două ori". The number must qualify the
+ * repetition itself (N times, N tabs, de N ori, twice), never merely appear in
+ * the sentence: "search for three little pigs" is one search.
+ *
+ * Read per step, not per sentence. A count on one step lifting the guard for
+ * the whole sentence let "close this tab, then scroll down twice" close a
+ * second tab, and let every partial of "close the last two tabs" close
+ * another (22 Sep, rejected in review before merge).
+ *
+ * ponytail: capped at 5. More than that by voice is far likelier a
+ * mis-transcription than a wish; raise it if someone asks for "close ten tabs".
+ */
+const COUNT_WORDS: Record<string, number> = {
+  two: 2, three: 3, four: 4, five: 5,
+  'două': 2, doua: 2, trei: 3, patru: 4, cinci: 5,
+};
+const MAX_REPEAT = 5;
+export function repeatCount(step: string): number {
+  // Whitespace and punctuation as separators, not `\b`: it knows only ASCII
+  // letters, and "două" would never match (see splitSteps, 21 Sep).
+  const s = ` ${step.toLowerCase().replace(/[.,!?;:]/g, ' ')} `;
+  if (/\s(twice|de două ori|de doua ori)\s/.test(s)) return 2;
+  const m = s.match(/\s(\d+|two|three|four|five|două|doua|trei|patru|cinci)\s+(times?|tabs?|pages?|ori|taburi|tab-uri|pagini)\s/)
+    ?? s.match(/\sde\s+(\d+|două|doua|trei|patru|cinci)\s+ori\s/);
+  if (!m) return 1;
+  const n = /^\d+$/.test(m[1]) ? Number(m[1]) : COUNT_WORDS[m[1]] ?? 1;
+  return Math.max(1, Math.min(MAX_REPEAT, n));
+}
+
+/**
+ * How many more times this step still has to run, given what earlier passes
+ * of the same sentence already did. A partial may have closed one tab before
+ * "two" was out; the end of the sentence then closes the rest, not two more.
+ */
+export function runsLeft(step: string, fingerprint: string | null, done: Map<string, number>): number {
+  if (!fingerprint) return 1;
+  return Math.max(0, repeatCount(step) - (done.get(fingerprint) ?? 0));
+}
+
 const CLICK_VERBS: ClickVerb[] = ['delete', 'archive', 'reply', 'like', 'save', 'share'];
 
 type Answers = Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>;
@@ -381,7 +514,15 @@ export function toPlan(utterance: string, ans: Answers, cands: Record<string, st
       const [engine] = pick('engine');
       const [tkey, ct] = pick('text');
       const query = cands[tkey] ?? utterance;
-      return { action, url: (SEARCH_ON[engine] ?? SEARCH_ON.default)(query), query, system, confidence: Math.min(conf, ct) };
+      const play = PLAYS.has(engine) && PLAY_VERB.test(utterance);
+      // Spotify's own app when it is installed: "not in the browser, in the
+      // app" (23 Sep). Its search: URI opens the app on the results.
+      const app = engine === 'spotify' && apps.some((a) => /spotify/i.test(a.name));
+      // Words joined by "+", letters and digits only: the host's launcher refuses
+      // "%", quotes and "&" (they would make it a command line, not a target).
+      const words = query.replace(/[^\p{L}\p{N}\s-]/gu, ' ').trim().split(/\s+/).join('+');
+      const url = app ? `spotify:search:${words}` : (SEARCH_ON[engine] ?? SEARCH_ON.default)(query);
+      return { action, url, query, system: app || system, ...(play ? { play } : {}), confidence: Math.min(conf, ct) };
     }
     case 'scroll': {
       const [dir, c] = pick('scroll_dir');
@@ -428,11 +569,32 @@ export function toPlan(utterance: string, ans: Answers, cands: Record<string, st
       const cmd = shortcuts?.[key];
       return cmd ? { action, keys: cmd.keys, means: cmd.means, confidence: Math.min(conf, c) } : { action: 'none', confidence: conf };
     }
-    case 'type_text': {
+    case 'type': {
       const [tkey, ct] = pick('text');
-      const text = cands[tkey];
+      const text = cands[tkey] ?? '';
       return text ? { action, text, confidence: Math.min(conf, ct) } : { action: 'none', confidence: conf };
     }
+    case 'window_ctl': {
+      const [op, c] = pick('window_op');
+      // The app is a nicety (the front window is the default), so a weak name
+      // must not drag the whole decision down: `window` is picked already for
+      // keys, and code below reads it the same way.
+      const [wkey, cw] = pick('window');
+      const named = cw >= MIN_WINDOW_CONFIDENCE && wkey.startsWith('w') ? windows[Number(wkey.slice(1))] : undefined;
+      const valid = op === 'close' || op === 'minimize' || op === 'maximize';
+      return valid
+        ? { action, op: op as 'close' | 'minimize' | 'maximize', app: named?.app_name ?? null, confidence: Math.min(conf, c) }
+        : { action: 'none', confidence: conf };
+    }
+    case 'edit': {
+      const [op, c] = pick('edit_op');
+      return op in EDIT_KEYS ? { action, op: op as keyof typeof EDIT_KEYS, confidence: Math.min(conf, c) } : { action: 'none', confidence: conf };
+    }
+    case 'open_folder': {
+      const [f, c] = pick('folder');
+      return f in FOLDERS ? { action, folder: f as keyof typeof FOLDERS, confidence: Math.min(conf, c) } : { action: 'none', confidence: conf };
+    }
+    case 'screenshot': return { action, confidence: conf };
     case 'reader': return { action, confidence: conf };
     case 'stop': return { action, confidence: conf };
     case 'hang_up': return { action, confidence: conf };
@@ -519,10 +681,17 @@ export async function interpretReply(q: AskUserQuestion, said: string): Promise<
  * lets "open Calculator" work a moment after the call starts.
  */
 let appsCache: { at: number; apps: InstalledApp[] } | null = null;
+/**
+ * "Open the browser" names no Start Menu entry, and picking Brave out of 254
+ * apps for it came back at 0.45 (22 Sep). One listed app IS the browser, by
+ * that name; its `path` is this marker and it opens the default browser on
+ * the start page instead of a shortcut.
+ */
+export const THE_BROWSER = 'the-default-browser';
 export async function installedApps(): Promise<InstalledApp[]> {
   if (appsCache && Date.now() - appsCache.at < 30_000) return appsCache.apps;
-  // A Choice takes at most 255 options; `none` is one of them.
-  const apps = (await invoke<InstalledApp[]>('list_apps').catch(() => [] as InstalledApp[])).slice(0, 254);
+  // A Choice takes at most 255 options; `none` is one of them, the browser another.
+  const apps = [{ name: 'Browser (the web browser, whichever is the default)', path: THE_BROWSER }, ...(await invoke<InstalledApp[]>('list_apps').catch(() => [] as InstalledApp[])).slice(0, 253)];
   appsCache = { at: Date.now(), apps };
   return apps;
 }
@@ -611,7 +780,7 @@ export async function decideClick(target: string, elements: Clickable[]): Promis
   const nameMatch = byMeaning !== undefined && sharesName(target, byMeaning.name);
   if (nameMatch) {
     ref = byMeaning!.ref;
-    console.info(`[jev] click "${target}": named -> ${byMeaning!.name}`);
+    note(`click "${target}": named -> ${byMeaning!.name}`);
   } else if (pos !== 'none' && Number(r.answers.position?.confidence ?? 0) >= MIN_CLICK_CONFIDENCE) {
     const kind = r.answers.kind?.choice ?? 'any';
     const fits = (e: Clickable) => kind === 'any' ? true
@@ -622,13 +791,13 @@ export async function decideClick(target: string, elements: Clickable[]): Promis
     const ordered = menu.filter(fits);
     const index = { first: 0, second: 1, third: 2, fourth: 3, fifth: 4, last: ordered.length - 1 }[pos as 'first'] ?? 0;
     ref = ordered[index]?.ref ?? null;
-    console.info(`[jev] click "${target}": ${pos} ${kind} of ${ordered.length} -> ${ref ? ordered[index].name : 'nothing'}`);
+    note(`click "${target}": ${pos} ${kind} of ${ordered.length} -> ${ref ? ordered[index].name : 'nothing'}`);
   } else {
     ref = a?.choice && a.choice !== 'none' && Number(a.confidence ?? 0) >= MIN_CLICK_CONFIDENCE ? a.choice.slice(1) : null;
   }
   // When nothing is picked, the menu itself is the evidence: was the element
   // there at all, or did the window expose only its chrome?
-  if (!ref) console.info(`[jev] click "${target}": ${a?.choice ?? 'no answer'} at ${Number(a?.confidence ?? 0).toFixed(2)}; menu: ${menu.slice(0, 20).map((e) => e.name).join(' | ')}`);
+  if (!ref) note(`click "${target}": ${a?.choice ?? 'no answer'} at ${Number(a?.confidence ?? 0).toFixed(2)}; menu: ${menu.slice(0, 20).map((e) => e.name).join(' | ')}`);
   return { ref, ms: r.ms };
 }
 
@@ -654,9 +823,47 @@ export function sharesName(target: string, name: string): boolean {
  * says so. All of it needs desktop control, which is a Settings switch, off
  * by default; the refusal names it.
  */
+/**
+ * What the executor actually did (which key, to which element, by which
+ * route). It went to the webview console, which nobody can open in the app:
+ * on 23 Sep "pause" failed three times and the log could not say whether a
+ * key was even sent.
+ */
+function note(message: string): void {
+  console.info(`[jev] ${message}`);
+  void tauri.raw.uiLog('jev', message).catch(() => {});
+}
+
 const MEDIA_KEYS = { play_pause: '{playpause}', next: '{nexttrack}', previous: '{prevtrack}', volume_up: '{volumeup}', volume_down: '{volumedown}', mute: '{volumemute}' };
 
-interface DesktopElement { id: string; role: string; name: string; is_offscreen: boolean; is_enabled: boolean }
+interface DesktopElement {
+  id: string;
+  role: string;
+  name: string;
+  is_offscreen: boolean;
+  is_enabled: boolean;
+  /** Screen rectangle. The host has always sent it; nothing here read it until 22 Sep. */
+  bounding_rect?: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Reading order: top to bottom, then left to right, by where a thing actually
+ * IS on screen.
+ *
+ * "The first link" and "the first video" kept pressing something else because
+ * the list handed to Jev was in accessibility-tree order, which follows the
+ * page's markup and is not what a person sees. Rows within 24 px of each other
+ * count as the same line, so two results side by side are ordered left to
+ * right rather than by a few pixels of vertical jitter.
+ */
+export function inReadingOrder(elements: DesktopElement[]): DesktopElement[] {
+  const ROW = 24;
+  return [...elements].sort((a, b) => {
+    const ra = a.bounding_rect, rb = b.bounding_rect;
+    if (!ra || !rb) return 0;
+    return Math.abs(ra.y - rb.y) > ROW ? ra.y - rb.y : ra.x - rb.x;
+  });
+}
 
 /** The one refusal a person can act on; it is spoken, so it is a sentence, not a log line. */
 export const DESKTOP_CONTROL_OFF = 'Desktop control is off. Turn it on in Settings to use commands outside Cinderpaw.';
@@ -719,7 +926,7 @@ async function siteKeys(spec: string): Promise<void> {
   const docs = await invoke<DesktopElement[]>('find_elements', { pid, query: { role: 'Document', name: null, automation_id: null, value_contains: null }, windowTitle: null }).catch(() => [] as DesktopElement[]);
   const page = docs.find((d) => d.is_enabled && !d.is_offscreen);
   await invoke('send_keys', { elementId: page?.id ?? el.id, keys: spec });
-  console.info(`[jev] site keys ${spec} to ${page ? `document "${page.name}"` : 'the focused element'}`);
+  note(`site keys ${spec} to ${page ? `document "${page.name}"` : 'the focused element'}`);
 }
 
 /** The roles a click can land on, as the host names them (one UIA control type each). */
@@ -757,17 +964,23 @@ async function clickInFront(target: string): Promise<boolean> {
     // web page in it (Spotify, WhatsApp) spent four looks and 1.6 s waiting
     // for links that were never coming.
     if (look > 0 && now === links) break;
-    console.info(`[jev] desktop look ${look + 1}: ${clickable.length} clickable, ${now} links`);
+    note(`desktop look ${look + 1}: ${clickable.length} clickable, ${now} links`);
     links = now;
     await new Promise((r) => setTimeout(r, 400));
   }
+  // In the order a person reads them. The tree's own order follows the page's
+  // markup, so "the first link" was whatever the DOM happened to put first and
+  // the click landed on something else every time (22 Sep, five tries).
+  clickable = inReadingOrder(clickable);
   const { ref, ms } = await decideClick(target, clickable.map((e) => ({ ref: e.id, name: e.name, role: e.role, inView: true })));
-  console.info(`[jev] desktop click ${ref ? 'found' : 'none'} among ${clickable.length} in ${ms}ms`);
+  note(`desktop click ${ref ? 'found' : 'none'} among ${clickable.length} in ${ms}ms`);
   if (!ref) return false;
   // A link opens a page, and the title says whether it did; a button (like,
   // subscribe) changes nothing the title shows, so it is not checked.
   const isLink = /link|hyperlink/i.test(clickable.find((e) => e.id === ref)?.role ?? '');
   const before = isLink ? await frontTitle() : null;
+  const chosen = clickable.find((e) => e.id === ref);
+  note(`desktop click pressing ${chosen?.role ?? '?'} "${chosen?.name ?? '?'}"`);
   await invoke('click_element', { elementId: ref });
   if (before !== null && !(await pageChanged(before))) throw new Error('The click landed but the page did not change.');
   return true;
@@ -794,9 +1007,43 @@ export function windowOfApp(appName: string, w: OpenWindow): boolean {
   return proc.length >= 3 && app.length >= 3 && (app === proc || app.includes(proc) || proc.includes(app));
 }
 
+/**
+ * Put the caret in the window's text field, when it has one and does not
+ * already hold the focus. Best effort: a window with no such field (or one
+ * the tree does not expose) is left alone and the keys go where they would
+ * have gone anyway.
+ */
+async function focusTextField(): Promise<void> {
+  try {
+    const el = await frontElement();
+    if (/edit|text|combobox|document/i.test(el.role)) return;
+    const pid = Number(el.id.split(':')[0]);
+    const fields = await invoke<DesktopElement[]>('find_elements', { pid, query: { role: 'Edit', name: null, automation_id: null, value_contains: null }, windowTitle: null }).catch(() => [] as DesktopElement[]);
+    const field = fields.find((f) => f.is_enabled && !f.is_offscreen);
+    if (field) { await invoke('take_element_action', { elementId: field.id, action: 'focus' }); return; }
+    // A web page has no Edit: its composer lives inside the Document, and
+    // clicking the document at least puts the keyboard inside the page.
+    const docs = await invoke<DesktopElement[]>('find_elements', { pid, query: { role: 'Document', name: null, automation_id: null, value_contains: null }, windowTitle: null }).catch(() => [] as DesktopElement[]);
+    const doc = docs.find((d) => d.is_enabled && !d.is_offscreen);
+    if (doc) await invoke('take_element_action', { elementId: doc.id, action: 'focus' });
+  } catch {
+    // Typing is still worth attempting where the focus already is.
+  }
+}
+
+/** Bring a named app's window to the front, so window keys land on it. */
+async function focusWindowOf(appName: string): Promise<void> {
+  const open = (await openWindows()).find((w) => windowOfApp(appName, w));
+  if (!open) return;
+  const wins = await invoke<DesktopElement[]>('find_elements', { pid: open.pid, query: { role: 'Window', name: null, automation_id: null, value_contains: null }, windowTitle: null }).catch(() => [] as DesktopElement[]);
+  const win = wins.find((x) => x.is_enabled);
+  if (win) await invoke('take_element_action', { elementId: win.id, action: 'focus' }).catch(() => {});
+}
+
 export async function executeOnDesktop(plan: Plan): Promise<string> {
   switch (plan.action) {
     case 'open_app': {
+      if (plan.path === THE_BROWSER) { await shellOpen(SITES.duckduckgo); return 'Opening the browser.'; }
       // Already open: to the front. "Open Brave" with Brave open opened a
       // second window, and "switch to" did not switch.
       const open = (await openWindows()).find((w) => windowOfApp(plan.name, w));
@@ -820,7 +1067,17 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
     }
     case 'web_search': {
       const before = await frontTitle();
-      await shellOpen(plan.url);
+      // The shell plugin opens http(s) only; an app's own URI goes through the launcher.
+      if (plan.url.startsWith('spotify:')) await invoke('launch_app', { app: plan.url }).catch((e) => { throw desktopError(e); });
+      else await shellOpen(plan.url);
+      if (plan.play) {
+        // The results need a moment to be on screen and in the accessibility
+        // tree; clickInFront reads it more than once for the same reason.
+        await new Promise((r) => setTimeout(r, 2000));
+        const pressed = await clickInFront('the first song or video in the results').catch(() => false);
+        note(`play ${plan.query}: ${pressed ? 'first result pressed' : 'no result found to press'}`);
+        return pressed ? '' : `I searched for ${plan.query}, but could not find a result to play.`;
+      }
       return before === null || (await pageChanged(before)) ? `Searching for ${plan.query} in your browser.` : `I asked your browser to search for ${plan.query}, but nothing new came up.`;
     }
     case 'scroll': {
@@ -859,14 +1116,64 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
       return done ? '' : `I opened it, but could not find a ${plan.verb} button.`;
     }
     case 'shortcut': await siteKeys(plan.keys); return '';
-    // Dictation: the words as keystrokes, into whatever has the focus. Braces
-    // are doubled: the host reads "{...}" as a key name.
-    case 'type_text': await keys(plan.text.replace(/[{}]/g, (c) => c + c)); return '';
+    // Before these there was no window action at all, so "close Spotify"
+    // came back as `navigate` and closed a browser tab, and "minimise
+    // WhatsApp" came back as `open_app` and re-opened what the person wanted
+    // out of the way (22 Sep, four times in one round). The keys come from
+    // this system's table: Alt+F4 and Win+Down do nothing on a Mac.
+    case 'edit': { await keys(appKeys()[plan.op]?.keys ?? EDIT_KEYS[plan.op]); return ''; }
+    case 'open_folder': {
+      const dir = await FOLDERS[plan.folder]();
+      await invoke('launch_app', { app: dir }).catch((e) => { throw desktopError(e); });
+      return `Opening ${plan.folder}.`;
+    }
+    // The system's own capture. On Windows and macOS the person picks the
+    // area (the image lands on the clipboard); Linux's Print key takes it.
+    case 'screenshot': {
+      await keys(appKeys().screenshot?.keys ?? '{win+shift+s}');
+      return platform() === 'linux' ? '' : 'Pick the area to capture.';
+    }
+    case 'window_ctl': {
+      if (plan.app) await focusWindowOf(plan.app);
+      const k = appKeys();
+      // "Close Spotify" means the app: Cmd+Q on a Mac, where Cmd+W only
+      // closes its window and leaves it running.
+      const spec = plan.op === 'close' ? (k.quit_app ?? k.close_window)?.keys ?? '{alt+f4}'
+        : plan.op === 'minimize' ? k.minimize?.keys ?? '{win+down}'
+        : (k.maximize ?? k.fullscreen)?.keys ?? '{win+up}';
+      await keys(spec);
+      const said = plan.op === 'close' ? 'Closing' : plan.op === 'minimize' ? 'Minimising' : 'Maximising';
+      return `${said} ${plan.app ?? 'this window'}.`;
+    }
+    // Dictation: the words as keystrokes.
+    case 'type': {
+      // An app launched by the step before is not in front yet; a second and
+      // a half is what Notepad takes here. ponytail: a fixed wait, poll the
+      // front window's pid if an app turns out slower.
+      if (previous === 'open_app') await new Promise((r) => setTimeout(r, 1500));
+      // Into the text field, not into whatever holds the focus. Notepad focuses
+      // its own text area, so typing worked there and nothing at all reached
+      // ChatGPT's composer (22 Sep, twice, at 0.98 and 1.00 confidence).
+      // Off Windows there is no element tree; it types where the focus is.
+      await focusTextField();
+      // Braces are doubled: the host reads "{...}" as a key name, and "{{"
+      // or "}}" as one brace.
+      await keys(plan.text.replace(/[{}]/g, (c) => c + c));
+      return `Typing "${plan.text}".`;
+    }
     case 'media': {
       // The site's own key first (Shift+N on YouTube). Failing that, "next"
       // and "previous" press the player's button when the window has one;
       // the OS media key is the last resort, a player ignores it outside a
       // playlist (YouTube, 21 Sep).
+      // Play/pause is the system's media key first, as jev-voice does: every
+      // player listens for it (Spotify desktop, and YouTube or Spotify web in
+      // any Chromium browser, through the media session), and it cannot land
+      // on the wrong element. The site's "k" or space went to the right page
+      // and still did nothing, because the focus was on a card or a link and
+      // space on a link opens it (23 Sep, five tries). It only works since
+      // this app stopped claiming the key itself (HardwareMediaKeyHandling).
+      if (plan.op === 'play_pause') { await keys(MEDIA_KEYS.play_pause); note('media key play_pause'); return ''; }
       if (plan.keys) {
         // "Next" and "previous" change the page, and the window title says
         // so: the one check that separates "the key was sent" from "it did
@@ -878,9 +1185,9 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
       }
       if (plan.op === 'next' || plan.op === 'previous') {
         const pressed = await clickInFront(plan.op === 'next' ? 'the next track or next video button' : 'the previous track or previous video button').catch(() => false);
-        if (pressed) { console.info(`[jev] media ${plan.op} via button`); return ''; }
+        if (pressed) { note(`media ${plan.op} via button`); return ''; }
       }
-      await keys(MEDIA_KEYS[plan.op]); console.info(`[jev] media key ${plan.op}`); return '';
+      await keys(MEDIA_KEYS[plan.op]); note(`media key ${plan.op}`); return '';
     }
     case 'reader': return 'Reader view only exists in Cinderpaw\'s browser.';
     default: return '';
@@ -895,13 +1202,14 @@ export async function executeOnDesktop(plan: Plan): Promise<string> {
  * Returns the short line to say back.
  */
 export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
+  previous = recent.action;
   recent.action = plan.action === 'media' ? `media ${plan.op}` : plan.action === 'navigate' ? `navigate ${plan.op}` : plan.action;
   // Out of sight (parked, hidden, minimised, another window in front), or a
   // named app on the computer: the desktop, never the hidden app (see
   // executeOnDesktop). An application opens on the desktop wherever the call
   // is. `desktop` is what `decide` saw, so a plan runs where it was made.
   const onDesktop = desktop ?? (await outOfSight());
-  if (onDesktop || target.system || plan.action === 'open_app' || plan.action === 'type_text') return executeOnDesktop(plan);
+  if (onDesktop || target.system || ['open_app', 'type', 'window_ctl', 'edit', 'open_folder', 'screenshot'].includes(plan.action)) return executeOnDesktop(plan);
   const b = useBrowser.getState();
   const ui = tauri.browser.ui;
   switch (plan.action) {
@@ -932,7 +1240,7 @@ export async function execute(plan: Plan, desktop?: boolean): Promise<string> {
       const press = async (target: string): Promise<boolean> => {
         const snap = (await ui('snapshot')) as { elements?: Clickable[] };
         const { ref, ms } = await decideClick(target, snap.elements ?? []);
-        console.info(`[jev] click ${ref ? `ref ${ref}` : 'none'} in ${ms}ms`);
+        note(`click ${ref ? `ref ${ref}` : 'none'} in ${ms}ms`);
         if (!ref) return false;
         await ui('click', { ref });
         return true;

@@ -50,7 +50,7 @@
 import { createContext, runInContext } from "node:vm";
 import type { ToolRegistry } from "../tools/registry.ts";
 import type { ToolResult } from "../types.ts";
-import type { ChildRegistry } from "./children.ts";
+import { WAIT_MAX_MS, type ChildRegistry } from "./children.ts";
 
 /** How long one cell may run before it is abandoned. */
 export const DEFAULT_CELL_TIMEOUT_MS = 120_000;
@@ -271,11 +271,10 @@ export class Notebook {
     // (core/subagent.ts) with their own filtered tool set and budget, so this
     // is a binding, not a new execution path.
     //
-    // Divergence from Prime Agent, deliberate: their `rlm()` admits the child
-    // and returns a handle immediately, with results arriving later over a
-    // messaging capability. Cinderpaw has no parent/child mailbox, so a handle
-    // would be a promise of a result nobody can collect. Ours awaits the child
-    // and returns its answer. Revisit if a mailbox ever lands.
+    // Same semantics as Prime Agent: `rlm()` admits the child and returns a
+    // handle at once (children.ts). The answer is collected separately, with
+    // `rlm.wait()` inside the turn or `rlm.list_subagents()` later, because
+    // nothing here wakes a parent whose turn has already ended.
     const depth = opts.depth ?? 0;
     const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
     if (opts.children) {
@@ -307,6 +306,26 @@ export class Notebook {
       }) as ((task: unknown, options?: unknown) => Promise<unknown>) & Record<string, unknown>;
 
       rlm.list_subagents = severed(async () => guest({ subagents: kids.list() }));
+      // Collect in the same turn: blocks until the named children (all, when
+      // none are named) settle, capped below the tool-call timeout. Models
+      // often pass the options first, `rlm.wait({ timeoutMs })`, so a plain
+      // object in the first slot is read as options rather than refused.
+      rlm.wait = severed(async (targets?: unknown, options?: unknown) => {
+        let opts = options;
+        let names: unknown[] | undefined;
+        if (typeof targets === "string") names = [targets];
+        else if (Array.isArray(targets)) names = targets;
+        else if (targets && typeof targets === "object") opts = targets;
+        if (names && !names.every((t) => typeof t === "string" && t.trim())) {
+          throw new Error("rlm.wait targets must be child names or ids");
+        }
+        const t = (opts ?? {}) as { timeoutMs?: unknown };
+        const ms =
+          typeof t.timeoutMs === "number" && Number.isFinite(t.timeoutMs)
+            ? Math.min(Math.max(0, t.timeoutMs), WAIT_MAX_MS)
+            : WAIT_MAX_MS;
+        return guest(await kids.wait(names?.map((n) => (n as string).trim()), ms));
+      });
       // The mailbox. `messages()` drains; `pending` peeks — a parent that is
       // mid-thought should be able to check without consuming.
       rlm.messages = severed(async () => guest({ messages: kids.drainInbox() }));

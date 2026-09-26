@@ -29,6 +29,7 @@
     "decorations": false,
     "transparent": true,
     "dragDropEnabled": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,HardwareMediaKeyHandling",
         "windowEffects": {
           "effects": ["acrylic"]
         }
@@ -49,6 +50,9 @@
       "minimumSystemVersion": "13.3",
       "signingIdentity": "-",
       "entitlements": "./entitlements.plist"
+    },
+    "windows": {
+      "nsis": { "installerHooks": "./windows/hooks.nsh" }
     },
     "linux": {
       "deb": { "depends": ["git", "xdotool"] },

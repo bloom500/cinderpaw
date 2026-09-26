@@ -243,6 +243,7 @@ export class SignalConnector implements LiveConnector {
     if (!text || !from) return;
     if (from === this.#number) return;
 
+    ctx.onSender?.(from, from);
     if (!this.#allow.has(from)) {
       ctx.log(`signal: ignored message from non-allowlisted ${from}`);
       return;
