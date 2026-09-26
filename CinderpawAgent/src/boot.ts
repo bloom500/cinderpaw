@@ -237,6 +237,9 @@ const BOOT_EPOCH_MS = Date.now();
  */
 const CLOUD_REBUILD_LEAF_CAP = 200;
 
+// The child events that are progress. `chunk` (one streamed token) is not.
+const CHILD_PROGRESS_EVENTS = new Set(["tool_start", "tool_progress", "tool_done", "error", "model_error"]);
+
 /**
  * Resolve the agent's filesystem sandbox roots.
  *
@@ -1123,9 +1126,13 @@ export async function boot(transportOverride?: Transport) {
             : sessionId,
           // Feeds `rlm.observe()`. Only the shape the parent can act on: what
           // kind of thing happened and a short detail, never the raw event.
+          // Tool and error events only: `chunk` is one streamed token, so
+          // forwarding it showed "chunk" as the worker's progress and pushed
+          // every real tool call out of the 40-entry trail.
           onEvent: (e) => {
             const ev = e as { type?: string; tool?: string; message?: string };
-            onEvent(ev.type ?? "event", ev.tool ?? ev.message ?? "");
+            if (!CHILD_PROGRESS_EVENTS.has(ev.type ?? "")) return;
+            onEvent(ev.type!, ev.tool ?? ev.message ?? "");
           },
         });
         log(

@@ -31,6 +31,15 @@ function StatusIcon({ status }: { status: RlmWorker['status'] }) {
   return <X size={14} className="text-error shrink-0" aria-hidden />;
 }
 
+// The sidecar's detail is "<event kind> <tool>", the same words `rlm.observe()`
+// gives the model. A person reads "using web_search", not "tool_start web_search".
+function progressLine(detail: string): string {
+  return detail
+    .replace(/^tool_(start|progress)\b/, 'using')
+    .replace(/^tool_done\b/, 'finished')
+    .replace(/^model_error\b/, 'error');
+}
+
 const STATUS_WORD: Record<RlmWorker['status'], string> = {
   running: 'working',
   completed: 'done',
@@ -80,7 +89,7 @@ function WorkerRow({ w, now }: { w: RlmWorker; now: number }) {
           detail is only a tool-call count, which the answer toggle replaces. */}
       {w.detail && w.status !== 'completed' && (
         <p className={`mt-0.5 pl-6 text-xs truncate ${w.status === 'error' ? 'text-error' : 'text-text-muted'}`}>
-          {w.detail}
+          {progressLine(w.detail)}
         </p>
       )}
       {showAnswer && w.answer && (
@@ -127,9 +136,11 @@ export function WorkersCard() {
     <section
       aria-label="Background workers"
       data-testid="rlm-workers-card"
-      className="mx-auto max-w-2xl w-full px-4 pb-2"
+      // Same width and material as the composer under it: narrower and 80%
+      // see-through, it read as a stray popup with the reply showing through.
+      className="px-4 pb-2"
     >
-      <div className="rounded-xl border border-border-default bg-bg-elevated/80 backdrop-blur-md px-3 py-2">
+      <div className="rounded-2xl border border-border-default bg-(--surface-typing) liquid-glass liquid-glass-rim px-3 py-2">
         <div className="flex items-center gap-2">
           <button
             type="button"

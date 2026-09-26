@@ -25,7 +25,7 @@ describe('WorkersCard', () => {
     });
     render(<WorkersCard />);
     expect(screen.getByText('count the files')).toBeInTheDocument();
-    expect(screen.getByText('tool_start grep')).toBeInTheDocument();
+    expect(screen.getByText('using grep')).toBeInTheDocument();
     expect(screen.getByText('1 working')).toBeInTheDocument();
   });
 

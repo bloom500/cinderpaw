@@ -51,7 +51,13 @@ export function MessageList() {
         {/* No `scroll-smooth`: programmatic follow on every streamed frame
             turns into overlapping animations, visible jank on long chats. */}
         <MessageScroller.Viewport aria-label="Conversation" className="h-full overflow-y-auto overscroll-contain thin-scrollbar outline-hidden">
-          <MessageScroller.Content className="max-w-3xl mx-auto px-6 py-6 pb-48 flex flex-col gap-6">
+          {/* Clears the dock's measured height, not a flat 12rem: the dock grows
+              with the workers card, the error notice and a multi-line draft,
+              and a flat pad let the last reply slide under it. */}
+          <MessageScroller.Content
+            className="max-w-3xl mx-auto px-6 py-6 flex flex-col gap-6"
+            style={{ paddingBottom: 'calc(var(--chat-dock-h, 10rem) + 2rem)' }}
+          >
             {messages.map((m, i) => (
               // A message arrives, it does not blink into existence. Keyed on
               // the id so only genuinely new rows animate; a streamed token must
