@@ -14,8 +14,14 @@ import {
   ChildRegistry,
   defaultChildName,
   normalizeRequestedName,
+  INTERRUPTED,
+  interruptOnRestart,
+  WAIT_MAX_MS,
   type RunChild,
 } from "../src/rlm/children.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createNotebookTool,
   createNotifyParentTool,
@@ -304,6 +310,17 @@ describe("recursion — the R in RLM", () => {
       expect(seen.at(-1)!.status).toBe("completed");
     });
 
+    it("carries the answer on the settling event, so the UI can show it", async () => {
+      // A parent that ends its turn without collecting leaves the answer with
+      // nobody to read it but the surface showing the worker.
+      const seen: Array<{ status: string; answer?: string }> = [];
+      const reg = new ChildRegistry(runner(), (e) => seen.push(e));
+      reg.admit("count the files");
+      await reg.drain();
+      expect(seen[0]!.answer).toBeUndefined();
+      expect(seen.at(-1)!.answer).toBe("did: count the files");
+    });
+
     it("carries the caller's chosen name, not a derived one", async () => {
       const { seen, sink } = collect();
       const reg = new ChildRegistry(runner(), sink);
@@ -367,6 +384,77 @@ describe("recursion — the R in RLM", () => {
       subagents.map((s) => s.name + ":" + s.status + ":" + s.answer).join("|")
     `);
     expect(r.value).toBe("sum:completed:did: summarise");
+  });
+
+  /**
+   * Collection in the same turn. Without it the parent could only poll, and a
+   * loop over `list_subagents()` never yields to the timers and I/O the
+   * workers need, so the answers were out of reach until a later turn that
+   * nothing ever started.
+   */
+  describe("rlm.wait", () => {
+    it("blocks until every worker settles and returns their answers", async () => {
+      const { nb } = nbWith(runner(30));
+      const r = await nb.run(`
+        await rlm("alpha", { name: "a" });
+        await rlm("beta", { name: "b" });
+        const w = await rlm.wait();
+        JSON.stringify([w.timed_out, w.still_running, w.subagents.map((s) => s.answer)])
+      `);
+      expect(JSON.parse(r.value!)).toEqual([false, [], ["did: alpha", "did: beta"]]);
+    });
+
+    it("waits only for the named worker", async () => {
+      const { nb, children } = nbWith(async (task) => {
+        await new Promise((r) => setTimeout(r, task === "fast" ? 10 : 300));
+        return { status: "completed" as const, answer: task, toolCalls: 0, durationMs: 1, subagentId: "x" };
+      });
+      const r = await nb.run(`
+        await rlm("fast", { name: "fast" });
+        await rlm("slow", { name: "slow" });
+        const w = await rlm.wait("fast");
+        JSON.stringify(w.subagents.map((s) => s.name + ":" + s.status))
+      `);
+      expect(JSON.parse(r.value!)).toEqual(["fast:completed"]);
+      await children.drain();
+    });
+
+    it("returns at the timeout with what settled and names the rest", async () => {
+      const { nb, children } = nbWith(runner(400));
+      const started = Date.now();
+      const r = await nb.run(`
+        await rlm("slow", { name: "slow" });
+        const w = await rlm.wait({ timeoutMs: 20 });
+        JSON.stringify([w.timed_out, w.still_running])
+      `);
+      expect(JSON.parse(r.value!)).toEqual([true, ["slow"]]);
+      expect(Date.now() - started).toBeLessThan(300);
+      await children.drain();
+    });
+
+    it("never waits past the tool-call timeout, whatever the model asks", async () => {
+      // A wait longer than the registry's 60s tool timeout would kill the cell
+      // with the answers already collected.
+      const asked: number[] = [];
+      class Spy extends ChildRegistry {
+        override async wait(t: string[] | undefined, ms: number) {
+          asked.push(ms);
+          return super.wait(t, 0);
+        }
+      }
+      const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children: new Spy(runner()) });
+      await nb.run(`await rlm.wait({ timeoutMs: 10_000_000 })`);
+      await nb.run(`await rlm.wait()`);
+      expect(asked).toEqual([WAIT_MAX_MS, WAIT_MAX_MS]);
+      expect(WAIT_MAX_MS).toBeLessThan(60_000);
+    });
+
+    it("refuses a name that is not one of its children", async () => {
+      const { nb } = nbWith();
+      const r = await nb.run(`await rlm.wait("nobody")`);
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain('no child matches "nobody"');
+    });
   });
 
   it("shows a child still running as running, with no answer", async () => {
@@ -980,5 +1068,91 @@ describe("tools that ask the person, inside a cell", () => {
     expect(text).toMatch(/asks the person a question/);
     expect(text).toMatch(/directly as a tool/);
     expect(calls.some((c) => c.name === "cinderpaw_admin")).toBe(false);
+  });
+});
+
+/**
+ * Workers across a restart. The registry lived only in memory, so a restart
+ * lost every worker and its answer, and a card still showing one as working
+ * kept showing it for ever: nothing was running it any more.
+ */
+describe("workers survive a restart", () => {
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("marks a worker that was running as interrupted, not as running", () => {
+    const { entries, interrupted } = interruptOnRestart([
+      { rlm_child_id: "a", name: "a", status: "running" },
+      { rlm_child_id: "b", name: "b", status: "completed", answer: "42" },
+    ]);
+    expect(entries.map((e) => e.status)).toEqual(["error", "completed"]);
+    expect(entries[0]!.error).toBe(INTERRUPTED);
+    expect(interrupted.map((e) => e.name)).toEqual(["a"]);
+  });
+
+  it("restores a finished worker with its answer, ready to collect", async () => {
+    const reg = new ChildRegistry(async () => {
+      throw new Error("must not run");
+    });
+    reg.restore([{ rlm_child_id: "sa-1", name: "counter", status: "completed", answer: "42 files" }]);
+    const w = await reg.wait(undefined, 1000);
+    expect(w.timed_out).toBe(false);
+    expect(w.subagents[0]).toMatchObject({ name: "counter", answer: "42 files" });
+    // The name is still taken, as it was before the restart.
+    expect(() => reg.admit("again", { name: "counter" })).toThrow("already used");
+  });
+
+  it("writes workers to disk and settles the interrupted ones at the next boot", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rlm-restart-"));
+    try {
+      const first = createNotebookTool({
+        registry: () => fakeRegistry(),
+        stateDir: dir,
+        // One finishes, one never does: the process "dies" with it running.
+        runChild: async (task) => {
+          if (task === "slow") await new Promise(() => {});
+          return { status: "completed", answer: `did ${task}`, toolCalls: 0, durationMs: 1, subagentId: "x" };
+        },
+      });
+      const ctx = { sessionId: "chat-9", signal: new AbortController().signal } as never;
+      await first.execute({ code: `await rlm("fast", { name: "fast" }); await rlm("slow", { name: "slow" });` }, ctx);
+      await settle(1700); // past the persist debounce
+
+      const events: Array<{ sessionId: string; name: string; status: string }> = [];
+      const second = createNotebookTool({
+        registry: () => fakeRegistry(),
+        stateDir: dir,
+        runChild: async () => ({ status: "completed", answer: "", toolCalls: 0, durationMs: 1, subagentId: "x" }),
+        onChildEvent: (e) => events.push(e),
+      });
+      // Settled at boot, before the session touches its notebook again.
+      expect(events).toEqual([expect.objectContaining({ sessionId: "chat-9", name: "slow", status: "error" })]);
+
+      const r = await second.execute(
+        { code: `JSON.stringify((await rlm.list_subagents()).subagents.map((s) => [s.name, s.status, s.answer ?? s.error]))` },
+        ctx,
+      );
+      expect(JSON.parse(String((r.data as { value?: string }).value))).toEqual([
+        ["fast", "completed", "did fast"],
+        ["slow", "error", INTERRUPTED],
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("boot wiring — a worker can actually be granted notify_parent", () => {
+  // The worker's tool filter searches a COPY of the registry taken when the
+  // notebook's Subagent is built. notify_parent registered after that copy was
+  // dropped from every worker while the allow-list still named it; the tests
+  // above build their own wiring, so they never saw it.
+  it("registers notify_parent before the notebook's Subagent snapshots the registry", async () => {
+    const src = await Bun.file(new URL("../src/boot.ts", import.meta.url)).text();
+    const block = src.slice(src.indexOf('cfgBool("CINDERPAW_ENABLE_NOTEBOOK")'));
+    const registered = block.indexOf("registry.register(createNotifyParentTool(");
+    const snapshotted = block.indexOf("new Subagent(");
+    expect(registered).toBeGreaterThan(-1);
+    expect(snapshotted).toBeGreaterThan(-1);
+    expect(registered).toBeLessThan(snapshotted);
   });
 });

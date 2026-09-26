@@ -86,11 +86,20 @@ interface BrowserStore {
   /** Modal dialogs open right now. Above zero, the panel parks the native page: a dialog cannot draw over it. */
   covered: number;
   cover: (delta: 1 | -1) => void;
+  /**
+   * Where the native page is on screen right now, or null when it is parked.
+   * A native page paints over anything React draws, so whatever must stay
+   * visible (toasts, the mascot's flight) has to know where it is.
+   */
+  pageRect: { x: number; y: number; w: number; h: number } | null;
+  setPageRect: (r: { x: number; y: number; w: number; h: number } | null) => void;
   open: (address: string) => Promise<void>;
   go: (op: 'back' | 'forward' | 'reload' | 'home' | 'stop') => Promise<void>;
   newTab: () => Promise<void>;
   switchTab: (id: number) => Promise<void>;
   closeTab: (id: number) => Promise<void>;
+  /** The strip as dragged, left to right. Shown at once, then told to the host. */
+  orderTabs: (tabs: BrowserTab[]) => void;
   /** Addresses of tabs closed this session, last first, for Ctrl+Shift+T. */
   closed: string[];
   reopenTab: () => Promise<void>;
@@ -130,6 +139,8 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
 
   covered: 0,
   cover: (delta) => set((s) => ({ covered: Math.max(0, s.covered + delta) })),
+  pageRect: null,
+  setPageRect: (pageRect) => set({ pageRect }),
   setPanel: (open) => {
     set({ panelOpen: open });
     // The host restored last session's tabs at its first call, which may have
@@ -181,6 +192,10 @@ export const useBrowser = create<BrowserStore>((set, get) => ({
     }
   },
 
+  orderTabs: (tabs) => {
+    set({ tabs });
+    void tauri.browser.ui('order_tabs', { ids: tabs.map((t) => t.id) }).catch((e) => set({ error: String(e) }));
+  },
   closeTab: async (id) => {
     const closing = get().tabs.find((t) => t.id === id);
     try {
@@ -224,7 +239,13 @@ void listen<{ active: number | null; tabs: BrowserTab[] }>('browser://state', (e
 // document the agent refused (`reason`), is a file the person is asked where
 // to put, with the reason on screen first.
 void listen<{ name: string; started?: boolean; dest?: string; artifact?: boolean; error?: string; reason?: string | null }>('browser://download', (e) => {
-  const { name, started, dest, artifact, error, reason } = e.payload;
+  const { started, dest, artifact, error, reason } = e.payload;
+  // The name the file has on disk, not the one it was downloaded under: the
+  // host keeps downloads under a 32-hex uuid prefix until they are delivered,
+  // and that is the name it reports ("b3336a…-setup.exe" in the list, 24 Sep).
+  const name = dest
+    ? dest.replace(/^.*[\\/]/, '')
+    : e.payload.name.replace(/^[0-9a-f]{32}-/i, '');
   // The click that starts a download changes nothing on the page; without
   // this, a large file was minutes of nothing until it landed.
   if (started) { useBrowser.setState({ notice: `Downloading ${name}…` }); return; }

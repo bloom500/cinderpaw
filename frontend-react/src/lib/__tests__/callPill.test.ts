@@ -143,12 +143,12 @@ describe('parking a call in the pill', () => {
     ];
     const hook = renderHook(({ phase }) => useCallPill(call(phase)), { initialProps: { phase: 'thinking' as CallPhase } });
     await flush();
-    const sent = () => vi.mocked(emit).mock.calls.filter(([e]) => e === 'call-pill://state').map(([, p]) => p as { working: string | null });
-    expect(sent().at(-1)?.working).toBe('fetch page');
+    const sent = () => vi.mocked(emit).mock.calls.filter(([e]) => e === 'call-pill://state').map(([, p]) => p as { work: { subject: string } | null });
+    expect(sent().at(-1)?.work?.subject).toBe('fetch page');
     h.activity = [{ tool: 'fetch_page', subject: '', status: 'done' }];
     hook.rerender({ phase: 'thinking' });
     await flush();
-    expect(sent().at(-1)?.working).toBeNull();
+    expect(sent().at(-1)?.work).toBeNull();
     h.activity = [];
   });
 });

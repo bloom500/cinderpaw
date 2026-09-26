@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Sparkles, Download, X } from 'lucide-react';
 import { useUpdater } from '@/stores/updater';
 import { cn } from '@/lib/utils';
+import { releaseHighlights } from '@/lib/releaseHighlights';
 
 /**
  * Bottom-right toast that appears when an update is available (or downloading).
@@ -16,6 +17,9 @@ export function UpdateToast() {
   const dismiss  = useUpdater((s) => s.dismiss);
 
   const open = status === 'available' || status === 'downloading';
+  // Three headlines, not the notes: the notes are the whole CHANGELOG section,
+  // markdown and all, and three raw lines of it said nothing (24 Sep).
+  const highlights = releaseHighlights(info?.notes ?? null);
   const downloading = status === 'downloading';
 
   return (
@@ -45,12 +49,19 @@ export function UpdateToast() {
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-text-primary">
-                Update {info.version} available
+                A new Cinderpaw is ready
               </p>
-              {info.notes && (
-                <p className="mt-1 text-xs text-text-muted line-clamp-3 whitespace-pre-line">
-                  {info.notes}
-                </p>
+              <p className="text-2xs text-text-muted">Version {info.version} · takes a minute, then it restarts</p>
+              {highlights.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {highlights.map((h) => (
+                    <li key={h} className="flex items-center gap-1.5 text-xs text-text-secondary">
+                      <span className="size-1 shrink-0 rounded-full bg-brand" aria-hidden />
+                      <span className="truncate">{h.charAt(0).toUpperCase() + h.slice(1)}</span>
+                    </li>
+                  ))}
+                  <li className="text-2xs text-text-muted">and more</li>
+                </ul>
               )}
             </div>
             {!downloading && (
@@ -94,7 +105,7 @@ export function UpdateToast() {
                   'bg-brand text-on-brand hover:opacity-90 transition-opacity',
                 )}
               >
-                Install now
+                Update now
               </button>
             </div>
           )}

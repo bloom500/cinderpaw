@@ -388,8 +388,16 @@ const PROPER_NOUNS: &str = "Cinderpaw, Cubby, Bloom, Darius, Piper, Kokoro.";
 /// It is deliberately NOT fed back into the next request. Whisper's `language`
 /// is an override, not a hint, so doing that made the loop self-sealing — we
 /// forced `ro`, the response therefore said "romanian", and that re-learned
-/// `ro`. Nothing else reads it — no code anywhere sends a language to Whisper.
-static LAST_LANG: OnceLock<Mutex<Option<&'static str>>> = OnceLock::new();
+/// `ro`. One exception, scoped to a single sentence: a caller that sends
+/// `context` (the Jev call, transcribing the same sentence again as it grows)
+/// gets the language the sentence started in, for SAME_SENTENCE_WINDOW after
+/// it was learned. Detection still runs fresh at every new sentence, so a
+/// wrong guess costs one sentence, never the ones after it. Without this the
+/// same English sentence came back English at 1.5 s and Romanian at 3 s,
+/// four times in one morning (22 Sep).
+static LAST_LANG: OnceLock<Mutex<Option<(&'static str, std::time::Instant)>>> = OnceLock::new();
+/// How long a learned language is offered to a caller re-transcribing the same sentence.
+const SAME_SENTENCE_WINDOW: std::time::Duration = std::time::Duration::from_secs(12);
 
 /// A transcript at least this long is treated as real evidence of a language.
 /// Below it, Whisper is guessing from too little audio: one evening of logs has
@@ -434,6 +442,12 @@ pub(crate) async fn transcribe_audio_cloud(
     audio_path: String,
     provider: String,
     language: Option<String>,
+    // The earlier part of the same sentence, when the caller is transcribing
+    // a sentence again as it grows (the Jev call). Its presence, not its
+    // text, is what counts: it marks the request as the same sentence, which
+    // keeps the language it started in (see LAST_LANG). Given as Whisper's
+    // `prompt`, the text made the model skip the words it repeated (22 Sep).
+    context: Option<String>,
 ) -> Result<String, String> {
     // Traced because the voice pipeline crosses four boundaries (webview → Rust →
     // vendor → back) and the webview's own console never reaches the terminal
@@ -490,8 +504,19 @@ pub(crate) async fn transcribe_audio_cloud(
     // and that re-learned `ro`. A first mistake became permanent and a user
     // switching language could never be heard again. Detection is free every
     // turn now — a wrong guess costs one turn instead of all of them.
-    let language = request_language(language);
-    tracing::info!(sending = language.as_deref().unwrap_or("<none>"), "stt: language");
+    let same_sentence = context.as_deref().map(str::trim).is_some_and(|c| !c.is_empty());
+    let language = request_language(language).or_else(|| {
+        let mut slot = LAST_LANG.get_or_init(|| Mutex::new(None)).lock();
+        if !same_sentence {
+            // The first piece of a new sentence: whatever the last sentence was
+            // in is not evidence about this one. A Romanian sentence 5 s after an
+            // English one was otherwise forced to English from its second piece.
+            *slot = None;
+            return None;
+        }
+        slot.filter(|(_, at)| at.elapsed() <= SAME_SENTENCE_WINDOW).map(|(code, _)| code.to_string())
+    });
+    tracing::info!(sending = language.as_deref().unwrap_or("<none>"), same_sentence, "stt: language");
 
     let mut form = reqwest::multipart::Form::new().text("model", cloud.model).part("file", part);
     if cloud.whisper_extras {
@@ -538,12 +563,53 @@ pub(crate) async fn transcribe_audio_cloud(
         /// Present with `verbose_json`, named in full ("romanian"). Optional so a
         /// provider that ignores the format still parses.
         language: Option<String>,
+        /// Whisper's own per-segment confidence, which `verbose_json` has
+        /// carried all along and nothing read. Optional for the same reason.
+        #[serde(default)]
+        segments: Vec<TranscriptionSegment>,
+    }
+    #[derive(serde::Deserialize)]
+    struct TranscriptionSegment {
+        /// How sure the model is that this stretch of audio is NOT speech.
+        #[serde(default)]
+        no_speech_prob: f32,
+        /// Mean log probability of the words it wrote. Low means it was guessing.
+        #[serde(default)]
+        avg_logprob: f32,
     }
     let parsed: TranscriptionResponse = resp
         .json()
         .await
         .map_err(|_| "stt-cloud-failed".to_string())?;
     let text = parsed.text.trim().to_string();
+
+    // Typing, a chair, a breath: Whisper writes a sentence over any of them
+    // ("Thank you for watching.", "Terima kasih telah menonton.") and it reaches
+    // the caller as if it had been said. It is not a guess that it was noise:
+    // the model reports `no_speech_prob` per segment and `verbose_json` has been
+    // carrying it all along, unread. A transcript whose speech segments are all
+    // judged non-speech, or written with very low confidence, is dropped here
+    // rather than downstream, so every caller is covered by one gate instead of
+    // each keeping its own list of phrases (22 Sep, on his open microphone).
+    //
+    // The thresholds are Whisper's own published defaults: the reference decoder
+    // treats a segment as silence at `no_speech_prob > 0.6` together with
+    // `avg_logprob < -1.0`, and needing BOTH is what keeps a quietly spoken real
+    // command from being thrown away.
+    if !parsed.segments.is_empty()
+        && parsed
+            .segments
+            .iter()
+            .all(|g| g.no_speech_prob > 0.6 && g.avg_logprob < -1.0)
+    {
+        tracing::info!(
+            transcript = %text,
+            segments = parsed.segments.len(),
+            no_speech = parsed.segments[0].no_speech_prob,
+            "stt: dropped, the model judged this audio not speech"
+        );
+        return Ok(String::new());
+    }
 
     // Every language flip, reported — but only between transcripts long enough
     // to be evidence rather than a guess.
@@ -556,18 +622,35 @@ pub(crate) async fn transcribe_audio_cloud(
     // is shipped is the count, so the next session can say how often it happens
     // instead of arguing about whether it does.
     if let Some(code) = parsed.language.as_deref().and_then(iso_code_of) {
-        if text.chars().count() >= CONFIDENT_TRANSCRIPT_CHARS {
+        // A sentence being transcribed piece by piece learns its language from
+        // a SHORTER first piece: "Now," is 4 characters, so the lock never took
+        // hold and the rest of that sentence came back in Portuguese, Turkish,
+        // Greek and Russian across one round (22 Sep). Inside one sentence the
+        // risk the long threshold guards against is gone: the pieces are the
+        // same speaker, seconds apart, and the lock expires with the sentence.
+        // Learned from 8 characters, not 25. The piece whose language the rest
+        // of the sentence should keep is the FIRST one, and a first piece
+        // carries no context, so the strict threshold was applied to exactly
+        // the piece it needed to skip: "Opa, na chat." (13 chars) taught
+        // nothing and the sentence went on to flip (22 Sep). A mistake here
+        // lives one sentence, because the first piece of the next sentence
+        // clears the slot.
+        if text.chars().count() >= 8 {
             let mut slot = LAST_LANG.get_or_init(|| Mutex::new(None)).lock();
-            if slot.is_some_and(|previous| previous != code) {
+            // Reported only on real evidence: below this, a differing code is
+            // Whisper guessing from too little audio, not a switch worth a line.
+            if slot.is_some_and(|(previous, _)| previous != code)
+                && text.chars().count() >= CONFIDENT_TRANSCRIPT_CHARS
+            {
                 tracing::warn!(
-                    from = slot.unwrap_or(""),
+                    from = slot.map(|(l, _)| l).unwrap_or(""),
                     to = code,
                     chars = text.chars().count(),
                     transcript = %text,
                     "stt: language flipped — a real switch, or a translation",
                 );
             }
-            *slot = Some(code);
+            *slot = Some((code, std::time::Instant::now()));
         }
     }
 

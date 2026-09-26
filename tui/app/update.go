@@ -82,7 +82,7 @@ func (a *App) Init() tea.Cmd {
 		tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 			return BootComplete{}
 		}),
-		tea.Batch(textarea.Blink, a.Loader.Tick, toolTick(), a.fetchSessionsCmd(), a.fetchResumeCmd(), a.startEventsCmd(), statusPollTick()),
+		tea.Batch(textarea.Blink, a.Loader.Tick, toolTick(), a.fetchSessionsCmd(), a.fetchResumeCmd(), a.startEventsCmd(), statusPollTick(), a.fetchCoworkCmd(false)),
 	)
 }
 
@@ -581,13 +581,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			GpuOK:   msg.Info.GpuName != "" && msg.Info.VramTotalMB > 0,
 		}
 		// P1: the probe result stays on the Engine screen (WizHardware). We
-		// do NOT auto-advance — the user picks Local/Cloud here. Pre-select
-		// the runtime from the probe: GPU → Local, else Cloud.
-		if a.Wizard.Hardware.GpuOK {
-			a.Wizard.Choice = WizChoiceLocal
-		} else {
-			a.Wizard.Choice = WizChoiceCloud
-		}
+		// do NOT auto-advance — the user picks Local/Cloud here. Cloud is the
+		// default on every machine: the local model this wizard downloads is
+		// 9B, and the core measured that only the 27B tier runs Cinderpaw's
+		// tools well (setup::recommend_download, enough_for_tools). A 4 GB
+		// card used to get Local and a model it cannot even hold (24 Sep).
+		a.Wizard.Choice = WizChoiceCloud
 		a.rebuildViewport()
 		return a, nil
 
@@ -826,6 +825,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case RuntimeEventMsg:
+		// Teammate traffic is shown as lines and approvals, not as the
+		// coalesced plumbing strip below, which would fold a question and
+		// its answer into "2 cowork_event events".
+		if msg.Event.Kind == "cowork_event" {
+			a.handleCoworkEvent(msg.Event)
+			return a, nil
+		}
 		// Brain Stack model switch: update header live (spec §10).
 		if msg.Event.Kind == "model_set" {
 			if msg.Event.Model != "" {
@@ -842,6 +848,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.coalesceRuntimeEvents()
 			a.rebuildViewport()
 		}
+		return a, nil
+
+	case CoworkTeamMsg:
+		a.onCoworkTeam(msg)
+		return a, nil
+
+	case CoworkResolvedMsg:
+		a.onCoworkResolved(msg)
 		return a, nil
 
 	case StatusPollTickMsg:
@@ -991,6 +1005,7 @@ func (a *App) finishStream() {
 	a.StreamBuf.Reset()
 	// Flush any runtime events that queued during streaming (spec §11).
 	a.flushPendingEvents()
+	a.flushCoworkLines()
 	// Clear streaming stats — the footer reverts to the shortcut row until
 	// the next turn begins. The per-turn cost is preserved on the Turn
 	// itself (Meta, set above), not here.
@@ -1479,19 +1494,18 @@ func (a *App) pushAssistantError(msg string) {
 		a.RateLimitUntil = time.Now().Add(30 * time.Second)
 		a.retriedRateLimit = false
 	}
-	for i := range a.Turns {
-		t := &a.Turns[len(a.Turns)-1-i]
-		if t.Role != RoleAssistant {
-			continue
-		}
-		t.Errors = append(t.Errors, ErrorCard{
-			Message: msg,
-			Kind:    kind,
-			Hint:    hint,
-		})
+	card := ErrorCard{Message: msg, Kind: kind, Hint: hint}
+	// The card belongs under the message that failed. When the error lands
+	// before any reply to it exists, the last turn is the user's; walking
+	// back past it used to pin the card to the PREVIOUS answer, off screen,
+	// and the new message sat there with nothing under it (24 Sep).
+	if n := len(a.Turns); n > 0 && a.Turns[n-1].Role == RoleAssistant {
+		t := &a.Turns[n-1]
+		t.Errors = append(t.Errors, card)
 		t.markDirty()
 		return
 	}
+	a.Turns = append(a.Turns, Turn{Role: RoleAssistant, Errors: []ErrorCard{card}, turnVer: 1})
 }
 
 // retryLastMessage re-submits lastUserText — used both by the "r" keybind

@@ -222,6 +222,24 @@ pub fn extensions_dir() -> std::path::PathBuf {
     cinderpaw_core::paths::cinderpaw_dir().join("browser-extensions")
 }
 
+/// A manifest name like `__MSG_extName__` is a key into the extension's own
+/// `_locales/<default_locale>/messages.json`; shown raw, uBlock Origin Lite
+/// read "__MSG_extName__" in the settings (23 Sep). Keys are case-insensitive
+/// in Chrome. Anything unresolved shows the raw text.
+fn localized(dir: &std::path::Path, manifest: &Value, raw: &str) -> String {
+    let Some(key) = raw.strip_prefix("__MSG_").and_then(|k| k.strip_suffix("__")) else { return raw.to_string() };
+    let locale = manifest.get("default_locale").and_then(|v| v.as_str()).unwrap_or("en");
+    std::fs::read_to_string(dir.join("_locales").join(locale).join("messages.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|msgs| {
+            msgs.as_object()?.iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(key))
+                .and_then(|(_, v)| v.get("message")?.as_str().map(str::to_string))
+        })
+        .unwrap_or_else(|| raw.to_string())
+}
+
 /// The extensions present: each subfolder with a manifest.json.
 fn extensions_json() -> Value {
     let mut out = Vec::new();
@@ -230,9 +248,10 @@ fn extensions_json() -> Value {
             let manifest = e.path().join("manifest.json");
             let Ok(text) = std::fs::read_to_string(&manifest) else { continue };
             let m: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("extension");
             out.push(json!({
                 "folder": e.file_name().to_string_lossy(),
-                "name": m.get("name").and_then(|v| v.as_str()).unwrap_or("extension"),
+                "name": localized(&e.path(), &m, name),
                 "version": m.get("version").and_then(|v| v.as_str()).unwrap_or(""),
             }));
         }
@@ -628,6 +647,9 @@ fn place_all(app: &AppHandle) -> Result<(), String> {
     };
     for (id, label, at_home, placed, wake) in labels {
         let Some(wv) = app.get_webview(&label) else { continue };
+        // A page in its own fullscreen owns the screen until it leaves it; the
+        // panel's resize reports as the window grows would shrink it back.
+        if FULLSCREEN_TAB.lock().map(|f| f.as_deref() == Some(label.as_str())).unwrap_or(false) { continue; }
         let show = b.visible && active == Some(id) && !at_home;
         // A parked tab keeps whatever size it had; it is sized when it is shown.
         let want = if show { (b.x, b.y, b.w.max(1.0), b.h.max(1.0)) } else {
@@ -686,6 +708,87 @@ fn open_or_navigate(app: &AppHandle, url: Url) -> Result<Webview, String> {
         return Ok(wv);
     }
     new_tab(app, url)
+}
+
+/// The tab whose page is in element fullscreen (a video's fullscreen button),
+/// if any. See `page_fullscreen`.
+static FULLSCREEN_TAB: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// The window was maximised when the page went fullscreen, to restore after.
+static WAS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
+
+/// A page asked for fullscreen, or left it. A child webview's fullscreen only
+/// fills the webview, so a YouTube video went "fullscreen" inside the panel
+/// (23 Sep). Every browser answers by giving the page the whole screen: the
+/// window goes fullscreen and the page covers it; on the way out both return
+/// and the panel places the page again. Esc, the video's own button and F11
+/// all arrive here the same way.
+fn page_fullscreen(app: &AppHandle, label: String, on: bool) {
+    let app = app.clone();
+    // Off the WebView2 callback: window calls from inside it can wait on the
+    // same thread that is running it.
+    tauri::async_runtime::spawn(async move {
+        let (Some(window), Some(wv)) = (app.get_window("main"), app.get_webview(&label)) else { return };
+        if on {
+            if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = Some(label.clone()); }
+            // A maximised undecorated window keeps its client area clipped to
+            // the work area, and fullscreen inherited the clip: the page ended
+            // 49 px short, exactly where the taskbar sat over it (23 Sep, his
+            // window was maximised). Leave maximised first; put it back after.
+            let was_max = window.is_maximized().unwrap_or(false);
+            WAS_MAXIMIZED.store(was_max, Ordering::SeqCst);
+            if was_max { let _ = window.unmaximize(); }
+            let _ = window.set_fullscreen(true);
+            // A transparent window in fullscreen stays under the Windows 11
+            // taskbar (tauri#7328); he saw the bar over the video. Topmost for
+            // as long as the page is fullscreen puts it above.
+            // ponytail: stays topmost if he Alt-Tabs away mid-video; drop it on
+            // focus loss if that bothers anyone.
+            let _ = window.set_always_on_top(true);
+            // The window's size once it has become fullscreen, not the monitor's
+            // read at the call: sized that early the page stopped 49 px short of
+            // the bottom (23 Sep). Read until two reads agree.
+            let mut last = (0.0, 0.0);
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(60)).await;
+                let (Ok(px), Ok(scale)) = (window.inner_size(), window.scale_factor()) else { break };
+                let size = px.to_logical::<f64>(scale);
+                if (size.width, size.height) == last { break; }
+                last = (size.width, size.height);
+            }
+            let _ = wv.set_bounds(tauri::Rect {
+                position: LogicalPosition::new(0.0, 0.0).into(),
+                size: LogicalSize::new(last.0, last.1).into(),
+            });
+            tracing::info!(%label, w = last.0, h = last.1, "browser: page fullscreen");
+            let _ = wv.set_focus();
+        } else {
+            if let Ok(mut f) = FULLSCREEN_TAB.lock() { *f = None; }
+            tracing::info!(%label, "browser: page left fullscreen");
+            let _ = window.set_always_on_top(false);
+            let _ = window.set_fullscreen(false);
+            if WAS_MAXIMIZED.swap(false, Ordering::SeqCst) { let _ = window.maximize(); }
+            if let Some(tab) = tabs().lock().list.iter_mut().find(|t| t.label == label) { tab.placed = None; }
+            let _ = place_all(&app);
+        }
+    });
+}
+
+/// ponytail: Windows only. WKWebView (macOS) needs `elementFullscreenEnabled`
+/// and its own window handling; there a video's fullscreen stays in the panel.
+#[cfg(windows)]
+fn hook_fullscreen(wv: &Webview, app: AppHandle, label: String) {
+    use webview2_com::ContainsFullScreenElementChangedEventHandler;
+    let _ = wv.with_webview(move |pw| unsafe {
+        let Ok(core) = pw.controller().CoreWebView2() else { return };
+        let handler = ContainsFullScreenElementChangedEventHandler::create(Box::new(move |sender, _| {
+            let mut on = windows_core::BOOL::default();
+            if let Some(s) = sender { s.ContainsFullScreenElement(&mut on)?; }
+            page_fullscreen(&app, label.clone(), on.as_bool());
+            Ok(())
+        }));
+        let mut token = 0i64;
+        let _ = core.add_ContainsFullScreenElementChanged(&handler, &mut token);
+    });
 }
 
 /// A new tab, in front, loading `url`.
@@ -825,6 +928,8 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<Webview, String> {
         .map_err(|e| format!("browser: could not open the page ({e})"))?;
     // Ads and trackers are answered before they leave the machine (Windows).
     crate::adblock::hook_requests(&wv, label.clone());
+    #[cfg(windows)]
+    hook_fullscreen(&wv, app.clone(), label.clone());
     place_all(app)?;
     watch_active_url(app);
     if at_home {
@@ -1405,6 +1510,16 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
             emit_state(&app);
             Ok(tabs_json())
         }
+        // The tab strip was dragged into a new order; `ids` is all of it, left
+        // to right. Ids it does not name keep their place at the end.
+        "order_tabs" => {
+            let ids: Vec<u64> = params.get("ids").and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_u64()).collect())
+                .unwrap_or_default();
+            tabs().lock().list.sort_by_key(|tab| ids.iter().position(|&i| i == u64::from(tab.id)).unwrap_or(usize::MAX));
+            emit_state(&app);
+            Ok(tabs_json())
+        }
         "close_tab" => {
             let id = params.get("id").and_then(|v| v.as_u64()).ok_or_else(|| "browser: \"id\" is required".to_string())? as u32;
             let label = {
@@ -1467,6 +1582,18 @@ pub async fn handle(app: AppHandle, op: &str, params: &Value) -> Result<Value, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_manifest_message_name_reads_from_its_locale() {
+        let dir = std::env::temp_dir().join(format!("cp-ext-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("_locales/en")).unwrap();
+        std::fs::write(dir.join("_locales/en/messages.json"), r#"{"extName":{"message":"uBlock Origin Lite"}}"#).unwrap();
+        let m = json!({ "default_locale": "en" });
+        assert_eq!(localized(&dir, &m, "__MSG_EXTNAME__"), "uBlock Origin Lite");
+        assert_eq!(localized(&dir, &m, "__MSG_missing__"), "__MSG_missing__");
+        assert_eq!(localized(&dir, &m, "Plain"), "Plain");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn an_address_bar_takes_urls_domains_and_words() {

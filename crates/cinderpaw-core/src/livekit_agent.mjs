@@ -401,6 +401,11 @@ function endpointing() {
   return defaults;
 }
 
+/** Google's async-reasoning live model, which takes a different session setup. */
+function extendedThinking() {
+  return (MODEL || '').includes('extended-thinking');
+}
+
 const REALTIME = {
   google: async () => {
     const google = await PLUGIN.google();
@@ -438,7 +443,16 @@ const REALTIME = {
       // WHEN_IDLE rather than INTERRUPT: the answer is spoken at the next
       // pause instead of cutting the assistant off mid-word. It is idle for
       // most of a long tool call, so "the next pause" is usually immediate.
-      toolResponseScheduling: 'WHEN_IDLE',
+      //
+      // Extended Thinking is the exception on both counts, per Google's Live
+      // guide: it refuses a session with no thinking level ("Thinking level
+      // must be specified for this model", every call, 22 Sep) and supports
+      // no function scheduling at all. `low` because a voice answer is
+      // waiting on it; the model still reasons in the background between
+      // turns, which is the point of picking it.
+      ...(extendedThinking()
+        ? { thinkingConfig: { thinkingLevel: 'low' } }
+        : { toolResponseScheduling: 'WHEN_IDLE' }),
       realtimeInputConfig: { automaticActivityDetection: endpointing() },
       // What the person speaks, when the app knows it. Left out, the server
       // detects it per utterance and gets it wrong on anything that is not
@@ -615,7 +629,7 @@ const talk = { agent: '', user: '', agentSpokeAt: 0 };
  * never a word of what was said. `turnMark` is called from the session's
  * state handlers and from the tool wrapper.
  */
-const turn = { n: 0, userEndAt: 0, tools: 0, toolMs: 0, open: false };
+const turn = { n: 0, userEndAt: 0, tools: 0, toolMs: 0, open: false, called: false, guarded: false };
 function turnMark(what, ms = 0) {
   if (what === 'user_end') {
     turn.n += 1;
@@ -623,6 +637,8 @@ function turnMark(what, ms = 0) {
     turn.tools = 0;
     turn.toolMs = 0;
     turn.open = true;
+    turn.called = false;
+    turn.guarded = false;
   } else if (what === 'tool' && turn.open) {
     turn.tools += 1;
     turn.toolMs += ms;
@@ -669,6 +685,46 @@ function nudgeToolReply(session, answeredAt, answer) {
     }
   }, TOOL_REPLY_GRACE_MS);
 }
+
+/**
+ * A lookup the model announced and never made.
+ *
+ * Measured 24 Sep on Gemini Live: asked for shampoos for seborrheic
+ * dermatitis, the model said "Caut acum pentru tine" and every turn of the
+ * call logged tools=0. The prompt already forbids exactly this ("saying you
+ * are doing something and calling ask_cinder are ONE action", briefing.rs)
+ * and the model ignores it. So the words are made true here: when the
+ * assistant's own transcript announces a search and no tool has started this
+ * turn, ask_cinder runs with what the person last said, the row appears on
+ * screen and the answer is spoken as for any other call.
+ *
+ * ponytail: a word list over the model's transcript, Romanian and English
+ * only. It can fire on a figure of speech ("let me check... no, I know
+ * this"), which costs one needless search; it misses other languages. Upgrade
+ * path: ask the model itself with a function-calling mode that forces a call
+ * when the turn is a request, once the plugin exposes toolConfig.
+ */
+const ANNOUNCES_LOOKUP =
+  /(?<![\p{L}])(caut|căut|cautam|căutăm|verific|mă uit|ma uit|mă interesez|ma interesez|searching|search(ing)? for|looking (it |that |this )?up|let me (check|look|search|find)|i'?ll (check|look|search|find)|checking)(?![\p{L}])/iu;
+/** How long after the announcement a real tool call still counts as "with it". */
+const ANNOUNCED_CALL_GRACE_MS = 1500;
+function guardAnnouncedLookup(tools, said, heard) {
+  if (PROVIDER !== 'google' || !ANNOUNCES_LOOKUP.test(said)) return;
+  if (turn.called || turn.guarded || !heard) return;
+  turn.guarded = true;
+  const n = turn.n;
+  setTimeout(() => {
+    if (turn.n !== n || turn.called) return;
+    const ask = tools[ASK_TOOL];
+    if (!ask) return;
+    console.log(`voice_guard turn=${n} announced_lookup_without_call=1`);
+    Promise.resolve(ask.execute({ request: heard }, {})).catch((e) => {
+      console.error(`voice guard lookup failed: ${String(e?.message ?? e)}`);
+    });
+  }, ANNOUNCED_CALL_GRACE_MS);
+}
+/** Matches `live::bridge::ASK_CINDER` in Rust. */
+const ASK_TOOL = 'ask_cinder';
 
 /** The id of one tool call: the call's session plus a counter, so two calls
  *  cannot both be "1". Minted by the caller and handed to Rust AND to the
@@ -741,6 +797,7 @@ function toolsFromDeclarations(session) {
       // Await the tool response; askRust applies the client timeout. The filler
       // timer below is best effort and stops when this callback settles.
       execute: async (args) => {
+        turn.called = true;
         // The call screen has a panel that shows what the agent is doing, and
         // for a LiveKit call it was always blank: `ask_cinder` is answered over
         // the loopback API, which the webview never sees. So a person asked for
@@ -870,6 +927,12 @@ async function assistant(ctx, makeSession) {
   // rather than a side channel because the pipe already exists and a second one
   // is a second thing that can be half-connected.
 
+  // Built once, before the handlers, so the lookup guard can run the same
+  // ask_cinder the model would have (row on screen, spoken answer and all).
+  const tools = toolsFromDeclarations(session);
+  /** The person's latest words, the request a guarded lookup is made with. */
+  let lastHeard = '';
+
   session.on(AgentSessionEventTypes.UserInputTranscribed, (e) => {
     // Interim results ARE forwarded, flagged as partial, and this is the whole
     // difference between a call that feels alive and one that reads as broken.
@@ -887,6 +950,7 @@ async function assistant(ctx, makeSession) {
     // the final into the conversation, so a sentence is not persisted ten times.
     const text = e.transcript?.trim();
     if (text) emit({ kind: 'heard', text, partial: !e.isFinal });
+    if (text) lastHeard = text;
   });
 
   session.on(AgentSessionEventTypes.ConversationItemAdded, (e) => {
@@ -896,6 +960,7 @@ async function assistant(ctx, makeSession) {
       ? item.content.filter((c) => typeof c === 'string').join(' ').trim()
       : String(item.textContent ?? '').trim();
     if (text) emit({ kind: 'said', text });
+    if (text) guardAnnouncedLookup(tools, text, lastHeard);
   });
 
   // The free Gemini tier rate-limits voice, and a session that dies from quota
@@ -1035,7 +1100,7 @@ async function assistant(ctx, makeSession) {
   });
 
   await session.start({
-    agent: new voice.Agent({ instructions: INSTRUCTIONS, tools: toolsFromDeclarations(session) }),
+    agent: new voice.Agent({ instructions: INSTRUCTIONS, tools }),
     room: ctx.room,
   });
 

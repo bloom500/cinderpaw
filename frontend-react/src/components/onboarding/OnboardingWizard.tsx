@@ -443,7 +443,7 @@ export function ProviderStep() {
         <h2 className="text-2xl font-semibold text-text-primary mb-2">Choose your brain</h2>
         <p className="text-sm text-text-muted">
           I need a model to think with. Run one privately on your machine, or plug in a cloud key.
-          You can skip this and set it up later in Settings.
+          You can skip this and set it up later in Models.
         </p>
       </div>
 
@@ -735,17 +735,17 @@ function CloudBranch() {
                 <ExternalLink size={12} /> Open {generic.name} console
               </a>
             )}
-            <p className="text-xs text-text-muted">Add your API key in Settings → Cloud Keys after the wizard.</p>
+            <p className="text-xs text-text-muted">Add your API key in Models → Cloud after the wizard.</p>
           </div>
         );
       })()}
 
       <button
         type="button"
-        onClick={() => { defer(); navigate('/settings'); }}
+        onClick={() => { defer(); navigate('/models?tab=cloud'); }}
         className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary transition-colors"
       >
-        More providers in Settings → Cloud Keys <ChevronRight size={12} />
+        More providers in Models → Cloud <ChevronRight size={12} />
       </button>
     </div>
   );

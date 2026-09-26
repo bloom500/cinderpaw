@@ -1,24 +1,18 @@
 /**
- * #20: minimal i18n layer for the RO/EN audience.
+ * The UI's strings, English only this release.
  *
- * Not a framework — a typed dictionary + a hook. The `language` preference
- * already exists in the UI store (Settings → General); this finally makes it
- * do something. Migration is incremental: components move to `useT()` as
- * they're touched, with the chat surface (highest visibility) first.
- *
- * To add a string: add the key to BOTH `en` and `ro` below — the `Strings`
- * type makes a missing `ro` key a compile error.
+ * A typed dictionary + a hook, kept on purpose: the next release adds ~70
+ * languages here, and every component that already calls `useT()` will pick
+ * them up without being touched. Until then new UI text is plain English and
+ * does not need a key.
  */
-
-import { useCallback } from 'react';
-import { useUI } from '@/stores/ui';
 
 const en = {
   // Chat input
   'chat.placeholder': 'Ask anything…',
   'chat.placeholder.agent': 'Ask Cinderpaw…',
   'chat.placeholder.noModel': 'Load a model or add a cloud key to start chatting',
-  'chat.noModelHint': 'No model loaded. Open Models to download one, or add a cloud key in Settings.',
+  'chat.noModelHint': 'No model loaded. Open Models to download one, or add a cloud key in Models, Cloud tab.',
   // Spoken by the product, not the model — there is no model to speak. See
   // ChatInput.noModelReply.
   'chat.noModel.reply':
@@ -126,7 +120,7 @@ const en = {
   // told them is the thing that just failed. Say what will be used instead,
   // and say it as a fact rather than as a problem they have to solve.
   'call.voicesUsingDefault': 'Voice list unavailable, using',
-  'call.voicesNeedKey': 'Add this engine’s key in Settings to choose a voice.',
+  'call.voicesNeedKey': 'Add this engine’s key to choose a voice.',
   'call.voiceIdPlaceholder': 'Voice id',
   'call.voicesAvailable': 'available',
   'call.voiceMore': 'Showing the most relevant. Paste any voice id to use another:',
@@ -173,7 +167,7 @@ const en = {
   'call.providerNoneShort': 'Echo (no key)',
   'call.groupPipeline': 'Transcribe, answer, speak',
   'call.groupS2s': 'Speech to speech',
-  'call.providerNone': '{provider} has no key stored, so this call will echo you back instead of answering. Add one in Settings → Cloud Keys.',
+  'call.providerNone': '{provider} has no key stored, so this call will echo you back instead of answering. Add one in Models → Cloud.',
   'call.liveEngine': 'Gemini Live',
   'call.liveNoKey': 'No Google API key stored. The same AI Studio key the chat side uses. Paste it below.',
   'call.liveClosed': 'Disconnected. Press call to reconnect.',
@@ -226,185 +220,14 @@ const en = {
   'chats.group.undated': 'Older',
 } as const;
 
-type Strings = Record<keyof typeof en, string>;
-
-const ro: Strings = {
-  'chat.placeholder': 'Întreabă orice…',
-  'chat.placeholder.agent': 'Întreabă Cinderpaw…',
-  'chat.placeholder.noModel': 'Încarcă un model sau adaugă o cheie cloud ca să începi',
-  'chat.noModelHint': 'Niciun model încărcat. Deschide Models ca să descarci unul, sau adaugă o cheie cloud în Settings.',
-  'chat.noModel.reply':
-    'Îmi trebuie un model ca să pot face asta. Pot rula unul mic direct pe calculatorul tău, merge și fără internet, sau pot folosi o cheie API, dacă ai deja una.',
-  'chat.noModel.download': 'Descarcă un model',
-  'model.automatic': 'Automat',
-  'model.add': 'Adaugă un model',
-  'chat.noModel.addKey': 'Adaugă o cheie',
-  'chat.routed.fallback': 'Am folosit modelul tău implicit. Alegerea automată n-a fost disponibilă.',
-  'chat.routed.why': 'De ce?',
-  'chat.stop': 'Oprește',
-  'chat.send': 'Trimite',
-  'empty.noModel.title': 'Niciun model selectat',
-  'empty.noModel.body': 'Încarcă un model local sau configurează o cheie cloud ca să începi conversația.',
-  'empty.noModel.openModels': 'Deschide Models',
-  'empty.noModel.cloudKeys': 'Chei cloud',
-  'empty.greeting.1': 'Cu ce te pot ajuta?',
-  'empty.greeting.2': 'La ce te gândești?',
-  'empty.greeting.3': 'Cum te pot ajuta azi?',
-  'empty.greeting.4': 'Ce ai vrea să explorezi?',
-  'empty.greeting.5': 'Ce construim împreună?',
-  'home.morning': 'Bună dimineața',
-  'home.afternoon': 'Bună ziua',
-  'home.evening': 'Bună seara',
-  'home.night.1': 'Hello, night owl',
-  'home.night.2': 'Staying up late again, night owl?',
-  'home.ask': 'Cu ce te pot ajuta?',
-  'home.intent.research': 'Caută',
-  'home.intent.create': 'Creează',
-  'home.intent.analyze': 'Analizează',
-  'home.intent.automate': 'Automatizează',
-  'empty.welcomeBack': 'Bine ai revenit la',
-  'chat.truncated.title': 'Răspuns trunchiat.',
-  'chat.truncated.body': 'Modelul a atins limita de tokeni înainte să termine',
-  'chat.truncated.hint.pre': 'Mărește',
-  'chat.truncated.hint.post': 'în Settings pentru răspunsuri mai lungi.',
-  'voice.permissionDenied': 'Acces la microfon refuzat. Activează-l ca să înregistrezi mesaje vocale.',
-  'voice.unsupported': 'Înregistrarea vocală nu este disponibilă pe acest dispozitiv.',
-  'voice.modelDownloading': 'Se descarcă modelul vocal. Încearcă din nou într-o clipă.',
-  'voice.emptyTranscript': 'Nu am putut înțelege înregistrarea. Mai încearcă o dată.',
-  'voice.transcribing': 'Transcriere…',
-  'voice.cloudFailed': 'Transcrierea în cloud a eșuat. Verifică conexiunea sau cheia.',
-  'voice.keySaveFailed': 'Nu am putut salva cheia API. Mai încearcă.',
-  'voice.provider.title': 'Alege transcrierea vocală',
-  'voice.provider.subtitle': 'Cum transformăm mesajele tale vocale în text? Poți schimba mai târziu (ține apăsat pe microfon).',
-  'voice.provider.local.title': 'Pe dispozitivul tău',
-  'voice.provider.local.desc': 'Privat · 100% offline · gratis. Cere o descărcare unică a modelului și e mai puțin precis decât varianta din cloud.',
-  'voice.provider.cloud.title': 'Cloud (Groq · whisper-large-v3)',
-  'voice.provider.cloud.desc': 'Mult mai precis · free tier. ⚠️ Audio-ul tău părăsește dispozitivul.',
-  'voice.provider.cloud.keyPlaceholder': 'Lipește cheia ta API Groq',
-  'voice.provider.cloud.getKey': 'Ia o cheie Groq gratis →',
-  'voice.provider.cloud.keySet': '✓ Cheia Groq salvată.',
-  'voice.provider.openrouter.title': 'Cloud (OpenRouter · Fish transcribe-1)',
-  'voice.provider.openrouter.desc': 'Detectează limba automat · facturat pe secundă în contul tău OpenRouter. ⚠️ Audio-ul tău părăsește dispozitivul.',
-  'voice.provider.openrouter.keyPlaceholder': 'Lipește cheia ta API OpenRouter',
-  'voice.provider.openrouter.getKey': 'Ia o cheie OpenRouter →',
-  'voice.provider.openrouter.keySet': '✓ Folosește cheia ta OpenRouter (aceeași ca la chat).',
-  'voice.provider.confirm': 'Folosește asta',
-  'call.aria': 'Începe un apel vocal',
-  'call.title': 'Apel vocal',
-  'call.disclosure': 'Înainte să se deschidă microfonul, astea se ocupă de apel:',
-  'call.stt': 'Vorbire → text',
-  'call.tts': 'Text → vorbire',
-  'call.mic': 'Microfon',
-  'call.tools': 'Unelte',
-  'call.toolsOff': 'niciuna în acest apel, răspunde din ce știe',
-  'call.micDefault': 'Implicit din sistem',
-  'call.onDevice': 'pe dispozitiv',
-  'call.leavesDevice': 'pleacă de pe dispozitiv',
-  'call.answer': 'Sună',
-  'call.setUpVoice': 'Alege o voce',
-  'call.noEngine':
-    'Cinderpaw nu are încă o voce cu care să vorbească. Versiunea aceasta are nevoie de una aleasă de tine: o voce care rulează pe calculatorul tău, sau o voce din cloud cu o cheie. Alege una și apelul va funcționa.',
-  'call.listening': 'Ascult…',
-  'call.thinking': 'Mă gândesc…',
-  'call.speaking': 'Vorbesc…',
-  'call.interrupt': 'Întrerupe',
-  'call.hangUp': 'Închide',
-  'call.turnFailed': 'Tura asta nu a mers. Încă ascult.',
-  'call.prompt': 'La ce te gândești?',
-  'call.voice': 'Voce',
-  'call.voiceDefault': 'Vocea implicită a furnizorului',
-  'call.voicesLoading': 'Se încarcă vocile…',
-  'call.voiceIdPlaceholder': 'Id de voce',
-  'call.voicesUsingDefault': 'Lista de voci nu e disponibilă, folosesc',
-  'call.voicesNeedKey': 'Adaugă cheia motorului în Setări ca să poți alege vocea.',
-  'call.voicesAvailable': 'disponibile',
-  'call.voiceMore': 'Arăt cele mai relevante. Lipește orice id de voce pentru altele:',
-  'call.tooShort': 'A fost prea scurt ca să pot transcrie. Mai zi un pic.',
-  'call.micSilent': 'Microfonul nu trimite semnal. Verifică dispozitivul de intrare sau dacă este pe mut.',
-  'call.noReply': 'N-a venit nimic de spus. Ai un model selectat?',
-  'call.replyFailed': 'Răspunsul a eșuat. Deschide panoul de chat ca să vezi de ce.',
-  'call.replyTimeout': 'A rămas mut un minut. Încă ascult.',
-  'call.thinkingAloud': 'O secundă.',
-  'call.stillWorking': 'Încă lucrez la asta.',
-  'call.stillWorkingLong': 'Durează un pic mai mult, încă lucrez.',
-  'call.almostThere': 'Sunt aici, încă mă ocup.',
-  'call.replyStopped': 'Răspunsul a fost întrerupt. Mai zi o dată.',
-  'call.voiceMissing': 'Motorul ăsta n-are încă nicio voce descărcată. Ia una din „Schimbă motorul de voce”.',
-  'call.keyNeeded': 'Motorul ăsta de voce are nevoie de o cheie API. Merge direct în keychain-ul sistemului.',
-  'call.keyNeededFor': 'Nu e salvată nicio cheie {provider}. Lipește una mai jos, merge direct în keychain-ul sistemului.',
-  'call.keyPlaceholder': 'Lipește cheia API',
-  'call.keySave': 'Salvează',
-  'call.chat': 'Chat',
-  'call.chatClose': 'Închide chatul',
-  'call.chatPlaceholder': 'Scrie în loc să vorbești…',
-  'call.mode': 'Tipul apelului',
-  'call.modePipeline': 'Transcrie → răspunde → vorbește',
-  'call.modeLive': 'Vorbire la vorbire (vechi)',
-  'call.modeLiveKit': 'Vorbire la vorbire',
-  'call.provider': 'Furnizor de voce',
-  'call.settings': 'Setări apel',
-  'call.settingsDone': 'Gata',
-  'call.model': 'Model',
-  'call.key': 'Cheie API',
-  'call.keyStored': 'O cheie e salvată. Lipește alta ca să o înlocuiești.',
-  'call.providerNoKey': 'fără cheie',
-  'call.engineUnset': 'nealeas încă',
-  'call.providerNoneShort': 'Ecou (fără cheie)',
-  'call.groupPipeline': 'Transcrie, răspunde, vorbește',
-  'call.groupS2s': 'Voce la voce',
-  'call.providerNone': '{provider} nu are o cheie salvată, deci apelul îți va întoarce ecoul în loc să-ți răspundă. Adaugă una în Setări → Chei cloud.',
-  'call.liveEngine': 'Gemini Live',
-  'call.liveNoKey': 'Nu e salvată nicio cheie Google. E aceeași cheie AI Studio pe care o folosește și chatul. Lipește-o mai jos.',
-  'call.liveClosed': 'Deconectat. Apasă pe apel ca să reconectezi.',
-  'call.liveConnecting': 'Se conectează…',
-  'call.stage.starting': 'Pornește motorul vocal…',
-  'call.stage.joining': 'Intră în apel…',
-  'call.stage.mic': 'Deschide microfonul…',
-  'call.reconnecting': 'Conexiune pierdută, se reconectează…',
-  'call.toolSearching': 'caută…',
-  'call.toolDone': 'gata',
-  'call.toolFailed': 'a eșuat',
-  'call.toolsRunning': 'sarcini în lucru',
-  'call.artifacts': 'Surse',
-  'call.artifactsClose': 'Închide sursele',
-  'call.artifactsClear': 'Golește',
-  'call.artifactsEmpty': 'Încă n-a căutat nimic. Căutările, fișierele și memoria ajung aici, cu linkurile lor.',
-  'engine.title': 'Alege vocea care îți răspunde',
-  'engine.subtitle': 'Motoarele locale țin fiecare replică pe mașina asta. Cele hostate cer cheia ta. Poți schimba mai târziu.',
-  'engine.soon': 'încă nu e în build',
-  'engine.keySaved': 'Cheie salvată, scrie una nouă ca s-o înlocuiești',
-  'engine.baseUrlPlaceholder': 'Base URL (Azure: https://<regiune>.tts.speech.microsoft.com)',
-  'engine.modelPlaceholder': 'Nume de model sau voce (opțional)',
-  'engine.getKey': 'Ia o cheie →',
-  'engine.change': 'Schimbă motorul de voce',
-  'engine.keyPresent': '✓ Există deja o cheie salvată pentru motorul ăsta',
-  'engine.keyRequired': 'Motorul ăsta are nevoie de o cheie ca să poată vorbi',
-  'engine.keyForget': 'Șterge-o',
-  'engine.save': 'Salvează',
-  'engine.cancel': 'Anulează',
-  'engine.voicePlaceholder': 'Voce',
-  'engine.downloadVoice': 'Descarcă vocea (~60 MB)',
-  'engine.downloading': 'Se descarcă vocea…',
-  'chats.untitled': 'Conversatie noua',
-  'chats.group.today': 'Azi',
-  'chats.group.yesterday': 'Ieri',
-  'chats.group.last7': 'Ultimele 7 zile',
-  'chats.group.last30': 'Ultimele 30 de zile',
-  'chats.group.undated': 'Mai vechi',
-};
-
-const DICTS = { en, ro } as const;
-
 export type StringKey = keyof typeof en;
 
 /** Non-reactive lookup for code outside React (stores, callbacks). */
 export function t(key: StringKey): string {
-  const lang = useUI.getState().language;
-  return DICTS[lang]?.[key] ?? en[key];
+  return en[key];
 }
 
-/** Reactive hook — re-renders the component when the language changes. */
+/** Same lookup as a hook, so components keep one call site for next release. */
 export function useT(): (key: StringKey) => string {
-  const lang = useUI((s) => s.language);
-  return useCallback((key: StringKey) => DICTS[lang]?.[key] ?? en[key], [lang]);
+  return t;
 }

@@ -20,7 +20,6 @@
     "console_url": "https://console.anthropic.com/settings/keys",
     "key_format": "sk-ant-",
     "key_format_hint": "Begins with sk-ant-…",
-    "free_tier_note": "Free trial credits — no card required.",
     "supports_custom_base_url": false,
     "auth_style": "x_api_key"
   },

@@ -75,9 +75,5 @@ describe('VoiceEngineCard', () => {
     // to everyone is the thing this pins against.
     expect(await screen.findByRole('button', { name: /amy/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /mihai/ })).toBeNull();
-
-    useUI.setState({ language: 'ro' });
-    await waitFor(() => expect(screen.getByRole('button', { name: /raluca/ })).toBeInTheDocument());
-    expect(screen.queryByRole('button', { name: /amy/ })).toBeNull();
   });
 });

@@ -195,7 +195,7 @@ export function CinderpawModelSelector() {
 
         {!hasLocal && !hasCloud && (
           <DropdownMenuItem disabled className="text-text-muted text-xs">
-            No models found. Load a model in the Models tab or add a cloud key in Settings
+            No models found. Load a model in the Models tab or add a cloud key in Models, Cloud tab
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useBrowser } from '@/stores/browser';
+import { tauri } from '@/lib/tauri';
 import { useSpeechPlayer } from './useSpeechPlayer';
 import { saveVoiceBlobToDisk, transcribeVoiceBlob } from './useSendMessage';
 import { rms, isVoiced, TRAIL_SILENCE_MS, MAX_UTTERANCE_MS, NO_SPEECH_TIMEOUT_MS } from '@/lib/vad';
-import { decide, execute, installedApps, interpretReply, resetTarget, splitSteps, DESKTOP_CONTROL_OFF, DESKTOP_NO_TREE, MIN_CONFIDENCE, MIN_CLICK_ACTION_CONFIDENCE } from '@/lib/jev';
-import { chime } from '@/lib/audio';
+import { decide, earlyFingerprint, runsLeft, execute, installedApps, interpretReply, resetTarget, splitSteps, DESKTOP_CONTROL_OFF, DESKTOP_NO_TREE, MIN_CONFIDENCE, MIN_EARLY_CONFIDENCE, MIN_CLICK_ACTION_CONFIDENCE } from '@/lib/jev';
+import { chime, decodeToPcm16k, wavBlob } from '@/lib/audio';
 import { forSpeech, isLikelyHallucination } from '@/lib/speechText';
 import { ensureSttModel } from '@/lib/voiceModel';
 import { t } from '@/lib/i18n';
@@ -26,11 +27,44 @@ import type { CallPhase, CallStage } from './useCallSession';
  */
 const FRAME_MS = 60;
 /**
+ * Into the terminal that runs the app as well as the webview console: the
+ * timings of a call (transcription, Jev, what ran early) are otherwise only
+ * readable with the devtools open, on the machine, by the person testing.
+ * Fire-and-forget, the way the conversation call logs; never a failed turn.
+ */
+const log = (message: string) => {
+  console.info(`[jev] ${message}`);
+  void tauri.raw.uiLog('jev', message).catch(() => {});
+};
+/**
  * A command can be one word. The conversation VAD wants 250 ms of voice before
  * it sends anything, and a plain "stop" is under that, so it never reached the
  * transcriber (21 Sep). Same trailing silence, same caps; only the floor moves.
  */
 const MIN_COMMAND_VOICED_MS = 120;
+/**
+ * A pause this long inside a sentence sends what was said so far to the
+ * transcriber and to Jev, while the sentence goes on. Shorter than the 900 ms
+ * that ends a command: the point is that "open Spotify" is running before
+ * "and play something" is out. Under this, a pause is a syllable.
+ */
+const PARTIAL_SILENCE_MS = 300;
+/**
+ * And this much voice with no pause at all sends one too: a sentence said in
+ * one breath never pauses, and the demo it chases opens the browser on the
+ * first syllable of the word (22 Sep). The transcriber usually completes a
+ * cut word; Jev picks from the list of apps and sites, not from letters, and
+ * below MIN_CONFIDENCE nothing runs. Each one is a transcription and a Jev
+ * request (~$0.0001); a five-second sentence makes about ten.
+ */
+const PARTIAL_VOICED_MS = 700;
+/**
+ * A partial costs a request, and the cloud transcriber counts them: Groq's free
+ * tier allows 20 a minute, and a round of six sentences hit the limit twice
+ * (22 Sep). Under this much new voice, whatever was said is a syllable, not a
+ * step: waiting for the pause is both cheaper and more likely to be a word.
+ */
+const MIN_PARTIAL_GROWTH_MS = 500;
 
 /**
  * What execute says back is either the action done ("Opening YouTube.", or
@@ -40,7 +74,8 @@ const MIN_COMMAND_VOICED_MS = 120;
 export function toneFor(line: string): 'ok' | 'fail' {
   // "3 matches for pricing." is `find` succeeding: it chimed as a failure,
   // was spoken as one, and ended the rest of a chain that was going fine.
-  return !line || /^(Opening|Searching|Switching)\b|^\d+ match(es)? for /.test(line) ? 'ok' : 'fail';
+  // The window and screenshot replies are successes too, for the same reason.
+  return !line || /^(Opening|Searching|Switching|Typing|Closing|Minimising|Maximising|Pick the area)\b|^\d+ match(es)? for /.test(line) ? 'ok' : 'fail';
 }
 
 /**
@@ -106,6 +141,15 @@ async function agentReply(sid: string): Promise<string> {
   return last?.content ?? '';
 }
 
+/** Does `whole` keep at least half the words of `part`? Punctuation and case aside. */
+export function keepsWordsOf(part: string, whole: string): boolean {
+  const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1);
+  const have = new Set(words(whole));
+  const need = words(part);
+  if (need.length === 0) return true;
+  return need.filter((w) => have.has(w)).length * 2 >= need.length;
+}
+
 function commandEnded({ spoke, voicedMs, silenceMs, elapsedMs }: { spoke: boolean; voicedMs: number; silenceMs: number; elapsedMs: number }): 'continue' | 'end' | 'abort' {
   const worth = voicedMs >= MIN_COMMAND_VOICED_MS;
   if (spoke && silenceMs >= TRAIL_SILENCE_MS) return worth ? 'end' : 'abort';
@@ -119,6 +163,9 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [heard, setHeard] = useState('');
   const [said, setSaid] = useState('');
+  /** The handoff the overlay keeps on screen: what went to Cinder, and what came back. Plain display, no phases. */
+  const [handoffText, setHandoffText] = useState('');
+  const [handoffReply, setHandoffReply] = useState('');
   const [level, setLevel] = useState(0);
   const [youSpeaking, setYouSpeaking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -144,6 +191,8 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
   /** Set when "stop" ended Cinder's run: what it had written by then is not its answer. */
   const agentStopped = useRef(false);
   const hangUpRef = useRef<() => void>(() => {});
+  /** The last partial's text and Jev's first answer on it, for the final to reuse. */
+  const lastDecision = useRef<{ text: string; first: Awaited<ReturnType<typeof decide>> } | null>(null);
   /** Bumped on hang-up: a loop that sees a different number stops. */
   const generation = useRef(0);
   const fallbackRef = useRef(fallback);
@@ -159,21 +208,36 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
     analyser.current = null;
   }, []);
 
-  /** One utterance, or null when nothing worth sending was said. */
-  const listenOnce = useCallback((mine: number) => new Promise<Blob | null>((resolve) => {
+  /**
+   * One utterance, or null when nothing worth sending was said. `onPartial`
+   * gets everything recorded so far at each short pause inside the sentence
+   * (a breath between "open Spotify" and "and play..."): the whole recording
+   * from the start, not the last piece, so no word is cut in half.
+   */
+  const listenOnce = useCallback((mine: number, onPartial: (blob: Blob) => void) => new Promise<{ blob: Blob; sincePartial: boolean } | null>((resolve) => {
     const s = stream.current;
     const a = analyser.current;
     if (!s || !a) return resolve(null);
     const rec = new MediaRecorder(s);
     recorder.current = rec;
     const chunks: Blob[] = [];
-    rec.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    let partialDue = false;
+    /** Whether a partial has gone out at all, and whether voice came after the last one. */
+    let anyPartial = false;
+    rec.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+      // Delivered only after `requestData`: the blob is built here, once the
+      // piece up to the pause is in, not on the tick that asked for it.
+      if (partialDue) { partialDue = false; onPartial(new Blob(chunks, { type: rec.mimeType || 'audio/webm' })); }
+    };
     const frame = new Float32Array(a.fftSize);
     const startedAt = Date.now();
     let spoke = false;
     let voiced = false;
     let voicedMs = 0;
     let quietSince = startedAt;
+    /** Voice heard since the last partial, in ms: a longer pause sends nothing new twice. */
+    let voicedSincePartial = 0;
     let verdict: 'continue' | 'end' | 'abort' = 'continue';
     const timer = window.setInterval(() => {
       if (generation.current !== mine) { verdict = 'abort'; rec.stop(); return; }
@@ -185,18 +249,27 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       const loud = muteRef.current || speaking.current > 0 ? 0 : rms(frame);
       setLevel(Math.min(1, loud * 8));
       voiced = isVoiced(loud, voiced);
-      if (voiced) { spoke = true; voicedMs += FRAME_MS; quietSince = Date.now(); }
+      if (voiced) { spoke = true; voicedMs += FRAME_MS; quietSince = Date.now(); voicedSincePartial += FRAME_MS; }
       setYouSpeaking(voiced);
-      verdict = commandEnded({ spoke, voicedMs, silenceMs: Date.now() - quietSince, elapsedMs: Date.now() - startedAt });
-      if (verdict !== 'continue') rec.stop();
+      const silenceMs = Date.now() - quietSince;
+      verdict = commandEnded({ spoke, voicedMs, silenceMs, elapsedMs: Date.now() - startedAt });
+      if (verdict !== 'continue') { rec.stop(); return; }
+      // A partial at every short pause, and every PARTIAL_VOICED_MS of voice
+      // without one: "open the browser" is running at "brow-", not after it.
+      if (voicedSincePartial >= MIN_PARTIAL_GROWTH_MS && voicedMs >= MIN_COMMAND_VOICED_MS && (silenceMs >= PARTIAL_SILENCE_MS || voicedSincePartial >= PARTIAL_VOICED_MS)) {
+        voicedSincePartial = 0;
+        anyPartial = true;
+        partialDue = true;
+        rec.requestData();
+      }
     }, FRAME_MS);
     rec.onstop = () => {
       window.clearInterval(timer);
       setYouSpeaking(false);
       // Every listen leaves a trace: "stop" said fifteen times and nothing
       // transcribed (21 Sep) is only diagnosable if the VAD says what it saw.
-      if (verdict !== 'continue' || spoke) console.info(`[jev] listen ${verdict}: voiced ${voicedMs}ms over ${Date.now() - startedAt}ms`);
-      resolve(verdict === 'end' ? new Blob(chunks, { type: rec.mimeType || 'audio/webm' }) : null);
+      if (verdict !== 'continue' || spoke) log(`listen ${verdict}: voiced ${voicedMs}ms over ${Date.now() - startedAt}ms`);
+      resolve(verdict === 'end' ? { blob: new Blob(chunks, { type: rec.mimeType || 'audio/webm' }), sincePartial: !anyPartial || voicedSincePartial > 0 } : null);
     };
     rec.start();
   }), []);
@@ -249,14 +322,23 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
     }
     agentBusy.current = true;
     agentStopped.current = false;
+    // The card keeps the pair on screen: the loop's next sentence rewrites `said`.
+    setHandoffText(text);
+    setHandoffReply('');
     show('Cinder is on it.');
     try {
       const sid = useChat.getState().sessionId;
       await fallbackRef.current(text);
       const reply = await agentReply(sid);
-      if (generation.current === mine && !agentStopped.current && reply.trim()) await speak(spokenReply(reply));
+      if (generation.current === mine && !agentStopped.current && reply.trim()) {
+        const out = spokenReply(reply);
+        setHandoffReply(out);
+        await speak(out);
+      }
     } catch (e) {
-      console.warn('[jev] hand-off to Cinder failed:', e);
+      log(`hand-off to Cinder failed: ${String(e)}`);
+      // The card would otherwise say "Cinder is on it." until the next handoff.
+      setHandoffReply('Cinder could not take that.');
       if (generation.current === mine) await speak('Cinder could not take that.', 'fail');
     } finally {
       agentBusy.current = false;
@@ -275,7 +357,7 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
     if (!ask || ask.questions.length !== 1) return false;
     const q = ask.questions[0];
     const read = await interpretReply(q, text).catch(() => null);
-    if (read && !read.reply) { console.info(`[jev] ask ${ask.id}: not an answer, taken as a command`); return false; }
+    if (read && !read.reply) { log(`ask ${ask.id}: not an answer, taken as a command`); return false; }
     // Answered on the pill while Jev was reading it: nothing left to answer.
     if (useAskUser.getState().pending?.id !== ask.id) return true;
     const answer = !read ? voiceAnswerFor(q, text)
@@ -283,7 +365,7 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
         : { question: q.question, selected: [], customText: text };
     setHeard(text);
     setSaid('');
-    console.info(`[jev] ask ${ask.id} answered by voice: ${answer.selected.length ? answer.selected.join(', ') : 'in their own words'}`);
+    log(`ask ${ask.id} answered by voice: ${answer.selected.length ? answer.selected.join(', ') : 'in their own words'}`);
     useAskUser.getState().submit([answer]);
     chime('ok');
     return true;
@@ -295,19 +377,31 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
    * sentence and several steps: Jev says whether it is compound, code cuts
    * it, and each step gets its own decision on the page it finds. A step that
    * fails ends the chain: the steps after it were counting on it.
+   *
+   * `early` is the same road on a sentence still being said: only the
+   * actions with an `earlyFingerprint` run, and the first step that is not
+   * one (or is not sure yet) ends the pass; the sentence's end will run it.
+   * `done` holds what an earlier pass of this sentence has already run, so
+   * "open spot", "open spotify", "open spotify and play" open Spotify once.
    */
-  const runCommand = useCallback(async (text: string, mine: number, typed = false) => {
+  const runCommand = useCallback(async (text: string, mine: number, typed = false, done = new Map<string, number>(), early = false) => {
+    // One word is a verb with nothing to act on: "Open" alone launched an app
+    // at 0.93 before "the browser" was out (22 Sep). The sentence's end runs it.
+    if (early && text.trim().split(/\s+/).length < 2) return;
     let first: Awaited<ReturnType<typeof decide>>;
     try {
-      first = await decide(text, useBrowser.getState().url || null);
+      // The end of a sentence is most often the text its last partial already
+      // put to Jev; the same question again is ~450 ms for the same answer.
+      first = !early && lastDecision.current?.text === text ? lastDecision.current.first : await decide(text, useBrowser.getState().url || null);
+      if (early) lastDecision.current = { text, first };
     } catch (e) {
       // On the pill, and out loud: the overlay holding the notice is hidden
       // exactly when the call is parked, and every sentence failed in silence.
-      console.warn('[jev] decide failed:', e);
+      log(`decide failed: ${String(e)}`);
       await speak(jevFault(e), 'fail');
       return;
     }
-    if (!typed && !first.addressed) { console.info(`[jev] not addressed, ignored: ${text.length}ch in ${first.ms}ms`); return; }
+    if (!typed && !first.addressed) { log(`not addressed, ignored: ${text.length}ch in ${first.ms}ms`); return; }
     // Shown only now: what the transcriber invents over silence or hears
     // from a video ("don't forget to subscribe") was on the pill as if the
     // person had said it (21 Sep). The last result goes with it: `said` wins
@@ -315,7 +409,7 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
     setHeard(text);
     setSaid('');
     const steps = first.compound ? splitSteps(text) : [text];
-    if (steps.length > 1 || first.compoundScore > 0.2) console.info(`[jev] compound=${first.compoundScore.toFixed(2)} steps=${steps.length}`);
+    if (steps.length > 1 || first.compoundScore > 0.2) log(`compound=${first.compoundScore.toFixed(2)} steps=${steps.length}`);
     for (let i = 0; i < steps.length; i++) {
       if (generation.current !== mine) return;
       let r = first;
@@ -323,13 +417,36 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
         try {
           r = await decide(steps[i], useBrowser.getState().url || null);
         } catch (e) {
-          console.warn('[jev] decide failed:', e);
+          log(`decide failed: ${String(e)}`);
           await speak(jevFault(e), 'fail');
           return;
         }
       }
       const plan = r.plan;
-      console.info(`[jev] ${steps.length > 1 ? `step ${i + 1}/${steps.length} ` : ''}${plan.action} conf=${plan.confidence.toFixed(2)} in ${r.ms}ms${r.desktop ? ' on the desktop' : ' in the app'}`);
+      log(`${early ? 'early ' : ''}${steps.length > 1 ? `step ${i + 1}/${steps.length} ` : ''}${plan.action} conf=${plan.confidence.toFixed(2)} in ${r.ms}ms${r.desktop ? ' on the desktop' : ' in the app'}`);
+      const fingerprint = earlyFingerprint(plan);
+      // A partial runs a step at most once; the end of the sentence runs what
+      // is left of its count ("close the last two tabs" = 2, minus any a
+      // partial already closed). Counted per step: see `repeatCount`.
+      const left = early ? (fingerprint && done.has(fingerprint) ? 0 : 1) : runsLeft(steps[i], fingerprint, done);
+      if (left === 0) continue;
+      if (early) {
+        if (!fingerprint || plan.confidence < MIN_EARLY_CONFIDENCE) return;
+        try {
+          const line = await execute(plan, r.desktop);
+          // A refusal is not said here: the sentence's end runs this step
+          // again and reports it, once, with the whole sentence heard.
+          if (toneFor(line) !== 'ok') return;
+          show(line);
+          done.set(fingerprint, (done.get(fingerprint) ?? 0) + 1);
+        } catch (e) {
+          log(`early ${plan.action} failed: ${String(e)}`);
+          return;
+        }
+        continue;
+      }
+      // After the early run: a partial never hangs up (it has no fingerprint,
+      // so it returned above); only the whole sentence does.
       if (plan.action === 'hang_up') {
         hangUpRef.current();
         return;
@@ -363,32 +480,89 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
         return;
       }
       try {
-        const line = await execute(plan, r.desktop);
-        if (toneFor(line) === 'ok') show(line);
-        else { await speak(line, 'fail'); return; }
+        // `left` times: once for most steps, N for "close the last two tabs",
+        // minus what a partial already did. The pause lets a closed tab or a
+        // scrolled page settle before the next key lands on it.
+        for (let n = 0; n < left; n++) {
+          if (n > 0) await new Promise((res) => setTimeout(res, 250));
+          const line = await execute(plan, r.desktop);
+          if (toneFor(line) !== 'ok') { await speak(line, 'fail'); return; }
+          if (n === left - 1) show(line);
+        }
+        if (left > 1) log(`${plan.action} run ${left} times`);
       } catch (e) {
         // The notice lives in the overlay, which is hidden behind the pill
         // exactly when these happen; the console keeps the reason too.
-        console.warn(`[jev] ${plan.action} failed:`, e);
+        log(`${plan.action} failed: ${String(e)}`);
         await speak(spokenFailure(e), 'fail');
         return;
       }
     }
   }, [speak, show, handOff]);
 
+  const transcribe = useCallback(async (blob: Blob, what: 'partial' | 'final', context?: string) => {
+    const t0 = Date.now();
+    // As WAV: the recording is cut while it runs, and a WebM cut that way has
+    // no duration in it (see `wavBlob`).
+    const wav = wavBlob(await decodeToPcm16k(blob));
+    const lang = useUI.getState().callLanguage;
+    const text = (await transcribeVoiceBlob(wav, await saveVoiceBlobToDisk(wav), context, lang && lang !== 'auto' ? lang : undefined)).trim();
+    log(`${what} transcribed in ${Date.now() - t0}ms: ${JSON.stringify(text)}`);
+    return text;
+  }, []);
+
   const loop = useCallback(async (mine: number) => {
     while (generation.current === mine) {
       setPhase('listening');
-      const blob = await listenOnce(mine);
+      // What this sentence has already done, and the partial pass in flight.
+      // Partials arrive faster than one is answered (every 400 ms of voice,
+      // ~700 ms each): only the newest is kept, the ones behind it are
+      // dropped, and the end of the sentence waits for the last one so it
+      // never repeats an action a partial has just run.
+      const done = new Map<string, number>();
+      /** The last partial heard, kept for when the final transcript disagrees with it. */
+      let lastPartial = '';
+      let newest: Blob | null = null;
+      let partials: Promise<void> | null = null;
+      const drain = async () => {
+        try {
+          while (newest && generation.current === mine) {
+            const sofar = newest;
+            newest = null;
+            const text = await transcribe(sofar, 'partial', lastPartial || undefined).catch(() => '');
+            if (!text || isLikelyHallucination(text) || useAskUser.getState().pending) continue;
+            lastPartial = text;
+            await runCommand(text, mine, false, done, true);
+          }
+        } finally {
+          partials = null;
+        }
+      };
+      const heard = await listenOnce(mine, (sofar) => {
+        newest = sofar;
+        if (!partials) partials = drain();
+      });
       if (generation.current !== mine) return;
-      if (!blob) continue;
+      if (!heard) continue;
       setPhase('thinking');
       let text = '';
       try {
-        text = (await transcribeVoiceBlob(blob, await saveVoiceBlobToDisk(blob))).trim();
+        // No voice since the last partial: that partial heard the whole
+        // sentence, and transcribing the same audio again (a fourth time, with
+        // the trailing silence) is where the final flipped language (22 Sep).
+        const final = heard.sincePartial ? transcribe(heard.blob, 'final', lastPartial || undefined) : null;
+        await partials;
+        // `null` means no voice followed the last partial, so that partial IS
+        // the whole sentence. A final that THREW is the opposite: the sentence
+        // went on and we cannot read its end, and acting on the last partial
+        // then ran "Okay, now click on the" as a click (22 Sep, after a rate
+        // limit). One is the sentence; the other is half of one.
+        text = final ? await final : lastPartial;
+        if (!final) log(`final = last partial: ${JSON.stringify(text)}`);
       } catch (e) {
         // On the pill as well as the overlay: `said` is what the pill shows,
         // and the overlay is hidden exactly when the call is parked.
+        log(`the end of the sentence did not transcribe, nothing run: ${e instanceof Error ? e.message : String(e)}`);
         setSaid(transcriptionFault(e));
         chime('fail');
         continue;
@@ -396,11 +570,19 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
       if (generation.current !== mine) return;
       // What the transcriber says over silence ("Thank you for watching", a
       // subtitle line in another script): never a command, never worth a request.
+      // The final transcript of "Open Spotify and play something" came back as a
+      // Romanian YouTube outro while its last partial had the sentence right (22
+      // Sep). The partial is a prefix of what was said: a final that keeps
+      // almost none of its words is the transcriber's invention, not the person's.
+      if (lastPartial && !keepsWordsOf(lastPartial, text)) {
+        log(`final disagrees with the last partial, using the partial: ${JSON.stringify(text)}`);
+        text = lastPartial;
+      }
       if (!text || isLikelyHallucination(text)) continue;
       if (await answerAsk(text)) continue;
-      await runCommand(text, mine);
+      await runCommand(text, mine, false, done);
     }
-  }, [listenOnce, answerAsk, runCommand]);
+  }, [listenOnce, transcribe, answerAsk, runCommand]);
 
   const open = useCallback(() => { setNotice(null); setPhase('ready'); }, []);
 
@@ -455,6 +637,8 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
     setPhase('idle');
     setHeard('');
     setSaid('');
+    setHandoffText('');
+    setHandoffReply('');
     setLevel(0);
     setYouSpeaking(false);
     setMutedState(false);
@@ -491,5 +675,5 @@ export function useJevCallSession(fallback: (text: string) => Promise<void>) {
   // itself never speaks and listens at once: the phase is the loop's, except
   // while a line is actually being said.
   const shown: CallPhase = talking && phase !== 'idle' && phase !== 'ready' ? 'speaking' : phase;
-  return { phase: shown, stage: null as CallStage, heard, said, level, youSpeaking, notice, transcribing: false, open, begin, hangUp, interrupt, say, muted, setMuted };
+  return { phase: shown, stage: null as CallStage, heard, said, handoffText, handoffReply, level, youSpeaking, notice, transcribing: false, open, begin, hangUp, interrupt, say, muted, setMuted };
 }

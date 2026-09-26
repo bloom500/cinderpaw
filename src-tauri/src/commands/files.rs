@@ -329,3 +329,30 @@ mod tests {
         assert!(denied_path_match(variant, base));
     }
 }
+
+/// The files the app was launched with (Send to > Cinderpaw), once. The chat
+/// page asks on mount and attaches them; a second call returns nothing.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn take_launch_files() -> Vec<String> {
+    crate::LAUNCH_FILES.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod launch_file_tests {
+    #[test]
+    fn keeps_existing_files_and_drops_the_program_and_links() {
+        let dir = std::env::temp_dir().join("cinderpaw-file-args-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+        let f = file.to_string_lossy().to_string();
+        let args = vec![
+            f.clone(), // argv[0] is the program, even when it is a real file
+            "cinderpaw://open".to_string(),
+            f.clone(),
+            dir.join("missing.txt").to_string_lossy().to_string(),
+        ];
+        assert_eq!(crate::file_args(&args), vec![f]);
+    }
+}

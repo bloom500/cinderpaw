@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy } from 'lucide-react';
 import { copyText as writeText } from '@/lib/clipboard';
+import { CopiedCheck } from '@/components/ui/copied-check';
 
 interface CodeBlockProps extends React.HTMLAttributes<HTMLPreElement> {
   children?: ReactNode;
@@ -36,7 +37,7 @@ export function CodeBlock({ children, ...rest }: CodeBlockProps) {
         className="absolute top-2 right-2 p-1 rounded bg-bg-elevated border border-border-subtle text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"
         aria-label="Copy code"
       >
-        {copied ? <Check size={12} /> : <Copy size={12} />}
+        {copied ? <CopiedCheck size={12} /> : <Copy size={12} />}
       </button>
       {children}
     </pre>

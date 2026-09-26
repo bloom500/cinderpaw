@@ -6,6 +6,18 @@ import { ChevronUp, Mic, MicOff, PhoneOff, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CallPillState } from '@/lib/callPill';
 
+/** What the pill says while a tool runs, by the tool's kind. */
+const WORK_VERB: Record<NonNullable<CallPillState['work']>['kind'], string> = {
+  agent: 'Cinder is working',
+  browser: 'Browsing',
+  files: 'Reading files',
+  terminal: 'Running a command',
+  memory: 'Remembering',
+  desktop: 'Using your desktop',
+  artifact: 'Writing',
+  generic: 'Working',
+};
+
 /**
  * The call pill's page: rendered alone in the `call-pill` window (see
  * `main.tsx`), over a transparent background. It owns nothing: every press is
@@ -82,19 +94,29 @@ export function CallPill() {
   }, [ask]);
 
   const phase = s?.phase ?? 'connecting';
+  const work = s?.work ?? null;
+  // A running clock is the difference between "working" and "stuck".
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!work) return;
+    const t = window.setInterval(() => tick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [work]);
+  const secs = work ? Math.max(0, Math.round((Date.now() - work.startedAt) / 1000)) : 0;
   const status = fault ? fault :
     ask ? 'Cinder is asking'
+      // Cinder's words first: a tool still running under her answer can wait.
       : phase === 'speaking' ? 'Cinder is speaking'
-        : s?.working ? 'Working'
-          : phase === 'thinking' ? 'Thinking'
-            : phase === 'reconnecting' ? 'Reconnecting'
-              : phase === 'connecting' ? 'Connecting'
-                : s?.muted ? 'Muted' : 'Listening';
+      : work ? `${WORK_VERB[work.kind]} · ${secs}s`
+        : phase === 'thinking' ? 'Thinking'
+          : phase === 'reconnecting' ? 'Reconnecting'
+            : phase === 'connecting' ? 'Connecting'
+              : s?.muted ? 'Muted' : 'Listening';
   // A running tool names itself over the last line, except while Cinder is
-  // talking: then the words are the thing to read.
-  const working = phase !== 'speaking' && !ask ? s?.working ?? null : null;
-  const line = working || s?.said || s?.heard || '';
-  const yours = Boolean(s && !working && !s.said && s.heard);
+  // talking or asking: then the words are the thing to read.
+  const subject = work && phase !== 'speaking' && !ask ? work.subject : '';
+  const line = subject || s?.said || s?.heard || '';
+  const yours = Boolean(s && !subject && !s.said && s.heard);
   const btn = 'flex size-9 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-bg-hover';
 
   return (
@@ -194,7 +216,7 @@ export function CallPill() {
                 <button
                   type="button"
                   onClick={() => { void emit('call-pill://open'); }}
-                  className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                  className="rounded-full bg-brand px-4 py-2 text-sm font-medium text-brand-foreground hover:opacity-90"
                 >
                   {ask.questions} questions: open Cinderpaw to answer
                 </button>
@@ -211,7 +233,7 @@ export function CallPill() {
                       onClick={() => { void emit('call-pill://answer', { id: ask.id, selected: [o.label] }); }}
                       className={cn(
                         'rounded-full px-4 py-2 text-sm font-medium transition-colors',
-                        o.recommended ? 'bg-brand text-white hover:opacity-90' : 'bg-bg-hover hover:bg-bg-active',
+                        o.recommended ? 'bg-brand text-brand-foreground hover:opacity-90' : 'bg-bg-hover hover:bg-bg-active',
                       )}
                     >
                       {o.label}

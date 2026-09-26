@@ -1,3 +1,5 @@
+import { tauri } from '@/lib/tauri';
+import { listen } from '@tauri-apps/api/event';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
@@ -19,6 +21,7 @@ import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
+import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
 import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
@@ -53,6 +56,26 @@ export function ChatPage() {
   const containerRef    = useRef<HTMLDivElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
   const chatInputRef    = useRef<ChatInputHandle>(null);
+  // Alt+Space (the host's global shortcut) brings the window up and lands the
+  // cursor here, so the next keystroke is the question.
+  useEffect(() => {
+    const focus = () => chatInputRef.current?.focus();
+    window.addEventListener('cinderpaw-focus-composer', focus);
+    return () => window.removeEventListener('cinderpaw-focus-composer', focus);
+  }, []);
+  // Explorer's Send to > Cinderpaw: files the app was started with, and files
+  // sent while it is already open, land in the composer as attachments.
+  useEffect(() => {
+    const attach = (paths: string[]) => { if (paths.length) chatInputRef.current?.attachPaths(paths); };
+    // Through a promise so a host (or a test double) without the command rejects instead of throwing.
+    void Promise.resolve().then(() => tauri.raw.takeLaunchFiles()).then(attach).catch(() => {});
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    void listen<string[]>('cinderpaw://attach-files', (e) => attach(e.payload))
+      .then((fn) => { if (cancelled) fn(); else unlisten = fn; })
+      .catch(() => {});
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
   const panelOpen       = useArtifacts((s) => s.panelOpen);
   const togglePanel     = useArtifacts((s) => s.togglePanel);
   const browserOpen     = useBrowser((s) => s.panelOpen);
@@ -313,6 +336,9 @@ export function ChatPage() {
           className="absolute inset-x-0 bottom-0 z-20 pt-8"
         >
           {isEmpty && !showAgentOnboarding && <HomeGreeting />}
+          {/* Workers the agent spawned with rlm(). They run after the reply
+              that started them, so the reply cannot show them. */}
+          <WorkersCard />
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
           <ComposerTip
@@ -349,7 +375,18 @@ export function ChatPage() {
     // A row, so the workspace can sit BESIDE the conversation rather than over
     // it. `min-w-0` on the column is what stops a long code line in a message
     // from pushing the panel off the edge instead of wrapping.
-    <div className="flex h-full">
+    // A file dropped anywhere on the page is attached, not only one aimed at
+    // the composer: the page is the target people actually aim at. The
+    // composer's own handler stops propagation by handling the drop first.
+    <div
+      className="flex h-full"
+      onDragOver={(e) => { if (Array.from(e.dataTransfer.types).includes('Files')) e.preventDefault(); }}
+      onDrop={(e) => {
+        if (e.defaultPrevented || !Array.from(e.dataTransfer.types).includes('Files')) return;
+        e.preventDefault();
+        chatInputRef.current?.attach(e.dataTransfer);
+      }}
+    >
     {/* min-w-[28rem]: the artifacts panel may widen only until the chat is this
         wide (CHAT_MIN_WIDTH in ArtifactsPanel). */}
     {/* In wide mode the column lives in the browser panel (from `chat`). */}

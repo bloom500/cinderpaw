@@ -2,6 +2,7 @@ mod agents;
 mod adblock;
 mod browser;
 mod call_pill;
+mod downloads_card;
 mod google;
 mod commands;
 mod connectors;
@@ -267,6 +268,65 @@ pub struct DownloadProgress {
 // ---------- Entry ----------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Files the app was launched with (Explorer's "Send to > Cinderpaw" passes
+/// their paths as arguments). Held until the chat page asks for them with
+/// `take_launch_files`, because at startup there is no page to hand them to.
+pub(crate) static LAUNCH_FILES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// The arguments that are files on disk. The first argument is the program
+/// itself; a deep link (`cinderpaw://...`) is not a file and is left alone.
+pub(crate) fn file_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .skip(1)
+        .filter(|a| !a.contains("://") && std::path::Path::new(a.as_str()).is_file())
+        .cloned()
+        .collect()
+}
+
+/// Appearance -> Background: Solid. Read from settings once at startup and
+/// flipped by `set_window_solid`; a static because the focus handler below
+/// runs on every focus change and must not read a file each time.
+pub(crate) static WINDOW_SOLID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The window material, in one place.
+///
+/// Built by a function rather than written twice, because the second caller is
+/// the focus handler: if the two ever disagree, the window quietly changes
+/// material the first time you click away from it and back, which is a bug
+/// nobody would think to look for in a config literal.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub(crate) fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
+    #[cfg(target_os = "windows")]
+    let effect = tauri::utils::WindowEffect::Acrylic;
+    #[cfg(target_os = "macos")]
+    let effect = tauri::utils::WindowEffect::UnderWindowBackground;
+
+    // Used only on Windows 10 and on Windows 11 below build 22523, where
+    // acrylic still goes through the legacy call that accepts a tint. Newer
+    // builds ignore it entirely. Kept rather than passing `None`, because on
+    // those older machines `None` means "whatever the crate defaults to", and a
+    // default nobody has seen is exactly the kind of thing that sits invisibly
+    // between the app and the desktop.
+    #[cfg(target_os = "windows")]
+    let color = Some(tauri::utils::config::Color(28, 24, 20, 24));
+    #[cfg(target_os = "macos")]
+    let color = None;
+
+    tauri::utils::config::WindowEffectsConfig {
+        effects: vec![effect],
+        // `Active`, not the default `FollowsWindowActiveState`. The default is
+        // literally "go opaque when the window is not the active one", which is
+        // why the glass kept collapsing the moment focus moved elsewhere. For a
+        // window somebody keeps beside their work — the whole point of a
+        // see-through app — inactive is most of the time it is on screen.
+        // macOS reads this (NSVisualEffectView's `state`); Windows ignores it,
+        // and gets the reapply-on-focus handler instead.
+        state: Some(tauri::utils::WindowEffectState::Active),
+        radius: None,
+        color,
+    }
+}
+
 pub fn run() {
     // Logs go to a FILE, not stdout. A GUI process on Windows has no visible
     // stdout, which meant every tracing line — including everything the
@@ -579,10 +639,16 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             save_byok_provider,
             remove_byok_provider,
             byok_has_key,
+            openrouter_sign_in,
+            set_window_solid,
+            cinderpaw_memory_forget,
+            take_launch_files,
             jev_decide,
             call_pill::call_pill_open,
             call_pill::call_pill_close,
             call_pill::main_in_front,
+            downloads_card::downloads_card_open,
+            downloads_card::downloads_card_close,
             test_byok_provider,
             chat_cloud_stream,
             chat_complete_local,
@@ -617,6 +683,7 @@ Everything is there and nothing is at risk. Cinderpaw will                      
             cinderpaw_cowork_approval_resolve,
             cinderpaw_cowork_send_message,
             cinderpaw_cowork_history,
+            cinderpaw_cowork_team,
             cinderpaw_artifact_op,
             cinderpaw_lora_reviews_list,
             cinderpaw_lora_review_resolve,
@@ -709,44 +776,6 @@ Everything is there and nothing is at risk. Cinderpaw will                      
     //     )
     //     .expect("failed to export specta bindings");
 
-/// The window material, in one place.
-///
-/// Built by a function rather than written twice, because the second caller is
-/// the focus handler: if the two ever disagree, the window quietly changes
-/// material the first time you click away from it and back, which is a bug
-/// nobody would think to look for in a config literal.
-#[cfg(any(target_os = "windows", target_os = "macos"))]
-fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
-    #[cfg(target_os = "windows")]
-    let effect = tauri::utils::WindowEffect::Acrylic;
-    #[cfg(target_os = "macos")]
-    let effect = tauri::utils::WindowEffect::UnderWindowBackground;
-
-    // Used only on Windows 10 and on Windows 11 below build 22523, where
-    // acrylic still goes through the legacy call that accepts a tint. Newer
-    // builds ignore it entirely. Kept rather than passing `None`, because on
-    // those older machines `None` means "whatever the crate defaults to", and a
-    // default nobody has seen is exactly the kind of thing that sits invisibly
-    // between the app and the desktop.
-    #[cfg(target_os = "windows")]
-    let color = Some(tauri::utils::config::Color(16, 14, 9, 24));
-    #[cfg(target_os = "macos")]
-    let color = None;
-
-    tauri::utils::config::WindowEffectsConfig {
-        effects: vec![effect],
-        // `Active`, not the default `FollowsWindowActiveState`. The default is
-        // literally "go opaque when the window is not the active one", which is
-        // why the glass kept collapsing the moment focus moved elsewhere. For a
-        // window somebody keeps beside their work — the whole point of a
-        // see-through app — inactive is most of the time it is on screen.
-        // macOS reads this (NSVisualEffectView's `state`); Windows ignores it,
-        // and gets the reapply-on-focus handler instead.
-        state: Some(tauri::utils::WindowEffectState::Active),
-        radius: None,
-        color,
-    }
-}
 
     let specta_builder_for_setup = specta_builder.clone();
     tauri::Builder::default()
@@ -818,6 +847,11 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
                 // exactly like an effect nobody asked for. This says which.
                 // `.window()`: the effect belongs to the OS window, the `eval`
                 // to the webview inside it.
+                // Solid background chosen: no material, and no class claiming
+                // one, so the stylesheet paints its own opaque ground.
+                if WINDOW_SOLID.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
                 match window.window().set_effects(window_effects()) {
                     Ok(()) => {
                         // Logged, because the failure is invisible: if this does
@@ -875,7 +909,9 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
             // on screen — which is the whole point of an app you keep beside
             // your work — so the inactive state is the one that has to hold the
             // material, and it is the only moment we get to say so.
-            if matches!(event, tauri::WindowEvent::Focused(_)) {
+            if matches!(event, tauri::WindowEvent::Focused(_))
+                && !WINDOW_SOLID.load(std::sync::atomic::Ordering::Relaxed)
+            {
                 if let Err(e) = window.set_effects(window_effects()) {
                     tracing::debug!("window effect: could not reassert on focus ({e})");
                 }
@@ -887,6 +923,14 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
         })
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Send to > Cinderpaw while the app is already open: the second
+            // instance carries the file paths; they go to the chat page.
+            let files = file_args(&args);
+            if !files.is_empty() {
+                crate::deep_link::focus_main_window(app);
+                let _ = app.emit("cinderpaw://attach-files", files);
+                return;
+            }
             // Warm launch on Windows/Linux: the OS spawns a second instance
             // with the deep-link URL as a CLI arg. The deep-link plugin's
             // `deep-link` feature (enabled on single-instance) has already
@@ -917,6 +961,53 @@ fn window_effects() -> tauri::utils::config::WindowEffectsConfig {
         .setup(move |app| {
             specta_builder_for_setup.mount_events(app);
             let _handle = app.handle().clone();
+
+            WINDOW_SOLID.store(settings::load().window_solid, std::sync::atomic::Ordering::Relaxed);
+            if let Ok(mut pending) = LAUNCH_FILES.lock() {
+                *pending = file_args(&std::env::args().collect::<Vec<_>>());
+            }
+
+            // Alt+Space from anywhere brings Cinderpaw to the front with the
+            // cursor in the composer. If another app already owns Alt+Space
+            // (PowerToys Run does), Ctrl+Alt+Space is tried instead, and the
+            // log says which one is live.
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+                let started = app.handle().plugin(
+                    tauri_plugin_global_shortcut::Builder::new()
+                        .with_handler(|app, _shortcut, event| {
+                            if event.state() != ShortcutState::Pressed {
+                                return;
+                            }
+                            // Window and page separately: `get_webview_window`
+                            // is None while a browser tab is open.
+                            if let Some(w) = app.get_window("main") {
+                                let _ = w.unminimize();
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                            if let Some(page) = app.get_webview("main") {
+                                let _ = page.eval("window.dispatchEvent(new Event('cinderpaw-focus-composer'))");
+                            }
+                        })
+                        .build(),
+                );
+                if let Err(e) = started {
+                    tracing::warn!("global shortcut: plugin did not start ({e})");
+                } else {
+                    let first = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+                    let second = Shortcut::new(Some(Modifiers::ALT | Modifiers::CONTROL), Code::Space);
+                    let gs = app.global_shortcut();
+                    match gs.register(first) {
+                        Ok(()) => tracing::info!("global shortcut: Alt+Space"),
+                        Err(e) => match gs.register(second) {
+                            Ok(()) => tracing::info!("global shortcut: Ctrl+Alt+Space (Alt+Space is taken: {e})"),
+                            Err(e2) => tracing::warn!("global shortcut: none registered ({e}; {e2})"),
+                        },
+                    }
+                }
+            }
 
             // The browser's ad blocker loads its lists in the background from
             // the start, so the first page opened is already covered.

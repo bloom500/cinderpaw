@@ -234,6 +234,23 @@
   html {
     font-family: 'Geist Variable', Geist, system-ui, sans-serif;
   }
+  /* A press you can feel. One button in 269 answered being pressed (23 Sep);
+     the rest changed colour on hover and then nothing, so a click read as
+     "did that land?". `scale`, not `transform`: it composes with whatever
+     transform a button already has instead of replacing it. In the base
+     layer, so any utility that sets `scale` still wins. */
+  @media (prefers-reduced-motion: no-preference) {
+    button:not(:disabled),
+    [role='button']:not([aria-disabled='true']) {
+      transition-property: scale, color, background-color, border-color, opacity, box-shadow;
+      transition-duration: 120ms;
+      transition-timing-function: ease-out;
+    }
+    button:not(:disabled):active,
+    [role='button']:not([aria-disabled='true']):active {
+      scale: 0.97;
+    }
+  }
 }
 
 @layer utilities {
@@ -494,9 +511,20 @@
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
+/* The person's own message bubble. It was solid brand orange, the loudest
+   thing on screen, so every line you wrote pulled the eye away from the reply
+   you were reading (24 Sep). A quarter of the caramel mixed into the page
+   colour: the bubble still reads as yours, it just stops shouting. Opaque on
+   purpose: the tail overlaps the bubble by a few pixels, and two translucent
+   fills would show that overlap as a darker notch. One definition serves both
+   themes because --brand and --bg-primary already change with the theme.
+   Declared inside each theme block below: a bare `:root` rule outside a layer
+   is what glass.test.ts forbids, and it caught this one. */
+
 :root[data-theme="dark"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
-  --bg-primary:      #100E09;
+  --bg-primary:      #1C1814;
+  --bubble-user:     color-mix(in oklab, var(--brand) 26%, var(--bg-primary));
   /* Translucent, because these two ARE the glass. Every card, panel, popover
      and menu in the app is painted with one of them, so making the pane
      see-through and leaving these opaque produced exactly what we had: a glass
@@ -531,15 +559,19 @@
   --bg-active:       rgba(53, 48, 39, 0.58);
   --border-subtle:   #2C2820;
   --border-default:  #3A342B;
-  --text-primary:    #F0E6D3;
-  --text-secondary:  #B8AC95;
   /* `muted` and `disabled` were tuned against flat #100E09. Over a lit scene
      they lost the little contrast they had: #4A4035 on this ground is about
      2:1, which is below the threshold for text of any size, and it is what the
      rail's "Nothing yet" line was set in — a sentence written to explain an
      empty screen, itself too faint to read. Both step up; the hierarchy between
      the four is unchanged. */
-  /* White, and the three tiers below it are white too — only dimmer.
+  /* Cream since 24 Sep (was a pure white scale): pure white on a dark ground
+     glares, and it is what made the app read "tech" rather than warm. The
+     tiers keep the old shape, close together, and glass.test.ts still holds
+     every one of them to 4.5:1 over both wallpaper extremes. The history of
+     why they sit so close to primary, which still applies:
+
+     White, and the three tiers below it are white too — only dimmer.
      Requested directly, and the glass is why it is also correct: warm
      mid-tones like the old #9A8B75 were drawn for a flat near-black page, and
      on a pane that is partly somebody's wallpaper they are the first thing to
@@ -561,19 +593,19 @@
      control that is off has to LOOK off — collapsing it into the rest trades
      one legibility bug for a worse one, where every button looks pressable
      and only some are. */
-   --text-primary:    #FFFFFF;
-   --text-secondary:  #F2F2F2;
-   --text-muted:      #E8E8E8;
+   --text-primary:    #EDE4D3;
+   --text-secondary:  #E6DCCB;
+   --text-muted:      #DDD2BF;
    /* The dimmest tier, and NOT a grey. #ADADAD was the one remaining grey in
       the app's voice — everything else had gone white-scale when the glass
       arrived — and grey is exactly what drowns first on a pane that is partly
       somebody's wallpaper. Still visibly "off" next to muted (84% white vs
       91%), which is all the disabled state needs. */
-   --text-disabled:   #CCCCCC;
+   --text-disabled:   #C2B7A5;
   --brand:           #C4843A;
   --brand-hover:     #D4944A;
   --brand-muted:     #6B4820;
-  --brand-foreground: #100E09;
+  --brand-foreground: #1C1814;
   --error:           #D4553A;
   --success:         #6A9E5A;
   --warning:         #D4A03A;
@@ -638,7 +670,8 @@
 
 :root[data-theme="light"] {
   /* ── Source of truth ────────────────────────────────────────────────── */
-  --bg-primary:      #FFF5EE;
+  --bg-primary:      #FAF6F0;
+  --bubble-user:     color-mix(in oklab, var(--brand) 26%, var(--bg-primary));
   /* Higher alpha than dark on purpose. Dark text over a blurred desktop loses
      contrast far faster than light text does — a bright wallpaper behind a 55%
      ivory panel puts near-black type on near-white ground with a photograph
@@ -765,7 +798,7 @@ html { accent-color: var(--brand); }
   /* 0.88 opaque was the same as no scene at all: the lights below it arrived
      at roughly 2% and the app read as flat black. The pane is thinner now and
      the lights are stronger, which is the whole point of having them. */
-  --scene-surface:       rgba(16, 14, 9, 0.30);
+  --scene-surface:       rgba(28, 24, 20, 0.30);
   /* Diffuse amber key light and restrained blue-violet counterlight. */
   --scene-key-light:     rgba(196, 132, 58, 0.50);
   --scene-counter-light: rgba(91, 97, 182, 0.38);
@@ -924,8 +957,8 @@ html.has-window-effect body::after  { opacity: calc(var(--scene-grain-opacity) *
    contrast in `test/glass.test.ts` still holds: the displacement moved pixels
    sideways, it never changed their luminance. */
 html.has-window-effect[data-theme="dark"] .app-pane {
-  backdrop-filter: saturate(1) brightness(0.80);
-  -webkit-backdrop-filter: saturate(1) brightness(0.80);
+  backdrop-filter: saturate(1) contrast(0.4) brightness(0.5);
+  -webkit-backdrop-filter: saturate(1) contrast(0.4) brightness(0.5);
 }
 html.has-window-effect[data-theme="light"] .app-pane {
   backdrop-filter: saturate(0.9) contrast(0.35) brightness(2.5);
@@ -951,7 +984,21 @@ html.has-window-effect[data-theme="light"] .app-pane {
    refraction during a slide, and `panelMotion` also defers the native
    webview resize. */
 
-/* The pane's own tint drops to a whisper, because the filter above is now
+/* 24 Sep evening: Glass looked exactly like Solid in the dark theme. The
+   0.80 tint on top of brightness(0.80) let ~16% of the desktop through, and
+   0.77 is the lowest that tint can go with that filter. So the filter does the
+   work instead, as it already did in light: contrast(0.4) squeezes any
+   wallpaper into a narrow dark band, and the tint drops to 0.40. The desktop's
+   colour and shapes come back; glass.test.ts floors still hold.
+
+   24 Sep, the Ember palette and his "more calm" call: the dark tint takes
+   the page's own warm hue (it was a cold rgb(10,10,12), which over a pale
+   wallpaper came out a muddy grey), and the light tint goes from a whisper to
+   a veil (0.02 let a busy wallpaper swirl behind every sentence). More tint
+   only raises contrast, so glass.test.ts floors still hold; the history
+   below explains how the pane got so thin in the first place.
+
+   The pane's own tint drops to a whisper, because the filter above is now
    doing the work the tint used to do badly. Dark sits at 0.25 — half of the
    0.49 a heavier veil needed, because contrast(0.37) carries more of the
    protection; that halving IS the extra transparency, measured: every text
@@ -961,8 +1008,8 @@ html.has-window-effect[data-theme="light"] .app-pane {
    palette blocks on specificity rather than on where it happens to sit in
    the file — the palette is declared both above and below this point, and
    source order alone would pick the wrong one. */
-html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(10, 10, 12, 0.73); }
-html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238, 0.02); }
+html.has-window-effect[data-theme="dark"] { --scene-surface: rgba(28, 24, 20, 0.40); }
+html.has-window-effect[data-theme="light"] { --scene-surface: rgba(250, 246, 240, 0.35); }
 /* ── The two dials, and the trade they sit on ──────────────────────────────
    The window is genuinely transparent and Windows genuinely blurs behind it —
    both confirmed in the log at startup. So whether you can SEE through is
@@ -997,7 +1044,7 @@ html.has-window-effect[data-theme="light"] { --scene-surface: rgba(255, 245, 238
      thin (see --bg-surface). The desktop still comes through — as blur, as
      colour, as the tint the OS lays under all of it — it just no longer
      decides whether words are readable. */
-  --scene-surface:       rgba(16, 14, 9, 0.80);
+  --scene-surface:       rgba(28, 24, 20, 0.80);
 }
 :root[data-theme="light"] {
   --scene-key-light:     rgba(240, 168, 78, 0.20);

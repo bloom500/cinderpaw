@@ -1277,6 +1277,8 @@ export interface InboundMessage {
     // (payload `questionAction` + `answer`; the question id rides `id`).
     // The sidecar replies with a refreshed `code_patches`.
     | "rsi_question_resolve"
+    // Memory page: the person tells Cinderpaw to forget one fact (payload `forget`).
+    | "memory_forget"
     // Faza 4 (L2 LoRA) — the personal-adaptation gate. `train` runs one
     // full candidate cycle (dataset → trainer → paired eval → review card;
     // replies with `lora_train_result` + `lora_reviews`); `list` asks for
@@ -1299,6 +1301,10 @@ export interface InboundMessage {
     // otherwise live-only, so reopening a chat where teammates worked
     // showed nothing even though every row was still in the mailbox.
     | "cowork_history"
+    // The roster, for the Settings list: `teamAction` "list" answers with the
+    // teammates, "remove" deletes the one named by `toAgentId` first. Both
+    // reply with one `cowork_team_result`.
+    | "cowork_team_op"
     // Faza 6 (L6) Meta Evolution — the host queries/drives the MetaGenome
     // engine; the sidecar replies with one `meta_result` paired by `id`.
     | "meta_status" | "meta_evolve" | "meta_rollback" | "meta_history"
@@ -1382,6 +1388,8 @@ export interface InboundMessage {
    *  rides the plain `id` field. `answer` is required for "answer". */
   questionAction?: "answer" | "refuse" | "dismiss";
   answer?: string;
+  /** Forget payload (type === "memory_forget"): the one graph edge to drop. */
+  forget?: { from: string; to: string; relation: string };
   /** Workspace-panel payload (type === "artifact_op"). One message for the
    *  whole panel rather than five, because every inbound type costs a Tauri
    *  command, a specta binding and an entry in three allow-lists, and the panel
@@ -1418,6 +1426,8 @@ export interface InboundMessage {
   /** Cowork approval payload (type === "cowork_approval_resolve"); the
    *  request id rides the plain `id` field. */
   approvalAction?: "approve" | "reject";
+  /** Roster payload (type === "cowork_team_op"); "remove" names `toAgentId`. */
+  teamAction?: "list" | "remove";
   /** LoRA gate payloads. `loraAction` rides "rsi_lora_review_resolve" (the
    *  card id on the plain `id` field); `loraDomain` optionally scopes
    *  "rsi_lora_train" (default "general"). */
@@ -1683,6 +1693,40 @@ export type OutboundEvent =
         body: string;
         status: string;
         createdAt: number;
+        /** The teammate's stored answer to this message, when the person sent it. */
+        reply?: string;
+        /** True when `reply` is the reason the teammate could not answer. */
+        replyFailed?: boolean;
+      }[];
+    }
+  /** Answers a `cowork_team_op`: the roster as it stands after the action. */
+  | {
+      type: "cowork_team_result";
+      roster: {
+        id: string;
+        name: string;
+        role: string;
+        instructions: string;
+        /** null means every tool (a teammate made before tools were scoped). */
+        tools: string[] | null;
+        /** null means the Brain Stack routes per task. */
+        model: string | null;
+        createdAt: number;
+      }[];
+      /** The teammate a "remove" deleted. */
+      removed?: string;
+      /** Why the action could not be done, in words for the person. */
+      error?: string;
+      /** Requests a teammate is blocked on right now, for a client that
+       *  connected after they were raised (the terminal UI). */
+      pendingApprovals?: {
+        requestId: string;
+        agentId: string;
+        agentName: string;
+        description: string;
+        approvalClass: string;
+        threadId?: string;
+        createdAt: number;
       }[];
     }
   | {
@@ -1734,6 +1778,8 @@ export type OutboundEvent =
       /** What it is doing right now, or why it ended. */
       detail?: string;
       durationMs?: number;
+      /** The worker's final answer (bounded), on the settling event only. */
+      answer?: string;
       traceId?: string;
     }
   | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }

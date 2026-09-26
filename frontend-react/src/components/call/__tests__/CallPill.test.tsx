@@ -14,7 +14,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 
 const state = (over: Partial<CallPillState> = {}): CallPillState => ({
-  phase: 'listening', heard: '', said: '', muted: false, canMute: true, ask: null, working: null, ...over,
+  phase: 'listening', heard: '', said: '', muted: false, canMute: true, ask: null, work: null, ...over,
 });
 
 describe('CallPill', () => {
@@ -45,10 +45,11 @@ describe('CallPill', () => {
 
   it('names the tool at work while a call is parked, and gives way to Cinder speaking', () => {
     render(<CallPill />);
-    act(() => push?.({ payload: state({ said: 'One moment.', working: 'weather in Cluj' }) }));
-    expect(screen.getByText('Working')).toBeInTheDocument();
+    const work = { kind: 'generic' as const, subject: 'weather in Cluj', startedAt: Date.now() };
+    act(() => push?.({ payload: state({ said: 'One moment.', work }) }));
+    expect(screen.getByText(/^Working · \d+s$/)).toBeInTheDocument();
     expect(screen.getByText('weather in Cluj')).toBeInTheDocument();
-    act(() => push?.({ payload: state({ phase: 'speaking', said: 'It is sunny.', working: 'weather in Cluj' }) }));
+    act(() => push?.({ payload: state({ phase: 'speaking', said: 'It is sunny.', work }) }));
     expect(screen.getByText('Cinder is speaking')).toBeInTheDocument();
     expect(screen.getByText('It is sunny.')).toBeInTheDocument();
     act(() => push?.({ payload: state({ said: 'It is sunny.' }) }));
@@ -61,5 +62,11 @@ describe('CallPill', () => {
     const mute = screen.getByLabelText('Mute microphone');
     expect(mute).toBeDisabled();
     expect(mute).toHaveAttribute('title', 'This call engine has no microphone switch');
+  });
+  it('says what is running and for how long, instead of "Listening"', async () => {
+    render(<CallPill />);
+    act(() => push?.({ payload: state({ work: { kind: 'browser', subject: 'weather in Cluj', startedAt: Date.now() - 12_000 } }) }));
+    expect(await screen.findByText('Browsing · 12s')).toBeTruthy();
+    expect(screen.getByText('weather in Cluj')).toBeTruthy();
   });
 });

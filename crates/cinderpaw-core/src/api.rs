@@ -84,6 +84,12 @@ pub fn router(state: ApiState) -> Router {
         // (/runtime/chat, /tools, /connectors, /memory, /dreams) land next.
         .route("/runtime/chat", post(runtime_chat))
         .route("/runtime/ask/respond", post(runtime_ask_respond))
+        // Agent Cowork for the terminal: the roster plus the approvals a
+        // teammate is blocked on right now, and the way to answer one. The
+        // desktop app has its own Tauri commands; the TUI had nothing, so a
+        // teammate's request expired there unseen.
+        .route("/runtime/cowork/team", get(runtime_cowork_team))
+        .route("/runtime/cowork/approval", post(runtime_cowork_approval))
         .route(
             "/runtime/connectors",
             get(runtime_connectors_list).post(runtime_connectors_save),
@@ -1325,21 +1331,24 @@ async fn runtime_voice_tool(
         tracing::info!(call_id = %call.id, ms = started.elapsed().as_millis() as u64, "voice tool: answered");
         serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|_| json!({ "ok": true, "output": body }))
     } else {
-        // Not an error: the work is still running, and the model needs a
-        // sentence it can say out loud rather than a silence. The answer
-        // follows on its own as `toolLate`; the model is told NOT to re-ask,
-        // because a re-ask with one word changed used to start the work over.
+        // Not an error, and `ok` now says so: it used to say false, and the model
+        // read a slow search as a failure, told the caller a system error had
+        // occurred, then called the tool again to investigate the error it had
+        // just invented (22 Sep, twice in one call, the second time in Italian).
+        // `pending` says the work is unfinished; `ok` says whether anything went
+        // wrong. The answer follows on its own as `toolLate`, and the model is
+        // told NOT to re-ask: a re-ask with one word changed restarted the work.
         tracing::info!(
             call_id = %call.id,
             ms = started.elapsed().as_millis() as u64,
             "voice tool: still running past the deadline, holding reply sent"
         );
         json!({
-            "ok": false,
+            "ok": true,
             "pending": true,
             "output": "Still working on that one, it is taking longer than usual. \
-                       Tell the user you are still on it. The result will be handed to you \
-                       automatically when it is ready; do not repeat the request."
+                       Nothing has gone wrong. Tell the user you are still on it. The result will be handed to you \
+                       automatically when it is ready; do not repeat the request and do not report this as an error."
         })
     };
 
@@ -1630,6 +1639,78 @@ async fn runtime_ask_respond(
     };
     let payload =
         json!({ "type": "ask_user_response", "requestId": request_id, "answers": answers });
+    if tx.send(payload.to_string()).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    Json(json!({ "ok": true })).into_response()
+}
+
+/// `GET /runtime/cowork/team` — the teammate roster and the approvals a
+/// teammate is waiting on now, as the sidecar's `cowork_team_result`. The
+/// answer carries no id, so the first result after the request is taken: two
+/// clients asking at once both get a current roster, which is all it is.
+async fn runtime_cowork_team(State(state): State<ApiState>) -> Response {
+    let tx = { state.runtime.cinderpaw_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "cinderpaw-agent sidecar is not running")
+            .into_response();
+    };
+    let mut rx = state.runtime.events_tx.subscribe();
+    let msg = json!({ "type": "cowork_team_op", "teamAction": "list" }).to_string();
+    if tx.send(msg).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
+            .into_response();
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(left, rx.recv()).await {
+            Ok(Ok(ev)) => {
+                if ev.event != "cinderpaw://agent-output" {
+                    continue;
+                }
+                let Some(line) = ev.payload.get("data").and_then(|s| s.as_str()) else {
+                    continue;
+                };
+                let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+                if v.get("type").and_then(|t| t.as_str()) == Some("cowork_team_result") {
+                    return Json(v).into_response();
+                }
+            }
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => {
+                return (StatusCode::GATEWAY_TIMEOUT, "no answer from the agent about teammates")
+                    .into_response();
+            }
+        }
+    }
+}
+
+/// `POST /runtime/cowork/approval` — body: {requestId, action: approve|reject}.
+/// Answers a teammate's approval request. The verb is checked here so nothing
+/// else can be smuggled through; fire-and-forget like the desktop command, and
+/// the sidecar's terminal `cowork_event` on `/events` confirms it.
+async fn runtime_cowork_approval(
+    State(state): State<ApiState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    let Some(Json(v)) = body else {
+        return (StatusCode::BAD_REQUEST, "body required: {requestId, action}").into_response();
+    };
+    let request_id = v.get("requestId").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    let action = v.get("action").and_then(|x| x.as_str()).unwrap_or("");
+    if request_id.is_empty() || (action != "approve" && action != "reject") {
+        return (StatusCode::BAD_REQUEST, "body required: {requestId, action: approve|reject}")
+            .into_response();
+    }
+    let tx = { state.runtime.cinderpaw_agent_tx.lock().as_ref().cloned() };
+    let Some(tx) = tx else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "cinderpaw-agent sidecar is not running")
+            .into_response();
+    };
+    let payload =
+        json!({ "type": "cowork_approval_resolve", "id": request_id, "approvalAction": action });
     if tx.send(payload.to_string()).await.is_err() {
         return (StatusCode::SERVICE_UNAVAILABLE, "sidecar stopped accepting messages")
             .into_response();

@@ -96,6 +96,10 @@ pub struct Settings {
     /// company's logs.
     #[serde(default)]
     pub cloud_fallback_enabled: bool,
+    /// Appearance: paint the app on its own solid background instead of the
+    /// see-through window material. Off keeps the glass everyone has today.
+    #[serde(default)]
+    pub window_solid: bool,
 }
 
 fn default_rsi_budget() -> Option<f64> { Some(0.0) }
@@ -117,6 +121,7 @@ impl Default for Settings {
             security_acknowledged_at: None,
             active_route: None,
             cloud_fallback_enabled: false,
+            window_solid: false,
         }
     }
 }

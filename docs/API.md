@@ -54,6 +54,8 @@ the comment tags next to each `.route(` line.
 |---|---|---|---|---|
 | POST | `/runtime/chat` | unstable | govern | Sidecar-roundtrip chat. |
 | POST | `/runtime/ask/respond` | unstable | govern | Answer a pending `ask_user` question (`{requestId, answers}`); the question arrives as a typed `ask_user` SSE event on the chat stream. |
+| GET  | `/runtime/cowork/team` | unstable | read | The teammate roster (name, role, tools, model) and the approval requests a teammate is blocked on right now (`pendingApprovals`). |
+| POST | `/runtime/cowork/approval` | unstable | govern | Answer a teammate's approval request (`{requestId, action: "approve"\|"reject"}`); the verdict arrives as a `cowork_event` on `/events`. |
 | GET  | `/runtime/connectors` | unstable | read | Redacted state (enabled, filled secret keys, allowlist, channels, mode) per persisted connector. |
 | POST | `/runtime/connectors` | unstable | govern | Upsert one connector's config, then pokes the sidecar to reload. Never echoes secret values back. |
 | POST | `/runtime/connectors/reload` | unstable | govern | Sidecar reloads the connector catalog from disk. |
@@ -192,6 +194,8 @@ GET /runtime/lora/reviews
 POST /runtime/lora/reviews/resolve
 POST /runtime/lora/train
 POST /runtime/ask/respond
+GET /runtime/cowork/team
+POST /runtime/cowork/approval
 GET /runtime/manifest
 GET /runtime/models
 GET /runtime/providers/catalog

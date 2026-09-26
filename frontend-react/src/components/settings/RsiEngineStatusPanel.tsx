@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, Pause, RefreshCw, Square, Zap } from 'lucide-r
 import { tauri, type RsiStatus } from '@/lib/tauri';
 import { cn } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
+import { stopReasonWords } from '@/lib/rsiWords';
 
 /** Polling cadence for the engine status panel. Two seconds is the smallest
  *  interval that feels live without flooding the IPC channel; the engine
@@ -81,7 +82,7 @@ export function RsiEngineStatusPanel() {
       <div className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-3 text-xs text-text-muted">
         <div className="flex items-center gap-2 text-text-secondary">
           <AlertTriangle size={14} className="text-text-muted" />
-          <span>RSI engine status unavailable</span>
+          <span>Can&apos;t see the practice right now</span>
         </div>
         <p className="mt-1 text-text-disabled">{error}</p>
       </div>
@@ -91,7 +92,7 @@ export function RsiEngineStatusPanel() {
   if (!status) {
     return (
       <div className="flex items-center gap-2 px-4 py-3 text-xs text-text-muted">
-        <RefreshCw size={12} className="animate-spin" /> Loading engine status…
+        <RefreshCw size={12} className="animate-spin" /> Checking…
       </div>
     );
   }
@@ -105,14 +106,19 @@ export function RsiEngineStatusPanel() {
   const hardLimit = (status.max_total_cost_usd ?? null) !== null
     ? `$${(status.max_total_cost_usd as number).toFixed(2)}`
     : 'none';
-  const spendLine = `${budget > 0 ? `budget $${budget.toFixed(2)}` : 'local only'} · hard limit ${hardLimit}`;
+  const spendLine = `${budget > 0 ? `limit $${budget.toFixed(2)}` : 'free only'} · safety stop ${hardLimit}`;
+  const summary = !e
+    ? 'Getting ready.'
+    : `Tried ${e.iteration.toLocaleString()} ${e.iteration === 1 ? 'idea' : 'ideas'} so far${
+        status.main_tip_score != null ? `. The version in use scores ${status.main_tip_score.toFixed(2)} out of 1.` : '.'
+      }`;
 
   return (
     <div className="rounded-lg border border-border-subtle bg-bg-surface px-4 py-3 space-y-3">
       <header className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Activity size={14} className={running ? 'text-brand' : 'text-text-muted'} />
-          <span className="text-sm font-medium text-text-primary">Engine</span>
+          <span className="text-sm font-medium text-text-primary">Practice</span>
           <StatusPill running={running} stopReason={e?.stop_reason ?? null} engineKnown={e !== null} />
         </div>
         <div className="flex items-center gap-1">
@@ -137,16 +143,25 @@ export function RsiEngineStatusPanel() {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-2xs sm:grid-cols-4">
-        <Stat label="Iteration" value={e ? e.iteration.toLocaleString() : '-'} />
-        <Stat label="Best score" value={e?.best_score != null ? e.best_score.toFixed(3) : '-'} />
+      <p className="text-xs text-text-secondary">{summary}</p>
+
+      {/* The numbers stay for whoever wants them; the sentence above is what
+          most people need. Native <details>: no state, keyboard works. */}
+      <details className="group space-y-3">
+        <summary className="cursor-pointer select-none text-2xs text-text-muted hover:text-text-secondary">
+          Details for the curious
+        </summary>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-2xs sm:grid-cols-4 pt-2">
+        <Stat label="Tries" value={e ? e.iteration.toLocaleString() : '-'} />
+        <Stat label="Best try" value={e?.best_score != null ? e.best_score.toFixed(3) : '-'} />
         <Stat label="Spent" value={`$${(e?.cost_so_far_usd ?? 0).toFixed(4)}`} sub={spendLine} />
-        <Stat label="Main tip" value={status.main_tip ? status.main_tip.slice(0, 7) : '-'} sub={status.main_tip_score != null ? status.main_tip_score.toFixed(3) : 'no score'} />
+        {/* The score of the version in use, not its commit hash: a hash means nothing to the person reading it. */}
+        <Stat label="In use" value={status.main_tip_score != null ? status.main_tip_score.toFixed(3) : '-'} sub={status.main_tip ? 'current best version' : 'nothing kept yet'} />
       </div>
 
       <div className="flex items-center gap-3 text-2xs">
         <span className="flex items-center gap-1.5 text-text-secondary">
-          <Zap size={12} /> Concurrency
+          <Zap size={12} /> At once
         </span>
         <div className="flex items-center gap-1">
           {Array.from({ length: MAX_CONCURRENCY - MIN_CONCURRENCY + 1 }, (_, i) => MIN_CONCURRENCY + i).map((n) => {
@@ -156,7 +171,7 @@ export function RsiEngineStatusPanel() {
                 key={n}
                 type="button"
                 onClick={() => onConcurrencyChange(n)}
-                aria-label={`Set concurrency to ${n}`}
+                aria-label={`Practice ${n} at once`}
                 className={cn(
                   'min-w-[24px] rounded-md px-1.5 py-0.5 text-2xs transition-colors',
                   active
@@ -172,11 +187,12 @@ export function RsiEngineStatusPanel() {
         <span className="ml-auto text-text-muted">
           {e
             ? (e.concurrency < MIN_CONCURRENCY || e.concurrency > MAX_CONCURRENCY
-                ? 'clamped to 1..4 by the engine'
-                : 'applied on next pool refill')
+                ? 'kept between 1 and 4'
+                : 'starts with the next round')
             : '-'}
         </span>
       </div>
+      </details>
 
       {stopError && (
         <p className="text-2xs text-text-muted">
@@ -186,7 +202,7 @@ export function RsiEngineStatusPanel() {
       )}
 
       <p className="text-micro text-text-muted">
-        Engine autostarts on launch and re-reads <code className="text-text-secondary">CINDERPAW_RSI_MAX_COST_USD</code> on every restart. Set the USD cap in the section above.
+        Starts by itself when Cinderpaw opens. What it may spend is set in the section above.
       </p>
     </div>
   );
@@ -207,11 +223,11 @@ function StatusPill({ running, stopReason, engineKnown }: { running: boolean; st
     return <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-micro text-text-muted">starting…</span>;
   }
   if (running) {
-    return <span className="rounded-md bg-brand/15 px-1.5 py-0.5 text-micro text-brand">running</span>;
+    return <span className="rounded-md bg-brand/15 px-1.5 py-0.5 text-micro text-brand">practicing</span>;
   }
   return (
     <span className="rounded-md bg-bg-elevated px-1.5 py-0.5 text-micro text-text-secondary">
-      stopped{stopReason ? ` · ${stopReason}` : ''}
+      stopped{stopReason ? ` · ${stopReasonWords(stopReason)}` : ''}
     </span>
   );
 }

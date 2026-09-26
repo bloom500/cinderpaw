@@ -6,7 +6,8 @@ export type ThemePref = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 export type ReasoningMode = 'auto' | 'on' | 'off';
 export type ToolId = 'web_search' | 'http_request' | 'file_read' | 'file_write' | 'code_execute';
-export type LangPref = 'en' | 'ro';
+// English only this release; the next one adds ~70 languages.
+export type LangPref = 'en';
 export type InputMode = 'chat' | 'agent';
 /**
  * Which on-device transcription model to use, by id.
@@ -69,7 +70,6 @@ interface UIStore {
   reasoningMode: ReasoningMode;
   enabledTools: ToolId[];
   setTheme: (t: ThemePref) => void;
-  setLanguage: (l: LangPref) => void;
   searchOpen:  boolean;
   /**
    * Project the search should open narrowed to, when it was opened from
@@ -136,6 +136,16 @@ interface UIStore {
    *  build. Persisted: a model picked once is the model the next call uses. */
   s2sModel: Record<string, string>;
   setS2sModel: (provider: string, model: string) => void;
+  /**
+   * The language spoken on a call: `auto`, or a two-letter code. Auto is the
+   * default and sends none, because a language sent to Whisper or Gemini is an
+   * order, not a hint. A choice here is made on the call screen, where it is
+   * seen on every call, not in a settings page where it is forgotten: short
+   * English commands came back as Slovenian, Russian and Croatian on Auto
+   * (23 Sep), and an English OS forced English on Romanian speech.
+   */
+  callLanguage: string;
+  setCallLanguage: (lang: string) => void;
   setS2sProvider: (id: string | null) => void;
   /**
    * Chosen voice per engine id.
@@ -169,10 +179,6 @@ export const useUI = create<UIStore>()(
       language: 'en',
       reasoningMode: 'auto',
       enabledTools: [],
-      setLanguage: (language) => {
-        document.documentElement.lang = language;
-        set({ language });
-      },
       setTheme: (theme) => {
         const resolved = resolveTheme(theme);
         applyTheme(resolved);
@@ -205,6 +211,8 @@ export const useUI = create<UIStore>()(
       s2sProvider: null,
       setS2sProvider: (s2sProvider) => set({ s2sProvider }),
       s2sModel: {},
+      callLanguage: 'auto',
+      setCallLanguage: (callLanguage) => set({ callLanguage }),
       setS2sModel: (provider, model) =>
         set((st) => ({ s2sModel: { ...st.s2sModel, [provider]: model } })),
       ttsVoice: {},
@@ -216,7 +224,6 @@ export const useUI = create<UIStore>()(
       partialize: (s) => ({
         navCollapsed: s.navCollapsed,
         theme: s.theme,
-        language: s.language,
         // `reasoningMode` and `enabledTools` are deliberately NOT persisted any
         // more. The composer controls that set them are gone, so a saved value
         // would be a setting with no way back: someone who once picked
@@ -233,6 +240,7 @@ export const useUI = create<UIStore>()(
         callEngine: s.callEngine,
         s2sProvider: s.s2sProvider,
         s2sModel: s.s2sModel,
+        callLanguage: s.callLanguage,
         ttsVoice: s.ttsVoice,
       }),
       // Dropping the two keys from `partialize` only stops them being WRITTEN.
@@ -246,6 +254,9 @@ export const useUI = create<UIStore>()(
         const { reasoningMode: _r, enabledTools: _t, ...rest } =
           (persisted ?? {}) as Partial<UIStore>;
         const merged = { ...current, ...rest };
+        // The Romanian interface was removed; a machine that picked it still
+        // has 'ro' saved, and the voice shortlist and dates read this field.
+        merged.language = 'en';
         // A retired engine that is still stored is still selected. Same reason
         // as the two keys above: rehydration merges the saved blob over the
         // defaults, so the machine that has been using voice the longest is
@@ -264,7 +275,7 @@ export const useUI = create<UIStore>()(
         const resolved = resolveTheme(state.theme);
         applyTheme(resolved);
         state.resolvedTheme = resolved;
-        document.documentElement.lang = state.language ?? 'en';
+        document.documentElement.lang = 'en';
       },
     },
   ),

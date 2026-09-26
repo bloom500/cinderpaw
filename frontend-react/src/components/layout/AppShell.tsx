@@ -11,8 +11,10 @@ import { DownloadStatus } from './DownloadStatus';
 import { SideNav, NAV_W, NAV_COLLAPSED_W } from './SideNav';
 import { SearchOverlay } from '@/components/chat/SearchOverlay';
 import { UpdateToast } from '@/components/UpdateToast';
+import { WhatsNew } from '@/components/WhatsNew';
 import { AlphaNotice } from '@/components/AlphaNotice';
 import { Toasts } from '@/components/Toasts';
+import { CoworkApprovalDock } from '@/components/CoworkApprovalDock';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { OnboardingOrchestrator } from '@/components/onboarding/OnboardingWizard';
 import { cn, readLocal } from '@/lib/utils';
@@ -29,7 +31,7 @@ function WinControls() {
       <button
         type="button"
         onClick={() => void getCurrentWindow().minimize()}
-        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-white/5 transition-colors"
+        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-bg-hover transition-colors"
         aria-label="Minimize"
       >
         <Minus size={14} strokeWidth={1.5} />
@@ -37,7 +39,7 @@ function WinControls() {
       <button
         type="button"
         onClick={() => void getCurrentWindow().toggleMaximize()}
-        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-white/5 transition-colors"
+        className="h-8 w-10 flex items-center justify-center text-text-muted/70 hover:text-text-primary hover:bg-bg-hover transition-colors"
         aria-label="Maximize"
       >
         <Square size={12} strokeWidth={1.5} />
@@ -63,8 +65,13 @@ export function AppShell() {
   useDreamCycle();
 
   const navCollapsed = useUI((s) => s.navCollapsed);
-  const browserOpen = useBrowser((s) => s.panelOpen && !s.wide);
+  // The native page, when one is showing (the start page is React, not native).
+  const page = useBrowser((s) => (s.url ? s.pageRect : null));
   const searchOpen   = useUI((s) => s.searchOpen);
+  const navRight = (navCollapsed ? NAV_COLLAPSED_W : NAV_W) + 16;
+  // Room for the 320px column between the nav and the page?
+  const besidePage = !!page && page.x - navRight >= 320 + 16;
+  const overPage = !!page && !besidePage;
 
   // Silent update check once on startup; the toast appears only if one is available.
   // Opt-out via Settings → General (privacy: the check contacts GitHub Releases).
@@ -76,6 +83,7 @@ export function AppShell() {
   return (
     <div className="app-pane h-screen w-screen relative bg-bg-primary text-text-primary overflow-hidden">
       <SideNav />
+      <WhatsNew />
       {/* pt-14 on main clears the floating nav. The nav is translucent and sits
           over the page by design, but "over" must not mean "on top of the chat
           title": the page starts below it, so what shows through the glass is
@@ -148,17 +156,24 @@ export function AppShell() {
           `#root`'s z-index-1 stacking context lost to the call overlay's z-40
           outside it, so the errors that explain a failed call were invisible
           exactly when they were needed. */}
-      {/* The browser panel is a native page on the right, and a native page is
-          on top of anything React draws: a toast in that corner went under it
-          (21 Sep). With the panel open the stack moves to the chat side. */}
+      {/* The browser panel is a native page, and a native page is on top of
+          anything React draws: a toast over it went under it (21 Sep, and again
+          in wide mode on 23 Sep, where the old rule sent the stack right back
+          over the page). The column goes beside the page when there is room,
+          and when the page fills the canvas only the newest toast is shown, in
+          the toolbar band above the page. */}
       {createPortal(
         <div
-          className={cn('fixed top-11 z-200 w-80 flex flex-col gap-2 pointer-events-none', browserOpen ? 'left-0' : 'right-4')}
-          style={browserOpen ? { left: (navCollapsed ? NAV_COLLAPSED_W : NAV_W) + 16 } : undefined}
+          className={cn('fixed top-11 z-200 w-80 flex flex-col gap-2 pointer-events-none', besidePage ? 'left-0' : 'right-4')}
+          style={besidePage ? { left: navRight } : undefined}
         >
-          <AlphaNotice />
-          <UpdateToast />
-          <Toasts />
+          {/* A teammate blocked on the person, from any screen. Shown even over
+              a page: it expires in minutes, and a missed one is lost work. */}
+          <CoworkApprovalDock />
+          {/* Persistent cards wait until the page stops covering; they are not lost. */}
+          {!overPage && <AlphaNotice />}
+          {!overPage && <UpdateToast />}
+          <Toasts compact={overPage} />
         </div>,
         document.body,
       )}

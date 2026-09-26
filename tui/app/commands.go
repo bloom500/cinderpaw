@@ -39,6 +39,12 @@ var Registry = []Command{
 		Run: func(a *App, _ []string) tea.Cmd { return a.cmdSessions() }},
 	{Name: "status", Desc: "show model, provider, uptime, tokens",
 		Run: func(a *App, _ []string) tea.Cmd { a.cmdStatus(); return nil }},
+	{Name: "team", Desc: "your teammates, and approvals waiting on you",
+		Run: func(a *App, _ []string) tea.Cmd { return a.fetchCoworkCmd(true) }},
+	{Name: "approve", Args: "[n]", Desc: "approve what a teammate is waiting on",
+		Run: func(a *App, args []string) tea.Cmd { return a.resolveCoworkCmd(args, true) }},
+	{Name: "deny", Args: "[n]", Desc: "refuse what a teammate is waiting on",
+		Run: func(a *App, args []string) tea.Cmd { return a.resolveCoworkCmd(args, false) }},
 	{Name: "whoami", Desc: "show session key and gateway info",
 		Run: func(a *App, _ []string) tea.Cmd {
 			a.appendTranscriptLines([]string{

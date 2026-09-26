@@ -9,6 +9,7 @@ import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'framer-motion';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { startFrameLog } from './lib/frameLog';
 import './styles/globals.css';
 
 // Pre-paint theme: read persisted preference before React mounts to avoid a
@@ -35,7 +36,9 @@ import './styles/globals.css';
 // alone, over a transparent page, and talks to the app through events (see
 // `lib/callPill.ts`).
 const pill = window.location.hash === '#call-pill';
-if (pill) {
+// The browser's downloads card is the same kind of window (downloads_card.rs).
+const downloadsCard = window.location.hash === '#downloads-card';
+if (pill || downloadsCard) {
   document.documentElement.classList.add('call-pill');
   // The startup surface is an opaque sheet held until the app mounts; over a
   // transparent window it is the rectangle around the pill (21 Sep).
@@ -60,10 +63,14 @@ const mount = (node: ReactNode) =>
     </StrictMode>,
   );
 
+startFrameLog();
+
 // Each window loads only what it draws. The pill imported the whole app (2.7
 // MB of script) to show one strip, every time a call was parked: 735 ms of
 // script and 950 ms to its first pixel on a CPU slowed four times (25 Sep),
 // on top of the webview starting. The app's own window pays one more local
-// request for its chunk, under the startup sheet.
+// request for its chunk, under the startup sheet. The downloads card is the
+// same kind of small window, so it loads the same way.
 if (pill) void import('./components/call/CallPill').then(({ CallPill }) => mount(<CallPill />));
+else if (downloadsCard) void import('./components/browser/DownloadsPopup').then(({ DownloadsPopup }) => mount(<DownloadsPopup />));
 else void import('./App').then(({ default: App }) => mount(<App />));

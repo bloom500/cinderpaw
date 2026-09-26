@@ -449,8 +449,8 @@ func TestWizardFlow(t *testing.T) {
 	if a.Wizard.Step != WizHardware {
 		t.Fatalf("expected to stay on Engine (WizHardware), got %v", a.Wizard.Step)
 	}
-	if a.Wizard.Choice != WizChoiceLocal {
-		t.Fatal("GPU probe should pre-select Local")
+	if a.Wizard.Choice != WizChoiceCloud {
+		t.Fatal("Cloud should be highlighted on every machine, GPU or not")
 	}
 	// Select local + Enter → download screen.
 	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
@@ -701,13 +701,14 @@ func TestWizardE2ELocalPath(t *testing.T) {
 	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	assertStep(t, a, WizHardware, "Welcome→Engine")
 
-	// Engine: GPU probe pre-selects Local; Enter → download.
+	// Engine: Cloud is highlighted everywhere; "1" picks Local, Enter → download.
 	a.Update(HardwareProbeMsg{Info: &api.SystemInfo{
 		GpuName: "rtx 4070", VramTotalMB: 12 * 1024, RamTotalMB: 64 * 1024,
 	}})
-	if a.Wizard.Choice != WizChoiceLocal {
-		t.Fatal("GPU probe should pre-select Local")
+	if a.Wizard.Choice != WizChoiceCloud {
+		t.Fatal("Cloud should be highlighted on every machine, GPU or not")
 	}
+	a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
 	cmd := a.wizardHandleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	assertStep(t, a, WizLocalDownload, "Engine→LocalDownload")
 	if cmd == nil {

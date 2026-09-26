@@ -21,6 +21,15 @@
 (function () {
   'use strict';
 
+  /* The small windows on this bundle (the call pill, the browser's downloads
+   * card) are transparent and must never show the loading scene. main.tsx
+   * adds `call-pill` too, but only once the app's JavaScript has run, and by
+   * then the window had already painted the sleeping bear for a beat
+   * (downloads card, 24 Sep). Here it lands before the first paint. */
+  if (location.hash === '#call-pill' || location.hash === '#downloads-card') {
+    document.documentElement.classList.add('call-pill');
+  }
+
   /* This script runs BEFORE the app's JavaScript, which means before the
    * storage-key migration in `lib/localStorageMigration.ts`. On the first
    * launch after the rename the value is still under the old key, so reading

@@ -11,6 +11,18 @@
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
+/// WebView2 arguments for every window on the app's own profile. The main
+/// window gets the same string from tauri.conf.json, and they must match:
+/// windows sharing a profile share one browser process, and one started with
+/// different arguments fails to open.
+///
+/// `HardwareMediaKeyHandling` is off because Chromium registers the app as the
+/// system's media session while a call plays audio, and then the play/pause
+/// key Jev sends comes back to us instead of Spotify or the browser: "pause"
+/// and "play something" did nothing, on both (23 Sep). The rest is wry's
+/// default, which setting this string replaces.
+pub const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,HardwareMediaKeyHandling";
+
 pub const LABEL: &str = "call-pill";
 const WIDTH: f64 = 560.0;
 const HEIGHT: f64 = 64.0;
@@ -58,6 +70,7 @@ pub async fn call_pill_open(app: AppHandle) -> Result<(), String> {
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
+        .additional_browser_args(BROWSER_ARGS)
         .build()
         .map_err(|e| format!("call pill: could not open ({e})"))?;
     if let Some(w) = app.get_webview_window(LABEL) {
@@ -106,7 +119,9 @@ pub fn main_out_of_sight(app: &AppHandle) -> bool {
 #[specta::specta]
 #[allow(unreachable_code)]
 pub fn main_in_front(app: AppHandle) -> bool {
-    let Some(main) = app.get_webview_window("main") else { return false };
+    // `get_window`, not `get_webview_window`: the latter is None whenever the
+    // built-in browser has a tab open (more than one webview in the window).
+    let Some(main) = app.get_window("main") else { return false };
     #[cfg(windows)]
     {
         use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, GA_ROOTOWNER};
@@ -139,4 +154,13 @@ pub async fn call_pill_close(app: AppHandle) -> Result<(), String> {
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
     Err("call pill: the old window did not close".into())
+}
+
+#[cfg(test)]
+mod browser_args_tests {
+    #[test]
+    fn the_main_window_and_the_pill_start_webview2_the_same_way() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["app"]["windows"][0]["additionalBrowserArgs"].as_str(), Some(super::BROWSER_ARGS));
+    }
 }

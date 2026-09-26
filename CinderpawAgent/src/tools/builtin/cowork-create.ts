@@ -12,7 +12,7 @@
  * gain no cowork surface. But that also meant the first teammate could never
  * be created from chat, and boot.ts said so in a comment: "creating your first
  * teammate requires a restart to gain the tools". This tool is therefore
- * registered ALWAYS, and it registers the other two itself the moment the
+ * registered ALWAYS, and it registers the roster tools itself the moment the
  * roster stops being empty. No restart, and the fresh-install contract is
  * unchanged: with no teammates, the only cowork tool present is the one that
  * makes them.
@@ -34,8 +34,18 @@ import type { Tool, ToolManifest } from "../../types.ts";
 import type { CoworkAgentRepo } from "../../cowork/agent-store.ts";
 import type { CoworkMailboxRepo } from "../../cowork/mailbox.ts";
 import type { ToolRegistry } from "../registry.ts";
-import { createCoworkTeamTool, createCoworkSendTool } from "./cowork.ts";
+import { isReservedTeammateName, registerCoworkRosterTools } from "./cowork.ts";
+import { NOTEBOOK_CHILD_TOOLS } from "./notebook.ts";
 import { readEnv } from "../../config.ts";
+
+/**
+ * What a teammate may touch when nobody said: read-only, the same set an
+ * `rlm()` worker gets. Omitting `tools` used to mean EVERY tool, running
+ * unattended, while the approval gate only catches destructive shell commands
+ * and non-GET requests. The August design said a new teammate starts with
+ * everything gated; this is that default, reached by the path people take.
+ */
+export const TEAMMATE_DEFAULT_TOOLS: readonly string[] = NOTEBOOK_CHILD_TOOLS;
 
 /** Slug used when the caller does not supply an id: readable in paths and logs. */
 function slugify(name: string): string {
@@ -89,7 +99,7 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
       tools: {
         type: "array",
         description:
-          "Tool names this teammate may call. Keep it to what the role actually needs: every tool listed is re-sent as schema on each of their completions, so a long list makes them slow. Omit for unrestricted (not recommended); pass [] for a teammate that only reads and replies.",
+          "Tool names this teammate may call. Keep it to what the role actually needs: every tool listed is re-sent as schema on each of their completions, so a long list makes them slow. Omit for a read-only set (read files, search, fetch pages); pass [] for a teammate that only thinks and replies. Anything that writes, sends or runs commands must be listed on purpose.",
         required: false,
       },
       model: {
@@ -151,8 +161,15 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
             (clash.name.toLowerCase() === name.toLowerCase()
               ? ". "
               : ` — "${name}" and "${clash.name}" both shorten to the id "${id}". `) +
-            `Pick another name, or say you want to change that one instead — ` +
+            `Pick another name, or change that one with cowork_update_teammate — ` +
             `this tool will not overwrite them.`,
+          error: "name_taken",
+        };
+      }
+      if (isReservedTeammateName(name, id)) {
+        return {
+          ok: false,
+          content: `"${name}" is reserved: it is how the person is addressed. Pick another name.`,
           error: "name_taken",
         };
       }
@@ -163,6 +180,9 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
       const requested = Array.isArray(args.tools)
         ? args.tools.filter((t): t is string => typeof t === "string")
         : undefined;
+      // Filtered to what this install has, so the default never names a tool
+      // that is missing here (a teammate "configured" with it would not be).
+      const tools = requested ?? TEAMMATE_DEFAULT_TOOLS.filter((t) => deps.registry.has(t));
       if (requested) {
         const unknown = requested.filter((t) => !deps.registry.has(t));
         if (unknown.length > 0) {
@@ -182,21 +202,13 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
         role,
         instructions: typeof args.instructions === "string" ? args.instructions : "",
         modelPin: typeof args.model === "string" && args.model.trim() ? args.model.trim() : undefined,
-        tools: requested,
+        tools,
       });
 
-      // First teammate: the mailbox tools become reachable NOW, not after a
+      // First teammate: the roster tools become reachable NOW, not after a
       // restart. Registering is idempotent-by-check so a second creation is a
       // no-op here.
-      const gained: string[] = [];
-      if (!deps.registry.has("cowork_team")) {
-        deps.registry.register(createCoworkTeamTool(deps.agents));
-        gained.push("cowork_team");
-      }
-      if (!deps.registry.has("cowork_send")) {
-        deps.registry.register(createCoworkSendTool(deps.agents, deps.mailbox));
-        gained.push("cowork_send");
-      }
+      const gained = registerCoworkRosterTools(deps.registry, deps.agents, deps.mailbox);
       deps.log?.(
         `cowork: created teammate "${agent.name}" (${agent.id})` +
           (gained.length > 0 ? ` — ${gained.join(" + ")} now available` : ""),
@@ -206,16 +218,17 @@ export function createCoworkCreateTool(deps: CoworkCreateDeps): Tool {
         agent.tools === undefined
           ? "every tool you have (unrestricted — consider narrowing this)"
           : agent.tools.length === 0
-            ? "no tools (they read and reply only)"
+            ? "no tools (they think and reply only)"
             : agent.tools.join(", ");
       return {
         ok: true,
         content:
-          `Created "${agent.name}" — ${agent.role}. Tools: ${scope}. ` +
-          (gained.length > 0
-            ? `cowork_team and cowork_send are now available. `
-            : "") +
-          `Hand them work with cowork_send; their replies appear in the Agent Cowork panel.`,
+          `Created "${agent.name}" — ${agent.role}. Tools: ${scope}` +
+          (requested ? ". " : " (the read-only default: they cannot write, send or run commands). ") +
+          (gained.length > 0 ? `${gained.join(", ")} are now available. ` : "") +
+          `Hand them work with cowork_send; their replies appear in the Agent Cowork panel ` +
+          `and you can read them with cowork_replies. Tell the user what they can and cannot ` +
+          `do; widen it with cowork_update_teammate if the user asks.`,
         data: {
           id: agent.id,
           name: agent.name,

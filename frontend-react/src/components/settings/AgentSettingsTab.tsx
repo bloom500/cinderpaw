@@ -6,8 +6,7 @@ import { useSettings } from '@/stores/settings';
 import { useNavigate } from 'react-router-dom';
 import { TOOL_LABELS } from '@/components/agents/agentUtils';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
-import { RsiEngineStatusPanel } from './RsiEngineStatusPanel';
-import { CinderpawDreamsPanel } from './CinderpawDreamsPanel';
+import { TeammatesSection } from './TeammatesSection';
 
 export function AgentSettingsTab() {
   const navigate          = useNavigate();
@@ -46,16 +45,13 @@ export function AgentSettingsTab() {
       <header className="space-y-1">
         <h2 className="text-lg font-semibold text-text-primary">Agent</h2>
         <p className="text-sm text-text-muted">
-          The single active agent that powers your chat. Delete to start over,
-          or switch to create a new one through the onboarding flow.
+          The assistant you talk to in chat. Delete it to start over, or make a
+          new one. How it learns on its own is under Learning.
         </p>
       </header>
 
-      <TokenBudgetToggle />
-      <RsiBudgetControl />
-      <RsiEngineStatusPanel />
-      <CinderpawDreamsPanel />
       <DesktopControlToggle />
+      <TokenBudgetToggle />
 
       <div className="flex items-center gap-2">
         <button
@@ -219,61 +215,8 @@ export function AgentSettingsTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
 
-/**
- * USD spend cap for the passive RSI background engine. Default $0 = local-only:
- * the free local engine self-improves forever and never spends; any paid cloud
- * spend halts. Raise it to allow bounded cloud spend.
- */
-function RsiBudgetControl() {
-  const settings    = useSettings((s) => s.settings);
-  const setRsiBudget = useSettings((s) => s.setRsiBudget);
-  const [busy, setBusy] = useState(false);
-
-  const budget = settings?.rsi_max_cost_usd ?? 0;
-
-  const PRESETS = [
-    { label: 'Local only ($0)', value: 0 },
-    { label: '$1',  value: 1 },
-    { label: '$5',  value: 5 },
-    { label: '$20', value: 20 },
-  ] as const;
-
-  const setPreset = async (value: number) => {
-    if (busy || !settings) return;
-    setBusy(true);
-    try { await setRsiBudget(value); } catch { /* rolled back */ } finally { setBusy(false); }
-  };
-
-  return (
-    <div className="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-text-primary">Background self-improvement budget</p>
-        <p className="text-xs text-text-muted mt-0.5">
-          Cinderpaw quietly improves itself in the background. Local models are free;
-          this caps what it may spend on <span className="text-text-secondary">paid cloud models</span>.
-          <span className="text-text-secondary"> $0 = never spend cloud money.</span>
-        </p>
-      </div>
-      <div className="flex gap-1 rounded-md border border-border-subtle p-1">
-        {PRESETS.map(({ label, value }) => (
-          <button
-            key={value}
-            type="button"
-            disabled={busy || !settings}
-            onClick={() => void setPreset(value)}
-            className={cn(
-              'flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50',
-              budget === value ? 'bg-brand text-on-brand' : 'text-text-secondary hover:bg-bg-hover',
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <TeammatesSection />
     </div>
   );
 }
@@ -327,10 +270,11 @@ function TokenBudgetToggle() {
     <div className="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-text-primary">Token budget</p>
+          <p className="text-sm font-medium text-text-primary">Limit per chat</p>
           <p className="text-xs text-text-muted mt-0.5">
-            Cap the number of tokens an agent can use per conversation.
-            Unlimited by default. You're responsible for your own inference costs.
+            Stop one chat from using too much of the model. Models count work in
+            tokens, about three quarters of a word each, and cloud models charge
+            for every one. Off by default.
           </p>
         </div>
         <button
@@ -371,7 +315,7 @@ function TokenBudgetToggle() {
             ))}
           </div>
           <p className="text-2xs text-text-muted">
-            Tokens per conversation. When reached, the agent stops and lets you decide whether to continue.
+            Tokens per chat. When a chat reaches it, Cinderpaw stops and asks you whether to keep going.
           </p>
         </div>
       )}
@@ -431,11 +375,11 @@ export function DesktopControlToggle() {
     <div className="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-text-primary">Desktop control</p>
+          <p className="text-sm font-medium text-text-primary">Use my computer</p>
           <p className="text-xs text-text-muted mt-0.5">
-            Let the agent read and operate native apps through the OS
-            accessibility tree (the <span className="font-mono">computer_use</span> tool).
-            {windows ? ' Off by default.' : ' Off by default. macOS asks for the Accessibility permission the first time; Linux needs xdotool for keys and windows.'}
+            Let Cinderpaw open apps, click and type on your computer, the way you
+            would. Off by default.
+            {windows ? '' : ' macOS asks for the Accessibility permission the first time; Linux needs xdotool for keys and windows.'}
           </p>
         </div>
         <button
@@ -456,7 +400,7 @@ export function DesktopControlToggle() {
 
       {enabled && (
         <div className="space-y-2 pt-1 border-t border-border-subtle">
-          <p className="text-xs font-medium text-text-primary mt-2">Confirmation</p>
+          <p className="text-xs font-medium text-text-primary mt-2">Before it acts</p>
           <div className="flex gap-1 rounded-md border border-border-subtle p-1">
             <button
               type="button"
@@ -465,7 +409,7 @@ export function DesktopControlToggle() {
               className={segBtn(!yolo)}
               aria-pressed={!yolo}
             >
-              Safe: ask before each action
+              Ask me first
             </button>
             <button
               type="button"
@@ -474,13 +418,13 @@ export function DesktopControlToggle() {
               className={segBtn(yolo)}
               aria-pressed={yolo}
             >
-              YOLO: no prompts
+              Don't ask
             </button>
           </div>
           <p className="text-2xs text-text-muted">
             {yolo
-              ? 'YOLO: the agent clicks, types and sends without asking. Launching apps still confirms.'
-              : 'Safe: the agent asks you before any click, type or send.'}
+              ? 'Cinderpaw clicks, types and sends without asking. It still asks before opening an app.'
+              : 'Cinderpaw asks you before every click, every bit of typing, and every send.'}
           </p>
         </div>
       )}
@@ -488,8 +432,8 @@ export function DesktopControlToggle() {
       <p className="text-2xs text-text-muted flex items-center gap-1.5">
         <AlertCircle size={12} className="shrink-0" />
         {busy || yoloBusy
-          ? 'Restarting the agent…'
-          : 'Changes restart the agent briefly so the tool reloads.'}
+          ? 'Restarting Cinderpaw…'
+          : 'Changing this restarts Cinderpaw for a few seconds.'}
       </p>
     </div>
   );

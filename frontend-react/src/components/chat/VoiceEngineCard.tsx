@@ -48,28 +48,10 @@ const LOCAL_VOICES: Record<string, Record<LangPref, VoiceOffer>> = {
         { id: 'en_GB-northern_english_male-medium', label: 'northern · UK' },
       ],
     },
-    ro: {
-      // One voice, the good one. Four of them was a row of near-identical
-      // choices with no way for the user to tell them apart before
-      // downloading 60 MB each; mihai, lili and sanda are all still reachable
-      // by typing the id.
-      fallback: 'ro_RO-raluca-high',
-      offer: [{ id: 'ro_RO-raluca-high', label: 'raluca · high' }],
-      credit: 'raluca: eduardem, CC BY-NC 4.0',
-    },
   },
   kokoro: {
     // One list: this engine only has these voices, whatever the UI language is.
     en: {
-      fallback: 'af_heart',
-      offer: [
-        { id: 'af_heart', label: 'heart · US' },
-        { id: 'af_bella', label: 'bella · US' },
-        { id: 'am_michael', label: 'michael · US' },
-        { id: 'bf_emma', label: 'emma · UK' },
-      ],
-    },
-    ro: {
       fallback: 'af_heart',
       offer: [
         { id: 'af_heart', label: 'heart · US' },

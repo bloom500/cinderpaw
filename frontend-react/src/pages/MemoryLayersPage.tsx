@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNotifications } from '@/stores/notifications';
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react';
 import { tauri } from '@/lib/tauri';
 import type { MemoryGraphNodeView, DreamEpisode } from '@/lib/tauri';
+import { stopReasonWords, triggerWords } from '@/lib/rsiWords';
 import { rsiState, type RsiSnapshot, type RsiPhase } from './rsiState';
 
 /**
@@ -64,28 +66,19 @@ function formatClock(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
-function describeStop(stopReason: string | undefined): string {
-  if (!stopReason) return 'finished';
-  const s = stopReason.toLowerCase();
-  if (s.includes('plateau')) return 'converged on plateau';
-  if (s.includes('budget')) return 'hit the USD budget';
-  if (s.includes('token')) return 'hit the token limit';
-  if (s.includes('iter')) return 'finished the iteration budget';
-  if (s.includes('error')) return 'ended on error';
-  return stopReason;
-}
-
 /** Tier panel — shows the memories inside a single recency window. */
 function TierPanel({
   tier,
   nodes,
   totalAllTime,
   now,
+  onForget,
 }: {
   tier: Tier;
   nodes: MemoryGraphNodeView[];
   totalAllTime: number;
   now: number;
+  onForget: (n: MemoryGraphNodeView) => void;
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const total = totalAllTime;
@@ -141,13 +134,28 @@ function TierPanel({
                     setExpandedIdx(expanded ? null : i);
                   }
                 }}
-                className={`cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand ${expanded ? 'border-brand/50' : ''}`}
+                className={`group/row cursor-pointer rounded border border-border-subtle bg-bg-primary/40 px-3 py-2 transition hover:border-brand/60 hover:bg-bg-elevated focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-brand ${expanded ? 'border-brand/50' : ''}`}
               >
                 <div className="flex items-baseline justify-between gap-3 text-xs">
                   <span className="font-mono text-brand">{formatClock(n.touched_at)}</span>
                   <span className="text-text-muted">{formatTimeAgo(now, n.touched_at)}</span>
                 </div>
-                <div className="mt-1 text-xs text-text-primary">{n.label}</div>
+                <div className="mt-1 flex items-center gap-3">
+                  <span className="flex-1 text-xs text-text-primary">{n.label}</span>
+                  {/* Everything it knows about you is on this page, so everything
+                      on it can be taken back. Revealed on hover like a mail
+                      client's delete, always reachable by keyboard. */}
+                  {n.edge && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onForget(n); }}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="shrink-0 rounded-md border border-border-default px-2 py-0.5 text-micro text-text-secondary opacity-0 transition-opacity hover:border-error/60 hover:text-error-text focus-visible:opacity-100 group-hover/row:opacity-100"
+                    >
+                      Forget
+                    </button>
+                  )}
+                </div>
                 {expanded && (
                   <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro text-text-muted">
                     <span>type</span><span>{n.type}</span>
@@ -170,18 +178,17 @@ function DreamCard({ ep, now, bestScore }: { ep: DreamEpisode; now: number; best
     <div className="rounded border border-border-subtle bg-bg-primary/40 px-3 py-2">
       <div className="flex items-baseline justify-between gap-3 text-xs">
         <span className="font-mono text-brand">
-          {ep.iterations} {ep.iterations === 1 ? 'iteration' : 'iterations'}
+          {ep.iterations} {ep.iterations === 1 ? 'idea tried' : 'ideas tried'}
         </span>
         <span className="text-text-muted">{formatTimeAgo(now, ep.startedAt)}</span>
       </div>
       <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-micro text-text-secondary">
-        <span className="text-text-muted">trigger</span><span>{ep.trigger}</span>
-        <span className="text-text-muted">stop</span><span>{describeStop(ep.stopReason)}</span>
-        <span className="text-text-muted">tokens</span><span>{ep.tokens}</span>
-        <span className="text-text-muted">ratchets</span><span className={ep.ratchets > 0 ? 'text-warning' : ''}>{ep.ratchets}</span>
+        <span className="text-text-muted">why</span><span>{triggerWords(ep.trigger)}</span>
+        <span className="text-text-muted">ended</span><span>{ep.stopReason ? stopReasonWords(ep.stopReason) : 'finished'}</span>
+        <span className="text-text-muted">improvements</span><span className={ep.ratchets > 0 ? 'text-warning' : ''}>{ep.ratchets}</span>
         {improve && (
           <>
-            <span className="text-text-muted">best</span>
+            <span className="text-text-muted">best score</span>
             <span className="text-warning">{bestScore?.toFixed(1)}</span>
           </>
         )}
@@ -204,24 +211,24 @@ function RsiHud({ snapshot }: { snapshot: RsiSnapshot }) {
     : phase === 'ratcheted' ? 'bg-warning'
     : phase === 'error'    ? 'bg-error'
                             : 'bg-text-muted';
+  // Said the way a person would, not in the engine's words ("RSI", "ratchet",
+  // "champion", "params" are all names from the code).
   const label =
-    phase === 'dreaming' ? 'dreaming'
-    : phase === 'ratcheted' ? 'ratcheted'
-    : phase === 'error'    ? 'error'
-                            : 'idle';
+    phase === 'dreaming' ? 'Learning'
+    : phase === 'ratcheted' ? 'Improved'
+    : phase === 'error'    ? 'Learning paused'
+                            : 'Resting';
   const detail =
-    phase === 'dreaming' ? 'Cinderpaw is exploring new params'
-    : phase === 'ratcheted' ? snapshot.lastRatchetScore != null
-        ? `champion score ${snapshot.lastRatchetScore.toFixed(1)}`
-        : 'new champion applied'
+    phase === 'dreaming' ? 'trying better ways to answer you'
+    : phase === 'ratcheted' ? 'a better version is now in use'
     : snapshot.lastRatchetAt
-      ? `last ratchet ${formatTimeAgo(Date.now(), snapshot.lastRatchetAt)}`
-      : 'no ratchets yet';
+      ? `last improved ${formatTimeAgo(Date.now(), snapshot.lastRatchetAt)}`
+      : 'no improvements yet';
   return (
     <div className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-bg-surface px-3 py-1.5 text-2xs backdrop-blur-sm ${tone}`}>
       <span className={`h-2 w-2 rounded-full ${dot}`} />
       <Brain size={12} className="opacity-70" />
-      <span className="font-medium uppercase tracking-wide">RSI · {label}</span>
+      <span className="font-medium">{label}</span>
       <span className="opacity-70">· {detail}</span>
     </div>
   );
@@ -247,9 +254,14 @@ export function factsOf(graph: { nodes: MemoryGraphNodeView[]; edges: { from: st
     linked.add(to.id);
     rows.push({
       id: `${e.from} ${e.relation} ${e.to}`,
-      label: `${from.label} ${e.relation.replace(/_/g, ' ')} ${to.label}`,
+      // "language has Romanian" read as a database row. `is` and `has` carry
+      // no meaning a colon does not, so those become "Language: Romanian".
+      label: /^(is|has)$/i.test(e.relation)
+        ? `${from.label.charAt(0).toUpperCase()}${from.label.slice(1).replace(/_/g, ' ')}: ${to.label}`
+        : `${from.label} ${e.relation.replace(/_/g, ' ')} ${to.label}`,
       type: e.relation,
       touched_at: Math.max(from.touched_at, to.touched_at),
+      edge: { from: e.from, to: e.to, relation: e.relation },
     });
   }
   for (const n of graph.nodes) if (!linked.has(n.id)) rows.push(n);
@@ -313,17 +325,42 @@ export default function MemoryLayersPage() {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
+  /**
+   * Forget, with Undo. The row leaves at once; the agent is told only when the
+   * undo window ends, so Undo is a real undo and never has to re-add a fact.
+   * Only the fact goes: the conversation it came from stays in the history.
+   */
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const forget = useCallback((n: MemoryGraphNodeView) => {
+    const edge = n.edge;
+    if (!edge) return;
+    setHidden((h) => new Set(h).add(n.id));
+    const unhide = () => setHidden((h) => { const next = new Set(h); next.delete(n.id); return next; });
+    const timer = setTimeout(() => {
+      tauri.raw.memoryForget(edge.from, edge.to, edge.relation)
+        .then(() => setTimeout(() => { void refresh(); }, 400))
+        .catch((err: unknown) => {
+          unhide();
+          useNotifications.getState().push('error', 'Could not forget that', err instanceof Error ? err.message : String(err));
+        });
+    }, 5_000);
+    useNotifications.getState().push('info', 'Forgotten', n.label, {
+      label: 'Undo',
+      run: () => { clearTimeout(timer); unhide(); },
+    });
+  }, [refresh]);
+
   // Group nodes by tier (newest first).
   const tiers = useMemo(() => {
     const out: Record<Tier, MemoryGraphNodeView[]> = {
       today: [], week: [], month: [], older: [],
     };
-    for (const n of nodes) out[tierOf(now, n.touched_at)].push(n);
+    for (const n of nodes) if (!hidden.has(n.id)) out[tierOf(now, n.touched_at)].push(n);
     for (const t of Object.keys(out) as Tier[]) {
       out[t].sort((a, b) => b.touched_at - a.touched_at);
     }
     return out;
-  }, [nodes, now]);
+  }, [nodes, now, hidden]);
 
   const stats = useMemo(() => {
     const total = nodes.length;
@@ -435,7 +472,7 @@ export default function MemoryLayersPage() {
         {(Object.keys(tiers) as Tier[])
           .filter((t) => tiers[t].length > 0)
           .map((t) => (
-            <TierPanel key={t} tier={t} nodes={tiers[t]} totalAllTime={stats.total} now={now} />
+            <TierPanel key={t} tier={t} nodes={tiers[t]} totalAllTime={stats.total} now={now} onForget={forget} />
           ))}
 
         {/* ── CINDERPAW'S DREAMS ────────────────────────────────────── */}
@@ -446,13 +483,13 @@ export default function MemoryLayersPage() {
               Cinderpaw's Dreams
             </h2>
             <span className="text-xs text-text-muted">
-              {dreamLast.length} {dreamLast.length === 1 ? 'cycle' : 'cycles'}
+              {dreamLast.length} {dreamLast.length === 1 ? 'dream' : 'dreams'}
             </span>
           </header>
           {dreamLast.length === 0 ? (
             <p className="text-xs text-text-muted">
-              No dream cycles yet. Cinderpaw tunes its own parameters while you're away.
-              leave the app for ~5 minutes and the first dream will land here.
+              No dreams yet. Leave Cinderpaw alone for about 5 minutes and it starts
+              practicing on its own. Each practice shows up here.
             </p>
           ) : (
             <ul className="space-y-2">

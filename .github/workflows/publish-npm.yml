@@ -106,6 +106,24 @@ jobs:
             echo "CLI=target/release/cinderpaw-cli${{ matrix.binext }}" >> "$GITHUB_ENV"
           fi
 
+      # The chat window and the setup wizard (`cinderpaw`, `cinderpaw chat`,
+      # `cinderpaw setup --classic`) are the Go TUI. Without it the CLI tells
+      # the user the chat "isn't bundled", so a CLI release without this step
+      # has no chat at all. Pure Go, CGO off: every target cross-compiles.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tui/go.mod
+          cache-dependency-path: tui/go.sum
+
+      - name: Build TUI (Go)
+        working-directory: tui
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          case "${{ matrix.node_os }}" in win32) GOOS=windows ;; *) GOOS=${{ matrix.node_os }} ;; esac
+          case "${{ matrix.node_arch }}" in x64) GOARCH=amd64 ;; *) GOARCH=${{ matrix.node_arch }} ;; esac
+          GOOS=$GOOS GOARCH=$GOARCH go build -trimpath -ldflags "-s -w" -o "cinderpaw-tui${{ matrix.binext }}" .
+
       - name: Build sidecar (Bun --compile)
         working-directory: CinderpawAgent
         run: |
@@ -117,7 +135,8 @@ jobs:
         run: |
           node npm/assemble.mjs \
             --os ${{ matrix.node_os }} --arch ${{ matrix.node_arch }} \
-            --cli "../$CLI" --agent "dist/cinderpaw-agent${{ matrix.binext }}"
+            --cli "../$CLI" --agent "dist/cinderpaw-agent${{ matrix.binext }}" \
+            --tui "../tui/cinderpaw-tui${{ matrix.binext }}"
 
       - name: Publish (or pack on dry run)
         working-directory: CinderpawAgent/npm/dist/${{ matrix.pkg }}

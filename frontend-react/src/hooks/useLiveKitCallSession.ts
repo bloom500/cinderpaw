@@ -82,9 +82,10 @@ export function callFailureLine(raw: string): string {
 }
 
 function callArgs() {
-  const { s2sProvider, s2sModel, ttsVoice, ttsProvider, sttModel, sttProvider, language } =
+  const { s2sProvider, s2sModel, ttsVoice, ttsProvider, sttModel, sttProvider, language, callLanguage } =
     useUI.getState();
-  const spoken = spokenLanguage(language);
+  // Chosen on the call screen, it wins; on auto, the guess from the UI and OS.
+  const spoken = callLanguage && callLanguage !== 'auto' ? callLanguage : spokenLanguage(language);
   // In pipeline mode the voice belongs to the TTS ENGINE, not to the row — the
   // row has no voices of its own. Filing it under the row would lose the choice
   // the moment somebody switched engine, which is the same bug that made the

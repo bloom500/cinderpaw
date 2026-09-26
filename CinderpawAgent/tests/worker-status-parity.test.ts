@@ -1,9 +1,9 @@
 /**
  * The worker-bubble `status` union is declared TWICE — once by the sidecar
  * that emits it (`rlm_child` in `CinderpawAgent/src/types.ts`) and once by
- * the frontend that renders it (the `kind: 'worker'` member of
- * `ToolCallEvent` in `frontend-react/src/stores/chat.ts`) — in two packages
- * that never see each other's types. Nothing made them agree.
+ * the frontend that renders it (`RlmWorkerStatus` in
+ * `frontend-react/src/stores/rlmWorkers.ts`, which the WorkersCard draws) —
+ * in two packages that never see each other's types. Nothing made them agree.
  *
  * What drift costs here is a mystery bubble, not a lie on screen. The store
  * passes an unknown status straight through (`upsertWorker` translates only
@@ -36,9 +36,8 @@ import { join } from "node:path";
  *  their explicit translation in `upsertWorker` (`stores/chat.ts`). The
  *  test asserts every translation LANDS inside the frontend union, so a
  *  mapping to a status nobody renders fails here instead of on screen. */
-const STATUS_TRANSLATIONS: Record<string, string> = {
-  completed: "done",
-};
+// Empty since 26 Sep: the workers store keeps the wire statuses as they are.
+const STATUS_TRANSLATIONS: Record<string, string> = {};
 
 /** Pull the string-literal members of the `status` union that immediately
  *  follows `anchor` in a TypeScript source. Deliberately textual — see
@@ -76,11 +75,12 @@ function sidecarStatuses(): Set<string> {
 }
 
 function frontendStatuses(): Set<string> {
-  return statusUnion(
-    readFileSync(join(REPO, "frontend-react", "src", "stores", "chat.ts"), "utf8"),
-    /kind:\s*'worker'\s*;/,
-    "worker",
-  );
+  // A type alias, not a `status:` field, so it is read directly.
+  const src = readFileSync(join(REPO, "frontend-react", "src", "stores", "rlmWorkers.ts"), "utf8");
+  const alias = /export type RlmWorkerStatus\s*=\s*([^;]*);/.exec(src);
+  if (!alias) throw new Error("no RlmWorkerStatus alias found");
+  const members = alias[1].match(/['"]([a-z_]+)['"]/g) ?? [];
+  return new Set(members.map((m) => m.slice(1, -1)));
 }
 
 describe("rlm_child status — sidecar/frontend parity", () => {
@@ -117,7 +117,7 @@ describe("rlm_child status — sidecar/frontend parity", () => {
 
     const frontend = frontendStatuses();
     expect(frontend.has("running")).toBe(true);
-    expect(frontend.has("done")).toBe(true);
+    expect(frontend.has("completed")).toBe(true);
     expect(frontend.size).toBe(4);
   });
 });

@@ -5,8 +5,6 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { RefreshCw, CheckCircle, AlertCircle, Sparkles } from 'lucide-react';
 import { useSettings } from '@/stores/settings';
-import { useUI, type LangPref } from '@/stores/ui';
-import { SelectMenu } from '@/components/ui/select-menu';
 import { useUpdater } from '@/stores/updater';
 import { useAppVersion } from '@/hooks/useAppVersion';
 import { useOnboarding } from '@/stores/onboarding';
@@ -18,8 +16,6 @@ export function GeneralTab() {
   const update      = useSettings((s) => s.updateSettings);
   const save        = useSettings((s) => s.save);
   const saved       = useSettings((s) => s.saved);
-  const language    = useUI((s) => s.language);
-  const setLanguage = useUI((s) => s.setLanguage);
   const reopenOnboarding = useOnboarding((s) => s.reopen);
 
   const handleChangeFolder = async () => {
@@ -114,20 +110,6 @@ export function GeneralTab() {
             writeLocal('cinderpaw.autoUpdateCheck', e.target.checked ? 'on' : 'off');
           }}
           className="h-4 w-4 accent-orange-500 shrink-0"
-        />
-      </div>
-
-      {/* Language */}
-      <div className={rowCls}>
-        <div>
-          <p className="text-sm font-medium text-text-primary">Language</p>
-          <p className="text-xs text-text-muted mt-0.5">Interface language</p>
-        </div>
-        <SelectMenu<LangPref>
-          value={language}
-          onChange={setLanguage}
-          ariaLabel="Interface language"
-          options={[{ value: 'en', label: 'English' }, { value: 'ro', label: 'Română' }]}
         />
       </div>
 

@@ -17,6 +17,7 @@ import { modelLabel, refreshCatalog } from '@/lib/modelCatalog';
 import { ModelLogo, modelDisplayName, providerName } from '@/lib/modelLogos';
 import { tauri, type ModelInfo, type ByokProvider } from '@/lib/tauri';
 import { router } from '@/router';
+import { signInWithOpenRouter } from '@/lib/openrouterSignIn';
 import { BackendBadge } from '@/components/BackendBadge';
 
 // Cinderpaw's own model engine exposes an OpenAI-compatible API here. In agent mode
@@ -67,6 +68,15 @@ export function ModelPickerPopover() {
       .getByokSettings()
       .then((providers) => setCloudProviders(providers.filter((p) => p.has_api_key)))
       .catch(() => {});
+
+  // Once at mount as well as on every open. Asked only on open, the trigger
+  // said "Add a model" on a machine with three keys active until someone
+  // clicked it: the label was computed from lists that were still empty.
+  useEffect(() => {
+    void tauri.models.list().then((all) => setLocalModels(all.filter((m) => !m.is_embedding))).catch(() => {});
+    void refreshCloud();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, at mount
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -294,9 +304,16 @@ export function ModelPickerPopover() {
                   // Not `disabled`: a disabled row is drawn at half opacity, and
                   // the one line on it is an instruction ("set a default model in
                   // Cloud Keys") that measured 2.7:1 in the light theme (20 Sep).
-                  // The instruction is the action, so the row performs it.
+                  //
+                  // The row used to PERFORM that instruction, which threw the
+                  // person out of the picker and into Settings on a plain click:
+                  // "I press the model selector and the app takes me to Cloud
+                  // Keys", twice in a row, in the middle of something else (22
+                  // Sep). Leaving is a decision, so it needs its own button (the
+                  // arrow below); a row with no model now just says so.
+                  onSelect={(e) => { if (!modelId) e.preventDefault(); }}
                   onClick={() => {
-                    if (!modelId) { void router.navigate('/settings?cat=byok'); return; }
+                    if (!modelId) return;
                     if (isAgentMode) {
                       void selectCloudAgent(p.id, modelId);
                     } else {
@@ -306,20 +323,38 @@ export function ModelPickerPopover() {
                   className="flex flex-col items-start gap-0.5"
                 >
                   <span className="text-text-primary">{p.name}</span>
-                  <span className="text-xs text-text-muted">
-                    {modelId
-                      ? modelLabel(modelId)
-                      : 'Set a default model in Settings → Cloud Keys'}
-                  </span>
+                  {modelId ? (
+                    <span className="text-xs text-text-muted">{modelLabel(modelId)}</span>
+                  ) : (
+                    // The way out, asked for rather than taken on the person's
+                    // behalf. `stopPropagation` so pressing the row itself still
+                    // does nothing: only this button leaves the conversation.
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); void router.navigate('/models?tab=cloud'); }}
+                      className="text-xs text-brand underline-offset-2 hover:underline"
+                    >
+                      No default model · choose one in Models → Cloud
+                    </button>
+                  )}
                 </DropdownMenuItem>
               );
             })}
           </>
         )}
         {!hasLocal && !hasCloud && (
-          <DropdownMenuItem disabled>
-            No models found. Download one or add a cloud key
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem
+              onSelect={() => { void signInWithOpenRouter().then((ok) => { if (ok) void refreshCloud(); }); }}
+            >
+              <Cloud size={14} className="mr-2 shrink-0 text-brand" />
+              Sign in with OpenRouter
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => { void router.navigate('/models'); }}>
+              <HardDrive size={14} className="mr-2 shrink-0" />
+              Download a model to this computer
+            </DropdownMenuItem>
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

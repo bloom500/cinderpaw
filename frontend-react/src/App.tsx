@@ -6,6 +6,7 @@ import { tauri, events } from './lib/tauri';
 import { useEmbeddingDownloadStatus } from '@/hooks/useEmbeddingDownloadStatus';
 import { useNotifications } from '@/stores/notifications';
 import { useModel } from '@/stores/model';
+import { useConversations } from '@/stores/conversations';
 
 /**
  * Top-of-window banner for the in-flight embedding download. Pinned across
@@ -87,6 +88,34 @@ export default function App() {
       }
     }).then((fn) => { if (cancelled) fn(); else unlisten = fn; });
     return () => { cancelled = true; unlisten?.(); };
+  }, []);
+
+  // Reopen where the person left off. Closing the window used to throw the
+  // conversation away from the screen: every launch started on an empty home,
+  // and the chat from ten minutes ago had to be found in the rail again. Only a
+  // recent one comes back (the next morning starts fresh), and only one that
+  // still exists, so a deleted chat never greets anyone with an error.
+  useEffect(() => {
+    const KEY = 'cinderpaw.lastChat';
+    const RECENT_MS = 12 * 60 * 60 * 1000;
+    try {
+      const raw = localStorage.getItem(KEY);
+      const last = raw ? (JSON.parse(raw) as { id?: string; at?: number }) : null;
+      if (last?.id && last.at && Date.now() - last.at < RECENT_MS) {
+        const id = last.id;
+        void useConversations.getState().refresh().then(() => {
+          const s = useConversations.getState();
+          if (s.currentId === null && s.list.some((c) => c.id === id)) void s.open(id);
+        });
+      }
+    } catch { /* storage unavailable: start on home, as before */ }
+    return useConversations.subscribe((s, prev) => {
+      if (s.currentId === prev.currentId) return;
+      try {
+        if (s.currentId) localStorage.setItem(KEY, JSON.stringify({ id: s.currentId, at: Date.now() }));
+        else localStorage.removeItem(KEY);
+      } catch { /* not worth a toast */ }
+    });
   }, []);
 
   return (

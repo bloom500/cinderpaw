@@ -335,6 +335,8 @@ export interface Settings {
    *  cloud provider. Off by default: it sends the conversation, and that
    *  provider's key, to a recipient the person did not choose. */
   cloud_fallback_enabled: boolean;
+  /** Appearance: solid background instead of the see-through window material. */
+  window_solid?: boolean;
 }
 
 export interface ByokProvider {
@@ -602,6 +604,8 @@ export interface MemoryGraphNodeView {
   label: string;
   type: string;
   touched_at: number;
+  /** Set on a fact row: the graph edge it came from, which is what Forget removes. */
+  edge?: { from: string; to: string; relation: string };
 }
 
 export interface MemoryGraphEdgeView {
@@ -654,6 +658,19 @@ export interface AgentConfig {
 // ── Cinderpaw Agent ─────────────────────────────────────────────────────────────
 
 /** Parsed output event from the Cinderpaw Agent sidecar. */
+/** One teammate as the Settings list shows it. */
+export interface CoworkTeammate {
+  id: string;
+  name: string;
+  role: string;
+  instructions: string;
+  /** null means every tool (a teammate made before tools were scoped). */
+  tools: string[] | null;
+  /** null means the Brain Stack routes per task. */
+  model: string | null;
+  createdAt: number;
+}
+
 export type CinderpawAgentEvent =
   | { type: 'chunk';       id: string; content: string }
   // `diagnostic` is the operator-facing reason a turn failed (token budget,
@@ -685,7 +702,20 @@ export type CinderpawAgentEvent =
         body: string;
         status: string;
         createdAt: number;
+        /** The teammate's stored answer to this message, when the person sent it. */
+        reply?: string;
+        /** True when `reply` is the reason the teammate could not answer. */
+        replyFailed?: boolean;
       }[];
+    }
+  // The teammate roster, answering `cinderpawCoworkTeam` ('list' or 'remove').
+  | {
+      type: 'cowork_team_result';
+      roster: CoworkTeammate[];
+      /** The teammate a 'remove' deleted. */
+      removed?: string;
+      /** Why the action could not be done, in words for the person. */
+      error?: string;
     }
   // A background worker spawned by the notebook's `rlm()`. Carries a
   // sessionId and no message id, and unlike every other event here it usually
@@ -699,6 +729,8 @@ export type CinderpawAgentEvent =
       status: 'running' | 'completed' | 'error' | 'cancelled';
       detail?: string;
       durationMs?: number;
+      /** The worker's final answer (bounded), on the settling event only. */
+      answer?: string;
     }
   | { type: 'proactive';   content: string }
   | { type: 'model_set';   provider: string; model: string }
@@ -857,6 +889,15 @@ const raw = {
   removeByokProvider:    (providerId: string) =>
     invoke<void>('remove_byok_provider', { providerId }),
   byokHasKey:            (providerId: string) => invoke<boolean>('byok_has_key', { providerId }),
+  /** One-button OpenRouter sign-in (OAuth in the system browser). Resolves with the model it set. */
+  openrouterSignIn:      () => invoke<string>('openrouter_sign_in'),
+  /** Appearance -> Background: solid (true) or glass (false). Applied to the open window at once. */
+  setWindowSolid:        (solid: boolean) => invoke<void>('set_window_solid', { solid }),
+  /** Files the app was launched with (Send to > Cinderpaw), handed over once. */
+  takeLaunchFiles:       () => invoke<string[]>('take_launch_files'),
+  /** Memory page Forget: drop one fact (graph edge) from what the agent knows. */
+  memoryForget:          (from: string, to: string, relation: string) =>
+    invoke<void>('cinderpaw_memory_forget', { from, to, relation }),
   jevDecide:             (state: Record<string, unknown>, questions: Record<string, unknown>) =>
     invoke<{ answers: Record<string, { type: string; choice?: string; confidence?: number; noul?: number }>; usage: unknown; ms: number }>('jev_decide', { state, questions }),
   testByokProvider:      (providerId: string, apiKey: string, baseUrl?: string | null) =>
@@ -1028,6 +1069,9 @@ const raw = {
     }),
   cinderpawCoworkHistory: (threadId?: string | null) =>
     invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
+  /** The roster: 'list', or 'remove' one. Answered by a `cowork_team_result` event. */
+  cinderpawCoworkTeam: (action: 'list' | 'remove', agentId?: string) =>
+    invoke<void>('cinderpaw_cowork_team', { action, agentId: agentId ?? null }),
   cinderpawCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
     invoke<void>('cinderpaw_cowork_send_message', {
       toAgentId,
@@ -1047,8 +1091,8 @@ const raw = {
     invoke<boolean>('stt_model_present', { id }),
   transcribeAudio:          (pcm: number[], modelId: string) =>
     invoke<string>('transcribe_audio', { pcm, modelId }),
-  transcribeAudioCloud:     (audioPath: string, provider: string, language?: string) =>
-    invoke<string>('transcribe_audio_cloud', { audioPath, provider, language: language ?? null }),
+  transcribeAudioCloud:     (audioPath: string, provider: string, language?: string, context?: string) =>
+    invoke<string>('transcribe_audio_cloud', { audioPath, provider, language: language ?? null, context: context ?? null }),
   // Idempotent — returns immediately if the model is already complete.
   // Progress streams over `cinderpaw://stt-download-*`.
   downloadSttModel:         (id: string) =>
@@ -1218,8 +1262,8 @@ export const tauri = {
     sttModels:     async () => raw.sttModels(),
     modelPresent:  async (id: string) => raw.sttModelPresent(id),
     transcribe:    async (pcm: number[], modelId: string) => raw.transcribeAudio(pcm, modelId),
-    transcribeCloud: async (audioPath: string, provider: string, language?: string) =>
-      raw.transcribeAudioCloud(audioPath, provider, language),
+    transcribeCloud: async (audioPath: string, provider: string, language?: string, context?: string) =>
+      raw.transcribeAudioCloud(audioPath, provider, language, context),
     downloadModel: async (id: string) => raw.downloadSttModel(id),
     ttsProviders:  async () => raw.ttsProviders(),
     ttsHasKey:     async (providerId: string) => raw.ttsHasKey(providerId),
@@ -1305,6 +1349,7 @@ export const tauri = {
     coworkApprovalResolve: async (requestId: string, approve: boolean) =>
       raw.cinderpawCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
     coworkHistory: async (threadId?: string | null) => raw.cinderpawCoworkHistory(threadId ?? null),
+    coworkTeam: async (action: 'list' | 'remove', agentId?: string) => raw.cinderpawCoworkTeam(action, agentId),
     coworkSendMessage: async (toAgentId: string, body: string, threadId?: string) =>
       raw.cinderpawCoworkSendMessage(toAgentId, body, threadId),
     /** Abort a teammate's in-flight turn. A cowork turn runs under the session

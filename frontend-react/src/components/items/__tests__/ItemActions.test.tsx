@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationActions, ProjectActions } from '../ItemActions';
 import { useProjects } from '@/stores/projects';
 import { useConversations } from '@/stores/conversations';
+import { useNotifications } from '@/stores/notifications';
 
 const saveProject   = vi.fn(async () => {});
 const deleteProject = vi.fn(async () => {});
@@ -65,31 +66,38 @@ describe('ConversationActions', () => {
     expect(screen.queryByText('Add to project')).toBeNull();
   });
 
-  it('deletes only after the confirmation is accepted', async () => {
-    const user = userEvent.setup();
+  // Delete with Undo, not "Are you sure?": the chat leaves the list at once and
+  // is deleted from disk only when the undo window closes.
+  it('removes the chat at once and deletes it when the undo window ends', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    useConversations.setState({ list: [CONV as never] });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<ConversationActions conv={CONV} />);
 
     await user.click(screen.getByLabelText('Chat options'));
     await user.click(await screen.findByText('Delete chat'));
 
-    // The dialog names the chat, so the person can see what they are ending.
-    expect(await screen.findByText(/Tax questions/)).toBeTruthy();
+    expect(useConversations.getState().list).toHaveLength(0);
     expect(deleteConv).not.toHaveBeenCalled();
+    expect(useNotifications.getState().toasts.at(-1)?.action?.label).toBe('Undo');
 
-    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    await vi.advanceTimersByTimeAsync(5_000);
     await waitFor(() => expect(deleteConv).toHaveBeenCalledWith('c1'));
+    vi.useRealTimers();
   });
 
-  it('keeps a failed delete on screen instead of closing silently', async () => {
-    deleteConv.mockRejectedValueOnce(new Error('disk is read-only'));
-    const user = userEvent.setup();
+  it('never deletes when Undo is pressed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<ConversationActions conv={CONV} />);
 
     await user.click(screen.getByLabelText('Chat options'));
     await user.click(await screen.findByText('Delete chat'));
-    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    useNotifications.getState().toasts.at(-1)!.action!.run();
 
-    expect(await screen.findByText(/disk is read-only/)).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(deleteConv).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it('keeps a failed rename on screen, with the typed name still in the box', async () => {

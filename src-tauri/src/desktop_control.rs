@@ -774,6 +774,16 @@ fn spawn_detached(app: &str) -> Result<LaunchResult, String> {
             let mut c = Command::new("cmd");
             c.args(["/c", "start", "", app]);
             c
+        } else if std::path::Path::new(app).is_dir() || lower.starts_with("spotify:") {
+            // A folder ("open Downloads") and Spotify's own search URI
+            // ("play X on Spotify", which has no "://" for the branch above):
+            // explorer opens both the way a double-click would. explorer, not
+            // `cmd /c start`: the URI carries words the person said, and cmd
+            // would read an `&` in them as a second command.
+            // ponytail: one custom scheme, spotify:; add others when an app needs one.
+            let mut c = Command::new("explorer.exe");
+            c.arg(app);
+            c
         } else if lower.starts_with("shell:appsfolder\\") {
             // A Start Menu app by its id (a Store app has no program file to
             // run): the shell opens it the way a click in the Start Menu does.

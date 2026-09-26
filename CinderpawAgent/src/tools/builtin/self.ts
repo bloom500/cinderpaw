@@ -347,12 +347,12 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     inputs: [
       "A cell of JavaScript from the model (`notebook` tool, `code` argument).",
       "The session's live tool registry — one injected function per registered tool, itself excluded.",
-      "The previous snapshot for this session (`~/.cinderpaw/notebooks/<session>.json`), restored on first use.",
+      "The previous snapshot for this session (`~/.cinderpaw/notebooks/<session>.json`), restored on first use, and its workers (`<session>.children.json`); a worker that was running when the app stopped comes back as interrupted.",
     ],
     outputs: [
       "The last expression's value plus anything logged, returned as the tool result.",
       "Variables and helper functions that persist across cells, turns and compaction.",
-      "Background workers admitted by `rlm()`, collected via `rlm.list_subagents()` and the `notify_parent` inbox.",
+      "Background workers admitted by `rlm()`, collected via `rlm.wait()` (blocks up to 45 s), `rlm.list_subagents()` and the `notify_parent` inbox.",
     ],
     safety: [
       "No ambient authority: the vm context gets none of our builtins, so `Function` is unreachable and there is no `fetch`, `require` or `process`.",
@@ -520,15 +520,18 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "reactive worker loop, an SQLite A2A mailbox + handoff protocol, a " +
       "deterministic approval gate on risky tool calls, and a live " +
       "agent-to-agent transcript panel in the desktop UI. You can hand one " +
-      "of them work from ordinary chat via `cowork_send`.",
+      "of them work from ordinary chat via `cowork_send`, read their answers " +
+      "with `cowork_replies`, and change or remove one with " +
+      "`cowork_update_teammate` / `cowork_remove_teammate` when the person asks.",
     inputs: [
-      "Roster: `cowork_agents` table (name, role, standing instructions) in the central DB.",
+      "Roster: `cowork_agents` table (name, role, standing instructions, tools, model pin) in the central DB. A teammate created without a tool list gets a read-only set.",
       "Inbox: `cowork_mailbox` rows — written by `cowork_send` (from chat), by a teammate's reply, or by a handoff result.",
       "Task ownership transfers in `cowork_handoffs` (initiated → accepted → completed/failed).",
     ],
     outputs: [
       "Replies delivered back through the mailbox, hop-capped at 3 so agents cannot ping-pong forever.",
-      "`cowork_event` stream rendered live as the A2A transcript panel (+ mascot bubbles).",
+      "`cowork_event` stream rendered live as the A2A transcript panel.",
+      "A teammate's answer to the person, stored as a mailbox row addressed to 'human' so a reopened chat and `cowork_replies` can read it.",
       "Approval requests raised BEFORE gated tool calls run; verdicts come from the human in chat.",
     ],
     safety: [
@@ -538,10 +541,10 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
       "Zero teammates configured ⇒ zero behavior and no cowork tools exposed at all.",
     ],
     promotion:
-      "N/A — the roster is plain CRUD rows, not an eval ladder. Creating your " +
-      "first teammate requires an app restart before cowork_team/cowork_send appear.",
+      "N/A — the roster is plain CRUD rows, not an eval ladder. Creating the " +
+      "first teammate registers the roster tools at once; no restart.",
     rollback:
-      "Delete the agent row: its sessions persist but nothing drains them. The " +
+      "`cowork_remove_teammate` deletes the row and cancels its waiting messages. The " +
       "approval gate passes every non-cowork session through untouched, so removal " +
       "cannot affect normal chat turns.",
     inspect: ["self_subsystem", "self_tools"],
@@ -979,7 +982,10 @@ function healthNotebook(): SubsystemHealth {
   }
   let snapshots = 0;
   try {
-    snapshots = readdirSync(join(cinderpawHome(), "notebooks")).filter((f) => f.endsWith(".json")).length;
+    // `.children.json` holds a session's workers, not a second snapshot.
+    snapshots = readdirSync(join(cinderpawHome(), "notebooks")).filter(
+      (f) => f.endsWith(".json") && !f.endsWith(".children.json"),
+    ).length;
   } catch {
     // No directory yet: enabled but never used. Not a fault either.
   }

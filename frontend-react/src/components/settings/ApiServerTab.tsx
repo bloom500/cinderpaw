@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { cn, SECONDARY_BUTTON } from '@/lib/utils';
 import { useSettings } from '@/stores/settings';
 import { tauri } from '@/lib/tauri';
+import { CopiedCheck } from '@/components/ui/copied-check';
 
 export function ApiServerTab() {
   const settings = useSettings((s) => s.settings);
@@ -94,7 +95,7 @@ export function ApiServerTab() {
         <div className="flex gap-2">
           <input readOnly value={apiUrl} className="flex-1 px-2 py-1.5 rounded-md border border-border-subtle bg-bg-surface text-sm text-text-muted font-mono" />
           <button type="button" onClick={() => void handleCopy()} className={btnCls}>
-            {copied ? 'Copied ✓' : 'Copy'}
+            {copied ? <span className="inline-flex items-center gap-1"><CopiedCheck size={12} />Copied</span> : 'Copy'}
           </button>
         </div>
       </div>
@@ -116,7 +117,7 @@ export function ApiServerTab() {
             {tokenShown ? 'Hide' : 'Show'}
           </button>
           <button type="button" onClick={() => void handleCopyToken()} className={btnCls} disabled={!token}>
-            {tokenCopied ? 'Copied ✓' : 'Copy'}
+            {tokenCopied ? <span className="inline-flex items-center gap-1"><CopiedCheck size={12} />Copied</span> : 'Copy'}
           </button>
         </div>
       </div>

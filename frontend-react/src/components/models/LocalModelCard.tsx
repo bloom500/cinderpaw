@@ -284,6 +284,7 @@ export function LocalModelCard({ model, onDelete }: Props) {
           <p className="text-sm text-text-secondary">
             This deletes <span className="text-text-primary">{displayName}</span> ({sizeStr}) from disk.
             You'll have to download it again to use it.
+            {isEmbedding && ' Until then, Cinderpaw searches its memory by keywords only, and recalls less.'}
           </p>
           {deleteError && <p className="text-xs text-error wrap-break-word">{deleteError}</p>}
           <DialogFooter>

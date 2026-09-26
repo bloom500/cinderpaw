@@ -94,7 +94,13 @@ pub fn run(accept_risk: bool) -> i32 {
             // Download needs consent (it's gigabytes); everything after is
             // automatic.
             let size = c["download"]["approx_size"].as_str().unwrap_or("");
-            if !confirm(&format!("Download {label} ({size})?"), true) {
+            // Yes by default only when the core says this model is enough for
+            // Cinderpaw's tools. Below that tier the row above already says a
+            // cloud key is the better first day, and a stranger who pressed
+            // Enter still got gigabytes of a model the core does not
+            // recommend (24 Sep).
+            let enough = c["download"]["enough_for_tools"].as_bool().unwrap_or(false);
+            if !confirm(&format!("Download {label} ({size})?"), enough) {
                 continue;
             }
             match download_and_localize(&token, c) {
@@ -132,8 +138,9 @@ pub fn run(accept_risk: bool) -> i32 {
     }
     let Some((candidate, outcome)) = verified else {
         // Skip path — say exactly how to resume later (OpenClaw parity).
-        println!("\n  {META}To add AI later: set OPENAI_API_KEY or ANTHROPIC_API_KEY, download a");
-        println!("  local model in the desktop app, or re-run `cinderpaw setup`.{RESET}");
+        // No desktop app in this sentence: a CLI-only user does not have one.
+        println!("\n  {META}To add AI later, run `cinderpaw setup` again, or set OPENAI_API_KEY");
+        println!("  or ANTHROPIC_API_KEY in your environment first.{RESET}");
         return 0;
     };
 
@@ -141,9 +148,9 @@ pub fn run(accept_risk: bool) -> i32 {
     let label = candidate["label"].as_str().unwrap_or("your AI");
     let check = outcome["message"].as_str().unwrap_or("replied");
     println!("\n  {OK}✓ {label} is ready{RESET} {META}— AI check: {check}{RESET}");
-    // The interactive TUI ships only with the desktop app; CLI-only installs
-    // (npm, headless install.sh) don't have it, so don't dangle a `cinderpaw chat`
-    // that would just error out — steer those users to connectors instead.
+    // Checked rather than assumed: a build without the TUI next to the CLI
+    // (a bare `cargo build`, an old package) must not be told to run a
+    // `cinderpaw chat` that would only error out.
     let has_tui = crate::chat::tui_binary_path().is_some();
     println!("\n  {BOLD}Next steps{RESET}");
     if has_tui {
@@ -350,9 +357,7 @@ fn paste_key_flow(token: &str) -> Option<(Value, Value)> {
     if let Some(console) = p["console_url"].as_str() {
         println!("  {META}Get a key at: {console}{RESET}");
     }
-    // ponytail: plain (echoed) stdin read; masked input when a tty-secrets
-    // crate is worth the dependency.
-    let key = ask(&format!("Paste your {} API key", p["name"].as_str().unwrap_or("provider")));
+    let key = ask_secret(&format!("Paste your {} API key", p["name"].as_str().unwrap_or("provider")));
     if key.trim().is_empty() {
         return None;
     }
@@ -385,8 +390,67 @@ pub(crate) fn ask(prompt: &str) -> String {
     print!("  {ACCENT}{prompt}:{RESET} ");
     let _ = std::io::stdout().flush();
     let mut line = String::new();
-    let _ = std::io::stdin().read_line(&mut line);
+    // End of input (a closed or exhausted pipe) is not an empty answer: the
+    // setup menu took it for "not a number" and asked again, forever, so a
+    // script running `cinderpaw setup` hung (24 Sep). Stop and say why.
+    if matches!(std::io::stdin().read_line(&mut line), Ok(0)) {
+        println!();
+        eprintln!("cinderpaw: no more input (stdin closed). Run `cinderpaw setup` in a terminal to answer the questions.");
+        std::process::exit(1);
+    }
     line.trim().to_string()
+}
+
+/// Like [`ask`], but the answer is shown as dots. An API key pasted in the
+/// clear sits on screen for anyone behind you, in a screen share, and in the
+/// terminal's scrollback. crossterm is already a dependency (select.rs), so
+/// this costs no new crate. Piped input (no terminal) falls back to a plain
+/// read, because a script feeding the key has no screen to hide it from.
+pub(crate) fn ask_secret(prompt: &str) -> String {
+    use crossterm::event::{read, Event, KeyCode, KeyEventKind, KeyModifiers};
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        return ask(prompt);
+    }
+    crate::common::reset_console_mode();
+    let Palette { accent: ACCENT, reset: RESET, .. } = palette();
+    print!("  {ACCENT}{prompt}:{RESET} ");
+    let _ = std::io::stdout().flush();
+    if crossterm::terminal::enable_raw_mode().is_err() {
+        return ask("");
+    }
+    let mut secret = String::new();
+    loop {
+        let Ok(Event::Key(k)) = read() else { continue };
+        if k.kind == KeyEventKind::Release {
+            continue;
+        }
+        match k.code {
+            KeyCode::Enter => break,
+            KeyCode::Esc => {
+                secret.clear();
+                break;
+            }
+            KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                secret.clear();
+                break;
+            }
+            KeyCode::Backspace => {
+                if secret.pop().is_some() {
+                    print!("\u{8} \u{8}");
+                }
+            }
+            KeyCode::Char(ch) => {
+                secret.push(ch);
+                print!("•");
+            }
+            _ => {}
+        }
+        let _ = std::io::stdout().flush();
+    }
+    let _ = crossterm::terminal::disable_raw_mode();
+    println!();
+    secret.trim().to_string()
 }
 
 pub(crate) fn confirm(prompt: &str, default_yes: bool) -> bool {

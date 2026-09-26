@@ -105,9 +105,9 @@ describe('CinderpawDreamsPanel', () => {
     expect(screen.getByText('4')).toBeInTheDocument(); // improvements
     expect(screen.getByText('37')).toBeInTheDocument(); // iterations
     // Last dream line uses the newest (idle, 2 improvements).
-    expect(screen.getByText(/idle-triggered/)).toBeInTheDocument();
+    expect(screen.getByText(/because you were away/)).toBeInTheDocument();
     expect(screen.getByText(/2 improvements/)).toBeInTheDocument();
-    expect(screen.getByText(/Converged/)).toBeInTheDocument();
+    expect(screen.getByText(/nothing left to try/)).toBeInTheDocument();
   });
 
   it('renders journal receipts with the decision and observed lines', async () => {
@@ -143,8 +143,8 @@ describe('CinderpawDreamsPanel', () => {
 
     render(<CinderpawDreamsPanel />);
 
-    expect(await screen.findByText('Receipts')).toBeInTheDocument();
-    expect(screen.getAllByText('promoted').length).toBe(2);
+    expect(await screen.findByText('What each dream decided')).toBeInTheDocument();
+    expect(screen.getAllByText('kept').length).toBe(2);
     expect(screen.getByText(/cleared the confidence gate/)).toBeInTheDocument();
     expect(screen.getByText(/blocked by a promotion gate/)).toBeInTheDocument();
     expect(screen.getByText(/budget left: 18000 tokens/)).toBeInTheDocument();
@@ -177,7 +177,7 @@ describe('CinderpawDreamsPanel', () => {
 
     render(<CinderpawDreamsPanel />);
 
-    expect(await screen.findByText('Champions by niche')).toBeInTheDocument();
+    expect(await screen.findByText('Best version for each style')).toBeInTheDocument();
     expect(screen.getByText('t2:c2:rgraph:d2')).toBeInTheDocument();
     expect(screen.getByText('t1:c1:rsemantic:d1')).toBeInTheDocument();
     expect(screen.getByText('80.0')).toBeInTheDocument();
@@ -192,7 +192,7 @@ describe('CinderpawDreamsPanel', () => {
     render(<CinderpawDreamsPanel />);
 
     // The stepper renders all five emitted stages; Evaluate is the active one.
-    expect(await screen.findByText('Evaluate')).toBeInTheDocument();
+    expect(await screen.findByText('Test')).toBeInTheDocument();
     expect(screen.getByText('Observe')).toBeInTheDocument();
     expect(screen.getByText('Remember')).toBeInTheDocument();
     expect(screen.getByText('Sleep')).toBeInTheDocument();
@@ -207,7 +207,7 @@ describe('CinderpawDreamsPanel', () => {
     render(<CinderpawDreamsPanel />);
 
     await screen.findByText('12'); // panel loaded
-    expect(screen.queryByText('Evaluate')).not.toBeInTheDocument();
+    expect(screen.queryByText('Test')).not.toBeInTheDocument();
   });
 
   it('surfaces a read error without crashing', async () => {
@@ -290,7 +290,7 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD());
 
-    expect(await screen.findByText('Pending patches')).toBeInTheDocument();
+    expect(await screen.findByText('Code changes Cinderpaw wrote')).toBeInTheDocument();
     expect(screen.getByText('fix: handle empty input in mutation.ts')).toBeInTheDocument();
     expect(screen.getByText('src/rsi/mutation.ts')).toBeInTheDocument();
     expect(screen.getByText('Approve')).toBeInTheDocument();
@@ -348,7 +348,7 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
       patches: [SAMPLE_PATCH({ status: 'applied', note: 'live apply OK' })],
     }));
 
-    await screen.findByText('applied');
+    await screen.findByText('in use');
     expect(screen.queryByText('Approve')).not.toBeInTheDocument();
     expect(screen.queryByText('Reject')).not.toBeInTheDocument();
     expect(screen.getByText('live apply OK')).toBeInTheDocument();
@@ -364,7 +364,7 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD({ manualWindowOpen: true, appliedCount: 3 }));
 
-    expect(await screen.findByText(/3\/10 manual approvals until auto-apply unlocks/)).toBeInTheDocument();
+    expect(await screen.findByText(/3 of 10 approved/)).toBeInTheDocument();
   });
 
   it('hides the manual window header after auto-apply unlocks', async () => {
@@ -377,8 +377,8 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD({ manualWindowOpen: false, appliedCount: 12 }));
 
-    await screen.findByText('Pending patches');
-    expect(screen.queryByText(/manual approvals until auto-apply/)).not.toBeInTheDocument();
+    await screen.findByText('Code changes Cinderpaw wrote');
+    expect(screen.queryByText(/of 10 approved/)).not.toBeInTheDocument();
   });
 
   it('renders the empty state when the sidecar sends zero patches', async () => {
@@ -391,7 +391,7 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     render(<CinderpawDreamsPanel />);
     fire(PATCHES_PAYLOAD({ patches: [] }));
 
-    expect(await screen.findByText(/No pending code patches/)).toBeInTheDocument();
+    expect(await screen.findByText(/No code changes waiting/)).toBeInTheDocument();
   });
 
   it('stays hidden until the sidecar has answered once (no flash of empty state)', async () => {
@@ -406,8 +406,8 @@ describe('CinderpawDreamsPanel — Pending patches (Slice 5)', () => {
     // Panel must render the dream summary…
     expect(await screen.findByText('12')).toBeInTheDocument();
     // …but the Pending patches card must NOT appear before the listener fires.
-    expect(screen.queryByText('Pending patches')).not.toBeInTheDocument();
-    expect(screen.queryByText(/No pending code patches/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Code changes Cinderpaw wrote')).not.toBeInTheDocument();
+    expect(screen.queryByText(/No code changes waiting/)).not.toBeInTheDocument();
   });
 });
 
@@ -488,7 +488,7 @@ describe('CinderpawDreamsPanel — Cinderpaw is asking (metacognition)', () => {
   it('renders nothing when there is no open question, so the card does not nag', async () => {
     const fire = await mount();
     fire(PATCHES_PAYLOAD({ patches: [], questions: [] }));
-    expect(await screen.findByText('No pending code patches.')).toBeInTheDocument();
+    expect(await screen.findByText('No code changes waiting.')).toBeInTheDocument();
     expect(screen.queryByText('Cinderpaw is asking')).not.toBeInTheDocument();
   });
 
@@ -534,8 +534,8 @@ describe('CinderpawDreamsPanel — Personal adaptation (Faza 4)', () => {
     render(<CinderpawDreamsPanel />);
 
     await waitFor(() => expect(listSpy).toHaveBeenCalled());
-    expect(screen.getByText('Personal adaptation')).toBeInTheDocument();
-    expect(screen.getByText(/No adapters under review/)).toBeInTheDocument();
+    expect(screen.getByText('Learning your style')).toBeInTheDocument();
+    expect(screen.getByText(/Nothing waiting for you/)).toBeInTheDocument();
     expect(screen.getByText('Train now')).toBeInTheDocument();
   });
 
@@ -610,7 +610,8 @@ describe('CinderpawDreamsPanel — Personal adaptation (Faza 4)', () => {
     }));
 
     expect(await screen.findByText('coding')).toBeInTheDocument();
-    expect(screen.getByText('lora-coding-deadbeef1234')).toBeInTheDocument();
+    // The adapter's id is a key for us; a person tells versions apart by what they are for.
+    expect(screen.queryByText('lora-coding-deadbeef1234')).toBeNull();
   });
 });
 
@@ -639,7 +640,7 @@ describe('CinderpawDreamsPanel — Meta Evolution (Faza 6)', () => {
     render(<CinderpawDreamsPanel />);
     await waitFor(() => expect(metaSpy).toHaveBeenCalledWith('status'));
     // No card until the sidecar replies.
-    expect(screen.queryByText('Meta Evolution')).not.toBeInTheDocument();
+    expect(screen.queryByText('How it practices')).not.toBeInTheDocument();
 
     emit({
       type: 'meta_result',
@@ -652,17 +653,17 @@ describe('CinderpawDreamsPanel — Meta Evolution (Faza 6)', () => {
       fitness: { score: 0.7234, cycles: 5 },
     });
 
-    expect(await screen.findByText('Meta Evolution')).toBeInTheDocument();
-    expect(screen.getByText(/generation 2/)).toBeInTheDocument();
-    expect(screen.getByText(/candidate pending/)).toBeInTheDocument();
-    expect(screen.getByText(/fitness 0.7234 over 5 cycles/)).toBeInTheDocument();
+    expect(await screen.findByText('How it practices')).toBeInTheDocument();
+    expect(screen.getByText(/round 2/)).toBeInTheDocument();
+    expect(screen.getByText(/trying a new way/)).toBeInTheDocument();
+    expect(screen.getByText(/scores 0.72 out of 1, over 5 dreams/)).toBeInTheDocument();
     expect(screen.getByText('mutation_rate')).toBeInTheDocument();
     // Pending candidate → both actions offered.
-    expect(screen.getByText('Evolve')).toBeInTheDocument();
-    expect(screen.getByText('Rollback')).toBeInTheDocument();
+    expect(screen.getByText('Try a new way')).toBeInTheDocument();
+    expect(screen.getByText('Go back')).toBeInTheDocument();
 
     // Evolve fires the op; the listener's follow-up status refresh re-renders.
-    fireEvent.click(screen.getByText('Evolve'));
+    fireEvent.click(screen.getByText('Try a new way'));
     await waitFor(() => expect(metaSpy).toHaveBeenCalledWith('evolve'));
   });
 });

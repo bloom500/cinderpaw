@@ -264,14 +264,16 @@ Persistent named teammate agents, stored in the same local database.
   instructions, tool names). A fresh install ships with nobody; a teammate
   outlives the conversation and spends its own budget, so never make one
   unasked. Scope its tools — each is re-sent as schema on every completion
-  it makes, so a teammate given everything answers slowly.
+  it makes. With no list it gets a read-only set; writing, sending or running
+  commands must be granted on purpose. Change or remove one with
+  `cowork_update_teammate` / `cowork_remove_teammate`, only when asked.
 - **Strictly reactive (v1):** they work only when something reaches their
   inbox — `cowork_send`, another teammate, or a handoff. Nothing is picked
   up unprompted; that is deliberate.
 - **Handing off work:** `cowork_team` lists them; `cowork_send` delivers.
   Their work runs on their own schedule — never wait on it; point the person
-  at the **Agent Cowork panel** (top-right of chat), a live group chat of
-  real agent-to-agent messages, replayed per chat when you reopen it.
+  at the **Agent Cowork panel** (top-right of chat), replayed per chat when
+  you reopen it. When you need an answer yourself, `cowork_replies` reads it.
 - Replies are hop-capped at 3 so teammates cannot ping-pong on tokens.
 - **Approval gates:** destructive shell commands and non-GET HTTP from a
   teammate BLOCK until the human answers Approve/Deny in chat. Expiry fails

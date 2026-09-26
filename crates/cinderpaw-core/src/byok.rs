@@ -378,7 +378,10 @@ pub fn provider_catalog() -> Vec<ProviderCatalogEntry> {
             console_url: Some("https://console.anthropic.com/settings/keys".into()),
             key_format: Some("sk-ant-".into()),
             key_format_hint: Some("Begins with sk-ant-…".into()),
-            free_tier_note: Some("Free trial credits — no card required.".into()),
+            // Was "Free trial credits — no card required." Not something we
+            // can stand behind: a stranger who picks Anthropic for it and hits
+            // a billing error has been told a thing that was not true (24 Sep).
+            free_tier_note: None,
             supports_custom_base_url: false,
             auth_style: XApiKey,
         },

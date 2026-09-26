@@ -83,6 +83,11 @@ pub struct Conversation {
     /// on-disk conversations (saved before this field existed) loadable.
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// The title was chosen (a rename, or a generated one), not derived from
+    /// the first message. Every save sends the derived title, so without this a
+    /// rename lasted exactly until the next message.
+    #[serde(default)]
+    pub title_locked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -186,6 +191,13 @@ pub fn save_to_dir(
         .as_ref()
         .map(|c| c.created_at.clone())
         .unwrap_or_else(|| Utc::now().to_rfc3339());
+    // A chosen title outlives the derived one every save carries.
+    let title_locked = existing.as_ref().is_some_and(|c| c.title_locked);
+    let title: &str = match existing.as_ref() {
+        Some(c) if c.title_locked => c.title.as_str(),
+        _ => title,
+    };
+    let title = title.to_string();
     let agent_id = agent_id
         .map(str::to_string)
         .or_else(|| existing.and_then(|c| c.agent_id));
@@ -212,6 +224,7 @@ pub fn save_to_dir(
         updated_at: updated_at.clone(),
         messages,
         agent_id: agent_id.clone(),
+        title_locked,
     };
 
     cinderpaw_core::atomic_file::write_atomic(&conv_path, &serde_json::to_vec(&conv)?)?;
@@ -250,6 +263,7 @@ pub fn rename_in_dir(dir: &Path, id: &str, title: &str) -> Result<()> {
         .with_context(|| format!("no conversation to rename at {}", conv_path.display()))?;
     let mut conv: Conversation = serde_json::from_slice(&bytes)?;
     conv.title = title.to_string();
+    conv.title_locked = true;
     cinderpaw_core::atomic_file::write_atomic(&conv_path, &serde_json::to_vec(&conv)?)?;
 
     // The index is what the list reads. A rename that only touched the
@@ -497,6 +511,22 @@ mod tests {
     /// to the top of the sidebar under "Today". The chat would be findable
     /// exactly once — right after you renamed it — and then lost among the
     /// recent ones forever.
+    /// A rename used to last until the next message: every save sends the title
+    /// derived from the first message, and the save wrote it over the rename.
+    #[test]
+    fn a_renamed_chat_keeps_its_name_through_the_next_save() {
+        let dir = tmp();
+        save_to_dir(&dir, "c1", "first words of the chat", &msgs(2), None).unwrap();
+        rename_in_dir(&dir, "c1", "Lisbon trip").unwrap();
+        save_to_dir(&dir, "c1", "first words of the chat", &msgs(4), None).unwrap();
+
+        let after = load_from_dir(&dir, "c1").unwrap();
+        assert_eq!(after.title, "Lisbon trip");
+        assert_eq!(after.messages.len(), 4);
+        let index = read_index(&dir).unwrap();
+        assert_eq!(index.iter().find(|s| s.id == "c1").unwrap().title, "Lisbon trip");
+    }
+
     #[test]
     fn renaming_does_not_touch_when_the_chat_last_happened() {
         let dir = tmp();
