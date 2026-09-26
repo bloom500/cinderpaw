@@ -32,12 +32,16 @@ pub async fn downloads_card_open(app: AppHandle, x: f64, y: f64, height: f64) ->
     let origin = main.inner_position().map_err(|e| e.to_string())?;
     let left = origin.x as f64 / scale + x;
     let top = origin.y as f64 / scale + y;
-    WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("index.html#downloads-card".into()))
+    let builder = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("index.html#downloads-card".into()))
         .title("Downloads")
         .inner_size(WIDTH, height)
         .position(left, top)
-        .decorations(false)
-        .transparent(true)
+        .decorations(false);
+    // Opaque on macOS, for the reason in `call_pill::call_pill_open`: `transparent` only
+    // exists there behind Tauri's `macos-private-api`.
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.transparent(true);
+    builder
         .shadow(false)
         .resizable(false)
         .skip_taskbar(true)
