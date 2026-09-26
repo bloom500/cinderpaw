@@ -21,6 +21,7 @@ import { BrowserPanel } from '@/components/browser/BrowserPanel';
 import { NewChatEmptyState } from '@/components/chat/EmptyStates';
 import { AgentOfflineBanner } from '@/components/chat/AgentOfflineBanner';
 import { StreamErrorNotice } from '@/components/chat/StreamErrorNotice';
+import { WorkersCard } from '@/components/chat/WorkersCard';
 import { ComposerTip, TEACH_PROMPT } from '@/components/chat/ComposerTip';
 import { AgentsOnboarding } from '@/components/agents/onboarding/AgentsOnboarding';
 import { ONBOARDING_KEY } from '@/components/agents/agentUtils';
@@ -334,6 +335,9 @@ export function ChatPage() {
           className="absolute inset-x-0 bottom-0 z-20 pt-8"
         >
           {isEmpty && !showAgentOnboarding && <HomeGreeting />}
+          {/* Workers the agent spawned with rlm(). They run after the reply
+              that started them, so the reply cannot show them. */}
+          <WorkersCard />
           {/* #10: humanized inference errors with a fix-it action */}
           <StreamErrorNotice />
           <ComposerTip

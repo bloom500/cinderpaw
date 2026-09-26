@@ -22,6 +22,7 @@ import { useChat } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
+import { useRlmWorkers } from '@/stores/rlmWorkers';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
 
 export interface CinderpawStreamHandlers {
@@ -168,11 +169,13 @@ _${parsed.diagnostic}_`
         // it carries a sessionId and no message id — but for a stronger
         // reason: the turn that spawned it has usually ENDED by now, so there
         // is no in-flight stream to route through. Straight to the store.
-        useChat.getState().upsertWorker({
+        useRlmWorkers.getState().upsert({
+          sessionId: parsed.sessionId,
           childId: parsed.childId,
           name: parsed.name,
           status: parsed.status,
           detail: parsed.detail,
+          answer: parsed.answer,
         });
         break;
       case 'spawning':

@@ -703,6 +703,8 @@ export type CinderpawAgentEvent =
       status: 'running' | 'completed' | 'error' | 'cancelled';
       detail?: string;
       durationMs?: number;
+      /** The worker's final answer (bounded), on the settling event only. */
+      answer?: string;
     }
   | { type: 'proactive';   content: string }
   | { type: 'model_set';   provider: string; model: string }
