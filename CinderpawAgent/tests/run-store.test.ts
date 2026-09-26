@@ -223,4 +223,74 @@ describe("RunStore", () => {
     expect(ids).toEqual([first.id, second.id]);
     close();
   });
+
+  // S1 — a row nobody is driving is not a row in flight. The previous behaviour
+  // refused every later turn on that session forever; a stale row is now
+  // reclaimed before refusal so the session survives.
+  test("a running row whose updated_at is past the stale window is reclaimed", () => {
+    const { store: s, raw, close } = store();
+    const first = s.startRun(input())!;
+    // Backdate the row's updated_at past the default 10 minute window.
+    const longAgo = Date.now() - (RunStore.STALE_WINDOW_MS + 60_000);
+    raw.query("UPDATE runs SET updated_at = ? WHERE id = ?").run(longAgo, first.id);
+    const second = s.startRun(input());
+    expect(second).not.toBeNull();
+    expect(second!.id).not.toBe(first.id);
+    expect(s.get(first.id)!.status).toBe("unfinished");
+    expect(s.get(first.id)!.stoppedBecause).toBe("not_continuable");
+    close();
+  });
+
+  test("a running row whose deadline is in the past is reclaimed regardless of updated_at", () => {
+    const { store: s, raw, close } = store();
+    const first = s.startRun(input({ deadlineAt: Date.now() - 1_000 }))!;
+    // updated_at is now-ish (just inserted); the deadline alone is enough.
+    const second = s.startRun(input());
+    expect(second).not.toBeNull();
+    expect(s.get(first.id)!.status).toBe("unfinished");
+    close();
+  });
+
+  test("a running row touched 30 seconds ago is not reclaimed", () => {
+    const { store: s, raw, close } = store();
+    const first = s.startRun(input())!;
+    const thirtySecondsAgo = Date.now() - 30_000;
+    raw.query("UPDATE runs SET updated_at = ? WHERE id = ?").run(thirtySecondsAgo, first.id);
+    const second = s.startRun(input());
+    expect(second).toBeNull();
+    expect(s.get(first.id)!.status).toBe("running");
+    close();
+  });
+
+  test("a non-continuation turn still bumps updated_at (the bug behind the brick)", () => {
+    const { store: s, raw, close } = store();
+    const run = s.startRun(input())!;
+    const initial = s.get(run.id)!.updatedAt;
+    // Pause so the new write is distinguishable at millisecond resolution.
+    Bun.sleepSync(5);
+    s.appendTurn({
+      runId: run.id, startedAt: 1, durationMs: 1, outcome: "completed",
+      toolCalls: 0, continuation: false, replan: false, tokens: 0,
+      filesChanged: 0, todosClosed: 0, doneWhenPass: null,
+    });
+    expect(s.get(run.id)!.updatedAt).toBeGreaterThan(initial);
+    close();
+  });
+
+  test("the stale window honours CINDERPAW_RUN_STALE_MS", () => {
+    const { store: s, raw, close } = store();
+    const prev = process.env.CINDERPAW_RUN_STALE_MS;
+    try {
+      process.env.CINDERPAW_RUN_STALE_MS = "1000";
+      const first = s.startRun(input())!;
+      // 2 seconds old, beyond the 1s override but well inside the default.
+      raw.query("UPDATE runs SET updated_at = ? WHERE id = ?").run(Date.now() - 2_000, first.id);
+      const second = s.startRun(input());
+      expect(second).not.toBeNull();
+    } finally {
+      if (prev === undefined) delete process.env.CINDERPAW_RUN_STALE_MS;
+      else process.env.CINDERPAW_RUN_STALE_MS = prev;
+    }
+    close();
+  });
 });

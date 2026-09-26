@@ -126,6 +126,22 @@ function parseJson<T>(raw: unknown): T | null {
 export class RunStore {
   readonly #db: Database;
 
+  /**
+   * How old a `running` row can be before `startRun` treats it as abandoned
+   * and reclaims it. Default 10 minutes — long enough that a genuinely slow
+   * unattended turn is not stolen, short enough that a person is not locked
+   * out of their own conversation. Override with `CINDERPAW_RUN_STALE_MS`.
+   */
+  static readonly STALE_WINDOW_MS = 10 * 60 * 1000;
+
+  /** Reads the override; falls back to the class default. */
+  static staleWindowMs(): number {
+    const raw = process.env.CINDERPAW_RUN_STALE_MS;
+    if (raw === undefined || raw === "") return RunStore.STALE_WINDOW_MS;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : RunStore.STALE_WINDOW_MS;
+  }
+
   constructor(db: Database) {
     this.#db = db;
   }
@@ -139,10 +155,45 @@ export class RunStore {
   }
 
   /**
+   * If the session has a `running` row whose `deadline_at` is in the past or
+   * whose `updated_at` is older than the stale window, close it as
+   * `unfinished` so `startRun` can proceed. Returns the id reclaimed, or null.
+   *
+   * Stale rows are not deleted — they go through `finish` so the rest of the
+   * pipeline (digest, undelivered reports, history) sees a normal abandoned
+   * run. The same path `resumeInterruptedRuns` would have taken if the row
+   * had been found at boot.
+   */
+  #maybeReclaimStale(sessionId: string): string | null {
+    const row = this.activeFor(sessionId);
+    if (!row) return null;
+    const now = Date.now();
+    const pastDeadline =
+      row.deadlineAt !== null && row.deadlineAt < now;
+    const pastWindow = now - row.updatedAt > RunStore.staleWindowMs();
+    if (!pastDeadline && !pastWindow) return null;
+    const reason = pastDeadline ? "deadline_passed" : "stale_no_progress";
+    this.finish(row.id, "unfinished", "not_continuable", null);
+    process.stderr.write(
+      `[run-store] reclaimed abandoned run ${row.id} for session ${sessionId} (${reason})\n`,
+    );
+    return row.id;
+  }
+
+  /**
    * Begin a run. Returns null when the session already has one in flight — two
    * loops driving one transcript is how side effects get performed twice.
+   *
+   * A row left in `running` by a crash, an interrupted continuation, or any
+   * other half-finished turn is reclaimed before refusal if it is stale:
+   * either its `deadline_at` is in the past, or its `updated_at` is older
+   * than the stale window. The window defaults to 10 minutes and can be
+   * overridden by the env var. Reclaimed rows go through `finish(id,
+   * "unfinished", "not_continuable", …)` so they leave `running` the same
+   * way every other abandoned run does.
    */
   startRun(input: StartRunInput): RunRow | null {
+    this.#maybeReclaimStale(input.sessionId);
     if (this.activeFor(input.sessionId)) return null;
     const now = Date.now();
     const id = crypto.randomUUID();
@@ -219,7 +270,11 @@ export class RunStore {
         turn.doneWhenPass === null ? null : turn.doneWhenPass ? 1 : 0,
       );
     // The counters live on the run so a resume can read the budget it has left
-    // without replaying every turn.
+    // without replaying every turn. `updated_at` is bumped on every turn —
+    // not only on continuations — because a long, normal turn also counts as
+    // activity: a stale check that only moves on continuations would steal
+    // a run that is genuinely still working, which is worse than the brick
+    // this exists to prevent. See `startRun` for the stale window.
     this.#db
       .query(
         "UPDATE runs SET updated_at = ?, continuations_used = continuations_used + ? WHERE id = ?",
