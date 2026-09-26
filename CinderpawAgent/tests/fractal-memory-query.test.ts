@@ -107,7 +107,7 @@ describe("FractalMemory.query — FTS5 is never thrown away", () => {
       ftsSearch: ftsWith([row(501, "the invoice number is 4471")]), fallback, treePath: treePath(),
     });
     expect(fm.hasTree).toBe(false);
-    expect(await fm.query("invoice number", 5)).toEqual([{ leafId: 501, text: "the invoice number is 4471" }]);
+    expect(await fm.query("invoice number", 5)).toEqual([{ leafId: 501, text: "[2023-11-14] the invoice number is 4471" }]);
   });
 
   it("keeps an FTS5 hit on a row written after the tree was built", async () => {
@@ -120,7 +120,7 @@ describe("FractalMemory.query — FTS5 is never thrown away", () => {
     await fm.rebuild();
     expect(fm.hasTree).toBe(true);
     const hits = await fm.query("invoice s-b", 20);
-    expect(hits).toContainEqual({ leafId: 501, text: "invoice from this morning, s-b" });
+    expect(hits).toContainEqual({ leafId: 501, text: "[2023-11-14] invoice from this morning, s-b" });
   });
 
   it("falls back to FTS5 when the query cannot be embedded on a built tree", async () => {
@@ -135,7 +135,7 @@ describe("FractalMemory.query — FTS5 is never thrown away", () => {
     });
     await fm.rebuild();
     failing = true;
-    expect(await fm.query("invoice", 5)).toEqual([{ leafId: 501, text: "invoice 4471" }]);
+    expect(await fm.query("invoice", 5)).toEqual([{ leafId: 501, text: "[2023-11-14] invoice 4471" }]);
   });
 
   it("a throwing FTS5 on the fallback path still yields [], never an error", async () => {
@@ -144,5 +144,16 @@ describe("FractalMemory.query — FTS5 is never thrown away", () => {
       ftsSearch: () => { throw new Error("db closed"); }, fallback, treePath: treePath(),
     });
     expect(await fm.query("anything", 5)).toEqual([]);
+  });
+});
+
+
+describe("FractalMemory.query — every hit is dated", () => {
+  it("tree hits carry the day they happened", async () => {
+    const fm = makeFm();
+    await fm.rebuild();
+    const hits = await fm.query("anything in s-a", 3);
+    expect(hits.length).toBeGreaterThan(0);
+    for (const h of hits) expect(h.text).toMatch(/^\[2023-11-14\] event-\d+ in s-a$/);
   });
 });

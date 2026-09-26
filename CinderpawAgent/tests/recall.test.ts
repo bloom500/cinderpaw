@@ -15,6 +15,8 @@ describe("recall tool", () => {
     const res = await tool.execute({ query: "deploy" });
     expect(res.ok).toBe(true);
     expect(res.content.toLowerCase()).toMatch(/related past conversation/);
+    // The hits are dated upstream; the header gives today's date to read them against.
+    expect(res.content).toMatch(/today is \d{4}-\d{2}-\d{2}/);
     expect(res.content).toContain("deployed the release");
     expect((res.data as { hits: unknown[] }).hits).toHaveLength(2);
   });

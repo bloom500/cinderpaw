@@ -29,7 +29,7 @@ import { createHash } from "node:crypto";
 import { collapseIdentical, type CollapseResult } from "./cross-session-dedup.ts";
 import { buildTree } from "./tree-builder.ts";
 import { appendLeaf } from "./tree-append.ts";
-import { FractalRecallEngine, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
+import { FractalRecallEngine, dateStamp, type RecallResult, type FtsSearch } from "./fractal-recall.ts";
 import { saveTree, loadTree } from "./tree-store.ts";
 import { projectCentroids } from "./project-centroids.ts";
 import { runFractalBenchmark } from "./bench/run-benchmark.ts";
@@ -649,14 +649,14 @@ export class FractalMemory {
         // the tree was built — the tree does not know those rows, so a keyword
         // match on this morning's conversation came back as nothing.
         const hits = await engine.rankedEntries(pattern, "", limit);
-        return hits.map((h) => ({ leafId: h.id, text: h.text }));
+        return hits.map((h) => ({ leafId: h.id, text: dated(h.ts, h.text) }));
       } catch (e) {
         this.#log?.(`fractal: query fell back to FTS5: ${String(e)}`);
       }
     }
     try {
       return this.#ftsSearch(pattern, limit).flatMap((ev) =>
-        ev.id === undefined ? [] : [{ leafId: ev.id, text: ev.content }],
+        ev.id === undefined ? [] : [{ leafId: ev.id, text: dated(ev.timestamp, ev.content) }],
       );
     } catch (e) {
       this.#log?.(`fractal: FTS5 query failed, returning nothing: ${String(e)}`);
@@ -1288,6 +1288,18 @@ export function readMergeThreshold(): number {
   const v = Number(raw);
   if (!Number.isFinite(v) || v <= 0 || v > 1) return DEFAULT_MERGE_THRESHOLD;
   return v;
+}
+
+/**
+ * A query hit's text as the model reads it: stamped with the day it happened,
+ * like every line of the per-turn recall block. The `recall` tool used to show
+ * bare snippets, so "what did I decide last week" came back with no way to
+ * tell last week's decision from last year's. The date goes into the text
+ * because the text is the whole wire shape of the retrieval seam, and it is
+ * what both the tool and the L4 eval render.
+ */
+function dated(ts: number, text: string): string {
+  return ts > 0 ? `[${dateStamp(ts)}] ${text}` : text;
 }
 
 /** One structured hit from {@link FractalMemory.query}. */

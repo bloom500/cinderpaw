@@ -138,7 +138,12 @@ export function createRecallTool(
 
       const blocks: string[] = [];
       if (facts.length > 0) blocks.push(`Known facts:\n${facts.join("\n")}`);
-      if (hits.length > 0) blocks.push(`Related past conversations:\n${formatHits(hits)}`);
+      // Hits are dated; today's date is what makes a date usable ("how long
+      // ago", "the latest"). Same stamp as the per-turn recall block.
+      if (hits.length > 0) {
+        const today = new Date().toISOString().slice(0, 10);
+        blocks.push(`Related past conversations (today is ${today}):\n${formatHits(hits)}`);
+      }
       const content = blocks.length === 0
         ? `Nothing in memory matched "${query}".`
         : blocks.join("\n\n");
