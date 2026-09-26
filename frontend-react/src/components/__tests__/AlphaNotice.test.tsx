@@ -18,7 +18,8 @@ describe('the alpha notice', () => {
     mount();
     expect(screen.getByText('Cinderpaw is in alpha')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Report a bug' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Become a contributor' })).toHaveAttribute('href', expect.stringContaining('github.com'));
+    expect(screen.getByRole('link', { name: 'Contribute' })).toHaveAttribute('href', expect.stringContaining('github.com'));
+    expect(screen.getByRole('link', { name: 'Discord' })).toHaveAttribute('href', expect.stringContaining('discord'));
   });
 
   it('the X closes it for this launch only', () => {
