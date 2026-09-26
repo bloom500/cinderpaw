@@ -1,8 +1,8 @@
 /**
  * Faza 2 Slice 4 — code candidates through the live Contract FSM, pinned
- * over fake CodeStageDeps: stage table (wall / worktree / suite floor /
- * Rust score / tsc regression / ratchet), verdict per failure mode, and
- * the proposal operator's pure pieces.
+ * over fake CodeStageDeps: stage table (wall / base + worktree / the Rust
+ * verdict against the base / record), verdict per failure mode, the
+ * approval queue, and the proposal operator's pure pieces.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -10,9 +10,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CodeGenome } from "../src/rsi/l3-code/code-genome.ts";
-import type { CodeEvalMeasurements } from "../src/rsi/l3-code/code-sandbox.ts";
-import type { CodeStageDeps } from "../src/rsi/l3-code/code-leaves.ts";
+import type { CodeEvalMeasurements, ExecFn } from "../src/rsi/l3-code/code-sandbox.ts";
+import type { CodeJudgement, CodeStageDeps } from "../src/rsi/l3-code/code-leaves.ts";
+import type { IsolationBackend } from "../src/rsi/l3-code/isolation.ts";
 import { makeCodeStageAdapters, runCodeCandidate } from "../src/rsi/l3-code/code-rsi.ts";
+import { PendingPatchStore } from "../src/rsi/l3-code/pending-patches.ts";
 import type { RsiBridge } from "../src/rsi/infra/bridge.ts";
 import { PopulationManager } from "../src/rsi/l1-config/population-manager.ts";
 import {
@@ -43,14 +45,18 @@ const greenMeasurements: CodeEvalMeasurements = {
   durationMs: 1,
 };
 
+/** Rust's verdict when the candidate is no worse than its base. */
+const noWorse: CodeJudgement = { score: 90, baseScore: 88, tests: null, tsc: null, build: null, noWorse: true };
+
 /** Fake stage deps: green by default, overridable per test; records calls. */
 function fakeDeps(over: Partial<CodeStageDeps> = {}, calls: string[] = []) {
   const deps: CodeStageDeps = {
     validatePatch: async () => (calls.push("validate"), { ok: true }),
+    measureBase: async () => (calls.push("base"), { ok: true, measurements: greenMeasurements }),
     evaluateInWorktree: async () => (
       calls.push("worktree"), { ok: true, measurements: greenMeasurements }
     ),
-    scorePatch: async () => (calls.push("score"), { score: 90 }),
+    judgePatch: async () => (calls.push("judge"), noWorse),
     commitCodePatch: async () => (calls.push("commit"), { commitHash: "deadbeef" }),
     ratchetAttempt: async () => (calls.push("ratchet"), { advanced: true, previousBest: 50 }),
     ...over,
@@ -64,16 +70,22 @@ function scratchJournal() {
   return { journalPath: () => join(dir, "journal.jsonl"), cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-async function runWith(over: Partial<CodeStageDeps> = {}, pop?: PopulationManager) {
+async function runWith(
+  over: Partial<CodeStageDeps> = {},
+  pop?: PopulationManager,
+  pendingStore?: PendingPatchStore,
+  genomeId = "g-1234",
+) {
   const { deps, calls } = fakeDeps(over);
   const j = scratchJournal();
   try {
     const result = await runCodeCandidate({
-      genomeId: "g-1234",
+      genomeId,
       genome,
       deps,
       journalPath: j.journalPath,
       ...(pop ? { pop } : {}),
+      ...(pendingStore ? { pendingStore } : {}),
     });
     return { result, calls };
   } finally {
@@ -82,15 +94,16 @@ async function runWith(over: Partial<CodeStageDeps> = {}, pop?: PopulationManage
 }
 
 describe("runCodeCandidate — the code path through the live FSM", () => {
-  test("green candidate: full stage sequence, accept, ratchet advanced", async () => {
+  test("green candidate: full stage sequence, accept, recorded", async () => {
     const pop = new PopulationManager();
     const { result, calls } = await runWith({}, pop);
     expect(result.decided?.action).toBe("accept");
     expect(result.advanced).toBe(true);
     expect(result.commitHash).toBe("deadbeef");
     expect(result.score).toBe(90);
-    // wall → worktree → score → wall re-assert → commit → ratchet
-    expect(calls).toEqual(["validate", "worktree", "score", "validate", "commit", "ratchet"]);
+    expect(result.previousBest).toBe(88); // the base's composite, not a bar
+    // wall → base → worktree → Rust verdict → wall re-assert → commit → record
+    expect(calls).toEqual(["validate", "base", "worktree", "judge", "validate", "commit", "ratchet"]);
     // Population carries the code genome + its substrate commit.
     expect(pop.get("g-1234")?.code?.patch).toBe(genome.patch);
     expect(pop.getCommitHash("g-1234")).toBe("deadbeef");
@@ -114,32 +127,68 @@ describe("runCodeCandidate — the code path through the live FSM", () => {
       }),
     });
     expect(result.decided?.action).toBe("halt");
-    expect(calls).not.toContain("score");
+    expect(calls).not.toContain("judge");
     expect(calls).not.toContain("commit");
   });
 
-  test("a failing test in the patched copy rejects at the suite floor", async () => {
+  test("no base measurement → halt with the reason, the candidate never runs", async () => {
     const { result, calls } = await runWith({
-      evaluateInWorktree: async () => ({
-        ok: true,
-        measurements: { ...greenMeasurements, testsFailed: 1, testsExitCode: 1 },
-      }),
+      measureBase: async () => ({ ok: false, stage: "isolation", reason: "Docker is not installed." }),
+    });
+    expect(result.decided?.action).toBe("halt");
+    expect(result.decided?.reason).toContain("measuring the unpatched base");
+    expect(result.decided?.reason).toContain("Docker is not installed.");
+    expect(calls).not.toContain("worktree");
+  });
+
+  test("a test that does worse than on the base rejects at the suite floor", async () => {
+    const { result, calls } = await runWith({
+      judgePatch: async () => ({ ...noWorse, tests: "2 tests fail; the base fails 1", noWorse: false }),
     });
     expect(result.decided?.action).toBe("reject");
-    expect(result.decided?.reason).toContain("tests failed");
+    expect(result.decided?.reason).toContain("worse than the base: 2 tests fail; the base fails 1");
     expect(calls).not.toContain("commit");
   });
 
-  test("dirty tsc rejects at regression, before any commit", async () => {
-    const { result, calls } = await runWith({
-      evaluateInWorktree: async () => ({
-        ok: true,
-        measurements: { ...greenMeasurements, tscExitCode: 2 },
-      }),
+  test("a test the base already fails does not reject the candidate", async () => {
+    // The absolute rule rejected every candidate cut from a base with one
+    // failing test. The verdict is Rust's, against the base.
+    const oneFailing = { ...greenMeasurements, testsFailed: 1, testsExitCode: 1 };
+    const { result } = await runWith({
+      measureBase: async () => ({ ok: true, measurements: oneFailing }),
+      evaluateInWorktree: async () => ({ ok: true, measurements: oneFailing }),
     });
-    expect(result.decided?.action).toBe("reject");
-    expect(result.decided?.reason).toContain("tsc");
-    expect(calls).not.toContain("commit");
+    expect(result.decided?.action).toBe("accept");
+  });
+
+  test("tsc or build worse than the base rejects at regression, before any commit", async () => {
+    for (const worse of [
+      { tsc: "tsc --noEmit fails (exit 2); the base type-checks" },
+      { build: "the build fails (exit 1); the base builds" },
+    ]) {
+      const { result, calls } = await runWith({
+        judgePatch: async () => ({ ...noWorse, ...worse, noWorse: false }),
+      });
+      expect(result.decided?.action).toBe("reject");
+      expect(result.decided?.reason).toContain(Object.values(worse)[0]!);
+      expect(calls).not.toContain("commit");
+    }
+  });
+
+  test("every candidate no worse than its base is queued, not only the first", async () => {
+    // The absolute ratchet let one green one-liner through and refused every
+    // patch after it, so nothing else ever reached a person.
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-pending-"));
+    try {
+      const store = new PendingPatchStore(join(dir, "pending.json"));
+      await runWith({}, undefined, store, "g-first");
+      await runWith({ judgePatch: async () => ({ ...noWorse, score: 70 }) }, undefined, store, "g-second");
+      expect(store.list().map((p) => p.id)).toEqual(["g-first", "g-second"]);
+      await runWith({ judgePatch: async () => ({ ...noWorse, tests: "worse", noWorse: false }) }, undefined, store, "g-worse");
+      expect(store.list().map((p) => p.id)).toEqual(["g-first", "g-second"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("ratchet decline is a soft reject with the commit still recorded", async () => {
@@ -190,6 +239,62 @@ describe("makeCodeStageAdapters.validatePatch — both walls, in order", () => {
     const denied = await makeCodeStageAdapters({ bridge: denyBridge, repoRoot: "C:/fake" })
       .validatePatch(good);
     expect(denied).toEqual({ ok: false, reason: "rust says no" });
+  });
+});
+
+describe("makeCodeStageAdapters — the base and the Rust verdict", () => {
+  /** A sandbox that runs nothing: git succeeds, every step prints `pass`. */
+  function fakeSandbox(testsExit = 0) {
+    const runs: string[] = [];
+    const exec: ExecFn = async () => ({ exitCode: 0, stdout: "", stderr: "", timedOut: false });
+    const isolation: IsolationBackend = {
+      name: "fake",
+      available: async () => ({ ok: true, note: "fake" }),
+      run: async (_dir, steps) => (
+        runs.push("run"),
+        steps.map((st) => ({
+          exitCode: st.name === "tests" ? testsExit : 0,
+          stdout: "10 pass\n0 fail",
+          stderr: "",
+          timedOut: testsExit < 0,
+        }))
+      ),
+    };
+    return { sandbox: { exec, isolation }, runs };
+  }
+
+  test("the base is measured once per base commit, and a killed run is retried", async () => {
+    const root = `C:/fake-${Math.random()}`;
+    const { sandbox, runs } = fakeSandbox();
+    const deps = makeCodeStageAdapters({ bridge: {} as RsiBridge, repoRoot: root, sandbox });
+    const a = await deps.measureBase("base-1");
+    await deps.measureBase("base-1");
+    expect(a.ok && a.measurements.changedLines).toBe(0);
+    expect(runs).toHaveLength(1);
+    await deps.measureBase("base-2");
+    expect(runs).toHaveLength(2);
+
+    const killed = fakeSandbox(-2);
+    const again = makeCodeStageAdapters({ bridge: {} as RsiBridge, repoRoot: `${root}-k`, sandbox: killed.sandbox });
+    await again.measureBase("base-1");
+    await again.measureBase("base-1");
+    expect(killed.runs).toHaveLength(2);
+  });
+
+  test("judgePatch hands Rust both measurement sets and reads its verdict", async () => {
+    const sent: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const bridge = {
+      request: async (method: string, params: Record<string, unknown>) => (
+        sent.push({ method, params }),
+        { candidate: { score: 90 }, base: { score: 95 }, tests: "1 tests fail; the base fails 0", tsc: null, build: null, no_worse: false }
+      ),
+    } as unknown as RsiBridge;
+    const deps = makeCodeStageAdapters({ bridge, repoRoot: "C:/fake" });
+    const j = await deps.judgePatch(greenMeasurements, { ...greenMeasurements, testsFailed: 1 });
+    expect(sent[0]!.method).toBe("rsi_judge_code_patch");
+    expect((sent[0]!.params.base as Record<string, number>).tests_failed).toBe(0);
+    expect((sent[0]!.params.candidate as Record<string, number>).tests_failed).toBe(1);
+    expect(j).toEqual({ score: 90, baseScore: 95, tests: "1 tests fail; the base fails 0", tsc: null, build: null, noWorse: false });
   });
 });
 

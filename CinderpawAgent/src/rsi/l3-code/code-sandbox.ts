@@ -5,7 +5,7 @@
  * Lifecycle (spec §5.1, LOCKED: fresh worktree per candidate, destroy always):
  *
  *   git worktree add --detach <scratch>/<id> <baseCommit>   (from repoRoot)
- *   git apply <patch>                                        (cwd = pkg dir)
+ *   git apply <patch>             (cwd = pkg dir; skipped to measure the base)
  *   bun test / bunx tsc --noEmit / bun run build   INSIDE the isolation
  *                                                  backend (`isolation.ts`)
  *   git worktree remove --force                              (ALWAYS, finally)
@@ -104,10 +104,12 @@ export type CodeEvalResult =
   | { ok: false; stage: "worktree_create" | "patch_apply" | "isolation"; reason: string };
 
 /** Run one code candidate through the disposable-worktree pipeline.
+ *  `patch: null` measures the unpatched base itself: same image, same
+ *  steps, nothing applied. That is what a candidate is judged against.
  *  Never throws for candidate-caused failures; the worktree is destroyed
  *  on every path. */
 export async function evaluateCodePatch(
-  genome: Pick<CodeGenome, "patch" | "baseCommit">,
+  genome: { patch: string | null; baseCommit: CodeGenome["baseCommit"] },
   options: CodeSandboxOptions,
 ): Promise<CodeEvalResult> {
   const started = Date.now();
@@ -146,26 +148,28 @@ export async function evaluateCodePatch(
     // git interprets patch paths relative to the repo root there and
     // silently IGNORES ones "outside" the cwd — exit 0, nothing applied.
     const applyArgs = ["git", "apply", `--directory=${pkgSubdir}`];
+    let changedLines = 0;
+    if (genome.patch !== null) {
+      // Cheap pre-measurement: changed lines straight off the patch text.
+      const numstat = await exec([...applyArgs, "--numstat"], {
+        cwd: worktree,
+        timeoutMs: t.gitMs,
+        stdin: genome.patch,
+      });
+      changedLines = numstat.exitCode === 0 ? sumNumstat(numstat.stdout) : 0;
 
-    // Cheap pre-measurement: changed lines straight off the patch text.
-    const numstat = await exec([...applyArgs, "--numstat"], {
-      cwd: worktree,
-      timeoutMs: t.gitMs,
-      stdin: genome.patch,
-    });
-    const changedLines = numstat.exitCode === 0 ? sumNumstat(numstat.stdout) : 0;
-
-    const applied = await exec([...applyArgs, "--whitespace=nowarn"], {
-      cwd: worktree,
-      timeoutMs: t.gitMs,
-      stdin: genome.patch,
-    });
-    if (applied.exitCode !== 0) {
-      return {
-        ok: false,
-        stage: "patch_apply",
-        reason: failReason(applied, "git apply", t.gitMs),
-      };
+      const applied = await exec([...applyArgs, "--whitespace=nowarn"], {
+        cwd: worktree,
+        timeoutMs: t.gitMs,
+        stdin: genome.patch,
+      });
+      if (applied.exitCode !== 0) {
+        return {
+          ok: false,
+          stage: "patch_apply",
+          reason: failReason(applied, "git apply", t.gitMs),
+        };
+      }
     }
 
     // From here down everything is a measurement — failures are DATA for

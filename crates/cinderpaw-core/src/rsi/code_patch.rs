@@ -146,7 +146,6 @@ pub fn score_code_patch(m: &CodePatchMeasurements) -> CodePatchScore {
     // ponytail: a flat ceiling, not a count of test files. Counting them means
     // walking the worktree from here and agreeing with the runner about what a
     // test is; the ceiling catches the fabrication without either.
-    const MAX_CREDIBLE_TESTS: u32 = 20_000;
     if m.tests_passed > MAX_CREDIBLE_TESTS || m.tests_failed > MAX_CREDIBLE_TESTS {
         tracing::warn!(
             passed = m.tests_passed,
@@ -161,18 +160,9 @@ pub fn score_code_patch(m: &CodePatchMeasurements) -> CodePatchScore {
             diff_economy: 0.0,
         };
     }
-    // Saturating: `tests_passed + tests_failed` at u32::MAX wrapped to a small
-    // total, which turned an absurd pair of counts into a plausible pass rate.
-    let total = m.tests_passed.saturating_add(m.tests_failed);
-    // No pass credit when: nothing ran; the runner killed the suite
-    // (negative exit = timeout/crash — a partial pass count is not a
-    // pass rate); or the suite exited non-zero WITHOUT any parsed
-    // failures (crashed before the summary → the counts are garbage).
-    // Exit 1 WITH parsed failures is the honest partial-failure case.
-    let pass_rate = if total == 0 || m.tests_exit_code < 0 || (m.tests_exit_code != 0 && m.tests_failed == 0) {
-        0.0
-    } else {
-        f64::from(m.tests_passed) / f64::from(total)
+    let pass_rate = match test_counts(m) {
+        Some((passed, failed)) => f64::from(passed) / f64::from(passed + failed),
+        None => 0.0,
     };
     let tsc_clean = m.tsc_exit_code == 0;
     let build_ok = m.build_exit_code == 0;
@@ -191,6 +181,80 @@ pub fn score_code_patch(m: &CodePatchMeasurements) -> CodePatchScore {
         tsc_clean,
         build_ok,
         diff_economy,
+    }
+}
+
+/// A test count above this is a candidate printing its own scoreboard, not a
+/// run of this repo's suite (see `score_code_patch`).
+const MAX_CREDIBLE_TESTS: u32 = 20_000;
+
+/// `(passed, failed)` when the counts are evidence of a run, else None.
+/// Not evidence: an impossible count; nothing ran; the runner killed the
+/// suite (negative exit = timeout/crash, a partial count is not a result);
+/// or a non-zero exit WITHOUT parsed failures (crashed before the summary,
+/// so the counts are garbage). Exit 1 WITH parsed failures is the honest
+/// partial-failure case.
+fn test_counts(m: &CodePatchMeasurements) -> Option<(u32, u32)> {
+    if m.tests_passed > MAX_CREDIBLE_TESTS || m.tests_failed > MAX_CREDIBLE_TESTS {
+        return None;
+    }
+    let ran = m.tests_passed + m.tests_failed > 0
+        && m.tests_exit_code >= 0
+        && !(m.tests_exit_code != 0 && m.tests_failed == 0);
+    ran.then_some((m.tests_passed, m.tests_failed))
+}
+
+/// A code candidate measured against the unpatched base it was cut from:
+/// same sandbox image, same steps. Each check is `None` when the candidate
+/// is no worse than the base, or the reason it is worse.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct CodePatchJudgement {
+    pub candidate: CodePatchScore,
+    pub base: CodePatchScore,
+    pub tests: Option<String>,
+    pub tsc: Option<String>,
+    pub build: Option<String>,
+    /// All three held: the only gate a code candidate passes.
+    pub no_worse: bool,
+}
+
+/// Judge a candidate against its base. This replaces an absolute bar: a
+/// green one-line patch scored 99.95, the ratchet then needed strictly more,
+/// and L3 stopped sending patches without a word. Relative to the base, a
+/// candidate is judged on what it changed, and a base with a failing test
+/// no longer rejects every candidate cut from it.
+///
+/// The composite scores are carried for the record only; diff size never
+/// decides anything here, so a no-op is not preferred for being small.
+/// Nothing here says a patch makes the agent BETTER (that needs the L1 eval
+/// suite run under the patched build); it says the patch broke nothing the
+/// base had.
+pub fn judge_code_patch(base: &CodePatchMeasurements, candidate: &CodePatchMeasurements) -> CodePatchJudgement {
+    let tests = match (test_counts(base), test_counts(candidate)) {
+        // Fail closed: with no base result there is nothing to be "no worse" than.
+        (None, _) => Some(format!(
+            "the unpatched base gave no usable test result (exit {}), so there is nothing to compare against",
+            base.tests_exit_code
+        )),
+        (Some(_), None) => Some(format!(
+            "the test run gave no usable result (exit {}); the base's did",
+            candidate.tests_exit_code
+        )),
+        (Some((_, bf)), Some((_, cf))) if cf > bf => Some(format!("{cf} tests fail; the base fails {bf}")),
+        (Some((bp, _)), Some((cp, _))) if cp < bp => Some(format!("{cp} tests pass; the base passes {bp}")),
+        _ => None,
+    };
+    let tsc = (base.tsc_exit_code == 0 && candidate.tsc_exit_code != 0)
+        .then(|| format!("tsc --noEmit fails (exit {}); the base type-checks", candidate.tsc_exit_code));
+    let build = (base.build_exit_code == 0 && candidate.build_exit_code != 0)
+        .then(|| format!("the build fails (exit {}); the base builds", candidate.build_exit_code));
+    CodePatchJudgement {
+        candidate: score_code_patch(candidate),
+        base: score_code_patch(base),
+        no_worse: tests.is_none() && tsc.is_none() && build.is_none(),
+        tests,
+        tsc,
+        build,
     }
 }
 
@@ -392,6 +456,52 @@ mod tests {
         let s = score_code_patch(&m(10, 0, 2, 1, 0));
         // 60 + 0 + 0 + 10 = 70
         assert!((s.score - 70.0).abs() < 1e-9, "got {}", s.score);
+    }
+
+    /// The absolute bar saturated: a green one-liner scored 99.95 and nothing
+    /// could beat it. Judged against the base, every candidate that keeps what
+    /// the base had passes, however many green patches came before it.
+    #[test]
+    fn a_candidate_no_worse_than_its_base_passes_whatever_came_before() {
+        let base = m(100, 0, 0, 0, 0);
+        for changed in [1, 50, 199] {
+            let j = judge_code_patch(&base, &m(100, 0, 0, 0, changed));
+            assert!(j.no_worse, "{changed} lines: {j:?}");
+        }
+    }
+
+    #[test]
+    fn a_failing_test_the_base_already_had_does_not_reject_the_candidate() {
+        let base = m(99, 1, 0, 0, 0);
+        assert!(judge_code_patch(&base, &m(99, 1, 0, 0, 5)).no_worse);
+        let worse = judge_code_patch(&base, &m(98, 2, 0, 0, 5));
+        assert!(!worse.no_worse);
+        assert_eq!(worse.tests.as_deref(), Some("2 tests fail; the base fails 1"));
+    }
+
+    #[test]
+    fn deleting_tests_is_worse_even_when_nothing_fails() {
+        let j = judge_code_patch(&m(100, 0, 0, 0, 0), &m(90, 0, 0, 0, 30));
+        assert_eq!(j.tests.as_deref(), Some("90 tests pass; the base passes 100"));
+    }
+
+    #[test]
+    fn tsc_and_build_are_judged_against_the_base() {
+        let j = judge_code_patch(&m(100, 0, 0, 0, 0), &m(100, 0, 2, 1, 5));
+        assert!(j.tsc.is_some() && j.build.is_some() && !j.no_worse);
+        // A base that already fails them cannot be made worse by exit code alone.
+        assert!(judge_code_patch(&m(100, 0, 2, 1, 0), &m(100, 0, 2, 1, 5)).no_worse);
+    }
+
+    #[test]
+    fn no_usable_result_on_either_side_fails_closed() {
+        let mut crashed = m(100, 0, 0, 0, 5);
+        crashed.tests_exit_code = -2;
+        assert!(judge_code_patch(&m(100, 0, 0, 0, 0), &crashed).tests.is_some());
+        let j = judge_code_patch(&crashed, &m(100, 0, 0, 0, 5));
+        assert!(!j.no_worse, "nothing to compare against is not a pass");
+        // A candidate printing its own scoreboard is not evidence either.
+        assert!(!judge_code_patch(&m(100, 0, 0, 0, 0), &m(99_999, 0, 0, 0, 5)).no_worse);
     }
 
     const GOOD_PATCH: &str = "diff --git a/src/rsi/mutation.ts b/src/rsi/mutation.ts\n\

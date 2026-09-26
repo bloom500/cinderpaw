@@ -577,6 +577,20 @@ pub async fn dispatch_rsi_request(
             Ok(serde_json::to_value(scored)
                 .map_err(|e| format!("rsi_score_code_patch: serialise: {e}"))?)
         }
+        // The L3 gate: a candidate against the unpatched base, both measured
+        // by TS in the same sandbox and judged here (TS never grades itself).
+        "rsi_judge_code_patch" => {
+            let measured = |key: &str| -> Result<code_patch::CodePatchMeasurements, String> {
+                let raw = params
+                    .get(key)
+                    .cloned()
+                    .ok_or_else(|| format!("rsi_judge_code_patch: missing '{key}'"))?;
+                serde_json::from_value(raw).map_err(|e| format!("rsi_judge_code_patch: bad {key}: {e}"))
+            };
+            let judged = code_patch::judge_code_patch(&measured("base")?, &measured("candidate")?);
+            Ok(serde_json::to_value(judged)
+                .map_err(|e| format!("rsi_judge_code_patch: serialise: {e}"))?)
+        }
         "rsi_commit_code_patch" => {
             let genome_id: String = require_string(params.get("genome_id"), "genome_id")?;
             let patch: String = require_string(params.get("patch"), "patch")?;
@@ -766,6 +780,27 @@ mod tests {
         // 60 + 15 + 15 + 0 (diff economy exhausted at the cap) = 90
         let score = v.get("score").and_then(|x| x.as_f64()).unwrap();
         assert!((score - 90.0).abs() < 1e-9, "got {score}");
+    }
+
+    #[test]
+    fn dispatch_rsi_judge_code_patch_compares_with_the_base() {
+        let measured = |failed: u32| {
+            serde_json::json!({
+                "tests_passed": 10, "tests_failed": failed, "tests_exit_code": if failed > 0 { 1 } else { 0 },
+                "tsc_exit_code": 0, "build_exit_code": 0, "changed_lines": 4
+            })
+        };
+        let v = run_dispatch(
+            "rsi_judge_code_patch",
+            serde_json::json!({ "base": measured(0), "candidate": measured(1) }),
+        )
+        .expect("judge must succeed");
+        assert_eq!(v.get("no_worse").and_then(|x| x.as_bool()), Some(false));
+        assert_eq!(v.get("tests").and_then(|x| x.as_str()), Some("1 tests fail; the base fails 0"));
+        assert!(v.pointer("/base/score").and_then(|x| x.as_f64()).is_some());
+
+        let missing = run_dispatch("rsi_judge_code_patch", serde_json::json!({ "candidate": measured(0) }));
+        assert!(missing.unwrap_err().contains("missing 'base'"));
     }
 
     #[test]

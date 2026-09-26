@@ -11,24 +11,30 @@
  *   sandbox_apply   → the disposable-worktree pipeline (code-sandbox.ts):
  *                     apply + install + test + tsc + build, measurements
  *                     stashed on `run` for the later stages
- *   tests           → tier-0 analogue: the FULL existing suite must be
- *                     green in the worktree
- *   benchmark       → Rust-scored composite (I7: `rsi_score_code_patch`)
+ *                     The unpatched base is measured the same way (cached
+ *                     per base commit): a candidate is judged against it.
+ *   tests           → tier-0 analogue: no test may do worse than on the
+ *                     base (Rust `rsi_judge_code_patch`, TS never grades
+ *                     itself). A test the base already fails does not
+ *                     reject every candidate cut from it.
+ *   benchmark       → the Rust composites of candidate and base, for the
+ *                     record; they decide nothing
  *   safety_checks   → policy wall re-assert
- *   regression      → `bunx tsc --noEmit` verdict from the worktree run
+ *   regression      → tsc and build, each no worse than on the base
  *   deploy          → Rust commit (`rsi_commit_code_patch`, policy
- *                     re-asserted a third time inside the binary) +
- *                     strict-greater ratchet (I1). SUBSTRATE-only: the
- *                     champion pointer moves; the patch is NOT applied to
- *                     the live source — live apply stays behind the
- *                     Slice 5 approval gate.
+ *                     re-asserted a third time inside the binary), recorded
+ *                     on `code-main`. SUBSTRATE-only: the patch is NOT
+ *                     applied to the live source — live apply stays behind
+ *                     the Slice 5 approval gate.
  *   monitoring      → pass-through (live-crash watchdog needs live apply)
  *
  * Confidence gate: code candidates have no per-task paired samples against
  * a champion baseline (their benchmark is test/tsc/build, not the eval
  * suite), so the runner gets a bootstrap-bypass gate — promotion is judged
- * by the tier-0-analogue tests stage + Rust strict-greater, exactly the
- * bootstrap semantics the config path uses before a baseline exists.
+ * by Rust's comparison with the base in the tests and regression stages.
+ * Nothing here measures that a patch makes the agent BETTER: that needs the
+ * L1 eval suite run under the patched build. It measures that the patch
+ * broke nothing the base had, and a person decides the rest.
  */
 
 import type { CodeGenome } from "./code-genome.ts";
@@ -48,8 +54,11 @@ export interface CodeStageDeps {
   evaluateInWorktree: (
     genome: Pick<CodeGenome, "patch" | "baseCommit">,
   ) => Promise<CodeEvalResult>;
-  /** Rust code-score formula (I7: `rsi_score_code_patch`). */
-  scorePatch: (m: CodeEvalMeasurements) => Promise<{ score: number }>;
+  /** The same pipeline over the unpatched base (`patch: null`), what a
+   *  candidate is judged against. Production caches it per base commit. */
+  measureBase: (baseCommit: string) => Promise<CodeEvalResult>;
+  /** Rust judges the candidate against the base (`rsi_judge_code_patch`). */
+  judgePatch: (base: CodeEvalMeasurements, candidate: CodeEvalMeasurements) => Promise<CodeJudgement>;
   /** Rust substrate commit (`rsi_commit_code_patch`) — re-validates the
    *  policy inside the binary before anything is written. */
   commitCodePatch: (args: {
@@ -64,14 +73,29 @@ export interface CodeStageDeps {
   ) => Promise<RatchetAck>;
 }
 
+/** Rust's verdict (`rsi_judge_code_patch`). Each check is null when the
+ *  candidate is no worse than the base, else the reason it is worse. */
+export interface CodeJudgement {
+  /** Composite of the candidate and of the base: a record, not a bar. */
+  score: number;
+  baseScore: number;
+  tests: string | null;
+  tsc: string | null;
+  build: string | null;
+  noWorse: boolean;
+}
+
 /** What the leaves learned while running — read by the caller after
  *  `runContract` returns. Mutated in place by the leaf closures. */
 export interface CodeCandidateRun {
   measurements?: CodeEvalMeasurements;
+  base?: CodeEvalMeasurements;
+  judgement?: CodeJudgement;
   /** The Rust composite, set by the benchmark leaf. */
   score?: number;
   commitHash?: string;
   advanced?: boolean;
+  /** The base's composite: `score - previousBest` is the patch's effect. */
   previousBest?: number;
 }
 
@@ -91,6 +115,13 @@ export function contractLeavesForCodePatch(
     }
     return run.measurements;
   };
+  // One Rust verdict per candidate, read by the tests, benchmark and
+  // regression stages.
+  const judged = async (): Promise<CodeJudgement> => {
+    if (!run.base) throw new Error("code leaves: no base measurement, sandbox_apply did not run");
+    run.judgement ??= await deps.judgePatch(run.base, measured());
+    return run.judgement;
+  };
 
   return {
     validateCandidate: async () => {
@@ -99,6 +130,17 @@ export function contractLeavesForCodePatch(
     },
 
     applySandbox: async () => {
+      // The base first: it is usually cached, and without it there is
+      // nothing to judge the candidate against.
+      const base = await deps.measureBase(genome.baseCommit);
+      if (!base.ok) {
+        return {
+          ok: false,
+          rollbackTarget: genome.baseCommit,
+          reason: `measuring the unpatched base: ${base.stage}: ${base.reason}`,
+        };
+      }
+      run.base = base.measurements;
       const r = await deps.evaluateInWorktree(genome);
       if (!r.ok) {
         // Worktree/apply/install failure is INFRA (hard halt per the
@@ -113,24 +155,20 @@ export function contractLeavesForCodePatch(
       return { ok: true, rollbackTarget: genome.baseCommit };
     },
 
-    // Tier-0 analogue: the ENTIRE existing suite is the frozen floor. A
-    // single failing test in the patched copy rejects the candidate.
+    // Tier-0 analogue: the existing suite, no worse than on the base.
     runTier0: async () => {
-      const m = measured();
-      if (m.testsFailed > 0 || m.testsExitCode !== 0) {
-        return {
-          ok: false,
-          reason:
-            `worktree tests failed: ${m.testsFailed} fail (exit ${m.testsExitCode})` +
-            (m.testsTail ? `: ${m.testsTail}` : ""),
-        };
+      const { tests } = await judged();
+      if (tests !== null) {
+        const tail = measured().testsTail;
+        return { ok: false, reason: `worse than the base: ${tests}` + (tail ? `: ${tail}` : "") };
       }
       return { ok: true };
     },
 
     runBenchmark: async () => {
-      const { score } = await deps.scorePatch(measured());
+      const { score, baseScore } = await judged();
       run.score = score;
+      run.previousBest = baseScore;
       const fitnessVector = scoreToFitnessVector(score);
       return {
         fitnessVector,
@@ -148,12 +186,14 @@ export function contractLeavesForCodePatch(
       return v.ok ? { ok: true } : { ok: false, reason: v.reason ?? "policy violation" };
     },
 
-    // Spec table: regression = the type-checker over the patched copy.
+    // Spec table: regression = the type-checker (and the build) over the
+    // patched copy, each no worse than on the base.
     detectRegression: async () => {
-      const m = measured();
-      return m.tscExitCode === 0
+      const { tsc, build } = await judged();
+      const worse = [tsc, build].filter((r): r is string => r !== null);
+      return worse.length === 0
         ? { regressed: false }
-        : { regressed: true, reason: `tsc --noEmit failed (exit ${m.tscExitCode})` };
+        : { regressed: true, reason: `worse than the base: ${worse.join("; ")}` };
     },
 
     deploy: async () => {
@@ -163,7 +203,6 @@ export function contractLeavesForCodePatch(
       run.commitHash = commitHash;
       const r = await deps.ratchetAttempt(commitHash, score);
       run.advanced = r.advanced;
-      run.previousBest = r.previousBest;
       return {
         advanced: r.advanced,
         commitHash,

@@ -354,6 +354,13 @@ fn append_ratchet_audit(field: &str, old_tip: Option<&str>, new_tip: &str, reaso
 /// no config genome could beat that again, and config evolution froze for
 /// good while every code patch "out-scored the incumbent" by beating a number
 /// on another scale.
+///
+/// `code-main` RECORDS; it no longer ratchets. Its strict-greater bar was
+/// absolute: a green one-line patch scored 99.95 and nothing could beat it
+/// again, so L3 went silent. A code candidate is now judged against its own
+/// unpatched base (`code_patch::judge_code_patch`) before it gets here, and
+/// every candidate that arrives moves the ref, on the audit chain like any
+/// advance. Nothing reads this ref to apply a patch; the human gate does that.
 pub const CODE_LINEAGE: &str = "code-main";
 
 fn is_code_patch(meta: &IterationMetadata) -> bool {
@@ -431,7 +438,8 @@ pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
     let (previous_tip, prior_score) = lineage_prior(&repo, branch, code)?;
 
     let prior_score_value = prior_score.unwrap_or(f64::NEG_INFINITY);
-    let advanced = candidate_score > prior_score_value;
+    // The code lineage records (see CODE_LINEAGE); only config genomes ratchet.
+    let advanced = code || candidate_score > prior_score_value;
 
     if !advanced {
         // Best-effort: main did not move, so a lost row costs a line of history
@@ -464,20 +472,22 @@ pub fn ratchet_attempt(candidate_commit: &str) -> Result<RatchetResult> {
     // The row goes down before the ref moves. If the audit cannot be written,
     // the advance is abandoned rather than made silently: `main` moving with no
     // record of why is the one outcome I1 exists to forbid.
-    append_ratchet_audit(
-        field,
-        previous_tip.as_deref(),
-        candidate_commit,
-        &format!(
-            "advanced: candidate {candidate_score} beats prior {} (called from {}:{})",
-            prior_score
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "none".into()),
+    let prior_text = prior_score.map(|s| s.to_string()).unwrap_or_else(|| "none".into());
+    let reason = if code {
+        format!(
+            "recorded: code patch {candidate_score} cleared its base gate, previous record {prior_text} (called from {}:{})",
             caller.file(),
             caller.line(),
-        ),
-    )
-    .context("ratchet refused to advance main because the audit row could not be written")?;
+        )
+    } else {
+        format!(
+            "advanced: candidate {candidate_score} beats prior {prior_text} (called from {}:{})",
+            caller.file(),
+            caller.line(),
+        )
+    };
+    append_ratchet_audit(field, previous_tip.as_deref(), candidate_commit, &reason)
+        .context("ratchet refused to advance main because the audit row could not be written")?;
 
     // Fast-forward main. We do NOT merge — the ratchet is a strict
     // replacement of the tip with a strictly-higher-scoring commit.
@@ -1237,11 +1247,33 @@ mod tests {
             assert_eq!(branch_tip("main").as_deref(), Some(cfg_b.as_str()));
             assert_eq!(branch_tip(CODE_LINEAGE).as_deref(), Some(code.as_str()));
 
+            // The code lineage records: a lower composite than the last
+            // record still lands (it was judged against its base upstream),
+            // and it never touches `main`.
             let code_b = lineage_commit("code-b", 90.0, "code_patch");
             let r = ratchet_attempt(&code_b).expect("code-b");
-            assert!(!r.advanced, "a worse patch is refused by the CODE bar");
+            assert!(r.advanced, "code-main records every patch that reaches it");
             assert_eq!(r.prior_score, Some(96.0));
+            assert_eq!(branch_tip(CODE_LINEAGE).as_deref(), Some(code_b.as_str()));
             assert_eq!(branch_tip("main").as_deref(), Some(cfg_b.as_str()), "main untouched");
+        });
+    }
+
+    /// The saturation that silenced L3: after a green one-liner (99.95) the
+    /// absolute bar refused every later patch. Recording never saturates.
+    #[test]
+    fn the_code_lineage_does_not_saturate_after_a_perfect_patch() {
+        crate::rsi::test_support::with_temp_cinderpaw_home(|_root| {
+            bootstrap().expect("bootstrap");
+            let first = lineage_commit("code-first", 99.95, "code_patch");
+            assert!(ratchet_attempt(&first).expect("first").advanced);
+            let second = lineage_commit("code-second", 97.5, "code_patch");
+            assert!(ratchet_attempt(&second).expect("second").advanced);
+            // A config genome is still held to its own strict bar.
+            let cfg = lineage_commit("cfg-a", 40.0, "parametric");
+            assert!(ratchet_attempt(&cfg).expect("cfg").advanced);
+            let cfg_worse = lineage_commit("cfg-b", 39.0, "parametric");
+            assert!(!ratchet_attempt(&cfg_worse).expect("cfg-b").advanced);
         });
     }
 
@@ -1273,8 +1305,8 @@ mod tests {
 
             let code_b = lineage_commit("code-b", 90.0, "code_patch");
             let r = ratchet_attempt(&code_b).expect("code-b");
-            assert!(!r.advanced, "the code lineage remembers its own bar");
-            assert_eq!(r.prior_score, Some(96.0));
+            assert!(r.advanced, "the code lineage records");
+            assert_eq!(r.prior_score, Some(96.0), "and still finds its own last record");
         });
     }
 

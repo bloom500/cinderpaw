@@ -2071,7 +2071,9 @@ export async function boot(transportOverride?: Transport) {
     codeRsiBusy = true;
     try {
       const { proposeCodePatch } = await import("./rsi/l3-code/code-proposer.ts");
-      const { makeCodeStageAdapters, runCodeCandidate } = await import("./rsi/l3-code/code-rsi.ts");
+      const { makeCodeStageAdapters, runCodeCandidate, MAX_PENDING_CODE_PATCHES } = await import(
+        "./rsi/l3-code/code-rsi.ts"
+      );
       const { bunExec } = await import("./rsi/l3-code/code-sandbox.ts");
       const { attemptsFromEpisodes, defaultAttemptLedgerPath, mergeAttempts, readAttempts } =
         await import("./rsi/l3-code/experiment-selector.ts");
@@ -2079,6 +2081,16 @@ export async function boot(transportOverride?: Transport) {
       const rsiDir = require("node:path").join(repoRoot, "CinderpawAgent", "src", "rsi");
       const ledgerPath = defaultAttemptLedgerPath();
       const { store, questions, sendCodePatches, recordReceipt, conditionOf } = await codePatchGate();
+      // Checked before the proposal, not after: a round that stops here is
+      // not an experiment, and recording it as one would teach the selector
+      // that the file it picked had been refused.
+      const waiting = store.list().filter((p) => p.status === "pending").length;
+      if (waiting >= MAX_PENDING_CODE_PATCHES) {
+        const reason = `${waiting} patches are waiting for your review. New ones are proposed once you approve or reject some of them.`;
+        log(`code-rsi: ${reason}`);
+        sendCodePatches({ at: Date.now(), target: "", verdict: "queue full", reason });
+        return;
+      }
 
       // Tokens the proposer spent this round: the observed cost the
       // self-model scores its `expectedCost` against.
@@ -2200,7 +2212,7 @@ export async function boot(transportOverride?: Transport) {
       const action = result.decided?.action ?? "halt";
       const prediction = genome.proposal.prediction;
       // The observation is the runner's, never the model's: accepted is the
-      // contract's verdict, effect is the ratchet's two numbers, cost is what
+      // contract's verdict, effect is candidate minus base, cost is what
       // the proposer call actually billed. The failure class is only filled
       // when the reason says so plainly; a guess here would poison the count.
       const reason = result.decided?.reason ?? "no reason";
@@ -2214,9 +2226,9 @@ export async function boot(transportOverride?: Transport) {
         failureClass:
           action === "accept"
             ? null
-            : /ratchet declined|scored/.test(reason)
+            : /ratchet declined|scored|unpatched base|no usable/.test(reason)
               ? ("unmeasured" as const)
-              : /suite|tsc|build|SEARCH|policy|wall/.test(reason)
+              : /worse than the base|suite|tsc|build|SEARCH|policy|wall/.test(reason)
                 ? ("wrong_proposal" as const)
                 : null,
       };
