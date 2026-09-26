@@ -26,9 +26,11 @@
  * resolve the same immutable artifact ... reject unsupported fields rather
  * than evaluating knobs that disappear in live execution").
  *
- * The eval harness (`infra/invoke-agent.ts`) applies ALL SEVEN dimensions:
- * retrieval strategy, context usage, tool order and sub-call count all change
- * the score it reports. The live agent applies two. So a genome can win eval
+ * The eval harness (`infra/invoke-agent.ts`) used to apply ALL SEVEN
+ * dimensions: retrieval strategy, context usage, tool order and sub-call count
+ * all changed the score it reported (context usage still did after the freeze
+ * below — it set the eval's token budget — until it was graded at its neutral
+ * value too). The live agent applies two. So a genome could win eval
  * on a knob that does nothing to the agent the user talks to, and the ratchet
  * would record that as an improvement. `LIVE_REACH` is now the single place
  * that says which is which, `parityOf` hashes only what actually reaches the

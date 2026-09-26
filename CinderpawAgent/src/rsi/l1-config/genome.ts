@@ -39,8 +39,10 @@ export interface GenomeConfig {
  * live: same number, different semantics. So the dropped five are frozen
  * out of mutation (`mutation.ts` derives `MUTABLE_FIELDS` from this table)
  * rather than wired through: eval stops paying tokens to score knobs the
- * user never feels. To un-freeze one, give it a live consumer first, then
- * flip it here.
+ * user never feels. Freezing mutation is not enough on its own — the seeds
+ * differ on these fields and crossover / taste still move them — so the eval
+ * grades a dropped dimension at its neutral value (`invoke-agent.ts`). To
+ * un-freeze one, give it a live consumer first, then flip it here.
  */
 export const LIVE_REACH: Readonly<Record<keyof GenomeConfig, "applied" | "dropped">> = {
   temperature: "applied",
