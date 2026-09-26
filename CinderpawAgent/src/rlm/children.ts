@@ -163,6 +163,26 @@ const TELEMETRY_ANSWER_MAX = 4000;
  */
 export const WAIT_MAX_MS = 45_000;
 
+/** What a worker that was running when the process died is recorded as. */
+export const INTERRUPTED = "interrupted: Cinderpaw restarted while this worker ran";
+
+/**
+ * Children as they were written to disk, with any still `running` marked
+ * interrupted: after a restart nothing is running them any more. Returns the
+ * rewritten list and the ones that changed, so a caller can tell a surface
+ * that was still showing them as working.
+ */
+export function interruptOnRestart(entries: ChildEntry[]): { entries: ChildEntry[]; interrupted: ChildEntry[] } {
+  const interrupted: ChildEntry[] = [];
+  const out = entries.map((e) => {
+    if (e.status !== "running") return e;
+    const settled: ChildEntry = { ...e, status: "error", error: INTERRUPTED };
+    interrupted.push(settled);
+    return settled;
+  });
+  return { entries: out, interrupted };
+}
+
 /** A message from a child to the parent that spawned it. */
 export interface ChildMessage {
   at: number;
@@ -186,6 +206,35 @@ export class ChildRegistry {
   readonly #aborts = new Map<string, AbortController>();
   readonly #inbox: ChildMessage[] = [];
   #seq = 0;
+
+  /**
+   * Told whenever the set of children or one's status changes, so the host can
+   * write them to disk. Without it a restart lost every worker and its answer:
+   * the registry lived only in memory.
+   */
+  onChange: (() => void) | null = null;
+
+  #changed(): void {
+    try {
+      this.onChange?.();
+    } catch {
+      /* persistence is best effort; a worker never fails over it */
+    }
+  }
+
+  /**
+   * Put back children read from disk. Anything still `running` there is marked
+   * interrupted (see interruptOnRestart), since no process is running it now.
+   * A name already in use here is skipped rather than overwritten.
+   */
+  restore(entries: ChildEntry[]): void {
+    for (const e of interruptOnRestart(entries).entries) {
+      if (this.#entries.has(e.rlm_child_id) || this.#byName.has(e.name)) continue;
+      this.#entries.set(e.rlm_child_id, { ...e, trail: (e.trail ?? []).map((t) => ({ ...t })) });
+      this.#byName.set(e.name, e.rlm_child_id);
+      this.#done.set(e.rlm_child_id, Promise.resolve());
+    }
+  }
 
   constructor(
     private readonly run: RunChild,
@@ -298,6 +347,7 @@ export class ChildRegistry {
         // by the name it was given. The name goes back when the entry is
         // deleted, which `delete()` does.
         settled = true;
+        this.#changed();
       });
     // A `run()` that throws synchronously settles the promise before this line,
     // so `.finally` ran with nothing in the set and the entry was added
@@ -305,6 +355,7 @@ export class ChildRegistry {
     // child that finished before it was ever registered.
     if (!settled) this.#inflight.add(p);
     this.#done.set(id, p);
+    this.#changed();
 
     return { rlm_child_id: id, name, status: "running" };
   }
@@ -418,6 +469,7 @@ export class ChildRegistry {
     if (entry.status === "running") return { subagent: { ...entry }, outcome: "skipped_running" };
     this.#entries.delete(id);
     this.#done.delete(id);
+    this.#changed();
     // Releasing the name here — and only here — is what lets a name be reused
     // after a failed worker is cleared away, without breaking lookup for the
     // settled children that are still listed.

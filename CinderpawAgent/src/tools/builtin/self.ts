@@ -347,7 +347,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     inputs: [
       "A cell of JavaScript from the model (`notebook` tool, `code` argument).",
       "The session's live tool registry — one injected function per registered tool, itself excluded.",
-      "The previous snapshot for this session (`~/.cinderpaw/notebooks/<session>.json`), restored on first use.",
+      "The previous snapshot for this session (`~/.cinderpaw/notebooks/<session>.json`), restored on first use, and its workers (`<session>.children.json`); a worker that was running when the app stopped comes back as interrupted.",
     ],
     outputs: [
       "The last expression's value plus anything logged, returned as the tool result.",
@@ -982,7 +982,10 @@ function healthNotebook(): SubsystemHealth {
   }
   let snapshots = 0;
   try {
-    snapshots = readdirSync(join(cinderpawHome(), "notebooks")).filter((f) => f.endsWith(".json")).length;
+    // `.children.json` holds a session's workers, not a second snapshot.
+    snapshots = readdirSync(join(cinderpawHome(), "notebooks")).filter(
+      (f) => f.endsWith(".json") && !f.endsWith(".children.json"),
+    ).length;
   } catch {
     // No directory yet: enabled but never used. Not a fault either.
   }

@@ -14,9 +14,14 @@ import {
   ChildRegistry,
   defaultChildName,
   normalizeRequestedName,
+  INTERRUPTED,
+  interruptOnRestart,
   WAIT_MAX_MS,
   type RunChild,
 } from "../src/rlm/children.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createNotebookTool,
   createNotifyParentTool,
@@ -1063,5 +1068,75 @@ describe("tools that ask the person, inside a cell", () => {
     expect(text).toMatch(/asks the person a question/);
     expect(text).toMatch(/directly as a tool/);
     expect(calls.some((c) => c.name === "cinderpaw_admin")).toBe(false);
+  });
+});
+
+/**
+ * Workers across a restart. The registry lived only in memory, so a restart
+ * lost every worker and its answer, and a card still showing one as working
+ * kept showing it for ever: nothing was running it any more.
+ */
+describe("workers survive a restart", () => {
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("marks a worker that was running as interrupted, not as running", () => {
+    const { entries, interrupted } = interruptOnRestart([
+      { rlm_child_id: "a", name: "a", status: "running" },
+      { rlm_child_id: "b", name: "b", status: "completed", answer: "42" },
+    ]);
+    expect(entries.map((e) => e.status)).toEqual(["error", "completed"]);
+    expect(entries[0]!.error).toBe(INTERRUPTED);
+    expect(interrupted.map((e) => e.name)).toEqual(["a"]);
+  });
+
+  it("restores a finished worker with its answer, ready to collect", async () => {
+    const reg = new ChildRegistry(async () => {
+      throw new Error("must not run");
+    });
+    reg.restore([{ rlm_child_id: "sa-1", name: "counter", status: "completed", answer: "42 files" }]);
+    const w = await reg.wait(undefined, 1000);
+    expect(w.timed_out).toBe(false);
+    expect(w.subagents[0]).toMatchObject({ name: "counter", answer: "42 files" });
+    // The name is still taken, as it was before the restart.
+    expect(() => reg.admit("again", { name: "counter" })).toThrow("already used");
+  });
+
+  it("writes workers to disk and settles the interrupted ones at the next boot", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rlm-restart-"));
+    try {
+      const first = createNotebookTool({
+        registry: () => fakeRegistry(),
+        stateDir: dir,
+        // One finishes, one never does: the process "dies" with it running.
+        runChild: async (task) => {
+          if (task === "slow") await new Promise(() => {});
+          return { status: "completed", answer: `did ${task}`, toolCalls: 0, durationMs: 1, subagentId: "x" };
+        },
+      });
+      const ctx = { sessionId: "chat-9", signal: new AbortController().signal } as never;
+      await first.execute({ code: `await rlm("fast", { name: "fast" }); await rlm("slow", { name: "slow" });` }, ctx);
+      await settle(1700); // past the persist debounce
+
+      const events: Array<{ sessionId: string; name: string; status: string }> = [];
+      const second = createNotebookTool({
+        registry: () => fakeRegistry(),
+        stateDir: dir,
+        runChild: async () => ({ status: "completed", answer: "", toolCalls: 0, durationMs: 1, subagentId: "x" }),
+        onChildEvent: (e) => events.push(e),
+      });
+      // Settled at boot, before the session touches its notebook again.
+      expect(events).toEqual([expect.objectContaining({ sessionId: "chat-9", name: "slow", status: "error" })]);
+
+      const r = await second.execute(
+        { code: `JSON.stringify((await rlm.list_subagents()).subagents.map((s) => [s.name, s.status, s.answer ?? s.error]))` },
+        ctx,
+      );
+      expect(JSON.parse(String((r.data as { value?: string }).value))).toEqual([
+        ["fast", "completed", "did fast"],
+        ["slow", "error", INTERRUPTED],
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
