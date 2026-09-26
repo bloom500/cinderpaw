@@ -325,6 +325,11 @@ type App struct {
 	// question (POST /runtime/ask/respond) instead of queueing chat text.
 	PendingAsk *api.AskUserRequest
 
+	// PendingApprovals are teammate requests waiting on the person (cowork.go).
+	PendingApprovals []api.CoworkApproval
+	// PendingCoworkLines wait for the reply being streamed to finish.
+	PendingCoworkLines []string
+
 	StreamBuf strings.Builder
 	Prog      *tea.Program
 

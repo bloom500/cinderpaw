@@ -82,7 +82,7 @@ func (a *App) Init() tea.Cmd {
 		tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 			return BootComplete{}
 		}),
-		tea.Batch(textarea.Blink, a.Loader.Tick, toolTick(), a.fetchSessionsCmd(), a.fetchResumeCmd(), a.startEventsCmd(), statusPollTick()),
+		tea.Batch(textarea.Blink, a.Loader.Tick, toolTick(), a.fetchSessionsCmd(), a.fetchResumeCmd(), a.startEventsCmd(), statusPollTick(), a.fetchCoworkCmd(false)),
 	)
 }
 
@@ -825,6 +825,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case RuntimeEventMsg:
+		// Teammate traffic is shown as lines and approvals, not as the
+		// coalesced plumbing strip below, which would fold a question and
+		// its answer into "2 cowork_event events".
+		if msg.Event.Kind == "cowork_event" {
+			a.handleCoworkEvent(msg.Event)
+			return a, nil
+		}
 		// Brain Stack model switch: update header live (spec §10).
 		if msg.Event.Kind == "model_set" {
 			if msg.Event.Model != "" {
@@ -841,6 +848,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.coalesceRuntimeEvents()
 			a.rebuildViewport()
 		}
+		return a, nil
+
+	case CoworkTeamMsg:
+		a.onCoworkTeam(msg)
+		return a, nil
+
+	case CoworkResolvedMsg:
+		a.onCoworkResolved(msg)
 		return a, nil
 
 	case StatusPollTickMsg:
@@ -990,6 +1005,7 @@ func (a *App) finishStream() {
 	a.StreamBuf.Reset()
 	// Flush any runtime events that queued during streaming (spec §11).
 	a.flushPendingEvents()
+	a.flushCoworkLines()
 	// Clear streaming stats — the footer reverts to the shortcut row until
 	// the next turn begins. The per-turn cost is preserved on the Turn
 	// itself (Meta, set above), not here.

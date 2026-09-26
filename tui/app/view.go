@@ -369,6 +369,11 @@ func (a *App) renderHeader() string {
 	}
 	brand := ui.BrandStyle.Render("cinderpaw")
 	right := fmt.Sprintf("%s %s", dot, state)
+	// A teammate blocked on the person: the one header item that asks them
+	// to act, so it goes first and does not drop off a narrow terminal.
+	if n := len(a.PendingApprovals); n > 0 {
+		right = ui.WarnStyle.Render(fmt.Sprintf("%d approval waiting · /approve", n)) + "  " + right
+	}
 
 	// Build left segments right-to-left, dropping the rightmost segment
 	// when it doesn't fit (spec §29 segment-drop loop).
