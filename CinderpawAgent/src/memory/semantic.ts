@@ -315,6 +315,22 @@ export class SemanticMemory {
       .map(fromHist);
   }
 
+  /**
+   * When the value that was current at `ts` stopped being current: replaced
+   * or forgotten. Null while it still holds, or when the key had no value then.
+   *
+   * The version open at `ts` is the LATEST one that started at or before it.
+   * Recall labels a fact leaf with this, and the lookup used to take the first
+   * CLOSED version that started before the write instead — the oldest, not the
+   * open one — so on any key that had changed once, the leaf of the value that
+   * holds today read "(superseded …)" too, and the model was told the current
+   * fact was out of date.
+   */
+  closedAt(key: string, ts: number, scope = ""): number | null {
+    const open = this.history(key, scope).filter((v) => v.validFrom <= ts).at(-1);
+    return open?.validTo ?? null;
+  }
+
   /** The facts as they stood at `ts`: whichever version was open then. */
   asOf(ts: number, scope = ""): SemanticFact[] {
     const rows = this.#db

@@ -705,9 +705,8 @@ export async function boot(transportOverride?: Transport) {
     onActivity: (a) => fractalActivitySink.current(a),
     // A fact leaf that has since been replaced is labelled so in recall. The
     // version open when the leaf was written is the one that was replaced;
-    // its close date is the label.
-    supersededAt: (key, writtenAt) =>
-      semantic.history(key).find((v) => v.validFrom <= writtenAt && v.validTo !== null)?.validTo ?? null,
+    // its close date is the label. See `SemanticMemory.closedAt`.
+    supersededAt: (key, writtenAt) => semantic.closedAt(key, writtenAt),
   });
 
   // (The old [bench-cap] WARN lived here. It told the operator to set an env

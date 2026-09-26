@@ -67,3 +67,32 @@ describe("semantic history", () => {
     ]);
   });
 });
+
+describe("SemanticMemory.closedAt — the label recall puts on a fact leaf", () => {
+  it("the current value is not superseded, the replaced one is", () => {
+    const sem = mem();
+    sem.upsert("city", "Paris", "", "fact", 100);
+    sem.upsert("city", "London", "", "fact", 200);
+    // A leaf is written just after its value (extractor order: upsert, then hook).
+    expect(sem.closedAt("city", 101)).toBe(200);
+    expect(sem.closedAt("city", 201)).toBeNull();
+  });
+
+  it("three values: each leaf gets the close of its own version", () => {
+    const sem = mem();
+    sem.upsert("city", "Paris", "", "fact", 100);
+    sem.upsert("city", "London", "", "fact", 200);
+    sem.upsert("city", "Lisbon", "", "fact", 300);
+    expect(sem.closedAt("city", 150)).toBe(200);
+    expect(sem.closedAt("city", 250)).toBe(300);
+    expect(sem.closedAt("city", 350)).toBeNull();
+  });
+
+  it("a forgotten fact is closed at the forgetting; an unknown key is null", () => {
+    const sem = mem();
+    sem.upsert("city", "Paris", "", "fact", 100);
+    sem.delete("city");
+    expect(sem.closedAt("city", 101)).not.toBeNull();
+    expect(sem.closedAt("nothing", 101)).toBeNull();
+  });
+});
