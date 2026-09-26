@@ -220,13 +220,13 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_RSI_PASSIVE` | bool | `true` |  | RSI supervisor passive mode. "false" disables (read via injected env in passive-supervisor.ts). |
 | `CINDERPAW_RSI_ALLOW_CLOUD` | bool | `false` |  | Opt-in: allow RSI to call cloud providers (anti-burn guard). |
 | `CINDERPAW_RSI_MAX_ITER` | int | `null` |  | Pin the episode iteration cap; unset = dynamic (genome/policy-derived). |
-| `CINDERPAW_RSI_MAX_TOKENS` | int | `null` |  | Per-call token cap for RSI evaluations. |
+| `CINDERPAW_RSI_MAX_TOKENS` | int | `null` |  | Token budget for one whole dream episode — every evaluation in it together, not one call. 2,000,000 when unset, and never above the governance policy's episode cap. |
 | `CINDERPAW_RSI_EVAL_TOKEN_BUDGET` | int | `null` |  | Per-eval token budget in rsi/sidecar.ts. |
 | `CINDERPAW_RSI_CONCURRENCY` | int | `1` |  | Concurrent RSI evaluations. |
-| `CINDERPAW_RSI_COOLDOWN_MS` | int | `600_000` |  | Quiet period after a successful iteration. |
+| `CINDERPAW_RSI_COOLDOWN_MS` | int | `600_000` |  | Minimum gap between the end of one dream episode and the start of the next automatic one, whatever the episode achieved. A dream you ask for skips it. |
 | `CINDERPAW_RSI_IDLE_MS` | int | `180_000` |  | Quiet period before RSI wakes up. |
 | `CINDERPAW_RSI_POLL_MS` | int | `null` |  | Manual poll cadence override. |
-| `CINDERPAW_RSI_ERROR_THRESHOLD` | int | `3` |  | Consecutive error count that triggers a sleep. |
+| `CINDERPAW_RSI_ERROR_THRESHOLD` | int | `3` |  | Errors within CINDERPAW_RSI_ERROR_WINDOW_MS that WAKE a dream episode (the error trigger). Clamped to at least 1. |
 | `CINDERPAW_RSI_ERROR_WINDOW_MS` | int | `900_000` |  | Sliding window for the error counter. |
 | `CINDERPAW_RSI_EPISODE_MS` | int | `null` |  | Max wall-clock per episode. |
 | `CINDERPAW_RSI_PLATEAU_ITERS` | int | `null` |  | Iters-with-no-improvement before RSI bails. |
@@ -234,7 +234,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_RSI_UNANSWERED_MIN_SAMPLE` | int | `8` |  | Evaluations that must run before the unanswered-response breaker can trip, so a couple of unlucky calls at the start of an episode cannot abort it. |
 | `CINDERPAW_RSI_SCHEDULE_MS` | int | `null` |  | Force a fixed schedule (e.g. weekly wake). |
 | `CINDERPAW_RSI_STAGNATION_THRESHOLD` | int | `null` |  | Hard stagnation threshold. |
-| `CINDERPAW_RSI_STOP_ON_ACTIVITY` | bool | `false` |  | Pause RSI when the user is active. |
+| `CINDERPAW_RSI_STOP_ON_ACTIVITY` | bool | `false` |  | Stop an automatic dream episode (idle, error or schedule trigger) once the user is active again; in-flight evaluations finish first. A dream you asked for keeps running. |
 | `CINDERPAW_RSI_TELEMETRY` | path | `null` |  | Telemetry JSONL file path override (default ~/.cinderpaw/rsi/dream.jsonl). Type is a path, not a bool — the existing doc mislabeled it as a bool switch. |
 | `CINDERPAW_CODE_RSI_REPO` | path | `null` |  | Source repo for code-RSI to propose/apply against; without it, code-RSI rounds and live-apply are unavailable. |
 | `CINDERPAW_CODE_RSI_ALLOW_CLOUD` | bool | `false` | yes | Let a code-RSI round propose with a CLOUD primary model. Off, a round needs a local model (the source of the agent is sent to the provider otherwise). On, it also needs CINDERPAW_RSI_MAX_COST_USD > 0 and stops when the proposer's spend reaches it. A research knob; the default is the product. |
