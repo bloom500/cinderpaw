@@ -30,7 +30,9 @@ const cycle = (
   durationMin: 1,
   observed: [],
   hypothesized: [],
-  experimented: null,
+  // A per-candidate row, the shape the Contract FSM writes. (A row with no
+  // `experimented` is the episode summary; see the summary-row test below.)
+  experimented: { candidateId: `g-${timestamp}`, change: "", layer: "L1" },
   result:
     action === "halt"
       ? null
@@ -361,6 +363,26 @@ describe("metaFitness rewards being right, not being permissive", () => {
     ])!;
     expect(f.soundAcceptRate).toBe(0);
     expect(f.recklessAcceptRate).toBeCloseTo(0.8, 4);
+  });
+
+  test("an episode summary row does not count its episode's accept a second time", () => {
+    // What makeCycleSummary writes after an episode that ratcheted: no
+    // candidate, no evaluation, decided "accept" because the candidate row
+    // already was. It used to be scored as a reckless accept, cancelling the
+    // sound one it summarises.
+    const summary = (timestamp: number): JournalEntry => ({
+      ...cycle("accept", 0.9, timestamp),
+      observed: ["trigger: idle", "10 evaluation(s), 1 promoted to main"],
+      experimented: null,
+      result: null,
+    });
+    const withSummaries = metaFitness([
+      cycle("accept", 0.9, 1), summary(2),
+      cycle("accept", 0.8, 3), summary(4),
+      cycle("reject", 0.7, 5), cycle("reject", 0.7, 6),
+    ])!;
+    expect(withSummaries.recklessAcceptRate).toBe(0);
+    expect(withSummaries.soundAcceptRate).toBeGreaterThan(0);
   });
 
   test("halting every cycle is still a failure — declining is a reject, not a halt", () => {

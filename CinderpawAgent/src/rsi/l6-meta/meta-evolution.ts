@@ -252,7 +252,13 @@ export interface MetaFitness {
 export function metaFitness(entries: readonly JournalEntry[]): MetaFitness | null {
   if (entries.length < MIN_META_CYCLES) return null;
   const n = entries.length;
-  const accepted = entries.filter((e) => e.decided.action === "accept");
+  // Only a row that names a candidate can be an accept. The Dream Cycle also
+  // writes one summary row per episode (no `experimented`, no `result`) whose
+  // "accept" restates that episode's candidate rows. Counted again — with no
+  // evaluation of its own, so as reckless — every successful ratchet scored
+  // one sound accept plus one reckless one, netting zero: L6 could not tell
+  // an engine that improves from one that does not.
+  const accepted = entries.filter((e) => e.decided.action === "accept" && e.experimented !== null);
   const halts = entries.filter((e) => e.decided.action === "halt").length;
   const scored = entries.filter((e) => e.result != null);
   const meanAggregate =
