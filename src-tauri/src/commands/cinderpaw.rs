@@ -461,6 +461,43 @@ pub(crate) async fn cinderpaw_cowork_history(
     Ok(())
 }
 
+/// The teammate roster for the Settings list: `list`, or `remove` one.
+///
+/// One command for both, like `cinderpaw_artifact_op`: each inbound type costs a
+/// command, a binding and a line in three allow-lists. Fire-and-forget; the
+/// answer arrives as a `cowork_team_result` event carrying the roster as it
+/// stands after the action. The action is checked HERE so a compromised
+/// webview cannot smuggle another verb through.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cinderpaw_cowork_team(
+    state: State<'_, AppState>,
+    action: String,
+    agent_id: Option<String>,
+) -> Result<(), String> {
+    if action != "list" && action != "remove" {
+        return Err(format!("unknown team action: {action}"));
+    }
+    if action == "remove" && agent_id.as_deref().map_or(true, |s| s.trim().is_empty()) {
+        return Err("no teammate selected".to_string());
+    }
+    let msg = serde_json::json!({
+        "type": "cowork_team_op",
+        "teamAction": action,
+        "toAgentId": agent_id,
+    })
+    .to_string();
+    let tx = {
+        let guard = state.cinderpaw_agent_tx.lock();
+        guard
+            .as_ref()
+            .ok_or_else(|| "cinderpaw-agent is not running".to_string())?
+            .clone()
+    };
+    tx.send(msg).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// The workspace panel's one door to the artifact store.
 ///
 /// Fire-and-forget, like every other paired request here: the answer arrives as

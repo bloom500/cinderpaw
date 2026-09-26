@@ -658,6 +658,19 @@ export interface AgentConfig {
 // ── Cinderpaw Agent ─────────────────────────────────────────────────────────────
 
 /** Parsed output event from the Cinderpaw Agent sidecar. */
+/** One teammate as the Settings list shows it. */
+export interface CoworkTeammate {
+  id: string;
+  name: string;
+  role: string;
+  instructions: string;
+  /** null means every tool (a teammate made before tools were scoped). */
+  tools: string[] | null;
+  /** null means the Brain Stack routes per task. */
+  model: string | null;
+  createdAt: number;
+}
+
 export type CinderpawAgentEvent =
   | { type: 'chunk';       id: string; content: string }
   // `diagnostic` is the operator-facing reason a turn failed (token budget,
@@ -689,7 +702,20 @@ export type CinderpawAgentEvent =
         body: string;
         status: string;
         createdAt: number;
+        /** The teammate's stored answer to this message, when the person sent it. */
+        reply?: string;
+        /** True when `reply` is the reason the teammate could not answer. */
+        replyFailed?: boolean;
       }[];
+    }
+  // The teammate roster, answering `cinderpawCoworkTeam` ('list' or 'remove').
+  | {
+      type: 'cowork_team_result';
+      roster: CoworkTeammate[];
+      /** The teammate a 'remove' deleted. */
+      removed?: string;
+      /** Why the action could not be done, in words for the person. */
+      error?: string;
     }
   // A background worker spawned by the notebook's `rlm()`. Carries a
   // sessionId and no message id, and unlike every other event here it usually
@@ -1043,6 +1069,9 @@ const raw = {
     }),
   cinderpawCoworkHistory: (threadId?: string | null) =>
     invoke<void>('cinderpaw_cowork_history', { threadId: threadId ?? null }),
+  /** The roster: 'list', or 'remove' one. Answered by a `cowork_team_result` event. */
+  cinderpawCoworkTeam: (action: 'list' | 'remove', agentId?: string) =>
+    invoke<void>('cinderpaw_cowork_team', { action, agentId: agentId ?? null }),
   cinderpawCoworkSendMessage: (toAgentId: string, body: string, threadId?: string) =>
     invoke<void>('cinderpaw_cowork_send_message', {
       toAgentId,
@@ -1320,6 +1349,7 @@ export const tauri = {
     coworkApprovalResolve: async (requestId: string, approve: boolean) =>
       raw.cinderpawCoworkApprovalResolve(requestId, approve ? 'approve' : 'reject'),
     coworkHistory: async (threadId?: string | null) => raw.cinderpawCoworkHistory(threadId ?? null),
+    coworkTeam: async (action: 'list' | 'remove', agentId?: string) => raw.cinderpawCoworkTeam(action, agentId),
     coworkSendMessage: async (toAgentId: string, body: string, threadId?: string) =>
       raw.cinderpawCoworkSendMessage(toAgentId, body, threadId),
     /** Abort a teammate's in-flight turn. A cowork turn runs under the session

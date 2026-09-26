@@ -441,21 +441,33 @@ export function createCoworkRemoveTool(agents: CoworkAgentRepo, mailbox: CoworkM
     async execute(args) {
       const target = findTeammate(agents, typeof args.teammate === "string" ? args.teammate : "");
       if (!target) return unknownTeammate(agents, args.teammate);
-      // Left pending, these would show as "working" in the panel for ever:
-      // nobody drains the inbox of a teammate that no longer exists.
-      const waiting = mailbox.inbox(target.id, "pending");
-      for (const m of waiting) mailbox.updateStatus(m.id, "rejected");
-      agents.remove(target.id);
+      const { cancelled } = removeTeammate(agents, mailbox, target.id);
       return {
         ok: true,
         content:
           `Removed "${target.name}".` +
-          (waiting.length > 0 ? ` ${waiting.length} message(s) still waiting for them were cancelled.` : "") +
+          (cancelled > 0 ? ` ${cancelled} message(s) still waiting for them were cancelled.` : "") +
           " Their past messages stay in the conversation history.",
-        data: { id: target.id, name: target.name, cancelled: waiting.length },
+        data: { id: target.id, name: target.name, cancelled },
       };
     },
   };
+}
+
+/**
+ * Delete a teammate and cancel what was still waiting for them. Shared by the
+ * tool and the Settings list, so both leave the mailbox in the same state.
+ * Left pending, those messages would show as "working" in the panel for ever:
+ * nobody drains the inbox of a teammate that no longer exists.
+ */
+export function removeTeammate(
+  agents: CoworkAgentRepo,
+  mailbox: CoworkMailboxRepo,
+  id: string,
+): { removed: boolean; cancelled: number } {
+  const waiting = mailbox.inbox(id, "pending");
+  for (const m of waiting) mailbox.updateStatus(m.id, "rejected");
+  return { removed: agents.remove(id), cancelled: waiting.length };
 }
 
 function unknownTeammate(agents: CoworkAgentRepo, asked: unknown) {

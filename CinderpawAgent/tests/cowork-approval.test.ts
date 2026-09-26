@@ -246,3 +246,26 @@ describe("CoworkApprovalService.gate", () => {
     }
   });
 });
+
+describe("pending approvals, for a client that connects late", () => {
+  test("lists what a teammate is blocked on now, and drops it once answered", async () => {
+    const { service, agents, events, close } = makeService();
+    try {
+      const agent = agents.upsert({ name: "Shipper" });
+      const gate = service.gate({
+        tool: "shell_exec",
+        args: { command: "rm -rf dist/" },
+        sessionId: `cowork:${agent.id}`,
+      });
+      await new Promise((r) => setTimeout(r, 5));
+      expect(service.pending()).toEqual([
+        expect.objectContaining({ agentName: "Shipper", approvalClass: "delete", requestId: requestedId(events) }),
+      ]);
+      service.resolveExternal(requestedId(events), true);
+      await gate;
+      expect(service.pending()).toEqual([]);
+    } finally {
+      close();
+    }
+  });
+});

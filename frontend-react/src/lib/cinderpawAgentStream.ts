@@ -23,6 +23,7 @@ import { useUI } from '@/stores/ui';
 import { useAskUser, type AskUserAnswer, type AskUserQuestion } from '@/stores/askUser';
 import { useCoworkTranscript } from '@/stores/coworkTranscript';
 import { useRlmWorkers } from '@/stores/rlmWorkers';
+import { useCoworkTeam } from '@/stores/coworkTeam';
 import { notifyIfBackground, preview } from '@/lib/systemNotify';
 
 export interface CinderpawStreamHandlers {
@@ -190,6 +191,9 @@ _${parsed.diagnostic}_`
       case 'cowork_history_result':
         useCoworkTranscript.getState().hydrate(parsed.threadId, parsed.messages);
         break;
+      case 'cowork_team_result':
+        useCoworkTeam.getState().receive(parsed);
+        break;
       case 'cowork_event': {
         // Agent Cowork (S3.5): one A2A exchange, upserted by mailbox message
         // / handoff id so received→processed is ONE bubble changing state.
@@ -249,6 +253,14 @@ _${parsed.diagnostic}_`
                 }
               : undefined,
         });
+        // A teammate is blocked on the person. With the window hidden, the
+        // in-app card alone would expire unseen.
+        if (parsed.eventType === 'approval_requested') {
+          void notifyIfBackground(
+            'A teammate needs your approval',
+            preview(typeof parsed.data.description === 'string' ? parsed.data.description : parsed.title),
+          );
+        }
         break;
       }
       case 'ask_user':

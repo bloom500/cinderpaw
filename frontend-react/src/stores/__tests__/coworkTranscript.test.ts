@@ -188,6 +188,17 @@ describe('fromHistory — the transcript rebuilt from the mailbox', () => {
     expect(out.every((e) => e.threadId === 'conv-1')).toBe(true);
   });
 
+  test("a reopened chat shows the teammate's stored answer, and a failure as one", () => {
+    // Before answers were stored, every reopened chat showed questions with
+    // no answers under them.
+    const out = fromHistory('c', [
+      { ...rows[0]!, id: 'a', reply: 'Perception is fine.' },
+      { ...rows[0]!, id: 'b', status: 'processed', reply: 'model is down', replyFailed: true },
+    ]);
+    expect(out[0]).toMatchObject({ responseText: 'Perception is fine.', status: 'done' });
+    expect(out[1]).toMatchObject({ responseText: 'model is down', status: 'error' });
+  });
+
   test('names survive the round trip, so the panel never shows raw ids', () => {
     const out = fromHistory('conv-1', rows);
     expect(out[0]?.toName).toBe('Atlas');
