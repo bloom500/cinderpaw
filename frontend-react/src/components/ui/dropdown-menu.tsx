@@ -4,7 +4,16 @@ import { Check, ChevronRight, Circle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-const DropdownMenu = DropdownMenuPrimitive.Root
+/**
+ * Not modal, unless a caller says so. A modal menu locks the page's scroll by
+ * restyling <body> (react-remove-scroll), and every open and close restyled
+ * the whole document for it: the model picker took 200 ms from click to paint
+ * with the CPU slowed four times (26 Sep). A click outside still closes it,
+ * Escape still closes it, focus still moves into it and back.
+ */
+function DropdownMenu({ modal = false, ...props }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>) {
+  return <DropdownMenuPrimitive.Root modal={modal} {...props} />
+}
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 
