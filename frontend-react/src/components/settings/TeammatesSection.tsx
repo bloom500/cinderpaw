@@ -59,7 +59,7 @@ export function TeammatesSection() {
         <p className="text-xs text-text-muted">Loading…</p>
       ) : loaded && roster.length === 0 ? (
         <div className="rounded-md border border-border-subtle bg-bg-surface p-5 text-center">
-          <Users size={22} className="text-text-muted mx-auto mb-2" />
+          <Users size={28} className="text-text-muted mx-auto mb-3" />
           <p className="text-sm text-text-primary">No teammates yet</p>
           <p className="text-xs text-text-muted mt-1">
             Ask in chat, for example: "make me a teammate who reviews my pull requests".
