@@ -144,7 +144,24 @@ export type ChildTelemetry = (e: {
   status: "running" | "completed" | "error" | "cancelled";
   detail?: string;
   durationMs?: number;
+  /**
+   * The child's final answer, on the settling event only. A parent that ends
+   * its turn without collecting leaves the answer with nobody to read it; the
+   * surface showing the worker is then the only place the person can see it.
+   */
+  answer?: string;
 }) => void;
+
+/** How much of an answer telemetry carries. The full text stays on the entry. */
+const TELEMETRY_ANSWER_MAX = 4000;
+
+/**
+ * The longest one `wait()` blocks. A notebook cell runs inside ONE tool call,
+ * and the registry kills a tool call at 60s; a wait that outlived that would
+ * die with the answers already in hand. The parent waits again in its next
+ * cell if anything is still running.
+ */
+export const WAIT_MAX_MS = 45_000;
 
 /** A message from a child to the parent that spawned it. */
 export interface ChildMessage {
@@ -164,6 +181,8 @@ export class ChildRegistry {
   readonly #entries = new Map<string, ChildEntry>();
   readonly #byName = new Map<string, string>();
   readonly #inflight = new Set<Promise<void>>();
+  /** Per child, the promise that settles when it does. Never rejects. */
+  readonly #done = new Map<string, Promise<void>>();
   readonly #aborts = new Map<string, AbortController>();
   readonly #inbox: ChildMessage[] = [];
   #seq = 0;
@@ -205,10 +224,18 @@ export class ChildRegistry {
       status: "running" | "completed" | "error" | "cancelled",
       detail?: string,
       durationMs?: number,
+      answer?: string,
     ) => {
       // A broken observer must never take a worker down with it.
       try {
-        this.telemetry?.({ childId: id, name, status, detail, durationMs });
+        this.telemetry?.({
+          childId: id,
+          name,
+          status,
+          detail,
+          durationMs,
+          ...(answer ? { answer: answer.slice(0, TELEMETRY_ANSWER_MAX) } : {}),
+        });
       } catch {
         /* ignore */
       }
@@ -250,6 +277,7 @@ export class ChildRegistry {
           r.status === "completed" ? "completed" : r.status === "cancelled" ? "cancelled" : "error",
           r.status === "completed" ? `${r.toolCalls} tool call(s)` : r.status,
           r.durationMs,
+          r.answer,
         );
       })
       .catch((e) => {
@@ -276,8 +304,50 @@ export class ChildRegistry {
     // afterwards — left in `#inflight` for good, and `drain()` waiting on a
     // child that finished before it was ever registered.
     if (!settled) this.#inflight.add(p);
+    this.#done.set(id, p);
 
     return { rlm_child_id: id, name, status: "running" };
+  }
+
+  /**
+   * Block until the given children settle (all of them when `targets` is
+   * omitted), or until `timeoutMs` runs out. This is how a parent fans out and
+   * collects in the SAME turn. The notebook has no timer, and a loop polling
+   * `list()` never yields to the event loop the workers need, so before this
+   * the only way to get an answer was to end the turn, where nothing wakes the
+   * parent again: the answer waited for the person to write a second message.
+   *
+   * A timeout is not an error. It returns what settled and names what did not,
+   * so the parent can report partial results or wait again in its next cell.
+   */
+  async wait(
+    targets: string[] | undefined,
+    timeoutMs: number,
+  ): Promise<{ subagents: ChildEntry[]; still_running: string[]; timed_out: boolean }> {
+    const ids = targets
+      ? targets.map((t) => {
+          const id = this.#entries.has(t) ? t : this.#byName.get(t);
+          if (!id || !this.#entries.has(id)) throw new Error(`rlm.wait: no child matches "${t}"`);
+          return id;
+        })
+      : [...this.#entries.keys()];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Not unref'd: when this timer is the only pending handle, an unref'd one
+    // can simply never fire under bun on Windows (cowork/approval.ts found it).
+    const timedOut = await Promise.race([
+      Promise.all(ids.map((id) => this.#done.get(id))).then(() => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(true), Math.max(0, timeoutMs));
+      }),
+    ]);
+    clearTimeout(timer);
+    const picked = new Set(ids);
+    const subagents = this.list().filter((e) => picked.has(e.rlm_child_id));
+    return {
+      subagents,
+      still_running: subagents.filter((e) => e.status === "running").map((e) => e.name),
+      timed_out: timedOut,
+    };
   }
 
   list(): ChildEntry[] {
@@ -347,6 +417,7 @@ export class ChildRegistry {
     if (!entry || !id) throw new Error(`rlm.delete_subagent: no child matches "${target}"`);
     if (entry.status === "running") return { subagent: { ...entry }, outcome: "skipped_running" };
     this.#entries.delete(id);
+    this.#done.delete(id);
     // Releasing the name here — and only here — is what lets a name be reused
     // after a failed worker is cleared away, without breaking lookup for the
     // settled children that are still listed.

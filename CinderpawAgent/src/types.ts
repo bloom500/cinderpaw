@@ -1738,6 +1738,8 @@ export type OutboundEvent =
       /** What it is doing right now, or why it ended. */
       detail?: string;
       durationMs?: number;
+      /** The worker's final answer (bounded), on the settling event only. */
+      answer?: string;
       traceId?: string;
     }
   | { type: "heartbeat"; uptimeMs: number; rssMb: number; activeSessions: number }

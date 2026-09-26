@@ -29,17 +29,19 @@ export interface NotebookPromptOptions {
 
 /**
  * The recursion clause. Admission semantics match upstream: `rlm()` returns a
- * handle, never the answer. The one divergence is collection — upstream's
- * answers arrive over agent messaging, and Cinderpaw has no mailbox, so they are
- * read back from `list_subagents()`. The wording has to be explicit about that
- * or the model would sit waiting for a message that never comes.
+ * handle, never the answer. The one divergence is collection: upstream's
+ * answers arrive over agent messaging and wake the parent, and nothing here
+ * wakes a parent whose turn has ended. So the model is told to collect with
+ * `rlm.wait()` before it ends the turn, or the answer reaches nobody.
  */
 const RECURSION = [
   "`rlm` is already in your namespace. `await rlm('sub-task')` spawns a worker and returns as soon as it is admitted, with `{ rlm_child_id, name, status }` — it does NOT wait for the worker and never returns its answer.",
   "",
   "Choose a stable name with `await rlm('sub-task', { name: 'api-reviewer' })`; names must be unique among siblings. If you omit it, a readable one is generated.",
   "",
-  "Because admission is instant, spawn independent workers in separate calls and get on with your own work rather than idling. Collect them later with `await rlm.list_subagents()`, which returns every direct child with its `status` — `running`, `completed` or `error` — and, once settled, its `answer`. Poll it in a later cell or a later turn; a child that is still `running` simply has no answer yet.",
+  "Because admission is instant, spawn independent workers in separate calls and get on with your own work rather than idling. Collect them with `await rlm.wait()`, which blocks until your workers settle (or only the ones you name: `rlm.wait(['api-reviewer'])`), for at most 45 seconds per call, and returns `{ subagents, still_running, timed_out }`. Each subagent has its `status` — `running`, `completed` or `error` — and, once settled, its `answer`. If `still_running` is not empty, call `rlm.wait()` again in your next cell. `await rlm.list_subagents()` returns the same list without waiting.",
+  "",
+  "Do not end your turn while workers whose answers you need are still running. Nothing wakes you when they finish, so an answer you did not collect reaches the person only if they write to you again.",
   "",
   "While a worker runs you are not blind: `await rlm.observe(nameOrId)` returns its current status plus a `trail` of what it has been doing — tool calls, errors, progress. Use it when a worker is taking long enough that you want to know whether it is stuck or just slow.",
   "",

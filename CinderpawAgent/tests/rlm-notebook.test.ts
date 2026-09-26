@@ -14,6 +14,7 @@ import {
   ChildRegistry,
   defaultChildName,
   normalizeRequestedName,
+  WAIT_MAX_MS,
   type RunChild,
 } from "../src/rlm/children.ts";
 import {
@@ -304,6 +305,17 @@ describe("recursion — the R in RLM", () => {
       expect(seen.at(-1)!.status).toBe("completed");
     });
 
+    it("carries the answer on the settling event, so the UI can show it", async () => {
+      // A parent that ends its turn without collecting leaves the answer with
+      // nobody to read it but the surface showing the worker.
+      const seen: Array<{ status: string; answer?: string }> = [];
+      const reg = new ChildRegistry(runner(), (e) => seen.push(e));
+      reg.admit("count the files");
+      await reg.drain();
+      expect(seen[0]!.answer).toBeUndefined();
+      expect(seen.at(-1)!.answer).toBe("did: count the files");
+    });
+
     it("carries the caller's chosen name, not a derived one", async () => {
       const { seen, sink } = collect();
       const reg = new ChildRegistry(runner(), sink);
@@ -367,6 +379,77 @@ describe("recursion — the R in RLM", () => {
       subagents.map((s) => s.name + ":" + s.status + ":" + s.answer).join("|")
     `);
     expect(r.value).toBe("sum:completed:did: summarise");
+  });
+
+  /**
+   * Collection in the same turn. Without it the parent could only poll, and a
+   * loop over `list_subagents()` never yields to the timers and I/O the
+   * workers need, so the answers were out of reach until a later turn that
+   * nothing ever started.
+   */
+  describe("rlm.wait", () => {
+    it("blocks until every worker settles and returns their answers", async () => {
+      const { nb } = nbWith(runner(30));
+      const r = await nb.run(`
+        await rlm("alpha", { name: "a" });
+        await rlm("beta", { name: "b" });
+        const w = await rlm.wait();
+        JSON.stringify([w.timed_out, w.still_running, w.subagents.map((s) => s.answer)])
+      `);
+      expect(JSON.parse(r.value!)).toEqual([false, [], ["did: alpha", "did: beta"]]);
+    });
+
+    it("waits only for the named worker", async () => {
+      const { nb, children } = nbWith(async (task) => {
+        await new Promise((r) => setTimeout(r, task === "fast" ? 10 : 300));
+        return { status: "completed" as const, answer: task, toolCalls: 0, durationMs: 1, subagentId: "x" };
+      });
+      const r = await nb.run(`
+        await rlm("fast", { name: "fast" });
+        await rlm("slow", { name: "slow" });
+        const w = await rlm.wait("fast");
+        JSON.stringify(w.subagents.map((s) => s.name + ":" + s.status))
+      `);
+      expect(JSON.parse(r.value!)).toEqual(["fast:completed"]);
+      await children.drain();
+    });
+
+    it("returns at the timeout with what settled and names the rest", async () => {
+      const { nb, children } = nbWith(runner(400));
+      const started = Date.now();
+      const r = await nb.run(`
+        await rlm("slow", { name: "slow" });
+        const w = await rlm.wait({ timeoutMs: 20 });
+        JSON.stringify([w.timed_out, w.still_running])
+      `);
+      expect(JSON.parse(r.value!)).toEqual([true, ["slow"]]);
+      expect(Date.now() - started).toBeLessThan(300);
+      await children.drain();
+    });
+
+    it("never waits past the tool-call timeout, whatever the model asks", async () => {
+      // A wait longer than the registry's 60s tool timeout would kill the cell
+      // with the answers already collected.
+      const asked: number[] = [];
+      class Spy extends ChildRegistry {
+        override async wait(t: string[] | undefined, ms: number) {
+          asked.push(ms);
+          return super.wait(t, 0);
+        }
+      }
+      const nb = new Notebook({ registry: fakeRegistry(), sessionId: "s1", children: new Spy(runner()) });
+      await nb.run(`await rlm.wait({ timeoutMs: 10_000_000 })`);
+      await nb.run(`await rlm.wait()`);
+      expect(asked).toEqual([WAIT_MAX_MS, WAIT_MAX_MS]);
+      expect(WAIT_MAX_MS).toBeLessThan(60_000);
+    });
+
+    it("refuses a name that is not one of its children", async () => {
+      const { nb } = nbWith();
+      const r = await nb.run(`await rlm.wait("nobody")`);
+      expect(r.ok).toBe(false);
+      expect(r.error).toContain('no child matches "nobody"');
+    });
   });
 
   it("shows a child still running as running, with no answer", async () => {

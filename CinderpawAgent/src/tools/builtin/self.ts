@@ -352,7 +352,7 @@ const SUBSYSTEMS: Record<string, SubsystemDoc> = {
     outputs: [
       "The last expression's value plus anything logged, returned as the tool result.",
       "Variables and helper functions that persist across cells, turns and compaction.",
-      "Background workers admitted by `rlm()`, collected via `rlm.list_subagents()` and the `notify_parent` inbox.",
+      "Background workers admitted by `rlm()`, collected via `rlm.wait()` (blocks up to 45 s), `rlm.list_subagents()` and the `notify_parent` inbox.",
     ],
     safety: [
       "No ambient authority: the vm context gets none of our builtins, so `Function` is unreachable and there is no `fetch`, `require` or `process`.",
