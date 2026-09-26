@@ -306,7 +306,8 @@ export class MemoryExtractor {
         // and every other member. Only the owner's global facts go in.
         if (this.#graph && graphFacts.length > 0 && memoryScope(sessionId) === "") {
           for (const { key, value } of graphFacts) {
-            this.#graph.addFact(key, "has", value);
+            // One value per key, as in SemanticMemory: a new value replaces.
+            this.#graph.setFact(key, "has", value);
           }
           this.#graph.persist();
         }

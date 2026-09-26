@@ -79,3 +79,21 @@ describe("guest facts stay scoped", () => {
     expect(upserts).toEqual(["name: Alex"]);
   });
 });
+
+describe("knowledge graph — a changed fact replaces its edge", () => {
+  it("city: Paris then city: London leaves one edge, London", () => {
+    const g = graph();
+    g.setFact("city", "has", "Paris");
+    g.setFact("city", "has", "London");
+    expect(g.snapshot().edges.map((e) => `${e.from} ${e.relation} ${e.to}`)).toEqual(["city has london"]);
+  });
+
+  it("re-stating the same value keeps the edge, other subjects are untouched", () => {
+    const g = graph();
+    g.setFact("city", "has", "Paris");
+    g.setFact("editor", "has", "helix");
+    g.setFact("city", "has", "paris");
+    expect(g.snapshot().edges.map((e) => `${e.from} ${e.relation} ${e.to}`).sort())
+      .toEqual(["city has paris", "editor has helix"]);
+  });
+});

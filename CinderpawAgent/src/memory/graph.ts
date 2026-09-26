@@ -148,6 +148,25 @@ export class MemoryGraph {
     this.addEdge(sId, oId, predicate);
   }
 
+  /**
+   * `subject` now `predicate`s `object`, and nothing else under that predicate.
+   *
+   * The extractor mirrors each fact as `key —has→ value`, and SemanticMemory
+   * keeps one current value per key. `addFact` only ever added, so "city: Paris"
+   * then "city: London" left both edges, and recall — which drops a graph line
+   * only when the facts block already said its value — rendered "city —has→
+   * Paris" beside "city: London" with nothing to say which one is true now.
+   * The history of a fact lives in SemanticMemory; the graph shows what holds.
+   */
+  setFact(subject: string, predicate: string, object: string): void {
+    const sId = subject.toLowerCase().replace(/\s+/g, "_");
+    const oId = object.toLowerCase().replace(/\s+/g, "_");
+    this.#data.edges = this.#data.edges.filter(
+      (e) => !(e.from === sId && e.relation === predicate && e.to !== oId),
+    );
+    this.addFact(subject, predicate, object);
+  }
+
   removeNode(id: string): boolean {
     if (!this.#data.nodes[id]) return false;
     delete this.#data.nodes[id];
