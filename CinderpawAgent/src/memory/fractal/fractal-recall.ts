@@ -217,9 +217,15 @@ export class FractalRecallEngine {
     }
 
     // 2. Semantic hits from the RAPTOR tree.
+    //    The asking session's own leaves are left out during the descent:
+    //    filtering them after the top-K cut let a long current session take
+    //    every candidate slot, and the block came back with no past at all.
     const semanticHits = queryTree(qVec, this.#tree, {
       topK: QUERY_TOPK,
       beam: QUERY_BEAM,
+      exclude: sessionId
+        ? (id) => this.#leavesById.get(id)?.sessionId === sessionId
+        : undefined,
     });
 
     // 3. Exact-match hits from FTS5, the current session left out in the

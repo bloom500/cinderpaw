@@ -33,6 +33,12 @@ export interface QueryTreeOpts {
   topK: number;
   /** Number of nodes kept per level during the descent. */
   beam: number;
+  /**
+   * Raw leaves the caller will throw away anyway (recall drops the asking
+   * session). Dropped here, before they are scored, so they never hold a beam
+   * slot or a top-K place that a usable leaf could have had.
+   */
+  exclude?: (leafId: number) => boolean;
 }
 
 /** A node on the frontier together with the summaries of every ancestor
@@ -49,10 +55,11 @@ export function queryTree(
 ): Hit[] {
   // Seed the frontier with the root's children. The path starts with the
   // root's own summary so the first hit already carries the apex context.
-  let frontier: Front[] = tree.children.map((child) => ({
-    node: child,
-    path: [tree.summary],
-  }));
+  const excluded = (node: TreeNode): boolean =>
+    opts.exclude !== undefined && node.children.length === 0 && opts.exclude(node.leafIds[0]!);
+  let frontier: Front[] = tree.children
+    .filter((child) => !excluded(child))
+    .map((child) => ({ node: child, path: [tree.summary] }));
 
   // Descend level by level. At each step we:
   //   1. expand every non-leaf entry into ITS children (path extended)
@@ -68,6 +75,7 @@ export function queryTree(
         continue;
       }
       for (const child of f.node.children) {
+        if (excluded(child)) continue;
         expanded.push({ node: child, path: [...f.path, f.node.summary] });
       }
     }

@@ -304,3 +304,29 @@ describe("FractalRecallEngine — FTS5 leaves the current session out in the que
     expect(seen).toBeUndefined();
   });
 });
+
+describe("FractalRecallEngine — the asking session never takes semantic slots", () => {
+  it("returns past leaves even when the current session is nearer and larger than topK", async () => {
+    // 30 current-session leaves right on the query, 5 past leaves a bit off it.
+    // topK is 20: filtering after the cut left nothing from the past.
+    const now: Leaf[] = Array.from({ length: 30 }, (_, i) => ({
+      id: i + 1, text: `now-${i}`, vec: new Float32Array([1, i / 1000]), ts: 2, sessionId: "s-now",
+    }));
+    const past: Leaf[] = Array.from({ length: 5 }, (_, i) => ({
+      id: 100 + i, text: `past-${i}`, vec: new Float32Array([0.8, 0.6]), ts: 1, sessionId: "s-past",
+    }));
+    const all = [...now, ...past].map((l) => {
+      const n = Math.hypot(l.vec[0]!, l.vec[1]!);
+      return { ...l, vec: new Float32Array([l.vec[0]! / n, l.vec[1]! / n]) };
+    });
+    const tree = await buildTree(all, { summarize: async () => "s", branch: 4 });
+    const engine = new FractalRecallEngine({
+      tree,
+      embed: fixedEmbed(new Float32Array([1, 0])),
+      ftsSearch: () => [],
+      leavesById: new Map(all.map((l) => [l.id, l])),
+    });
+    const ids = await engine.rankedLeafIds("where did we land", "s-now", 10);
+    expect(ids.sort((a, b) => a - b)).toEqual([100, 101, 102, 103, 104]);
+  });
+});
