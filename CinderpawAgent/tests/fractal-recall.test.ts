@@ -277,3 +277,30 @@ describe("FractalRecallEngine — RecallResult shape", () => {
     expect(result.semanticFacts).toBeLessThanOrEqual(2 + LEAVES.length);
   });
 });
+
+describe("FractalRecallEngine — FTS5 leaves the current session out in the query", () => {
+  it("passes the asking session to FTS5 so it cannot fill the limit", async () => {
+    const calls: Array<[string, number, string | undefined]> = [];
+    const engine = new FractalRecallEngine({
+      tree: await fixtureTree(),
+      embed: fixedEmbed(QVEC_NEAR_A),
+      ftsSearch: (q, limit, exclude) => { calls.push([q, limit, exclude]); return []; },
+      leavesById: leavesById(),
+    });
+    await engine.recall("what did we decide", "s-now");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![2]).toBe("s-now");
+  });
+
+  it("an explicit query with no session excludes nothing at the backend", async () => {
+    let seen: string | undefined = "unset";
+    const engine = new FractalRecallEngine({
+      tree: await fixtureTree(),
+      embed: fixedEmbed(QVEC_NEAR_A),
+      ftsSearch: (_q, _l, exclude) => { seen = exclude; return []; },
+      leavesById: leavesById(),
+    });
+    await engine.rankedLeafIds("anything", "");
+    expect(seen).toBeUndefined();
+  });
+});

@@ -691,7 +691,7 @@ export async function boot(transportOverride?: Transport) {
       })),
     embed: (texts) => embed(texts),
     summarize: summarizeFromRouter(router),
-    ftsSearch: (q, limit) => episodic.search(q, limit),
+    ftsSearch: (q, limit, excludeSessionId) => episodic.search(q, limit, excludeSessionId),
     fallback: recall,
     treePath: require("node:path").join(dataDir, "fractal-tree.json"),
     leafStorePath: require("node:path").join(dataDir, LEAF_STORE_FILENAME),

@@ -99,8 +99,13 @@ const MIN_SEMANTIC_SCORE = 0;
 /** Per-hit snippet length, matching `RecallEngine.snippetMaxChars`. */
 export const SNIPPET_MAX_CHARS = 200;
 
-/** Narrow fts signature — matches `EpisodicMemory.search(query, limit)`. */
-export type FtsSearch = (q: string, limit: number) => EpisodicEvent[];
+/**
+ * Narrow fts signature — matches `EpisodicMemory.search`. `excludeSessionId`
+ * is optional so a backend that ignores it stays correct: the merge below
+ * drops the current session either way. Passing it is what keeps that
+ * session from using up the limit first.
+ */
+export type FtsSearch = (q: string, limit: number, excludeSessionId?: string) => EpisodicEvent[];
 
 export interface FractalRecallDeps {
   tree: TreeNode;
@@ -213,8 +218,9 @@ export class FractalRecallEngine {
       beam: QUERY_BEAM,
     });
 
-    // 3. Exact-match hits from FTS5.
-    const ftsEvents = this.#ftsSearch(query, QUERY_TOPK);
+    // 3. Exact-match hits from FTS5, the current session left out in the
+    //    query itself (see `EpisodicMemory.search`).
+    const ftsEvents = this.#ftsSearch(query, QUERY_TOPK, sessionId || undefined);
 
     // 4. Merge by id. FTS5 contributes text/sessionId/ts; semantic
     //    contributes score + collapsed-tree path.
