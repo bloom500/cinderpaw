@@ -1,16 +1,23 @@
 /**
  * Cinderpaw Agent — RSI (Recursive Self-Improvement) sidecar module.
  *
- * The Rust crate under `src-tauri/src/rsi/` is the Bounded-RSI
- * boundary. This module is the thin sidecar wrapper that:
+ * The Rust code under `crates/cinderpaw-core/src/rsi/` (ratchet, scorer,
+ * Tier 0, audit chain; the Tauri commands are in `src-tauri/src/rsi/`) is
+ * the Bounded-RSI boundary. This module is the thin sidecar wrapper that:
  *
  *   1. Bootstraps the *sidecar-owned* slice of the substrate — the
  *      5 tables in the Cinderpaw Agent's SQLite DB, plus the 4 initial
  *      strategy-genomes. The Rust side bootstraps its own slice
  *      (the git repo + PLAN.md + SandboxBounds) at Tauri app
  *      startup, independently, in `src-tauri/src/lib.rs::setup`.
- *   2. Persists iteration rows in the sidecar's SQLite DB after
- *      Rust has approved the corresponding git write (Faza 1+).
+ *   2. (Planned, never built.) Persisting iteration rows in the sidecar's
+ *      SQLite DB. Nothing reads or writes `rsi_genome`, `rsi_iteration`,
+ *      `rsi_lineage` or `rsi_hall_of_fame`: they are created and checked
+ *      below, and stay empty. The engine's state lives in the Rust git
+ *      substrate (`~/.cinderpaw/rsi/`, ratchet audit chain) and JSON files
+ *      beside it — `champion.json` (with the gate baseline),
+ *      `champion-tree.json`, `population.json` — plus
+ *      `~/.cinderpaw/meta/pbt_state.json` and `rsi_strategy_genome` here.
  *
  * Communication topology: the sidecar talks to Rust via stdin
  * (Rust → sidecar commands) and stdout (sidecar → Tauri events).
