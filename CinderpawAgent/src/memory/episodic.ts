@@ -186,7 +186,9 @@ export class EpisodicMemory {
    * turn would reintroduce the leak through the semantic path after the
    * keyword path was closed.
    * The cap bounds memory for very large histories; offline tree-building
-   * tolerates a ceiling, and FTS5 still covers anything beyond it.
+   * tolerates a ceiling, and FTS5 still covers anything beyond it. The cap
+   * keeps the NEWEST rows: it used to keep the oldest, so past `limit` rows
+   * the tree stopped learning and every rebuild re-indexed the same past.
    *
    * The returned events carry `embedding` whenever the row already has one
    * stored — the RAPTOR builder uses that to skip re-embedding the corpus on
@@ -197,10 +199,12 @@ export class EpisodicMemory {
     const rows = this.#db
       .query<EpisodicRow, [number]>(
         `SELECT id, session_id, timestamp, role, content, embedding
-         FROM episodic
-         WHERE private = 0
-         ORDER BY timestamp ASC
-         LIMIT ?`,
+         FROM (SELECT id, session_id, timestamp, role, content, embedding
+               FROM episodic
+               WHERE private = 0
+               ORDER BY timestamp DESC, id DESC
+               LIMIT ?)
+         ORDER BY timestamp ASC, id ASC`,
       )
       .all(limit);
     return rows.map(fromRow);
