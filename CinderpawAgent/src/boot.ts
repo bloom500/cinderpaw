@@ -153,7 +153,7 @@ import { ActivityMonitor } from "./rsi/l1-config/activity-monitor.ts";
 import { resolveDreamConfig, dreamCloudGate } from "./rsi/l1-config/dream-config.ts";
 import { episodeStartOptions, episodeBudgetCaps } from "./rsi/l1-config/episode-options.ts";
 import { MetaEvolution } from "./rsi/l6-meta/meta-evolution.ts";
-import { effectiveGates, loadPolicy } from "./rsi/l5-gov/governance.ts";
+import { effectiveGates, layerFrozen, loadPolicy } from "./rsi/l5-gov/governance.ts";
 import { ensureGenesisPolicy, GovernanceLifecycle } from "./rsi/l5-gov/governance-lifecycle.ts";
 import {
   mapGenomeToAgentConfig,
@@ -2266,6 +2266,9 @@ export async function boot(transportOverride?: Transport) {
     metaParams: () => metaEvolution.current(),
     // L5: policy gates tighten the promotion gate further (§7).
     policyGates: () => effectiveGates(governancePolicy()),
+    // L5: `cinderpaw governance freeze l1` stops new episodes (UI and Dream
+    // Cycle alike). Genesis above leaves it unfrozen on a fresh install.
+    l1Frozen: () => layerFrozen("l1"),
     // L4 §5: the incumbent a retrieval module is paired against IS the live
     // ranking. `planner` needs none here — the sidecar binds its own builtin.
     seamBuiltins: { retrieval_strategy: retrievalBuiltin },

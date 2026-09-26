@@ -23,7 +23,11 @@ import { openDatabase } from "../src/db.ts";
 import { EventBus } from "../src/rsi/infra/event-bus.ts";
 import type { EvalSpec } from "../src/rsi/infra/eval-spec.ts";
 import type { EvalOutcome } from "../src/rsi/infra/eval-worker.ts";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { layerFrozen } from "../src/rsi/l5-gov/governance.ts";
+import { ensureGenesisPolicy, GovernanceLifecycle } from "../src/rsi/l5-gov/governance-lifecycle.ts";
 
 class FakeRouter implements InvokeRouter {
   complete(): Promise<{ content: string; totalTokens: number; promptTokens: number; completionTokens: number; model: string; usedFallback: boolean }> {
@@ -96,6 +100,7 @@ function buildSidecar(opts: {
   bridge: FakeBridge;
   router?: InvokeRouter;
   historyWindow?: number;
+  l1Frozen?: () => { frozen: boolean; reason: string };
 }): { sidecar: RsiSidecar; emitted: Array<Record<string, unknown>>; logs: string[] } {
   const emitted: Array<Record<string, unknown>> = [];
   const logs: string[] = [];
@@ -113,6 +118,7 @@ function buildSidecar(opts: {
     championPath: resolve(import.meta.dir, `../.tmp-nochampion-${Math.random()}.json`),
     championTreePath: resolve(import.meta.dir, `../.tmp-tree-${Math.random()}.json`),
     ...(opts.historyWindow != null ? { historyWindow: opts.historyWindow } : {}),
+    ...(opts.l1Frozen ? { l1Frozen: opts.l1Frozen } : {}),
   });
   return { sidecar, emitted, logs };
 }
@@ -553,5 +559,75 @@ describe("RsiSidecar — integration smoke (engine runs to completion)", () => {
     expect(seen.has("rsi_score")).toBe(true);
     expect(seen.has("rsi_commit_genome")).toBe(true);
     expect(seen.has("rsi_ratchet_attempt")).toBe(true);
+  });
+});
+
+// `cinderpaw governance freeze l1` was accepted, recorded, and obeyed by
+// nothing: dream episodes kept evolving the genome the user's agent runs.
+describe("RsiSidecar — L5 frozen.l1", () => {
+  const OPTS = { goal: "x", maxIterations: 1, maxTotalTokens: 1_000 };
+
+  /** A real governance dir, frozen the way the CLI freezes it. */
+  function frozenL1(): { dir: string; gov: GovernanceLifecycle } {
+    const dir = mkdtempSync(join(tmpdir(), "cinderpaw-gov-l1-"));
+    ensureGenesisPolicy(dir);
+    const gov = new GovernanceLifecycle({ dir });
+    expect(gov.freeze(["l1"], "test", "operator").ok).toBe(true);
+    return { dir, gov };
+  }
+
+  test("a UI start is refused on screen and builds no engine", async () => {
+    const { dir } = frozenL1();
+    try {
+      const bridge = new FakeBridge();
+      const { sidecar, emitted } = buildSidecar({ bridge, l1Frozen: () => layerFrozen("l1", dir) });
+
+      await sidecar.start(OPTS, "ack-1");
+
+      expect(sidecar.isRunning()).toBe(false);
+      expect(bridge.sent).toHaveLength(0);
+      expect(emitted.some((e) => e.type === "rsi_engine_event" && e.event === "started")).toBe(false);
+      const errs = emitted.filter((e) => e.type === "error");
+      expect(errs).toHaveLength(1);
+      expect(errs[0]!.message).toContain("frozen.l1");
+      expect(errs[0]!.message).toContain("cinderpaw governance unfreeze l1");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a background start is refused into the log, not the chat", async () => {
+    const { dir } = frozenL1();
+    try {
+      const bridge = new FakeBridge();
+      const { sidecar, emitted, logs } = buildSidecar({ bridge, l1Frozen: () => layerFrozen("l1", dir) });
+
+      await sidecar.start(OPTS);
+
+      expect(sidecar.isRunning()).toBe(false);
+      expect(bridge.sent).toHaveLength(0);
+      expect(emitted).toHaveLength(0);
+      expect(logs.some((m) => m.includes("frozen.l1"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("unfreezing lets the next start through without a restart", async () => {
+    const { dir, gov } = frozenL1();
+    try {
+      const bridge = new FakeBridge();
+      const { sidecar, emitted } = buildSidecar({ bridge, l1Frozen: () => layerFrozen("l1", dir) });
+      await sidecar.start(OPTS, "ack-1");
+      expect(sidecar.isRunning()).toBe(false);
+
+      expect(gov.unfreeze(["l1"], "test", "operator").ok).toBe(true);
+      await sidecar.start(OPTS, "ack-2");
+
+      expect(emitted.some((e) => e.type === "rsi_engine_event" && e.event === "started")).toBe(true);
+      sidecar.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

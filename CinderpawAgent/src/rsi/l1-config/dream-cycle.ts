@@ -56,6 +56,8 @@ export interface DreamEngine {
   isRunning(): boolean;
   /** Graceful stop (in-flight evals drain). Used by stopOnActivity. */
   stop?(): void;
+  /** Why a start would be refused right now (L5 `frozen.l1`), or null. */
+  frozenReason?(): string | null;
 }
 
 export interface DreamCycleDeps {
@@ -162,6 +164,16 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
   const arm = (engine: DreamEngine, episodeOptions: EpisodeOptions): DreamScheduler => {
     scheduler = new DreamScheduler({
       start: async (trigger) => {
+        // L5 `frozen.l1`, asked BEFORE the wake pulse. The sidecar refuses the
+        // start anyway, but by then the toast and the mascot's dreaming pose
+        // would be up for an episode that never runs, again on every poll.
+        // Only a dream the user asked for gets the reason on screen.
+        const frozen = engine.frozenReason?.() ?? null;
+        if (frozen !== null) {
+          log?.(`dream: ${trigger} trigger skipped (${frozen})`);
+          if (trigger === "user") send({ type: "error", message: frozen });
+          return;
+        }
         currentEpisode = { startedAt: Date.now(), trigger, sample: startResourceSample() };
         // BRSI §2.8 stage sequence. Wake → Observe → (episode = Dream+Mutate+
         // Evaluate). The engine's internal proposal/apply/eval loop is opaque

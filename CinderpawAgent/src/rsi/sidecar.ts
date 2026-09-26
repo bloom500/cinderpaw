@@ -186,6 +186,10 @@ export interface RsiSidecarDeps {
    *  same max()/min() discipline as `metaParams`. Absent → pre-L5
    *  behaviour (§7). */
   policyGates?: () => import("./infra/confidence.ts").GateThresholds;
+  /** Optional: L5 `frozen.l1` (boot wires `layerFrozen("l1")`). Read at
+   *  every start, so a freeze or an unfreeze applies without a restart.
+   *  Absent → pre-L5 behaviour (never frozen). */
+  l1Frozen?: () => { frozen: boolean; reason: string };
   /** Optional: L4 seam builtins for the paired module eval (§5) — the
    *  INCUMBENT implementation per seam, keyed by seam name. boot.ts
    *  provides `retrieval_strategy` (FractalMemory-backed); `planner`
@@ -212,6 +216,16 @@ export class RsiSidecar {
   /** The engine is running. */
   isRunning(): boolean {
     return this.engine !== null;
+  }
+
+  /** Why a start would be refused right now (L5 `frozen.l1`), worded for
+   *  the person who will read it, or null. The Dream Cycle asks before its
+   *  wake pulse, so a frozen layer never announces a dream. */
+  frozenReason(): string | null {
+    const f = this.deps.l1Frozen?.();
+    return f?.frozen
+      ? `Self-improvement is paused: ${f.reason}. Run \`cinderpaw governance unfreeze l1\` to resume it.`
+      : null;
   }
 
   // ── Eval-harness building blocks (shared by start() and L4 §5) ───────
@@ -402,6 +416,19 @@ export class RsiSidecar {
         this.deps.send({ type: "error", message: msg });
       } else {
         this.deps.log?.(`rsi dream: skipped background start (${msg})`);
+      }
+      return;
+    }
+
+    // L5 `frozen.l1`. Every start comes through here (the UI's rsi_start and
+    // each Dream Cycle episode), so this is the one door. It refuses new
+    // starts only: an episode already running ends within its own budget.
+    const frozen = this.frozenReason();
+    if (frozen !== null) {
+      if (ackId !== undefined) {
+        this.deps.send({ type: "error", message: frozen });
+      } else {
+        this.deps.log?.(`rsi dream: skipped background start (${frozen})`);
       }
       return;
     }
