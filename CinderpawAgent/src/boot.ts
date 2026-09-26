@@ -1077,6 +1077,12 @@ export async function boot(transportOverride?: Transport) {
   // read-only by default, exactly like delegate_task, so code that spawns
   // workers cannot quietly acquire write access the parent never granted.
   if (cfgBool("CINDERPAW_ENABLE_NOTEBOOK")) {
+    // Shared so a child can find the parent that admitted it.
+    const childRegistries: ChildRegistries = new Map();
+    // Registered BEFORE the Subagent below: `registry.list()` is a copy, and a
+    // worker can only be granted a tool that is in it. Registered after, every
+    // worker lost notify_parent silently while its allow-list still named it.
+    registry.register(createNotifyParentTool(childRegistries));
     const notebookSubagent = new Subagent({
       router,
       allTools: registry.list(),
@@ -1087,9 +1093,6 @@ export async function boot(transportOverride?: Transport) {
       episodic,
       hooks,
     });
-    // Shared so a child can find the parent that admitted it.
-    const childRegistries: ChildRegistries = new Map();
-    registry.register(createNotifyParentTool(childRegistries));
     registry.register(createNotebookTool({
       registry: () => registry,
       registries: childRegistries,

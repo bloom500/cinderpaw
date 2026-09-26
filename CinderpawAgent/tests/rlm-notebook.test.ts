@@ -1140,3 +1140,19 @@ describe("workers survive a restart", () => {
     }
   });
 });
+
+describe("boot wiring — a worker can actually be granted notify_parent", () => {
+  // The worker's tool filter searches a COPY of the registry taken when the
+  // notebook's Subagent is built. notify_parent registered after that copy was
+  // dropped from every worker while the allow-list still named it; the tests
+  // above build their own wiring, so they never saw it.
+  it("registers notify_parent before the notebook's Subagent snapshots the registry", async () => {
+    const src = await Bun.file(new URL("../src/boot.ts", import.meta.url)).text();
+    const block = src.slice(src.indexOf('cfgBool("CINDERPAW_ENABLE_NOTEBOOK")'));
+    const registered = block.indexOf("registry.register(createNotifyParentTool(");
+    const snapshotted = block.indexOf("new Subagent(");
+    expect(registered).toBeGreaterThan(-1);
+    expect(snapshotted).toBeGreaterThan(-1);
+    expect(registered).toBeLessThan(snapshotted);
+  });
+});
