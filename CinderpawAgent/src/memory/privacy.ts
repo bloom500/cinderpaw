@@ -22,9 +22,10 @@ export type PrivateTagName =
 
 const TAG_NAMES: PrivateTagName[] = ["private", "no-memory", "ephemeral"];
 
-// Pre-compiled pattern: matches <tag ...>...</tag> including multiline content.
+// Pre-compiled pattern: matches <tag ...>...</tag> including multiline content,
+// with the spaces/tabs on either side of it on the same line.
 const STRIP_REGEX = new RegExp(
-  `<(${TAG_NAMES.join("|")})\\b[^>]*>[\\s\\S]*?<\\/\\1>`,
+  `[ \\t]*<(${TAG_NAMES.join("|")})\\b[^>]*>[\\s\\S]*?<\\/\\1>[ \\t]*`,
   "gi",
 );
 
@@ -41,12 +42,20 @@ export interface StripResult {
 export function stripPrivate(input: string): StripResult {
   let stripped = 0;
   STRIP_REGEX.lastIndex = 0;
+  // Only the tag and the spaces beside it are touched. This used to finish
+  // with a global `\s{2,}` → " " over the WHOLE text, tag or no tag — and it
+  // runs on every user message and every final answer before they are stored,
+  // so every paragraph break and every indented line of pasted code reached
+  // episodic memory flattened, and came back that way on replay and in recall.
   const text = input
-    .replace(STRIP_REGEX, () => {
+    .replace(STRIP_REGEX, (match: string, _tag: string, at: number, whole: string) => {
       stripped++;
-      return "";
+      // Mid-line, one space keeps "a <private>x</private> b" reading "a b".
+      // Against a line boundary, nothing, so no stray space is left behind.
+      const before = at === 0 ? "\n" : whole[at - 1];
+      const after = whole[at + match.length] ?? "\n";
+      return before === "\n" || after === "\n" ? "" : " ";
     })
-    .replace(/\s{2,}/g, " ")
     .trim();
   return { text, stripped };
 }

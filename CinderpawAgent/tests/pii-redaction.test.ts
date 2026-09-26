@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { openDatabase } from "../src/db.ts";
 import { SemanticMemory } from "../src/memory/semantic.ts";
-import { redactPII, redactSecrets } from "../src/memory/privacy.ts";
+import { redactPII, redactSecrets, stripPrivate } from "../src/memory/privacy.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -187,5 +187,26 @@ describe("parity with the Rust transcript redactor", () => {
       expect(r.redactions, `${note}: ordinary text was redacted`).toBe(0);
       expect(r.text, `${note}: ordinary text was altered`).toBe(text);
     }
+  });
+});
+
+describe("stripPrivate — touches the tag and nothing else", () => {
+  test("a message with no tag is stored exactly as written", () => {
+    const code = "Here is the fix:\n\n```py\ndef f():\n    return 1\n```\n\nThanks!";
+    expect(stripPrivate(code)).toEqual({ text: code, stripped: 0 });
+  });
+
+  test("a tag mid-line leaves one space", () => {
+    expect(stripPrivate("a <private>x</private> b").text).toBe("a b");
+  });
+
+  test("a tag on its own line leaves no stray space, and the lines around it keep their shape", () => {
+    const r = stripPrivate("line one\n<private>secret</private>\n    indented");
+    expect(r.text).toBe("line one\n\n    indented");
+    expect(r.stripped).toBe(1);
+  });
+
+  test("multi-line private content still goes", () => {
+    expect(stripPrivate("keep\n<no-memory>a\nb\nc</no-memory> tail").text).toBe("keep\ntail");
   });
 });
