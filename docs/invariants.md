@@ -68,10 +68,18 @@ four are present.
 
 ### Invariant I1 — Ratchet strict-greater
 
-**Statement:** The main lineage advances if and only if
-`candidate_score > prior_score_value`. The strict-greater comparison in
-`crates/cinderpaw-core/src/rsi/repo.rs::ratchet_attempt` is the **single source of
-truth** for "main advances only on improvement".
+**Statement:** A lineage advances if and only if
+`candidate_score > prior_score_value`, where the prior is that SAME
+lineage's tip. There are two lineages, because their scores are different
+quantities: config genomes (L1) ratchet `main`, code patches (L3) ratchet
+`code-main` (`repo.rs::CODE_LINEAGE`). They shared `main` until 2026-09-26,
+and the first code patch to advance (≈96 on the 0..100 code scale) left a bar
+no config genome (0..55) could ever clear. A repo from before the split
+recovers each lineage's bar from the ratchet audit chain. The strict-greater
+comparison in `crates/cinderpaw-core/src/rsi/repo.rs::ratchet_attempt` is the
+**single source of truth** for "a lineage advances only on improvement", and
+read-compare-move runs under one lock so two concurrent attempts cannot both
+advance from the same prior.
 
 **Owner:**
 - TypeScript: `CinderpawAgent/src/rsi/l1-config/ratchet-handler.ts`
