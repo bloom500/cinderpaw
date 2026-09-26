@@ -21,7 +21,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { proposableFiles } from "../src/rsi/l3-code/code-proposer.ts";
-import { DEFAULT_CODE_PATCH_POLICY } from "../src/rsi/l3-code/code-genome.ts";
+import {
+  DEFAULT_CODE_PATCH_POLICY,
+  isDiffParseError,
+  parseUnifiedDiff,
+  validateCodePatch,
+} from "../src/rsi/l3-code/code-genome.ts";
 
 const RUST_SOURCE = fileURLToPath(
   new URL("../../crates/cinderpaw-core/src/rsi/code_patch.rs", import.meta.url),
@@ -118,6 +123,49 @@ describe("code-patch denylist — TS and Rust parity", () => {
         proposableFiles([`l5-gov/${file}`, "l1-config/mutation.ts"]),
         `${file} must not be offered to the proposer`,
       ).toEqual(["l1-config/mutation.ts"]);
+    }
+  });
+
+  test("the walls, gates and wires of L2, L3 and L4 are protected, not only L1's", () => {
+    // 26 Sep: validateCodePatch accepted every one of these. `isolation.ts`
+    // even said in its header that it was on this list; it was not. A human
+    // still approves each applied patch, and this list is so that click is
+    // not the only wall. Paths are real, so the patch goes through the same
+    // parser and wall a proposal does.
+    const walls = [
+      "l3-code/isolation.ts", // the Docker cell a code candidate runs in
+      "l4-modules/module-host-client.ts", // spawns a module, runs its wall, scrubs the env
+      "l4-modules/module-host.ts", // the child process a module executes in
+      "l4-modules/module-eval.ts", // the L4 paired gate
+      "l4-modules/module-lifecycle.ts", // freeze, approval and promotion of a module
+      "l4-modules/module-registry.ts", // which implementation serves a seam
+      "l4-modules/seam-adapter.ts", // the watchdog that quarantines a failing module
+      "l4-modules/module-proposer.ts", // runs the lexical wall before a module reaches disk
+      "l2-adapt/lora-eval-gate.ts", // the L2 verdict
+      "l2-adapt/lora-eval-runner.ts", // the paired A/B that feeds it
+      "l2-adapt/lora-registry.ts", // the champion adapter and its rollback
+      "l2-adapt/lora-pipeline.ts", // approve only on a recommend_promote verdict
+      "infra/bridge.ts", // the wire to the Rust scorer and ratchet
+      "infra/tier-loader.ts", // loads the Tier 1/2 suite, refuses a partial one
+      "infra/fixtures.ts", // the campaign's held-out promotion partitions
+      "infra/instance-paths.ts", // where the governance, journal and champion files live
+    ];
+    for (const rel of walls) {
+      const path = `src/rsi/${rel}`;
+      const parsed = parseUnifiedDiff(
+        `diff --git a/${path} b/${path}
+--- a/${path}
++++ b/${path}
+@@ -1 +1 @@
+-a
++b
+`,
+      );
+      if (isDiffParseError(parsed)) throw new Error(`fixture did not parse for ${path}`);
+      const v = validateCodePatch(parsed);
+      expect(v.ok, `${path} must be refused`).toBe(false);
+      const base = rel.split("/").pop()!;
+      expect(rustDenylist(), `${base} missing on the Rust side`).toContain(base);
     }
   });
 });

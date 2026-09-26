@@ -78,6 +78,24 @@ const DENYLIST_BASENAMES: &[&str] = &[
     "code-proposer.ts",
     "experiment-selector.ts",
     "self-model.ts",
+    // The walls, gates and wires of L2, L3 and L4, and the paths the
+    // governance / journal / champion files live at. Mirror of the TS list.
+    "isolation.ts",
+    "module-host-client.ts",
+    "module-host.ts",
+    "module-eval.ts",
+    "module-lifecycle.ts",
+    "module-registry.ts",
+    "seam-adapter.ts",
+    "module-proposer.ts",
+    "lora-eval-gate.ts",
+    "lora-eval-runner.ts",
+    "lora-registry.ts",
+    "lora-pipeline.ts",
+    "bridge.ts",
+    "tier-loader.ts",
+    "fixtures.ts",
+    "instance-paths.ts",
 ];
 
 /// Raw measurements the sandbox eval runner (TS, `code-sandbox.ts`)
@@ -409,6 +427,33 @@ mod tests {
             let patch = GOOD_PATCH.replace("src/rsi/mutation.ts", path);
             let err = validate_code_patch(&patch).unwrap_err();
             assert!(err.contains(needle), "path {path}: got '{err}'");
+        }
+    }
+
+    #[test]
+    fn rejects_the_walls_of_l2_l3_and_l4_at_their_real_paths() {
+        // Every one of these was accepted until 26 Sep 2026.
+        for path in [
+            "src/rsi/l3-code/isolation.ts",
+            "src/rsi/l4-modules/module-host-client.ts",
+            "src/rsi/l4-modules/module-host.ts",
+            "src/rsi/l4-modules/module-eval.ts",
+            "src/rsi/l4-modules/module-lifecycle.ts",
+            "src/rsi/l4-modules/module-registry.ts",
+            "src/rsi/l4-modules/seam-adapter.ts",
+            "src/rsi/l4-modules/module-proposer.ts",
+            "src/rsi/l2-adapt/lora-eval-gate.ts",
+            "src/rsi/l2-adapt/lora-eval-runner.ts",
+            "src/rsi/l2-adapt/lora-registry.ts",
+            "src/rsi/l2-adapt/lora-pipeline.ts",
+            "src/rsi/infra/bridge.ts",
+            "src/rsi/infra/tier-loader.ts",
+            "src/rsi/infra/fixtures.ts",
+            "src/rsi/infra/instance-paths.ts",
+        ] {
+            let patch = GOOD_PATCH.replace("src/rsi/mutation.ts", path);
+            let err = validate_code_patch(&patch).unwrap_err();
+            assert!(err.contains("enforcement"), "path {path}: got '{err}'");
         }
     }
 
