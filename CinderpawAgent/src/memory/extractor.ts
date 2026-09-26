@@ -52,6 +52,37 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+/**
+ * What the extractor reads: what the user said and what the agent finally
+ * answered, one pair per exchange, in order.
+ *
+ * It used to read the last six messages of the working transcript, which in
+ * an agentic turn are tool calls and tool output: three tool calls and the
+ * user's own message is out of the window, and "facts about the USER" get
+ * mined from a file listing. The cadence counted assistant MESSAGES, and a
+ * tool-calling turn adds one per call, so which turns were extracted at all
+ * depended on how many tools they happened to use. Tool results, the
+ * intermediate tool-calling messages, and the loop's own `(system: …)` nudges
+ * (which are sent in the user role) are none of them the person talking.
+ */
+export function conversationForExtraction(turns: readonly ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  let answer: ChatMessage | null = null;
+  for (const m of turns) {
+    if (m.role === "user") {
+      if (m.content.trimStart().startsWith("(system:")) continue;
+      if (answer) out.push(answer);
+      answer = null;
+      out.push(m);
+    } else if (m.role === "assistant" && m.content.trim()) {
+      // The last assistant message before the next user message is the answer.
+      answer = m;
+    }
+  }
+  if (answer) out.push(answer);
+  return out;
+}
+
 export class MemoryExtractor {
   readonly #router: InferenceRouter;
   readonly #semantic: SemanticMemory;
@@ -177,13 +208,21 @@ export class MemoryExtractor {
   }
 
   async #extract(sessionId: string, turns: ChatMessage[]): Promise<void> {
-    const assistantTurns = turns.filter((m) => m.role === "assistant").length;
-    if (assistantTurns === 0) return;
+    const conversation = conversationForExtraction(turns);
+    const exchanges = conversation.filter((m) => m.role === "user").length;
+    if (exchanges === 0 || !conversation.some((m) => m.role === "assistant")) return;
 
-    const shouldExtract = assistantTurns === 1 || assistantTurns % 3 === 0;
+    const shouldExtract = exchanges === 1 || exchanges % 3 === 0;
     if (!shouldExtract) return;
 
-    const recent = turns.slice(-6);
+    // The last three exchanges: every third one is extracted, so this is each
+    // exchange once (the first twice).
+    let firstOfWindow = conversation.length;
+    for (let seen = 0; firstOfWindow > 0 && seen < 3; ) {
+      firstOfWindow--;
+      if (conversation[firstOfWindow]!.role === "user") seen++;
+    }
+    const recent = conversation.slice(firstOfWindow);
     let transcript = recent
       .map((m) => `${m.role}: ${m.content.slice(0, 300)}`)
       .join("\n");
