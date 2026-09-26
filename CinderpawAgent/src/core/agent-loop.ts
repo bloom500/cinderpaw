@@ -1169,11 +1169,11 @@ export class AgentLoop {
     // probability is negligible at the scale of a single user session.
     const traceId = crypto.randomUUID();
 
-    // Drawers model: past context is NOT auto-injected. Wholesale recall ran an
-    // embedding query every turn and dumped all semantic facts + graph + the top
-    // episodic hits into the prompt — thousands of tokens on a trivial "Test",
-    // and it defeated the whole point of FMS being an on-demand store. The model
-    // now pulls only what it needs via the `recall` tool (same FMS query path).
+    // Past context IS injected every turn (see "Automatic recall" below and
+    // `recallInjectionEnabled`), bounded by CINDERPAW_RECALL_INJECTION_MAX_CHARS.
+    // This note used to say the opposite — an earlier "drawers model" that
+    // injected nothing and left memory to the `recall` tool, which a coding run
+    // never called. The tool remains the on-demand path for other wording.
 
     // Strip <private>...</private> blocks before persisting to episodic memory.
     // The model still sees the full text during the current turn — only storage
