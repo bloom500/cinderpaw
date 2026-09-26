@@ -291,7 +291,7 @@ function resolveCmd(cmd: string[]): string[] {
  * updating every time a new secret is added, and the day it is forgotten is the
  * day it leaks.
  */
-function minimalEnv(): Record<string, string> {
+export function minimalEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   const keep = [
     "PATH",
