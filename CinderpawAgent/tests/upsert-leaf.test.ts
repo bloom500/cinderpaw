@@ -370,3 +370,32 @@ describe("Reconciler wires after_memory_write → upsertLeaf", () => {
     });
   });
 });
+
+describe("FractalMemory.upsertLeaf — a new value is an update, not a duplicate", () => {
+  const write = (fm: FractalMemory, value: string, ts: number, embedding: number[]) =>
+    fm.upsertLeaf({
+      text: `city: ${value}`,
+      embedding,
+      provenance: { source: "react", first_seen_at: ts, sessionId: "s1", ts, key: "city", value },
+    });
+
+  test("the same key with a different value gets its own leaf even above the merge threshold", async () => {
+    const { fm } = makeMemory();
+    const first = await write(fm, "Paris", 1_000, [1, 0, 0]);
+    // Cosine ≈ 0.9999: the wording is almost all key.
+    const second = await write(fm, "London", 2_000, [0.9999, 0.01, 0]);
+    expect(first.kind).toBe("grow");
+    expect(second.kind).toBe("grow");
+    expect(second.leafId).not.toBe(first.leafId);
+    expect(fm.pendingLeaves().map((l) => l.text).sort()).toEqual(["city: London", "city: Paris"]);
+  });
+
+  test("the same key and value still merges", async () => {
+    const { fm } = makeMemory();
+    const first = await write(fm, "Paris", 1_000, [1, 0, 0]);
+    const again = await write(fm, " paris ", 2_000, [0.9999, 0.01, 0]);
+    expect(again.kind).toBe("seed");
+    expect(again.leafId).toBe(first.leafId);
+    expect(fm.pendingLeaves()).toHaveLength(1);
+  });
+});

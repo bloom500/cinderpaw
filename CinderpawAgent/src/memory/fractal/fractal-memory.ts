@@ -978,7 +978,7 @@ export class FractalMemory {
 
     // 2. Near-duplicate scan: nearest existing leaf by cosine.
     const nearest = this.#nearestByCosine(opts.embedding);
-    if (nearest && nearest.sim >= threshold) {
+    if (nearest && nearest.sim >= threshold && !this.#isNewValueFor(nearest.leaf.id, opts.provenance)) {
       this.#mergeInto(nearest.leaf, opts.provenance);
       this.#emit({
         kind: "seed",
@@ -1129,6 +1129,25 @@ export class FractalMemory {
       if (best === null || sim > best.sim) best = { leaf: c, sim };
     }
     return best;
+  }
+
+  /**
+   * True when `leafId` was written for the same fact key with a different
+   * value: an update, not a duplicate.
+   *
+   * "city: Paris" and "city: London" are one key apart in wording, and short
+   * fact lines are dominated by the key, so they can sit above the merge
+   * threshold. Merging then bumped the OLD leaf's hit count and dropped the
+   * new value: the tree kept answering "Paris", now looking more confirmed
+   * than ever, while SemanticMemory had already recorded the move. The
+   * history there is the source of truth — a new value is a new version —
+   * and the old leaf stays, annotated as superseded at recall.
+   */
+  #isNewValueFor(leafId: number, incoming: { key?: string; value?: string }): boolean {
+    if (incoming.key === undefined || incoming.value === undefined) return false;
+    const prior = this.#provenance.get(leafId) ?? this.#leafStore.get(leafId)?.provenance;
+    if (prior?.key !== incoming.key || prior.value === undefined) return false;
+    return prior.value.trim().toLowerCase() !== incoming.value.trim().toLowerCase();
   }
 
   /** Bump hit_count + last_seen_at on a merged leaf. */
