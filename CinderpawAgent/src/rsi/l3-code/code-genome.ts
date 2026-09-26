@@ -351,6 +351,10 @@ export interface CodePatchPolicy {
   /** Basenames (without dir) that may never be patched — the enforcement
    *  chain itself. Checked against BOTH sides of a rename. */
   denylistBasenames: readonly string[];
+  /** Repo-relative paths L3 MAY patch. Everything else is refused, so a new
+   *  file under `src/rsi/` is protected until someone adds it here on purpose.
+   *  Checked after the denylist, against BOTH sides of a rename. */
+  allowlistPaths: readonly string[];
 }
 
 /** Locked production policy. rsi/ only, .ts only, ≤200 lines, and the
@@ -439,6 +443,36 @@ export const DEFAULT_CODE_PATCH_POLICY: CodePatchPolicy = {
     "fixtures.ts", // the campaign's held-out promotion partitions
     "instance-paths.ts", // where the governance, journal and champion files live
   ],
+  // The files L3 may patch: L1's search operators, nothing else. The
+  // denylist above was missed three times (Astra 12 Sep, `5e3e31f`,
+  // `a27f0ac`), each time a new wall that nobody listed. Now a file is
+  // protected unless it is named here. Left off on purpose, though no wall:
+  // what runs when and at what cost (goal-mode, dream-*, episode-options,
+  // rsi-cost, resource-monitor, passive-supervisor, activity-monitor), what
+  // is written to disk (*-io, *-snapshot, envelope-store, champion-tree),
+  // the composition roots (engine, mod), the telemetry and research runners
+  // (progress, campaign, arms, dream-telemetry, escape-time-recorder), the
+  // channel to the user (questions), what the genome means (genome), L2's
+  // trainer and dataset, and L4's live seams. Mirror of `ALLOWLIST_PATHS` in
+  // `crates/cinderpaw-core/src/rsi/code_patch.rs`; the parity test holds both.
+  allowlistPaths: [
+    "src/rsi/l1-config/birth-policy.ts",
+    "src/rsi/l1-config/crossover-selection.ts",
+    "src/rsi/l1-config/crossover.ts",
+    "src/rsi/l1-config/escape-time.ts",
+    "src/rsi/l1-config/extinction-handler.ts",
+    "src/rsi/l1-config/fractal.ts",
+    "src/rsi/l1-config/mutation.ts",
+    "src/rsi/l1-config/pbt-controller.ts",
+    "src/rsi/l1-config/pbt-handler.ts",
+    "src/rsi/l1-config/population-manager.ts",
+    "src/rsi/l1-config/prompt-pool.ts",
+    "src/rsi/l1-config/recalcitrance.ts",
+    "src/rsi/l1-config/selection-handler.ts",
+    "src/rsi/l1-config/strategy-seeds.ts",
+    "src/rsi/l1-config/taste-miner.ts",
+    "src/rsi/l1-config/taste.ts",
+  ],
 };
 
 /** Policy verdict. `ok:false` is a normal candidate rejection (soft), the
@@ -504,6 +538,10 @@ function pathViolation(path: string, policy: CodePatchPolicy): string | null {
   const basename = p.slice(p.lastIndexOf("/") + 1).toLowerCase();
   if (policy.denylistBasenames.some((name) => name.toLowerCase() === basename)) {
     return `enforcement file may not be patched: ${path}`;
+  }
+  const lower = p.toLowerCase();
+  if (!policy.allowlistPaths.some((allowed) => allowed.toLowerCase() === lower)) {
+    return `file is not on the L3 patch allowlist: ${path}`;
   }
   return null;
 }

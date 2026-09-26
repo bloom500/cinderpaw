@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { proposableFiles } from "../src/rsi/l3-code/code-proposer.ts";
@@ -43,6 +43,76 @@ function rustDenylist(): string[] {
   const body = src.slice(open + 1, close);
   return [...body.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
 }
+
+/** Pull `ALLOWLIST_PATHS` out of the Rust source, as strings. */
+function rustAllowlist(): string[] {
+  const src = readFileSync(RUST_SOURCE, "utf8");
+  const start = src.indexOf("const ALLOWLIST_PATHS");
+  expect(start).toBeGreaterThanOrEqual(0);
+  const open = src.indexOf("[", start);
+  const close = src.indexOf("];", open);
+  expect(close).toBeGreaterThan(open);
+  return [...src.slice(open + 1, close).matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+}
+
+/** One-line modification patch of `path`, through the real parser and wall. */
+function verdictFor(path: string) {
+  const parsed = parseUnifiedDiff(`--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-a\n+b\n`);
+  if (isDiffParseError(parsed)) throw new Error(`fixture did not parse for ${path}`);
+  return validateCodePatch(parsed);
+}
+
+describe("code-patch allowlist — protected unless named", () => {
+  // The denylist was missed three times (Astra 12 Sep, `5e3e31f`, `a27f0ac`):
+  // each time a new wall nobody had listed was a legal target. With the
+  // allowlist a file nobody thought about is refused, not accepted.
+  test("both halves allow exactly the same files", () => {
+    const ts = [...DEFAULT_CODE_PATCH_POLICY.allowlistPaths].sort();
+    const rust = [...rustAllowlist()].sort();
+    expect(rust.filter((f) => !ts.includes(f))).toEqual([]);
+    expect(ts.filter((f) => !rust.includes(f))).toEqual([]);
+  });
+
+  test("every allowlisted file exists, and none is on the denylist", () => {
+    // A rename would otherwise shrink L3's reach without a word.
+    for (const path of DEFAULT_CODE_PATCH_POLICY.allowlistPaths) {
+      expect(existsSync(fileURLToPath(new URL(`../${path}`, import.meta.url))), `${path} is gone`).toBe(true);
+      const base = path.slice(path.lastIndexOf("/") + 1);
+      expect(DEFAULT_CODE_PATCH_POLICY.denylistBasenames, `${base} is on both lists`).not.toContain(base);
+    }
+  });
+
+  test("an allowlisted file passes the wall", () => {
+    expect(verdictFor("src/rsi/l1-config/mutation.ts")).toEqual({ ok: true });
+  });
+
+  test("a file on neither list is refused: new files and the ones nobody listed", () => {
+    for (const path of [
+      "src/rsi/l1-config/new-wall.ts", // does not exist yet: protected by default
+      "src/rsi/l1-config/goal-mode.ts", // stop conditions and cost caps
+      "src/rsi/l1-config/episode-options.ts", // the dream episode's hard caps
+      "src/rsi/infra/rsi-cost.ts", // the dollar cap
+      "src/rsi/engine.ts", // composition root
+      "src/rsi/l3-code/questions.ts", // the channel to the user
+      "src/rsi/mutation.ts", // the basename is allowed, the path is not
+    ]) {
+      const v = verdictFor(path);
+      expect(v.ok, `${path} must be refused`).toBe(false);
+      if (!v.ok) expect(v.reason).toContain("allowlist");
+    }
+  });
+
+  test("the case of a path does not get around it", () => {
+    expect(verdictFor("src/rsi/L1-config/Goal-Mode.ts").ok).toBe(false);
+    expect(verdictFor("src/rsi/L1-Config/Mutation.ts").ok).toBe(true);
+  });
+
+  test("creating a new file next to allowlisted ones is refused", () => {
+    const parsed = parseUnifiedDiff("--- /dev/null\n+++ b/src/rsi/l1-config/new-idea.ts\n@@ -0,0 +1 @@\n+export {};\n");
+    if (isDiffParseError(parsed)) throw new Error("fixture did not parse");
+    expect(validateCodePatch(parsed).ok).toBe(false);
+  });
+});
 
 describe("code-patch denylist — TS and Rust parity", () => {
   test("both halves protect exactly the same files", () => {

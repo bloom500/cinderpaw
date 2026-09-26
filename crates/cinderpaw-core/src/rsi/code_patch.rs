@@ -97,6 +97,29 @@ const DENYLIST_BASENAMES: &[&str] = &[
     "fixtures.ts",
     "instance-paths.ts",
 ];
+/// The files L3 MAY patch, repo-relative: L1's search operators, nothing
+/// else. Checked after the denylist; a path not named here is refused, so a
+/// new wall is protected before anyone remembers to list it (the denylist
+/// was missed three times). Mirror of `allowlistPaths` in `code-genome.ts`;
+/// the TS parity test fails if the two drift.
+const ALLOWLIST_PATHS: &[&str] = &[
+    "src/rsi/l1-config/birth-policy.ts",
+    "src/rsi/l1-config/crossover-selection.ts",
+    "src/rsi/l1-config/crossover.ts",
+    "src/rsi/l1-config/escape-time.ts",
+    "src/rsi/l1-config/extinction-handler.ts",
+    "src/rsi/l1-config/fractal.ts",
+    "src/rsi/l1-config/mutation.ts",
+    "src/rsi/l1-config/pbt-controller.ts",
+    "src/rsi/l1-config/pbt-handler.ts",
+    "src/rsi/l1-config/population-manager.ts",
+    "src/rsi/l1-config/prompt-pool.ts",
+    "src/rsi/l1-config/recalcitrance.ts",
+    "src/rsi/l1-config/selection-handler.ts",
+    "src/rsi/l1-config/strategy-seeds.ts",
+    "src/rsi/l1-config/taste-miner.ts",
+    "src/rsi/l1-config/taste.ts",
+];
 
 /// Raw measurements the sandbox eval runner (TS, `code-sandbox.ts`)
 /// reports. snake_case on the wire, like every bridge payload.
@@ -403,6 +426,9 @@ fn check_header_path(rest: &str) -> Result<(), String> {
     {
         return Err(format!("enforcement file may not be patched: {p}"));
     }
+    if !ALLOWLIST_PATHS.iter().any(|a| a.eq_ignore_ascii_case(&p)) {
+        return Err(format!("file is not on the L3 patch allowlist: {p}"));
+    }
     Ok(())
 }
 
@@ -504,9 +530,9 @@ mod tests {
         assert!(!judge_code_patch(&m(100, 0, 0, 0, 0), &m(99_999, 0, 0, 0, 5)).no_worse);
     }
 
-    const GOOD_PATCH: &str = "diff --git a/src/rsi/mutation.ts b/src/rsi/mutation.ts\n\
---- a/src/rsi/mutation.ts\n\
-+++ b/src/rsi/mutation.ts\n\
+    const GOOD_PATCH: &str = "diff --git a/src/rsi/l1-config/mutation.ts b/src/rsi/l1-config/mutation.ts\n\
+--- a/src/rsi/l1-config/mutation.ts\n\
++++ b/src/rsi/l1-config/mutation.ts\n\
 @@ -1,2 +1,2 @@\n\
 -old line\n\
 +new line\n";
@@ -514,7 +540,7 @@ mod tests {
     #[test]
     fn good_patch_passes_with_stats() {
         let stats = validate_code_patch(GOOD_PATCH).unwrap();
-        assert_eq!(stats.files, vec!["src/rsi/mutation.ts"]);
+        assert_eq!(stats.files, vec!["src/rsi/l1-config/mutation.ts"]);
         assert_eq!(stats.changed_lines, 2);
     }
 
@@ -534,7 +560,7 @@ mod tests {
             ("src/rsi/../secrets.ts", "traversal"),
             ("/etc/cron.d/x.ts", "absolute"),
         ] {
-            let patch = GOOD_PATCH.replace("src/rsi/mutation.ts", path);
+            let patch = GOOD_PATCH.replace("src/rsi/l1-config/mutation.ts", path);
             let err = validate_code_patch(&patch).unwrap_err();
             assert!(err.contains(needle), "path {path}: got '{err}'");
         }
@@ -561,7 +587,7 @@ mod tests {
             "src/rsi/infra/fixtures.ts",
             "src/rsi/infra/instance-paths.ts",
         ] {
-            let patch = GOOD_PATCH.replace("src/rsi/mutation.ts", path);
+            let patch = GOOD_PATCH.replace("src/rsi/l1-config/mutation.ts", path);
             let err = validate_code_patch(&patch).unwrap_err();
             assert!(err.contains("enforcement"), "path {path}: got '{err}'");
         }
@@ -572,7 +598,7 @@ mod tests {
         assert!(validate_code_patch("").is_err());
         assert!(validate_code_patch("Binary files a/x and b/x differ\n").is_err());
 
-        let mut big = String::from("--- a/src/rsi/mutation.ts\n+++ b/src/rsi/mutation.ts\n@@ -1 +1 @@\n");
+        let mut big = String::from("--- a/src/rsi/l1-config/mutation.ts\n+++ b/src/rsi/l1-config/mutation.ts\n@@ -1 +1 @@\n");
         for _ in 0..201 {
             big.push_str("+padding\n");
         }
@@ -582,21 +608,41 @@ mod tests {
 
     #[test]
     fn rename_out_of_the_allowed_dir_is_rejected() {
-        let patch = "--- a/src/rsi/mutation.ts\n+++ b/src/tools/escape.ts\n@@ -1 +1 @@\n-a\n+b\n";
+        let patch = "--- a/src/rsi/l1-config/mutation.ts\n+++ b/src/tools/escape.ts\n@@ -1 +1 @@\n-a\n+b\n";
         assert!(validate_code_patch(patch).is_err());
     }
 
     #[test]
-    fn dev_null_sides_are_fine_for_create_and_delete() {
-        let create = "--- /dev/null\n+++ b/src/rsi/new-idea.ts\n@@ -0,0 +1 @@\n+export {};\n";
-        assert!(validate_code_patch(create).is_ok());
-        let delete = "--- a/src/rsi/old-idea.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-export {};\n";
+    fn dev_null_sides_are_skipped_but_the_other_side_is_judged() {
+        let delete = "--- a/src/rsi/l1-config/mutation.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-export {};\n";
         assert!(validate_code_patch(delete).is_ok());
+        // A new file is on no list, so it is refused.
+        let create = "--- /dev/null\n+++ b/src/rsi/l1-config/new-idea.ts\n@@ -0,0 +1 @@\n+export {};\n";
+        assert!(validate_code_patch(create).unwrap_err().contains("allowlist"));
+    }
+
+    #[test]
+    fn a_file_on_neither_list_is_refused() {
+        for path in [
+            "src/rsi/l1-config/goal-mode.ts",
+            "src/rsi/l1-config/episode-options.ts",
+            "src/rsi/infra/rsi-cost.ts",
+            "src/rsi/engine.ts",
+            "src/rsi/l3-code/questions.ts",
+            "src/rsi/mutation.ts",
+            "src/rsi/L1-config/Goal-Mode.ts",
+        ] {
+            let patch = GOOD_PATCH.replace("src/rsi/l1-config/mutation.ts", path);
+            let err = validate_code_patch(&patch).unwrap_err();
+            assert!(err.contains("allowlist"), "path {path}: got '{err}'");
+        }
+        let upper = GOOD_PATCH.replace("src/rsi/l1-config/mutation.ts", "src/rsi/L1-Config/Mutation.ts");
+        assert!(validate_code_patch(&upper).is_ok());
     }
 
     #[test]
     fn orphan_plus_header_is_malformed() {
-        let patch = "+++ b/src/rsi/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n";
+        let patch = "+++ b/src/rsi/l1-config/mutation.ts\n@@ -1 +1 @@\n-a\n+b\n";
         assert!(validate_code_patch(patch).unwrap_err().contains("malformed"));
     }
 }

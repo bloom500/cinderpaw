@@ -75,15 +75,16 @@ export interface ProposerDeps {
   maxTokens?: number;
 }
 
-/** Files the proposer may target: allowed extension, not enforcement.
- *  `paths` may be bare basenames (flat layout) or rsi/-relative paths
- *  (e.g. "l1-config/mutation.ts") — the denylist always matches on the
- *  basename, same as the wall's own check in `pathViolation` above. */
+/** Files the proposer may target: the ones the wall would let through.
+ *  `paths` are rsi/-relative (e.g. "l1-config/mutation.ts"), the way
+ *  `listRsiFiles` returns them; the wall's allowlist is repo-relative. */
 export function proposableFiles(paths: string[]): string[] {
+  const allowed = new Set(DEFAULT_CODE_PATCH_POLICY.allowlistPaths.map((a) => a.toLowerCase()));
   return paths.filter(
     (p) =>
       p.endsWith(DEFAULT_CODE_PATCH_POLICY.allowedExtension) &&
-      !DEFAULT_CODE_PATCH_POLICY.denylistBasenames.includes(p.slice(p.lastIndexOf("/") + 1)),
+      !DEFAULT_CODE_PATCH_POLICY.denylistBasenames.includes(p.slice(p.lastIndexOf("/") + 1)) &&
+      allowed.has(`${DEFAULT_CODE_PATCH_POLICY.allowedDirPrefix}${p}`.toLowerCase()),
   );
 }
 
