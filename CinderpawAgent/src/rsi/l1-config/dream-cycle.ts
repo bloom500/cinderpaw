@@ -54,6 +54,8 @@ import { dirname } from "node:path";
 export interface DreamEngine {
   start(opts: EpisodeOptions): Promise<void>;
   isRunning(): boolean;
+  /** Graceful stop (in-flight evals drain). Used by stopOnActivity. */
+  stop?(): void;
 }
 
 export interface DreamCycleDeps {
@@ -187,6 +189,9 @@ export function createDreamCycle(deps: DreamCycleDeps): DreamCycle {
       pollMs: config.pollMs,
       // §2.8 schedule trigger — undefined disables it (idle/error only).
       scheduleIntervalMs: config.scheduleIntervalMs,
+      // Parsed for months and read by nothing: "user always wins" now does.
+      stopOnActivity: config.stopOnActivity,
+      stop: () => engine.stop?.(),
       log,
     });
     return scheduler;

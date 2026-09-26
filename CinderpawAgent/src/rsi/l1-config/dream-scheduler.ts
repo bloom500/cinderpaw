@@ -82,6 +82,11 @@ export interface DreamSchedulerDeps {
   pollMs?: number;
   /** Optional log sink. */
   log?: (msg: string) => void;
+  /** CINDERPAW_RSI_STOP_ON_ACTIVITY: stop an automatic episode once the user
+   *  has been active since it started. Needs `stop`. Default false. */
+  stopOnActivity?: boolean;
+  /** Ask the running engine to stop (it drains in-flight evals). */
+  stop?: () => void;
 }
 
 export class DreamScheduler {
@@ -96,6 +101,9 @@ export class DreamScheduler {
   /** When the last `schedule` trigger fired (or construction time), so the
    *  first scheduled wake is one full interval after boot. */
   private lastScheduleFireAt: number;
+  /** The in-flight episode: when it started, why, and whether it has already
+   *  been asked to stop. Null between episodes. */
+  private episode: { startedAt: number; trigger: DreamTrigger; stopAsked: boolean } | null = null;
 
   constructor(private readonly deps: DreamSchedulerDeps) {
     this.now = deps.now ?? Date.now;
@@ -142,7 +150,10 @@ export class DreamScheduler {
    */
   async tick(): Promise<void> {
     if (this.shuttingDown || this.launching) return;
-    if (this.deps.isRunning()) return;
+    if (this.deps.isRunning()) {
+      this.yieldToUser(this.now());
+      return;
+    }
 
     const now = this.now();
     // A user-initiated dream bypasses the cooldown gate (explicit intent beats
@@ -179,6 +190,7 @@ export class DreamScheduler {
     if (trigger === "schedule") this.lastScheduleFireAt = now;
 
     this.launching = true;
+    this.episode = { startedAt: now, trigger, stopAsked: false };
     try {
       await this.deps.start(trigger);
     } catch (err) {
@@ -186,6 +198,19 @@ export class DreamScheduler {
     } finally {
       this.launching = false;
     }
+  }
+
+  /** stopOnActivity: the user has done something since this automatic
+   *  episode started, so it yields the machine back. Asked once per episode;
+   *  a `user` episode was explicitly requested and is never stopped here. */
+  private yieldToUser(now: number): void {
+    const ep = this.episode;
+    if (!this.deps.stopOnActivity || !this.deps.stop || !ep || ep.stopAsked) return;
+    if (ep.trigger === "user") return;
+    if (this.deps.idleForMs(now) >= now - ep.startedAt) return;
+    ep.stopAsked = true;
+    this.deps.log?.(`dream: user is active — stopping the ${ep.trigger} episode (CINDERPAW_RSI_STOP_ON_ACTIVITY)`);
+    this.deps.stop();
   }
 
   /** Which automatic trigger fires now, if any. Precedence: error → schedule →
@@ -208,6 +233,7 @@ export class DreamScheduler {
    *  loop keeps running and will relaunch once cooldown elapses and a
    *  trigger fires again. */
   onRunEnded(): void {
+    this.episode = null;
     if (this.shuttingDown) return;
     this.lastEpisodeEndedAt = this.now();
     this.deps.log?.("dream: episode ended — sleeping until next trigger");
