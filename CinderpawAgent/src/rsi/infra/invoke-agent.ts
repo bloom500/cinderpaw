@@ -227,8 +227,10 @@ export function makeInvokeAgent(
  * was the single most expensive bug in the engine: the genome is judged worse
  * on a question it never got room to answer. `completeGradable` retries such a
  * call once with room, and anything still empty after that is reported through
- * `AgentResponse.unanswered` so the caller can decline to score it rather than
- * scoring it zero.
+ * `AgentResponse.unanswered`. The suite runner does NOT decline to score it
+ * yet — it still fails its validator; the sidecar counts an EMPTY response
+ * toward its unanswered-response breaker, which stops the episode when most of
+ * the suite goes unanswered.
  */
 function gradableAnswer(raw: string): string {
   return stripThinking(raw);

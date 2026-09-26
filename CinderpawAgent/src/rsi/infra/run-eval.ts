@@ -14,9 +14,15 @@
  *
  * `getSpecs` and `invokeAgent` are injected: in production `getSpecs`
  * concatenates the Tier 0 specs from Rust (`rsi_get_tier0_specs`) with
- * the Tier 1/2 specs from `loadTierSpecs`, and `invokeAgent` drives the
- * real agent loop under the genome's config. Keeping them as deps makes
- * the runner unit-testable without a model.
+ * the embedded Tier 1/2 specs (`default-tier-specs.ts`; disk specs are not
+ * wired), and `invokeAgent` is a single-shot completion under the genome's
+ * config — not the agent loop. Keeping them as deps makes the runner
+ * unit-testable without a model.
+ *
+ * An unanswered task (`AgentResponse.unanswered` from invoke-agent) is graded
+ * like any other: it fails its validator. Nothing here declines to score it;
+ * the sidecar's unanswered-response breaker (it counts empty responses) is
+ * what stops an episode that is mostly unanswered.
  */
 
 import { validateOutcome, type EvalSpec } from "./eval-spec.ts";

@@ -7,8 +7,9 @@
  *      it is stamped `tier: 0` here.
  *   2. Tier 1/2 embedded defaults (`default-tier-specs.ts`).
  *   3. Operator-supplied JSON specs on disk (`loadTierSpecs`), which
- *      OVERRIDE an embedded default sharing the same id — letting a bad
- *      default be patched without a rebuild.
+ *      OVERRIDE an embedded default sharing the same id — only when the
+ *      caller passes `loadDiskSpecs`. No production caller does, so today
+ *      the suite is Tier 0 + the embedded defaults and nothing else.
  *
  * Output is ordered by (tier, id) so a run is reproducible.
  */
