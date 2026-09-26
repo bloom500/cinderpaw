@@ -102,7 +102,7 @@
     "name": "OpenRouter",
     "provider": "openrouter",
     "default_base_url": "https://openrouter.ai/api/v1",
-    "default_model": "openai/gpt-4o",
+    "default_model": "z-ai/glm-5.3-flash",
     "console_url": "https://openrouter.ai/keys",
     "key_format": "sk-or-",
     "key_format_hint": "Begins with sk-or-…",
