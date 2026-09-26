@@ -275,11 +275,18 @@ export function deniedPaths(): { deny: string[]; exempt: string[] } {
   // tools, and which one that is flipped silently the day the host migrated.
   // Denying a directory that does not exist costs nothing; denying only one
   // costs the user their keys.
-  const homes = agentProfileDirs().map((h) => realpathBestEffort(h));
+  //
+  // Each path twice, as written and resolved. The file tools resolve their
+  // target, but shell_exec only has the command text, which names the path
+  // the way a person types it: on macOS a profile under /var/folders resolves
+  // to /private/var/folders, and matching only the resolved form let
+  // `cat /var/folders/.../byok.json` through (CI, 27 Sep).
+  const both = (p: string) => [...new Set([resolve(p), realpathBestEffort(p)])];
+  const homes = agentProfileDirs().flatMap(both);
   const deny = [
     ...homes,
-    realpathBestEffort(resolve(homedir(), ".ssh")),
-    ...cfgList("CINDERPAW_FS_DENY").map((p) => realpathBestEffort(p)),
+    ...both(resolve(homedir(), ".ssh")),
+    ...cfgList("CINDERPAW_FS_DENY").flatMap(both),
   ];
   // Two doors in the wall, both by design: the agent's own workspace, and
   // the skills folder. A skill is instructions the agent is meant to read and

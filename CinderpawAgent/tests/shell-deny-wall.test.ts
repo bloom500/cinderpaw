@@ -4,7 +4,8 @@
  * PowerShell, a file its own file tools would have refused.
  */
 import { expect, test } from "bun:test";
-import { homedir } from "node:os";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { cinderpawHome } from "../src/config.ts";
 import { shellReachesDenied } from "../src/tools/builtin/shell-exec.ts";
@@ -37,4 +38,22 @@ test("ordinary commands, and names that only look alike, pass", () => {
   expect(shellReachesDenied(["git", "status"])).toBeNull();
   expect(shellReachesDenied(["cat", join(homedir(), "Documents", "cinderpaw-notes.txt")])).toBeNull();
   expect(shellReachesDenied(["ls", join(homedir(), ".cinderpaw-old-backup")])).toBeNull();
+});
+
+test("a profile reached through a link is walled by the name the command uses", () => {
+  // macOS tmp dirs are /var -> /private/var: the command says one, realpath the other.
+  const real = mkdtempSync(join(tmpdir(), "cp-real-"));
+  const link = join(tmpdir(), `cp-link-${process.pid}`);
+  symlinkSync(real, link, "junction");
+  const prev = process.env.CINDERPAW_HOME;
+  process.env.CINDERPAW_HOME = link;
+  try {
+    expect(shellReachesDenied(["cat", join(link, "byok.json")])).not.toBeNull();
+    expect(shellReachesDenied(["cat", join(link, "workspace", "notes.md")])).toBeNull();
+  } finally {
+    if (prev === undefined) delete process.env.CINDERPAW_HOME;
+    else process.env.CINDERPAW_HOME = prev;
+    rmSync(link, { recursive: true, force: true });
+    rmSync(real, { recursive: true, force: true });
+  }
 });
