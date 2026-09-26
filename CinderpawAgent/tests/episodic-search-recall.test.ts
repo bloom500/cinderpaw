@@ -111,3 +111,36 @@ describe("RecallEngine — the block a turn actually receives", () => {
     db.close();
   });
 });
+
+describe("EpisodicMemory.search — excluding the session that is asking", () => {
+  test("the current session cannot use up the limit", () => {
+    const { db, episodic } = fixture();
+    episodic.record("past", "user", "the invoice number for acme is 4471");
+    for (let i = 0; i < 12; i++) episodic.record("now", "user", `acme invoice question ${i}`);
+
+    // Without the exclusion the twelve current rows take every slot.
+    expect(episodic.search("acme invoice", 5).every((e) => e.sessionId === "now")).toBe(true);
+    const hits = episodic.search("acme invoice", 5, "now");
+    expect(hits.map((e) => e.sessionId)).toEqual(["past"]);
+    db.close();
+  });
+
+  test("a strict match only in the current session still widens to the past", () => {
+    const { db, episodic } = fixture();
+    episodic.record("past", "user", "the staging password lives in vault/staging");
+    // Every query word appears here, so the strict AND pass matches it alone.
+    episodic.record("now", "user", "where is the staging password kept");
+
+    expect(episodic.search("where is the staging password kept", 5, "now").map((e) => e.sessionId))
+      .toEqual(["past"]);
+    db.close();
+  });
+
+  test("no exclusion keeps every session, as before", () => {
+    const { db, episodic } = fixture();
+    episodic.record("a", "user", "shared term alpha");
+    episodic.record("b", "user", "shared term alpha");
+    expect(episodic.search("alpha", 10)).toHaveLength(2);
+    db.close();
+  });
+});

@@ -278,9 +278,16 @@ export class EpisodicMemory {
    * transcript would otherwise reach the owner. Per-session reads
    * (`recent`/`conversation`) are unfiltered — a lead still gets their own
    * thread back.
+   *
+   * `excludeSessionId` leaves one session out IN the query, before the limit
+   * and before the strict pass decides whether to widen. Recall asks about
+   * OTHER sessions, and filtering afterwards let the current one win both
+   * ways: its own recent turns share the question's words, so they filled the
+   * limit, and a strict pass that matched only them skipped the widening that
+   * would have found the past. The caller then dropped them and had nothing.
    */
-  search(query: string, limit = 10): EpisodicEvent[] {
-    const strict = this.#searchWith(toFtsQuery(query, "and"), limit);
+  search(query: string, limit = 10, excludeSessionId?: string): EpisodicEvent[] {
+    const strict = this.#searchWith(toFtsQuery(query, "and"), limit, 0, excludeSessionId);
     if (strict.length > 0) return strict;
     // Widen. ANDing every token means each word of the query must appear in
     // the row, which a natural-language question essentially never satisfies:
@@ -303,7 +310,7 @@ export class EpisodicMemory {
     // layer 55% relevant. Cutting at half the best score in the same result
     // set keeps the question's own bar, rather than a constant that means
     // different things in a corpus of 50 rows and one of 50 000.
-    return this.#searchWith(toFtsQuery(query, "or"), limit, 0.5);
+    return this.#searchWith(toFtsQuery(query, "or"), limit, 0.5, excludeSessionId);
   }
 
   /**
@@ -316,21 +323,27 @@ export class EpisodicMemory {
    * corpus size and term frequency, so a fixed number would be a different
    * filter on every machine and on every week of the same machine.
    */
-  #searchWith(match: string | null, limit: number, minScoreRatio = 0): EpisodicEvent[] {
+  #searchWith(
+    match: string | null,
+    limit: number,
+    minScoreRatio = 0,
+    excludeSessionId?: string,
+  ): EpisodicEvent[] {
     if (!match) return [];
     try {
       const rows = this.#db
-        .query<EpisodicRow & { score: number }, [string, number]>(
+        .query<EpisodicRow & { score: number }, [string, string | null, string | null, number]>(
           `SELECT e.id, e.session_id, e.timestamp, e.role, e.content,
                   bm25(episodic_fts) AS score
            FROM episodic_fts f
            JOIN episodic e ON e.id = f.rowid
            WHERE episodic_fts MATCH ?
              AND e.private = 0
+             AND (? IS NULL OR e.session_id != ?)
            ORDER BY rank
            LIMIT ?`,
         )
-        .all(match, limit);
+        .all(match, excludeSessionId ?? null, excludeSessionId ?? null, limit);
       const best = rows[0]?.score ?? 0;
       const kept =
         minScoreRatio > 0 && best < 0
