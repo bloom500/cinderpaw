@@ -847,6 +847,16 @@ export function CoworkTranscriptPanel() {
     () => exchanges.filter((e) => e.kind === 'approval'),
     [exchanges],
   );
+  // An approval is the system interrupting: a teammate is blocked on it and
+  // it expires in minutes. Folded into the collapsed bubble it was easy to
+  // miss, so a NEW request opens the panel. Not persisted: the person's own
+  // choice to keep it closed is still what the next launch restores.
+  const pendingApprovals = approvals.filter((e) => e.status === 'running').length;
+  const seenPending = useRef(pendingApprovals);
+  useEffect(() => {
+    if (pendingApprovals > seenPending.current) setCollapsed(false);
+    seenPending.current = pendingApprovals;
+  }, [pendingApprovals]);
   const working = useMemo(
     () =>
       exchanges.filter(

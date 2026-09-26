@@ -1796,6 +1796,9 @@ export async function boot(transportOverride?: Transport) {
     agents: coworkAgents,
     emitEvent: (event) => transport.send(event),
     timeoutMs: Number(readEnv("CINDERPAW_CRON_JOB_TIMEOUT_MS") ?? 5 * 60_000),
+    // Called only while a teammate's turn is running, long after boot has
+    // declared the runtime below.
+    threadOf: (agentId) => coworkRuntime.threadOf(agentId),
     log,
   });
   hooks.on("before_tool_call", coworkApprovalService.gate);

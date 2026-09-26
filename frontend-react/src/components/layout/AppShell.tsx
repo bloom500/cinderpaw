@@ -14,6 +14,7 @@ import { UpdateToast } from '@/components/UpdateToast';
 import { WhatsNew } from '@/components/WhatsNew';
 import { AlphaNotice } from '@/components/AlphaNotice';
 import { Toasts } from '@/components/Toasts';
+import { CoworkApprovalDock } from '@/components/CoworkApprovalDock';
 import { SkillHubDrawer } from '@/components/SkillHubDrawer';
 import { OnboardingOrchestrator } from '@/components/onboarding/OnboardingWizard';
 import { cn, readLocal } from '@/lib/utils';
@@ -166,6 +167,9 @@ export function AppShell() {
           className={cn('fixed top-11 z-200 w-80 flex flex-col gap-2 pointer-events-none', besidePage ? 'left-0' : 'right-4')}
           style={besidePage ? { left: navRight } : undefined}
         >
+          {/* A teammate blocked on the person, from any screen. Shown even over
+              a page: it expires in minutes, and a missed one is lost work. */}
+          <CoworkApprovalDock />
           {/* Persistent cards wait until the page stops covering; they are not lost. */}
           {!overPage && <AlphaNotice />}
           {!overPage && <UpdateToast />}

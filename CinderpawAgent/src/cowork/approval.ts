@@ -261,6 +261,13 @@ export interface CoworkApprovalServiceDeps {
   emitEvent: (event: OutboundEvent) => void;
   log?: (msg: string) => void;
   timeoutMs?: number;
+  /**
+   * The chat a teammate is working for right now. Without it a request had
+   * no thread, so the UI filed it under whatever screen happened to be open,
+   * and on Home or Settings under a thread no chat ever shows: it expired
+   * unseen and the teammate's work silently did not happen.
+   */
+  threadOf?: (agentId: string) => string | null | undefined;
 }
 
 /**
@@ -274,6 +281,8 @@ export class CoworkApprovalService {
   readonly #timeoutMs: number;
   readonly #waiters = new Map<string, (d: Decision) => void>();
   readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Request id -> the chat it belongs to, from request until its verdict. */
+  readonly #threads = new Map<string, string>();
 
   constructor(deps: CoworkApprovalServiceDeps) {
     this.#deps = deps;
@@ -303,6 +312,8 @@ export class CoworkApprovalService {
       description: cls.description,
       tool: payload.tool,
     });
+    const threadId = this.#deps.threadOf?.(agentId);
+    if (threadId) this.#threads.set(approval.id, threadId);
 
     this.#emit("approval_requested", approval, agentName, undefined);
     this.#log(
@@ -374,10 +385,14 @@ export class CoworkApprovalService {
     agentName: string,
     detail: string | undefined,
   ): void {
+    // The verdict carries the same thread as the request, then it is forgotten.
+    const threadId = this.#threads.get(approval.id);
+    if (eventType !== "approval_requested") this.#threads.delete(approval.id);
     this.#deps.emitEvent({
       type: "cowork_event",
       eventType,
       agentId: approval.agentId,
+      ...(threadId ? { threadId } : {}),
       title: `🔐 ${agentName}: ${approval.description}`,
       data: {
         requestId: approval.id,

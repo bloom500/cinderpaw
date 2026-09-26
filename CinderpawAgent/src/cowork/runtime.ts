@@ -121,6 +121,8 @@ export class CoworkRuntime {
    * waited out all of Bolt's ten minutes.
    */
   readonly #busy = new Set<string>();
+  /** Teammate id -> the thread of the message or handoff it is working on. */
+  readonly #threads = new Map<string, string | null>();
   #running = false;
 
   constructor(deps: CoworkRuntimeDeps) {
@@ -219,6 +221,14 @@ export class CoworkRuntime {
     );
   }
 
+  /**
+   * The chat a teammate is working for right now, or null. The approval gate
+   * uses it so a request lands in the conversation it belongs to.
+   */
+  threadOf(agentId: string): string | null {
+    return this.#threads.get(agentId) ?? null;
+  }
+
   #hasWork(agentId: string): boolean {
     return (
       this.#deps.mailbox.inbox(agentId, "pending").length > 0 ||
@@ -234,11 +244,14 @@ export class CoworkRuntime {
     const hops = readHops(msg.payloadJson);
     const prompt = this.#composeMessagePrompt(receiver, msg, hops);
     let turn: { text: string; finished: boolean };
+    this.#threads.set(receiver.id, msg.threadId);
     try {
       turn = await this.#deps.runTurn(receiver, prompt, this.sessionIdFor(receiver.id));
     } catch (err) {
       this.#keepForHuman(receiver, msg, hops, err instanceof Error ? err.message : String(err), true);
       throw err;
+    } finally {
+      this.#threads.delete(receiver.id);
     }
     if (!turn.finished) {
       const reason = "turn ended unfinished (deadline/budget)";
@@ -289,11 +302,14 @@ export class CoworkRuntime {
       `${receiver.instructions}\n\n` +
       `A teammate (${h.fromAgentId}) handed this task to you. Own it end to end.\n\n` +
       `Task: ${h.summary}${artifactLine}`;
-    const { text, finished } = await this.#deps.runTurn(
-      receiver,
-      prompt,
-      this.sessionIdFor(receiver.id),
-    );
+    this.#threads.set(receiver.id, h.threadId);
+    let turn: { text: string; finished: boolean };
+    try {
+      turn = await this.#deps.runTurn(receiver, prompt, this.sessionIdFor(receiver.id));
+    } finally {
+      this.#threads.delete(receiver.id);
+    }
+    const { text, finished } = turn;
     if (!finished) {
       throw new Error("handoff turn ended unfinished (deadline/budget)");
     }
