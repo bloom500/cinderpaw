@@ -11,6 +11,8 @@
  */
 
 import type { Database } from "bun:sqlite";
+import { cfgInt } from "../config.ts";
+import { turnBudgetMs } from "./agent-loop.ts";
 import type { DoneWhen } from "../cron/done-when.ts";
 import type { TurnOutcome } from "./agent-loop.ts";
 import type { UnattendedResult } from "./unattended.ts";
@@ -128,18 +130,16 @@ export class RunStore {
 
   /**
    * How old a `running` row can be before `startRun` treats it as abandoned
-   * and reclaims it. Default 10 minutes — long enough that a genuinely slow
-   * unattended turn is not stolen, short enough that a person is not locked
-   * out of their own conversation. Override with `CINDERPAW_RUN_STALE_MS`.
+   * and reclaims it. `updated_at` only moves when a turn ENDS, and one turn
+   * may run for its whole budget (20 min by default) and then past it by one
+   * slow tool, so the default is twice the turn budget: never a live turn
+   * stolen, and a person locked out for a bounded time instead of forever.
+   * (It was a flat 10 minutes, half of one default turn.) Override with
+   * `CINDERPAW_RUN_STALE_MS`.
    */
-  static readonly STALE_WINDOW_MS = 10 * 60 * 1000;
-
-  /** Reads the override; falls back to the class default. */
   static staleWindowMs(): number {
-    const raw = process.env.CINDERPAW_RUN_STALE_MS;
-    if (raw === undefined || raw === "") return RunStore.STALE_WINDOW_MS;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : RunStore.STALE_WINDOW_MS;
+    const set = cfgInt("CINDERPAW_RUN_STALE_MS");
+    return Number.isFinite(set) && set > 0 ? set : 2 * turnBudgetMs();
   }
 
   constructor(db: Database) {

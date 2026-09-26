@@ -188,6 +188,7 @@ they remain hand-maintained here and are still covered by
 | `CINDERPAW_SUMMARY_EXCERPT_CHARS` | int | `24_000` |  | Characters of the compacted transcript fed to the working-memory summarizer (head+tail sampled). Raise on big-context models so long tool-heavy tasks keep more detail in the summary note. |
 | `CINDERPAW_UNATTENDED_CONTINUATIONS` | int | `24` |  | Automatic continuations allowed after a turn hits the wall-clock budget during an UNATTENDED run (cron job, or a connector message answered while nobody is watching). 0 disables continuation and restores the old behaviour, where a long task simply stopped half-done and was reported as finished. Total wall clock is roughly (this + 1) x CINDERPAW_TURN_BUDGET_MS, additionally capped by CINDERPAW_MISSION_DEADLINE_MS, and by CINDERPAW_CRON_JOB_TIMEOUT_MS for cron. The default of 3 was a ceiling nobody chose: (3+1) x 20min is 80 minutes, which was recorded for weeks as an observed limit on how long the agent could work before someone read the arithmetic. It is sized at the deadline now, so the counter is the safety net and the deadline is the term. |
 | `CINDERPAW_MISSION_DEADLINE_MS` | int | `28_800_000` |  | Wall-clock deadline for a whole UNATTENDED run, across all its continuations. Default 8 hours — a working day, which is the promise: give it a task, leave, come back to it done. 0 means no deadline at all, which is NOT the safe setting: the counter above is a counter, not a term, and without a deadline a wedged run keeps its whole continuation budget to burn tokens in. Checked between turns, so an in-flight turn is never cut off — the real stop time can overrun by up to one turn budget. |
+| `CINDERPAW_RUN_STALE_MS` | int | `null` |  | How long a run left `running` may go untouched before a new turn in the same session reclaims it as abandoned (run-store.ts). Unset = twice CINDERPAW_TURN_BUDGET_MS, so a turn that is still working is never taken over. Without it, one run that was never closed refused every later turn in that session. |
 | `CINDERPAW_ATTACHMENT_MAX_CHARS` | int | `12_000` |  | Characters kept from ONE inbound attachment (a .txt/.md/code file, or the text extracted from a PDF) before it is truncated into the prompt. The default is sized for an 8k local context; raise it on a big-context cloud model so a whole document arrives in one message instead of a head slice. |
 | `CINDERPAW_TOOL_GRAMMAR` | string | `null` |  | Optional GBNF grammar to constrain tool-call output. Presence alone also toggles useToolGrammar (default on; set to literal "false" to disable — inverse-toggle var, not migrated). |
 | `CINDERPAW_VERSION` | string | `null` |  | Reported in startup logs; set by installer. |
@@ -481,6 +482,7 @@ CINDERPAW_RSI_STOP_ON_ACTIVITY
 CINDERPAW_RSI_TELEMETRY
 CINDERPAW_RSI_UNANSWERED_MIN_SAMPLE
 CINDERPAW_RUN_FRACTAL_BENCH
+CINDERPAW_RUN_STALE_MS
 CINDERPAW_SEARXNG_URL
 CINDERPAW_SHELL_DENYLIST
 CINDERPAW_SHELL_MAX_TIMEOUT_MS

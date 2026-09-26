@@ -230,8 +230,8 @@ describe("RunStore", () => {
   test("a running row whose updated_at is past the stale window is reclaimed", () => {
     const { store: s, raw, close } = store();
     const first = s.startRun(input())!;
-    // Backdate the row's updated_at past the default 10 minute window.
-    const longAgo = Date.now() - (RunStore.STALE_WINDOW_MS + 60_000);
+    // Backdate the row's updated_at past the default window.
+    const longAgo = Date.now() - (RunStore.staleWindowMs() + 60_000);
     raw.query("UPDATE runs SET updated_at = ? WHERE id = ?").run(longAgo, first.id);
     const second = s.startRun(input());
     expect(second).not.toBeNull();
@@ -258,6 +258,16 @@ describe("RunStore", () => {
     raw.query("UPDATE runs SET updated_at = ? WHERE id = ?").run(thirtySecondsAgo, first.id);
     const second = s.startRun(input());
     expect(second).toBeNull();
+    expect(s.get(first.id)!.status).toBe("running");
+    close();
+  });
+
+  test("a turn still working 15 minutes in is not taken over (default 20 min turn budget)", () => {
+    const { store: s, raw, close } = store();
+    const first = s.startRun(input())!;
+    // updated_at moves only when a turn ends; one default turn may run 20 min.
+    raw.query("UPDATE runs SET updated_at = ? WHERE id = ?").run(Date.now() - 15 * 60_000, first.id);
+    expect(s.startRun(input())).toBeNull();
     expect(s.get(first.id)!.status).toBe("running");
     close();
   });
