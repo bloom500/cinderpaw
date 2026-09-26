@@ -37,6 +37,14 @@ describe('MessageChain', () => {
     expect(screen.queryByText('old')).not.toBeInTheDocument();
   });
 
+  it('a group of tools in the timeline is named by its tools, not "Thinking"', () => {
+    const steps = [startActivity('web_search', { query: 'x' }), startActivity('read_file', { path: 'a' })];
+    const { rerender } = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={steps} streaming={false} />);
+    expect(screen.getByText('web search · read file')).toBeInTheDocument();
+    rerender(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={steps} streaming />);
+    expect(screen.queryByText('Thinking…')).not.toBeInTheDocument();
+  });
+
   it('draws nothing when there was no reasoning and no tool', () => {
     const { container } = render(<MessageChain thinking={null} thinkingComplete durationSec={undefined} steps={[]} streaming />);
     expect(container).toBeEmptyDOMElement();

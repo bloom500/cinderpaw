@@ -374,12 +374,14 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         onToolStart: (_callId, tool, args) => {
           flushTokens();
           state.toolCallCount += 1;
-          state.tools.push(startActivity(tool, args));
-          syncTools();
           // Commit the prose emitted before this tool call so it survives the
           // buffer reset; otherwise only the segment after the LAST tool call
           // reached the bubble (the "only the last sentence" bug).
           if (state.answer.trim()) state.committed = joinSegments(state.committed, state.answer);
+          // Everything said so far is `committed` now, so its length is where
+          // this call sits in the reply: the timeline draws the tool there.
+          state.tools.push({ ...startActivity(tool, args), at: state.committed.length });
+          syncTools();
           state.buffer = '';
           state.answer = '';
           state.thinkingStartMs = 0;

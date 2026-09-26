@@ -125,6 +125,10 @@ export interface ToolActivity {
   artifact: ArtifactFact | null;
   /** Present when the tool failed, so the panel can say so rather than empty. */
   error: string | null;
+  /** Where in the reply's text this call was made (a character offset into
+   *  `content`), so the reply is drawn in the order it happened: text, tool,
+   *  text. Absent on replies saved before 27 Sep; those keep the old layout. */
+  at?: number;
 }
 
 /**
@@ -346,6 +350,7 @@ export function toolsFromPersisted(raw: unknown): ToolActivity[] | undefined {
       // it, and a widget must never render a card it cannot fill.
       artifact: r.artifact && typeof r.artifact === 'object' ? r.artifact : null,
       error: running ? 'interrupted' : typeof r.error === 'string' ? r.error : null,
+      ...(typeof r.at === 'number' ? { at: r.at } : {}),
     });
   }
   return out.length > 0 ? out : undefined;

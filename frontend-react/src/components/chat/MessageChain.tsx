@@ -87,9 +87,15 @@ export function MessageChain({
   if (thinking === null && steps.length === 0) return null;
 
   const count = steps.length > 0 ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : '';
-  const title = streaming
-    ? <ShimmeringText text="Thinking…" duration={1.4} />
-    : [thinking !== null ? thinkingLabel(false, durationSec) : '', count].filter(Boolean).join(' · ');
+  // A group of tools in the timeline has no reasoning of its own: its header
+  // names what ran ("web search · read file"), the way Claude Code does.
+  const names = [...new Set(steps.map((a) => a.tool.replace(/_/g, ' ')))];
+  const toolsLabel = names.slice(0, 3).join(' · ') + (names.length > 3 ? ` +${names.length - 3}` : '');
+  const title = thinking === null
+    ? (streaming ? <ShimmeringText text={`${toolsLabel}…`} duration={1.4} /> : toolsLabel)
+    : streaming
+      ? <ShimmeringText text="Thinking…" duration={1.4} />
+      : [thinkingLabel(false, durationSec), count].filter(Boolean).join(' · ');
 
   return (
     <ChainOfThought open={open} onOpenChange={setOpen}>

@@ -12,6 +12,7 @@ import { MessageActions } from './MessageActions';
 import { VoiceBubble } from './VoiceBubble';
 import { LinkChip } from './LinkChip';
 import { splitLinks } from '@/lib/linkLabel';
+import { timeline } from '@/lib/timeline';
 import { useChat, type ChatMessage } from '@/stores/chat';
 import { useUI } from '@/stores/ui';
 import { useAskUser } from '@/stores/askUser';
@@ -229,6 +230,7 @@ export const MessageItem = memo(function MessageItem({
 
   const showThinking = message.thinking != null && reasoningMode !== 'off';
   const made = (message.toolActivity ?? []).filter((a) => a.kind === 'artifact');
+  const pieces = timeline(message.content, message.toolActivity ?? []);
   const isTruncated = message.truncated === true;
   const askUser = message.askUser;
   const submitAskUser = useAskUser((s) => s.submit);
@@ -242,15 +244,49 @@ export const MessageItem = memo(function MessageItem({
         // Seconds, or undefined when nobody measured it (a reopened chat has no
         // duration saved), which the header reads as 'Reasoning' rather than a time.
         durationSec={message.thinkingDurationMs ? Math.max(1, Math.ceil(message.thinkingDurationMs / 1000)) : undefined}
-        steps={(message.toolActivity ?? []).filter((a) => a.kind !== 'artifact')}
+        // In the timeline the tools sit in the text instead; this keeps the reasoning.
+        steps={pieces ? [] : (message.toolActivity ?? []).filter((a) => a.kind !== 'artifact')}
         streaming={streaming}
       />
-      {/* What the turn MADE stays outside the steps: folding the steps away must
-          not fold away the report or chart the person asked for. */}
-      {made.length > 0 && <MessageToolWidgets activity={made} streaming={streaming} />}
-      <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
-        <Markdown animateWords={streaming}>{message.content}</Markdown>
-      </div>
+      {pieces ? (
+        // The reply in the order it happened: what it said, the tools it then
+        // ran, what it said next. Each group is the same collapsible chain,
+        // open while its tool runs and folded once it is done.
+        pieces.map((p, i) => {
+          if (p.kind === 'text') {
+            return (
+              <div key={`t${i}`} className="text-sm leading-relaxed">
+                <Markdown animateWords={streaming && i === pieces.length - 1}>{p.text}</Markdown>
+              </div>
+            );
+          }
+          const plain = p.tools.filter((a) => a.kind !== 'artifact');
+          const artifacts = p.tools.filter((a) => a.kind === 'artifact');
+          return (
+            <div key={p.tools[0]!.id} className="flex flex-col gap-2">
+              {plain.length > 0 && (
+                <MessageChain
+                  thinking={null}
+                  thinkingComplete
+                  durationSec={undefined}
+                  steps={plain}
+                  streaming={streaming && plain.some((a) => a.status === 'running')}
+                />
+              )}
+              {artifacts.length > 0 && <MessageToolWidgets activity={artifacts} streaming={streaming} />}
+            </div>
+          );
+        })
+      ) : (
+        <>
+          {/* What the turn MADE stays outside the steps: folding the steps away must
+              not fold away the report or chart the person asked for. */}
+          {made.length > 0 && <MessageToolWidgets activity={made} streaming={streaming} />}
+          <div className={cn('text-sm leading-relaxed', !message.content && 'hidden')}>
+            <Markdown animateWords={streaming}>{message.content}</Markdown>
+          </div>
+        </>
+      )}
       {/* Only on a finished reply: a copy button beside text that is still
           arriving would copy half of it. */}
       {!streaming && (
