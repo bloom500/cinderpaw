@@ -68,6 +68,31 @@ export interface FractalBenchmarkOptions {
 /** Minimal shape of the legacy engine we fall back to (RecallEngine). */
 export interface RecallFallback {
   recall(query: string, sessionId: string): RecallResult;
+  /**
+   * The facts + knowledge-graph part of the legacy block, unwrapped. The tree
+   * only replaces the EPISODIC part of recall, so this is put in front of its
+   * hits (see `recall`). Optional: a fallback without it keeps the old shape.
+   */
+  knownFacts?(query: string, sessionId: string): string;
+}
+
+const MEMORY_OPEN = "[Memory context]\n";
+const MEMORY_CLOSE = "\n[End memory context]";
+
+/**
+ * Put what the agent knows about the user in front of the tree's hits, inside
+ * the one memory block the prompt expects. Either side may be empty.
+ */
+function withKnownFacts(result: RecallResult, known: string): RecallResult {
+  if (!known) return result;
+  const body =
+    result.context.startsWith(MEMORY_OPEN) && result.context.endsWith(MEMORY_CLOSE)
+      ? result.context.slice(MEMORY_OPEN.length, -MEMORY_CLOSE.length)
+      : result.context;
+  return {
+    ...result,
+    context: `${MEMORY_OPEN}${[known, body].filter((b) => b).join("\n\n")}${MEMORY_CLOSE}`,
+  };
 }
 
 /**
@@ -484,7 +509,10 @@ export class FractalMemory {
         // focuses on the active region. Only on the semantic path, never on the
         // FTS5 fallback below.
         this.#emit({ kind: "recall", hits: result.semanticFacts });
-        return result;
+        // The tree answers for past conversations only. Returning its block
+        // on its own dropped the user's facts from every turn the moment a
+        // tree existed — replace, where the contract above says augment.
+        return withKnownFacts(result, this.#fallback.knownFacts?.(query, sessionId) ?? "");
       } catch (e) {
         this.#log?.(`fractal: recall fell back to FTS5: ${String(e)}`);
       }

@@ -75,25 +75,9 @@ export class RecallEngine {
    */
   recall(query: string, sessionId: string): RecallResult {
     const episodicBlock = this.#recallEpisodic(query, sessionId);
-    // Scoped so a shared-channel session surfaces this speaker's facts plus
-    // the owner's global ones — never another speaker's. Empty for every
-    // single-user surface, i.e. unchanged there. See `memoryScope`.
-    const scope = memoryScope(sessionId);
-    // The query is passed down on purpose: both blocks below used to be built
-    // without ever looking at what was asked. See `renderForPrompt`.
-    const chosen = this.#semantic.selectForPrompt(scope, query);
-    const semanticBlock = this.#semantic.renderForPrompt(scope, query);
-    const semanticFacts = this.#semantic.all(scope).length;
-    // Every extracted fact is ALSO mirrored into the graph as `key —has→
-    // value` (extractor.ts), so without this the graph block is a second copy
-    // of the block directly above it, in a different notation, at twenty lines
-    // a turn. Only what the facts block did not already say gets through.
-    const alreadySaid = new Set(chosen.map((f) => f.value.trim().toLowerCase()));
-    const graphBlock = this.#recallGraph(query, alreadySaid);
-
+    const known = this.knownFacts(query, sessionId);
     const parts: string[] = [];
-    if (semanticBlock) parts.push(semanticBlock);
-    if (graphBlock) parts.push(graphBlock);
+    if (known) parts.push(known);
     if (episodicBlock.text) parts.push(episodicBlock.text);
 
     const context = parts.length > 0
@@ -103,8 +87,35 @@ export class RecallEngine {
     return {
       context,
       episodicHits: episodicBlock.count,
-      semanticFacts,
+      semanticFacts: this.#semantic.all(memoryScope(sessionId)).length,
     };
+  }
+
+  /**
+   * What the agent knows ABOUT the user — the facts block and the graph block —
+   * without the episodic part, unwrapped. Empty when there is nothing to say.
+   *
+   * Separate because Fractal Memory Search replaces only the episodic part of
+   * recall. It used to replace all of it: once a tree existed, nothing called
+   * this engine, and every turn lost the user's name and preferences. The
+   * facade now asks for this block and puts it in front of its own hits.
+   */
+  knownFacts(query: string, sessionId: string): string {
+    // Scoped so a shared-channel session surfaces this speaker's facts plus
+    // the owner's global ones — never another speaker's. Empty for every
+    // single-user surface, i.e. unchanged there. See `memoryScope`.
+    const scope = memoryScope(sessionId);
+    // The query is passed down on purpose: both blocks below used to be built
+    // without ever looking at what was asked. See `renderForPrompt`.
+    const chosen = this.#semantic.selectForPrompt(scope, query);
+    const semanticBlock = this.#semantic.renderForPrompt(scope, query);
+    // Every extracted fact is ALSO mirrored into the graph as `key —has→
+    // value` (extractor.ts), so without this the graph block is a second copy
+    // of the block directly above it, in a different notation, at twenty lines
+    // a turn. Only what the facts block did not already say gets through.
+    const alreadySaid = new Set(chosen.map((f) => f.value.trim().toLowerCase()));
+    const graphBlock = this.#recallGraph(query, alreadySaid);
+    return [semanticBlock, graphBlock].filter((b) => b).join("\n\n");
   }
 
   /** Max graph triples surfaced per recall — keeps the block compact. */
