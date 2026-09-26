@@ -75,6 +75,42 @@ here against the code before building on it.
 - Stale notices; download feedback.
 - Readability vendored.
 
+## Third session (26 Sep, 00:00-01:30 UTC): Jev "stop" and fluidity
+
+**Jev**: "stop" is the brake on what Cinder was handed and never ends the
+call; `hang_up` ("hang up", "end the call") does (`bc2bfb9`, the user's own
+reading of the word).
+
+**UI/UX fluidity**, measured in Chromium on the real build with the Tauri IPC
+stubbed (see "Measuring the UI" below):
+- Chat text: fenced code rendered as inline pills and Mermaid never drew (a
+  `startsWith('language-')` test against "hljs language-ts"); every code
+  element remounted per token; the whole reply re-parsed per token. Now
+  block-memoized Markdown (`lib/markdownBlocks.ts`, equivalence-tested on a
+  corpus and every streaming prefix): 11.4 -> 4.3 ms per update, 1,324 -> 5
+  code mounts. ChatPage no longer re-renders per token; agent tokens render
+  once per frame.
+- Background scene: animated lights under full-window frosted glass
+  re-blurred the window every frame. Still now: idle CPU 2,220 -> 184 ms/s.
+- Per-letter JS animations (composer examples, ShimmeringText) moved to CSS.
+- Call pill window loads only the pill: first pixel 952 -> 320 ms (CPU x4).
+- Menus are non-modal (no body restyle): model picker 200 -> 104 ms.
+- Home: the mascot covered the "W" of the question; the greeting leaves room.
+
+Still slow-ish (click to paint, CPU x4): Browser panel ~200 ms (not the
+glass: unchanged without backdrop), search overlay ~150 ms (88 without its
+backdrop blur), new chat ~170 ms. The alpha notice covers the home question
+below ~1,250 px wide until dismissed.
+
+**Measuring the UI** (none of it committed): `vite build`, `vite preview`,
+Playwright's Chromium (`/opt/pw-browsers/...`) with an init script that
+defines `window.__TAURI_INTERNALS__` (`invoke` returning `[]` for list-like
+commands and `null` otherwise, `transformCallback`, `metadata`), click
+"Skip" on the onboarding. Idle cost: CPU ticks of the Chromium process tree
+over 5 s. Clicks: `PerformanceObserver({type:'event'})` durations with
+`Emulation.setCPUThrottlingRate(4)`. Causes: CDP tracing with
+`devtools.timeline.invalidationTracking` (style recalcs and who caused them).
+
 ## Open, in priority order
 
 0. The first macOS CI run found that the host did not compile on macOS at all:
