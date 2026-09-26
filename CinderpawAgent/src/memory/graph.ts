@@ -167,6 +167,17 @@ export class MemoryGraph {
     this.addFact(subject, predicate, object);
   }
 
+  /**
+   * Drop what `subject` `predicate`s — the graph half of forgetting a fact.
+   * Returns how many edges went. The caller persists.
+   */
+  forgetFact(subject: string, predicate: string): number {
+    const sId = subject.toLowerCase().replace(/\s+/g, "_");
+    const before = this.#data.edges.length;
+    this.#data.edges = this.#data.edges.filter((e) => !(e.from === sId && e.relation === predicate));
+    return before - this.#data.edges.length;
+  }
+
   removeNode(id: string): boolean {
     if (!this.#data.nodes[id]) return false;
     delete this.#data.nodes[id];

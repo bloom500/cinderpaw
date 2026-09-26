@@ -43,7 +43,18 @@ export const POSITION_KEY = "note:position";
  */
 export const MAX_NOTES = 10;
 
-export function createRememberTool(semantic: SemanticMemory): Tool {
+export interface RememberToolOptions {
+  /**
+   * Called after a fact is forgotten, so copies outside SemanticMemory go too.
+   * The extractor mirrors facts into the knowledge graph, and recall renders
+   * that graph as "facts learned about the user": without this, a forgotten
+   * fact stayed on screen there as current. Errors are swallowed — the fact
+   * itself is already gone.
+   */
+  onForget?: (key: string, scope: string) => void;
+}
+
+export function createRememberTool(semantic: SemanticMemory, opts: RememberToolOptions = {}): Tool {
   const manifest: ToolManifest = {
     name: "remember",
     description:
@@ -97,6 +108,12 @@ export function createRememberTool(semantic: SemanticMemory): Tool {
 
       if (args.forget === true) {
         semantic.delete(key, scope);
+        try {
+          opts.onForget?.(key.toLowerCase(), scope);
+        } catch {
+          // The fact is forgotten; a mirror that could not be cleaned is not a
+          // reason to tell the user otherwise.
+        }
         return { ok: true, content: `Forgotten: ${key}.`, data: { key, forgotten: true } };
       }
 

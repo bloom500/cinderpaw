@@ -97,3 +97,34 @@ describe("knowledge graph — a changed fact replaces its edge", () => {
       .toEqual(["city has paris", "editor has helix"]);
   });
 });
+
+describe("forgetting a fact clears its graph edge", () => {
+  it("remember forget:true calls onForget, and forgetFact drops the edge", async () => {
+    const { createRememberTool } = await import("../src/tools/builtin/remember.ts");
+    const db = openDatabase(":memory:");
+    const semantic = new SemanticMemory(db.raw, () => {});
+    const g = graph();
+    g.setFact("phone", "has", "0721 000 000");
+    g.setFact("city", "has", "Lisbon");
+    semantic.upsert("phone", "0721 000 000");
+    const forgotten: string[] = [];
+    const tool = createRememberTool(semantic, {
+      onForget: (key, scope) => { forgotten.push(`${key}@${scope}`); g.forgetFact(key, "has"); },
+    });
+    const res = await tool.execute({ key: "Phone", forget: true }, { sessionId: "desktop-1" } as never);
+    expect(res.ok).toBe(true);
+    expect(semantic.get("phone")).toBeUndefined();
+    expect(forgotten).toEqual(["phone@"]);
+    expect(g.snapshot().edges.map((e) => e.from)).toEqual(["city"]);
+    db.close();
+  });
+
+  it("a throwing onForget does not fail the forget", async () => {
+    const { createRememberTool } = await import("../src/tools/builtin/remember.ts");
+    const db = openDatabase(":memory:");
+    const semantic = new SemanticMemory(db.raw, () => {});
+    const tool = createRememberTool(semantic, { onForget: () => { throw new Error("disk full"); } });
+    expect((await tool.execute({ key: "x", forget: true }, { sessionId: "d" } as never)).ok).toBe(true);
+    db.close();
+  });
+});

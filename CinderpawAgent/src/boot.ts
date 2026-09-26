@@ -1034,7 +1034,14 @@ export async function boot(transportOverride?: Transport) {
   // remember — the write half. The extractor's capture is async and often
   // lands after the user has already moved on, so an explicit "remember X"
   // needs a synchronous path or the fact is simply lost.
-  registry.register(createRememberTool(semantic));
+  registry.register(
+    createRememberTool(semantic, {
+      // The graph mirrors only global (owner) facts; see extractor.ts.
+      onForget: (key, scope) => {
+        if (scope === "" && memoryGraph.forgetFact(key, "has") > 0) memoryGraph.persist();
+      },
+    }),
+  );
 
   // P0-1: delegate_task — spawn a subagent for an isolated, bounded
   // task. The subagent inherits the parent's router / sandbox /
