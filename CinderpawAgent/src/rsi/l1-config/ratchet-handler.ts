@@ -152,6 +152,10 @@ export class RatchetHandler {
       // This candidate is the new champion — its outcomes become the
       // baseline the next candidate's confidence gate pairs against.
       if (outcomes) this.lastChampionOutcomes = outcomes;
+      // And it is what the user's agent now runs, so extinction must not
+      // remove it from the breeding population. The Hall of Fame only ever
+      // held the best RAW score — often a lucky run the gate rejected.
+      if (this.pop?.get(genomeId)) this.pop.induct(genomeId);
       await this.bus.emit({
         type: "RatchetAdvanced",
         genomeId,
