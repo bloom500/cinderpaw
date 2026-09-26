@@ -75,6 +75,9 @@ const child = spawn(
       CINDERPAW_DB: dbPath,
       CINDERPAW_WORKSPACE: workDir,
       CINDERPAW_RSI_TELEMETRY: telemetryPath,
+      // Dreaming is opt-in (the Settings master switch, default off); without
+      // it the scheduler never arms and this smoke can only fail.
+      CINDERPAW_DREAMS_ENABLED: "true",
       // Fast dream cycle so the test takes ~10s, not the 3-min default.
       CINDERPAW_RSI_IDLE_MS: "5000",
       CINDERPAW_RSI_POLL_MS: "1000",
