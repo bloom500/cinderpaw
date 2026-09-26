@@ -21,6 +21,7 @@ import { autoTitle } from '@/lib/autoTitle';
 import { titleConversation } from '@/lib/chatTitle';
 import { voiceToPersisted } from '@/lib/messageMapping';
 import { splitThinking, stripStreamingToolCalls } from '@/lib/parseThink';
+import { isWorkingNote } from '@/lib/workingNote';
 import { tauri, type CinderpawAgentEvent, type PersistedMessage } from '@/lib/tauri';
 import {
   ensureCinderpawListener,
@@ -374,12 +375,16 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
         onToolStart: (_callId, tool, args) => {
           flushTokens();
           state.toolCallCount += 1;
-          state.tools.push(startActivity(tool, args));
+          // A short working note ("Let me check X.") goes on this step, not into
+          // the answer; see isWorkingNote for why only short prose qualifies.
+          const said = state.answer.trim();
+          const lead = isWorkingNote(said) ? said : undefined;
+          state.tools.push(lead ? { ...startActivity(tool, args), lead } : startActivity(tool, args));
           syncTools();
           // Commit the prose emitted before this tool call so it survives the
           // buffer reset; otherwise only the segment after the LAST tool call
           // reached the bubble (the "only the last sentence" bug).
-          if (state.answer.trim()) state.committed = joinSegments(state.committed, state.answer);
+          if (said && !lead) state.committed = joinSegments(state.committed, state.answer);
           state.buffer = '';
           state.answer = '';
           state.thinkingStartMs = 0;
@@ -492,6 +497,15 @@ export function useCinderpawSendMessage(chatSessionId: string, mascotSink?: Masc
                 useChat.getState().updateLastAssistantMessage({ content: joinSegments(state.committed, state.answer) });
               }
             }
+          }
+          // Still nothing to show, and the only prose was working notes: they
+          // were the whole reply after all, so they come back out of the chain
+          // rather than leaving an empty bubble (and a turn never saved).
+          if (joinSegments(state.committed, state.answer).trim().length === 0 && state.tools.some((a) => a.lead)) {
+            state.answer = state.tools.flatMap((a) => (a.lead ? [a.lead] : [])).join('\n\n');
+            state.tools = state.tools.map(({ lead: _lead, ...a }) => a);
+            syncTools();
+            if (isActive()) useChat.getState().updateLastAssistantMessage({ content: state.answer });
           }
           if (isActive()) {
             // Attached to the MESSAGE, which persistFinal() writes to disk, so
