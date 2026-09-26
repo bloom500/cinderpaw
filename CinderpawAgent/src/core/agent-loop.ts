@@ -3542,7 +3542,44 @@ function repairWithVendoredScanner(
   }
 }
 
+/** The tag names tool-call markup is built from, in every framing we read. */
+const TOOL_TAG = String.raw`(?:[A-Za-z_][\w.-]*:)?(?:tool_calls|function_calls|tool_call|invoke|parameter)\b`;
+
+/**
+ * DeepSeek v4.1 Flash (26 Sep) writes its tags with a space after the bracket:
+ * `</ parameter>`, `< ｜DSML｜invoke name=…>`. Every matcher below expects
+ * `<name` / `</name`, so a spaced call was not recognised at all: the tool did
+ * not run and the person got the raw markup. Closing the gap here keeps the one
+ * shape the parsers are written against. Only in front of a tool tag name, so
+ * `a < b` in prose is never touched.
+ */
+function closeTagGaps(raw: string): string {
+  return raw.replace(new RegExp(String.raw`<\s*(\/?)\s*(｜DSML｜)?\s*(?=${TOOL_TAG})`, "g"), "<$1$2");
+}
+
+/**
+ * A closing tag left with nothing to close: the tool ran from the native
+ * channel or from the JSON before it, and the model still wrote the tail of
+ * the XML framing (`…gata.</parameter>`, seen 30 Aug and again 26 Sep). It is
+ * never part of an answer, so it goes, except inside a code fence, where
+ * someone may be asking about exactly this markup.
+ */
+function dropOrphanClosers(text: string): string {
+  const closer = new RegExp(String.raw`<\/${TOOL_TAG}>`, "g");
+  if (!closer.test(text)) return text;
+  return text
+    .split(/(```[\s\S]*?```)/)
+    .map((part, i) => (i % 2 === 1 ? part : part.replace(closer, "")))
+    .join("")
+    .trim();
+}
+
 export function parseResponse(raw: string, allowedToolNames?: Iterable<string>): ParsedResponse {
+  const parsed = parseToolMarkup(closeTagGaps(raw), allowedToolNames);
+  return { ...parsed, text: dropOrphanClosers(parsed.text) };
+}
+
+function parseToolMarkup(raw: string, allowedToolNames?: Iterable<string>): ParsedResponse {
   const toolCalls: ParsedToolCall[] = [];
   let text = raw;
 

@@ -120,6 +120,9 @@ describe('stripStreamingToolCalls', () => {
     // Seen live 2026-09-12: the sidecar ran the call, the chat showed the markup.
     expect(stripStreamingToolCalls('Incerc sa vad ce ferestre exista:\n<invoke name="control_app"> <｜DSML｜parameter name="action" string="true">get_tree</｜DSML｜parameter>')).toBe('Incerc sa vad ce ferestre exista:');
     expect(stripStreamingToolCalls('Looking.\n<｜DSML｜tool_calls><｜DSML｜invoke name="web_search">')).toBe('Looking.');
+    // DeepSeek v4.1 Flash, 26 Sep: a space after the bracket.
+    expect(stripStreamingToolCalls('Looking.\n< ｜DSML｜tool_calls>\n< ｜DSML｜invoke name="web_search">')).toBe('Looking.');
+    expect(stripStreamingToolCalls('Looking.\n< invoke name="web_search">')).toBe('Looking.');
     expect(stripStreamingToolCalls('Looking.\n<function_calls>')).toBe('Looking.');
     // Partial openers while streaming, too.
     expect(stripStreamingToolCalls('Looking. <inv')).toBe('Looking.');
