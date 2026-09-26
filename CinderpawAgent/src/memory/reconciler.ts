@@ -24,6 +24,7 @@
  *     capture pipeline never crashes because the embedder is missing.
  */
 
+import { memoryScope } from "./semantic.ts";
 import type { HookRegistry } from "../core/hook-registry.ts";
 import type { Unsubscribe, AfterMemoryWritePayload } from "../types.ts";
 import type { FractalMemory } from "./fractal/fractal-memory.ts";
@@ -122,6 +123,11 @@ export class Reconciler {
     const key = payload.key;
     const value = payload.value;
     if (key === undefined || value === undefined) return;
+    // A guest speaker's fact is scoped to them in SemanticMemory and reaches
+    // them through the known-facts block. The tree is shared by every session's
+    // recall, so a leaf here would hand it to the owner and every other member
+    // of the room — the leak `memoryScope` exists to close.
+    if (memoryScope(payload.sessionId) !== "") return;
 
     const text = `${key}: ${value}`;
     let embedding: Float32Array[] = [];

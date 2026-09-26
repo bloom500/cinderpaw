@@ -298,7 +298,13 @@ export class MemoryExtractor {
             });
           }
         }
-        if (this.#graph && graphFacts.length > 0) {
+        // The graph has no scopes: every edge in it is rendered into every
+        // session's recall. A guest speaker's facts are scoped in
+        // SemanticMemory precisely so they never reach anyone else ("call me
+        // Alex" from one guild member must not make everyone Alex), and
+        // mirroring them here put them straight back in front of the owner
+        // and every other member. Only the owner's global facts go in.
+        if (this.#graph && graphFacts.length > 0 && memoryScope(sessionId) === "") {
           for (const { key, value } of graphFacts) {
             this.#graph.addFact(key, "has", value);
           }
