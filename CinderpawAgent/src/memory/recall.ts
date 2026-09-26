@@ -29,12 +29,15 @@ export interface RecallConfig {
   snippetMaxChars: number;
   /** Exclude the current session from episodic results. */
   excludeCurrentSession: boolean;
+  /** Clock for the block's "today" stamp; tests pin it. */
+  now: () => number;
 }
 
 const DEFAULT_CONFIG: RecallConfig = {
   maxEpisodic: 5,
   snippetMaxChars: 200,
   excludeCurrentSession: true,
+  now: Date.now,
 };
 
 export interface RecallResult {
@@ -200,7 +203,8 @@ export class RecallEngine {
 
     const lines = hits.map((e) => formatEpisodic(e, this.#config.snippetMaxChars));
     return {
-      text: `Relevant past exchanges:\n${lines.join("\n")}`,
+      // Dated lines need today's date to be read against; see fractal-recall.
+      text: `Relevant past exchanges (today is ${new Date(this.#config.now()).toISOString().slice(0, 10)}):\n${lines.join("\n")}`,
       count: hits.length,
     };
   }

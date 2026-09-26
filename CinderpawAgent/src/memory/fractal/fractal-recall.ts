@@ -131,6 +131,8 @@ export interface FractalRecallDeps {
   supersededAt?: (key: string, writtenAt: number) => number | null;
   /** How many identical memories this leaf stands for (1 when unknown). */
   hitCountOf?: (leafId: number) => number;
+  /** Clock for the block's "today" stamp. Defaults to `Date.now`; tests pin it. */
+  now?: () => number;
 }
 
 /** RecallResult mirrors `src/memory/recall.ts` so this is a drop-in. */
@@ -174,6 +176,7 @@ export class FractalRecallEngine {
   readonly #factKeyOf: FractalRecallDeps["factKeyOf"];
   readonly #supersededAt: FractalRecallDeps["supersededAt"];
   readonly #hitCountOf: FractalRecallDeps["hitCountOf"];
+  readonly #now: () => number;
 
   constructor(deps: FractalRecallDeps) {
     this.#tree = deps.tree;
@@ -183,6 +186,7 @@ export class FractalRecallEngine {
     this.#factKeyOf = deps.factKeyOf;
     this.#supersededAt = deps.supersededAt;
     this.#hitCountOf = deps.hitCountOf;
+    this.#now = deps.now ?? Date.now;
   }
 
   /**
@@ -364,9 +368,14 @@ export class FractalRecallEngine {
       return `  ${via}[${stamp}] ${rolePart}${snippet(h.text)}${superseded}${times}`;
     });
 
+    // Every line carries its date, and a date is only usable against today's:
+    // "how long ago", "before or after", "the most recent" all need both
+    // ends. The system prompt deliberately carries no clock (it is kept
+    // byte-stable for the KV cache), and this block is rebuilt every turn
+    // anyway, so this is where the stamp costs nothing.
     const context = [
       "[Memory context]",
-      "Relevant past exchanges (fractal hybrid):",
+      `Relevant past exchanges (fractal hybrid; today is ${dateStamp(this.#now())}):`,
       ...lines,
       "[End memory context]",
     ].join("\n");
